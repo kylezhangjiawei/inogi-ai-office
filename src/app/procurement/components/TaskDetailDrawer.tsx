@@ -1,13 +1,14 @@
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
 import { useEffect, useState } from "react";
 import { Input } from "../../components/ui/input";
-import { ChevronDown, ExternalLink, History, Paperclip, Pencil } from "lucide-react";
+import { ChevronDown, ExternalLink, FolderTree, History, Paperclip, Pencil } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import { cn } from "../../components/ui/utils";
 import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney, useBuyerDirectory, useProcCan } from "./common";
 import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
+import { MoveTaskDialog } from "./MoveTaskDialog";
 import { taskRequester, type ProcurementTask } from "../data";
 import { listQuotations, rejectProcTask, type Quotation } from "../../lib/procurementApi";
 import { refreshProcurement } from "../data";
@@ -30,6 +31,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const [historyOpen, setHistoryOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const can = useProcCan();
   const { deptOf } = useBuyerDirectory();
   const taskAction = useProcTaskAction();
@@ -97,10 +99,16 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               <SourcePill source={task.source} />
               <MethodPill method={task.method} />
             </div>
-            {/* 终态任务只读；状态流转走「下一步」操作卡，这里只改任务信息 */}
-            {!["completed", "cancelled"].includes(task.status) && can("proc-task:create") && (
-              <button type="button" onClick={() => setEditOpen(true)} title={t('编辑任务信息')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</button>
-            )}
+            <div className="flex shrink-0 items-center gap-1.5">
+              {/* 归类是整理动作，终态任务也允许移动——历史任务同样需要能归到正确的子系统下 */}
+              {(can("proc-task:create") || can("proc-task:reassign")) && (
+                <button type="button" onClick={() => setMoveOpen(true)} title={t('移动到其他类目')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><FolderTree className="h-3.5 w-3.5" />{t('移动归类')}</button>
+              )}
+              {/* 终态任务只读；状态流转走「下一步」操作卡，这里只改任务信息 */}
+              {!["completed", "cancelled"].includes(task.status) && can("proc-task:create") && (
+                <button type="button" onClick={() => setEditOpen(true)} title={t('编辑任务信息')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</button>
+              )}
+            </div>
           </div>
           <AutoTranslatedText
             as="div"
@@ -318,7 +326,16 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
         </div>
         <PriceHistoryModal materialName={task.materialName} open={historyOpen} onClose={() => setHistoryOpen(false)} />
         {taskAction.modal}
-        {editOpen && <EditTaskModal task={task} onClose={() => setEditOpen(false)} />}
+        {moveOpen && (
+        <MoveTaskDialog
+          taskIds={[task.id]}
+          productId={task.productId}
+          currentNodeId={task.treeNodeId ?? null}
+          onClose={() => setMoveOpen(false)}
+          onMoved={() => { void refreshProcurement(); }}
+        />
+      )}
+      {editOpen && <EditTaskModal task={task} onClose={() => setEditOpen(false)} />}
       </SheetContent>
     </Sheet>
   );

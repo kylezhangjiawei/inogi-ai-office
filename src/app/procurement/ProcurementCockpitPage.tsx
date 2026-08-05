@@ -3,17 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../components/ui/input";
 import { useNavigate, useSearchParams } from "react-router";
-import { Activity, AlertTriangle, ClipboardList, Download, Layers3, PackageCheck, Plus, Search, Truck, UserCog, Users } from "lucide-react";
+import { Activity, AlertTriangle, ClipboardList, Download, FolderTree, Layers3, PackageCheck, Plus, Search, Truck, UserCog, Users } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
 import { toast } from "sonner";
-import { daysFromToday, isProcurementTaskOverdue, taskMainDate, taskRequester, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
+import { daysFromToday, isProcurementTaskOverdue, refreshProcurement, taskMainDate, taskRequester, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
 import { PersonAvatar, StatCell } from "./components/common";
 import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
 import { ProcurementSystemTree } from "./components/ProcurementSystemTree";
 import { useProcTaskAction } from "./components/taskActions";
 import { TaskDetailDrawer } from "./components/TaskDetailDrawer";
+import { MoveTaskDialog } from "./components/MoveTaskDialog";
 import { BatchReassignModal, NewRequirementModal, PoMatchModal } from "./components/modals";
 import { usePermission } from "../hooks/usePermission";
 import { exportProcTasksXlsx } from "./exportTasks";
@@ -36,6 +37,7 @@ export function ProcurementCockpitPage() {
   const [treeNode, setTreeNode] = useState<ProcTaskTreeNode | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [batchMoveOpen, setBatchMoveOpen] = useState(false);
   const [poMatchOpen, setPoMatchOpen] = useState(false);
   const navigate = useNavigate();
   const [kw, setKw] = useState("");
@@ -224,6 +226,7 @@ export function ProcurementCockpitPage() {
               ><Download className="h-4 w-4" />{t('导出')}</button>
               {canOrder && <button type="button" onClick={() => setPoMatchOpen(true)} title={t('确认 T+ 采购单与任务的匹配建议，任务自动转入在途')} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Truck className="h-4 w-4" />{t('单据匹配')}</button>}
               {canReassign && <button type="button" onClick={() => setBatchOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Users className="h-4 w-4" />{t('批量转派')}</button>}
+              {(canCreate || canReassign) && <button type="button" onClick={() => setBatchMoveOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><FolderTree className="h-4 w-4" />{t('批量归类')}</button>}
               <button type="button" onClick={() => navigate('/proc-people-management')} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><UserCog className="h-4 w-4" />{t('人员管理')}</button>
               {canCreate && <button type="button" onClick={() => setNewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Plus className="h-4 w-4" />{t('新建需求')}</button>}
             </>
@@ -339,6 +342,14 @@ export function ProcurementCockpitPage() {
       {taskAction.modal}
       {newOpen && <NewRequirementModal onClose={() => setNewOpen(false)} />}
       {batchOpen && <BatchReassignModal tasks={treeScopedTasks} onClose={() => setBatchOpen(false)} />}
+      {batchMoveOpen && (
+        <MoveTaskDialog
+          candidates={treeScopedTasks}
+          productId={systemProductParam ?? treeScopedTasks[0]?.productId ?? "prod-portable-o2"}
+          onClose={() => setBatchMoveOpen(false)}
+          onMoved={() => { void refreshProcurement(); }}
+        />
+      )}
       {poMatchOpen && <PoMatchModal onClose={() => setPoMatchOpen(false)} />}
     </div>
   );

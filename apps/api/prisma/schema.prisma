@@ -1169,6 +1169,8 @@ model ProcTaskTreeNode {
   spec       String?
   materialId String?
   material   ProcMaterial?      @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  /// 显式归属到本节点的采购任务（手工移动归类的结果）
+  tasks      ProcTask[]
   sortOrder  Int                @default(0)
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
@@ -1183,6 +1185,10 @@ model ProcTask {
   id                  String                 @id @default(cuid())
   code                String                 @unique
   productId           String                 @default("prod-portable-o2")
+  /// 显式归属的子系统节点。为空时回落到「按 materialId / 物料名」推导，保证存量任务不掉出树。
+  /// 手工移动过归类的任务会写死在这里，不再随物料变化漂移。
+  treeNodeId          String?
+  treeNode            ProcTaskTreeNode?      @relation(fields: [treeNodeId], references: [id], onDelete: SetNull)
   materialId          String?
   material            ProcMaterial?          @relation(fields: [materialId], references: [id], onDelete: SetNull)
   /// 物料快照：任务创建时冻结，物料改名不影响历史任务
@@ -1236,6 +1242,7 @@ model ProcTask {
   @@index([productId, status])
   @@index([businessLine, status])
   @@index([materialId])
+  @@index([treeNodeId])
   @@index([buyerUserId])
   @@index([needDate])
 }

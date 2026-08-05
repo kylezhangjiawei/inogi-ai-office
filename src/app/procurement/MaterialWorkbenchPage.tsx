@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { Boxes, ClipboardCheck, FolderTree, PackageCheck, Plus, RefreshCw, Sparkles, Truck, Upload } from "lucide-react";
 import { useI18n } from "../lib/i18n";
 import { daysFromToday, useProcurementData, type Material, type ProcStatus } from "./data";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 import { PageHeader, StatCell, useProcCan } from "./components/common";
 import { EMPTY_MATERIAL_FILTERS, MaterialTable, type MaterialFilters } from "./components/MaterialTable";
 import { MaterialDetailDrawer } from "./components/MaterialDetailDrawer";
@@ -58,9 +59,30 @@ export function MaterialWorkbenchPage() {
             {can("proc-task:create") && <button type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Plus className="h-4 w-4" />{t("新增物料")}</button>}
             {can("material:import") && <button type="button" onClick={() => setImportOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Upload className="h-4 w-4" />{t("批量导入")}</button>}
             {can("material:import") && <button type="button" onClick={() => setCatManageOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><FolderTree className="h-4 w-4" />{t("分类管理")}</button>}
-            {can("material:import") && <button type="button" onClick={() => setClassifyOpen(true)} title={t("规则+AI 为未分类物料补分类")} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Sparkles className="h-4 w-4" />{t("AI 分类")}</button>}
-            {can("material:import") && <button type="button" onClick={() => setSafeStockOpen(true)} title={t("依据近 90 天采购用量初始化安全库存，点亮缺料预警")} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><PackageCheck className="h-4 w-4" />{t("安全库存")}</button>}
-            {can("proc:sync-erp") && <button type="button" onClick={() => setTplusOpen(true)} title={t("畅捷通 T+ 凭据配置与手动同步")} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><RefreshCw className="h-4 w-4" />{t("T+ 集成")}</button>}
+            {can("material:import") && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type="button" onClick={() => setClassifyOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Sparkles className="h-4 w-4" />{t("AI 分类")}</button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-60">{t("规则+AI 为未分类物料补分类")}</TooltipContent>
+              </Tooltip>
+            )}
+            {can("material:import") && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type="button" onClick={() => setSafeStockOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><PackageCheck className="h-4 w-4" />{t("安全库存")}</button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-60">{t("依据近 90 天采购用量初始化安全库存，点亮缺料预警")}</TooltipContent>
+              </Tooltip>
+            )}
+            {can("proc:sync-erp") && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type="button" onClick={() => setTplusOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><RefreshCw className="h-4 w-4" />{t("T+ 集成")}</button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-60">{t("畅捷通 T+ 凭据配置与手动同步")}</TooltipContent>
+              </Tooltip>
+            )}
           </div>
         }
       />

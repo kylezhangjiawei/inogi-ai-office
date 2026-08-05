@@ -244,6 +244,19 @@ export class BatchReassignDto extends ReassignProcTaskDto {
   taskIds!: string[];
 }
 
+/** 批量移动任务归类。targetNodeId 省略或为空 = 解除显式归属，退回按物料自动推导。 */
+export class MoveProcTasksDto {
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  taskIds!: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  targetNodeId?: string;
+}
+
 /**
  * 手工登记到货（过渡期）。
  * T+ 接通后到货以同步为准，此入口应改为只读——届时删掉本 DTO 与对应端点即可。

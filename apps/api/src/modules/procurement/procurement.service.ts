@@ -10,6 +10,7 @@ import {
   AiParseTaskDto,
   ApplyQuoteBookQuotesDto,
   BatchReassignDto,
+  MoveProcTasksDto,
   BomNodeInputDto,
   CancelProcTaskDto,
   ConfirmQuoteBookQuotesDto,
@@ -739,6 +740,71 @@ export class ProcurementService {
       include: { attachments: true, logs: true, purchaseOrderRefs: true },
     });
     return this.serializeTask(updated);
+  }
+
+  /**
+   * 批量移动任务归类：把任务显式挂到子系统树的某个节点，或解除归属退回自动推导。
+   *
+   * 与转派不同，已完结的任务也允许移动——归类是整理动作，不改变业务状态，历史任务
+   * 同样需要能归到正确的子系统下。目标节点可以是树里任意一层（机型/部件/组件/原料），
+   * 因为采购的树是自引用、层级不固定的。
+   */
+  async moveTasks(dto: MoveProcTasksDto, actor: ProcActor) {
+    const ids = Array.from(new Set(dto.taskIds));
+    if (ids.length === 0) throw new BadRequestException('请至少选择一个任务');
+
+    const tasks = await this.prisma.procTask.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, code: true, productId: true },
+    });
+    if (tasks.length !== ids.length) {
+      throw new NotFoundException('部分任务不存在或已被删除，请刷新后重试');
+    }
+
+    // targetNodeId 为空 = 解除显式归属，退回按物料推导
+    let targetLabel = '自动归类（按物料推导）';
+    if (dto.targetNodeId) {
+      const node = await this.prisma.procTaskTreeNode.findUnique({
+        where: { id: dto.targetNodeId },
+        select: { id: true, name: true, productId: true },
+      });
+      if (!node) throw new NotFoundException('目标类目不存在或已被删除，请刷新后重试');
+      targetLabel = node.name;
+      // 跨产品移动会让任务从原产品的驾驶舱消失，容易误操作，明确拦掉
+      const crossProduct = tasks.filter((task) => task.productId !== node.productId);
+      if (crossProduct.length > 0) {
+        throw new BadRequestException(
+          `任务 ${crossProduct.map((task) => task.code).join('、')} 不属于目标类目所在的产品，不能跨产品移动`,
+        );
+      }
+    }
+
+    await this.prisma.$transaction(
+      ids.map((id) =>
+        this.prisma.procTask.update({
+          where: { id },
+          data: {
+            treeNodeId: dto.targetNodeId ?? null,
+            logs: {
+              create: {
+                kind: 'action',
+                text: `移动归类到「${targetLabel}」`,
+                actor: actor.name,
+                actorUserId: actor.id,
+              },
+            },
+          },
+        }),
+      ),
+    );
+
+    // 不回传整棵树：前端的系统树按任务指纹（含 updatedAt）自动重载，
+    // 这里再查一遍全树纯属多余开销。
+    return {
+      moved: ids.length,
+      targetNodeId: dto.targetNodeId ?? null,
+      targetLabel,
+    };
   }
 
   /** 批量转派：单事务原子执行，任一任务不存在/已完结则整体回滚。 */
@@ -1530,9 +1596,24 @@ export class ProcurementService {
       }),
       client.procTask.findMany({
         ...(productId ? { where: { productId } } : {}),
-        select: { id: true, productId: true, materialId: true, materialName: true },
+        select: { id: true, productId: true, treeNodeId: true, materialId: true, materialName: true },
       }),
     ]);
+
+    // 显式归属（手工移动过归类）优先；没写过的任务才回落到按物料/名称推导。
+    // 两者分开统计，避免同一个任务既算进显式节点又被推导挂到另一个节点。
+    const taskIdsByNode = new Map<string, string[]>();
+    const nodeIds = new Set(rows.map((row) => row.id));
+    const derivedTasks: typeof tasks = [];
+    for (const task of tasks) {
+      if (task.treeNodeId && nodeIds.has(task.treeNodeId)) {
+        const ids = taskIdsByNode.get(task.treeNodeId) ?? [];
+        ids.push(task.id);
+        taskIdsByNode.set(task.treeNodeId, ids);
+        continue;
+      }
+      derivedTasks.push(task);
+    }
 
     const taskIdsByMaterial = new Map<string, string[]>();
     const taskIdsByName = new Map<string, string[]>();
@@ -1543,7 +1624,7 @@ export class ProcurementService {
         fallbackLeafCountByName.set(nameKey, (fallbackLeafCountByName.get(nameKey) ?? 0) + 1);
       }
     }
-    for (const task of tasks) {
+    for (const task of derivedTasks) {
       if (task.materialId) {
         const materialKey = `${task.productId}:${task.materialId}`;
         const ids = taskIdsByMaterial.get(materialKey) ?? [];
@@ -1562,11 +1643,13 @@ export class ProcurementService {
     const byId = new Map<string, ProcTaskTreeNodeView>();
     const roots: ProcTaskTreeNodeView[] = [];
     for (const row of rows) {
-      const ownTaskIds = row.materialId
+      const derivedIds = row.materialId
         ? taskIdsByMaterial.get(`${row.productId}:${row.materialId}`) ?? []
         : row.parentId
           ? taskIdsByName.get(`${row.productId}:${row.name}`) ?? []
           : [];
+      // 显式归属的任务排在推导结果前面
+      const ownTaskIds = [...(taskIdsByNode.get(row.id) ?? []), ...derivedIds];
       byId.set(row.id, {
         id: row.id,
         productId: row.productId,
@@ -2130,6 +2213,7 @@ export class ProcurementService {
       id: task.id,
       code: task.code,
       productId: task.productId,
+      treeNodeId: task.treeNodeId,
       materialId: task.materialId,
       materialName: task.materialName,
       spec: task.spec,
