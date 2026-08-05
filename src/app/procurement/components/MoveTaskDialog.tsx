@@ -5,6 +5,9 @@ import { toast } from "sonner";
 
 import { useI18n } from "../../lib/i18n";
 import { listProcTaskTree, moveProcTasks, type ProcTaskTreeNode } from "../../lib/procurementApi";
+import type { ProcurementTask } from "../data";
+import { Checkbox } from "../../components/ui/checkbox";
+import { Input } from "../../components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -20,19 +23,26 @@ const AUTO_NODE = "__auto__";
 
 export function MoveTaskDialog({
   taskIds,
+  candidates,
   productId,
   currentNodeId,
   onClose,
   onMoved,
 }: {
-  taskIds: string[];
+  /** 固定任务集（详情抽屉入口）。与 candidates 二选一 */
+  taskIds?: string[];
+  /** 候选任务集（驾驶舱批量入口）：弹窗内先勾选任务再选目标类目 */
+  candidates?: ProcurementTask[];
   productId: string;
-  /** 任务当前所在节点，用于高亮与禁用「移到原位」 */
+  /** 任务当前所在节点，用于高亮与禁用「移到原位」；仅固定任务集模式有意义 */
   currentNodeId?: string | null;
   onClose: () => void;
   onMoved: () => void;
 }) {
   const { t } = useI18n();
+  const batchMode = Array.isArray(candidates);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [keyword, setKeyword] = useState("");
   const [roots, setRoots] = useState<ProcTaskTreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -94,12 +104,26 @@ export function MoveTaskDialog({
     return found;
   }, [selected, roots, t]);
 
-  const unchanged = selected === (currentNodeId ?? AUTO_NODE);
+  // 批量模式下「原位」无意义（多个任务归属可能不同），只在固定任务集时禁用未改变的提交
+  const unchanged = !batchMode && selected === (currentNodeId ?? AUTO_NODE);
+  const effectiveIds = batchMode ? [...picked] : taskIds ?? [];
+
+  const visibleCandidates = useMemo(() => {
+    if (!candidates) return [];
+    const kw = keyword.trim().toLowerCase();
+    // 终态任务也可移动：归类是整理动作，不改业务状态
+    return kw
+      ? candidates.filter((task) => `${task.code} ${task.materialName} ${task.buyer}`.toLowerCase().includes(kw))
+      : candidates;
+  }, [candidates, keyword]);
+
+  const allPicked = visibleCandidates.length > 0 && visibleCandidates.every((task) => picked.has(task.id));
 
   const handleConfirm = async () => {
+    if (effectiveIds.length === 0) { toast.error(t("请至少勾选一个任务")); return; }
     setSaving(true);
     try {
-      const result = await moveProcTasks(taskIds, selected === AUTO_NODE ? undefined : selected);
+      const result = await moveProcTasks(effectiveIds, selected === AUTO_NODE ? undefined : selected);
       toast.success(t("已移动 {count} 个任务到「{target}」", { count: result.moved, target: result.targetLabel }));
       onMoved();
       onClose();
@@ -164,11 +188,55 @@ export function MoveTaskDialog({
             <div>
               <DialogTitle>{t("移动归类")}</DialogTitle>
               <DialogDescription className="mt-1">
-                {t("选择任务归属的子系统节点，可挂到任意层级；共 {count} 个任务", { count: taskIds.length })}
+                {batchMode
+                  ? t("勾选任务并选择归属的子系统节点，可挂到任意层级；已选 {count} 个", { count: picked.size })
+                  : t("选择任务归属的子系统节点，可挂到任意层级；共 {count} 个任务", { count: effectiveIds.length })}
               </DialogDescription>
             </div>
           </div>
         </DialogHeader>
+
+        {batchMode ? (
+          <div className="border-b border-slate-100 px-4 py-3">
+            <div className="mb-2 flex items-center gap-2">
+              <Input
+                value={keyword}
+                onChange={(event) => setKeyword(event.target.value)}
+                placeholder={t("搜索单号 / 物料 / 负责人")}
+                className="h-8 flex-1 text-xs"
+              />
+              <button
+                type="button"
+                onClick={() => setPicked(allPicked ? new Set() : new Set(visibleCandidates.map((task) => task.id)))}
+                className="shrink-0 text-xs font-semibold text-indigo-600 hover:underline"
+              >
+                {allPicked ? t("全部取消") : t("全部选中")}
+              </button>
+            </div>
+            <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200">
+              {visibleCandidates.length === 0 ? (
+                <p className="py-6 text-center text-xs text-slate-400">{t("没有匹配的任务")}</p>
+              ) : (
+                visibleCandidates.map((task) => (
+                  <label key={task.id} className="flex cursor-pointer items-center gap-2 border-b border-slate-100 px-3 py-1.5 text-xs last:border-b-0 hover:bg-slate-50">
+                    <Checkbox
+                      checked={picked.has(task.id)}
+                      onCheckedChange={() => setPicked((current) => {
+                        const next = new Set(current);
+                        if (next.has(task.id)) next.delete(task.id);
+                        else next.add(task.id);
+                        return next;
+                      })}
+                    />
+                    <span className="shrink-0 font-mono text-slate-500">{task.code}</span>
+                    <span className="min-w-0 flex-1 truncate text-slate-700">{task.materialName}</span>
+                    <span className="shrink-0 text-slate-400">{task.buyer}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+        ) : null}
 
         <div className="max-h-[52vh] overflow-y-auto px-4 py-3">
           {loading ? (
@@ -219,7 +287,7 @@ export function MoveTaskDialog({
             <button
               type="button"
               onClick={() => void handleConfirm()}
-              disabled={saving || loading || unchanged || !selectedLabel}
+              disabled={saving || loading || unchanged || !selectedLabel || effectiveIds.length === 0}
               className="material-button-primary px-4 py-2 text-xs disabled:opacity-50"
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderTree className="h-3.5 w-3.5" />}
