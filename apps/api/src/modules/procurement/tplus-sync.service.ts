@@ -533,9 +533,9 @@ export class TplusSyncService {
 
     for (let page = 1; page <= MATERIAL_MASTER_MAX_PAGES; page += 1) {
       const raw = await this.fetchFromTplus(path, {
-        pageSize: String(MATERIAL_MASTER_PAGE_SIZE),
+        PageSize: String(MATERIAL_MASTER_PAGE_SIZE),
         SelectFields: MATERIAL_MASTER_SELECT_FIELDS,
-        ...(cursor ? { ts: cursor } : {}),
+        ...(cursor ? { Ts: cursor } : {}),
       });
       const rows = this.toRows(raw);
       all.push(...rows);
@@ -960,7 +960,7 @@ export class TplusSyncService {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       this.logger.error(`T+ 请求失败 ${path} ${res.status} ${text.slice(0, 200)}`);
-      throw new ServiceUnavailableException(`畅捷通 T+ 接口返回 ${res.status}`);
+      throw new ServiceUnavailableException(this.tplusHttpErrorMessage(path, res.status, text));
     }
     const body = (await res.json()) as Record<string, unknown> | unknown[] | null;
     // 业务失败可能 HTTP 200 + { code: 999, message }
@@ -973,6 +973,30 @@ export class TplusSyncService {
       }
     }
     return body;
+  }
+
+  /** 把 T+ 网关错误转换成不泄露凭据、但足够让管理员处理的用户提示。 */
+  private tplusHttpErrorMessage(path: string, status: number, responseText: string): string {
+    let providerMessage = '';
+    try {
+      const body = JSON.parse(responseText) as Record<string, unknown>;
+      const value = body.message ?? body.msg ?? body.error_description ?? body.error;
+      if (typeof value === 'string') {
+        providerMessage = value.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 160);
+      }
+    } catch {
+      // HTML 网关页或空响应不向前端透传，避免暴露代理内部信息。
+    }
+
+    const detail = providerMessage ? `（${providerMessage}）` : '';
+    if (status === 403 && path === DEFAULT_MATERIAL_MASTER_PATH) {
+      return [
+        `畅捷通 T+ 拒绝存货查询，HTTP 403${detail}`,
+        '请在开放平台当前应用的「权限配置」中申请“存货查询”接口权限',
+        '再到「开发管理」为授权用户执行“更新授权”，并重新获取 token',
+      ].join('；');
+    }
+    return `畅捷通 T+ 接口返回 ${status}${detail}`;
   }
 
   /** T+ 各接口的行数据位置不统一（数组 / data / Rows / result），统一挖行。 */

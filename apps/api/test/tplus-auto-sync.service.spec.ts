@@ -250,7 +250,7 @@ test('T+ 存货主档按官方 Query 接口和 Ts 游标连续拉取全量', asy
   };
   mutableService.fetchFromTplus = async (path, params) => {
     requests.push({ path, params });
-    return params.ts
+    return params.Ts
       ? { result: [{ Code: 'A01-013', Name: '【电路板】快充主板', Ts: 'cursor-1001' }] }
       : { result: firstPage };
   };
@@ -260,12 +260,31 @@ test('T+ 存货主档按官方 Query 接口和 Ts 游标连续拉取全量', asy
   assert.equal(rows.length, 1001);
   assert.equal(requests.length, 2);
   assert.equal(requests[0].path, '/tplus/api/v2/inventory/Query');
-  assert.equal(requests[0].params.pageSize, '1000');
-  assert.equal(requests[0].params.ts, undefined);
+  assert.equal(requests[0].params.PageSize, '1000');
+  assert.equal(requests[0].params.Ts, undefined);
   assert.match(String(requests[0].params.SelectFields), /Code/);
   assert.match(String(requests[0].params.SelectFields), /Ts/);
   assert.equal(requests[0].params.PageIndex, undefined);
-  assert.equal(requests[1].params.ts, 'cursor-1000');
+  assert.equal(requests[1].params.Ts, 'cursor-1000');
+});
+
+test('T+ 存货查询 403 会明确提示申请接口权限、更新授权和重取 token', () => {
+  const service = new TplusSyncService({} as never, {} as never, {} as never, {} as never);
+  const mutableService = service as unknown as {
+    tplusHttpErrorMessage: (path: string, status: number, responseText: string) => string;
+  };
+
+  const message = mutableService.tplusHttpErrorMessage(
+    '/tplus/api/v2/inventory/Query',
+    403,
+    JSON.stringify({ message: 'openToken无调用该接口的权限' }),
+  );
+
+  assert.match(message, /存货查询/);
+  assert.match(message, /openToken无调用该接口的权限/);
+  assert.match(message, /权限配置/);
+  assert.match(message, /更新授权/);
+  assert.match(message, /重新获取 token/);
 });
 
 test('已部署的 QueryPage 旧配置会自动迁移到官方 Query 路径', () => {
