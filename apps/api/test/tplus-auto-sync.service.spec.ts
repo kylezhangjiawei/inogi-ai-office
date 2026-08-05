@@ -171,10 +171,10 @@ test('T+ 存货主档同步会创建零库存物料并保留已有本地分类',
   };
   const service = new TplusSyncService(prisma as never, procurement as never, {} as never, {} as never);
   const mutableService = service as unknown as {
-    fetchAllPages: (path: string) => Promise<unknown[]>;
+    fetchMaterialMasterRows: (path: string) => Promise<unknown[]>;
     recordMaterialMasterSync: () => Promise<void>;
   };
-  mutableService.fetchAllPages = async (path) => {
+  mutableService.fetchMaterialMasterRows = async (path) => {
     requestedPath = path;
     return [
       { Code: 'A01-012', Name: '【电路板】（蓝）L型电源转接板', InventoryClass: { Name: '电路板' }, Unit: { Name: '个' } },
@@ -185,7 +185,7 @@ test('T+ 存货主档同步会创建零库存物料并保留已有本地分类',
 
   const result = await service.syncMaterialMaster();
 
-  assert.equal(requestedPath, '/tplus/api/v2/inventory/QueryPage');
+  assert.equal(requestedPath, '/tplus/api/v2/inventory/Query');
   assert.deepEqual(result, {
     received: 2,
     created: 1,
@@ -226,12 +226,57 @@ test('已有 T+ 物料时主档接口意外返回空集会中止并记录失败'
     {} as never,
   );
   const mutableService = service as unknown as {
-    fetchAllPages: () => Promise<unknown[]>;
+    fetchMaterialMasterRows: () => Promise<unknown[]>;
     recordMaterialMasterSync: (succeeded: boolean) => Promise<void>;
   };
-  mutableService.fetchAllPages = async () => [];
+  mutableService.fetchMaterialMasterRows = async () => [];
   mutableService.recordMaterialMasterSync = async (succeeded) => { recordedSucceeded = succeeded; };
 
   await assert.rejects(() => service.syncMaterialMaster(), /返回 0 条/);
   assert.equal(recordedSucceeded, false);
+});
+
+test('T+ 存货主档按官方 Query 接口和 Ts 游标连续拉取全量', async () => {
+  const requests: Array<{ path: string; params: Record<string, unknown> }> = [];
+  const firstPage = Array.from({ length: 1000 }, (_, index) => ({
+    Code: `M-${index + 1}`,
+    Name: `物料 ${index + 1}`,
+    Ts: `cursor-${index + 1}`,
+  }));
+  const service = new TplusSyncService({} as never, {} as never, {} as never, {} as never);
+  const mutableService = service as unknown as {
+    fetchFromTplus: (path: string, params: Record<string, unknown>) => Promise<unknown>;
+    fetchMaterialMasterRows: (path: string) => Promise<unknown[]>;
+  };
+  mutableService.fetchFromTplus = async (path, params) => {
+    requests.push({ path, params });
+    return params.ts
+      ? { result: [{ Code: 'A01-013', Name: '【电路板】快充主板', Ts: 'cursor-1001' }] }
+      : { result: firstPage };
+  };
+
+  const rows = await mutableService.fetchMaterialMasterRows('/tplus/api/v2/inventory/Query');
+
+  assert.equal(rows.length, 1001);
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].path, '/tplus/api/v2/inventory/Query');
+  assert.equal(requests[0].params.pageSize, '1000');
+  assert.equal(requests[0].params.ts, undefined);
+  assert.match(String(requests[0].params.SelectFields), /Code/);
+  assert.match(String(requests[0].params.SelectFields), /Ts/);
+  assert.equal(requests[0].params.PageIndex, undefined);
+  assert.equal(requests[1].params.ts, 'cursor-1000');
+});
+
+test('已部署的 QueryPage 旧配置会自动迁移到官方 Query 路径', () => {
+  const previous = process.env.TPLUS_MATERIAL_MASTER_PATH;
+  process.env.TPLUS_MATERIAL_MASTER_PATH = '/tplus/api/v2/inventory/QueryPage';
+  try {
+    const service = new TplusSyncService({} as never, {} as never, {} as never, {} as never);
+    const mutableService = service as unknown as { materialMasterPath: () => string };
+    assert.equal(mutableService.materialMasterPath(), '/tplus/api/v2/inventory/Query');
+  } finally {
+    if (previous === undefined) delete process.env.TPLUS_MATERIAL_MASTER_PATH;
+    else process.env.TPLUS_MATERIAL_MASTER_PATH = previous;
+  }
 });

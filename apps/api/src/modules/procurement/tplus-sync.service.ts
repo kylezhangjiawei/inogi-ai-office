@@ -25,7 +25,23 @@ import { TplusPoMatchService } from './tplus-po-match.service';
 
 const CONFIG_KIND = 'tplus';
 const DEFAULT_BASE_URL = 'https://openapi.chanjet.com';
-const DEFAULT_MATERIAL_MASTER_PATH = '/tplus/api/v2/inventory/QueryPage';
+const DEFAULT_MATERIAL_MASTER_PATH = '/tplus/api/v2/inventory/Query';
+const LEGACY_MATERIAL_MASTER_PATH = '/tplus/api/v2/inventory/QueryPage';
+const MATERIAL_MASTER_PAGE_SIZE = 1000;
+const MATERIAL_MASTER_MAX_PAGES = 100;
+const MATERIAL_MASTER_SELECT_FIELDS = [
+  'ID',
+  'Code',
+  'Name',
+  'Specification',
+  'InventoryClass.Code',
+  'InventoryClass.Name',
+  'Unit.Code',
+  'Unit.Name',
+  'Disabled',
+  'LatestCost',
+  'Ts',
+].join(',');
 const TPLUS_SYNC_TIME_ZONE = 'Asia/Shanghai';
 
 export interface TplusCredentials {
@@ -504,6 +520,53 @@ export class TplusSyncService {
     return all;
   }
 
+  /**
+   * 存货档案查询使用 T+ 官方的 Ts 游标分页，不能复用其他接口的 PageIndex 分页。
+   * 查询结果按 Ts 升序返回，下一页必须携带上一页最后一条记录的 Ts。
+   */
+  private async fetchMaterialMasterRows(
+    path: string,
+    onProgress?: (progress: string) => void,
+  ): Promise<unknown[]> {
+    const all: unknown[] = [];
+    let cursor = '';
+
+    for (let page = 1; page <= MATERIAL_MASTER_MAX_PAGES; page += 1) {
+      const raw = await this.fetchFromTplus(path, {
+        pageSize: String(MATERIAL_MASTER_PAGE_SIZE),
+        SelectFields: MATERIAL_MASTER_SELECT_FIELDS,
+        ...(cursor ? { ts: cursor } : {}),
+      });
+      const rows = this.toRows(raw);
+      all.push(...rows);
+      onProgress?.(`正在读取 T+ 存货档案 ${all.length} 条…`);
+
+      if (rows.length < MATERIAL_MASTER_PAGE_SIZE) return all;
+
+      const lastRow = this.jsonObject(rows.at(-1));
+      const nextCursorValue = lastRow.Ts ?? lastRow.ts ?? lastRow.TS;
+      const nextCursor =
+        typeof nextCursorValue === 'string' || typeof nextCursorValue === 'number'
+          ? String(nextCursorValue).trim()
+          : '';
+      if (!nextCursor) {
+        throw new ServiceUnavailableException(
+          'T+ 存货档案分页结果缺少 Ts 游标，已中止同步以避免遗漏物料',
+        );
+      }
+      if (nextCursor === cursor) {
+        throw new ServiceUnavailableException(
+          'T+ 存货档案分页游标未前进，已中止同步以避免重复请求',
+        );
+      }
+      cursor = nextCursor;
+    }
+
+    throw new ServiceUnavailableException(
+      `T+ 存货档案超过 ${MATERIAL_MASTER_MAX_PAGES * MATERIAL_MASTER_PAGE_SIZE} 条，已中止同步以避免不完整写入`,
+    );
+  }
+
   async syncSuppliers() {
     // 往来单位分页查询：T+ 的供应商在往来单位档案里
     const rows = this.mapSuppliers(
@@ -576,7 +639,7 @@ export class TplusSyncService {
   ): Promise<TplusMaterialMasterSyncResult> {
     const path = this.materialMasterPath();
     onProgress?.('正在读取 T+ 存货档案…');
-    const rawRows = await this.fetchAllPages(path, {}, 1);
+    const rawRows = await this.fetchMaterialMasterRows(path, onProgress);
     const mappedRows = this.mapMaterialMaster(rawRows);
     // 某些账套会按存货多计量单位返回重复行；主档按编码收敛为一条。
     const rows = [...new Map(mappedRows.map((item) => [item.inventoryCode, item])).values()];
@@ -705,6 +768,8 @@ export class TplusSyncService {
 
   private materialMasterPath() {
     const configured = process.env.TPLUS_MATERIAL_MASTER_PATH?.trim();
+    // 兼容已部署环境中的旧示例值；该路径不是 T+ 存货档案的有效开放接口，会返回 403。
+    if (configured === LEGACY_MATERIAL_MASTER_PATH) return DEFAULT_MATERIAL_MASTER_PATH;
     return configured?.startsWith('/tplus/api/v2/') ? configured : DEFAULT_MATERIAL_MASTER_PATH;
   }
 
