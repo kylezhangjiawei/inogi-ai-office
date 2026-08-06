@@ -568,46 +568,31 @@
 
   .material-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: rgba(99, 102, 241, 0.4) transparent;
+    scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
     scrollbar-gutter: auto;
   }
 
   .material-scrollbar::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
   }
 
   .material-scrollbar::-webkit-scrollbar-track {
-    background: linear-gradient(180deg, rgba(226, 232, 240, 0.14), rgba(241, 245, 249, 0.08));
+    background: transparent;
     border-radius: 9999px;
-    transition: background 180ms ease;
   }
 
   .material-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(99, 102, 241, 0.42);
-    border: 2px solid rgba(255, 255, 255, 0.42);
+    background: rgba(100, 116, 139, 0.45);
+    border: 2px solid transparent;
     background-clip: padding-box;
     border-radius: 9999px;
-    box-shadow:
-      0 4px 10px rgba(79, 70, 229, 0.1),
-      inset 0 1px 0 rgba(255, 255, 255, 0.18);
-    transition:
-      background 180ms ease,
-      box-shadow 180ms ease,
-      border-color 180ms ease;
-  }
-
-  .material-scrollbar:hover::-webkit-scrollbar-track {
-    background: linear-gradient(180deg, rgba(226, 232, 240, 0.22), rgba(241, 245, 249, 0.14));
   }
 
   .material-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(79, 70, 229, 0.72);
-    border: 2px solid rgba(255, 255, 255, 0.68);
+    background: rgba(79, 70, 229, 0.58);
+    border-color: transparent;
     background-clip: padding-box;
-    box-shadow:
-      0 8px 18px rgba(79, 70, 229, 0.24),
-      inset 0 1px 0 rgba(255, 255, 255, 0.34);
   }
 
   .resume-screening-surface {

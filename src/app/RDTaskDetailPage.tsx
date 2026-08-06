@@ -69,11 +69,12 @@ import { getReviewTypeMeta } from "./lib/reviewTypes";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
 import {
-  attachRdTaskToParent,
+  attachRdTasksToParent,
   blockedDaysOf,
   createRdTask,
   createRdTaskProgressNote,
   detachRdSubtask,
+  detachRdSubtasks,
   fetchMergedTaskCategories,
   fetchRdPeople,
   fetchRdProducts,
@@ -107,6 +108,11 @@ const TASK_AUDIT_FILTER = { resourceType: "task" } as const;
 
 function countRelationNodes(task: RdTask): number {
   return 1 + (task.subtasks ?? []).reduce((total, child) => total + countRelationNodes(child), 0);
+}
+
+function relationContainsTask(task: RdTask, targetTaskId: string): boolean {
+  if (task.task_id === targetTaskId) return true;
+  return (task.subtasks ?? []).some((child) => relationContainsTask(child, targetTaskId));
 }
 
 type TaskRelationNodeProps = {
@@ -239,6 +245,7 @@ export default function RDTaskDetailPage() {
   const [topLevelTasks, setTopLevelTasks] = useState<RdTask[]>([]);
   const [showCreateSubtask, setShowCreateSubtask] = useState(false);
   const [showAttachSubtasks, setShowAttachSubtasks] = useState(false);
+  const [showDetachSubtasks, setShowDetachSubtasks] = useState(false);
   const [detaching, setDetaching] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -957,6 +964,7 @@ export default function RDTaskDetailPage() {
       topLevelTasks.filter(
         (candidate) =>
           candidate.task_id !== taskId &&
+          !relationContainsTask(candidate, taskId) &&
           !candidate.archived &&
           candidate.status !== "archived",
       ),
@@ -998,29 +1006,40 @@ export default function RDTaskDetailPage() {
 
   const handleAttachSubtasks = async (childIds: string[]) => {
     if (!task || childIds.length === 0) return;
-    // 逐个调用（后端每次调用各自加任务树写锁，串行提交避免并发写互相覆盖）
-    const failed: string[] = [];
+    await attachRdTasksToParent(childIds, task.task_id);
     for (const childId of childIds) {
-      try {
-        await attachRdTaskToParent(childId, task.task_id);
-        const child = topLevelTasks.find((c) => c.task_id === childId);
-        recordAudit({
-          actor: AUDIT_ACTOR,
-          action: "task.updated",
-          resource: { type: "task", id: childId, name: child?.title ?? childId },
-          changes: [{ field: "parent_task_id", before: "", after: task.task_id }],
-          comment: `并入任务 ${task.task_id}（${task.title}）成为其子任务`,
-          metadata: { parent_task_id: task.task_id, subtask_origin: "attached" },
-          source: "web",
-        });
-      } catch (error) {
-        failed.push(`${childId}：${error instanceof Error ? error.message : t("未知错误")}`);
-      }
+      const child = allTaskById.get(childId);
+      recordAudit({
+        actor: AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: childId, name: child?.title ?? childId },
+        changes: [{ field: "parent_task_id", before: "", after: task.task_id }],
+        comment: `并入任务 ${task.task_id}（${task.title}）成为其子任务`,
+        metadata: { parent_task_id: task.task_id, subtask_origin: "attached" },
+        source: "web",
+      });
     }
-    const okCount = childIds.length - failed.length;
-    if (okCount > 0) toast.success(t("已并入 {n} 个任务为子任务", { n: okCount }));
-    if (failed.length > 0) toast.error(failed.join("\n"));
+    toast.success(t("已并入 {n} 个任务为子任务", { n: childIds.length }));
     setShowAttachSubtasks(false);
+    void Promise.all([loadTask({ silent: true }), loadProgressGroup(false)]);
+  };
+
+  const handleDetachSubtasks = async (childIds: string[]) => {
+    if (!task || childIds.length === 0) return;
+    await detachRdSubtasks(childIds, task.task_id);
+    for (const childId of childIds) {
+      const child = allTaskById.get(childId);
+      recordAudit({
+        actor: AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: childId, name: child?.title ?? childId },
+        changes: [{ field: "parent_task_id", before: task.task_id, after: "" }],
+        comment: `批量取消与任务 ${task.task_id}（${task.title}）的子任务关系，整棵子树提升为顶层任务`,
+        source: "web",
+      });
+    }
+    toast.success(t("已取消 {n} 个子任务关系", { n: childIds.length }));
+    setShowDetachSubtasks(false);
     void Promise.all([loadTask({ silent: true }), loadProgressGroup(false)]);
   };
 
@@ -1298,9 +1317,8 @@ export default function RDTaskDetailPage() {
             </div>
           )}
 
-          {/* ── 子任务关系节 ──
-              子任务态：显示父任务面包屑 + 取消关系；顶层态：子任务清单 + 直建/并入入口。 */}
-          {parentTask ? (
+          {/* 中间层任务可同时显示直接父任务和直接子任务，并继续向下扩展关系树。 */}
+          {parentTask && (
             <div className="bg-sky-50/60 px-4 py-3.5">
               <div className="mb-2 flex items-center gap-1.5">
                 <SubtaskBadge task={task} />
@@ -1336,8 +1354,8 @@ export default function RDTaskDetailPage() {
                 </button>
               )}
             </div>
-          ) : (
-            <div className="px-4 py-3.5">
+          )}
+          <div className={cn("px-4 py-3.5", parentTask && "border-t border-slate-100")}>
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-slate-500">
                   {t("子任务")}
@@ -1348,7 +1366,7 @@ export default function RDTaskDetailPage() {
                   )}
                 </span>
                 {canManage && !task.archived && (
-                  <span className="flex shrink-0 items-center gap-1">
+                  <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
                     <button
                       type="button"
                       onClick={() => setShowCreateSubtask(true)}
@@ -1363,6 +1381,15 @@ export default function RDTaskDetailPage() {
                     >
                       {t("并入已有任务")}
                     </button>
+                    {subtasks.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowDetachSubtasks(true)}
+                        className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                      >
+                        {t("批量取消")}
+                      </button>
+                    )}
                   </span>
                 )}
               </div>
@@ -1413,8 +1440,7 @@ export default function RDTaskDetailPage() {
                   </div>
                 </>
               )}
-            </div>
-          )}
+          </div>
 
           {/* 人员节（点击查看其名下任务，可跳转到对应任务详情） */}
           <div className="px-4 py-3.5">
@@ -2040,6 +2066,14 @@ export default function RDTaskDetailPage() {
           onCancel={() => setShowAttachSubtasks(false)}
         />
       )}
+      {showDetachSubtasks && (
+        <DetachSubtasksDialog
+          parentTask={task}
+          candidates={subtasks}
+          onConfirm={handleDetachSubtasks}
+          onCancel={() => setShowDetachSubtasks(false)}
+        />
+      )}
 
       {/* 人员名下任务弹层（Radix Dialog）：点任务跳转到该任务的详情页 */}
       <Dialog open={Boolean(personTasksFor)} onOpenChange={(open) => { if (!open) setPersonTasksFor(null); }}>
@@ -2478,6 +2512,169 @@ function AttachSubtasksDialog({
               >
                 {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
                 {t("并入为子任务")}
+              </button>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 批量解除当前任务与多个直接子任务的关系；每个子任务自带的下级树保持原样。 */
+function DetachSubtasksDialog({
+  parentTask,
+  candidates,
+  onConfirm,
+  onCancel,
+}: {
+  parentTask: RdTask;
+  candidates: RdTask[];
+  onConfirm: (childIds: string[]) => Promise<void>;
+  onCancel: () => void;
+}) {
+  useI18n();
+  const [keyword, setKeyword] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const [saving, setSaving] = useState(false);
+
+  const filtered = useMemo(() => {
+    const kw = keyword.trim().toLowerCase();
+    if (!kw) return candidates;
+    return candidates.filter(
+      (candidate) =>
+        candidate.title.toLowerCase().includes(kw) ||
+        candidate.task_id.toLowerCase().includes(kw) ||
+        (candidate.primary_owner ?? "").toLowerCase().includes(kw),
+    );
+  }, [candidates, keyword]);
+
+  const toggle = (taskId: string) => {
+    setPicked((previous) => {
+      const next = new Set(previous);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setPicked((previous) =>
+      previous.size === candidates.length
+        ? new Set()
+        : new Set(candidates.map((candidate) => candidate.task_id)),
+    );
+  };
+
+  const handleSave = async () => {
+    if (picked.size === 0 || saving) return;
+    setSaving(true);
+    try {
+      await onConfirm(Array.from(picked));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("批量取消失败，请重试"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      onClick={saving ? undefined : onCancel}
+    >
+      <div
+        className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+            <Undo2 className="size-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-semibold text-slate-900">{t("批量取消子任务关系")}</h3>
+            <p className="truncate text-[11px] text-slate-400">
+              {t("父任务：{title}", { title: parentTask.title })}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={toggleAll}
+            className="rounded px-2 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 disabled:opacity-40"
+          >
+            {picked.size === candidates.length ? t("取消全选") : t("全选")}
+          </button>
+        </div>
+        <div className="border-b border-slate-100 px-6 py-3">
+          <Input
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            autoFocus
+            placeholder={t("搜索任务标题 / 编号 / 主责人")}
+            className="h-9 rounded-lg border-slate-200 text-sm"
+          />
+        </div>
+        <div className="cockpit-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto px-6 py-3">
+          {filtered.map((candidate) => {
+            const checked = picked.has(candidate.task_id);
+            const descendantCount = countRelationNodes(candidate) - 1;
+            return (
+              <button
+                key={candidate.task_id}
+                type="button"
+                onClick={() => toggle(candidate.task_id)}
+                className={cn(
+                  "flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition",
+                  checked
+                    ? "border-slate-400 bg-slate-50"
+                    : "border-slate-100 hover:border-slate-300 hover:bg-slate-50/70",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded border",
+                    checked ? "border-slate-600 bg-slate-600 text-white" : "border-slate-300 bg-white",
+                  )}
+                >
+                  {checked ? <CheckCircle2 className="size-3" /> : null}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
+                  <AutoTranslatedText text={candidate.title} />
+                </span>
+                {descendantCount > 0 ? (
+                  <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500">
+                    {t("含 {n} 个下级", { n: descendantCount })}
+                  </span>
+                ) : null}
+                <span className="shrink-0 font-mono text-[11px] text-slate-400">{candidate.task_id}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="border-t border-slate-100 px-6 py-3">
+          <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
+            {t("取消后，所选任务会连同其全部下级任务一起提升为独立任务，不会删除任何留痕或附件。")}
+          </p>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-slate-500">{t("已选 {n} 个", { n: picked.size })}</span>
+            <span className="flex gap-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={onCancel}
+                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >
+                {t("取消")}
+              </button>
+              <button
+                type="button"
+                disabled={saving || picked.size === 0}
+                onClick={() => void handleSave()}
+                className="inline-flex items-center gap-1.5 rounded-md bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:opacity-60"
+              >
+                {saving ? <Loader2 className="size-3 animate-spin" /> : <Undo2 className="size-3" />}
+                {t("确认取消关系")}
               </button>
             </span>
           </div>

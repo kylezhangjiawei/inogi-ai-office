@@ -634,6 +634,9 @@ export interface TplusConfigState {
   autoSync: boolean;
   lastAutoSyncAt: string | null;
   lastAutoSyncSummary: string | null;
+  lastMaterialSyncAt: string | null;
+  lastMaterialSyncSummary: string | null;
+  lastMaterialSyncSucceeded: boolean | null;
 }
 
 export async function getTplusConfig(): Promise<TplusConfigState> {
@@ -666,7 +669,7 @@ export async function exchangeTplusAuthCode(code: string): Promise<TplusConfigSt
 export async function getTplusStatus(): Promise<{
   configured: boolean;
   authorized: boolean;
-  mirrored: { suppliers: number; balances: number; purchaseOrderRefs: number };
+  mirrored: { suppliers: number; materials: number; balances: number; purchaseOrderRefs: number };
 }> {
   return request("/tplus/status");
 }
@@ -678,9 +681,26 @@ export async function triggerTplusSync(
 }
 
 // 非 union：根 tsconfig strict=false 下 boolean discriminant 收窄不生效，会在使用侧误报 TS2339
-export type TplusAutoSyncResult = { skipped: boolean; reason?: string; summary?: string };
+export type TplusAutoSyncResult = { skipped: boolean; reason?: string; summary?: string; failedSteps?: number };
 
-/** 一键全同步（异步任务）：供应商→库存→采购单全量→匹配，返回 jobId 轮询。 */
+export interface TplusMaterialMasterSyncResult {
+  received: number;
+  created: number;
+  updated: number;
+  conflicts: number;
+  disabled: number;
+  scannedNodes: number;
+  linkedNodes: number;
+  unmatchedNodes: number;
+  ambiguousNodes: number;
+}
+
+/** T+ 存货档案全量同步（含零库存物料）并补齐任务树关联。 */
+export async function syncTplusMaterialMaster(): Promise<{ jobId: string }> {
+  return request("/tplus/sync/materials", { method: "POST" });
+}
+
+/** 一键全同步（异步任务）：主档→供应商→库存→采购单全量→匹配，返回 jobId 轮询。 */
 export async function runTplusAutoSync(): Promise<{ jobId: string }> {
   return request("/tplus/sync/auto", { method: "POST" });
 }

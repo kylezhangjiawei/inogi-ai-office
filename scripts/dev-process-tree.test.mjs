@@ -12,6 +12,11 @@ import {
   unexpectedChildExitCode,
 } from "./dev-runtime.mjs";
 
+async function closeServer(server) {
+  if (!server.listening) return;
+  await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+}
+
 test("Windows 开发进程退出时终止整棵子进程树", () => {
   assert.deepEqual(windowsProcessTreeKillArgs(1234), ["/PID", "1234", "/T", "/F"]);
 });
@@ -41,15 +46,59 @@ test("只有当前 INOGI API 的健康响应才能放行前端启动", () => {
 
 test("启动前拒绝已占用的 API 端口，避免误连遗留服务", async () => {
   const blocker = createServer();
-  await new Promise((resolve, reject) => {
-    blocker.once("error", reject);
-    blocker.listen({ host: "127.0.0.1", port: 0 }, resolve);
-  });
-  const address = blocker.address();
-  assert.ok(address && typeof address === "object");
-  await assert.rejects(() => assertDevPortAvailable(address.port), /already in use/);
-  await new Promise((resolve, reject) => blocker.close((error) => (error ? reject(error) : resolve())));
-  await assert.doesNotReject(() => assertDevPortAvailable(address.port));
+  try {
+    await new Promise((resolve, reject) => {
+      blocker.once("error", reject);
+      blocker.listen({ host: "127.0.0.1", port: 0 }, resolve);
+    });
+    const address = blocker.address();
+    assert.ok(address && typeof address === "object");
+    await assert.rejects(() => assertDevPortAvailable(address.port), /already in use/);
+    await closeServer(blocker);
+    await assert.doesNotReject(() => assertDevPortAvailable(address.port));
+  } finally {
+    await closeServer(blocker);
+  }
+});
+
+test("启动前同时检查 IPv6 通配监听，避免 Windows 遗留 API 锁住 Prisma 引擎", async (context) => {
+  const blocker = createServer();
+  try {
+    try {
+      await new Promise((resolve, reject) => {
+        blocker.once("error", reject);
+        blocker.listen({ host: "::", port: 0, exclusive: true }, resolve);
+      });
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && error.code === "EAFNOSUPPORT") {
+        context.skip("当前系统未启用 IPv6");
+        return;
+      }
+      throw error;
+    }
+
+    const address = blocker.address();
+    assert.ok(address && typeof address === "object");
+    await assert.rejects(() => assertDevPortAvailable(address.port), /already in use/);
+  } finally {
+    await closeServer(blocker);
+  }
+});
+
+test("次要地址族不可用时继续启动，同时拒绝空的端口检查候选", async () => {
+  const probedHosts = [];
+  await assert.doesNotReject(() => assertDevPortAvailable(
+    3001,
+    ["127.0.0.1", "::"],
+    async (_port, host) => {
+      probedHosts.push(host);
+      if (host === "::") {
+        throw Object.assign(new Error("IPv6 is disabled"), { code: "EAFNOSUPPORT" });
+      }
+    },
+  ));
+  assert.deepEqual(probedHosts, ["127.0.0.1", "::"]);
+  await assert.rejects(() => assertDevPortAvailable(3001, []), /at least one host/);
 });
 
 test("任一服务意外退出都会让组合启动以失败状态收口", () => {

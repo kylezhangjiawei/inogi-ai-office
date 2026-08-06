@@ -265,6 +265,22 @@ export function saveProductTaskCategories(productId: string, categories: RdCateg
   });
 }
 
+/** 为普通立项安全地补一个空分类容器；服务端不会接收或覆盖任何任务数据。 */
+export function ensureRdProposalTarget(
+  productId: string,
+  categoryLabel: string,
+  subProjectLabel = "立项任务",
+) {
+  return requestJson<{ category_id: string; sub_project_id: string }>("/task-categories/proposal-target", {
+    method: "POST",
+    body: JSON.stringify({
+      product_id: productId,
+      category_label: categoryLabel,
+      sub_project_label: subProjectLabel,
+    }),
+  });
+}
+
 // ── Workspace payload ─────────────────────────────────────────────────────────
 
 export type RdTodayTodo = { text: string; task_id?: string };
@@ -294,6 +310,8 @@ export type RdWorkspaceTask = {
   status: RdTaskStatus;
   status_label: string;
   role: "primary" | "collaborator";
+  /** 服务端按真实父子结构计算，根任务为 1；不受当前用户筛选造成的视觉提升影响。 */
+  tree_depth?: number;
   category_path: string;
   owner: string;
   owner_user_id?: string | null;
@@ -747,14 +765,14 @@ export function moveRdTasks(input: {
   });
 }
 
-export function createRdTask(payload: {
+export type RdCreateTaskInput = {
   /** 立项目标产品。缺省/主产品 → 主库；其余 → 对应产品库（后端按此选择 store）。 */
   product_id?: string;
   category_id?: string;
   sub_project_id?: string;
   /**
    * 直建子任务：传父任务 id。此时产品/分类/category_path 全部继承父任务，
-   * 无需传 product_id / category_id。父任务本身是子任务时后端拒绝；多级树通过整树并入形成。
+   * 无需传 product_id / category_id。父任务可以是任意层级节点，服务端统一限制整树最多 5 层。
    */
   parent_task_id?: string;
   title: string;
@@ -774,11 +792,28 @@ export function createRdTask(payload: {
    * 任务进入 in_progress（保留在发起人任务列表），而非默认的 result→completed（会被工作台过滤掉）。
    */
   pending_review_type?: "collaboration" | "result" | "proposal" | string | null;
-}) {
+};
+
+export function createRdTask(payload: RdCreateTaskInput) {
   return requestJson<RdTask>("/task-categories/tasks", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+/** 节点立项原子批量建子任务；requestId 在超时重试时保证同一批次不会重复落库。 */
+export function createRdSubtasks(
+  parentTaskId: string,
+  tasks: Omit<RdCreateTaskInput, "parent_task_id">[],
+  requestId: string,
+) {
+  return requestJson<{ ok: true; parent_task_id: string; tasks: RdTask[] }>(
+    "/task-categories/tasks/create-children-batch",
+    {
+      method: "POST",
+      body: JSON.stringify({ parent_task_id: parentTaskId, request_id: requestId, tasks }),
+    },
+  ).then((result) => result.tasks);
 }
 
 export function updateRdTask(taskId: string, patch: Partial<Omit<RdTask, "task_id">>) {
@@ -807,11 +842,27 @@ export function attachRdTaskToParent(taskId: string, parentTaskId: string) {
   );
 }
 
+/** 原子批量并入：来源必须是顶层独立任务，目标可以是任意层级任务。 */
+export function attachRdTasksToParent(taskIds: string[], parentTaskId: string) {
+  return requestJson<{ ok: true; task_ids: string[]; parent_task_id: string }>(
+    "/task-categories/tasks/attach-parent-batch",
+    { method: "POST", body: JSON.stringify({ task_ids: taskIds, parent_task_id: parentTaskId }) },
+  );
+}
+
 /** 取消子任务关系：提升为顶层任务，落在原父任务所在子项目里（与父任务同级）。 */
 export function detachRdSubtask(taskId: string) {
   return requestJson<{ ok: true; task_id: string }>(
     `/task-categories/tasks/${encodeURIComponent(taskId)}/detach-parent`,
     { method: "POST" },
+  );
+}
+
+/** 原子批量取消同一父任务下的直接子任务关系，所选子树整体提升为顶层任务。 */
+export function detachRdSubtasks(taskIds: string[], parentTaskId: string) {
+  return requestJson<{ ok: true; task_ids: string[]; parent_task_id: string }>(
+    "/task-categories/tasks/detach-parent-batch",
+    { method: "POST", body: JSON.stringify({ task_ids: taskIds, parent_task_id: parentTaskId }) },
   );
 }
 

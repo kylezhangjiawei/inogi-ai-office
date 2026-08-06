@@ -25,6 +25,7 @@ import {
   previewSafeStock,
   runPoMatch,
   runTplusAutoSync,
+  syncTplusMaterialMaster,
   syncTplusPurchaseOrdersFull,
   exchangeTplusAuthCode,
   getTplusConfig,
@@ -47,6 +48,7 @@ import {
   type PoMirrorList,
   type ReplenishSuggestion,
   type TplusAutoSyncResult,
+  type TplusMaterialMasterSyncResult,
   type SafeStockPreview,
   type SafeStockReport,
   type Material,
@@ -1418,7 +1420,7 @@ function formatTplusAutoSyncTime(value: string) {
 export function TplusConfigModal({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
   const [config, setConfig] = useState<TplusConfigState | null>(null);
-  const [mirrored, setMirrored] = useState<{ suppliers: number; balances: number; purchaseOrderRefs: number } | null>(null);
+  const [mirrored, setMirrored] = useState<{ suppliers: number; materials: number; balances: number; purchaseOrderRefs: number } | null>(null);
   const [appKey, setAppKey] = useState("");
   const [appSecret, setAppSecret] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -1459,6 +1461,33 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const syncMaterials = async () => {
+    setSyncing("materials");
+    setSyncProgress(t('任务已启动…'));
+    try {
+      const { jobId } = await syncTplusMaterialMaster();
+      const result = await waitApplyJob<TplusMaterialMasterSyncResult>(jobId, setSyncProgress, getTplusSyncJob);
+      await Promise.all([refreshProcurement(), reload()]);
+      toast.success(t('物料主档同步完成：收到 {received}，新增 {created}，更新 {updated}，任务树补链 {linked}', {
+        received: result.received,
+        created: result.created,
+        updated: result.updated,
+        linked: result.linkedNodes,
+      }));
+      if (result.conflicts > 0 || result.ambiguousNodes > 0) {
+        toast.warning(t('有 {conflicts} 条物料编码冲突、{ambiguous} 个任务树节点存在歧义，已安全跳过', {
+          conflicts: result.conflicts,
+          ambiguous: result.ambiguousNodes,
+        }));
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('同步失败'));
+    } finally {
+      setSyncing(null);
+      setSyncProgress(null);
+    }
+  };
+
   const syncAll = async () => {
     setSyncing("auto");
     setSyncProgress(t('任务已启动…'));
@@ -1466,6 +1495,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
       const { jobId } = await runTplusAutoSync();
       const r = await waitApplyJob<TplusAutoSyncResult>(jobId, setSyncProgress, getTplusSyncJob);
       if (r.skipped) toast.warning(t('已跳过：{reason}', { reason: r.reason ?? '' }));
+      else if ((r.failedSteps ?? 0) > 0) toast.warning(t('全同步已结束，但有 {count} 个步骤失败：{summary}', { count: r.failedSteps ?? 0, summary: r.summary ?? '' }));
       else toast.success(t('全同步完成：{summary}', { summary: r.summary ?? '' }));
       void reload();
     } catch (err) {
@@ -1528,6 +1558,9 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
   const lastAutoSyncText = config?.lastAutoSyncAt
     ? `${t('上次自动同步')} ${formatTplusAutoSyncTime(config.lastAutoSyncAt)}${config.lastAutoSyncSummary ? ` · ${config.lastAutoSyncSummary}` : ''}`
     : t('尚未执行自动同步');
+  const lastMaterialSyncText = config?.lastMaterialSyncAt
+    ? `${t('上次物料主档同步')} ${formatTplusAutoSyncTime(config.lastMaterialSyncAt)}${config.lastMaterialSyncSummary ? ` · ${config.lastMaterialSyncSummary}` : ''}`
+    : t('尚未执行物料主档同步');
 
   return (
     <Shell
@@ -1552,7 +1585,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
             : t('待授权')}
         </span>
         {mirrored && (
-          <span className="text-slate-400">{t('已镜像')}：{t('供应商')} {mirrored.suppliers} · {t('库存')} {mirrored.balances} · {t('采购单')} {mirrored.purchaseOrderRefs}</span>
+          <span className="text-slate-400">{t('已镜像')}：{t('物料')} {mirrored.materials ?? 0} · {t('供应商')} {mirrored.suppliers} · {t('库存')} {mirrored.balances} · {t('采购单')} {mirrored.purchaseOrderRefs}</span>
         )}
       </div>
 
@@ -1601,6 +1634,9 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
       <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
         <div className="mb-2 text-xs font-semibold text-slate-600">{t('手动同步（T+ 为唯一事实源，只拉不推）')}</div>
         <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={syncing !== null} onClick={() => void syncMaterials()} title={t('全量拉取 T+ 存货档案，包含零库存物料')} className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-60">
+            {syncing === "materials" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t('物料主档')}
+          </button>
           {([["suppliers", "供应商"], ["inventory", "库存现存量"], ["purchase-orders", "采购单到货"]] as const).map(([kind, lbl]) => (
             <button key={kind} type="button" disabled={syncing !== null} onClick={() => void sync(kind, lbl)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60">
               {syncing === kind && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t(lbl)}
@@ -1609,7 +1645,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
           <button type="button" disabled={syncing !== null} onClick={() => void syncFull()} title={t('近 90 天采购订单全量镜像，供任务匹配')} className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-60">
             {syncing === "purchase-orders-full" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t('采购单全量')}
           </button>
-          <button type="button" disabled={syncing !== null} onClick={() => void syncAll()} title={t('供应商→库存→采购单全量→匹配，与每日自动同步同一条链路')} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs">
+          <button type="button" disabled={syncing !== null} onClick={() => void syncAll()} title={t('物料主档→供应商→库存→采购单全量→匹配，与每日自动同步同一条链路')} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs">
             {syncing === "auto" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t('立即全同步')}
           </button>
         </div>
@@ -1618,6 +1654,9 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
             <Loader2 className="h-3 w-3 animate-spin" />{syncProgress}
           </div>
         )}
+        <p className={cn("mt-2 truncate text-[11px] tabular-nums", config?.lastMaterialSyncSucceeded === false ? "text-rose-500" : "text-slate-400")} title={lastMaterialSyncText}>
+          {lastMaterialSyncText}
+        </p>
         {config && (
           <div className="mt-2 grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-4 border-t border-slate-100 pt-2 text-[11px] text-slate-500">
             <label className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap">

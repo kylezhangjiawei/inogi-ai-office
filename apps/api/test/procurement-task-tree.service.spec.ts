@@ -191,3 +191,43 @@ test('受保护的修改和删除会同时锁定目录写入与采购任务写�
     'LOCK TABLE "ProcTask" IN SHARE MODE',
   ]);
 });
+
+test('主档后补链优先使用 T+ 编码，ERP 编码有歧义时安全跳过', async () => {
+  const updates: Array<{ id: string; materialId: string }> = [];
+  const prisma = {
+    procTaskTreeNode: {
+      findMany: async () => [
+        { id: 'node-tp', code: 'A01-001' },
+        { id: 'node-unique', code: 'A01-002' },
+        { id: 'node-ambiguous', code: 'A01-003' },
+        { id: 'node-missing', code: 'A01-004' },
+      ],
+      updateMany: async ({ where, data }: { where: { id: string }; data: { materialId: string } }) => {
+        updates.push({ id: where.id, materialId: data.materialId });
+        return { count: 1 };
+      },
+    },
+    procMaterial: {
+      findMany: async () => [
+        { id: 'material-tp', erpCode: 'LOCAL-001', tpInventoryCode: 'A01-001' },
+        { id: 'material-erp-shadow', erpCode: 'A01-001', tpInventoryCode: null },
+        { id: 'material-unique', erpCode: 'A01-002', tpInventoryCode: null },
+        { id: 'material-ambiguous-a', erpCode: 'A01-003', tpInventoryCode: null },
+        { id: 'material-ambiguous-b', erpCode: 'A01-003', tpInventoryCode: null },
+      ],
+    },
+  };
+
+  const result = await createService(prisma).reconcileProcTaskTreeMaterialLinks();
+
+  assert.deepEqual(result, {
+    scannedNodes: 4,
+    linkedNodes: 2,
+    unmatchedNodes: 1,
+    ambiguousNodes: 1,
+  });
+  assert.deepEqual(updates, [
+    { id: 'node-tp', materialId: 'material-tp' },
+    { id: 'node-unique', materialId: 'material-unique' },
+  ]);
+});

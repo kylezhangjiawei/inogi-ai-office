@@ -115,8 +115,24 @@ const SEND_MESSAGE_PERMISSIONS = [
 
 /** 与 RD 控制器 RD_TASK_MANAGER_PERMISSIONS 一致：任一命中即可为任意任务记进展 */
 const RD_TASK_MANAGER_PERMISSIONS = [
-  'rd-task:edit',
-  'rd-task:create',
+  'rd-task:reassign',
+  'rd-project:direct',
+  'rd-project:review-l1',
+  'rd-project:review-l2',
+  'rd-people:manage',
+];
+
+const RD_TASK_CREATE_PERMISSIONS = ['rd-task:create', 'rd-project:propose', 'rd-project:direct'];
+const RD_TASK_STRUCTURE_MANAGER_PERMISSIONS = [
+  'rd-task:reassign',
+  'rd-project:direct',
+  'rd-project:review-l1',
+  'rd-project:review-l2',
+  'rd-people:manage',
+];
+
+/** 审批必须命中明确的管理/审核权限，不能复用普通任务编辑权限。 */
+const RD_TASK_REVIEW_PERMISSIONS = [
   'rd-task:reassign',
   'rd-project:direct',
   'rd-project:review-l1',
@@ -162,6 +178,7 @@ type PendingActionEntry = {
 @Injectable()
 export class ChatToolsService {
   private readonly logger = new Logger(ChatToolsService.name);
+  private readonly pendingActionLocks = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -803,7 +820,7 @@ export class ChatToolsService {
     conversationId: string,
   ): Promise<ChatToolResult> {
     // 审批是管理员/审核人专属：与 updateTask 的 _review_action 越权守卫同口径
-    if (!this.hasAnyPermission(user, RD_TASK_MANAGER_PERMISSIONS)) {
+    if (!this.hasAnyPermission(user, RD_TASK_REVIEW_PERMISSIONS)) {
       return { ok: false, summary: '无审核权限', content: '当前用户没有任务审核权限（仅研发主管/审核人可审批），请如实告知用户。' };
     }
     const taskId = String(args.task_id ?? '').trim();
@@ -1123,8 +1140,8 @@ export class ChatToolsService {
     conversationId: string,
   ): Promise<ChatToolResult> {
     // 与 POST /research-development/task-categories/tasks 端点权限一致
-    if (!this.hasAnyPermission(user, ['rd-task:create'])) {
-      return { ok: false, summary: '无立项权限', content: '当前用户没有立项权限（rd-task:create），无法发起立项，请如实告知用户。' };
+    if (!this.hasAnyPermission(user, RD_TASK_CREATE_PERMISSIONS)) {
+      return { ok: false, summary: '无立项权限', content: '当前用户没有立项申请或直接立项权限，无法发起立项，请如实告知用户。' };
     }
     const title = String(args.title ?? '').trim();
     const categoryInput = String(args.category ?? '').trim();
@@ -1380,7 +1397,7 @@ export class ChatToolsService {
       const mine = myName ? rows.filter((t) => t.owner.includes(myName) || myName.includes(t.owner)) : [];
       const myOpen = mine.filter((t) => !isDone(t.status));
       const myOverdue = myOpen.filter((t) => t.due && t.due.slice(0, 10) < todayKey);
-      const canManage = this.hasAnyPermission(user, RD_TASK_MANAGER_PERMISSIONS);
+      const canManage = this.hasAnyPermission(user, RD_TASK_REVIEW_PERMISSIONS);
       const pendingReview = rows.filter((t) => t.status.includes('pending_review') || t.pendingReviewType);
 
       if (myOverdue.length > 0) suggestions.push(`我有 ${myOverdue.length} 条逾期任务，帮我按优先级排一下`);
@@ -1573,6 +1590,22 @@ export class ChatToolsService {
 
   /** 用户点击「确认执行」：以用户本人身份执行动作（权限二次校验） */
   async confirmPendingAction(actionId: string, user: RagUserContext): Promise<{ ok: true; message: string }> {
+    const previous = this.pendingActionLocks.get(actionId) ?? Promise.resolve();
+    const run = previous.then(
+      () => this.confirmPendingActionUnlocked(actionId, user),
+      () => this.confirmPendingActionUnlocked(actionId, user),
+    );
+    const tracked = run.finally(() => {
+      if (this.pendingActionLocks.get(actionId) === tracked) this.pendingActionLocks.delete(actionId);
+    });
+    this.pendingActionLocks.set(actionId, tracked);
+    return run;
+  }
+
+  private async confirmPendingActionUnlocked(
+    actionId: string,
+    user: RagUserContext,
+  ): Promise<{ ok: true; message: string }> {
     const map = await this.readPendingActions();
     const entry = map[actionId];
     if (!entry) throw new NotFoundException('该动作不存在或已过期清理');
@@ -1587,8 +1620,14 @@ export class ChatToolsService {
 
     let message: string;
     if (entry.tool === 'create_task') {
-      if (!this.hasAnyPermission(user, ['rd-task:create'])) throw new ForbiddenException('没有立项权限');
-      const task = (await this.rdService.createTask(entry.payload)) as Record<string, unknown>;
+      if (!this.hasAnyPermission(user, RD_TASK_CREATE_PERMISSIONS)) throw new ForbiddenException('没有立项权限');
+      const canCreateDirectly = this.hasAnyPermission(user, ['rd-task:create', 'rd-project:direct']);
+      const task = (await this.rdService.createTask(entry.payload, {
+        requesterUserId: user.userId,
+        requesterName: user.name,
+        canEditAny: this.hasAnyPermission(user, RD_TASK_STRUCTURE_MANAGER_PERMISSIONS),
+        proposalOnly: !canCreateDirectly && this.hasAnyPermission(user, ['rd-project:propose']),
+      })) as Record<string, unknown>;
       message = `已提交立项「${String(entry.payload.title ?? '')}」（任务号 ${String(task.task_id ?? '未知')}），等待管理员审核。`;
     } else if (entry.tool === 'update_task_progress') {
       if (!this.hasAnyPermission(user, PROGRESS_NOTE_PERMISSIONS)) throw new ForbiddenException('没有记录任务进展的权限');
@@ -1616,7 +1655,7 @@ export class ChatToolsService {
       }
       message = `已为任务「${String(entry.payload.taskTitle ?? taskId)}」记录进展${progress !== undefined ? `，进度更新为 ${progress}%` : ''}。`;
     } else if (entry.tool === 'approve_task_review') {
-      if (!this.hasAnyPermission(user, RD_TASK_MANAGER_PERMISSIONS)) throw new ForbiddenException('没有任务审核权限');
+      if (!this.hasAnyPermission(user, RD_TASK_REVIEW_PERMISSIONS)) throw new ForbiddenException('没有任务审核权限');
       const taskId = String(entry.payload.taskId ?? '');
       const decision = entry.payload.decision === 'reject' ? 'reject' : 'approve';
       // 复用工作台同款审批通道：updateTask 的 _review_action 会按任务的 pending_review_type 自动处理

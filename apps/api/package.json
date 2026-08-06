@@ -15,7 +15,16 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "ts-node -r tsconfig-paths/register prisma/seed.ts",
-    "seed:attendance-mock": "ts-node -r tsconfig-paths/register prisma/seed-attendance-mock.ts"
+    "seed:attendance-mock": "ts-node -r tsconfig-paths/register prisma/seed-attendance-mock.ts",
+    "test:external-docs": "node --test -r ts-node/register -r tsconfig-paths/register test/external-docs.service.spec.ts",
+    "test:expense": "node --test -r ts-node/register -r tsconfig-paths/register test/expense.service.spec.ts",
+    "test:departments": "node --test -r ts-node/register -r tsconfig-paths/register test/departments.service.spec.ts",
+    "test:attendance": "node --test -r ts-node/register -r tsconfig-paths/register test/attendance-deduction.spec.ts",
+    "test:procurement-tree": "node --test -r ts-node/register -r tsconfig-paths/register test/procurement-task-tree.service.spec.ts",
+    "test:tplus-sync": "node --test -r ts-node/register -r tsconfig-paths/register test/tplus-auto-sync.service.spec.ts",
+    "test:rd-task-tree": "node --test test/rd-task-tree-visibility.spec.mts test/rd-task-progress-group.spec.mts",
+    "test:tplus-operations": "node --test -r ts-node/register -r tsconfig-paths/register test/tplus-operations.service.spec.ts",
+    "test:rd-resources": "node --test -r ts-node/register -r tsconfig-paths/register test/rd-resource-loading.spec.ts test/production-task-sync.spec.ts test/oss-cdn-url.spec.ts test/files-direct-upload.spec.ts && node --test test/rd-attachment-payload.spec.mts test/production-dashboard-config.spec.mts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
@@ -44,7 +53,7 @@
     "pdf-parse": "^2.4.5",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "undici": "^8.10.0",
+    "undici": "^8.5.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {

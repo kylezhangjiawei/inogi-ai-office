@@ -192,7 +192,7 @@ export function ProcurementCockpitPage() {
   const visibleTasks = filtered.slice(0, visibleCount);
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col p-4">
+    <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col p-3 lg:p-4">
       {/* 页头（业务线 Tab + 操作按钮）/ 统计条 / 人员泳道 */}
       {view === "tasks" && (
         <div className="material-card mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2">
@@ -253,7 +253,7 @@ export function ProcurementCockpitPage() {
         /* 统计条 */
         <div className="flex min-h-0 flex-1 flex-col gap-3">
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="mb-3 grid grid-cols-6 gap-3">
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 lg:gap-3">
         <StatCell label={t('进行中')} value={counts.inprogress} Icon={Activity} active={stat === "inprogress"} onClick={() => toggleStat("inprogress")} />
         <StatCell label={t('待处理')} value={counts.pending} tone={counts.pending > 0 ? "red" : "slate"} badge={counts.pending > 0} Icon={ClipboardList} active={stat === "pending"} onClick={() => toggleStat("pending")} />
         <StatCell label={t('询价中')} value={counts.inquiring} tone="indigo" Icon={Search} active={stat === "inquiring"} onClick={() => toggleStat("inquiring")} />
@@ -263,14 +263,14 @@ export function ProcurementCockpitPage() {
       </div>
 
       {/* 人员泳道 */}
-      <div className="material-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3">
+      <div className="material-card mb-3 flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-4 sm:py-3">
         <span className="mr-1 text-xs text-slate-400">{t('人员')}</span>
-        <button type="button" onClick={() => setPerson(null)} className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", !person ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>{t('全部')}</button>
+        <button type="button" aria-pressed={!person} onClick={() => setPerson(null)} className={cn("rounded-full border px-2.5 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400", !person ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>{t('全部')}</button>
         {people.map(([name, n]) => (
-          <button key={name} type="button" onClick={() => setPerson((cur) => (cur === name ? null : name))} className={cn("flex items-center gap-1.5 rounded-full border py-0.5 pl-0.5 pr-2 text-xs font-medium", person === name ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-600 hover:bg-slate-50")}>
+          <button key={name} type="button" aria-pressed={person === name} onClick={() => setPerson((cur) => (cur === name ? null : name))} className={cn("flex items-center gap-1.5 rounded-full border py-0.5 pl-0.5 pr-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400", person === name ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-600 hover:bg-slate-50")}>
             <PersonAvatar name={name} size="xs" />
             {name}
-            <span className="rounded-full bg-slate-100 px-1.5 text-[10px] text-slate-500">{n}</span>
+            <span className="rounded-full bg-slate-100 px-1.5 text-[11px] text-slate-500">{n}</span>
           </button>
         ))}
         {treeNode && (
@@ -285,13 +285,13 @@ export function ProcurementCockpitPage() {
         {materialParam && (
           <button type="button" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete("material"); return n; }, { replace: true })} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600">{t('物料')}：<AutoTranslatedText text={materialParam} /> ✕</button>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1 text-xs">
+        <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1 text-xs focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 sm:flex-none">
             <Search className="h-3.5 w-3.5 text-slate-400" />
-            <Input value={kw} onChange={(e) => setKw(e.target.value)} placeholder={t('搜索单号 / 物料 / 人员')} className="w-40 bg-transparent outline-none placeholder:text-slate-400" />
-            {kw && <button type="button" onClick={() => setKw("")} className="text-slate-400 hover:text-slate-600">✕</button>}
+            <Input value={kw} onChange={(e) => setKw(e.target.value)} placeholder={t('搜索单号 / 物料 / 人员')} className="h-7 min-w-0 flex-1 border-0 bg-transparent p-0 shadow-none outline-none placeholder:text-slate-400 focus-visible:ring-0 sm:w-40 sm:flex-none" />
+            {kw && <button type="button" aria-label={t('清空搜索')} onClick={() => setKw("")} className="rounded text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">✕</button>}
           </div>
-          <span className="text-xs text-slate-400">{filtered.length} {t('个任务')}</span>
+          <span className="shrink-0 text-xs tabular-nums text-slate-400">{filtered.length} {t('个任务')}</span>
         </div>
       </div>
 
@@ -307,7 +307,7 @@ export function ProcurementCockpitPage() {
           ) : (
               <>
                 {/* 瀑布流：CSS 多列实现（待处理置顶项落在第一列顶部）；分批渲染 + 滚动加载更多 */}
-                <div className="columns-3 gap-3">
+                <div className="columns-1 gap-3 lg:columns-2 xl:columns-3">
                   {visibleTasks.map((t) => (
                     <div key={t.id} className="mb-3 break-inside-avoid">
                       <ProcurementTaskCard
@@ -322,11 +322,11 @@ export function ProcurementCockpitPage() {
                 </div>
                 {visibleCount < filtered.length ? (
                   <div ref={sentinelRef} className="flex items-center justify-center gap-2 py-4 text-xs text-slate-400">
-                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-indigo-500" />
+                    <span className="size-3 animate-spin rounded-full border-2 border-slate-300 border-t-indigo-500 motion-reduce:animate-none" />
                     {t('下拉加载更多')}（{visibleCount} / {filtered.length}）
                   </div>
                 ) : filtered.length > WATERFALL_PAGE_SIZE ? (
-                  <div className="py-4 text-center text-xs text-slate-300">{t('已加载全部')} {filtered.length} {t('个任务')}</div>
+                  <div className="py-4 text-center text-xs text-slate-400">{t('已加载全部')} {filtered.length} {t('个任务')}</div>
                 ) : null}
               </>
             )}

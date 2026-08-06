@@ -391,8 +391,6 @@ const BUILTIN_EN_FALLBACKS: Record<string, string> = {
     "Completed, archived, and already nested tasks are excluded. Existing descendants will not be flattened.",
   "本任务「{title}」将成为所选任务的子任务。任务本体完整保留：标题、主责人、进度、进度留痕与附件都不变，只是在任务树中的位置改变。之后可随时取消关系提升回独立任务。":
     "\"{title}\" will become a subtask of the selected task. The task itself is fully preserved — title, owner, progress, progress notes and attachments are unchanged; only its position in the task tree moves. You can detach it back into a standalone task at any time.",
-  "候选中不含已完成/已归档的任务，也不含子任务本身——子任务下不能再挂子任务（仅支持一层）。":
-    "Completed and archived tasks are excluded, as are subtasks themselves — a subtask cannot hold subtasks (one level only).",
   // 取消子任务关系
   "取消子任务关系": "Detach from parent",
   "确认取消关系": "Detach",
@@ -403,6 +401,14 @@ const BUILTIN_EN_FALLBACKS: Record<string, string> = {
   "提升后落在原父任务所在的子项目里": "It lands in the sub-project that holds the former parent",
   "已取消子任务关系，该任务已提升为独立任务": "Detached — the task is now a standalone task",
   "取消子任务关系失败，请重试": "Failed to detach from parent. Please try again.",
+  "批量取消": "Batch detach",
+  "批量取消子任务关系": "Batch detach subtasks",
+  "取消全选": "Clear selection",
+  "全选": "Select all",
+  "已取消 {n} 个子任务关系": "Detached {n} subtasks",
+  "批量取消失败，请重试": "Batch detach failed. Please try again.",
+  "取消后，所选任务会连同其全部下级任务一起提升为独立任务，不会删除任何留痕或附件。":
+    "The selected tasks and their complete descendant trees will become standalone tasks. No notes or attachments are deleted.",
   // 任务驾驶舱 KPI：「活跃」改为「总任务」（2026-07-31）
   // 同排的另外几个标签此前也没有兜底，英文下会中英混排，一并补上。
   // 「完成」全站 9 处均为状态/统计标签（无操作按钮），统一译作 Completed 无歧义。
@@ -421,6 +427,35 @@ const BUILTIN_EN_FALLBACKS: Record<string, string> = {
   "子任务来源": "Subtask origin",
   "由已有任务并入": "Merged in from an existing task",
   "在父任务下直建": "Created under the parent task",
+  // 个人工作台：任务树节点级立项
+  "节点立项": "Kick off under task",
+  "当前节点立项": "Kick off under current task",
+  "在当前节点下发起立项": "Start a kickoff under this task",
+  "任务树最多支持 5 层": "Task trees support up to 5 levels",
+  "本次创建的任务将作为当前节点的直接子任务，并自动继承其产品与分类。":
+    "Tasks created in this kickoff become direct children of the current task and inherit its product and category.",
+  "按项目文件夹查看": "Browse by project folder",
+  "查看全部任务": "View all tasks",
+  "返回项目文件夹": "Back to project folders",
+  "风险任务": "At-risk tasks",
+  "该项目下没有匹配的任务": "No matching tasks in this project",
+  "个项目": "projects",
+  "项目文件夹": "Project folder",
+  "已完成任务": "Completed tasks",
+  "有未读进展": "Unread progress updates",
+  "整体进度": "Overall progress",
+  "我的项目": "My projects",
+  "先进入项目文件夹，再查看和处理分任务": "Open a project folder to view and work on its tasks",
+  "项目任务": "Project tasks",
+  "没有匹配的项目文件夹": "No matching project folders",
+  "收起子任务": "Collapse subtasks",
+  "展开子任务": "Expand subtasks",
+  "上级：{title}": "Parent: {title}",
+  "项目": "Projects",
+  "全部": "All",
+  "我主责": "Owned by me",
+  "更新进度": "Update progress",
+  "移动到其它系统 / 子项": "Move to another system / sub-project",
 };
 let dict: Record<string, string> = {};
 let dictLoaded = false;

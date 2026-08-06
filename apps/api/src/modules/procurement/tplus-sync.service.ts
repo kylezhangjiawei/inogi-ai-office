@@ -25,6 +25,23 @@ import { TplusPoMatchService } from './tplus-po-match.service';
 
 const CONFIG_KIND = 'tplus';
 const DEFAULT_BASE_URL = 'https://openapi.chanjet.com';
+const DEFAULT_MATERIAL_MASTER_PATH = '/tplus/api/v2/inventory/Query';
+const LEGACY_MATERIAL_MASTER_PATH = '/tplus/api/v2/inventory/QueryPage';
+const MATERIAL_MASTER_PAGE_SIZE = 1000;
+const MATERIAL_MASTER_MAX_PAGES = 100;
+const MATERIAL_MASTER_SELECT_FIELDS = [
+  'ID',
+  'Code',
+  'Name',
+  'Specification',
+  'InventoryClass.Code',
+  'InventoryClass.Name',
+  'Unit.Code',
+  'Unit.Name',
+  'Disabled',
+  'LatestCost',
+  'Ts',
+].join(',');
 const TPLUS_SYNC_TIME_ZONE = 'Asia/Shanghai';
 
 export interface TplusCredentials {
@@ -56,6 +73,27 @@ export interface TplusInventoryBalance {
   availableQty?: number;
   inTransitQty?: number;
 }
+export interface TplusMaterialMaster {
+  inventoryCode: string;
+  name: string;
+  spec?: string;
+  unit?: string;
+  category?: string;
+  enabled?: boolean;
+  sourceId?: string;
+  latestCost?: number;
+}
+export interface TplusMaterialMasterSyncResult extends Record<string, number> {
+  received: number;
+  created: number;
+  updated: number;
+  conflicts: number;
+  disabled: number;
+  scannedNodes: number;
+  linkedNodes: number;
+  unmatchedNodes: number;
+  ambiguousNodes: number;
+}
 export interface TplusPurchaseOrderLine {
   orderNo: string;
   orderId?: string;
@@ -78,6 +116,7 @@ export interface TplusPurchaseOrderLine {
 @Injectable()
 export class TplusSyncService {
   private readonly logger = new Logger(TplusSyncService.name);
+  private materialMasterSyncInFlight: Promise<TplusMaterialMasterSyncResult> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -140,6 +179,9 @@ export class TplusSyncService {
       autoSync: meta.autoSync !== false,
       lastAutoSyncAt: typeof meta.lastAutoSyncAt === 'string' ? meta.lastAutoSyncAt : null,
       lastAutoSyncSummary: typeof meta.lastAutoSyncSummary === 'string' ? meta.lastAutoSyncSummary : null,
+      lastMaterialSyncAt: typeof meta.lastMaterialSyncAt === 'string' ? meta.lastMaterialSyncAt : null,
+      lastMaterialSyncSummary: typeof meta.lastMaterialSyncSummary === 'string' ? meta.lastMaterialSyncSummary : null,
+      lastMaterialSyncSucceeded: typeof meta.lastMaterialSyncSucceeded === 'boolean' ? meta.lastMaterialSyncSucceeded : null,
     };
   }
 
@@ -440,15 +482,16 @@ export class TplusSyncService {
 
   async status() {
     const cred = await this.loadCredentials();
-    const [suppliers, balances, refs] = await this.prisma.$transaction([
+    const [suppliers, materials, balances, refs] = await this.prisma.$transaction([
       this.prisma.procSupplier.count({ where: { source: 'tplus' } }),
+      this.prisma.procMaterial.count({ where: { tpInventoryCode: { not: null } } }),
       this.prisma.procInventoryBalance.count(),
       this.prisma.procPurchaseOrderRef.count(),
     ]);
     return {
       configured: Boolean(cred),
       authorized: Boolean(cred?.openToken),
-      mirrored: { suppliers, balances, purchaseOrderRefs: refs },
+      mirrored: { suppliers, materials, balances, purchaseOrderRefs: refs },
     };
   }
 
@@ -467,18 +510,61 @@ export class TplusSyncService {
       const rows = this.toRows(raw);
       all.push(...rows);
       // 优先按服务端返回的总页数终止（部分接口会把 PageSize 钳到更小值，行数判断会提前漏停）
-      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        const o = raw as Record<string, unknown>;
-        const totalPage = Number(o.TotalPage ?? o.TotalPageNum ?? 0);
-        if (totalPage > 0) {
-          const current = Number(o.CurrentPage ?? page);
-          if (current >= totalPage) break;
-          continue;
-        }
+      const pageInfo = this.pageInfo(raw, page);
+      if (pageInfo.totalPage > 0) {
+        if (pageInfo.currentPage >= pageInfo.totalPage) break;
+        continue;
       }
       if (rows.length < pageSize) break;
     }
     return all;
+  }
+
+  /**
+   * 存货档案查询使用 T+ 官方的 Ts 游标分页，不能复用其他接口的 PageIndex 分页。
+   * 查询结果按 Ts 升序返回，下一页必须携带上一页最后一条记录的 Ts。
+   */
+  private async fetchMaterialMasterRows(
+    path: string,
+    onProgress?: (progress: string) => void,
+  ): Promise<unknown[]> {
+    const all: unknown[] = [];
+    let cursor = '';
+
+    for (let page = 1; page <= MATERIAL_MASTER_MAX_PAGES; page += 1) {
+      const raw = await this.fetchFromTplus(path, {
+        PageSize: String(MATERIAL_MASTER_PAGE_SIZE),
+        SelectFields: MATERIAL_MASTER_SELECT_FIELDS,
+        ...(cursor ? { Ts: cursor } : {}),
+      });
+      const rows = this.toRows(raw);
+      all.push(...rows);
+      onProgress?.(`正在读取 T+ 存货档案 ${all.length} 条…`);
+
+      if (rows.length < MATERIAL_MASTER_PAGE_SIZE) return all;
+
+      const lastRow = this.jsonObject(rows.at(-1));
+      const nextCursorValue = lastRow.Ts ?? lastRow.ts ?? lastRow.TS;
+      const nextCursor =
+        typeof nextCursorValue === 'string' || typeof nextCursorValue === 'number'
+          ? String(nextCursorValue).trim()
+          : '';
+      if (!nextCursor) {
+        throw new ServiceUnavailableException(
+          'T+ 存货档案分页结果缺少 Ts 游标，已中止同步以避免遗漏物料',
+        );
+      }
+      if (nextCursor === cursor) {
+        throw new ServiceUnavailableException(
+          'T+ 存货档案分页游标未前进，已中止同步以避免重复请求',
+        );
+      }
+      cursor = nextCursor;
+    }
+
+    throw new ServiceUnavailableException(
+      `T+ 存货档案超过 ${MATERIAL_MASTER_MAX_PAGES * MATERIAL_MASTER_PAGE_SIZE} 条，已中止同步以避免不完整写入`,
+    );
   }
 
   async syncSuppliers() {
@@ -517,6 +603,213 @@ export class TplusSyncService {
       upserted += 1;
     }
     return { upserted };
+  }
+
+  /**
+   * 拉取 T+ 存货档案全量主数据。与现存量同步不同，这里会包含零库存、尚未产生仓库余额的
+   * 存货，因此是物料库完整性的事实来源。同步只做幂等 upsert，不删除本地缺失项，也不覆盖
+   * 本系统维护的安全库存、产品线、审核备注、图片等字段。
+   */
+  syncMaterialMaster(onProgress?: (progress: string) => void): Promise<TplusMaterialMasterSyncResult> {
+    if (!this.materialMasterSyncInFlight) {
+      this.materialMasterSyncInFlight = this.performMaterialMasterSync(onProgress)
+        .then(async (result) => {
+          const summary = this.materialMasterSummary(result);
+          await this.recordMaterialMasterSync(true, summary).catch((recordError) => {
+            // 业务数据已经同步成功时，可观测性写入失败不应把整个同步标记为失败。
+            this.logger.warn(`记录 T+ 存货主档同步结果失败：${(recordError as Error).message}`);
+          });
+          return result;
+        })
+        .catch(async (error) => {
+          await this.recordMaterialMasterSync(false, (error as Error).message).catch((recordError) => {
+            this.logger.warn(`记录 T+ 存货主档同步失败：${(recordError as Error).message}`);
+          });
+          throw error;
+        })
+        .finally(() => {
+          this.materialMasterSyncInFlight = null;
+        });
+    }
+    return this.materialMasterSyncInFlight;
+  }
+
+  private async performMaterialMasterSync(
+    onProgress?: (progress: string) => void,
+  ): Promise<TplusMaterialMasterSyncResult> {
+    const path = this.materialMasterPath();
+    onProgress?.('正在读取 T+ 存货档案…');
+    const rawRows = await this.fetchMaterialMasterRows(path, onProgress);
+    const mappedRows = this.mapMaterialMaster(rawRows);
+    // 某些账套会按存货多计量单位返回重复行；主档按编码收敛为一条。
+    const rows = [...new Map(mappedRows.map((item) => [item.inventoryCode, item])).values()];
+    const existingMaterials = await this.prisma.procMaterial.findMany({
+      select: {
+        id: true,
+        name: true,
+        spec: true,
+        unit: true,
+        category: true,
+        erpCode: true,
+        tpInventoryCode: true,
+        metadata: true,
+      },
+    });
+    if (rows.length === 0 && existingMaterials.some((material) => Boolean(material.tpInventoryCode))) {
+      throw new ServiceUnavailableException(
+        rawRows.length > 0
+          ? 'T+ 存货档案有返回数据，但字段结构无法识别；已中止同步，请检查接口版本'
+          : 'T+ 存货档案返回 0 条，与本地已有 T+ 物料不一致；已中止同步，请检查接口权限或路径',
+      );
+    }
+    type ExistingMaterial = (typeof existingMaterials)[number];
+    const byTpCode = new Map<string, ExistingMaterial>();
+    const byErpCode = new Map<string, ExistingMaterial[]>();
+    for (const material of existingMaterials) {
+      const tpCode = material.tpInventoryCode?.trim();
+      if (tpCode) byTpCode.set(tpCode, material);
+      const erpCode = material.erpCode.trim();
+      if (erpCode) byErpCode.set(erpCode, [...(byErpCode.get(erpCode) ?? []), material]);
+    }
+
+    let created = 0;
+    let updated = 0;
+    let conflicts = 0;
+    const syncedAt = new Date().toISOString();
+    for (let index = 0; index < rows.length; index += 1) {
+      if (index > 0 && index % 100 === 0) {
+        onProgress?.(`正在写入物料主档 ${index}/${rows.length}…`);
+      }
+      const item = rows[index];
+      let existing = byTpCode.get(item.inventoryCode);
+      if (!existing) {
+        const erpMatches = byErpCode.get(item.inventoryCode) ?? [];
+        if (erpMatches.length > 1) {
+          // ERP 编码不是唯一键，歧义时宁可留待人工处理，也不能错误覆盖任意一条。
+          conflicts += 1;
+          continue;
+        }
+        existing = erpMatches[0];
+      }
+
+      const existingMetadata = this.jsonObject(existing?.metadata);
+      const previousTplusMetadata = this.jsonObject(existingMetadata.tplusMaster);
+      const metadata = {
+        ...existingMetadata,
+        tplusMaster: {
+          ...previousTplusMetadata,
+          inventoryCode: item.inventoryCode,
+          enabled: item.enabled ?? true,
+          sourcePath: path,
+          lastSeenAt: syncedAt,
+          ...(item.sourceId ? { sourceId: item.sourceId } : {}),
+          ...(item.category ? { category: item.category } : {}),
+          ...(item.latestCost !== undefined ? { latestCost: item.latestCost } : {}),
+        },
+      } as Prisma.InputJsonObject;
+
+      if (existing) {
+        const data: Prisma.ProcMaterialUpdateInput = {
+          tpInventoryCode: item.inventoryCode,
+          erpCode: item.inventoryCode,
+          metadata,
+          ...(item.name ? { name: item.name } : {}),
+          ...(item.spec !== undefined ? { spec: item.spec } : {}),
+          ...(item.unit !== undefined ? { unit: item.unit } : {}),
+          ...(item.category && (!existing.category.trim() || existing.category === '未分类')
+            ? { category: item.category }
+            : {}),
+        };
+        await this.prisma.procMaterial.update({ where: { id: existing.id }, data });
+        updated += 1;
+      } else {
+        const createdMaterial = await this.prisma.procMaterial.create({
+          data: {
+            name: item.name || item.inventoryCode,
+            spec: item.spec ?? '',
+            unit: item.unit ?? '',
+            category: item.category || '未分类',
+            productLine: '',
+            erpCode: item.inventoryCode,
+            tpInventoryCode: item.inventoryCode,
+            reviewStatus: 'approved',
+            reviewSource: 'import',
+            remark: '由畅捷通 T+ 存货主档同步自动创建',
+            metadata,
+          },
+          select: {
+            id: true,
+            name: true,
+            spec: true,
+            unit: true,
+            category: true,
+            erpCode: true,
+            tpInventoryCode: true,
+            metadata: true,
+          },
+        });
+        byTpCode.set(item.inventoryCode, createdMaterial);
+        byErpCode.set(item.inventoryCode, [createdMaterial]);
+        created += 1;
+      }
+    }
+
+    onProgress?.('物料主档已写入，正在补齐任务树关联…');
+    const tree = await this.procurement.reconcileProcTaskTreeMaterialLinks();
+    return {
+      received: rows.length,
+      created,
+      updated,
+      conflicts,
+      disabled: rows.filter((item) => item.enabled === false).length,
+      ...tree,
+    };
+  }
+
+  private materialMasterPath() {
+    const configured = process.env.TPLUS_MATERIAL_MASTER_PATH?.trim();
+    // 兼容已部署环境中的旧示例值；该路径不是 T+ 存货档案的有效开放接口，会返回 403。
+    if (configured === LEGACY_MATERIAL_MASTER_PATH) return DEFAULT_MATERIAL_MASTER_PATH;
+    return configured?.startsWith('/tplus/api/v2/') ? configured : DEFAULT_MATERIAL_MASTER_PATH;
+  }
+
+  private jsonObject(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  }
+
+  private materialMasterSummary(result: TplusMaterialMasterSyncResult) {
+    return [
+      `received=${result.received}`,
+      `created=${result.created}`,
+      `updated=${result.updated}`,
+      `conflicts=${result.conflicts}`,
+      `linkedNodes=${result.linkedNodes}`,
+    ].join(',');
+  }
+
+  /** 保存最近一次结果和最多 20 条轻量历史，便于线上判断同步是否真正跑到主档步骤。 */
+  private async recordMaterialMasterSync(succeeded: boolean, summary: string) {
+    const row = await this.findConfigRow();
+    if (!row) return;
+    const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    const at = new Date().toISOString();
+    const previousHistory = Array.isArray(meta.materialSyncHistory)
+      ? meta.materialSyncHistory.slice(-19)
+      : [];
+    await this.prisma.integrationConfig.update({
+      where: { id: row.id },
+      data: {
+        metadata: {
+          ...meta,
+          lastMaterialSyncAt: at,
+          lastMaterialSyncSummary: summary.slice(0, 500),
+          lastMaterialSyncSucceeded: succeeded,
+          materialSyncHistory: [...previousHistory, { at, succeeded, summary: summary.slice(0, 500) }],
+        } as Prisma.InputJsonObject,
+      },
+    });
   }
 
   async syncInventory() {
@@ -581,7 +874,10 @@ export class TplusSyncService {
       });
       upserted += 1;
     }
-    return { upserted, createdMaterials };
+    const tree = createdMaterials > 0
+      ? await this.procurement.reconcileProcTaskTreeMaterialLinks()
+      : { scannedNodes: 0, linkedNodes: 0, unmatchedNodes: 0, ambiguousNodes: 0 };
+    return { upserted, createdMaterials, ...tree };
   }
 
   /** 采购单同步：按任务已关联的单号逐单精确查（GetVoucherDTO），回推任务到货量/状态。 */
@@ -664,7 +960,7 @@ export class TplusSyncService {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       this.logger.error(`T+ 请求失败 ${path} ${res.status} ${text.slice(0, 200)}`);
-      throw new ServiceUnavailableException(`畅捷通 T+ 接口返回 ${res.status}`);
+      throw new ServiceUnavailableException(this.tplusHttpErrorMessage(path, res.status, text));
     }
     const body = (await res.json()) as Record<string, unknown> | unknown[] | null;
     // 业务失败可能 HTTP 200 + { code: 999, message }
@@ -679,18 +975,70 @@ export class TplusSyncService {
     return body;
   }
 
+  /** 把 T+ 网关错误转换成不泄露凭据、但足够让管理员处理的用户提示。 */
+  private tplusHttpErrorMessage(path: string, status: number, responseText: string): string {
+    let providerMessage = '';
+    try {
+      const body = JSON.parse(responseText) as Record<string, unknown>;
+      const value = body.message ?? body.msg ?? body.error_description ?? body.error;
+      if (typeof value === 'string') {
+        providerMessage = value.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 160);
+      }
+    } catch {
+      // HTML 网关页或空响应不向前端透传，避免暴露代理内部信息。
+    }
+
+    const detail = providerMessage ? `（${providerMessage}）` : '';
+    if (status === 403 && path === DEFAULT_MATERIAL_MASTER_PATH) {
+      return [
+        `畅捷通 T+ 拒绝存货查询，HTTP 403${detail}`,
+        '请在开放平台当前应用的「权限配置」中申请“存货查询”接口权限',
+        '再到「开发管理」为授权用户执行“更新授权”，并重新获取 token',
+      ].join('；');
+    }
+    return `畅捷通 T+ 接口返回 ${status}${detail}`;
+  }
+
   /** T+ 各接口的行数据位置不统一（数组 / data / Rows / result），统一挖行。 */
   private toRows(raw: unknown): unknown[] {
     if (Array.isArray(raw)) return raw;
     if (raw && typeof raw === 'object') {
       const o = raw as Record<string, unknown>;
-      for (const key of ['Data', 'data', 'Rows', 'rows', 'result', 'Items']) {
+      for (const key of ['Data', 'data', 'Rows', 'rows', 'Records', 'records', 'List', 'list', 'result', 'Items']) {
         if (Array.isArray(o[key])) return o[key] as unknown[];
       }
-      // data 又包一层的情况（如 { data: { Rows: [...] } }）
-      if (o.data && typeof o.data === 'object') return this.toRows(o.data);
+      // data / result 又包一层的情况（如 { data: { Rows: [...] } }）
+      for (const key of ['Data', 'data', 'result']) {
+        if (o[key] && typeof o[key] === 'object') {
+          const nested = this.toRows(o[key]);
+          if (nested.length) return nested;
+        }
+      }
     }
     return [];
+  }
+
+  private pageInfo(raw: unknown, fallbackPage: number): { currentPage: number; totalPage: number } {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { currentPage: fallbackPage, totalPage: 0 };
+    }
+    const object = raw as Record<string, unknown>;
+    const totalPage = Number(
+      object.TotalPage ?? object.TotalPageNum ?? object.PageCount ?? object.totalPage ?? object.totalPages ?? 0,
+    );
+    if (totalPage > 0) {
+      return {
+        currentPage: Number(object.CurrentPage ?? object.PageIndex ?? object.currentPage ?? fallbackPage),
+        totalPage,
+      };
+    }
+    for (const key of ['Data', 'data', 'result']) {
+      if (object[key] && typeof object[key] === 'object') {
+        const nested = this.pageInfo(object[key], fallbackPage);
+        if (nested.totalPage > 0) return nested;
+      }
+    }
+    return { currentPage: fallbackPage, totalPage: 0 };
   }
 
   // ── 字段映射：待拿到真实响应样例后按文档补全 ─────────────────────────────────
@@ -717,6 +1065,60 @@ export class TplusSyncService {
         address: r.Address ? String(r.Address) : undefined,
         enabled: r.Disabled === undefined ? true : !r.Disabled,
       }));
+  }
+
+  /** 存货档案字段兼容：不同 T+ 小版本会把档案/单位/分类返回为字符串或 { Code, Name }。 */
+  private mapMaterialMaster(rows: unknown[]): TplusMaterialMaster[] {
+    const textOf = (value: unknown): string | undefined => {
+      if (typeof value === 'string') return value.trim();
+      if (typeof value === 'number') return String(value);
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const object = value as Record<string, unknown>;
+        const nested = object.Name ?? object.name ?? object.Code ?? object.code;
+        if (typeof nested === 'string' || typeof nested === 'number') return String(nested).trim();
+      }
+      return undefined;
+    };
+    const booleanOf = (value: unknown): boolean | undefined => {
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'number') return value !== 0;
+      if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (['true', '1', 'yes', '是', '启用'].includes(normalized)) return true;
+        if (['false', '0', 'no', '否', '停用'].includes(normalized)) return false;
+      }
+      return undefined;
+    };
+    const numberOf = (value: unknown): number | undefined => {
+      if (value === undefined || value === null || value === '') return undefined;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
+    return rows
+      .map((row) => row as Record<string, unknown>)
+      .map((r) => {
+        const inventory = this.jsonObject(r.Inventory ?? r.inventory);
+        const code = textOf(
+          r.InventoryCode ?? r.inventoryCode ?? r.Code ?? r.code ?? inventory.Code ?? inventory.code,
+        );
+        const disabled = booleanOf(r.Disabled ?? r.disabled ?? r.IsDisabled ?? r.isDisabled ?? r.IsStop);
+        const explicitlyEnabled = booleanOf(r.Enabled ?? r.enabled ?? r.IsEnabled ?? r.isEnabled);
+        const enabled = disabled === undefined ? explicitlyEnabled : !disabled;
+        return {
+          inventoryCode: code ?? '',
+          name: textOf(r.InventoryName ?? r.inventoryName ?? r.Name ?? r.name ?? inventory.Name ?? inventory.name) ?? '',
+          spec: textOf(r.Specification ?? r.specification ?? r.Spec ?? r.spec ?? inventory.Specification),
+          unit: textOf(r.UnitName ?? r.unitName ?? r.BaseUnit ?? r.Unit ?? r.unit ?? r.StockUnit),
+          category: textOf(
+            r.InventoryClassName ?? r.inventoryClassName ?? r.InventoryClass ?? r.CategoryName ?? r.Category,
+          ),
+          enabled,
+          sourceId: textOf(r.ID ?? r.Id ?? r.id),
+          latestCost: numberOf(r.LatestCost ?? r.ReferenceCost ?? r.CostPrice),
+        } satisfies TplusMaterialMaster;
+      })
+      .filter((item) => Boolean(item.inventoryCode));
   }
 
   private mapInventory(rows: unknown[]): TplusInventoryBalance[] {
@@ -899,29 +1301,32 @@ export class TplusSyncService {
   }
 
   /**
-   * 全链路自动同步：供应商 → 库存 → 采购单全量（含任务到货回推）→ 匹配建议。
+   * 全链路自动同步：物料主档 → 供应商 → 库存 → 采购单全量（含任务到货回推）→ 匹配建议。
    * 未配置/未授权/开关关闭时跳过；单步失败记日志并继续，结果摘要落 metadata 供前端展示。
    */
-  async autoSync(onProgress?: (progress: string) => void) {
+  async autoSync(onProgress?: (progress: string) => void, options: { force?: boolean } = {}) {
     const config = await this.getConfig();
     if (!config.configured || !config.authorized) {
       this.logger.debug('T+ 自动同步跳过：未配置或未授权');
       return { skipped: true as const, reason: '未配置或未授权' };
     }
-    if (!config.autoSync) {
+    if (!config.autoSync && !options.force) {
       return { skipped: true as const, reason: '自动同步已关闭' };
     }
     const parts: string[] = [];
+    let failedSteps = 0;
     const step = async (label: string, run: () => Promise<Record<string, unknown>>) => {
       onProgress?.(`${parts.length ? parts.join('；') + '；' : ''}正在同步${label}…`);
       try {
         const result = await run();
         parts.push(`${label} ✓ ${Object.entries(result).filter(([, v]) => typeof v === 'number').map(([k, v]) => `${k}=${v}`).join(',')}`);
       } catch (error) {
+        failedSteps += 1;
         parts.push(`${label} ✗ ${(error as Error).message}`);
         this.logger.warn(`T+ 自动同步「${label}」失败：${(error as Error).message}`);
       }
     };
+    await step('物料主档', () => this.syncMaterialMaster(onProgress));
     await step('供应商', () => this.syncSuppliers());
     await step('库存', () => this.syncInventory());
     await step('采购单全量', () => this.syncPurchaseOrderMirror(90, (p) => onProgress?.(`${parts.join('；')}；${p}`)));
@@ -943,7 +1348,7 @@ export class TplusSyncService {
       });
     }
     this.logger.log(`T+ 自动同步完成：${summary}`);
-    return { skipped: false as const, summary };
+    return { skipped: false as const, summary, failedSteps };
   }
 
   /**
