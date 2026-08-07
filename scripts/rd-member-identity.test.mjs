@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
+import ts from "typescript";
 
-import { isNonPersonTaskOwner, isTaskOwnerMember } from "../src/app/lib/rdMemberIdentity.ts";
+const helperUrl = new URL("../src/app/lib/rdMemberIdentity.ts", import.meta.url);
+const helperSource = await readFile(helperUrl, "utf8");
+const transpiled = ts.transpileModule(helperSource, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  fileName: helperUrl.pathname,
+}).outputText;
+const helperModuleUrl = `data:text/javascript;base64,${Buffer.from(transpiled).toString("base64")}`;
+const { isNonPersonTaskOwner, isTaskOwnerMember } = await import(helperModuleUrl);
 
 const directory = [
   { name: "刘至远", user_id: "user-1", status: "active" },
