@@ -10392,7 +10392,9 @@ function ProjectClassificationDialog({
           taskIds: group.task_ids,
           primaryTaskId,
           sourceTaskIds: group.task_ids.filter((taskId) => taskId !== primaryTaskId && rootTaskIds.has(taskId)),
-          enabled: false,
+          // 高置信组默认勾选：AI 已逐组判定并选好主任务，用户扫一眼点一次「应用」即可。
+          // 合并只是父子挂接（内容与留痕完整保留、可批量拆回），误判的代价远低于逐组手动勾选的成本。
+          enabled: true,
         };
       });
       const homogeneousDrafts = next.homogeneous_clusters.map((group, index): ProjectClassificationMergeDraft => {

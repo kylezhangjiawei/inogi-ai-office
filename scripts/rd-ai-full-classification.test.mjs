@@ -58,13 +58,65 @@ test("server builds a trusted cross-product snapshot and excludes archived task 
   assert.match(apiClient, /if \(payload\.categoryId\) form\.append\("category_id"/);
 });
 
-test("200-plus tasks are analyzed in batches and consolidated across batches", () => {
-  assert.match(aiService, /const batchSize = 60/);
-  assert.match(aiService, /Math\.ceil\(tasks\.length \/ batchSize\)/);
-  assert.match(aiService, /每轮最多并行 2 个模型请求/);
-  assert.match(aiService, /全量任务索引/);
-  assert.match(aiService, /跨批次、跨产品、跨现有类目的重复\/同质任务/);
-  assert.match(aiService, /已将 \$\{tasks\.length\} 条任务分为 \$\{batchCount\} 批初筛/);
+test("召回由本地全量两两比对完成，不再按批切分导致跨批漏检", () => {
+  // 旧实现按 60 条切片、要求模型「在本批内找重复」，跨批的重复对没有任何一次调用同时看见过。
+  assert.doesNotMatch(aiService, /const batchSize = 60/);
+  assert.doesNotMatch(aiService, /这是全量任务分析的第 \$\{batchNumber\}/);
+  assert.match(aiService, /private buildMergeCandidateClusters/);
+  // 全量两两比对：双重循环 + 并查集
+  const recall = aiService.slice(
+    aiService.indexOf("private buildMergeCandidateClusters"),
+    aiService.indexOf("private parseMergeVerdict"),
+  );
+  assert.match(recall, /for \(let i = 0; i < tasks\.length; i \+= 1\)/);
+  assert.match(recall, /for \(let j = i \+ 1; j < tasks\.length; j \+= 1\)/);
+  assert.match(recall, /projectTitleSimilarity\(left\.title, right\.title\) >= RD_MERGE_RECALL_THRESHOLD/);
+  // 两条硬约束：父子层级不算重复、跨产品库不合并
+  assert.match(recall, /isHierarchyRelated\(left\.task_id, right\.task_id\)/);
+  assert.match(recall, /\(left\.product_name \|\| ''\) !== \(right\.product_name \|\| ''\)/);
+});
+
+test("AI 逐簇判定，每次只问一件事并给出主任务", () => {
+  assert.match(aiService, /const RD_MERGE_RECALL_THRESHOLD = 0\.55/);
+  assert.match(aiService, /const RD_MERGE_AUTO_CONFIDENCE = 0\.75/);
+  assert.match(aiService, /const RD_MERGE_REVIEW_CONFIDENCE = 0\.5/);
+  assert.match(aiService, /const adjudicate = async \(cluster/);
+  assert.match(aiService, /你只需判定这一组能否合并为一条主任务/);
+  assert.match(aiService, /"mergeable":boolean/);
+  assert.match(aiService, /private parseMergeVerdict/);
+  // 越界 / 编造的 task_id 必须被丢弃
+  const verdict = aiService.slice(
+    aiService.indexOf("private parseMergeVerdict"),
+    aiService.indexOf("private buildLocalCategoryView"),
+  );
+  assert.match(verdict, /allowedIds\.has\(parsed\.primary_task_id\)/);
+  assert.match(verdict, /allowedIds\.has\(id\)/);
+  // 置信度分流：高置信可直接合并，中置信转人工确认
+  assert.match(aiService, /verdict\.confidence >= RD_MERGE_AUTO_CONFIDENCE/);
+  assert.match(aiService, /verdict\.confidence >= RD_MERGE_REVIEW_CONFIDENCE/);
+});
+
+test("描述性分组改为本地确定性生成，AI 额度全部用在合并判定上", () => {
+  assert.match(aiService, /private buildLocalCategoryView/);
+  assert.match(aiService, /private buildLocalMemberTaskLines/);
+  assert.match(aiService, /categories: this\.buildLocalCategoryView\(tasks\)/);
+  assert.match(aiService, /member_task_lines: this\.buildLocalMemberTaskLines\(tasks\)/);
+});
+
+test("高置信合并组默认勾选，一次点击即可应用", () => {
+  // 「最少人工操作」的关键：AI 已选好主任务，高置信组开屏即勾上
+  const duplicateDraft = cockpit.slice(
+    cockpit.indexOf("const duplicateDrafts = next.duplicate_groups.map"),
+    cockpit.indexOf("const homogeneousDrafts = next.homogeneous_clusters.map"),
+  );
+  assert.match(duplicateDraft, /enabled: true,/);
+  assert.match(duplicateDraft, /group\.recommended_primary_task_id/);
+  // 需人工确认的一组仍保持不勾
+  const homogeneousDraft = cockpit.slice(
+    cockpit.indexOf("const homogeneousDrafts = next.homogeneous_clusters.map"),
+    cockpit.indexOf("setMergeDrafts(["),
+  );
+  assert.match(homogeneousDraft, /enabled: false,/);
 });
 
 test("full-task analysis uses a background job instead of one proxy-bound long request", () => {
@@ -80,7 +132,6 @@ test("full-task analysis uses a background job instead of one proxy-bound long r
 
 test("analysis produces member task lines and supports reviewed duplicate or homogeneous merges", () => {
   assert.match(aiService, /member_task_lines/);
-  assert.match(aiService, /不得把不同主责人的任务混入同一主任务线/);
   assert.match(aiService, /recommended_primary_task_id/);
   assert.match(cockpit, /成员主任务线/);
   assert.match(cockpit, /ProjectClassificationMergeDraft/);
