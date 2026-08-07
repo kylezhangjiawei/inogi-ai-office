@@ -14,6 +14,7 @@ const { isNonPersonTaskOwner, isTaskOwnerMember } = await import(helperModuleUrl
 
 const directory = [
   { name: "刘至远", user_id: "user-1", status: "active" },
+  { name: "新账号成员", user_id: "user-2", status: "active" },
   { name: "杨工", user_id: null, status: "active" },
   { name: "离职成员", user_id: null, status: "resigned" },
 ];
@@ -25,8 +26,10 @@ test("member cockpit rejects role and team placeholders", () => {
   }
 });
 
-test("member cockpit accepts bound users and active legacy directory members", () => {
+test("member cockpit only accepts configured users that own visible tasks", () => {
   assert.equal(isTaskOwnerMember("新账号成员", "user-2", directory), true);
+  assert.equal(isTaskOwnerMember("协同独有成员", "collab-user-1", directory), false);
+  assert.equal(isTaskOwnerMember("刘至远", "collab-user-2", directory), false);
   assert.equal(isTaskOwnerMember("刘至远", null, directory), true);
   assert.equal(isTaskOwnerMember("杨工", null, directory), true);
   assert.equal(isTaskOwnerMember("离职成员", null, directory), false);

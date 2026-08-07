@@ -32,9 +32,9 @@ export function isNonPersonTaskOwner(value: unknown): boolean {
 /**
  * 判断任务主责是否能成为驾驶舱里的“成员”。
  *
- * - 有 user_id 的主责属于真实账号，直接接受；
- * - 没有 user_id 的历史任务必须能在人员目录中按姓名命中；
- * - 未传目录时保留旧数据兼容性，但仍拒绝明确的角色/团队占位值。
+ * - 传入人员目录时，账号必须按 user_id 命中当前驾驶舱配置；
+ * - 没有 user_id 的历史任务按姓名命中当前驾驶舱配置；
+ * - 未传目录时仅用于旧调用兼容，但仍拒绝明确的角色/团队占位值。
  */
 export function isTaskOwnerMember(
   ownerName: unknown,
@@ -43,11 +43,13 @@ export function isTaskOwnerMember(
 ): boolean {
   const name = normalizeMemberName(ownerName);
   if (isNonPersonTaskOwner(name)) return false;
-  if (typeof ownerUserId === "string" && ownerUserId.trim()) return true;
   if (!directory) return true;
+  const userId = normalizeMemberName(ownerUserId);
 
   return directory.some((person) => {
-    if (normalizeMemberName(person.name) !== name) return false;
-    return normalizeMemberName(person.status).toLowerCase() !== "resigned";
+    if (normalizeMemberName(person.status).toLowerCase() === "resigned") return false;
+    const configuredUserId = normalizeMemberName(person.user_id);
+    if (userId && configuredUserId) return configuredUserId === userId;
+    return normalizeMemberName(person.name) === name;
   });
 }
