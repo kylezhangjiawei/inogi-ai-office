@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { createHash, createHmac } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildQaArtifactCleanupUpdates, QA_CLEANUP_KEYS } from "./qa-artifact-cleanup.mjs";
 
 const apiRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const require = createRequire(join(apiRoot, "package.json"));
@@ -16,26 +17,84 @@ const envVal = (k) => env.match(new RegExp(`^${k}\\s*=\\s*"?([^"\\r\\n]+)"?`, "m
 process.env.DATABASE_URL = envVal("DATABASE_URL");
 const JWT_SECRET = envVal("JWT_SECRET");
 if (!JWT_SECRET) throw new Error("apps/api/.env 中未配置 JWT_SECRET");
-const BASE = "http://localhost:3000/api";
+// 与 scripts/dev-all.mjs 的默认 API 端口保持一致，避免误连本机其他项目的 3000 服务。
+// CI/预发布环境可通过 QA_BASE_URL 显式覆盖。
+const BASE = (process.env.QA_BASE_URL || "http://127.0.0.1:3001/api").replace(/\/$/, "");
 const prisma = new PrismaClient();
 
-const USER_ID = "cmra7pb6w0026u7w411wrhk7w"; // Paul Zhang（真实启用用户，validate 按 sub 查库）
+let USER_ID = "";
+let USER_NAME = "QA 协同成员";
+const QA_ROLE_IDS = [];
+const QA_USER_IDS = [];
 // 手写 HS256 JWT（jsonwebtoken 不在 api 直接依赖里，pnpm 严格树取不到）
 const b64url = (obj) => Buffer.from(JSON.stringify(obj)).toString("base64url");
-const sign = (permissions) => {
+const sign = (userId, permissions) => {
   const now = Math.floor(Date.now() / 1000);
   const head = b64url({ alg: "HS256", typ: "JWT" });
-  const body = b64url({ sub: USER_ID, permissions, iat: now, exp: now + 3600 });
+  const body = b64url({ sub: userId, permissions, iat: now, exp: now + 3600 });
   const sig = createHmac("sha256", JWT_SECRET).update(`${head}.${body}`).digest("base64url");
   return `${head}.${body}.${sig}`;
 };
-const TOKENS = {
-  admin: sign(["*"]),
-  rdOnly: sign(["page:rd-task-management", "page:rd-my-workspace"]),
-  collabOnly: sign(["page:us-collab-workspace"]),
-  collabCockpit: sign(["page:us-collab-cockpit"]),
-  peopleOnly: sign(["rd-people:manage"]),
-};
+let TOKENS = {};
+
+async function setupQaActors() {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const profiles = [
+    { key: "admin", name: "QA 超级管理员", permissions: ["*"] },
+    { key: "rdOnly", name: "QA 研发成员", permissions: ["page:rd-task-management", "page:rd-my-workspace"] },
+    { key: "collabOnly", name: USER_NAME, permissions: ["page:us-collab-workspace"] },
+    { key: "collabCockpit", name: "QA 协同主管", permissions: ["page:us-collab-cockpit"] },
+    { key: "peopleOnly", name: "QA 人员管理员", permissions: ["rd-people:manage"] },
+  ];
+  const actors = {};
+  for (const profile of profiles) {
+    const role = await prisma.role.create({
+      data: {
+        name: `qa-role-${profile.key}-${suffix}`,
+        description: "研发接口 QA 临时角色，测试结束自动删除",
+        permissions: profile.permissions,
+      },
+    });
+    QA_ROLE_IDS.push(role.id);
+    const user = await prisma.user.create({
+      data: {
+        name: profile.name,
+        englishName: `QA ${profile.key}`,
+        username: `qa-${profile.key}-${suffix}`,
+        email: `qa-${profile.key}-${suffix}@noemail.internal`,
+        department: "QA",
+        roleId: role.id,
+      },
+    });
+    QA_USER_IDS.push(user.id);
+    actors[profile.key] = { id: user.id, permissions: profile.permissions };
+  }
+  USER_ID = actors.collabOnly.id;
+  TOKENS = Object.fromEntries(
+    Object.entries(actors).map(([key, actor]) => [key, sign(actor.id, actor.permissions)]),
+  );
+}
+
+async function cleanupQaActors() {
+  const rows = await prisma.systemSetting.findMany({
+    where: { key: { in: QA_CLEANUP_KEYS } },
+    select: { key: true, value: true },
+  });
+  const { updates } = buildQaArtifactCleanupUpdates(
+    Object.fromEntries(rows.map((row) => [row.key, row.value])),
+  );
+  await prisma.$transaction(
+    Object.entries(updates).map(([key, value]) =>
+      prisma.systemSetting.update({ where: { key }, data: { value } }),
+    ),
+  );
+  if (QA_USER_IDS.length > 0) {
+    await prisma.user.deleteMany({ where: { id: { in: QA_USER_IDS } } });
+  }
+  if (QA_ROLE_IDS.length > 0) {
+    await prisma.role.deleteMany({ where: { id: { in: QA_ROLE_IDS } } });
+  }
+}
 
 const results = [];
 let currentGroup = "";
@@ -95,7 +154,7 @@ async function createTask(token, workspace, title, extra = {}) {
     category_id: cat.id,
     sub_project_id: sub.id,
     title,
-    primary_owner: "Paul Zhang",
+    primary_owner: USER_NAME,
     primary_owner_user_id: USER_ID,
     status: "in_progress",
     progress: 10,
@@ -114,7 +173,8 @@ const readTree = async (token, workspace) =>
 const findTask = async (token, workspace, id) => (await readTree(token, workspace)).find((t) => t.task_id === id);
 
 async function main() {
-  console.log("测试目标: " + BASE + " · 用户: Paul Zhang（多权限画像自签 token）");
+  await setupQaActors();
+  console.log("测试目标: " + BASE + " · 使用 5 个临时真实角色验证权限（结束自动清理）");
   const snapBefore = await snapshotRd();
   console.log(`研发池快照基线: ${Object.keys(snapBefore).length} 个 rd.* 键`);
 
@@ -336,12 +396,18 @@ async function main() {
     console.log("失败清单:");
     for (const f of fails) console.log(`  [${f.group}] ${f.name} — ${f.detail}`);
   }
-  await prisma.$disconnect();
   process.exitCode = fails.length > 0 ? 1 : 0;
 }
 
-main().catch(async (err) => {
-  console.error("套件执行异常:", err);
-  await prisma.$disconnect();
-  process.exitCode = 2;
-});
+main()
+  .catch((err) => {
+    console.error("套件执行异常:", err);
+    process.exitCode = 2;
+  })
+  .finally(async () => {
+    try {
+      await cleanupQaActors();
+    } finally {
+      await prisma.$disconnect();
+    }
+  });

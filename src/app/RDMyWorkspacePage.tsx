@@ -21,7 +21,6 @@ import {
   FolderInput,
   GitBranch,
   Info,
-  List,
   MessageSquare,
   RefreshCw,
   Search,
@@ -43,6 +42,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 import { MateChatStreakCardConnected } from "./components/matechat/MateChatStreakCardConnected";
+import { RdCategoryTaskTable } from "./components/RdCategoryTaskTable";
 import { usePermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
@@ -53,6 +53,7 @@ import { AuditActor, recordAudit, syncAuditLogsFromRemote, useAuditActor, useAud
 import { PERMISSIONS } from "./lib/permissions";
 import { isTaskOverdue, taskOverdueDays } from "./lib/taskDue";
 import { buildTaskTree, collectTaskTreeIds, filterTaskTree, type TaskTreeNode } from "./lib/taskTree";
+import { workspaceTaskPreview } from "./lib/workspaceTaskPreview";
 import {
   addRdNoteAttachments,
   assessRdTaskProgress,
@@ -71,7 +72,6 @@ import {
   fetchRdPerformanceReports,
   fetchRdTaskProgressNotes,
   fetchRdWorkspace,
-  moveRdTasks,
   parseRdDiscussionMention,
   patchRdMessage,
   prepareRdProgressNoteFiles,
@@ -106,7 +106,7 @@ import { toast } from "sonner";
 
 type Priority = RdPriority;
 type TaskStatus = RdTaskStatus;
-type TaskRole = "primary" | "collaborator";
+type WorkspaceRoleTab = "primary" | "collaborator";
 type OperationTab = "detail" | "discussion" | "progress" | "handoff" | "submit";
 type WorkspaceTask = RdWorkspaceTask;
 type AiSuggestion = RdAiSuggestion;
@@ -148,6 +148,10 @@ const NOTE_ATTACHMENT_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const NOTE_ATTACHMENT_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 const RD_TASK_TREE_MAX_DEPTH = 5;
 type WorkspaceDueFilter = "all" | "overdue" | "today" | "3d" | "7d" | "no_due";
+
+function workspaceTaskIdentity(task: Pick<WorkspaceTask, "task_id" | "source_workspace">): string {
+  return `${task.source_workspace ?? (isUsCollabWorkspace() ? "us-collab" : "rd")}:${task.task_id}`;
+}
 
 function workspaceDaysUntil(dateStr?: string): number | null {
   if (!dateStr) return null;
@@ -1882,6 +1886,7 @@ function TaskOperationDrawer({
                         <ProgressAttachmentGrid
                           attachments={note.attachments}
                           compact
+                          imageDisplay="clipped-cards"
                           {...(editable
                             ? {
                                 onDeleteAttachment: (att: RdTaskProgressAttachment) => setDeleteAttTarget({ note, att }),
@@ -3413,11 +3418,13 @@ function WorkspaceTaskCard({
   const pCfg = WS_PRIORITY_CONFIG[task.priority] ?? WS_PRIORITY_CONFIG.medium!;
   const days = workspaceDaysUntil(task.due_date);
   const isOverdue = isTaskOverdue(task);
+  const currentWorkspace = isUsCollabWorkspace() ? "us-collab" : "rd";
+  const isForeignWorkspace = Boolean(task.source_workspace && task.source_workspace !== currentWorkspace);
   // 待审核任务默认置灰且不可点击：等待管理员审核期间不允许成员进入操作详情。
   const isPendingReview = task.status === "pending_review";
   // 列表卡片直接发起「申请放弃」：仅主责人 + 活跃状态可见（与详情抽屉内 canAbandon 口径一致）。
   const canAbandon =
-    task.role === "primary" &&
+    !isForeignWorkspace && task.role === "primary" &&
     ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
 
   return (
@@ -3461,6 +3468,16 @@ function WorkspaceTaskCard({
             )}>
               {task.role === "primary" ? t("主责") : `${t("协作")}${task.collab_role ? ` · ${task.collab_role}` : ""}`}
             </span>
+            {task.source_workspace && (
+              <span className={cn(
+                "inline-flex shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                task.source_workspace === "us-collab"
+                  ? "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-100"
+                  : "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100",
+              )}>
+                {task.source_workspace === "us-collab" ? t("协同") : t("研发")}
+              </span>
+            )}
             {/* 子任务身份：一眼看出"这不是独立任务"，并区分子建/并入 */}
             {task.parent_task_id && <SubtaskBadge task={task} />}
             {/* 父任务侧：标出带几个子任务，与驾驶舱「含 N 个子任务」同口径 */}
@@ -3536,7 +3553,7 @@ function WorkspaceTaskCard({
 
         {!isPendingReview && (
           <div className="flex shrink-0 items-center gap-1">
-            {moveEnabled && onMove && (
+            {moveEnabled && !isForeignWorkspace && onMove && (
               <button
                 type="button"
                 title={t("移动到其它系统 / 子项")}
@@ -3590,19 +3607,24 @@ function WorkspaceTaskCard({
   );
 }
 
-/** 项目文件夹：把"我的任务"按 category_path 的一级系统归类。 */
+/** 类目目录：把“我的任务”按服务端派生的稳定一级类目身份归类。 */
 type SubsystemGroup = {
   key: string;
+  label: string;
   active: WorkspaceTask[];
   done: WorkspaceTask[];
   total: number;
   avgProgress: number;
 };
 
-/** 从 category_path（形如「一级系统 / 子项 / 任务类型」）中取出一级系统名；空值兜底为「未分类」。 */
-function subsystemOf(task: WorkspaceTask): string {
+/** 类目 id 是分组事实源；名称只负责展示。旧接口数据才回退 category_path。 */
+function subsystemOf(task: WorkspaceTask): { key: string; label: string } {
   const head = (task.category_path ?? "").split(" / ")[0]?.trim();
-  return head && head.length > 0 ? head : "未分类";
+  const label = task.category_label?.trim() || (head && head.length > 0 ? head : "未分类");
+  return {
+    key: task.category_key?.trim() || (task.category_id ? `category:${task.category_id}` : `legacy:${label}`),
+    label,
+  };
 }
 
 /** 全景视图的移动归类能力（仅对自己主责的任务开放）。传入即开启「移动 / 批量勾选」。 */
@@ -3646,7 +3668,7 @@ function WorkspaceTaskTreeRow({
   const movable = Boolean(move) && task.role === "primary";
   const selected = move?.selectedIds.has(task.task_id) ?? false;
   const unreadCount = unreadByTask?.[task.task_id] ?? 0;
-  const progressText = task.latest_progress_summary?.text || task.next_action;
+  const preview = workspaceTaskPreview(task);
   const kickoffVisible = Boolean(onKickoff)
     && task.role === "primary"
     && task.status !== "completed"
@@ -3713,11 +3735,6 @@ function WorkspaceTaskTreeRow({
                   {t("高优先级")}
                 </span>
               )}
-              {unreadCount > 0 && (
-                <span className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white">
-                  {unreadCount > 99 ? "99+" : unreadCount}
-                </span>
-              )}
             </div>
 
             <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-400">
@@ -3736,10 +3753,10 @@ function WorkspaceTaskTreeRow({
               )}
             </div>
 
-            {progressText && (
+            {preview && (
               <div className="mt-1 line-clamp-1 text-[11px] leading-4 text-slate-500">
-                <span className="text-slate-400">{t("下一步：")}</span>
-                <AutoTranslatedText text={progressText} />
+                <span className="text-slate-400">{t(preview.label)}</span>
+                <AutoTranslatedText text={preview.text} />
               </div>
             )}
           </div>
@@ -3755,6 +3772,32 @@ function WorkspaceTaskTreeRow({
             </div>
             <span className="w-8 text-right text-[10px] font-semibold tabular-nums text-slate-500">{task.progress}%</span>
           </div>
+
+          {!pendingReview && (
+            <button
+              type="button"
+              title={unreadCount > 0 ? t("有 {n} 条未读评论", { n: unreadCount }) : t("查看评论")}
+              aria-label={unreadCount > 0 ? t("查看评论，有 {n} 条未读", { n: unreadCount }) : t("查看评论")}
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpen(task, "discussion");
+              }}
+              className={cn(
+                "inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
+                unreadCount > 0
+                  ? "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+                  : "border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:text-indigo-700",
+              )}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>{t("评论")}</span>
+              {unreadCount > 0 && (
+                <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </button>
+          )}
 
           {kickoffVisible && onKickoff && (
             <button
@@ -3954,8 +3997,8 @@ function SubsystemFolderCard({
             <Folder className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold text-slate-900" title={group.key}>{group.key}</h3>
-            <p className="mt-1 text-[11px] text-slate-400">{t("项目文件夹")} · {group.total} {t("个任务")}</p>
+            <h3 className="truncate text-sm font-semibold text-slate-900" title={group.label}>{group.label}</h3>
+            <p className="mt-1 text-[11px] text-slate-400">{t("类目任务表")} · {group.total} {t("个任务")}</p>
           </div>
         </div>
         <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-indigo-500" />
@@ -4016,7 +4059,7 @@ function SubsystemPanorama({
                 type="button"
                 onClick={() => onSelectKey(null)}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-                aria-label={t("返回项目文件夹")}
+                aria-label={t("返回类目列表")}
               >
                 <ArrowLeft className="h-4 w-4" />
               </button>
@@ -4027,9 +4070,9 @@ function SubsystemPanorama({
                 <div className="flex items-center gap-1.5 text-[10px] font-medium text-slate-400">
                   <span>{t("个人工作台")}</span>
                   <ChevronRight className="h-3 w-3" />
-                  <span>{t("项目任务")}</span>
+                  <span>{t("类目任务")}</span>
                 </div>
-                <h2 className="mt-0.5 truncate text-sm font-semibold text-slate-900" title={selectedKey}>{selectedKey}</h2>
+                <h2 className="mt-0.5 truncate text-sm font-semibold text-slate-900" title={selectedGroup?.label}>{selectedGroup?.label}</h2>
               </div>
             </div>
             <div className="flex items-center gap-2 text-[11px]">
@@ -4040,7 +4083,88 @@ function SubsystemPanorama({
           </div>
         </div>
 
-        <WorkspaceTaskTree tasks={selectedTasks} onOpen={onOpen} onKickoff={onKickoff} move={move} unreadByTask={unreadByTask} />
+        <RdCategoryTaskTable
+          caption={`${selectedGroup?.label ?? t("类目")} · ${t("我的任务")}`}
+          sections={[{ key: selectedGroup?.key ?? selectedKey, tasks: selectedTasks }]}
+          onOpenTask={(task) => {
+            if (task.status !== "pending_review") onOpen(task, "detail");
+          }}
+          renderActions={(task) => {
+            const pendingReview = task.status === "pending_review";
+            const unreadCount = unreadByTask?.[task.task_id] ?? 0;
+            const movable = Boolean(move) && task.role === "primary" && !task.parent_task_id;
+            const selected = move?.selectedIds.has(task.task_id) ?? false;
+            const kickoffVisible = Boolean(onKickoff)
+              && task.role === "primary"
+              && task.status !== "completed"
+              && !pendingReview
+              && (task.tree_depth ?? 1) < RD_TASK_TREE_MAX_DEPTH;
+            return (
+              <div className="flex items-center justify-end gap-1.5">
+                {!pendingReview && (
+                  <button
+                    type="button"
+                    title={unreadCount > 0 ? t("有 {n} 条未读评论", { n: unreadCount }) : t("查看评论")}
+                    aria-label={unreadCount > 0 ? t("查看评论，有 {n} 条未读", { n: unreadCount }) : t("查看评论")}
+                    onClick={() => onOpen(task, "discussion")}
+                    className={cn(
+                      "relative inline-flex h-8 items-center gap-1 rounded-lg border px-2 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+                      unreadCount > 0
+                        ? "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+                        : "border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:text-indigo-700",
+                    )}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    {unreadCount > 0 && <span className="tabular-nums">{unreadCount > 99 ? "99+" : unreadCount}</span>}
+                  </button>
+                )}
+                {kickoffVisible && onKickoff && (
+                  <button
+                    type="button"
+                    title={t("在当前节点下发起立项")}
+                    onClick={() => onKickoff(task)}
+                    className="inline-flex h-8 items-center rounded-lg border border-indigo-100 bg-indigo-50 px-2 text-[11px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                  >
+                    <GitBranch className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {!pendingReview && (
+                  <button
+                    type="button"
+                    onClick={() => onOpen(task, "progress")}
+                    className="hidden h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 xl:inline-flex xl:items-center"
+                  >
+                    {t("更新")}
+                  </button>
+                )}
+                {movable && move && (
+                  <>
+                    <button
+                      type="button"
+                      title={t("移动到其它系统 / 子项")}
+                      onClick={() => move.onMoveTask(task)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                    >
+                      <FolderInput className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      title={selected ? t("取消选择") : t("勾选以批量移动")}
+                      aria-pressed={selected}
+                      onClick={() => move.onToggleSelect(task)}
+                      className={cn(
+                        "flex h-8 w-8 items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+                        selected ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-300 bg-white text-transparent hover:border-indigo-300",
+                      )}
+                    >
+                      <Check className="h-3 w-3" />
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          }}
+        />
       </div>
     );
   }
@@ -4049,10 +4173,10 @@ function SubsystemPanorama({
     <div className="space-y-3">
       <div className="flex items-end justify-between gap-3 px-1">
         <div>
-          <h2 className="text-sm font-semibold text-slate-900">{t("我的项目")}</h2>
-          <p className="mt-0.5 text-[11px] text-slate-400">{t("先进入项目文件夹，再查看和处理分任务")}</p>
+          <h2 className="text-sm font-semibold text-slate-900">{t("我的类目")}</h2>
+          <p className="mt-0.5 text-[11px] text-slate-400">{t("每个类目一张表，跨产品库汇总本人全部任务")}</p>
         </div>
-        <span className="text-[11px] text-slate-400">{groups.length} {t("个项目")}</span>
+        <span className="text-[11px] text-slate-400">{groups.length} {t("个类目")}</span>
       </div>
 
       {groups.length > 0 ? (
@@ -4069,7 +4193,7 @@ function SubsystemPanorama({
       ) : (
         <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 text-center">
           <Folder className="mb-2 h-8 w-8 text-slate-300" />
-          <p className="text-sm font-medium text-slate-500">{t("没有匹配的项目文件夹")}</p>
+          <p className="text-sm font-medium text-slate-500">{t("没有匹配的类目")}</p>
           <p className="mt-1 text-xs text-slate-400">{t("可以调整搜索或筛选条件")}</p>
         </div>
       )}
@@ -4107,13 +4231,13 @@ export function RDMyWorkspacePage() {
   const [proposalParentTask, setProposalParentTask] = useState<WorkspaceTask | null>(null);
   const taskScrollRef = React.useRef<HTMLDivElement>(null);
   const taskSentinelRef = React.useRef<HTMLDivElement>(null);
-  const filteredAllTasksLengthRef = React.useRef(0);
+  const filteredRoleTasksLengthRef = React.useRef(0);
 
   const loadWorkspace = React.useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setLoading(true);
     setLoadError(null);
     try {
-      const payload = await fetchRdWorkspace();
+      const payload = await fetchRdWorkspace({ includeCollaboration: !isUsCollabWorkspace() });
       setWorkspace({ ...EMPTY_WORKSPACE, ...payload });
     } catch (error) {
       if (!options?.silent) setWorkspace(EMPTY_WORKSPACE);
@@ -4153,19 +4277,15 @@ export function RDMyWorkspacePage() {
   const [taskPriorityFilter, setTaskPriorityFilter] = useState<Priority | "all">("all");
   const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatus | "all">("all");
   const [taskDueFilter, setTaskDueFilter] = useState<WorkspaceDueFilter>("all");
-  // 研发个人工作台默认从项目文件夹进入；list 作为全部任务的平铺回退视图。
-  const [taskViewRaw, setTaskView] = useState<"list" | "panorama">("panorama");
-  const [selectedSubsystemKey, setSelectedSubsystemKey] = useState<string | null>(null);
-  // 协同下全景无意义（任务无 category_path，全塌进「未分类」），切换器已隐藏。
-  // 这里再把值钉死：光藏按钮挡不住状态残留——同一组件实例在研发/协同路由间复用时，
-  // 之前选的 panorama 会带过来，导致协同用户看到一个只有「未分类」的空壳视图。
-  const taskView = isUsCollabWorkspace() ? "list" : taskViewRaw;
-  // 子系统全景的「移动归类」：勾选集合 + 移动弹窗目标任务（单个 / 批量共用同一弹窗）。
-  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
-  const [moveDialogTasks, setMoveDialogTasks] = useState<WorkspaceTask[] | null>(null);
+  const [taskRoleTab, setTaskRoleTab] = useState<WorkspaceRoleTab>("primary");
   const myTasks = useMemo(() => applyProgressOverrides(workspace.myTasks, progressOverrides), [workspace.myTasks, progressOverrides]);
-  const collabTasks = useMemo(() => applyProgressOverrides(workspace.collabTasks, progressOverrides), [workspace.collabTasks, progressOverrides]);
+  const primaryTaskIds = useMemo(() => new Set(myTasks.map(workspaceTaskIdentity)), [myTasks]);
+  const collabTasks = useMemo(
+    () => applyProgressOverrides(workspace.collabTasks, progressOverrides).filter((task) => !primaryTaskIds.has(workspaceTaskIdentity(task))),
+    [workspace.collabTasks, progressOverrides, primaryTaskIds],
+  );
   const allTasks = useMemo(() => [...myTasks, ...collabTasks], [myTasks, collabTasks]);
+  const roleTasks = taskRoleTab === "primary" ? myTasks : collabTasks;
   const normalizedTaskKeyword = taskKeyword.trim().toLowerCase();
   const taskFiltersActive = Boolean(normalizedTaskKeyword) || taskPriorityFilter !== "all" || taskStatusFilter !== "all" || taskDueFilter !== "all";
   const filteredMyTasks = useMemo(
@@ -4204,21 +4324,24 @@ export function RDMyWorkspacePage() {
     setNotifVisibleCount(NOTIF_PAGE_SIZE);
   }, [workspace.notifications]);
 
-  // 已完成任务进入列表后，头部统计仍维持原「活跃任务」口径：完成的不计入主责/协作/完成率/到期。
-  const activeAllTasks = useMemo(() => allTasks.filter((task) => task.status !== "completed"), [allTasks]);
-  const completedCount = allTasks.length - activeAllTasks.length;
+  // 主责/协助数量同时可见；其余摘要跟随当前 Tab，避免主责视图混入协助任务的数据。
+  const activeRoleTasks = useMemo(() => roleTasks.filter((task) => task.status !== "completed"), [roleTasks]);
+  const completedCount = roleTasks.length - activeRoleTasks.length;
   const activeMyCount = useMemo(
     () => myTasks.reduce((count, task) => count + (task.status === "completed" ? 0 : 1), 0),
     [myTasks],
   );
-  const activeCollabCount = activeAllTasks.length - activeMyCount;
+  const activeCollabCount = useMemo(
+    () => collabTasks.reduce((count, task) => count + (task.status === "completed" ? 0 : 1), 0),
+    [collabTasks],
+  );
   const averageProgress = useMemo(() => {
-    if (activeAllTasks.length === 0) return 0;
-    return Math.round(activeAllTasks.reduce((sum, task) => sum + task.progress, 0) / activeAllTasks.length);
-  }, [activeAllTasks]);
+    if (activeRoleTasks.length === 0) return 0;
+    return Math.round(activeRoleTasks.reduce((sum, task) => sum + task.progress, 0) / activeRoleTasks.length);
+  }, [activeRoleTasks]);
   const dueStats = useMemo(
     () =>
-      activeAllTasks.reduce(
+      activeRoleTasks.reduce(
         (stats, task) => {
           const days = workspaceDaysUntil(task.due_date);
           if (isTaskOverdue(task)) stats.overdue += 1;
@@ -4227,61 +4350,25 @@ export function RDMyWorkspacePage() {
         },
         { overdue: 0, today: 0 },
       ),
-    [activeAllTasks],
+    [activeRoleTasks],
   );
   const overdueCount = dueStats.overdue;
   const dueTodayCount = dueStats.today;
 
-  // Combined + filtered tasks in one list（按立项时间正序；待审核沉底、已完成最底）
-  const filteredAllTasks = useMemo(
-    () => [...filteredMyTasks, ...filteredCollabTasks].sort(compareWorkspaceTasks),
-    [filteredMyTasks, filteredCollabTasks],
+  // 当前角色下逐条展示任务；待审核沉底、已完成最底。
+  const filteredRoleTasks = useMemo(
+    () => (taskRoleTab === "primary" ? filteredMyTasks : filteredCollabTasks).sort(compareWorkspaceTasks),
+    [filteredCollabTasks, filteredMyTasks, taskRoleTab],
   );
-  // 子系统全景分组：基于已筛选的「我的任务」（主责+协作），按一级系统归类，已完成与进行中分桶。
-  const subsystemGroups = useMemo<SubsystemGroup[]>(() => {
-    const map = new Map<string, { active: WorkspaceTask[]; done: WorkspaceTask[]; progressSum: number; count: number }>();
-    for (const task of filteredAllTasks) {
-      const key = subsystemOf(task);
-      let bucket = map.get(key);
-      if (!bucket) {
-        bucket = { active: [], done: [], progressSum: 0, count: 0 };
-        map.set(key, bucket);
-      }
-      if (task.status === "completed") bucket.done.push(task);
-      else bucket.active.push(task);
-      bucket.progressSum += task.progress;
-      bucket.count += 1;
-    }
-    const groups = Array.from(map.entries()).map<SubsystemGroup>(([key, bucket]) => ({
-      key,
-      active: bucket.active,
-      done: bucket.done,
-      total: bucket.count,
-      avgProgress: bucket.count > 0 ? Math.round(bucket.progressSum / bucket.count) : 0,
-    }));
-    groups.sort((a, b) => {
-      // 「未分类」恒排最后
-      const au = a.key === "未分类" ? 1 : 0;
-      const bu = b.key === "未分类" ? 1 : 0;
-      if (au !== bu) return au - bu;
-      // 进行中多的子系统排前面，其次按总数，最后按名称
-      if (b.active.length !== a.active.length) return b.active.length - a.active.length;
-      if (b.total !== a.total) return b.total - a.total;
-      return a.key.localeCompare(b.key, "zh-Hans-CN");
-    });
-    return groups;
-  }, [filteredAllTasks]);
-  const shownTasks = filteredAllTasks.slice(0, taskVisibleCount);
-  const hasMoreTasks = taskVisibleCount < filteredAllTasks.length;
+  const shownTasks = filteredRoleTasks.slice(0, taskVisibleCount);
+  const hasMoreTasks = taskVisibleCount < filteredRoleTasks.length;
   // Keep ref in sync so the IntersectionObserver callback always has the latest value
-  filteredAllTasksLengthRef.current = filteredAllTasks.length;
+  filteredRoleTasksLengthRef.current = filteredRoleTasks.length;
 
   // Reset pagination when filters change
-  const prevFiltersRef = React.useRef({ taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter });
   useEffect(() => {
-    prevFiltersRef.current = { taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter };
     setTaskVisibleCount(WORKSPACE_PAGE_SIZE);
-  }, [taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter]);
+  }, [taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter, taskRoleTab]);
 
   // Infinite scroll: load more tasks when sentinel enters the task scroll area.
   useEffect(() => {
@@ -4292,7 +4379,7 @@ export function RDMyWorkspacePage() {
       (entries) => {
         if (entries[0]?.isIntersecting) {
           setTaskVisibleCount((prev) => {
-            const total = filteredAllTasksLengthRef.current;
+            const total = filteredRoleTasksLengthRef.current;
             return prev >= total ? prev : Math.min(prev + WORKSPACE_PAGE_SIZE, total);
           });
         }
@@ -4301,7 +4388,7 @@ export function RDMyWorkspacePage() {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [filteredAllTasks.length, hasMoreTasks, loading]);
+  }, [filteredRoleTasks.length, hasMoreTasks, loading]);
 
   const findTask = (taskId?: string) => allTasks.find((task) => task.task_id === taskId);
 
@@ -4328,6 +4415,12 @@ export function RDMyWorkspacePage() {
   }, [refreshNoteUnread]);
 
   const openTask = (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => {
+    const currentWorkspace = isUsCollabWorkspace() ? "us-collab" : "rd";
+    if (task.source_workspace && task.source_workspace !== currentWorkspace) {
+      const detailPath = task.source_workspace === "us-collab" ? "/us-collab-task" : "/rd-task";
+      navigate(`${detailPath}/${encodeURIComponent(task.task_id)}`, { state: { task } });
+      return;
+    }
     setActivePanel({ kind: "task", task, tab, openedAt: Date.now(), abandon: opts?.abandon });
     // 正式留痕与讨论使用不同已读游标；打开任务只清正式留痕，讨论需实际打开对应会话。
     void markRdTaskNotesRead(task.task_id)
@@ -4348,74 +4441,6 @@ export function RDMyWorkspacePage() {
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, allTasks]);
-
-  // 离开项目目录或返回文件夹首页时清空勾选，避免批量移动栏残留。
-  useEffect(() => {
-    if (taskView !== "panorama" || !selectedSubsystemKey) setSelectedTaskIds(new Set());
-  }, [selectedSubsystemKey, taskView]);
-
-  // 仅「自己主责 + 当前已筛选可见」的任务可参与批量移动（防止移动到不可见 / 协作任务）。
-  const selectedTasks = useMemo(
-    () => filteredAllTasks.filter((task) => task.role === "primary" && selectedTaskIds.has(task.task_id)),
-    [filteredAllTasks, selectedTaskIds],
-  );
-
-  const toggleTaskSelected = React.useCallback((task: WorkspaceTask) => {
-    setSelectedTaskIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(task.task_id)) next.delete(task.task_id);
-      else next.add(task.task_id);
-      return next;
-    });
-  }, []);
-
-  const openSingleMove = React.useCallback((task: WorkspaceTask) => {
-    setMoveDialogTasks([task]);
-  }, []);
-
-  const openBatchMove = React.useCallback(() => {
-    if (selectedTasks.length === 0) {
-      toast.error(t("请先勾选要移动的任务"));
-      return;
-    }
-    setMoveDialogTasks(selectedTasks);
-  }, [selectedTasks]);
-
-  const handleWorkspaceMoveConfirm = React.useCallback(
-    async (taskIds: string[], targetProductId: string, targetCatId: string, targetSubId: string) => {
-      try {
-        const result = await moveRdTasks({ taskIds, targetProductId, targetCategoryId: targetCatId, targetSubId });
-        const movedPath = `${result.targetCategoryLabel} / ${result.targetSubLabel}`;
-        const firstTask = (moveDialogTasks ?? []).find((task) => task.task_id === taskIds[0]);
-        // 审计：操作者 = 当前研发成员本人（自助归类的同时保留可追溯）。
-        recordAudit({
-          actor: WORKSPACE_AUDIT_ACTOR,
-          action: "task.updated",
-          resource:
-            taskIds.length === 1 && firstTask
-              ? { type: "task", id: firstTask.task_id, name: firstTask.title }
-              : { type: "system", id: targetSubId, name: "移动任务归类" },
-          changes:
-            taskIds.length === 1 && firstTask
-              ? [{ field: "category_path", before: firstTask.category_path, after: movedPath }]
-              : undefined,
-          comment:
-            taskIds.length === 1
-              ? `个人工作台移动任务 → ${movedPath}`
-              : `个人工作台批量移动 ${result.movedCount} 个任务 → ${movedPath}`,
-          metadata: { taskIds, targetProductId, targetSubId },
-          source: "web",
-        });
-        toast.success(`已移动 ${result.movedCount} 个任务到 ${movedPath}`);
-        setMoveDialogTasks(null);
-        setSelectedTaskIds(new Set());
-        await loadWorkspace({ silent: true });
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : "移动失败，请重试");
-      }
-    },
-    [WORKSPACE_AUDIT_ACTOR, loadWorkspace, moveDialogTasks],
-  );
 
   // 从「绩效自评」通知打开自评弹窗：按通知携带的月份拉取本人当月绩效。
   const openWorkspaceSelfAssess = React.useCallback(
@@ -4549,7 +4574,7 @@ export function RDMyWorkspacePage() {
                 {t("主责")} {activeMyCount}
               </span>
               <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
-                {t("协作")} {activeCollabCount}
+                {t("协助")} {activeCollabCount}
               </span>
               <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
                 {t("完成率")} {averageProgress}%
@@ -4621,45 +4646,40 @@ export function RDMyWorkspacePage() {
 
                 {/* 窄屏保持单行但允许横向滚动，避免筛选项被工作台 overflow-hidden 裁切。 */}
                 <div className="flex w-full min-w-0 items-center gap-1.5 overflow-x-auto pb-1 xl:w-auto xl:shrink-0 xl:overflow-visible xl:pb-0">
-                  {/* 视图切换：项目文件夹 / 全部任务。
-                      协同下隐藏：文件夹按 category_path 的一级系统分组，而协同任务的
-                      category_path 恒为空串（立项时刻意不写，见 RDProjectProposalDialog
-                      的 resolveUsCollabTarget），所有任务会塌进同一个「未分类」组 ——
-                      比列表严格更差。同一理由下「移动归类」在协同也已关闭（见下方 move）。
-                      驾驶舱走的是 hideSystemPanorama prop，这里没有 prop 可传，直接按工作区判。 */}
-                  {!isUsCollabWorkspace() && (
-                  <div className="flex items-center gap-0.5 rounded-[8px] border border-slate-200 bg-slate-50 p-0.5">
+                  <div
+                    role="tablist"
+                    aria-label={t("任务角色筛选")}
+                    className="flex items-center gap-0.5 rounded-[8px] border border-slate-200 bg-slate-50 p-0.5"
+                  >
                     <button
                       type="button"
-                      onClick={() => {
-                        setTaskView("panorama");
-                        setSelectedSubsystemKey(null);
-                      }}
+                      role="tab"
+                      aria-selected={taskRoleTab === "primary"}
+                      onClick={() => setTaskRoleTab("primary")}
                       className={cn(
                         "flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-[6px] px-2.5 text-xs font-medium transition-colors",
-                        taskView === "panorama" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                        taskRoleTab === "primary" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
                       )}
-                      title={t("按项目文件夹查看")}
-                      aria-pressed={taskView === "panorama"}
                     >
-                      <Folder className="h-3.5 w-3.5" />
-                      {t("项目")}
+                      <User className="h-3.5 w-3.5" />
+                      {t("主责")}
+                      <span className="tabular-nums text-[10px] opacity-70">{myTasks.length}</span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => setTaskView("list")}
+                      role="tab"
+                      aria-selected={taskRoleTab === "collaborator"}
+                      onClick={() => setTaskRoleTab("collaborator")}
                       className={cn(
                         "flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-[6px] px-2.5 text-xs font-medium transition-colors",
-                        taskView === "list" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                        taskRoleTab === "collaborator" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
                       )}
-                      title={t("查看全部任务")}
-                      aria-pressed={taskView === "list"}
                     >
-                      <List className="h-3.5 w-3.5" />
-                      {t("全部")}
+                      <Users className="h-3.5 w-3.5" />
+                      {t("协助")}
+                      <span className="tabular-nums text-[10px] opacity-70">{collabTasks.length}</span>
                     </button>
                   </div>
-                  )}
                   <NativeSelect
                     className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                     value={taskPriorityFilter}
@@ -4708,7 +4728,7 @@ export function RDMyWorkspacePage() {
                   {/*  清空*/}
                   {/*</button>*/}
                   <span className="whitespace-nowrap pl-1 text-[11px] text-slate-400">
-                    {loading ? t("加载中…") : `${filteredAllTasks.length} / ${allTasks.length}`}
+                    {loading ? t("加载中…") : `${filteredRoleTasks.length} / ${roleTasks.length}`}
                   </span>
                 </div>
               </div>
@@ -4722,30 +4742,30 @@ export function RDMyWorkspacePage() {
                     <div key={i} className="h-[84px] animate-pulse rounded-2xl bg-slate-100" />
                   ))}
                 </div>
-              ) : filteredAllTasks.length === 0 && taskView !== "panorama" ? (
+              ) : filteredRoleTasks.length === 0 ? (
                 <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 py-12 text-center">
-                  <CheckCircle2 className="mb-2 h-8 w-8 text-slate-300" />
+                  {taskRoleTab === "primary" ? (
+                    <User className="mb-2 h-8 w-8 text-slate-300" />
+                  ) : (
+                    <Users className="mb-2 h-8 w-8 text-slate-300" />
+                  )}
                   <p className="text-sm font-medium text-slate-500">
-                    {taskFiltersActive ? t("没有匹配的任务") : t("当前没有分配给我的任务")}
+                    {taskFiltersActive
+                      ? taskRoleTab === "primary" ? t("没有匹配的主责任务") : t("没有匹配的协助任务")
+                      : taskRoleTab === "primary" ? t("当前没有由我主责的任务") : t("当前没有需要我协助的任务")}
                   </p>
                 </div>
-              ) : taskView === "panorama" ? (
-                <SubsystemPanorama
-                  groups={subsystemGroups}
-                  selectedKey={selectedSubsystemKey}
-                  onSelectKey={setSelectedSubsystemKey}
-                  onOpen={openTask}
-                  onKickoff={canStartProject ? setProposalParentTask : undefined}
-                  unreadByTask={noteUnread}
-                  // 协同池无分类概念：移动归类（勾选/单移/批量）整体不提供
-                  move={isUsCollabWorkspace() ? undefined : { selectedIds: selectedTaskIds, onToggleSelect: toggleTaskSelected, onMoveTask: openSingleMove }}
-                />
               ) : (
                 <>
                   <div className="space-y-2">
                     <AnimatePresence>
                       {shownTasks.map((task) => (
-                        <WorkspaceTaskCard key={task.task_id} task={task} onOpen={openTask} unreadCount={noteUnread[task.task_id] ?? 0} />
+                        <WorkspaceTaskCard
+                          key={workspaceTaskIdentity(task)}
+                          task={task}
+                          onOpen={openTask}
+                          unreadCount={task.source_workspace === "us-collab" ? 0 : noteUnread[task.task_id] ?? 0}
+                        />
                       ))}
                     </AnimatePresence>
                   </div>
@@ -4755,12 +4775,12 @@ export function RDMyWorkspacePage() {
                     {hasMoreTasks ? (
                       <div className="mt-3 flex items-center justify-center gap-1.5 py-2 text-[11px] text-slate-400">
                         <ChevronDown className="h-3 w-3 animate-bounce" />
-                        <span>{t("滚动加载更多 · 已显示")} <span className="tabular-nums">{shownTasks.length}</span> / {t("共")} <span className="tabular-nums">{filteredAllTasks.length}</span> {t("个")}</span>
+                        <span>{t("滚动加载更多 · 已显示")} <span className="tabular-nums">{shownTasks.length}</span> / {t("共")} <span className="tabular-nums">{filteredRoleTasks.length}</span> {t("个")}</span>
                       </div>
-                    ) : filteredAllTasks.length > WORKSPACE_PAGE_SIZE ? (
+                    ) : filteredRoleTasks.length > WORKSPACE_PAGE_SIZE ? (
                       <div className="mt-3 flex items-center justify-center gap-1.5 py-2 text-[11px] text-slate-400">
                         <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                        <span>{t("已显示全部 {n} 个任务", { n: filteredAllTasks.length })}</span>
+                        <span>{t("已显示全部 {n} 个任务", { n: filteredRoleTasks.length })}</span>
                       </div>
                     ) : null}
                   </div>
@@ -5218,48 +5238,6 @@ export function RDMyWorkspacePage() {
         }}
       />
 
-      {/* 批量移动浮条：仅子系统全景视图且已勾选任务时出现 */}
-      <AnimatePresence>
-        {taskView === "panorama" && selectedTasks.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 16 }}
-            transition={{ duration: 0.18 }}
-            className="fixed bottom-6 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-3 rounded-full border border-slate-200 bg-white/95 px-4 py-2 shadow-xl backdrop-blur"
-          >
-            <span className="text-xs font-semibold text-slate-600">
-              {t("已选")} <span className="tabular-nums text-indigo-600">{selectedTasks.length}</span> {t("个任务")}
-            </span>
-            <button
-              type="button"
-              onClick={openBatchMove}
-              className="inline-flex items-center gap-1 rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
-            >
-              <FolderInput className="h-3.5 w-3.5" />
-              {t("批量移动")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedTaskIds(new Set())}
-              className="text-xs font-medium text-slate-400 transition-colors hover:text-slate-600"
-            >
-              {t("取消选择")}
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* 移动归类弹窗（单个 / 批量共用） */}
-      <AnimatePresence>
-        {moveDialogTasks && (
-          <WorkspaceMoveDialog
-            tasks={moveDialogTasks}
-            onConfirm={handleWorkspaceMoveConfirm}
-            onClose={() => setMoveDialogTasks(null)}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }

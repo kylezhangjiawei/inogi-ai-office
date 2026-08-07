@@ -2,6 +2,7 @@ import type { RdCategory, RdTask } from "./rdApi";
 import { taskOverdueDays } from "./taskDue";
 import { t } from "./i18n";
 import { rootTasksFromCategories } from "./rdTaskTreeVisibility";
+import { isTaskOwnerMember } from "./rdMemberIdentity";
 
 const now = new Date();
 const today = new Date(
@@ -160,7 +161,7 @@ export function computePersonLoads(categories: RdCategory[], maxPerPerson = 8): 
   for (const task of rootTasksFromCategories(categories)) {
     const archived = task.archived || task.status === "archived";
     const active = !archived && task.status !== "completed";
-    if (active && !/已离职|待指派/.test(task.primary_owner)) {
+    if (active && isTaskOwnerMember(task.primary_owner, task.primary_owner_user_id)) {
       counts.set(task.primary_owner, (counts.get(task.primary_owner) ?? 0) + 1);
       if (task.status === "paused_leave") onLeave.add(task.primary_owner);
       if (task.primary_owner_user_id && !userIds.has(task.primary_owner)) {

@@ -10,6 +10,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth";
+import { getStoredUser } from "./authSession";
+import { hasAnyPermission, PERMISSIONS } from "./permissions";
 import { addRdAuditLogNote, clearRdAuditLogs, createRdAuditLog, fetchRdAuditLogs, isUsCollabWorkspace } from "./rdApi";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -167,6 +169,62 @@ export type AuditLog = {
   source: "web" | "api" | "ai" | "system";
 };
 
+export type AuditActorIdentity = {
+  id?: string | null;
+  name?: string | null;
+};
+
+export type AuditLogViewer = AuditActorIdentity & {
+  permissions?: string[] | null;
+};
+
+const AUDIT_LOG_MANAGER_PERMISSIONS = [
+  PERMISSIONS.RD_TASK_REASSIGN,
+  PERMISSIONS.RD_PROJECT_DIRECT,
+  PERMISSIONS.RD_PROJECT_REVIEW_L1,
+  PERMISSIONS.RD_PROJECT_REVIEW_L2,
+  PERMISSIONS.RD_PEOPLE_MANAGE,
+];
+
+export function canReadAllAuditLogs(permissions: string[] | null | undefined): boolean {
+  return hasAnyPermission(permissions ?? [], AUDIT_LOG_MANAGER_PERMISSIONS);
+}
+
+function auditActorNameKey(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/[（(].*?[）)]/g, "")
+    .toLocaleLowerCase("zh-CN")
+    .replace(/\s+/g, "");
+}
+
+export function auditActorMatchesIdentity(
+  actor: { id?: string | null; name?: string | null } | null | undefined,
+  identity: AuditActorIdentity | null | undefined,
+): boolean {
+  const identityId = String(identity?.id ?? "").trim();
+  const identityNameKey = auditActorNameKey(identity?.name);
+  if (!identityId && !identityNameKey) return false;
+
+  const actorId = String(actor?.id ?? "").trim();
+  if (actorId) return Boolean(identityId) && actorId === identityId;
+  return Boolean(identityNameKey) && auditActorNameKey(actor?.name) === identityNameKey;
+}
+
+export function filterAuditLogsByActor(logs: AuditLog[], identity: AuditActorIdentity): AuditLog[] {
+  return logs.filter((log) => auditActorMatchesIdentity(log.actor, identity));
+}
+
+/**
+ * Mirrors the API's audit visibility rule. Besides normal rendering, this also
+ * prevents a full administrator cache from flashing after another user signs in
+ * on the same browser.
+ */
+export function filterAuditLogsForViewer(logs: AuditLog[], viewer: AuditLogViewer | null | undefined): AuditLog[] {
+  if (canReadAllAuditLogs(viewer?.permissions)) return logs;
+  return logs.filter((log) => auditActorMatchesIdentity(log.actor, viewer));
+}
+
 // ─── Action metadata (icon hint, label, verb) ────────────────────────────────
 
 export type AuditActionMeta = {
@@ -301,21 +359,21 @@ export const CATEGORY_LABELS: Record<AuditCategory, string> = {
 // ─── Storage ─────────────────────────────────────────────────────────────────
 
 /**
- * 离线回显缓存键按工作区分开：服务端已按 workspace 隔离留痕，但这份 localStorage 缓存
- * 若两池共用，切到协同留痕页时会先渲染出研发池的旧记录（等远端拉取回来才被覆盖），
- * 属于跨池串数据。研发池沿用原键 `rd-audit-logs-v1`（存量缓存零影响）。
+ * 离线回显缓存键同时按工作区和登录用户分开。服务端负责最终权限隔离，用户维度的
+ * 本地键则避免同一浏览器切换账号时，普通成员短暂读取到管理员留下的完整缓存。
  */
-function storageKey(): string {
-  return isUsCollabWorkspace() ? "rd-audit-logs-v1.us-collab" : "rd-audit-logs-v1";
+function storageKey(userId: string | null | undefined = getStoredUser()?.id): string {
+  const workspaceKey = isUsCollabWorkspace() ? "rd-audit-logs-v1.us-collab" : "rd-audit-logs-v1";
+  const identityKey = userId ? encodeURIComponent(userId) : "anonymous";
+  return `${workspaceKey}.user.${identityKey}`;
 }
 const AUDIT_EVENT = "rd-audit-log-changed";
 const MAX_LOGS = 1000;
 
 /**
  * ⚠️ 异步回调里必须传 key 快照，不能让它重新求值。
- * storageKey() 依赖当前 location.pathname：请求在途时用户切到另一个池的页面，
- * 响应回来时求值就会把这条留痕写进**另一个池**的缓存并广播刷新（实测可复现）。
- * 同步路径不传即可（此刻 pathname 就是发起时的 pathname）。
+ * storageKey() 依赖当前 location.pathname 和已登录用户：请求在途时切换工作区或账号，
+ * 响应回来后重新求值会把留痕写进错误缓存。同步路径不传即可（此刻上下文仍是发起方）。
  */
 function loadRaw(key: string = storageKey()): AuditLog[] {
   if (typeof window === "undefined") return [];
@@ -359,7 +417,7 @@ export function recordAudit(entry: Omit<AuditLog, "id" | "timestamp">): AuditLog
     timestamp: new Date().toISOString(),
   };
   // 发起时就把缓存键定死：响应回来时用户可能已切到另一个池的页面（见 loadRaw 注释）
-  const key = storageKey();
+  const key = storageKey(entry.actor.id);
   const logs = loadRaw(key);
   logs.unshift(full); // newest first
   saveRaw(logs.slice(0, MAX_LOGS), true, key);
@@ -465,19 +523,25 @@ export function queryLogs(filter: AuditFilter = {}): AuditLog[] {
 
 /** Subscribe to audit logs with optional filter. Re-renders on `recordAudit()`. */
 export function useAuditLogs(filter?: AuditFilter): AuditLog[] {
+  const { user } = useAuth();
   const filterKey = useMemo(() => JSON.stringify(filter ?? {}), [filter]);
+  const viewerKey = useMemo(
+    () => JSON.stringify([user?.id ?? "", user?.name ?? "", [...(user?.permissions ?? [])].sort()]),
+    [user?.id, user?.name, user?.permissions],
+  );
   const [logs, setLogs] = useState<AuditLog[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    const refreshLocal = () => setLogs(queryLogs(filter));
+    const key = storageKey(user?.id);
+    const visibleLogs = (items: AuditLog[]) => filterLogs(filterAuditLogsForViewer(items, user), filter);
+    const refreshLocal = () => setLogs(visibleLogs(loadRaw(key)));
     const refreshRemote = async () => {
-      const key = storageKey(); // await 之前取，防响应回来时用户已切池
       try {
         const remoteLogs = await fetchRdAuditLogs<AuditLog>();
         if (cancelled) return;
         saveRaw(remoteLogs.slice(0, MAX_LOGS), false, key);
-        setLogs(filterLogs(remoteLogs, filter));
+        setLogs(visibleLogs(remoteLogs));
       } catch {
         if (!cancelled) {
           refreshLocal();
@@ -493,7 +557,7 @@ export function useAuditLogs(filter?: AuditFilter): AuditLog[] {
       window.removeEventListener(AUDIT_EVENT, refreshLocal);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey]);
+  }, [filterKey, viewerKey]);
 
   return logs;
 }

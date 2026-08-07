@@ -12,6 +12,7 @@ import {
   MessageCircleMore,
   MessageCircleReply,
   Paperclip,
+  RefreshCw,
   Send,
   Sparkles,
   UploadCloud,
@@ -40,6 +41,7 @@ import {
   type RdTaskProgressAttachment,
   type RdTaskProgressNote,
 } from "./lib/rdApi";
+import { auditActorMatchesIdentity, type AuditActorIdentity } from "./lib/auditLog";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { useAvatarDirectory } from "./lib/userAvatar";
 import { formatRdFileSize, ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope } from "./RDProgressEvidence";
@@ -526,7 +528,7 @@ function ThreadButton({
       )}
       aria-label={count > 0 ? t("查看 {n} 条讨论", { n: count }) : label}
     >
-      <MessageCircleReply className="h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5" />
+      <MessageCircleMore className="h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5" />
       <span>{count > 0 ? t("{n} 条讨论", { n: count }) : label}</span>
       {unread > 0 && (
         <span className="min-w-4 rounded-full bg-rose-500 px-1 text-center text-[9px] leading-4 text-white">
@@ -551,6 +553,49 @@ function distributeIntoColumns<T>(items: T[], columnCount: number): T[][] {
 /** 20rem / gap-1.5：与原 `repeat(auto-fit, minmax(min(100%,20rem),1fr))` 保持同一口径 */
 const PROGRESS_COLUMN_MIN_PX = 320;
 const PROGRESS_COLUMN_GAP_PX = 6;
+const INLINE_COMMENT_PREVIEW_COUNT = 3;
+const INLINE_COMMENT_DEPTH_CLASSES = ["", "ml-4", "ml-8", "ml-12", "ml-16"] as const;
+
+type InlineCommentNode = {
+  message: RdTaskDiscussionMessage;
+  children: InlineCommentNode[];
+};
+
+type FlatInlineComment = {
+  message: RdTaskDiscussionMessage;
+  depth: number;
+};
+
+/** 把 reply_to_id 还原为任意深度的树；缺失父节点的分页数据按根留言降级展示。 */
+function buildInlineCommentForest(messages: RdTaskDiscussionMessage[]): InlineCommentNode[] {
+  const nodes = new Map<string, InlineCommentNode>();
+  for (const message of messages) nodes.set(message.id, { message, children: [] });
+  const roots: InlineCommentNode[] = [];
+  for (const message of messages) {
+    const node = nodes.get(message.id);
+    if (!node) continue;
+    const parent = message.reply_to_id ? nodes.get(message.reply_to_id) : undefined;
+    if (parent && parent !== node) parent.children.push(node);
+    else roots.push(node);
+  }
+  return roots;
+}
+
+/** 递归遍历不限制深度；仅把视觉缩进封顶，避免极深回复在窄卡片中挤成一列字。 */
+function flattenInlineCommentNodes(
+  nodes: InlineCommentNode[],
+  depth = 0,
+  visited = new Set<string>(),
+): FlatInlineComment[] {
+  const flattened: FlatInlineComment[] = [];
+  for (const node of nodes) {
+    if (visited.has(node.message.id)) continue;
+    visited.add(node.message.id);
+    flattened.push({ message: node.message, depth });
+    flattened.push(...flattenInlineCommentNodes(node.children, depth + 1, visited));
+  }
+  return flattened;
+}
 
 /**
  * 列数跟随「容器」宽度而非视口：本组件会被放进任务详情页主列、驾驶舱抽屉、移动端全屏，
@@ -576,19 +621,278 @@ function useProgressColumns(element: HTMLElement | null): number {
   return columns;
 }
 
+function InlineCommentItem({
+  item,
+  currentUserId,
+  currentUserName,
+  onReply,
+}: {
+  item: FlatInlineComment;
+  currentUserId?: string | null;
+  currentUserName?: string | null;
+  onReply: (message: RdTaskDiscussionMessage) => void;
+}) {
+  const { message, depth } = item;
+  const mine = Boolean(
+    (currentUserId && message.author_id === currentUserId)
+    || (currentUserName && message.author_name === currentUserName),
+  );
+  const depthClass = INLINE_COMMENT_DEPTH_CLASSES[Math.min(depth, INLINE_COMMENT_DEPTH_CLASSES.length - 1)];
+  return (
+    <li
+      role="treeitem"
+      aria-level={depth + 1}
+      className={cn(
+        "relative flex min-w-0 gap-2 rounded-lg px-2 py-1.5 transition-colors",
+        depthClass,
+        mine ? "bg-indigo-50/70" : "hover:bg-white",
+      )}
+    >
+      {depth > 0 ? <span className="absolute -left-2 top-0 h-full w-px bg-indigo-100" aria-hidden="true" /> : null}
+      <ConversationAvatar name={message.author_name} userId={message.author_id} size="xs" />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 text-[11px] leading-4">
+          <span className="font-bold text-slate-800">{message.author_name}</span>
+          {message.reply_to ? (
+            <>
+              <span className="text-slate-400">{t("回复")}</span>
+              <span className="font-semibold text-indigo-700">{message.reply_to.author_name}</span>
+            </>
+          ) : null}
+          {mine ? <span className="rounded bg-indigo-100 px-1 text-[9px] font-semibold text-indigo-700">{t("我")}</span> : null}
+        </div>
+        {message.body ? (
+          <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-[18px] text-slate-700">
+            {renderTextWithMentions(message.body, message.mentions)}
+          </p>
+        ) : null}
+        <ProgressAttachmentGrid
+          attachments={message.attachments}
+          compact
+          imageDisplay="thumbnails"
+          maxVisibleImages={3}
+          className="mt-1.5"
+        />
+        <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400">
+          <time className="tabular-nums">{formatCompactDateTime(message.created_at)}</time>
+          <button
+            type="button"
+            onClick={() => onReply(message)}
+            className="cursor-pointer rounded px-1 py-0.5 font-semibold text-slate-500 transition-colors hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+          >
+            {t("回复")}
+          </button>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function InlineNoteComments({
+  id,
+  taskId,
+  noteId,
+  candidates,
+  variant,
+}: {
+  id: string;
+  taskId: string;
+  noteId: string;
+  candidates: MentionCandidate[];
+  variant: "desktop" | "mobile";
+}) {
+  const { user } = useAuth();
+  const [discussion, setDiscussion] = useState<RdTaskDiscussionResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const [replyTarget, setReplyTarget] = useState<RdTaskDiscussionMessage | null>(null);
+
+  const loadComments = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetchRdTaskDiscussion(taskId, { type: "progress_note", id: noteId }, { limit: 200 });
+      setDiscussion(response);
+      if (response.thread.message_count > 0) {
+        void markRdTaskDiscussionRead(taskId, response.thread.id)
+          .then(() => announceDiscussionUpdated(taskId))
+          .catch(() => {});
+      }
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : t("留言加载失败"));
+    } finally {
+      setLoading(false);
+    }
+  }, [noteId, taskId]);
+
+  useEffect(() => {
+    void loadComments();
+  }, [loadComments]);
+
+  const comments = useMemo(
+    () => flattenInlineCommentNodes(buildInlineCommentForest(discussion?.messages ?? [])),
+    [discussion?.messages],
+  );
+  const visibleComments = expanded ? comments : comments.slice(0, INLINE_COMMENT_PREVIEW_COUNT);
+  const totalCount = Math.max(comments.length, discussion?.thread.message_count ?? 0);
+  const hiddenCount = Math.max(0, totalCount - INLINE_COMMENT_PREVIEW_COUNT);
+
+  const loadEarlier = async () => {
+    const cursor = discussion?.page_info.next_cursor;
+    if (!cursor || loadingEarlier) return;
+    setLoadingEarlier(true);
+    try {
+      const page = await fetchRdTaskDiscussion(
+        taskId,
+        { type: "progress_note", id: noteId },
+        { cursor, limit: 200 },
+      );
+      setDiscussion((current) => current ? {
+        ...current,
+        messages: mergeDiscussionMessages(page.messages, current.messages),
+        page_info: page.page_info,
+      } : page);
+    } catch (loadError) {
+      toast.error(loadError instanceof Error ? loadError.message : t("留言加载失败"));
+    } finally {
+      setLoadingEarlier(false);
+    }
+  };
+
+  const appendInlineMessage = (message: RdTaskDiscussionMessage) => {
+    setDiscussion((current) => current ? {
+      ...current,
+      thread: {
+        ...current.thread,
+        message_count: current.thread.message_count + 1,
+        unread_count: 0,
+      },
+      messages: mergeDiscussionMessages(current.messages, [message]),
+    } : current);
+    setExpanded(true);
+    setReplyTarget(null);
+  };
+
+  return (
+    <section id={id} aria-label={t("留痕留言")} className="mt-1.5 rounded-xl border border-indigo-100 bg-slate-50/80 p-2">
+      {loading ? (
+        <div className="space-y-2 py-1" aria-label={t("正在加载留言")}>
+          {[0, 1].map((item) => (
+            <div key={item} className="flex animate-pulse items-center gap-2 rounded-lg bg-white/80 px-2 py-2">
+              <span className="size-5 rounded-full bg-slate-200" />
+              <span className="h-2.5 flex-1 rounded bg-slate-200" />
+            </div>
+          ))}
+        </div>
+      ) : error ? (
+        <div role="alert" className="flex items-center justify-between gap-2 rounded-lg border border-rose-100 bg-rose-50 px-2.5 py-2 text-xs text-rose-700">
+          <span className="min-w-0 truncate">{error}</span>
+          <button
+            type="button"
+            onClick={() => void loadComments()}
+            className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-semibold hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300"
+          >
+            <RefreshCw className="size-3" />
+            {t("重试")}
+          </button>
+        </div>
+      ) : (
+        <>
+          {comments.length > 0 ? (
+            <ol role="tree" className="space-y-0.5">
+              {visibleComments.map((item) => (
+                <InlineCommentItem
+                  key={item.message.id}
+                  item={item}
+                  currentUserId={user?.id}
+                  currentUserName={user?.name}
+                  onReply={setReplyTarget}
+                />
+              ))}
+            </ol>
+          ) : (
+            <p className="px-2 py-1.5 text-xs text-slate-500">{t("还没有留言，来写第一条吧")}</p>
+          )}
+
+          <div className="mt-1 flex flex-wrap items-center gap-1">
+            {hiddenCount > 0 ? (
+              <button
+                type="button"
+                aria-expanded={expanded}
+                onClick={() => setExpanded((current) => !current)}
+                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+              >
+                <ChevronDown className={cn("size-3 transition-transform", expanded && "rotate-180")} />
+                {expanded ? t("收起留言") : t("展开其余 {n} 条留言", { n: hiddenCount })}
+              </button>
+            ) : null}
+            {expanded && discussion?.page_info.has_more ? (
+              <button
+                type="button"
+                onClick={() => void loadEarlier()}
+                disabled={loadingEarlier}
+                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-slate-600 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 disabled:cursor-wait disabled:opacity-60"
+              >
+                {loadingEarlier ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+                {t("加载更早留言")}
+              </button>
+            ) : null}
+          </div>
+
+          {discussion?.can_post ? (
+            <Composer
+              taskId={taskId}
+              anchor={{ type: "progress_note", id: noteId }}
+              candidates={candidates}
+              variant={variant}
+              presentation="inline"
+              placeholder={replyTarget ? `${t("回复 {name}", { name: replyTarget.author_name })}…` : t("写下留言…")}
+              contextHint={t("支持 @ 成员、附件和逐层回复")}
+              replyTarget={replyTarget}
+              onClearReply={() => setReplyTarget(null)}
+              onSent={appendInlineMessage}
+            />
+          ) : (
+            <div className="mt-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-500">
+              {t("当前账号可查看留言，但没有发送权限。")}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function ProgressAnchorCard({
   note,
   summary,
   onOpenThread,
   onOpenSourceTask,
+  selectedActor,
+  onActorClick,
+  candidates,
+  variant,
 }: {
   note: RdTaskProgressNote;
   summary?: RdTaskDiscussionThreadSummary;
   onOpenThread: () => void;
   onOpenSourceTask?: (taskId: string) => void;
+  selectedActor?: AuditActorIdentity | null;
+  onActorClick?: (actor: AuditActorIdentity) => void;
+  candidates: MentionCandidate[];
+  variant: "desktop" | "mobile";
 }) {
   const tone = progressTone(note.progress);
   const sourceTask = note.source_task;
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const commentsRegionId = React.useId();
+  const commentCount = summary?.message_count ?? 0;
+  const actorSelected = Boolean(selectedActor && (
+    auditActorMatchesIdentity(note.actor, selectedActor)
+    || auditActorMatchesIdentity(selectedActor, note.actor)
+  ));
   return (
     <article className={cn("overflow-hidden rounded-lg border border-slate-200 border-l-[3px] bg-white shadow-[0_3px_12px_rgba(15,23,42,0.05)]", tone.border)}>
       <div className={cn("flex min-h-8 items-center gap-1.5 border-b border-slate-200/80 px-2 py-1", tone.header)}>
@@ -597,10 +901,28 @@ function ProgressAnchorCard({
           {t("留痕")}
         </span>
         <span className="h-3.5 w-px shrink-0 bg-slate-300/80" aria-hidden="true" />
-        <ConversationAvatar name={note.actor.name} userId={note.actor.id} size="xs" />
+        {onActorClick ? (
+          <button
+            type="button"
+            aria-pressed={actorSelected}
+            onClick={() => onActorClick({ id: note.actor.id, name: note.actor.name })}
+            title={t(actorSelected ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")}
+            className={cn(
+              "inline-flex min-w-0 shrink cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 text-[10px] transition-colors hover:bg-indigo-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+              actorSelected && "bg-indigo-100 text-indigo-800 ring-1 ring-inset ring-indigo-200",
+            )}
+          >
+            <ConversationAvatar name={note.actor.name} userId={note.actor.id} size="xs" />
+            <span className="truncate font-bold text-slate-800">{note.actor.name}</span>
+          </button>
+        ) : (
+          <span className="inline-flex min-w-0 shrink items-center gap-1 text-[10px]">
+            <ConversationAvatar name={note.actor.name} userId={note.actor.id} size="xs" />
+            <span className="truncate font-bold text-slate-800">{note.actor.name}</span>
+          </span>
+        )}
         <div className="min-w-0 flex-1 truncate text-[10px] text-slate-500">
-          <span className="font-bold text-slate-800">{note.actor.name}</span>
-          <span> · {note.actor.role ? t(note.actor.role) : t("研发成员")}</span>
+          <span>{note.actor.role ? t(note.actor.role) : t("研发成员")}</span>
         </div>
         {typeof note.progress === "number" && (
           <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold leading-none text-white", tone.badge)}>
@@ -634,10 +956,40 @@ function ProgressAnchorCard({
             {renderTextWithMentions(note.text, note.mentions)}
           </p>
         )}
-        <ProgressAttachmentGrid attachments={note.attachments} compact className={note.text ? "mt-1.5" : undefined} />
-        <div className="mt-1.5 flex items-center border-t border-slate-100 pt-1">
+        <ProgressAttachmentGrid
+          attachments={note.attachments}
+          compact
+          imageDisplay="clipped-cards"
+          className={note.text ? "mt-1.5" : undefined}
+        />
+        <div className="mt-1.5 flex items-center gap-1 border-t border-slate-100 pt-1">
           <ThreadButton summary={summary} onClick={onOpenThread} label={t("讨论")} />
+          <button
+            type="button"
+            aria-expanded={commentsOpen}
+            aria-controls={commentsRegionId}
+            onClick={() => setCommentsOpen((current) => !current)}
+            className={cn(
+              "inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1",
+              commentsOpen || commentCount > 0
+                ? "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
+            )}
+          >
+            <MessageCircleReply className="size-3" />
+            <span>{t("留言")}{commentCount > 0 ? ` ${commentCount}` : ""}</span>
+            <ChevronDown className={cn("size-3 transition-transform", commentsOpen && "rotate-180")} />
+          </button>
         </div>
+        {commentsOpen ? (
+          <InlineNoteComments
+            id={commentsRegionId}
+            taskId={note.source_task?.task_id ?? note.task_id}
+            noteId={note.id}
+            candidates={candidates}
+            variant={variant}
+          />
+        ) : null}
       </div>
     </article>
   );
@@ -716,7 +1068,7 @@ function MessageBubble({
               )}
             </p>
           )}
-          <ProgressAttachmentGrid attachments={message.attachments} compact className="mt-2" />
+          <ProgressAttachmentGrid attachments={message.attachments} compact imageDisplay="clipped-cards" className="mt-2" />
           <div className={cn("mt-1 flex items-center justify-end gap-1 text-[10px] tabular-nums", mine ? "text-indigo-100" : "text-slate-400")}>
             <span>{formatTime(message.created_at)}</span>
             {message.edited_at && <span>· {t("已编辑")}</span>}
@@ -751,6 +1103,7 @@ function Composer({
   replyTarget,
   onClearReply,
   onSent,
+  presentation = "panel",
 }: {
   taskId: string;
   anchor: { type: RdDiscussionAnchorType; id?: string | null };
@@ -760,7 +1113,8 @@ function Composer({
   contextHint: string;
   replyTarget?: RdTaskDiscussionMessage | null;
   onClearReply?: () => void;
-  onSent: (message: RdTaskDiscussionMessage) => void;
+  onSent: (message: RdTaskDiscussionMessage, threadId: string) => void;
+  presentation?: "panel" | "inline";
 }) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -810,7 +1164,7 @@ function Composer({
       setFiles([]);
       mention.resetMentions();
       onClearReply?.();
-      onSent(result.message);
+      onSent(result.message, result.thread_id);
       announceDiscussionUpdated(taskId);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("发送失败，请重试"));
@@ -822,8 +1176,11 @@ function Composer({
   return (
     <div
       className={cn(
-        "relative border-t border-slate-200 bg-white/95 px-3 py-2 backdrop-blur-xl",
-        variant === "mobile" && "[padding-bottom:calc(0.5rem+env(safe-area-inset-bottom))]",
+        "relative bg-white/95 backdrop-blur-xl",
+        presentation === "inline"
+          ? "mt-2 rounded-xl border border-slate-200 p-2"
+          : "border-t border-slate-200 px-3 py-2",
+        variant === "mobile" && presentation === "panel" && "[padding-bottom:calc(0.5rem+env(safe-area-inset-bottom))]",
       )}
       onDragEnter={(event) => {
         if (variant !== "desktop" || !event.dataTransfer.types.includes("Files")) return;
@@ -1032,7 +1389,7 @@ function AnchorPreview({
           {anchor.preview || t("附件消息")}
         </div>
         {attachments.length > 0 && !compact && (
-          <ProgressAttachmentGrid attachments={attachments} compact className="mt-1.5" />
+          <ProgressAttachmentGrid attachments={attachments} compact imageDisplay="clipped-cards" className="mt-1.5" />
         )}
         {attachments.length > 0 && compact && (
           <div className="mt-1 text-[10px] font-semibold text-slate-500">
@@ -1095,7 +1452,6 @@ export function RDTaskConversation({
   notesLoading = false,
   notesError,
   onRetryNotes,
-  progressComposer,
   showHeader = true,
   threadLayout = "responsive",
   focusAnchor,
@@ -1107,6 +1463,8 @@ export function RDTaskConversation({
   onUnreadChange,
   onThreadOpenChange,
   onOpenSourceTask,
+  selectedActor,
+  onActorClick,
 }: {
   taskId: string;
   taskTitle: string;
@@ -1116,7 +1474,6 @@ export function RDTaskConversation({
   notesLoading?: boolean;
   notesError?: string | null;
   onRetryNotes?: () => void;
-  progressComposer?: React.ReactNode;
   showHeader?: boolean;
   threadLayout?: "responsive" | "replace";
   focusAnchor?: RdFocusedDiscussionAnchor;
@@ -1128,6 +1485,8 @@ export function RDTaskConversation({
   onUnreadChange?: (count: number) => void;
   onThreadOpenChange?: (open: boolean) => void;
   onOpenSourceTask?: (taskId: string) => void;
+  selectedActor?: AuditActorIdentity | null;
+  onActorClick?: (actor: AuditActorIdentity) => void;
 }) {
   useI18n();
   const { user } = useAuth();
@@ -1576,7 +1935,7 @@ export function RDTaskConversation({
 
   const mainContent = (
     <section
-      className="flex min-w-0 flex-1 flex-col bg-[radial-gradient(circle_at_top,_rgba(238,242,255,0.82),_rgba(248,250,252,0.64)_36%,_white_76%)]"
+      className="flex min-h-0 min-w-0 flex-1 flex-col bg-[radial-gradient(circle_at_top,_rgba(238,242,255,0.82),_rgba(248,250,252,0.64)_36%,_white_76%)]"
       aria-label={`${mode === "progress" ? t("进度留痕") : t("任务讨论")}：${taskTitle}`}
     >
       {main?.access_scope === "thread_invitee" && (
@@ -1715,6 +2074,10 @@ export function RDTaskConversation({
                                 summary={noteSummary}
                                 onOpenThread={() => void openThread(anchor)}
                                 onOpenSourceTask={onOpenSourceTask}
+                                selectedActor={selectedActor}
+                                onActorClick={onActorClick}
+                                candidates={candidates}
+                                variant={variant}
                               />
                             );
                           })}
@@ -1779,8 +2142,6 @@ export function RDTaskConversation({
         />
       ) : mode === "task" && main ? (
         <ReadOnlyComposerNotice />
-      ) : progressComposer ? (
-        progressComposer
       ) : null}
     </section>
   );

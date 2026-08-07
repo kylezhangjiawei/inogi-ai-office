@@ -36,7 +36,17 @@ import { PERMISSIONS } from "./lib/permissions";
 import { t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { AuditTimeline } from "./RDAuditTimeline";
-import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
+import {
+  addAuditLogNote,
+  auditActorMatchesIdentity,
+  filterAuditLogsByActor,
+  filterAuditLogsForViewer,
+  recordAudit,
+  useAuditActor,
+  type AuditActorIdentity,
+  type AuditLog,
+  useAuditLogs,
+} from "./lib/auditLog";
 import { ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
 import { RDTaskConversation } from "./RDTaskConversation";
 import {
@@ -116,6 +126,18 @@ function LocalClock({ name, role, lang }: { name: string; role?: string; lang: "
 export default function UsCollabTaskDetailPage() {
   const { taskId = "" } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const activityActor = useMemo<AuditActorIdentity | null>(() => {
+    const params = new URLSearchParams(location.search);
+    const id = params.get("activity_user_id")?.trim() ?? "";
+    const name = params.get("activity_user_name")?.trim() ?? "";
+    return id || name ? { id: id || null, name: name || null } : null;
+  }, [location.search]);
+  const cockpitReturnPath = `${routePath("page:us-collab-cockpit", "/us-collab-cockpit")}${location.search}`;
+  const taskDetailPath = useCallback(
+    (id: string) => `/us-collab-task/${encodeURIComponent(id)}${location.search}`,
+    [location.search],
+  );
   const shouldReduceMotion = useReducedMotion();
   const { lang } = useI18n(); // i18n：订阅语言切换（本页文案已 t() 化）
   void lang;
@@ -176,7 +198,11 @@ export default function UsCollabTaskDetailPage() {
     return out;
   }, [task, people]);
   const mention = useMentions({ value: composerText, setValue: setComposerText, inputRef: composerRef, candidates: mentionCandidates });
-  const auditLogs = useAuditLogs({ resourceType: "task", resourceId: taskId });
+  const allAuditLogs = useAuditLogs({ resourceType: "task", resourceId: taskId });
+  const auditLogs = useMemo(
+    () => activityActor ? filterAuditLogsByActor(allAuditLogs, activityActor) : allAuditLogs,
+    [activityActor, allAuditLogs],
+  );
 
   // 视口内布局的可用高度：实测容器到视口顶的距离（覆盖全局顶栏/面包屑/内边距的任意组合），
   // 不猜固定偏移。lg 以下返回 null 走自然文档流。
@@ -220,7 +246,6 @@ export default function UsCollabTaskDetailPage() {
 
   // 秒开：驾驶舱/序列导航经 location.state 带来任务快照，先渲染再后台静默拉最新覆盖
 
-  const location = useLocation();
   useEffect(() => {
     const seeded = (location.state as { task?: RdTask } | null)?.task;
     const hasSeed = Boolean(seeded && seeded.task_id === taskId);
@@ -248,23 +273,27 @@ export default function UsCollabTaskDetailPage() {
     return () => { cancelled = true; };
   }, [taskId]);
 
+  const activityNotes = useMemo(
+    () => activityActor ? notes.filter((note) => auditActorMatchesIdentity(note.actor, activityActor)) : notes,
+    [activityActor, notes],
+  );
   const noteCountByItem = useMemo(() => {
     const m = new Map<string, number>();
-    for (const n of notes) {
+    for (const n of activityNotes) {
       if (n.work_item_id) m.set(n.work_item_id, (m.get(n.work_item_id) ?? 0) + 1);
     }
     return m;
-  }, [notes]);
+  }, [activityNotes]);
 
   const filteredNotes = useMemo(() => {
-    if (noteItemFilter === "all") return notes;
+    if (noteItemFilter === "all") return activityNotes;
     if (noteItemFilter === "main") {
       // 「未关联」含孤儿留痕：关联的工作项被删除后，其留痕归入这里（承诺"删除工作项后留痕保留在主任务"）
       const existingItemIds = new Set((task?.work_items ?? []).map((it) => it.id));
-      return notes.filter((n) => !n.work_item_id || !existingItemIds.has(n.work_item_id));
+      return activityNotes.filter((n) => !n.work_item_id || !existingItemIds.has(n.work_item_id));
     }
-    return notes.filter((n) => n.work_item_id === noteItemFilter);
-  }, [notes, noteItemFilter, task?.work_items]);
+    return activityNotes.filter((n) => n.work_item_id === noteItemFilter);
+  }, [activityNotes, noteItemFilter, task?.work_items]);
 
   const docAttachments = useMemo(
     () =>
@@ -281,7 +310,7 @@ export default function UsCollabTaskDetailPage() {
     const matchedNoteIds = new Set(
       auditLogs.map((log) => (typeof log.metadata?.note_id === "string" ? log.metadata.note_id : "")).filter(Boolean),
     );
-    const orphanLogs: AuditLog[] = notes
+    const orphanLogs: AuditLog[] = activityNotes
       .filter((n) => !matchedNoteIds.has(n.id))
       .map((n) => ({
         id: `report-note-${n.id}`,
@@ -293,9 +322,9 @@ export default function UsCollabTaskDetailPage() {
         metadata: { note_id: n.id, synthetic: true },
         source: "web" as const,
       }));
-    return [...auditLogs, ...orphanLogs];
-  }, [auditLogs, notes, taskId, task?.title]);
-  const noteById = useMemo(() => new Map(notes.map((n) => [n.id, n] as const)), [notes]);
+    return filterAuditLogsForViewer([...auditLogs, ...orphanLogs], user);
+  }, [activityNotes, auditLogs, taskId, task?.title, user]);
+  const noteById = useMemo(() => new Map(activityNotes.map((n) => [n.id, n] as const)), [activityNotes]);
   const reportNoteOf = useCallback(
     (logId: string) => {
       const log = reportLogs.find((l) => l.id === logId);
@@ -582,9 +611,9 @@ export default function UsCollabTaskDetailPage() {
   const gotoSeq = useCallback(
     (offset: number) => {
       const target = taskSeq[seqIndex + offset];
-      if (target) navigate(`/us-collab-task/${encodeURIComponent(target.task_id)}`, { state: { task: target } });
+      if (target) navigate(taskDetailPath(target.task_id), { state: { task: target } });
     },
-    [taskSeq, seqIndex, navigate],
+    [taskSeq, seqIndex, navigate, taskDetailPath],
   );
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -623,7 +652,7 @@ export default function UsCollabTaskDetailPage() {
         <p className="text-sm">{loadError || t("任务不存在")}</p>
         <button
           type="button"
-          onClick={() => navigate(routePath("page:us-collab-cockpit", "/us-collab-cockpit"))}
+          onClick={() => navigate(cockpitReturnPath)}
           className="cursor-pointer rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
         >
           {t("返回驾驶舱")}
@@ -651,7 +680,7 @@ export default function UsCollabTaskDetailPage() {
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-3">
         {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
-        <Button type="button" variant="outline" size="sm" onClick={() => navigate(routePath("page:us-collab-cockpit", "/us-collab-cockpit"))} className="gap-1">
+        <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)} className="gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
           {t("返回")}
         </Button>
@@ -937,7 +966,7 @@ export default function UsCollabTaskDetailPage() {
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col">
               <TabsList className="cockpit-scroll h-auto w-full shrink-0 justify-start gap-3 overflow-x-auto rounded-none border-b border-slate-200/80 bg-transparent p-0 px-3 sm:gap-5 sm:px-4">
                 {([
-                  { key: "notes", label: t("进展留痕"), count: notes.length },
+                  { key: "notes", label: t("进展留痕"), count: activityNotes.length },
                   { key: "conversation", label: t("任务讨论"), count: discussionUnread },
                   { key: "audit", label: t("操作记录"), count: timelineLogs.length },
                   { key: "attachments", label: t("附件库"), count: null },
@@ -1057,7 +1086,7 @@ export default function UsCollabTaskDetailPage() {
                   renderExtra={(log) => {
                     const note = reportNoteOf(log.id);
                     if (!note || note.attachments.length === 0) return null;
-                    return <ProgressAttachmentGrid attachments={note.attachments} compact />;
+                    return <ProgressAttachmentGrid attachments={note.attachments} compact imageDisplay="clipped-cards" />;
                   }}
                 />
               </motion.div>
@@ -1225,7 +1254,7 @@ export default function UsCollabTaskDetailPage() {
                     type="button"
                     onClick={() => {
                       setPersonTasksFor(null);
-                      if (t.task_id !== taskId) navigate(`/us-collab-task/${encodeURIComponent(t.task_id)}`);
+                      if (t.task_id !== taskId) navigate(taskDetailPath(t.task_id));
                     }}
                     className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40"
                   >

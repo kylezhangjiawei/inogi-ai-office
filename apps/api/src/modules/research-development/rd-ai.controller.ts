@@ -2,6 +2,10 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
+  Get,
+  NotFoundException,
+  Param,
   Post,
   Request,
   UploadedFile,
@@ -9,18 +13,38 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { randomUUID } from 'node:crypto';
 
 type AuthedRequest = { user?: { id?: string } };
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { RdWorkspaceInterceptor } from './rd-workspace.context';
+import { currentRdWorkspace, RdWorkspaceInterceptor } from './rd-workspace.context';
 import {
   RdAiService,
+  type RdAiProjectClassificationInput,
+  type RdAiProjectClassificationResult,
   type RdAiPersonContext,
   type RdAiProductOption,
   type RdAiProposalRefineScope,
   type RdAiProposalTaskInput,
 } from './rd-ai.service';
+import { ResearchDevelopmentService } from './research-development.service';
+
+type RdProjectClassificationRequestBody = {
+  product_id?: string;
+  category_id?: string;
+  sub_project_id?: string;
+  instruction?: string;
+};
+
+type RdProjectClassificationJob = {
+  userId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  result?: RdAiProjectClassificationResult;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+};
 
 function parseList(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
@@ -120,7 +144,12 @@ function toOptionalNumber(value: unknown): number | undefined {
 // 工作区隔离：与主控制器一致，?workspace=us-collab 时 AI 场景/工件读写协同池
 @UseInterceptors(RdWorkspaceInterceptor)
 export class RdAiController {
-  constructor(private readonly rdAiService: RdAiService) {}
+  private readonly projectClassificationJobs = new Map<string, RdProjectClassificationJob>();
+
+  constructor(
+    private readonly rdAiService: RdAiService,
+    private readonly researchDevelopmentService: ResearchDevelopmentService,
+  ) {}
 
   @Post('extract-tasks')
   async extractFromText(
@@ -198,6 +227,120 @@ export class RdAiController {
       scope,
       selectedTaskIds: parseList(body.selectedTaskIds),
     });
+  }
+
+  @Post('classify-project')
+  @Permissions('rd-project:direct')
+  @UseInterceptors(FilesInterceptor('files', 5, { limits: { fileSize: 25 * 1024 * 1024 } }))
+  async classifyProject(
+    @UploadedFiles() files: Array<{ originalname: string; buffer: Buffer; mimetype?: string }> | undefined,
+    @Body() body: RdProjectClassificationRequestBody,
+  ) {
+    return this.rdAiService.classifyProject(await this.buildProjectClassificationInput(files, body));
+  }
+
+  /**
+   * 全量归纳可能包含多轮 AI 调用，耗时会超过线上反向代理的 120 秒空闲超时。
+   * 提交接口只创建后台任务，前端通过短轮询取结果，避免长连接被网关提前断开。
+   */
+  @Post('classify-project-jobs')
+  @Permissions('rd-project:direct')
+  @UseInterceptors(FilesInterceptor('files', 5, { limits: { fileSize: 25 * 1024 * 1024 } }))
+  async createProjectClassificationJob(
+    @Request() request: AuthedRequest,
+    @UploadedFiles() files: Array<{ originalname: string; buffer: Buffer; mimetype?: string }> | undefined,
+    @Body() body: RdProjectClassificationRequestBody,
+  ) {
+    const userId = request.user?.id?.trim();
+    if (!userId) throw new ForbiddenException('无法确认当前操作人');
+
+    const input = await this.buildProjectClassificationInput(files, body);
+    const jobId = randomUUID();
+    const now = new Date().toISOString();
+    this.projectClassificationJobs.set(jobId, {
+      userId,
+      status: 'queued',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    setImmediate(() => {
+      const queued = this.projectClassificationJobs.get(jobId);
+      if (!queued) return;
+      queued.status = 'running';
+      queued.updatedAt = new Date().toISOString();
+      void this.rdAiService.classifyProject(input)
+        .then((result) => {
+          const current = this.projectClassificationJobs.get(jobId);
+          if (!current) return;
+          current.status = 'completed';
+          current.result = result;
+          current.updatedAt = new Date().toISOString();
+        })
+        .catch((error: unknown) => {
+          const current = this.projectClassificationJobs.get(jobId);
+          if (!current) return;
+          current.status = 'failed';
+          current.error = error instanceof Error ? error.message : 'AI 全量任务归纳失败';
+          current.updatedAt = new Date().toISOString();
+        })
+        .finally(() => {
+          const cleanup = setTimeout(() => this.projectClassificationJobs.delete(jobId), 30 * 60 * 1000);
+          cleanup.unref?.();
+        });
+    });
+
+    return { job_id: jobId, status: 'queued' as const, created_at: now };
+  }
+
+  @Get('classify-project-jobs/:jobId')
+  @Permissions('rd-project:direct')
+  getProjectClassificationJob(
+    @Request() request: AuthedRequest,
+    @Param('jobId') jobId: string,
+  ) {
+    const job = this.projectClassificationJobs.get(jobId);
+    if (!job || !request.user?.id || job.userId !== request.user.id) {
+      throw new NotFoundException('分析任务不存在或已过期，请重新生成');
+    }
+    return {
+      job_id: jobId,
+      status: job.status,
+      ...(job.result ? { result: job.result } : {}),
+      ...(job.error ? { error: job.error } : {}),
+      created_at: job.createdAt,
+      updated_at: job.updatedAt,
+    };
+  }
+
+  private async buildProjectClassificationInput(
+    files: Array<{ originalname: string; buffer: Buffer; mimetype?: string }> | undefined,
+    body: RdProjectClassificationRequestBody,
+  ): Promise<RdAiProjectClassificationInput> {
+    if (currentRdWorkspace() !== 'rd') {
+      throw new ForbiddenException('AI 全量任务归纳仅在研发任务驾驶舱中可用');
+    }
+    const totalFileBytes = (files ?? []).reduce((sum, file) => sum + file.buffer.length, 0);
+    if (totalFileBytes > 50 * 1024 * 1024) {
+      throw new BadRequestException('附件总大小不能超过 50 MB');
+    }
+    const context = await this.researchDevelopmentService.getProjectClassificationContext({
+      productId: body.product_id,
+      categoryId: body.category_id,
+      subProjectId: body.sub_project_id,
+    });
+    return {
+      scope: {
+        product_id: context.product_id,
+        category_id: context.category_id,
+        ...(context.sub_project_id ? { sub_project_id: context.sub_project_id } : {}),
+        label: context.label,
+        task_count: context.task_count,
+      },
+      tasks: context.tasks,
+      instruction: body.instruction,
+      files: files ?? [],
+    };
   }
 
   @Post('assess-progress')
