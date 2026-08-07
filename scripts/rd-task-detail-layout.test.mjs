@@ -61,8 +61,10 @@ test("returning from a member-scoped task restores the selected cockpit member",
 
 test("the all-tasks lane is labeled as admin view and keeps the unscoped detail rules", () => {
   assert.match(managementSource, /\{t\("管理员视角"\)\}/);
-  assert.match(managementSource, /const activityActor = activeTab === "all"\s*\? undefined/);
-  assert.match(managementSource, /const scopeLabel = activeTab === "all" \? t\("管理员视角"\) : activeTab/);
+  // 成员页签改按身份主键索引后，activeMember 为空即「全部」视角，activityActor 仍为 undefined
+  assert.match(managementSource, /const activeMember = activeTab === "all"\s*\? undefined/);
+  assert.match(managementSource, /const activityActor = activeMember\s*\?\s*\{ id: activeMember\.user_id, name: activeMember\.name \}\s*: undefined;/);
+  assert.match(managementSource, /const scopeLabel = activeTab === "all"\s*\? t\("管理员视角"\)/);
 });
 
 test("merged child tasks are visible filters for progress notes and audit records", () => {

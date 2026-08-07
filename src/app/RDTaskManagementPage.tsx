@@ -4864,11 +4864,17 @@ function PersonLoadPanel({
   );
 }
 
+/**
+ * 人员抽屉是「摘要」面：只列主责任务，与头像角标严格同口径。
+ * 协助任务不在这里铺开（那是成员页签里可展开的协助段），但必须露出数量，
+ * 否则领导会以为这个人只有这些活。
+ */
 function PersonDetailDrawer({
   name,
   profile,
   load,
   tasks,
+  collaboratingCount = 0,
   onClose,
   onOpenTask,
 }: {
@@ -4876,6 +4882,7 @@ function PersonDetailDrawer({
   profile?: PersonProfile;
   load?: PersonLoad;
   tasks: Task[];
+  collaboratingCount?: number;
   onClose: () => void;
   onOpenTask: (task: Task) => void;
 }) {
@@ -4961,11 +4968,17 @@ function PersonDetailDrawer({
 
           <section>
             <div className="mb-2 flex items-center justify-between">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{t("负责/协作任务")}</h4>
+              {/* 此处只列主责，与头像角标同口径；协助任务在成员页签里可展开查看 */}
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{t("主责任务")}</h4>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500">{t("{count} 项", { count: tasks.length })}</span>
             </div>
+            {collaboratingCount > 0 && (
+              <div className="mb-2 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                {t("另协助 {count} 个任务（在成员页签的「协助」分段中查看）", { count: collaboratingCount })}
+              </div>
+            )}
             {tasks.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 py-8 text-center text-sm text-slate-400">{t("暂无关联任务")}</div>
+              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 py-8 text-center text-sm text-slate-400">{t("暂无主责任务")}</div>
             ) : (
               <ul className="space-y-2">
                 {tasks.slice(0, 12).map((task) => (
@@ -6589,13 +6602,14 @@ function loadRingGradient(ratio: number, onLeave: boolean) {
   return { from: "#34d399", to: "#059669" };                   // emerald
 }
 
+/** 返回成员页签标识（身份主键），不是姓名 —— 同名同事必须能分开选中。 */
 function resolveActivityPersonTab(personLoads: PersonLoad[], actor?: TaskActivityActor | null) {
   if (!actor) return "all";
   const matchedById = actor.id
     ? personLoads.find((person) => person.user_id === actor.id)
     : undefined;
-  if (matchedById) return matchedById.name;
-  return personLoads.some((person) => person.name === actor.name) ? actor.name : "all";
+  if (matchedById) return matchedById.key;
+  return personLoads.find((person) => person.name === actor.name)?.key ?? "all";
 }
 
 const TASK_PAGE_SIZE = 6; // 首批 6 个，后续滚动每批再加载 6 个
@@ -6975,7 +6989,7 @@ function PersonTaskCockpit({
   const [activeTab, setActiveTab] = useState(() => resolveActivityPersonTab(personLoads, initialActivityActor));
   const [prevTab, setPrevTab] = useState(() => resolveActivityPersonTab(personLoads, initialActivityActor));
   const activityRestorePendingRef = useRef(Boolean(initialActivityActor && initialActivityTab === "all"));
-  const tabOrder = useMemo(() => ["all", ...personLoads.map((p) => p.name)], [personLoads]);
+  const tabOrder = useMemo(() => ["all", ...personLoads.map((p) => p.key)], [personLoads]);
   const direction = tabOrder.indexOf(activeTab) >= tabOrder.indexOf(prevTab) ? 1 : -1;
 
   // 跨产品合并树可能比主库稍晚返回：若首次挂载时尚未找到目标成员，等人员数据补齐后恢复一次。
@@ -7010,7 +7024,7 @@ function PersonTaskCockpit({
   // 此时停留在已不存在的人员 tab 上会让内容区空白，回退到「全部」。
   // 其余刷新（成员仍有任务）保持当前选中人员不变。
   useEffect(() => {
-    if (activeTab !== "all" && !personLoads.some((p) => p.name === activeTab)) {
+    if (activeTab !== "all" && !personLoads.some((p) => p.key === activeTab)) {
       setActiveTab("all");
       setPrevTab("all");
     }
@@ -7121,6 +7135,17 @@ function PersonTaskCockpit({
   // 研发与协同驾驶舱统一：首批只渲染 6 条，后续按滚动增量加载。
   const taskPageSize = TASK_PAGE_SIZE;
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
+  // 协助段折叠态（按成员身份主键记）。默认折叠：驾驶舱给领导看的是「谁负责什么」，
+  // 协助是下钻上下文；折叠标题上仍带数量，不看也知道他还搭了几件事。
+  const [expandedCollabTabs, setExpandedCollabTabs] = useState<Set<string>>(() => new Set());
+  const toggleCollabSegment = useCallback((tabKey: string) => {
+    setExpandedCollabTabs((prev) => {
+      const next = new Set(prev);
+      if (next.has(tabKey)) next.delete(tabKey);
+      else next.add(tabKey);
+      return next;
+    });
+  }, []);
   // 当前激活 tab 的滚动容器。用 callback-ref 把节点存进 state，而不是 useRef：
   // AnimatePresence mode="wait" 下切 tab 时旧容器会先退场动画(~220ms)再卸载、新容器随后才挂载；
   // 用 useRef + 仅依赖 activeTab 的 effect 会在退场期测到旧容器、且新容器挂载后不再重跑 effect，
@@ -7332,26 +7357,43 @@ function PersonTaskCockpit({
   }, [allTasks, sortByUpdatedDesc, matchesKpiFilter, cockpitSearch]);
 
   // Per-person — 同步包含已完成任务并应用 KPI 筛选与搜索关键字
+  // 驾驶舱是给领导看「谁在负责什么」的，所以主责与协助必须分开：
+  // 主责段占第一屏，协助段作为下钻上下文默认折叠。两段应用同一套 KPI 筛选与搜索。
   const personTasksMap = useMemo(() => {
-    const map = new Map<string, Task[]>();
+    const map = new Map<string, { primary: Task[]; collaborating: Task[] }>();
     for (const p of personLoads) {
-      const filtered = allTasks.filter(
-        (t) => !t.archived && matchesKpiFilter(t) && taskMatches(t, cockpitSearch, "all", "all", "all") &&
-          (t.primary_owner === p.name || t.collaborators.some((c) => c.name === p.name)),
-      );
-      map.set(p.name, sortByUpdatedDesc(filtered));
+      const primary: Task[] = [];
+      const collaborating: Task[] = [];
+      for (const task of allTasks) {
+        if (task.archived || !matchesKpiFilter(task) || !taskMatches(task, cockpitSearch, "all", "all", "all")) continue;
+        if (memberIdentityKey(task.primary_owner, task.primary_owner_user_id) === p.key) {
+          primary.push(task);
+        } else if (task.collaborators.some((c) => memberIdentityKey(c.name, c.user_id) === p.key)) {
+          collaborating.push(task);
+        }
+      }
+      map.set(p.key, { primary: sortByUpdatedDesc(primary), collaborating: sortByUpdatedDesc(collaborating) });
     }
     return map;
   }, [personLoads, allTasks, sortByUpdatedDesc, matchesKpiFilter, cockpitSearch]);
 
+  /** 分页、导出等下游只关心「该成员页签下的全部任务」，主责在前、协助在后。 */
+  const personScopeTasks = useCallback(
+    (tabKey: string): Task[] => {
+      const segments = personTasksMap.get(tabKey);
+      return segments ? [...segments.primary, ...segments.collaborating] : [];
+    },
+    [personTasksMap],
+  );
+
   // 当前 tab 的搜索命中数（展示在搜索框内）
-  const cockpitHitCount = activeTab === "all" ? allActiveTasks.length : (personTasksMap.get(activeTab)?.length ?? 0);
+  const cockpitHitCount = activeTab === "all" ? allActiveTasks.length : personScopeTasks(activeTab).length;
 
   // 批量导出报告：把当前范围（"全部" / 某成员）已完成且已评分的任务，汇总成一份多页 PDF。
   // 注意：依赖 allActiveTasks / personTasksMap，必须定义在它们的 useMemo 之后，否则触发 TDZ。
   const handleBatchExportReports = useCallback(async () => {
     if (batchExportBusy) return;
-    const scopeTasks = (activeTab === "all" ? allActiveTasks : (personTasksMap.get(activeTab) ?? []))
+    const scopeTasks = (activeTab === "all" ? allActiveTasks : personScopeTasks(activeTab))
       .filter((t) => t.status === "completed");
     if (scopeTasks.length === 0) {
       toast.info(t("当前范围没有已完成任务可导出"));
@@ -7405,7 +7447,9 @@ function PersonTaskCockpit({
         const noteList = cachedNotes !== undefined ? cachedNotes : await fetchRdTaskProgressNotes(t.task_id).catch(() => []);
         return { task: t, score, notes: noteList };
       });
-      const scopeLabel = activeTab === "all" ? t("管理员视角") : activeTab;
+      const scopeLabel = activeTab === "all"
+        ? t("管理员视角")
+        : (personLoads.find((person) => person.key === activeTab)?.name ?? activeTab);
       const ok = openBatchCompletionReport(scopeLabel, items);
       if (!ok) {
         toast.error(t("报告窗口被浏览器拦截，请允许本站弹出窗口后重试"), { id: toastId });
@@ -7434,7 +7478,7 @@ function PersonTaskCockpit({
     const visibleCount = visibleCounts[activeTab] ?? taskPageSize;
     const sourceTasks = activeTab === "all"
       ? allActiveTasks
-      : (personTasksMap.get(activeTab) ?? []);
+      : personScopeTasks(activeTab);
     const toFetch = sourceTasks
       .slice(0, visibleCount)
       .filter((task) => task.attachments > 0 && !(task.task_id in attachmentPreviewMap));
@@ -7482,7 +7526,7 @@ function PersonTaskCockpit({
       : (visibleCounts[activeTab] ?? taskPageSize);
     const sourceTasks = activeTab === "all"
       ? allActiveTasks
-      : (personTasksMap.get(activeTab) ?? []);
+      : personScopeTasks(activeTab);
     const visibleCompleted = sourceTasks
       .slice(0, visibleCount)
       .filter((t) => t.status === "completed" && !(t.task_id in aiScoreMap));
@@ -7514,9 +7558,11 @@ function PersonTaskCockpit({
   // 内容不足时自动追加一批，直到产生可滚动空间或全部展示；底部按钮仍保留手动兜底。
   useEffect(() => {
     if (!scrollEl) return;
+    // 分页只驱动主责段（协助段展开后一次给完），补页判断必须用同一口径，
+    // 否则合计数大于主责数时会一直认为「还有下一页」，反复触发补页。
     const totalTasks = activeTab === "all"
       ? allActiveTasks.length
-      : (personTasksMap.get(activeTab)?.length ?? 0);
+      : (personTasksMap.get(activeTab)?.primary.length ?? 0);
     const visibleCount = visibleCounts[activeTab] ?? taskPageSize;
     if (visibleCount >= totalTasks) return;
     if (scrollEl.scrollHeight - scrollEl.clientHeight >= 120) return;
@@ -7555,16 +7601,16 @@ function PersonTaskCockpit({
     options: { showOwner?: boolean } = {},
   ) => {
     const { showOwner = false } = options;
-    const activityActor = activeTab === "all"
+    const activeMember = activeTab === "all"
       ? undefined
-      : {
-          id: personLoads.find((person) => person.name === activeTab)?.user_id,
-          name: activeTab,
-        };
-    const isSelectedPersonCollaborator =
-      activeTab !== "all" &&
-      task.primary_owner !== activeTab &&
-      task.collaborators.some((collaborator) => collaborator.name === activeTab);
+      : personLoads.find((person) => person.key === activeTab);
+    const activityActor = activeMember
+      ? { id: activeMember.user_id, name: activeMember.name }
+      : undefined;
+    // 协助段的卡片必须标明主责人，领导才知道这件事到底归谁
+    const isSelectedPersonCollaborator = Boolean(
+      activeMember && memberIdentityKey(task.primary_owner, task.primary_owner_user_id) !== activeMember.key,
+    );
     const shouldShowOwner = showOwner || isSelectedPersonCollaborator;
     const sCfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.draft;
     const priorityKey: Priority = task.final_priority ?? task.ai_priority ?? "medium";
@@ -7997,13 +8043,13 @@ function PersonTaskCockpit({
             {personLoads.map((p) => {
               const ratio = p.max > 0 ? p.count / p.max : 0;
               const grad = loadRingGradient(ratio, p.onLeave);
-              const isActive = activeTab === p.name;
+              const isActive = activeTab === p.key;
               const initial = p.name.replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
               const avatarUrl = resolveAvatar(p.name, p.user_id);
               return (
                 <TabsTrigger
                   key={p.key}
-                  value={p.name}
+                  value={p.key}
                   className="flex min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0"
                 >
                   <div className="relative">
@@ -8319,12 +8365,17 @@ function PersonTaskCockpit({
 
                 {/* ── Per-person Tab ── */}
                 {activeTab !== "all" && (() => {
-                  const p = personLoads.find((x) => x.name === activeTab);
+                  const p = personLoads.find((x) => x.key === activeTab);
                   if (!p) return null;
-                  const tasks = personTasksMap.get(p.name) ?? [];
-                  const visibleCount = visibleCounts[p.name] ?? taskPageSize;
-                  const shownTasks = tasks.slice(0, visibleCount);
-                  const hasMore = visibleCount < tasks.length;
+                  const segments = personTasksMap.get(p.key) ?? { primary: [], collaborating: [] };
+                  const primaryTasks = segments.primary;
+                  const collabTasks = segments.collaborating;
+                  const tasks = [...primaryTasks, ...collabTasks];
+                  // 分页只驱动主责段：协助段是下钻上下文，展开后一次给完。
+                  const visibleCount = visibleCounts[p.key] ?? taskPageSize;
+                  const shownTasks = primaryTasks.slice(0, visibleCount);
+                  const hasMore = visibleCount < primaryTasks.length;
+                  const collabExpanded = expandedCollabTabs.has(p.key);
                   const ratio = p.max > 0 ? p.count / p.max : 0;
                   const grad = loadRingGradient(ratio, p.onLeave);
                   const initial = p.name.replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
@@ -8381,39 +8432,80 @@ function PersonTaskCockpit({
                           ref={setScrollRef}
                           className="cockpit-scroll overflow-y-auto transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
                           style={flowHeightStyle(headerCollapsed)}
-                          onScroll={(e) => handleTaskScroll(e, p.name, tasks.length)}
+                          onScroll={(e) => handleTaskScroll(e, p.key, primaryTasks.length)}
                         >
-                          <div className={cn("flex items-start", spaciousCards ? "gap-4 px-4 py-4" : "gap-2.5 px-4 py-3")}>
-                            {distributeIntoColumns(shownTasks, masonryColumns).map((column, colIdx) => (
-                              <div key={colIdx} className={cn("flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
-                                <AnimatePresence>
-                                  {column.map((task, rowIdx) =>
-                                    renderTaskCard(task, colIdx + rowIdx * masonryColumns, grad),
-                                  )}
-                                </AnimatePresence>
-                              </div>
-                            ))}
+                          {/* ── 主责段：领导最关心「这个人负责什么」，占第一屏 ── */}
+                          <div className="flex items-center gap-2 px-4 pt-3 text-[11px] font-semibold text-slate-500">
+                            <span className="h-3 w-0.5 rounded-full bg-indigo-500" />
+                            <span>{t("主责")}</span>
+                            <span className="tabular-nums text-slate-400">{primaryTasks.length}</span>
                           </div>
+                          {primaryTasks.length === 0 ? (
+                            <div className="px-4 py-6 text-center text-[12px] text-slate-400">{t("该成员当前没有主责任务")}</div>
+                          ) : (
+                            <div className={cn("flex items-start", spaciousCards ? "gap-4 px-4 py-4" : "gap-2.5 px-4 py-3")}>
+                              {distributeIntoColumns(shownTasks, masonryColumns).map((column, colIdx) => (
+                                <div key={colIdx} className={cn("flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
+                                  <AnimatePresence>
+                                    {column.map((task, rowIdx) =>
+                                      renderTaskCard(task, colIdx + rowIdx * masonryColumns, grad),
+                                    )}
+                                  </AnimatePresence>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* ── 协助段：默认折叠，但折叠态也要露出数量，一眼知道他还搭了几件事 ── */}
+                          {collabTasks.length > 0 && (
+                            <div className="border-t border-slate-100">
+                              <button
+                                type="button"
+                                onClick={() => toggleCollabSegment(p.key)}
+                                aria-expanded={collabExpanded}
+                                className="flex w-full items-center gap-2 px-4 py-2.5 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                              >
+                                <span className="h-3 w-0.5 rounded-full bg-slate-300" />
+                                <span>{t("协助")}</span>
+                                <span className="tabular-nums text-slate-400">{collabTasks.length}</span>
+                                <ChevronDown className={cn("ml-auto h-3.5 w-3.5 transition-transform", collabExpanded && "rotate-180")} />
+                              </button>
+                              {collabExpanded && (
+                                <div className={cn("flex items-start", spaciousCards ? "gap-4 px-4 pb-4" : "gap-2.5 px-4 pb-3")}>
+                                  {distributeIntoColumns(collabTasks, masonryColumns).map((column, colIdx) => (
+                                    <div key={colIdx} className={cn("flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
+                                      <AnimatePresence>
+                                        {column.map((task, rowIdx) =>
+                                          renderTaskCard(task, colIdx + rowIdx * masonryColumns, grad),
+                                        )}
+                                      </AnimatePresence>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           {/* 底部状态 */}
                           {hasMore ? (
                             <button
                               type="button"
-                              onClick={() => loadNextTaskPage(p.name, tasks.length)}
+                              onClick={() => loadNextTaskPage(p.key, primaryTasks.length)}
                               className="flex w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-indigo-50/50 hover:text-indigo-600"
                             >
                               <ChevronDown className="h-3 w-3 animate-bounce" />
-                              <span>{t("继续向下滚动 · 已显示")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> {t("个任务")}</span>
+                              <span>{t("继续向下滚动 · 已显示主责")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{primaryTasks.length}</span> {t("个任务")}</span>
                             </button>
                           ) : tasks.length > 0 ? (
                             <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
                               <CheckCircle2 className="h-3 w-3 text-emerald-400" />
                               <span>
-                                {t("已显示全部")} <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> {t("个任务")}
-                                {/* 角标=主责进行中(与个人工作台「主责」同口径)；此列表是超集，另含协作 / 已完成，故两数不同属正常 */}
+                                {t("已显示全部主责")} <span className="font-semibold tabular-nums text-slate-500">{primaryTasks.length}</span> {t("个任务")}
+                                {/* 角标 = 主责且活跃；本段是其超集（另含已完成），故两数可以不同 */}
                                 {kpiFilter === "all" && !cockpitSearch && (
-                                  <> · {t("其中主责进行中 {count} 个（= 头像角标，余为协作 / 已完成）", { count: p.count })}</>
+                                  <> · {t("其中活跃 {count} 个（= 头像角标）", { count: p.count })}</>
                                 )}
+                                {collabTasks.length > 0 && <> · {t("另协助 {count} 个", { count: collabTasks.length })}</>}
                               </span>
                             </div>
                           ) : null}
@@ -11616,6 +11708,17 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         task.status !== "completed",
     );
   }, [peopleAllTasks, selectedPerson]);
+  // 抽屉不铺开协助任务，但要露出数量，否则领导会以为这个人只有主责这些活。
+  const selectedPersonCollaboratingCount = useMemo(() => {
+    if (!selectedPerson) return 0;
+    return peopleAllTasks.filter(
+      (task) =>
+        memberIdentityKey(task.primary_owner, task.primary_owner_user_id) !== selectedPerson.key &&
+        task.collaborators.some((c) => memberIdentityKey(c.name, c.user_id) === selectedPerson.key) &&
+        !isArchivedTask(task) &&
+        task.status !== "completed",
+    ).length;
+  }, [peopleAllTasks, selectedPerson]);
 
   const selectedCategory = selectedCatId
     ? categories.find((c) => c.id === selectedCatId || c.children.some((sub) => sub.id === selectedCatId))
@@ -11761,6 +11864,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               profile={selectedPersonProfile}
               load={selectedPersonLoad}
               tasks={selectedPersonTasks}
+              collaboratingCount={selectedPersonCollaboratingCount}
               onClose={() => setSelectedPerson(null)}
               onOpenTask={(task) => {
                 setSelectedPerson(null);
@@ -12052,6 +12156,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               profile={selectedPersonProfile}
               load={selectedPersonLoad}
               tasks={selectedPersonTasks}
+              collaboratingCount={selectedPersonCollaboratingCount}
               onClose={() => setSelectedPerson(null)}
               onOpenTask={(task) => {
                 setSelectedPerson(null);

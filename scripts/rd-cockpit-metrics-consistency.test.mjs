@@ -119,6 +119,47 @@ test("驾驶舱「活跃任务」排除已完成，与工作台同口径", () =>
   assert.match(workspaceSource, /const activeRoleTasks = useMemo\(\(\) => roleTasks\.filter\(\(task\) => task\.status !== "completed"\)/);
 });
 
+test("成员页签把主责与协助分段，主责优先、协助折叠", () => {
+  // 驾驶舱是给领导看「谁在负责什么」的：主责占第一屏，协助是下钻上下文
+  const map = cockpitSource.match(/const personTasksMap = useMemo\(\(\) => \{[\s\S]*?\}, \[personLoads, allTasks, sortByUpdatedDesc, matchesKpiFilter, cockpitSearch\]\);/);
+  assert.ok(map, "未找到 personTasksMap");
+  assert.match(map[0], /\{ primary: Task\[\]; collaborating: Task\[\] \}/);
+  assert.match(map[0], /memberIdentityKey\(task\.primary_owner, task\.primary_owner_user_id\) === p\.key/);
+  assert.match(map[0], /task\.collaborators\.some\(\(c\) => memberIdentityKey\(c\.name, c\.user_id\) === p\.key\)/);
+  // 两段应用同一套 KPI 筛选与搜索
+  assert.match(map[0], /!matchesKpiFilter\(task\) \|\| !taskMatches\(task, cockpitSearch/);
+  // 协助段默认折叠
+  assert.match(cockpitSource, /const \[expandedCollabTabs, setExpandedCollabTabs\] = useState<Set<string>>\(\(\) => new Set\(\)\);/);
+  assert.match(cockpitSource, /const collabExpanded = expandedCollabTabs\.has\(p\.key\);/);
+  // 分页只驱动主责段
+  assert.match(cockpitSource, /const shownTasks = primaryTasks\.slice\(0, visibleCount\);/);
+  assert.match(cockpitSource, /loadNextTaskPage\(p\.key, primaryTasks\.length\)/);
+});
+
+test("成员页签按身份主键索引，同名同事不再合并", () => {
+  // activeTab 是身份主键而非姓名
+  assert.match(cockpitSource, /const tabOrder = useMemo\(\(\) => \["all", \.\.\.personLoads\.map\(\(p\) => p\.key\)\]/);
+  assert.match(cockpitSource, /const isActive = activeTab === p\.key;/);
+  assert.match(cockpitSource, /personLoads\.some\(\(p\) => p\.key === activeTab\)/);
+  assert.match(cockpitSource, /const p = personLoads\.find\(\(x\) => x\.key === activeTab\);/);
+  assert.doesNotMatch(cockpitSource, /const isActive = activeTab === p\.name;/);
+  assert.doesNotMatch(cockpitSource, /personTasksMap\.get\(p\.name\)/);
+  // resolveActivityPersonTab 返回主键
+  const resolver = cockpitSource.match(/function resolveActivityPersonTab[\s\S]*?\n\}/);
+  assert.ok(resolver, "未找到 resolveActivityPersonTab");
+  assert.match(resolver[0], /return matchedById\.key;/);
+  assert.doesNotMatch(resolver[0], /return matchedById\.name;/);
+});
+
+test("人员抽屉只列主责，但露出协助数量", () => {
+  // 上一轮把协助移出抽屉后，标题若仍写「负责/协作任务」就是错的
+  assert.doesNotMatch(cockpitSource, /t\("负责\/协作任务"\)/);
+  assert.match(cockpitSource, /t\("主责任务"\)/);
+  assert.match(cockpitSource, /collaboratingCount > 0 &&/);
+  assert.match(cockpitSource, /另协助 \{count\} 个任务（在成员页签的「协助」分段中查看）/);
+  assert.match(cockpitSource, /const selectedPersonCollaboratingCount = useMemo/);
+});
+
 test("移动端驾驶舱的到期计算与桌面同源，不再用 UTC 日期", () => {
   assert.doesNotMatch(mobileSource, /new Date\(new Date\(\)\.toISOString\(\)/);
   assert.match(mobileSource, /import \{ daysUntilDue \} from "\.\/lib\/taskDue";/);

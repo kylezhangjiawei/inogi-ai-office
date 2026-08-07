@@ -69,9 +69,15 @@ test('cockpit pagination cannot stall when the first six cards do not create a s
     /onClick=\{\(\) => loadNextTaskPage\("all", allActiveTasks\.length\)\}/,
     'the all-task footer must provide a clickable pagination fallback',
   );
+  // 成员页签改为主责/协助分段后，分页只驱动主责段：兜底按钮与补页判断都必须用主责数
   assert.match(
     source,
-    /onClick=\{\(\) => loadNextTaskPage\(p\.name, tasks\.length\)\}/,
+    /onClick=\{\(\) => loadNextTaskPage\(p\.key, primaryTasks\.length\)\}/,
     'each person-task footer must provide a clickable pagination fallback',
+  );
+  assert.match(
+    source,
+    /: \(personTasksMap\.get\(activeTab\)\?\.primary\.length \?\? 0\);/,
+    'the underfilled-feed effect must measure the primary segment only',
   );
 });
