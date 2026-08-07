@@ -21,6 +21,13 @@ import { RD_WORKSPACE_IDS, WORKSPACE_PAGE_CODES, currentRdWorkspace, resolveRdSt
 type JsonRecord = Record<string, unknown>;
 const RD_TASK_TREE_MAX_DEPTH = 5;
 const RD_TASK_RELATION_BATCH_LIMIT = 50;
+type TaskCategoryLocation = {
+  categoryId: string;
+  categoryKey: string;
+  categoryLabel: string;
+  subProjectId: string;
+  subProjectLabel: string;
+};
 type TaskCreateActor = {
   requesterUserId?: string;
   requesterName?: string;
@@ -1449,7 +1456,7 @@ export class ResearchDevelopmentService {
     }));
   }
 
-  async snapshot() {
+  async snapshot(auditViewer?: { userId?: string; userName?: string; canReadAll: boolean }) {
     const [
       taskCategories,
       workspace,
@@ -1464,7 +1471,7 @@ export class ResearchDevelopmentService {
       this.getDirectorDashboard(),
       this.getPeople(),
       this.getApprovalFlows(),
-      this.getAuditLogs(),
+      this.getAuditLogs(auditViewer),
       this.getAiSettings(),
     ]);
 
@@ -1521,6 +1528,46 @@ export class ResearchDevelopmentService {
       cacheKey,
       this.applyProgressAttachmentCounts(categories, noteMap, scoreMap),
     );
+  }
+
+  /**
+   * 研发管理员人员视角专用：把研发全产品任务与协同任务做只读拼接。
+   * 两个任务池仍保持各自的存储、权限和业务流程；这里只给每个任务加来源标记，
+   * 便于前端点击后进入正确的详情页。研发 KPI 与 AI 分析继续使用 getMergedTaskCategories。
+   */
+  async getMemberTaskCategories() {
+    if (currentRdWorkspace() !== 'rd') {
+      throw new ForbiddenException('跨工作区人员任务仅在研发管理员视角提供');
+    }
+    const [researchCategories, collaborationCategories] = await Promise.all([
+      runInRdWorkspace('rd', () => this.getMergedTaskCategories()),
+      runInRdWorkspace('us-collab', () => this.getMergedTaskCategories()),
+    ]);
+    return [
+      ...this.markTaskCategoryWorkspace(researchCategories, 'rd'),
+      ...this.markTaskCategoryWorkspace(collaborationCategories, 'us-collab', true),
+    ];
+  }
+
+  private markTaskCategoryWorkspace(
+    categories: JsonRecord[],
+    workspace: 'rd' | 'us-collab',
+    prefixCategoryIds = false,
+  ): JsonRecord[] {
+    const markTasks = (tasks: unknown[]): JsonRecord[] => tasks.filter(isRecord).map((task) => ({
+      ...task,
+      source_workspace: workspace,
+      subtasks: markTasks(asArray(task.subtasks)),
+    }));
+    return categories.filter(isRecord).map((category) => ({
+      ...category,
+      ...(prefixCategoryIds ? { id: `${workspace}:${cleanText(category.id)}` } : {}),
+      children: asArray(category.children).filter(isRecord).map((child) => ({
+        ...child,
+        ...(prefixCategoryIds ? { id: `${workspace}:${cleanText(child.id)}` } : {}),
+        tasks: markTasks(asArray(child.tasks)),
+      })),
+    }));
   }
 
   // ── 研发任务同步到生产驾驶舱 ─────────────────────────────────────────────
@@ -1917,6 +1964,200 @@ export class ResearchDevelopmentService {
     const seed = ensurePocBomTaskCategories([]);
     await this.saveProductCategoryStore({ ...store, [productId]: seed });
     return seed;
+  }
+
+  /**
+   * 为项目归类总结提供只读、服务端可信的任务快照。
+   * 前端只提交产品/类目范围，不能自行拼任务列表，避免越界分析或伪造任务内容。
+   */
+  async getProjectClassificationContext(input: {
+    productId?: string;
+    categoryId?: string;
+    subProjectId?: string;
+  }): Promise<{
+    product_id: string;
+    category_id: string;
+    sub_project_id?: string;
+    label: string;
+    task_count: number;
+    tasks: Array<{
+      task_id: string;
+      title: string;
+      description: string;
+      status: string;
+      progress: number;
+      priority: string;
+      primary_owner: string;
+      due_date: string;
+      category_path: string;
+      parent_task_id: string | null;
+      tree_depth: number;
+      product_id?: string;
+      product_name?: string;
+      category_label?: string;
+      sub_project_label?: string;
+    }>;
+  }> {
+    const productId = cleanText(input.productId) || RD_MAIN_PRODUCT_ID;
+    const categoryId = cleanText(input.categoryId);
+    const subProjectId = cleanText(input.subProjectId);
+
+    // 驾驶舱总览的全量治理入口：跨主库与全部产品库，不以现有类目作为分析边界。
+    if (!categoryId) {
+      const [mainCategories, productStore, products] = await Promise.all([
+        this.readNormalizedTaskCategories(),
+        this.readProductCategoryStore(),
+        this.getProducts(),
+      ]);
+      const productNameById = new Map(
+        products.map((product) => [cleanText(product.id), cleanText(product.name) || '未命名产品']),
+      );
+      const sources: Array<{ productId: string; categories: JsonRecord[] }> = [
+        { productId: RD_MAIN_PRODUCT_ID, categories: mainCategories },
+        ...Object.entries(productStore)
+          .filter(([id]) => id !== RD_MAIN_PRODUCT_ID)
+          .map(([id, raw]) => ({ productId: id, categories: ensurePocBomTaskCategories(asArray(raw)) })),
+      ];
+      const allTasks: Array<{
+        task_id: string;
+        title: string;
+        description: string;
+        status: string;
+        progress: number;
+        priority: string;
+        primary_owner: string;
+        due_date: string;
+        category_path: string;
+        parent_task_id: string | null;
+        tree_depth: number;
+        product_id?: string;
+        product_name?: string;
+        category_label?: string;
+        sub_project_label?: string;
+      }> = [];
+      const collectAll = (
+        items: unknown[],
+        parentTaskId: string | null,
+        depth: number,
+        location: { productId: string; categoryLabel: string; subProjectLabel: string },
+      ) => {
+        for (const item of items) {
+          if (!isRecord(item) || allTasks.length >= 1000) continue;
+          const taskId = cleanText(item.task_id);
+          const archived = item.archived === true || cleanText(item.status) === 'archived';
+          if (!taskId || archived) continue;
+          allTasks.push({
+            task_id: taskId,
+            title: cleanText(item.title) || '未命名任务',
+            description: cleanText(item.description).slice(0, 1200),
+            status: cleanText(item.status) || 'draft',
+            progress: Math.max(0, Math.min(100, Math.round(Number(item.progress) || 0))),
+            priority: cleanText(item.final_priority) || cleanText(item.ai_priority) || 'medium',
+            primary_owner: cleanText(item.primary_owner) || '待指派',
+            due_date: cleanText(item.due_date),
+            category_path: cleanText(item.category_path),
+            parent_task_id: parentTaskId,
+            tree_depth: depth,
+            product_id: location.productId,
+            product_name: productNameById.get(location.productId) || location.productId,
+            category_label: location.categoryLabel,
+            sub_project_label: location.subProjectLabel,
+          });
+          collectAll(asArray(item.subtasks), taskId, depth + 1, location);
+        }
+      };
+      for (const source of sources) {
+        for (const category of source.categories) {
+          if (!isRecord(category)) continue;
+          for (const child of asArray(category.children).filter(isRecord)) {
+            collectAll(asArray(child.tasks), null, 0, {
+              productId: source.productId,
+              categoryLabel: cleanText(category.label) || '未分类',
+              subProjectLabel: cleanText(child.label) || '未分组',
+            });
+            if (allTasks.length >= 1000) break;
+          }
+          if (allTasks.length >= 1000) break;
+        }
+        if (allTasks.length >= 1000) break;
+      }
+      return {
+        product_id: 'all-products',
+        category_id: 'all',
+        label: '全部线上任务',
+        task_count: allTasks.length,
+        tasks: allTasks,
+      };
+    }
+
+    const categories = await this.readTaskCategoriesForProduct(productId);
+    const category = categories.find((item) => cleanText(item.id) === categoryId);
+    if (!category) throw new BadRequestException('当前项目不存在或已被移除');
+
+    const children = asArray(category.children).filter(isRecord);
+    const subProject = subProjectId
+      ? children.find((item) => cleanText(item.id) === subProjectId)
+      : undefined;
+    if (subProjectId && !subProject) throw new BadRequestException('当前子项目不存在或已被移除');
+
+    const tasks: Array<{
+      task_id: string;
+      title: string;
+      description: string;
+      status: string;
+      progress: number;
+      priority: string;
+      primary_owner: string;
+      due_date: string;
+      category_path: string;
+      parent_task_id: string | null;
+      tree_depth: number;
+    }> = [];
+    const collect = (items: unknown[], parentTaskId: string | null, depth: number) => {
+      for (const item of items) {
+        if (!isRecord(item)) continue;
+        const taskId = cleanText(item.task_id);
+        if (!taskId) continue;
+        const archived = item.archived === true || cleanText(item.status) === 'archived';
+        if (archived) continue;
+        if (tasks.length < 300) {
+          tasks.push({
+            task_id: taskId,
+            title: cleanText(item.title) || '未命名任务',
+            description: cleanText(item.description).slice(0, 1200),
+            status: cleanText(item.status) || 'draft',
+            progress: Math.max(0, Math.min(100, Math.round(Number(item.progress) || 0))),
+            priority: cleanText(item.final_priority) || cleanText(item.ai_priority) || 'medium',
+            primary_owner: cleanText(item.primary_owner) || '待指派',
+            due_date: cleanText(item.due_date),
+            category_path: cleanText(item.category_path),
+            parent_task_id: parentTaskId,
+            tree_depth: depth,
+          });
+        }
+        if (tasks.length < 300) collect(asArray(item.subtasks), taskId, depth + 1);
+      }
+    };
+
+    if (subProject) {
+      collect(asArray(subProject.tasks), null, 0);
+    } else {
+      for (const child of children) {
+        collect(asArray(child.tasks), null, 0);
+        if (tasks.length >= 300) break;
+      }
+    }
+
+    const categoryLabel = cleanText(category.label) || '未命名项目';
+    const subProjectLabel = subProject ? cleanText(subProject.label) : '';
+    return {
+      product_id: productId,
+      category_id: categoryId,
+      ...(subProjectId ? { sub_project_id: subProjectId } : {}),
+      label: subProjectLabel ? `${categoryLabel} / ${subProjectLabel}` : categoryLabel,
+      task_count: tasks.length,
+      tasks,
+    };
   }
 
   /** 保存指定产品的研发分类树 */
@@ -7964,6 +8205,52 @@ export class ResearchDevelopmentService {
     return output;
   }
 
+  /**
+   * task_id → 当前权威分类树位置。位置在读取时派生，不写回任务对象：
+   * - 分组键使用稳定的一级类目 id，类目改名只更新表头；
+   * - 同一 BOM 类目在不同产品库复用同一 id，因此会自然聚合到同一张表；
+   * - 任务移动后，下次读取会从新的容器位置重新派生，避免 category_path 旧值造成漂移。
+   */
+  private collectTaskCategoryLocations(categories: unknown[]): Map<string, TaskCategoryLocation> {
+    const output = new Map<string, TaskCategoryLocation>();
+    // 合并树按「主库 → 其他产品库」排列。一级类目重名/跨库复用 id 时，以首个（主库）
+    // 当前名称作为统一表头；没有主库任务也不影响，因为目录本身仍会先被扫描到。
+    const canonicalCategoryLabels = new Map<string, string>();
+    for (const category of categories) {
+      if (!isRecord(category)) continue;
+      const categoryId = cleanText(category.id) || 'uncategorized';
+      if (!canonicalCategoryLabels.has(categoryId)) {
+        canonicalCategoryLabels.set(categoryId, cleanText(category.label) || '未分类');
+      }
+    }
+
+    const addTasks = (tasks: unknown[], location: TaskCategoryLocation) => {
+      for (const task of tasks) {
+        if (!isRecord(task)) continue;
+        const taskId = cleanText(task.task_id);
+        if (taskId && !output.has(taskId)) output.set(taskId, location);
+        addTasks(asArray(task.subtasks), location);
+      }
+    };
+
+    for (const category of categories) {
+      if (!isRecord(category)) continue;
+      const categoryId = cleanText(category.id) || 'uncategorized';
+      const categoryLabel = canonicalCategoryLabels.get(categoryId) ?? (cleanText(category.label) || '未分类');
+      for (const child of asArray(category.children)) {
+        if (!isRecord(child)) continue;
+        addTasks(asArray(child.tasks), {
+          categoryId,
+          categoryKey: `category:${categoryId}`,
+          categoryLabel,
+          subProjectId: cleanText(child.id),
+          subProjectLabel: cleanText(child.label),
+        });
+      }
+    }
+    return output;
+  }
+
   private taskStatusLabel(status: unknown): string {
     switch (status) {
       case 'draft':
@@ -8148,6 +8435,7 @@ export class ResearchDevelopmentService {
     /** 本任务的父任务（本任务是子任务时非空）。由 collectSubtaskParents 按结构位置解析后传入。 */
     parentTask?: JsonRecord,
     treeDepth = 1,
+    categoryLocation?: TaskCategoryLocation,
   ) {
     const dueDate = cleanText(task.due_date);
     const subtaskOrigin = cleanText(task.subtask_origin);
@@ -8165,6 +8453,11 @@ export class ResearchDevelopmentService {
       role,
       tree_depth: treeDepth,
       category_path: cleanText(task.category_path),
+      category_id: categoryLocation?.categoryId ?? null,
+      category_key: categoryLocation?.categoryKey ?? null,
+      category_label: categoryLocation?.categoryLabel ?? null,
+      sub_project_id: categoryLocation?.subProjectId ?? null,
+      sub_project_label: categoryLocation?.subProjectLabel ?? null,
       owner: cleanText(task.primary_owner ?? task.owner),
       owner_user_id: cleanUserId(task.primary_owner_user_id ?? task.owner_user_id) || null,
       collaborators: asArray(task.collaborators).filter(isRecord).map((collaborator) => ({
@@ -8189,6 +8482,7 @@ export class ResearchDevelopmentService {
       blocked_since: cleanText(task.blocked_since) || null,
       ai_pending: task.ai_modified === true,
       latest_progress_summary: this.normalizeLatestProgressSummary(task.latest_progress_summary),
+      completion_score: this.extractCompletionScoreSummary(task.completion_score),
       // 工作项清单（任务内部轻量拆分）：工作台留痕表单据此提供「关联工作项」选择
       work_items: asArray(task.work_items)
         .filter(isRecord)
@@ -8252,13 +8546,15 @@ export class ResearchDevelopmentService {
 
     if (!currentUserId) return saved;
 
-    const [rawCategories, identity, noteMap] = await Promise.all([
+    const [rawCategories, identity, noteMap, scoresRaw] = await Promise.all([
       // 我的工作台「只关注任务」：跨所有产品库聚合该成员的任务（产品仅是展示分区，不切分"我的任务"）。
       this.readMergedTaskCategories(),
       this.getIdentityContext(),
       this.getProgressNoteMap(),
+      this.readValue('rd.taskCompletionScores'),
     ]);
-    const categories = this.applyProgressAttachmentCounts(rawCategories, noteMap);
+    const scoreMap: JsonRecord = isRecord(scoresRaw) ? scoresRaw : {};
+    const categories = this.applyProgressAttachmentCounts(rawCategories, noteMap, scoreMap);
     const { people, users } = identity;
     const currentUser = users.find((user) => user.id === currentUserId);
     const currentNameKey = personNameLookupKey(currentUser?.name ?? currentUserName);
@@ -8300,12 +8596,16 @@ export class ResearchDevelopmentService {
     // 子任务父子索引：按结构位置解析一次，myTasks/collabTasks 共用
     const subtaskParents = this.collectSubtaskParents(categories);
     const taskDepths = this.collectTaskDepths(categories);
+    const taskLocations = this.collectTaskCategoryLocations(categories);
     const parentOf = (task: JsonRecord) => subtaskParents.get(cleanText(task.task_id));
     const depthOf = (task: JsonRecord) => taskDepths.get(cleanText(task.task_id)) ?? 1;
+    const locationOf = (task: JsonRecord) => taskLocations.get(cleanText(task.task_id));
 
     const myTasks = visibleTasks
       .filter(isPrimary)
-      .map((task) => this.toWorkspaceTask(task, 'primary', undefined, parentOf(task), depthOf(task)));
+      .map((task) => this.toWorkspaceTask(task, 'primary', undefined, parentOf(task), depthOf(task), locationOf(task)));
+    // 个人工作台按角色分为「主责 / 协助」两个任务集合；主责优先，避免同一任务跨 Tab 重复。
+    // 服务端统一投影，确保研发与协同工作区使用相同、不可绕过的成员范围。
     const collabTasks = visibleTasks
       .map((task) => ({ task, role: collaboratorRole(task) }))
       .filter((item) => item.role && !isPrimary(item.task))
@@ -8315,6 +8615,7 @@ export class ResearchDevelopmentService {
         item.role,
         parentOf(item.task),
         depthOf(item.task),
+        locationOf(item.task),
       ));
     const dueTasks = [...myTasks, ...collabTasks]
       .filter((task) => task.status !== 'completed' && task.due_date)
@@ -8333,10 +8634,39 @@ export class ResearchDevelopmentService {
       ...saved,
       myTasks,
       collabTasks,
-      todayTodos: dueTasks.length
+      todayTodos: dueTasks.length || currentRdWorkspace() !== 'us-collab'
         ? dueTasks.map((task) => ({ text: `${task.title} · ${task.due_date}`, task_id: task.task_id }))
         : saved.todayTodos,
       notifications: mergedNotifications,
+    };
+  }
+
+  /**
+   * 研发个人工作台的跨池只读任务投影。
+   * 只读取当前登录人在两个池中的主责/协助任务，不授予协同池列表权限，也不混合通知和 AI 建议。
+   * 协同任务带 source_workspace，前端操作时跳转到协同详情，所有写入仍走协同工作区原有接口。
+   */
+  async getCombinedWorkspace(currentUserId?: string, currentUserName?: string) {
+    if (currentRdWorkspace() !== 'rd') {
+      throw new ForbiddenException('跨工作区个人任务仅在研发个人工作台提供');
+    }
+    const [research, collaboration] = await Promise.all([
+      runInRdWorkspace('rd', () => this.getWorkspace(currentUserId, currentUserName)),
+      runInRdWorkspace('us-collab', () => this.getWorkspace(currentUserId, currentUserName)),
+    ]);
+    const markTasks = (tasks: unknown, workspace: 'rd' | 'us-collab') => asArray(tasks)
+      .filter(isRecord)
+      .map((task) => ({ ...task, source_workspace: workspace }));
+    return {
+      ...research,
+      myTasks: [
+        ...markTasks(research.myTasks, 'rd'),
+        ...markTasks(collaboration.myTasks, 'us-collab'),
+      ],
+      collabTasks: [
+        ...markTasks(research.collabTasks, 'rd'),
+        ...markTasks(collaboration.collabTasks, 'us-collab'),
+      ],
     };
   }
 
@@ -8730,11 +9060,26 @@ export class ResearchDevelopmentService {
     return this.writeValue('rd.approvalFlows', asArray(payload));
   }
 
-  async getAuditLogs() {
+  async getAuditLogs(viewer?: { userId?: string; userName?: string; canReadAll: boolean }) {
     const logs = await this.readArray('rd.auditLogs');
-    return logs
+    const sortedLogs = logs
       .filter(isRecord)
       .sort((a, b) => String(b.timestamp ?? '').localeCompare(String(a.timestamp ?? '')));
+
+    // Internal callers (for example completion scoring) intentionally omit a viewer and
+    // retain the complete audit stream. Every HTTP read path supplies a viewer.
+    if (!viewer || viewer.canReadAll) return sortedLogs;
+
+    const viewerId = cleanUserId(viewer.userId);
+    const viewerNameKey = personNameLookupKey(viewer.userName);
+    if (!viewerId && !viewerNameKey) return [];
+
+    return sortedLogs.filter((log) => {
+      const actor = isRecord(log.actor) ? log.actor : {};
+      const actorId = cleanUserId(actor.id);
+      if (actorId) return Boolean(viewerId) && actorId === viewerId;
+      return Boolean(viewerNameKey) && personNameLookupKey(actor.name) === viewerNameKey;
+    });
   }
 
   // ── 已完成任务 AI 质量评分（持久化）─────────────────────────────────────────

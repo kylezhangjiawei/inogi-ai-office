@@ -1,22 +1,18 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, ArrowLeft, Clock, History, ImageIcon, Inbox, Loader2, MessageCircleMore, RefreshCw, Search, Send, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Clock, History, ImageIcon, Inbox, Loader2, MessageCircleMore, RefreshCw, Search, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { t, useI18n } from "./lib/i18n";
-import { recordAudit, useAuditActor } from "./lib/auditLog";
 import { useRDCockpitData } from "./hooks/useRDCockpitData";
 import {
-  createRdTaskProgressNote,
   fetchRdNoteUnreadSummary,
-  fetchRdPeople,
   fetchRdTaskProgressNotes,
   markRdTaskNotesRead,
   type RdTask,
   type RdTaskProgressNote,
   type RdTaskStatus,
 } from "./lib/rdApi";
-import { MentionSuggestionPanel, useMentions, type MentionCandidate } from "./components/MentionInput";
 import { RDTaskConversation } from "./RDTaskConversation";
 import { MobileAttachmentPreviewHost } from "./RDProgressEvidence";
 import {
@@ -529,10 +525,6 @@ export function MobileRDCockpit() {
       })
       .catch(() => {});
   }, []);
-  const handleTaskDataChanged = useCallback(() => {
-    reload();
-    void refreshNoteUnread();
-  }, [refreshNoteUnread, reload]);
   const handleDiscussionActivity = useCallback(() => {
     void refreshNoteUnread();
   }, [refreshNoteUnread]);
@@ -760,7 +752,6 @@ export function MobileRDCockpit() {
           task={activeTask}
           isRisk={riskTaskIds.has(activeTask.task_id)}
           onClose={closeActiveTask}
-          onAfterSubmit={handleTaskDataChanged}
           onDiscussionActivity={handleDiscussionActivity}
         />
       )}
@@ -781,54 +772,22 @@ export function MobileRDCockpit() {
   );
 }
 
-// ─── 任务详情覆盖层：操作留痕（含图片附件点击放大）+ 底部备注输入 ──────────────────
+// ─── 任务详情覆盖层：操作留痕（含图片附件点击放大）+ 卡片内留言 ──────────────────
 const MobileTaskDetail = memo(function MobileTaskDetail({
   task,
   isRisk,
   onClose,
-  onAfterSubmit,
   onDiscussionActivity,
 }: {
   task: RdTask;
   isRisk: boolean;
   onClose: () => void;
-  onAfterSubmit?: () => void;
   onDiscussionActivity?: () => void;
 }) {
   const [notes, setNotes] = useState<RdTaskProgressNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [detailTab, setDetailTab] = useState<"conversation" | "progress">("progress");
-  const auditActor = useAuditActor("研发成员");
-
-  // ── 评论 @ 提及（移动端呈现：输入框上方横向候选条，点选插入）──────────────
-  const draftInputRef = useRef<HTMLTextAreaElement>(null);
-  const [people, setPeople] = useState<Array<{ name: string; user_id?: string | null }>>([]);
-  useEffect(() => {
-    let cancelled = false;
-    // 懒加载全员候选：失败静默（仍有任务参与人候选可用）
-    fetchRdPeople()
-      .then((list) => { if (!cancelled) setPeople(list.map((p) => ({ name: p.name, user_id: p.user_id ?? null }))); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-  const mentionCandidates = useMemo<MentionCandidate[]>(() => {
-    const seen = new Set<string>();
-    const out: MentionCandidate[] = [];
-    const push = (name?: string | null, userId?: string | null, hint?: string) => {
-      const n = (name ?? "").trim();
-      if (!n || seen.has(n)) return;
-      seen.add(n);
-      out.push({ user_id: userId ?? null, name: n, hint });
-    };
-    push(task.primary_owner, task.primary_owner_user_id, t("主责人"));
-    for (const c of task.collaborators ?? []) push(c.name, c.user_id, t("协作人"));
-    for (const p of people) push(p.name, p.user_id ?? null);
-    return out;
-  }, [task.primary_owner, task.primary_owner_user_id, task.collaborators, people]);
-  const mention = useMentions({ value: draft, setValue: setDraft, inputRef: draftInputRef, candidates: mentionCandidates });
 
   const status = STATUS_META[task.status] ?? STATUS_META.draft;
   const owner = (task.primary_owner || "").trim() || t("未指派");
@@ -858,39 +817,6 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
-
-  const submitNote = async () => {
-    const text = draft.trim();
-    if (!text || submitting) return;
-    setSubmitting(true);
-    try {
-      const savedNote = await createRdTaskProgressNote({
-        task_id: task.task_id,
-        text,
-        // @ 提及：仅正文仍包含 @姓名 的才生效
-        mentions: mention.mentionsForSubmit(text),
-      });
-      mention.resetMentions();
-      // 同步记一条「进度更新」操作留痕，使 PC 端 rd-task-management 的操作留痕时间线能看到该备注
-      // （PC 添加进展时也是这样记的；移动端此前只建了 note、漏了这条 audit，导致 PC 看不到）。
-      recordAudit({
-        actor: auditActor,
-        action: "task.progress_updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        comment: text,
-        metadata: { source: "mobile", ...(savedNote?.id ? { note_id: savedNote.id } : {}) },
-        source: "web",
-      });
-      setDraft("");
-      toast.success(t("备注已提交"));
-      await loadNotes();
-      onAfterSubmit?.();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("提交失败，请重试"));
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col overscroll-none bg-slate-50" role="dialog" aria-modal="true" aria-label={t("任务详情")}>
@@ -969,42 +895,6 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
           notesError={loadError}
           onRetryNotes={() => void loadNotes()}
           onActivity={onDiscussionActivity}
-          progressComposer={(
-            <div className="border-t border-slate-200 bg-white px-3 py-2 [padding-bottom:calc(0.5rem+env(safe-area-inset-bottom))]">
-              <MentionSuggestionPanel
-                open={mention.open}
-                candidates={mention.filtered}
-                highlightIndex={mention.highlightIndex}
-                onPick={mention.pick}
-                variant="mobile"
-              />
-              <div className="flex items-end gap-2">
-                <textarea
-                  ref={draftInputRef}
-                  value={draft}
-                  onChange={(e) => {
-                    setDraft(e.target.value);
-                    mention.syncActiveQuery();
-                  }}
-                  onKeyUp={mention.syncActiveQuery}
-                  onClick={mention.syncActiveQuery}
-                  rows={1}
-                  aria-label={t("记录新进展")}
-                  placeholder={t("记录新进展，@ 提及成员…")}
-                  className="max-h-28 min-h-11 flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[14px] leading-snug text-slate-800 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-50"
-                />
-                <button
-                  type="button"
-                  onClick={submitNote}
-                  disabled={!draft.trim() || submitting}
-                  className="flex h-11 shrink-0 cursor-pointer items-center gap-1 rounded-full bg-indigo-600 px-4 text-sm font-semibold text-white transition-colors active:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {submitting ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-                  {t("留痕")}
-                </button>
-              </div>
-            </div>
-          )}
         />
       )}
     </div>

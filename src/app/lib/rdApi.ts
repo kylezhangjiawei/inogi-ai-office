@@ -10,6 +10,8 @@ const RD_API_BASE = "/api/research-development";
 const RD_DEFAULT_TIMEOUT_MS = 30_000;
 /** Longer timeout for AI inference / large file ingestion — must exceed server-side `RD_EXTRACT_TIMEOUT_MS` (300s). */
 const RD_AI_TIMEOUT_MS = 360_000;
+/** 全量任务归纳采用后台任务；覆盖 200+ 任务的多批分析与跨批汇总。 */
+const RD_AI_JOB_TIMEOUT_MS = 20 * 60_000;
 /**
  * The high-fidelity workbook can contain base64-encoded images and exceed 30 MB.
  * On a typical remote connection its transfer alone can take longer than the
@@ -91,6 +93,9 @@ async function fetchWithTimeout(
     if (timedOut) {
       throw new Error(`请求超时（>${Math.round(timeoutMs / 1000)}s），请检查网络或稍后再试`);
     }
+    if (err instanceof TypeError) {
+      throw new Error(`${fallbackErrorMessage}：网络连接中断，请确认服务可用后重试`);
+    }
     throw err;
   } finally {
     clearTimeout(timer);
@@ -142,6 +147,8 @@ export type RdLatestProgressSummary = {
 
 export type RdTask = {
   task_id: string;
+  /** 聚合视图中的任务来源；普通单池接口可缺省为当前工作区。 */
+  source_workspace?: "rd" | "us-collab";
   title: string;
   description?: string;
   primary_owner: string;
@@ -299,6 +306,8 @@ export type RdWorkspaceSubtask = {
 
 export type RdWorkspaceTask = {
   task_id: string;
+  /** 个人工作台聚合研发与协同任务时标记真实数据源，点击后据此进入正确详情页。 */
+  source_workspace?: "rd" | "us-collab";
   title: string;
   priority: RdPriority;
   progress: number;
@@ -313,6 +322,12 @@ export type RdWorkspaceTask = {
   /** 服务端按真实父子结构计算，根任务为 1；不受当前用户筛选造成的视觉提升影响。 */
   tree_depth?: number;
   category_path: string;
+  /** 稳定类目身份：分组使用 id/key，名称只负责展示，避免类目改名后分组漂移。 */
+  category_id?: string | null;
+  category_key?: string | null;
+  category_label?: string | null;
+  sub_project_id?: string | null;
+  sub_project_label?: string | null;
   owner: string;
   owner_user_id?: string | null;
   collaborators?: RdCollaborator[];
@@ -330,6 +345,8 @@ export type RdWorkspaceTask = {
   on_leave?: boolean;
   ai_pending?: boolean;
   latest_progress_summary?: RdLatestProgressSummary | null;
+  /** 已完成任务的 AI 完成评分摘要；聚合接口原样透传，不参与分组计算。 */
+  completion_score?: { total: number; grade: string } | null;
   /** 工作项清单（任务内部轻量拆分），留痕表单据此提供「关联工作项」选择。 */
   work_items?: RdWorkItem[];
   /**
@@ -870,8 +887,15 @@ export function clearRdAllTaskData() {
   return requestJson<{ ok: true }>("/task-data", { method: "DELETE" });
 }
 
-export function fetchRdWorkspace() {
-  return requestJson<RdWorkspacePayload>("/workspace");
+export function fetchRdWorkspace(options?: { includeCollaboration?: boolean }) {
+  return requestJson<RdWorkspacePayload>(
+    options?.includeCollaboration && !currentRdWorkspace() ? "/workspace/combined" : "/workspace",
+  );
+}
+
+/** 研发管理员人员视角：研发全产品任务 + 协同任务，只用于展示聚合，不参与研发 KPI 或 AI 分析。 */
+export function fetchRdMemberTaskCategories() {
+  return requestJson<RdCategory[]>("/member-task-categories").then(normalizeArchivedFlags);
 }
 
 export function saveRdWorkspace(payload: RdWorkspacePayload) {
@@ -1186,6 +1210,110 @@ export function refineRdProposalTasks(payload: {
     body: JSON.stringify(payload),
     timeoutMs: RD_AI_TIMEOUT_MS,
   });
+}
+
+// ── AI: 全量线上任务归纳与合并候选（只读建议）────────────────────────────────
+
+export type RdAiProjectClassificationResult = {
+  scope: {
+    product_id: string;
+    category_id: string;
+    sub_project_id?: string;
+    label: string;
+    task_count: number;
+    analyzed_task_count: number;
+    attachment_count: number;
+  };
+  summary: string;
+  categories: Array<{
+    label: string;
+    rationale: string;
+    task_ids: string[];
+  }>;
+  duplicate_groups: Array<{
+    title: string;
+    confidence: number;
+    reason: string;
+    task_ids: string[];
+    recommended_primary_task_id: string | null;
+    action: string;
+  }>;
+  homogeneous_clusters: Array<{
+    label: string;
+    reason: string;
+    task_ids: string[];
+    recommended_primary_task_id: string | null;
+    consolidation_advice: string;
+  }>;
+  member_task_lines: Array<{
+    primary_owner: string;
+    line_title: string;
+    rationale: string;
+    task_ids: string[];
+    recommended_primary_task_id: string | null;
+  }>;
+  recommendations: string[];
+  warnings: string[];
+  provider: "openai" | "qwen" | "local";
+  model: string;
+  generated_at: string;
+};
+
+export async function classifyRdProject(payload: {
+  productId?: string;
+  categoryId?: string;
+  subProjectId?: string;
+  instruction?: string;
+  files?: File[];
+}): Promise<RdAiProjectClassificationResult> {
+  const form = new FormData();
+  if (payload.productId) form.append("product_id", payload.productId);
+  if (payload.categoryId) form.append("category_id", payload.categoryId);
+  if (payload.subProjectId) form.append("sub_project_id", payload.subProjectId);
+  if (payload.instruction?.trim()) form.append("instruction", payload.instruction.trim());
+  for (const file of payload.files ?? []) form.append("files", file);
+
+  const response = await fetchWithTimeout(
+    "/ai/classify-project-jobs",
+    { method: "POST", body: form },
+    RD_AI_TIMEOUT_MS,
+    "AI 全量任务归纳失败",
+  );
+  const created = (await response.json()) as { job_id: string; status: "queued" };
+  if (!created.job_id) throw new Error("AI 全量任务归纳失败：服务端未返回分析任务编号");
+
+  const deadline = Date.now() + RD_AI_JOB_TIMEOUT_MS;
+  let pollDelayMs = 1_000;
+  let consecutivePollFailures = 0;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, pollDelayMs));
+    let job: {
+      status: "queued" | "running" | "completed" | "failed";
+      result?: RdAiProjectClassificationResult;
+      error?: string;
+    };
+    try {
+      job = await requestJson(`/ai/classify-project-jobs/${encodeURIComponent(created.job_id)}`);
+      consecutivePollFailures = 0;
+    } catch (pollError) {
+      const status = (pollError as RdApiError).status;
+      if (status !== undefined && ![500, 502, 503, 504].includes(status)) throw pollError;
+      consecutivePollFailures += 1;
+      if (consecutivePollFailures >= 3) throw pollError;
+      pollDelayMs = Math.min(5_000, Math.round(pollDelayMs * 1.35));
+      continue;
+    }
+    if (job.status === "completed") {
+      if (!job.result) throw new Error("AI 全量任务归纳失败：分析结果为空");
+      return job.result;
+    }
+    if (job.status === "failed") {
+      throw new Error(job.error?.trim() || "AI 全量任务归纳失败，请稍后重试");
+    }
+    pollDelayMs = Math.min(5_000, Math.round(pollDelayMs * 1.35));
+  }
+
+  throw new Error("AI 全量任务归纳等待超时（>20 分钟），请稍后重新生成");
 }
 
 // ── AI: 任务进度判断 ─────────────────────────────────────────────────────────

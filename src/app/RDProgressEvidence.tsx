@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, PlayCircle, RefreshCw, Table2, Trash2, Video, X } from "lucide-react";
 import { cn } from "./components/ui/utils";
@@ -17,6 +17,8 @@ import {
 const TASK_GALLERY_OVERLAY = "rd-task-image-gallery";
 const ATTACHMENT_PREVIEW_OVERLAY = "rd-attachment-preview";
 const MOBILE_ATTACHMENT_PREVIEW_EVENT = "rd:open-mobile-attachment-preview";
+const CLIPPED_CARD_WIDTH = 156;
+const CLIPPED_CARD_GAP = 8;
 
 function isMobileRoute(): boolean {
   return document.documentElement.classList.contains("mobile-route");
@@ -419,12 +421,17 @@ export function TaskImageLightbox({
 export function ProgressAttachmentGrid({
   attachments,
   compact = false,
+  imageDisplay = "cards",
+  maxVisibleImages = 3,
   className,
   onDeleteAttachment,
   onReplaceAttachment,
 }: {
   attachments: RdTaskProgressAttachment[];
   compact?: boolean;
+  /** 留言使用缩略图；任务详情使用单行卡片，超出容器宽度的附件不渲染。 */
+  imageDisplay?: "cards" | "thumbnails" | "clipped-cards";
+  maxVisibleImages?: number;
   className?: string;
   /** 可选：附件管理回调（工作台传入）。不传时纯展示，其他页面行为不变。 */
   onDeleteAttachment?: (att: RdTaskProgressAttachment) => void;
@@ -432,6 +439,8 @@ export function ProgressAttachmentGrid({
 }) {
   const [preview, setPreview] = useState<RdTaskProgressAttachment | null>(null);
   const [galleryPreview, setGalleryPreview] = useState<{ images: GalleryImage[]; index: number } | null>(null);
+  const clippedCardContainerRef = useRef<HTMLDivElement>(null);
+  const [visibleCardCount, setVisibleCardCount] = useState(1);
   const taskImages = useContext(TaskImageGalleryContext);
   const dismissGalleryPreview = useCallback(() => setGalleryPreview(null), []);
   const dismissAnyPreview = useCallback(() => {
@@ -440,6 +449,65 @@ export function ProgressAttachmentGrid({
   }, []);
   useMobileOverlayBack(Boolean(preview || galleryPreview), ATTACHMENT_PREVIEW_OVERLAY, dismissAnyPreview);
   const managed = Boolean(onDeleteAttachment || onReplaceAttachment);
+  const thumbnailMode = imageDisplay === "thumbnails";
+  const clippedCardMode = imageDisplay === "clipped-cards";
+
+  useLayoutEffect(() => {
+    if (!clippedCardMode) return undefined;
+    const container = clippedCardContainerRef.current;
+    if (!container) return undefined;
+    const updateVisibleCardCount = () => {
+      const next = Math.max(1, Math.floor((container.clientWidth + CLIPPED_CARD_GAP) / (CLIPPED_CARD_WIDTH + CLIPPED_CARD_GAP)));
+      setVisibleCardCount((current) => current === next ? current : next);
+    };
+    updateVisibleCardCount();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(updateVisibleCardCount);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [clippedCardMode]);
+
+  const {
+    imageAttachments,
+    renderedAttachments,
+    hiddenImageCount,
+    lastVisibleImageId,
+  } = useMemo(() => {
+    const images = attachments.filter((attachment) => (attachment.mime ?? "").startsWith("image/"));
+    if (clippedCardMode) {
+      const visibleImages = images.slice(0, visibleCardCount);
+      return {
+        imageAttachments: images,
+        // 图片只占一行，宽度外的不挂载；文档/视频继续完整显示在后续行，避免附件丢失。
+        renderedAttachments: [
+          ...visibleImages,
+          ...attachments.filter((attachment) => !(attachment.mime ?? "").startsWith("image/")),
+        ],
+        hiddenImageCount: 0,
+        lastVisibleImageId: null,
+      };
+    }
+    if (!thumbnailMode) {
+      return {
+        imageAttachments: images,
+        renderedAttachments: attachments,
+        hiddenImageCount: 0,
+        lastVisibleImageId: null,
+      };
+    }
+
+    const normalizedImageLimit = Math.max(1, Math.floor(maxVisibleImages));
+    const visibleImages = images.slice(0, normalizedImageLimit);
+    const visibleImageIds = new Set(visibleImages.map((attachment) => attachment.id));
+    return {
+      imageAttachments: images,
+      renderedAttachments: attachments.filter((attachment) => (
+        !(attachment.mime ?? "").startsWith("image/") || visibleImageIds.has(attachment.id)
+      )),
+      hiddenImageCount: Math.max(0, images.length - visibleImages.length),
+      lastVisibleImageId: visibleImages.at(-1)?.id ?? null,
+    };
+  }, [attachments, clippedCardMode, maxVisibleImages, thumbnailMode, visibleCardCount]);
 
   const openPreview = (attachment: RdTaskProgressAttachment) => {
     const isImage = (attachment.mime ?? "").startsWith("image/");
@@ -512,44 +580,75 @@ export function ProgressAttachmentGrid({
 
   return (
     <>
-      <div className={cn(
-        "grid",
-        compact ? "grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-1" : "gap-2 sm:grid-cols-2",
-        className,
-      )}>
-        {attachments.map((att) => {
-          const isImage = att.mime.startsWith("image/");
-          const isVideo = att.mime.startsWith("video/");
+      <div
+        ref={clippedCardMode ? clippedCardContainerRef : undefined}
+        className={cn(
+          clippedCardMode
+            ? "flex flex-wrap items-start gap-2"
+            : thumbnailMode ? "flex flex-wrap items-start gap-1.5" : "grid",
+          !clippedCardMode && !thumbnailMode && (compact ? "grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-1" : "gap-2 sm:grid-cols-2"),
+          className,
+        )}
+      >
+        {renderedAttachments.map((att) => {
+          const isImage = (att.mime ?? "").startsWith("image/");
+          const isVideo = (att.mime ?? "").startsWith("video/");
           if (isImage) {
+            const imagePosition = imageAttachments.findIndex((image) => image.id === att.id) + 1;
+            const showsHiddenCount = thumbnailMode && hiddenImageCount > 0 && att.id === lastVisibleImageId;
             return (
-              <div key={att.id} className="group/att relative">
+              <div
+                key={att.id}
+                className={cn(
+                  "group/att relative",
+                  thumbnailMode && "size-16 shrink-0 sm:size-[68px]",
+                  clippedCardMode && "w-[156px] shrink-0",
+                )}
+              >
                 {renderActions(att)}
                 <button
                   type="button"
                   onClick={() => openPreview(att)}
                   title={`${att.name} · ${formatRdFileSize(att.size)}`}
-                  className="group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 text-left transition hover:border-indigo-200 hover:shadow-[0_8px_18px_rgba(79,70,229,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                  aria-label={thumbnailMode ? `预览图片 ${imagePosition}/${imageAttachments.length}：${att.name}` : undefined}
+                  className={cn(
+                    "group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 text-left transition hover:border-indigo-300 hover:shadow-[0_8px_18px_rgba(79,70,229,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+                    thumbnailMode && "h-full bg-white",
+                  )}
                 >
-                  <div className={cn("relative bg-slate-100", compact ? "h-12" : "h-32")}>
+                  <div className={cn(
+                    "relative overflow-hidden bg-slate-100",
+                    thumbnailMode ? "h-full" : clippedCardMode ? "h-16" : compact ? "h-12" : "h-32",
+                  )}>
                     <img
                       src={getAttachmentThumbUrl(att)}
                       alt={att.name}
-                      className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                      className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
                       loading="lazy"
                       decoding="async"
                     />
-                    <span className={cn(
-                      "absolute inline-flex items-center gap-1 rounded bg-white/90 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600 shadow-sm",
-                      compact ? "left-1 top-1" : "left-2 top-2",
-                    )}>
-                      <ImageIcon className="h-3 w-3 text-blue-500" />
-                      图片
-                    </span>
+                    {!thumbnailMode ? (
+                      <span className={cn(
+                        "absolute inline-flex items-center gap-1 rounded bg-white/90 px-1.5 py-0.5 text-[9px] font-semibold text-slate-600 shadow-sm",
+                        compact ? "left-1 top-1" : "left-2 top-2",
+                      )}>
+                        <ImageIcon className="h-3 w-3 text-blue-500" />
+                        图片
+                      </span>
+                    ) : null}
+                    {showsHiddenCount ? (
+                      <span className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-slate-950/60 text-white backdrop-blur-[1px]">
+                        <span className="text-base font-bold leading-none">+{hiddenImageCount}</span>
+                        <span className="mt-1 text-[9px] font-semibold">{t("查看全部")}</span>
+                      </span>
+                    ) : null}
                   </div>
-                  <div className={cn("flex items-center justify-between gap-2", compact ? "px-1.5 py-1" : "px-2 py-1.5")}>
-                    <span className={cn("min-w-0 truncate font-medium text-slate-700", compact ? "text-[10px]" : "text-[11px]")}>{att.name}</span>
-                    <span className="shrink-0 text-[9px] text-slate-400">{formatRdFileSize(att.size)}</span>
-                  </div>
+                  {!thumbnailMode ? (
+                    <div className={cn("flex items-center justify-between gap-2", compact ? "px-1.5 py-1" : "px-2 py-1.5")}>
+                      <span className={cn("min-w-0 truncate font-medium text-slate-700", compact ? "text-[10px]" : "text-[11px]")}>{att.name}</span>
+                      <span className="shrink-0 text-[9px] text-slate-400">{formatRdFileSize(att.size)}</span>
+                    </div>
+                  ) : null}
                 </button>
               </div>
             );
@@ -557,7 +656,7 @@ export function ProgressAttachmentGrid({
 
           if (isVideo) {
             return (
-              <div key={att.id} className="group/att relative">
+              <div key={att.id} className={cn("group/att relative", thumbnailMode && "w-full", clippedCardMode && "w-[156px] shrink-0")}>
                 {renderActions(att)}
                 <button
                   type="button"
@@ -565,7 +664,7 @@ export function ProgressAttachmentGrid({
                   title={`${att.name} · ${formatRdFileSize(att.size)}`}
                   className="group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-950 text-left transition hover:border-indigo-300 hover:shadow-[0_8px_18px_rgba(79,70,229,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
                 >
-                  <div className={cn("relative overflow-hidden bg-slate-900", compact ? "h-12" : "h-32")}>
+                  <div className={cn("relative overflow-hidden bg-slate-900", clippedCardMode ? "h-16" : compact ? "h-12" : "h-32")}>
                     <video
                       src={getAttachmentUrl(att)}
                       className="h-full w-full object-cover opacity-80"
@@ -597,7 +696,7 @@ export function ProgressAttachmentGrid({
           }
 
           return (
-            <div key={att.id} className="group/att relative">
+            <div key={att.id} className={cn("group/att relative", thumbnailMode && "w-full", clippedCardMode && "w-[156px] shrink-0")}>
               {renderActions(att)}
               <button
                 type="button"
@@ -969,7 +1068,7 @@ export function ProgressNoteList({
               />
             )
           )}
-          <ProgressAttachmentGrid attachments={note.attachments} compact={compact} className="mt-3" />
+          <ProgressAttachmentGrid attachments={note.attachments} compact={compact} imageDisplay="clipped-cards" className="mt-3" />
           </li>
         ))}
       </ul>

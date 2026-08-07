@@ -7,6 +7,7 @@ import { PERMISSIONS_KEY } from '../src/modules/auth/decorators/permissions.deco
 import { ChatToolsService } from '../src/modules/chat/chat-tools.service';
 import { ResearchDevelopmentController } from '../src/modules/research-development/research-development.controller';
 import { ResearchDevelopmentService } from '../src/modules/research-development/research-development.service';
+import { currentRdWorkspace, runInRdWorkspace } from '../src/modules/research-development/rd-workspace.context';
 
 test('task creation endpoints accept proposal permission and pass a constrained actor policy', async () => {
   const createTaskPermissions = Reflect.getMetadata(
@@ -453,6 +454,12 @@ test('batch attaching top-level trees to a nested task commits all sources toget
         {
           task_id: 'source-a',
           title: '来源 A',
+          description: '来源任务的完整交付说明',
+          primary_owner: '成员 A',
+          due_date: '2026-08-31',
+          status: 'completed',
+          completion_score: { total: 92, grade: 'A' },
+          pending_review_type: 'result',
           category_path: '系统 A / 项目 A / 测试任务',
           subtasks: [],
         },
@@ -501,11 +508,58 @@ test('batch attaching top-level trees to a nested task commits all sources toget
   const attached = target.subtasks as Array<Record<string, unknown>>;
   assert.deepEqual(attached.map((task) => task.task_id), ['source-a', 'source-b']);
   assert.equal(attached[0].parent_task_id, 'target');
+  assert.equal(attached[0].description, '来源任务的完整交付说明');
+  assert.equal(attached[0].primary_owner, '成员 A');
+  assert.equal(attached[0].due_date, '2026-08-31');
+  assert.equal(attached[0].status, 'completed');
+  assert.deepEqual(attached[0].completion_score, { total: 92, grade: 'A' });
+  assert.equal(attached[0].pending_review_type, 'result');
   assert.equal(attached[1].parent_task_id, 'target');
   assert.equal(
     ((attached[1].subtasks as Array<Record<string, unknown>>)[0]).parent_task_id,
     'source-b',
   );
+});
+
+test('combined personal workspace exposes only the current users tasks from research and collaboration', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.getWorkspace = async (userId: string) => ({
+    myTasks: [{ task_id: `${currentRdWorkspace()}-mine`, owner_user_id: userId }],
+    collabTasks: [{ task_id: `${currentRdWorkspace()}-assist` }],
+    todayTodos: [],
+    aiSuggestions: currentRdWorkspace() === 'rd' ? [{ id: 'rd-ai' }] : [{ id: 'collab-ai' }],
+    notifications: currentRdWorkspace() === 'rd' ? [{ id: 'rd-note' }] : [{ id: 'collab-note' }],
+  });
+
+  const result = await runInRdWorkspace('rd', () => service.getCombinedWorkspace('user-1', '成员一')) as any;
+
+  assert.deepEqual(result.myTasks.map((task: Record<string, unknown>) => [task.task_id, task.source_workspace]), [
+    ['rd-mine', 'rd'],
+    ['us-collab-mine', 'us-collab'],
+  ]);
+  assert.deepEqual(result.collabTasks.map((task: Record<string, unknown>) => [task.task_id, task.source_workspace]), [
+    ['rd-assist', 'rd'],
+    ['us-collab-assist', 'us-collab'],
+  ]);
+  assert.deepEqual(result.aiSuggestions, [{ id: 'rd-ai' }]);
+  assert.deepEqual(result.notifications, [{ id: 'rd-note' }]);
+});
+
+test('administrator member view tags collaboration tasks without mixing them into the research tree', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.getMergedTaskCategories = async () => ([{
+    id: 'system',
+    children: [{ id: 'project', tasks: [{ task_id: `${currentRdWorkspace()}-task`, subtasks: [] }] }],
+  }]);
+
+  const result = await runInRdWorkspace('rd', () => service.getMemberTaskCategories()) as any;
+  const researchTask = ((result[0].children[0] as Record<string, unknown>).tasks as Array<Record<string, unknown>>)[0];
+  const collaborationTask = ((result[1].children[0] as Record<string, unknown>).tasks as Array<Record<string, unknown>>)[0];
+
+  assert.equal(researchTask.source_workspace, 'rd');
+  assert.equal(collaborationTask.source_workspace, 'us-collab');
+  assert.equal(result[0].id, 'system');
+  assert.equal(result[1].id, 'us-collab:system');
 });
 
 test('attaching to a nested target across product stores commits source and target atomically', async () => {

@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { MentionSuggestionPanel, useMentions, type MentionCandidate } from "./components/MentionInput";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -40,7 +39,18 @@ import { PERMISSIONS } from "./lib/permissions";
 import { t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { AuditTimeline } from "./RDAuditTimeline";
-import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
+import {
+  addAuditLogNote,
+  auditActorMatchesIdentity,
+  canReadAllAuditLogs,
+  filterAuditLogsByActor,
+  filterAuditLogsForViewer,
+  recordAudit,
+  useAuditActor,
+  type AuditActorIdentity,
+  type AuditLog,
+  useAuditLogs,
+} from "./lib/auditLog";
 import { ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
 import { RDTaskConversation } from "./RDTaskConversation";
 import {
@@ -72,7 +82,6 @@ import {
   attachRdTasksToParent,
   blockedDaysOf,
   createRdTask,
-  createRdTaskProgressNote,
   detachRdSubtask,
   detachRdSubtasks,
   fetchMergedTaskCategories,
@@ -101,10 +110,17 @@ import {
   type RdProductionTaskSync,
 } from "./lib/rdApi";
 
-type DetailTab = "notes" | "conversation" | "attachments" | "audit" | "relations";
-
+type DetailTab = "notes" | "conversation" | "attachments" | "audit" | "relations" | "procurement";
 /** 模块级常量：保证 useAuditLogs 的订阅条件恒定，避免任何重订阅/重拉取。 */
 const TASK_AUDIT_FILTER = { resourceType: "task" } as const;
+
+/** 管理员点选人员时允许新旧数据在一侧缺少 user id 的情况下按姓名兜底；两侧都有 id 时仍只认 id。 */
+function detailActivityActorMatches(
+  actor: { id?: string | null; name?: string | null } | null | undefined,
+  identity: AuditActorIdentity | null | undefined,
+): boolean {
+  return auditActorMatchesIdentity(actor, identity) || auditActorMatchesIdentity(identity, actor);
+}
 
 function countRelationNodes(task: RdTask): number {
   return 1 + (task.subtasks ?? []).reduce((total, child) => total + countRelationNodes(child), 0);
@@ -200,6 +216,64 @@ function TaskRelationTree({
   );
 }
 
+function ActivityTaskFilterBar({
+  value,
+  currentTaskId,
+  tasks,
+  countByTask,
+  totalCount,
+  onChange,
+  summary,
+}: {
+  value: string;
+  currentTaskId: string;
+  tasks: RdTaskProgressGroupTask[];
+  countByTask: ReadonlyMap<string, number>;
+  totalCount: number;
+  onChange: (taskId: string) => void;
+  summary?: React.ReactNode;
+}) {
+  const taskButtonClass = (selected: boolean) => cn(
+    "inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+    selected
+      ? "bg-indigo-600 text-white shadow-sm"
+      : "border border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:text-indigo-700",
+  );
+  const relatedTasks = tasks.filter((item) => item.task_id !== currentTaskId);
+
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-slate-200/80 bg-slate-50/70 px-3 py-2 sm:px-4">
+      <div className="cockpit-scroll flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overscroll-x-contain pb-1.5 [scrollbar-gutter:stable] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
+        {tasks.length > 1 ? (
+          <div role="group" aria-label={t("任务范围")} className="flex shrink-0 items-center gap-2">
+            <button type="button" aria-pressed={value === "all"} onClick={() => onChange("all")} className={taskButtonClass(value === "all")}>
+              {t("全部任务")} <span className="tabular-nums">{totalCount}</span>
+            </button>
+            <button type="button" aria-pressed={value === currentTaskId} onClick={() => onChange(currentTaskId)} className={taskButtonClass(value === currentTaskId)}>
+              {t("当前任务")} <span className="tabular-nums">{countByTask.get(currentTaskId) ?? 0}</span>
+            </button>
+            {relatedTasks.map((item) => (
+              <button
+                key={item.task_id}
+                type="button"
+                aria-pressed={value === item.task_id}
+                onClick={() => onChange(item.task_id)}
+                title={item.path.join(" / ")}
+                className={taskButtonClass(value === item.task_id)}
+              >
+                <GitBranch className="size-3 shrink-0" />
+                <span className="max-w-48 truncate"><AutoTranslatedText text={item.title} /></span>
+                <span className="tabular-nums">{countByTask.get(item.task_id) ?? 0}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      {summary ? <span className="hidden shrink-0 text-[11px] text-slate-500 sm:inline">{summary}</span> : null}
+    </div>
+  );
+}
+
 /**
  * 研发任务 · 全屏详情页（双栏布局，与协同任务详情同款范式）：
  * 左栏为任务档案（字段表 / 人员 / 快捷操作），右主栏为纵向过程叙事
@@ -212,16 +286,40 @@ function TaskRelationTree({
 export default function RDTaskDetailPage() {
   const { taskId = "" } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const activityActor = useMemo<AuditActorIdentity | null>(() => {
+    const params = new URLSearchParams(location.search);
+    const id = params.get("activity_user_id")?.trim() ?? "";
+    const name = params.get("activity_user_name")?.trim() ?? "";
+    return id || name ? { id: id || null, name: name || null } : null;
+  }, [location.search]);
   const productionWorkspace = isProductionWorkspace();
-  const cockpitPath = productionWorkspace ? "/production-dashboard" : "/rd-task-management";
+  const cockpitPath = productionWorkspace
+    ? "/production-dashboard"
+    : routePath("page:rd-task-management", "/rd-task-management");
+  const cockpitReturnPath = `${cockpitPath}${location.search}`;
   const taskDetailPath = useCallback(
-    (id: string) => `${productionWorkspace ? "/production-task" : "/rd-task"}/${encodeURIComponent(id)}`,
-    [productionWorkspace],
+    (id: string) => `${productionWorkspace ? "/production-task" : "/rd-task"}/${encodeURIComponent(id)}${location.search}`,
+    [location.search, productionWorkspace],
   );
   const shouldReduceMotion = useReducedMotion();
   const { lang } = useI18n(); // i18n：订阅语言切换（本页文案已 t() 化）
   void lang;
   const { user } = useAuth();
+  const [selectedActivityActor, setSelectedActivityActor] = useState<AuditActorIdentity | null>(null);
+  const canSelectActivityActor = !activityActor && canReadAllAuditLogs(user?.permissions);
+  const visibleActivityActor = useMemo<AuditActorIdentity | null>(() => {
+    if (activityActor) return activityActor;
+    return canSelectActivityActor ? selectedActivityActor : null;
+  }, [activityActor, canSelectActivityActor, selectedActivityActor]);
+  const activityActorIsSelected = useCallback(
+    (actor: AuditActorIdentity) => detailActivityActorMatches(actor, selectedActivityActor),
+    [selectedActivityActor],
+  );
+  const toggleActivityActor = useCallback((actor: AuditActorIdentity) => {
+    if (!canSelectActivityActor) return;
+    setSelectedActivityActor((current) => detailActivityActorMatches(actor, current) ? null : actor);
+  }, [canSelectActivityActor]);
   const canView = useAnyPermission(PERMISSIONS.PAGE_RD_TASK_MANAGEMENT, PERMISSIONS.PAGE_RD_DIRECTOR_DASHBOARD);
   // 管理动作口径与驾驶舱抽屉的 canManageTaskFlow 一致
   const canManagePermission = useAnyPermission(
@@ -253,10 +351,10 @@ export default function RDTaskDetailPage() {
   const [groupNotes, setGroupNotes] = useState<RdTaskProgressNote[]>([]);
   const [progressGroupTasks, setProgressGroupTasks] = useState<RdTaskProgressGroupTask[]>([]);
   const [noteTaskFilter, setNoteTaskFilter] = useState("all");
+  const [auditTaskFilter, setAuditTaskFilter] = useState("all");
   const [notesLoading, setNotesLoading] = useState(true);
   const [tab, setTab] = useState<DetailTab>("notes");
   const [discussionUnread, setDiscussionUnread] = useState(0);
-  const [discussionThreadOpen, setDiscussionThreadOpen] = useState(false);
   const [people, setPeople] = useState<PersonProfile[]>([]);
   const [showHandover, setShowHandover] = useState(false);
   const [showEditInfo, setShowEditInfo] = useState(false);
@@ -280,30 +378,6 @@ export default function RDTaskDetailPage() {
   const [savingPriority, setSavingPriority] = useState(false);
   /** 点击人员后展示其名下任务的弹层（点任务跳转到该任务的详情页） */
   const [personTasksFor, setPersonTasksFor] = useState<string | null>(null);
-  // ── 评论式留痕框（时间线底部常驻，「在哪看就在哪写」）──
-  const [composerText, setComposerText] = useState("");
-  const composerRef = useRef<HTMLTextAreaElement>(null);
-  const mentionCandidates = useMemo<MentionCandidate[]>(() => {
-    const seen = new Set<string>();
-    const out: MentionCandidate[] = [];
-    const push = (name?: string | null, userId?: string | null, hint?: string) => {
-      const nm = (name ?? "").trim();
-      if (!nm || seen.has(nm)) return;
-      seen.add(nm);
-      out.push({ user_id: userId ?? null, name: nm, hint });
-    };
-    if (task) {
-      push(task.primary_owner, task.primary_owner_user_id, t("主责人"));
-      for (const c of task.collaborators ?? []) push(c.name, c.user_id, t("协作人"));
-    }
-    for (const p of people) push(p.name, p.user_id ?? null);
-    return out;
-  }, [task, people]);
-  const mention = useMentions({ value: composerText, setValue: setComposerText, inputRef: composerRef, candidates: mentionCandidates });
-  const [composerFiles, setComposerFiles] = useState<File[]>([]);
-  const [composerItemId, setComposerItemId] = useState("");
-  const [composerTaskId, setComposerTaskId] = useState(taskId);
-  const [sendingNote, setSendingNote] = useState(false);
   /**
    * 审计日志按「任务」整类订阅，范围过滤在下方 useMemo 里做。
    * ⚠️ 不要把范围条件塞进 useAuditLogs 的 filter：它的 effect 依赖 filter 的字符串化值，
@@ -313,13 +387,19 @@ export default function RDTaskDetailPage() {
   const allTaskAuditLogs = useAuditLogs(TASK_AUDIT_FILTER);
   const { task: procTask, setTask: setProcTask } = useProcurementTaskLink(taskId);
 
+  // 采购动态是按任务按需出现的页签；切换到没有采购关联的任务时回退到合并关系，
+  // 避免 Tabs 保留一个已不存在的受控 value 而显示空白。
+  useEffect(() => {
+    if (tab === "procurement" && !procTask) setTab("relations");
+  }, [procTask, tab]);
+
   // 视口内布局的可用高度：实测容器到视口顶的距离（覆盖全局顶栏/面包屑/内边距的任意组合），
-  // 不猜固定偏移。lg 以下返回 null 走自然文档流。
+  // 不猜固定偏移。仅双栏大屏启用；更窄的单栏布局走自然文档流。
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   useEffect(() => {
     const measure = () => {
-      if (!rootRef.current || window.innerWidth < 1024) {
+      if (!rootRef.current || window.innerWidth < 1280) {
         setViewportHeight(null);
         return;
       }
@@ -357,7 +437,6 @@ export default function RDTaskDetailPage() {
 
   // 秒开：驾驶舱/序列导航经 location.state 带来任务快照，先渲染再后台静默拉最新覆盖
 
-  const location = useLocation();
   useEffect(() => {
     const seeded = (location.state as { task?: RdTask } | null)?.task;
     const hasSeed = Boolean(seeded && seeded.task_id === taskId);
@@ -415,12 +494,6 @@ export default function RDTaskDetailPage() {
       setGroupNotes(data.notes);
       setProgressGroupTasks(data.tasks);
       setNotes(data.notes.filter((note) => (note.source_task?.task_id ?? note.task_id) === taskId));
-      setComposerTaskId((current) => {
-        if (data.tasks.some((item) => item.task_id === current && item.can_post)) return current;
-        return data.tasks.find((item) => item.task_id === taskId && item.can_post)?.task_id
-          ?? data.tasks.find((item) => item.can_post)?.task_id
-          ?? taskId;
-      });
       void markRdTaskNotesRead(taskId).catch(() => {});
     } catch {
       if (seq !== progressLoadSeqRef.current) return;
@@ -434,23 +507,43 @@ export default function RDTaskDetailPage() {
 
   useEffect(() => {
     setNoteTaskFilter("all");
-    setComposerTaskId(taskId);
-    setComposerItemId("");
+    setAuditTaskFilter("all");
+    setSelectedActivityActor(null);
     void loadProgressGroup();
     return () => { progressLoadSeqRef.current += 1; };
   }, [loadProgressGroup, taskId]);
 
+  const activityNotes = useMemo(
+    () => visibleActivityActor
+      ? notes.filter((note) => activityActor
+        ? auditActorMatchesIdentity(note.actor, visibleActivityActor)
+        : detailActivityActorMatches(note.actor, visibleActivityActor))
+      : notes,
+    [activityActor, notes, visibleActivityActor],
+  );
+  const activityGroupNotes = useMemo(
+    () => visibleActivityActor
+      ? groupNotes.filter((note) => activityActor
+        ? auditActorMatchesIdentity(note.actor, visibleActivityActor)
+        : detailActivityActorMatches(note.actor, visibleActivityActor))
+      : groupNotes,
+    [activityActor, groupNotes, visibleActivityActor],
+  );
   const noteCountByItem = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const note of notes) {
+    for (const note of activityNotes) {
       if (note.work_item_id) counts.set(note.work_item_id, (counts.get(note.work_item_id) ?? 0) + 1);
     }
     return counts;
-  }, [notes]);
+  }, [activityNotes]);
 
   const progressGroupTaskById = useMemo(
     () => new Map(progressGroupTasks.map((item) => [item.task_id, item] as const)),
     [progressGroupTasks],
+  );
+  const progressGroupTaskIds = useMemo(
+    () => new Set(progressGroupTasks.length > 0 ? progressGroupTasks.map((item) => item.task_id) : [taskId]),
+    [progressGroupTasks, taskId],
   );
   const allTaskById = useMemo(
     () => new Map(allTasks.map((item) => [item.task_id, item] as const)),
@@ -458,30 +551,36 @@ export default function RDTaskDetailPage() {
   );
   const filteredGroupNotes = useMemo(
     () => noteTaskFilter === "all"
-      ? groupNotes
-      : groupNotes.filter((note) => (note.source_task?.task_id ?? note.task_id) === noteTaskFilter),
-    [groupNotes, noteTaskFilter],
+      ? activityGroupNotes
+      : activityGroupNotes.filter((note) => (note.source_task?.task_id ?? note.task_id) === noteTaskFilter),
+    [activityGroupNotes, noteTaskFilter],
   );
-  const composerTask = allTaskById.get(composerTaskId) ?? task;
-  const composerGroupTask = progressGroupTaskById.get(composerTaskId);
-  const composerWorkItems = composerTask?.work_items ?? [];
-
-  useEffect(() => {
-    setComposerItemId("");
-  }, [composerTaskId]);
-
+  const activityNoteCountByTask = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const note of activityGroupNotes) {
+      const sourceTaskId = note.source_task?.task_id ?? note.task_id;
+      counts.set(sourceTaskId, (counts.get(sourceTaskId) ?? 0) + 1);
+    }
+    return counts;
+  }, [activityGroupNotes]);
+  const filteredGroupTaskCount = useMemo(
+    () => new Set(filteredGroupNotes.map((note) => note.source_task?.task_id ?? note.task_id)).size,
+    [filteredGroupNotes],
+  );
   const changeNoteTaskFilter = (nextTaskId: string) => {
     setNoteTaskFilter(nextTaskId);
-    if (nextTaskId !== "all" && progressGroupTaskById.get(nextTaskId)?.can_post) {
-      setComposerTaskId(nextTaskId);
-    }
   };
 
   const subtasks = useMemo(() => task?.subtasks ?? [], [task]);
 
   const auditLogs = useMemo(
-    () => allTaskAuditLogs.filter((log) => log.resource.id === taskId),
-    [allTaskAuditLogs, taskId],
+    () => {
+      const taskLogs = allTaskAuditLogs.filter((log) => progressGroupTaskIds.has(log.resource.id));
+      if (!visibleActivityActor) return taskLogs;
+      if (activityActor) return filterAuditLogsByActor(taskLogs, visibleActivityActor);
+      return taskLogs.filter((log) => detailActivityActorMatches(log.actor, visibleActivityActor));
+    },
+    [activityActor, allTaskAuditLogs, progressGroupTaskIds, visibleActivityActor],
   );
 
   const docAttachments = useMemo(
@@ -500,25 +599,29 @@ export default function RDTaskDetailPage() {
     const matchedNoteIds = new Set(
       auditLogs.map((log) => (typeof log.metadata?.note_id === "string" ? log.metadata.note_id : "")).filter(Boolean),
     );
-    const orphanLogs: AuditLog[] = notes
+    const orphanLogs: AuditLog[] = activityGroupNotes
       .filter((n) => !matchedNoteIds.has(n.id))
-      .map((n) => ({
-        id: `report-note-${n.id}`,
-        timestamp: n.created_at,
-        actor: { id: n.actor?.id ?? null, name: n.actor?.name ?? "研发成员", role: n.actor?.role ?? "研发成员" },
-        action: "task.progress_updated" as const,
-        resource: {
-          type: "task" as const,
-          id: taskId,
-          name: task?.title ?? "",
-        },
-        comment: n.text || "更新任务进度",
-        metadata: { note_id: n.id, synthetic: true },
-        source: "web" as const,
-      }));
-    return [...auditLogs, ...orphanLogs];
-  }, [auditLogs, notes, taskId, task?.title]);
-  const noteById = useMemo(() => new Map(notes.map((n) => [n.id, n] as const)), [notes]);
+      .map((n) => {
+        const sourceTaskId = n.source_task?.task_id ?? n.task_id;
+        const sourceTask = progressGroupTaskById.get(sourceTaskId) ?? allTaskById.get(sourceTaskId);
+        return {
+          id: `report-note-${n.id}`,
+          timestamp: n.created_at,
+          actor: { id: n.actor?.id ?? null, name: n.actor?.name ?? "研发成员", role: n.actor?.role ?? "研发成员" },
+          action: "task.progress_updated" as const,
+          resource: {
+            type: "task" as const,
+            id: sourceTaskId,
+            name: n.source_task?.title ?? sourceTask?.title ?? task?.title ?? "",
+          },
+          comment: n.text || "更新任务进度",
+          metadata: { note_id: n.id, synthetic: true },
+          source: "web" as const,
+        };
+      });
+    return filterAuditLogsForViewer([...auditLogs, ...orphanLogs], user);
+  }, [activityGroupNotes, allTaskById, auditLogs, progressGroupTaskById, task?.title, user]);
+  const noteById = useMemo(() => new Map(activityGroupNotes.map((n) => [n.id, n] as const)), [activityGroupNotes]);
   const reportNoteOf = useCallback(
     (logId: string) => {
       const log = reportLogs.find((l) => l.id === logId);
@@ -532,6 +635,19 @@ export default function RDTaskDetailPage() {
     () => [...reportLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
     [reportLogs],
   );
+  const timelineLogCountByTask = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const log of timelineLogs) {
+      counts.set(log.resource.id, (counts.get(log.resource.id) ?? 0) + 1);
+    }
+    return counts;
+  }, [timelineLogs]);
+  const filteredTimelineLogs = useMemo(
+    () => auditTaskFilter === "all"
+      ? timelineLogs
+      : timelineLogs.filter((log) => log.resource.id === auditTaskFilter),
+    [auditTaskFilter, timelineLogs],
+  );
 
   // 参与人（主责/协作）或管理员可在时间线底部直接记进展（后端同口径校验兜底）
   const isParticipant = useMemo(() => {
@@ -539,44 +655,6 @@ export default function RDTaskDetailPage() {
     if (task.primary_owner_user_id === user.id || task.primary_owner === user.name) return true;
     return (task.collaborators ?? []).some((c) => c.user_id === user.id || c.name === user.name);
   }, [task, user]);
-  const canComposeNote = Boolean(composerGroupTask?.can_post);
-
-  const submitComposerNote = async () => {
-    if (!task || sendingNote) return;
-    const text = composerText.trim();
-    if (!text && composerFiles.length === 0) {
-      toast.error(t("写点什么或附上文件再发送"));
-      return;
-    }
-    const targetId = composerTaskId;
-    setSendingNote(true);
-    try {
-      await createRdTaskProgressNote({
-        task_id: targetId,
-        text,
-        files: composerFiles,
-        work_item_id: composerItemId || undefined,
-        mentions: mention.mentionsForSubmit(text),
-      });
-      mention.resetMentions();
-      setComposerText("");
-      setComposerFiles([]);
-      setComposerItemId("");
-      toast.success(t("进展已记录"));
-      // 重拉当前任务留痕，让时间线与附件库即时可见。
-      try {
-        await loadProgressGroup(false);
-      } catch {
-        /* 拉取失败不影响已提交结果 */
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "记录进展失败");
-    } finally {
-      setSendingNote(false);
-    }
-  };
-
-
   // ── 管理动作（API 口径与驾驶舱抽屉完全一致） ──────────────────────────────
 
   /** 编辑标题/描述（主管）：PATCH 后乐观更新双数据源并留审计 diff */
@@ -1129,7 +1207,7 @@ export default function RDTaskDetailPage() {
         <p className="text-sm">{loadError || t("任务不存在")}</p>
         <button
           type="button"
-          onClick={() => navigate(routePath("page:rd-task-management", "/rd-task-management"))}
+          onClick={() => navigate(cockpitReturnPath)}
           className="cursor-pointer rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
         >
           {t("返回驾驶舱")}
@@ -1143,7 +1221,7 @@ export default function RDTaskDetailPage() {
   const blockedDays = blockedDaysOf(task);
   const workItems = task.work_items ?? [];
 
-  // 大屏（lg+）视口内布局：整页不滚，AI 小结/时间线各自内滚；窄屏维持自然文档流
+  // 双栏大屏至少占满可用视口；内容过多时允许页面自然增长，不能裁掉留痕列表。
   return (
     <TaskImageGalleryScope notes={notes}>
       <motion.div
@@ -1151,13 +1229,13 @@ export default function RDTaskDetailPage() {
       initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-      style={viewportHeight ? { height: viewportHeight } : undefined}
+      style={viewportHeight ? { minHeight: viewportHeight } : undefined}
       className="mx-auto flex max-w-[1200px] flex-col gap-4 px-2 pt-4 sm:px-4"
     >
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-3">
         {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
-        <Button type="button" variant="outline" size="sm" onClick={() => navigate(routePath("page:rd-task-management", "/rd-task-management"))} className="gap-1">
+        <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)} className="gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
           {t("返回")}
         </Button>
@@ -1442,7 +1520,7 @@ export default function RDTaskDetailPage() {
               )}
           </div>
 
-          {/* 人员节（点击查看其名下任务，可跳转到对应任务详情） */}
+          {/* 管理员总览可直接点人员筛选留痕；固定成员入口仍保留原有人员任务弹层。 */}
           <div className="px-4 py-3.5">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500">{t("主责人")}</span>
@@ -1458,12 +1536,27 @@ export default function RDTaskDetailPage() {
             </div>
             <button
               type="button"
-              onClick={() => setPersonTasksFor(task.primary_owner)}
-              className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-slate-50"
-              title={`查看 ${task.primary_owner} 名下的任务`}
+              aria-pressed={canSelectActivityActor ? activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner }) : undefined}
+              onClick={() => {
+                const actor = { id: task.primary_owner_user_id, name: task.primary_owner };
+                if (canSelectActivityActor) toggleActivityActor(actor);
+                else setPersonTasksFor(task.primary_owner);
+              }}
+              className={cn(
+                "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+                canSelectActivityActor && activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner })
+                  ? "bg-indigo-50 ring-1 ring-inset ring-indigo-200"
+                  : "hover:bg-slate-50",
+              )}
+              title={canSelectActivityActor
+                ? t(activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner }) ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")
+                : `查看 ${task.primary_owner} 名下的任务`}
             >
               <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="sm" />
               <span className="text-sm font-medium text-slate-800">{displayPersonName(task.primary_owner)}</span>
+              {canSelectActivityActor && activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner }) ? (
+                <span className="ml-auto rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">{t("筛选中")}</span>
+              ) : null}
             </button>
             {(task.collaborators ?? []).length > 0 && (
               <>
@@ -1473,13 +1566,28 @@ export default function RDTaskDetailPage() {
                     <button
                       key={c.id}
                       type="button"
-                      onClick={() => setPersonTasksFor(c.name)}
-                      className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-slate-50"
-                      title={`查看 ${c.name} 名下的任务`}
+                      aria-pressed={canSelectActivityActor ? activityActorIsSelected({ id: c.user_id, name: c.name }) : undefined}
+                      onClick={() => {
+                        const actor = { id: c.user_id, name: c.name };
+                        if (canSelectActivityActor) toggleActivityActor(actor);
+                        else setPersonTasksFor(c.name);
+                      }}
+                      className={cn(
+                        "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+                        canSelectActivityActor && activityActorIsSelected({ id: c.user_id, name: c.name })
+                          ? "bg-indigo-50 ring-1 ring-inset ring-indigo-200"
+                          : "hover:bg-slate-50",
+                      )}
+                      title={canSelectActivityActor
+                        ? t(activityActorIsSelected({ id: c.user_id, name: c.name }) ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")
+                        : `查看 ${c.name} 名下的任务`}
                     >
                       <OwnerAvatar name={c.name} userId={c.user_id} size="xs" />
                       <span className="text-sm text-slate-700">{c.name}</span>
                       <span className="text-[11px] text-slate-400">{t(c.role)}</span>
+                      {canSelectActivityActor && activityActorIsSelected({ id: c.user_id, name: c.name }) ? (
+                        <span className="ml-auto rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">{t("筛选中")}</span>
+                      ) : null}
                     </button>
                   ))}
                 </div>
@@ -1643,23 +1751,17 @@ export default function RDTaskDetailPage() {
             </div>
           )}
 
-          {/* 已转采购的任务：展示对应采购任务的活动流（研发侧特有） */}
-          {procTask && (
-            <div className="shrink-0">
-              <ProcurementActivitySection task={procTask} />
-            </div>
-          )}
-
-          {/* Tab：当前任务过程数据 + 独立的合并关系树。卡片吃掉主列剩余高度，内容区各自内滚。 */}
-          <div className="material-card flex min-h-0 flex-1 flex-col overflow-hidden p-0 lg:min-h-[280px]">
+          {/* Tab：筛选条、留痕列表和卡片内留言共存时仍为列表保留可视区域；内容区各自内滚。 */}
+          <div className="material-card flex min-h-0 flex-1 flex-col overflow-hidden p-0 lg:min-h-[440px]">
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col gap-0">
               <TabsList className="cockpit-scroll h-auto w-full shrink-0 justify-start gap-3 overflow-x-auto rounded-none border-b border-slate-200/80 bg-transparent p-0 px-3 sm:gap-5 sm:px-4">
                 {([
-                  { key: "notes", label: t("进展留痕"), count: groupNotes.length },
+                  { key: "notes", label: t("进展留痕"), count: activityGroupNotes.length },
                   { key: "conversation", label: t("任务讨论"), count: discussionUnread },
                   { key: "audit", label: t("操作记录"), count: timelineLogs.length },
                   { key: "attachments", label: t("附件库"), count: null },
                   { key: "relations", label: t("合并关系"), count: Math.max(0, relationNodeCount - 1) },
+                  ...(procTask ? [{ key: "procurement" as const, label: t("采购动态"), count: procTask.logs.length }] : []),
                 ] as const).map((tabItem) => (
                   <TabsTrigger
                     key={tabItem.key}
@@ -1668,6 +1770,7 @@ export default function RDTaskDetailPage() {
                   >
                     {tabItem.key === "conversation" && <MessageCircleMore className="h-3.5 w-3.5 text-indigo-500" />}
                     {tabItem.key === "relations" && <GitBranch className="h-3.5 w-3.5 text-indigo-500" />}
+                    {tabItem.key === "procurement" && <ShoppingCart className="h-3.5 w-3.5 text-indigo-500" />}
                     {tabItem.label}
                     {tabItem.count != null && tabItem.count > 0 && (
                       <span className={cn(
@@ -1681,55 +1784,18 @@ export default function RDTaskDetailPage() {
 
               <TabsContent value="notes" className="min-h-0 min-w-0 flex-1 flex-col overflow-hidden data-[state=active]:flex">
                 {progressGroupTasks.length > 1 && (
-                  <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200/80 bg-slate-50/70 px-3 py-2 sm:px-4">
-                    <button
-                      type="button"
-                      onClick={() => changeNoteTaskFilter("all")}
-                      className={cn(
-                        "min-h-8 cursor-pointer rounded-lg px-2.5 text-xs font-semibold transition-colors",
-                        noteTaskFilter === "all"
-                          ? "bg-indigo-600 text-white shadow-sm"
-                          : "border border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:text-indigo-700",
-                      )}
-                    >
-                      {t("全部任务")} {groupNotes.length}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => changeNoteTaskFilter(taskId)}
-                      className={cn(
-                        "min-h-8 cursor-pointer rounded-lg px-2.5 text-xs font-semibold transition-colors",
-                        noteTaskFilter === taskId
-                          ? "bg-indigo-600 text-white shadow-sm"
-                          : "border border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:text-indigo-700",
-                      )}
-                    >
-                      {t("当前任务")} {progressGroupTaskById.get(taskId)?.note_count ?? 0}
-                    </button>
-                    <Select value={noteTaskFilter} onValueChange={changeNoteTaskFilter}>
-                      <SelectTrigger size="sm" className="h-8 min-w-44 max-w-full rounded-lg bg-white text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="max-w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-                        <SelectItem value="all">
-                          {t("全部任务")} · {groupNotes.length}
-                        </SelectItem>
-                        {progressGroupTasks.map((item) => (
-                          <SelectItem key={item.task_id} value={item.task_id}>
-                            <span className="block max-w-80 truncate" title={item.path.join(" / ")}>
-                              {item.path.join(" / ")} · {item.note_count}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <span className="ml-auto text-[11px] text-slate-500">
-                      {t("共 {notes} 条，来自 {tasks} 个任务", {
-                        notes: filteredGroupNotes.length,
-                        tasks: progressGroupTasks.length,
-                      })}
-                    </span>
-                  </div>
+                  <ActivityTaskFilterBar
+                    value={noteTaskFilter}
+                    currentTaskId={taskId}
+                    tasks={progressGroupTasks}
+                    countByTask={activityNoteCountByTask}
+                    totalCount={activityGroupNotes.length}
+                    onChange={changeNoteTaskFilter}
+                    summary={t("共 {notes} 条，来自 {tasks} 个任务", {
+                      notes: filteredGroupNotes.length,
+                      tasks: filteredGroupTaskCount,
+                    })}
+                  />
                 )}
                 <RDTaskConversation
                   key={`progress-${taskId}`}
@@ -1742,10 +1808,11 @@ export default function RDTaskDetailPage() {
                   showHeader={false}
                   threadLayout="replace"
                   onUnreadChange={setDiscussionUnread}
-                  onThreadOpenChange={setDiscussionThreadOpen}
                   onOpenSourceTask={(sourceTaskId) => {
                     if (sourceTaskId !== taskId) navigate(taskDetailPath(sourceTaskId));
                   }}
+                  selectedActor={canSelectActivityActor ? selectedActivityActor : null}
+                  onActorClick={canSelectActivityActor ? toggleActivityActor : undefined}
                 />
               </TabsContent>
 
@@ -1840,136 +1907,52 @@ export default function RDTaskDetailPage() {
                 )}
               </TabsContent>
 
-              <TabsContent value="audit" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
-              <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="px-1 py-1">
+              {procTask && (
+                <TabsContent value="procurement" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
+                  <motion.div
+                    initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.16 }}
+                  >
+                    <ProcurementActivitySection task={procTask} />
+                  </motion.div>
+                </TabsContent>
+              )}
+
+              <TabsContent value="audit" className="min-h-0 min-w-0 flex-1 flex-col overflow-hidden data-[state=active]:flex">
+              {progressGroupTasks.length > 1 && (
+                <ActivityTaskFilterBar
+                  value={auditTaskFilter}
+                  currentTaskId={taskId}
+                  tasks={progressGroupTasks}
+                  countByTask={timelineLogCountByTask}
+                  totalCount={timelineLogs.length}
+                  onChange={setAuditTaskFilter}
+                />
+              )}
+              <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="cockpit-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-3">
                 {/* 完整时间线：操作动作 + 进展留痕合成，进展条目下挂附件缩略图（与抽屉口径一致） */}
                 <AuditTimeline
-                  logs={timelineLogs}
-                  showResource={false}
+                  logs={filteredTimelineLogs}
+                  showResource={auditTaskFilter === "all" && progressGroupTasks.length > 1}
                   emptyText={t("暂无操作记录")}
                   canAddNote={canManage}
                   onAddNote={async (logId, text) => {
                     await addAuditLogNote(logId, { text, actor: AUDIT_ACTOR });
                   }}
                   notePlaceholder={t("填写备注（最多 200 字），仅主管可添加…")}
+                  selectedActor={canSelectActivityActor ? selectedActivityActor : null}
+                  onActorClick={canSelectActivityActor ? toggleActivityActor : undefined}
                   renderExtra={(log) => {
                     const note = reportNoteOf(log.id);
                     if (!note || note.attachments.length === 0) return null;
-                    return <ProgressAttachmentGrid attachments={note.attachments} compact />;
+                    return <ProgressAttachmentGrid attachments={note.attachments} compact imageDisplay="clipped-cards" />;
                   }}
                 />
               </motion.div>
               </TabsContent>
             </Tabs>
 
-            {/* 联合时间线仍把每条新留痕写回一个明确的源任务，不复制、不改历史归属。 */}
-            {tab === "notes" && canComposeNote && !discussionThreadOpen && (
-              <div className="shrink-0 border-t border-slate-200/80 px-4 py-3">
-                {progressGroupTasks.length > 1 && (
-                  <div className="mb-2 flex items-center gap-2 text-xs text-slate-500">
-                    <span className="inline-flex shrink-0 items-center gap-1 font-semibold text-slate-600">
-                      <GitBranch className="h-3.5 w-3.5 text-indigo-500" />
-                      {t("记录到")}
-                    </span>
-                    <Select value={composerTaskId} onValueChange={setComposerTaskId}>
-                      <SelectTrigger size="sm" className="h-8 min-w-0 flex-1 rounded-lg bg-white text-xs sm:max-w-md">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="max-w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-                        {progressGroupTasks.filter((item) => item.can_post).map((item) => (
-                          <SelectItem key={item.task_id} value={item.task_id}>
-                            <span className="block max-w-96 truncate" title={item.path.join(" / ")}>
-                              {item.path.join(" / ")}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                <div className="relative">
-                  <MentionSuggestionPanel
-                    open={mention.open}
-                    candidates={mention.filtered}
-                    highlightIndex={mention.highlightIndex}
-                    onPick={mention.pick}
-                    variant="desktop"
-                  />
-                  <Textarea
-                    ref={composerRef}
-                    value={composerText}
-                    onChange={(e) => { setComposerText(e.target.value); mention.syncActiveQuery(); }}
-                    onKeyUp={mention.syncActiveQuery}
-                    onClick={mention.syncActiveQuery}
-                    onKeyDown={(e) => {
-                      if (mention.handleKeyDown(e)) return;
-                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                        e.preventDefault();
-                        void submitComposerNote();
-                      }
-                    }}
-                    rows={2}
-                    placeholder={t("写一条进展…（输入 @ 提及成员，Ctrl+Enter 发送）")}
-                    className="cockpit-scroll w-full resize-none rounded-lg border-slate-200 text-sm"
-                  />
-                </div>
-                {composerFiles.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {composerFiles.map((f, i) => (
-                      <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
-                        {f.name}
-                        <button
-                          type="button"
-                          onClick={() => setComposerFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                          className="cursor-pointer text-slate-400 hover:text-slate-600"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div className="mt-2 flex items-center gap-2">
-                  <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50">
-                    <FileText className="h-3.5 w-3.5" />
-                    {t("附件")}
-                    <input
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        const picked = Array.from(e.target.files ?? []);
-                        if (picked.length) setComposerFiles((prev) => [...prev, ...picked].slice(0, 10));
-                        e.target.value = "";
-                      }}
-                    />
-                  </label>
-                  {composerWorkItems.length > 0 && (
-                    <Select value={composerItemId || "none"} onValueChange={(v) => setComposerItemId(v === "none" ? "" : v)}>
-                      <SelectTrigger size="sm" className="h-7 w-auto max-w-[200px] rounded-lg text-xs text-slate-500">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-                        <SelectItem value="none">{t("不关联工作项")}</SelectItem>
-                        {composerWorkItems.map((it) => (
-                          <SelectItem key={it.id} value={it.id}>{it.title}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => void submitComposerNote()}
-                    disabled={sendingNote || (!composerText.trim() && composerFiles.length === 0)}
-                    className="ml-auto h-7 gap-1 px-3 text-xs"
-                  >
-                    {sendingNote ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                    {t("发送")}
-                  </Button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

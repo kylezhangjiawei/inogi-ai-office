@@ -16,13 +16,16 @@ import {
   ChevronRight,
   CircleDot,
   Code2,
+  CopyCheck,
   Cpu,
   FileUp,
   Flame,
   FolderPlus,
   Gauge,
+  GitBranch,
   Image as ImageIcon,
   LayoutGrid,
+  Layers3,
   ListChecks,
   Loader2,
   Lock,
@@ -46,6 +49,7 @@ import {
   Wind,
   X,
   Settings2,
+  ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "./components/ui/input";
@@ -78,6 +82,7 @@ import {
   fetchRdAiSettings,
   fetchRdPeople,
   fetchRdTaskCategories,
+  fetchRdMemberTaskCategories,
   fetchMergedTaskCategories,
   fetchRdTaskCompletionScore,
   fetchRdTaskCompletionScores,
@@ -94,6 +99,8 @@ import {
   saveRdTaskCategories,
   moveRdTasks,
   clearRdAllTaskData,
+  classifyRdProject,
+  attachRdTasksToParent,
   updateRdTask,
   fetchRdProducts,
   saveRdProducts,
@@ -102,6 +109,7 @@ import {
   revokeRdTaskProductionSync,
   syncRdTaskToProduction,
   type RdAiPersonContext,
+  type RdAiProjectClassificationResult,
   type RdAiSettingsPayload,
   type RdAiTaskDraft,
   type RdCategory,
@@ -110,6 +118,7 @@ import {
   type RdPriority,
   type RdSubProject,
   type RdTask,
+  type RdWorkspaceTask,
   type RdTaskCompletionScore,
   type RdTaskCompletionScoreDebug,
   type RdTaskAttachmentPreview,
@@ -136,6 +145,7 @@ import { useAvatarDirectory } from "./lib/userAvatar";
 import { currentI18nLang, i18nLocale, t, useI18n } from "./lib/i18n";
 import { rdTaskMatchesAllText } from "./lib/rdTaskTextSearch";
 import { rootTasksFromCategories } from "./lib/rdTaskTreeVisibility";
+import { isTaskOwnerMember } from "./lib/rdMemberIdentity";
 import { AutoTranslatedText, fetchContentTranslation } from "./components/TranslatableText";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { RdTaskExportButton } from "./components/RdTaskExportButton";
@@ -1275,7 +1285,7 @@ const NoteReceiptContext = React.createContext<Record<string, RdTaskNoteReceipt>
 function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
   useI18n();
   const receiptMap = React.useContext(NoteReceiptContext);
-  const receipt = receiptMap[task.task_id];
+  const receipt = task.source_workspace === "us-collab" ? undefined : receiptMap[task.task_id];
   const hasSubtasks = Boolean(task.subtasks?.length);
   const attention = taskNeedsAttention(task);
   const [expanded, setExpanded] = useState(attention && hasSubtasks);
@@ -1308,6 +1318,11 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
               <StatusDot status={task.status} />
               {t(statusCfg.label)}
             </span>
+            {task.source_workspace === "us-collab" && (
+              <span className="inline-flex shrink-0 rounded-md bg-cyan-50 px-1.5 py-0.5 text-[11px] font-semibold text-cyan-700 ring-1 ring-cyan-100">
+                {t("协同")}
+              </span>
+            )}
             <PriorityPill priority={task.final_priority} aiPriority={task.ai_priority} />
           </div>
 
@@ -1623,6 +1638,7 @@ export function buildCatStats(categories: Category[], risks: Risk[]): CatStat[] 
 // ─── Executive Overview helpers ──────────────────────────────────────────────
 
 export type PersonLoad = { name: string; count: number; max: number; onLeave: boolean; user_id?: string | null };
+type TaskActivityActor = { id?: string | null; name: string };
 type SystemHealth = "healthy" | "watch" | "alert" | "idle";
 
 const HEALTH_CONFIG: Record<
@@ -1700,7 +1716,11 @@ function computeScopedPersonLoads(
 /**
  * Aggregate active load per person across all categories.
  */
-export function computePersonLoads(categories: Category[], maxPerPerson = 8): PersonLoad[] {
+export function computePersonLoads(
+  categories: Category[],
+  maxPerPerson = 8,
+  peopleDirectory?: readonly PersonProfile[],
+): PersonLoad[] {
   const counts = new Map<string, number>();
   const onLeave = new Set<string>();
   // 主责姓名 → user_id：供头像按 user_id 精确解析（同名同事不会张冠李戴）。
@@ -1710,7 +1730,7 @@ export function computePersonLoads(categories: Category[], maxPerPerson = 8): Pe
   // 驾驶舱头像角标只统计列表中可见的活跃根任务；子任务随父任务查看，不再单独占用角标。
   for (const task of rootTasksFromCategories(categories)) {
     const isActive = !isArchivedTask(task) && task.status !== "completed";
-    if (isActive && !/已离职|待指派/.test(task.primary_owner)) {
+    if (isActive && isTaskOwnerMember(task.primary_owner, task.primary_owner_user_id, peopleDirectory)) {
       counts.set(task.primary_owner, (counts.get(task.primary_owner) ?? 0) + 1);
       if (task.status === "paused_leave") onLeave.add(task.primary_owner);
       if (task.primary_owner_user_id && !userIds.has(task.primary_owner)) {
@@ -6705,6 +6725,15 @@ function loadRingGradient(ratio: number, onLeave: boolean) {
   return { from: "#34d399", to: "#059669" };                   // emerald
 }
 
+function resolveActivityPersonTab(personLoads: PersonLoad[], actor?: TaskActivityActor | null) {
+  if (!actor) return "all";
+  const matchedById = actor.id
+    ? personLoads.find((person) => person.user_id === actor.id)
+    : undefined;
+  if (matchedById) return matchedById.name;
+  return personLoads.some((person) => person.name === actor.name) ? actor.name : "all";
+}
+
 const TASK_PAGE_SIZE = 6; // 首批 6 个，后续滚动每批再加载 6 个
 const MAX_ATTACHMENT_PREVIEW = 5;
 
@@ -7031,6 +7060,7 @@ function PersonTaskCockpit({
   risks,
   personLoads,
   allTasks,
+  initialActivityActor,
   onSelectTask,
   onSelectPerson,
   canReassign,
@@ -7049,7 +7079,8 @@ function PersonTaskCockpit({
   risks: Risk[];
   personLoads: PersonLoad[];
   allTasks: Task[];
-  onSelectTask: (t: Task) => void;
+  initialActivityActor?: TaskActivityActor | null;
+  onSelectTask: (t: Task, activityActor?: TaskActivityActor) => void;
   onSelectPerson: (name: string) => void;
   canReassign?: boolean;
   onReassignTask?: (task: Task) => void;
@@ -7076,12 +7107,26 @@ function PersonTaskCockpit({
   const resolveAvatar = useAvatarDirectory();
 
   // ── Tab state (with prev-tab for slide direction) ──
-  const [activeTab, setActiveTab] = useState("all");
-  const [prevTab, setPrevTab] = useState("all");
+  const initialActivityTab = resolveActivityPersonTab(personLoads, initialActivityActor);
+  const [activeTab, setActiveTab] = useState(() => resolveActivityPersonTab(personLoads, initialActivityActor));
+  const [prevTab, setPrevTab] = useState(() => resolveActivityPersonTab(personLoads, initialActivityActor));
+  const activityRestorePendingRef = useRef(Boolean(initialActivityActor && initialActivityTab === "all"));
   const tabOrder = useMemo(() => ["all", ...personLoads.map((p) => p.name)], [personLoads]);
   const direction = tabOrder.indexOf(activeTab) >= tabOrder.indexOf(prevTab) ? 1 : -1;
 
+  // 跨产品合并树可能比主库稍晚返回：若首次挂载时尚未找到目标成员，等人员数据补齐后恢复一次。
+  // 用户若已主动切换页签，则取消这次延迟恢复，避免异步响应覆盖用户的新选择。
+  useEffect(() => {
+    if (!activityRestorePendingRef.current || !initialActivityActor) return;
+    const restoredTab = resolveActivityPersonTab(personLoads, initialActivityActor);
+    if (restoredTab === "all") return;
+    activityRestorePendingRef.current = false;
+    setActiveTab(restoredTab);
+    setPrevTab(restoredTab);
+  }, [initialActivityActor, personLoads]);
+
   const handleTabChange = useCallback((v: string) => {
+    activityRestorePendingRef.current = false;
     setPrevTab(activeTab);
     setActiveTab(v);
   }, [activeTab]);
@@ -7496,7 +7541,7 @@ function PersonTaskCockpit({
         const noteList = cachedNotes !== undefined ? cachedNotes : await fetchRdTaskProgressNotes(t.task_id).catch(() => []);
         return { task: t, score, notes: noteList };
       });
-      const scopeLabel = activeTab === "all" ? t("全部成员") : activeTab;
+      const scopeLabel = activeTab === "all" ? t("管理员视角") : activeTab;
       const ok = openBatchCompletionReport(scopeLabel, items);
       if (!ok) {
         toast.error(t("报告窗口被浏览器拦截，请允许本站弹出窗口后重试"), { id: toastId });
@@ -7646,6 +7691,12 @@ function PersonTaskCockpit({
     options: { showOwner?: boolean } = {},
   ) => {
     const { showOwner = false } = options;
+    const activityActor = activeTab === "all"
+      ? undefined
+      : {
+          id: personLoads.find((person) => person.name === activeTab)?.user_id,
+          name: activeTab,
+        };
     const isSelectedPersonCollaborator =
       activeTab !== "all" &&
       task.primary_owner !== activeTab &&
@@ -7699,10 +7750,10 @@ function PersonTaskCockpit({
         initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...RD_LIST_TRANSITION, delay: taskIdx * 0.03 }}
-        onClick={() => onSelectTask(task)}
+        onClick={() => onSelectTask(task, activityActor)}
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectTask(task); } }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectTask(task, activityActor); } }}
         className={cn(
           "group relative cursor-pointer overflow-hidden rounded-xl border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-200 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
           isRisk ? "border-red-200/80 hover:border-red-300" : "border-indigo-100/80 hover:border-indigo-300",
@@ -8032,7 +8083,7 @@ function PersonTaskCockpit({
           <div className="flex w-full items-center border-b border-indigo-100 bg-slate-50/50 pr-4">
           <TabsList className="flex h-auto min-w-0 flex-1 snap-x snap-proximity justify-start gap-0 overflow-x-auto overscroll-x-contain rounded-none border-none bg-transparent px-4 pt-4 pb-2 touch-pan-x [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
 
-            {/* 全部 — 所有活跃任务入口 */}
+            {/* 管理员视角 — 所有活跃任务入口；详情沿用原权限规则，不附加成员筛选 */}
             <TabsTrigger
               value="all"
               className="flex min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0"
@@ -8074,7 +8125,7 @@ function PersonTaskCockpit({
                 )}
               </div>
               <span className={cn("text-[10px] font-semibold leading-none", activeTab === "all" ? "text-indigo-800" : "text-slate-500")}>
-                {t("全部")}
+                {t("管理员视角")}
               </span>
             </TabsTrigger>
 
@@ -8253,7 +8304,7 @@ function PersonTaskCockpit({
                       onClick={handleBatchExportReports}
                       disabled={batchExportBusy}
                       className="inline-flex shrink-0 items-center gap-1 rounded-md border border-violet-200 bg-white px-2 py-1 text-[11px] font-semibold text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-60"
-                      title={t("把当前范围（全部 / 选中成员）已完成且已评分的任务，汇总成一份多页正式报告，可在打印对话框中选择「另存为 PDF」下载。")}
+                      title={t("把当前范围（管理员视角 / 选中成员）已完成且已评分的任务，汇总成一份多页正式报告，可在打印对话框中选择「另存为 PDF」下载。")}
                     >
                       {batchExportBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
                       {batchExportBusy ? t("汇总中…") : t("批量导出报告")}
@@ -9324,6 +9375,7 @@ function ExecutiveOverview({
   risks,
   personLoads,
   allTasks,
+  initialActivityActor,
   onSelectSystem,
   onSelectTask,
   onSelectPerson,
@@ -9348,6 +9400,7 @@ function ExecutiveOverview({
   onToggleProductionSync,
   onManageProducts,
   canManageProducts,
+  onAiClassifyTasks,
   panoramaReloadToken,
   hideSystemPanorama,
 }: {
@@ -9359,8 +9412,9 @@ function ExecutiveOverview({
   risks: Risk[];
   personLoads: PersonLoad[];
   allTasks: Task[];
+  initialActivityActor?: TaskActivityActor | null;
   onSelectSystem: (catId: string, productId: string) => void;
-  onSelectTask: (t: Task) => void;
+  onSelectTask: (t: Task, activityActor?: TaskActivityActor) => void;
   onSelectPerson: (name: string) => void;
   onOpenPeople?: () => void;
   loading: boolean;
@@ -9383,6 +9437,8 @@ function ExecutiveOverview({
   onToggleProductionSync?: (task: Task) => void;
   onManageProducts?: () => void;
   canManageProducts?: boolean;
+  /** 管理员专用：跨产品库扫描全部线上任务，生成 AI 归纳与合并候选。 */
+  onAiClassifyTasks?: () => void;
   panoramaReloadToken?: number;
   /** 中美协同驾驶舱：隐藏「子系统全景」模块 */
   hideSystemPanorama?: boolean;
@@ -9671,6 +9727,18 @@ function ExecutiveOverview({
               <div className="order-2 flex flex-wrap justify-start gap-2 lg:justify-end">
                 {/* 导出：按时间段导出所有人员任务完成情况（只读，所有可见驾驶舱的人可用） */}
                 <RdTaskExportButton allTasks={allTasks} />
+                {onAiClassifyTasks && (
+                  <button
+                    type="button"
+                    onClick={onAiClassifyTasks}
+                    className="group flex flex-none items-center gap-2 rounded-xl border border-amber-200 bg-slate-950 px-2.5 py-2 text-left text-xs font-semibold text-white shadow-[0_8px_18px_-6px_rgba(15,23,42,0.45)] transition-all hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-[0_12px_22px_-6px_rgba(15,23,42,0.52)] active:translate-y-0 active:scale-[0.98]"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-300/15 text-amber-300 ring-1 ring-amber-300/25">
+                      <Layers3 className="h-4 w-4 transition-transform group-hover:-rotate-6" />
+                    </span>
+                    <span className="min-w-0">AI 全量归纳</span>
+                  </button>
+                )}
                 {canDirectProject && onAiProject && (
                   <button
                     type="button"
@@ -9783,6 +9851,7 @@ function ExecutiveOverview({
               risks={risks}
               personLoads={personLoads}
               allTasks={allTasks}
+              initialActivityActor={initialActivityActor}
               onSelectTask={onSelectTask}
               onSelectPerson={onSelectPerson}
               canReassign={canReassign}
@@ -10287,6 +10356,848 @@ function TaskCompletedCelebration({ task, onClose }: { task: Task; onClose: () =
   );
 }
 
+type ProjectClassificationDialogProps = {
+  productId?: string;
+  categoryId?: string;
+  subProjectId?: string;
+  scopeLabel: string;
+  tasks: Task[];
+  onClose: () => void;
+  onOpenTask: (task: Task) => void;
+  onMerged: () => void | Promise<void>;
+};
+
+type ProjectClassificationMergeDraft = {
+  id: string;
+  kind: "duplicate" | "homogeneous";
+  label: string;
+  reason: string;
+  confidence?: number;
+  taskIds: string[];
+  primaryTaskId: string;
+  sourceTaskIds: string[];
+  enabled: boolean;
+};
+
+const PROJECT_CLASSIFICATION_MAX_FILES = 5;
+const PROJECT_CLASSIFICATION_MAX_FILE_BYTES = 25 * 1024 * 1024;
+const PROJECT_CLASSIFICATION_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
+const PROJECT_CLASSIFICATION_FILE_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.webp";
+const PROJECT_CLASSIFICATION_FILE_EXTENSIONS = new Set(
+  PROJECT_CLASSIFICATION_FILE_ACCEPT.split(",").map((extension) => extension.slice(1)),
+);
+
+function flattenClassificationTasks(tasks: Task[]): Task[] {
+  const output: Task[] = [];
+  const visit = (items: Task[]) => {
+    for (const task of items) {
+      if (isArchivedTask(task)) continue;
+      output.push(task);
+      visit(task.subtasks ?? []);
+    }
+  };
+  visit(tasks);
+  return output;
+}
+
+function ProjectClassificationDialog({
+  productId,
+  categoryId,
+  subProjectId,
+  scopeLabel,
+  tasks,
+  onClose,
+  onOpenTask,
+  onMerged,
+}: ProjectClassificationDialogProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
+  const [instruction, setInstruction] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [result, setResult] = useState<RdAiProjectClassificationResult | null>(null);
+  const [mergeDrafts, setMergeDrafts] = useState<ProjectClassificationMergeDraft[]>([]);
+  const [showMergeConfirm, setShowMergeConfirm] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const classificationAuditActor = useAuditActor("研发管理员");
+  const scopedTasks = useMemo(() => flattenClassificationTasks(tasks), [tasks]);
+  const taskById = useMemo(() => new Map(scopedTasks.map((task) => [task.task_id, task])), [scopedTasks]);
+  const rootTaskIds = useMemo(() => new Set(tasks.map((task) => task.task_id)), [tasks]);
+
+  const addFiles = useCallback((incoming: File[]) => {
+    const accepted: File[] = [];
+    const existing = new Set(files.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
+    let totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+    for (const file of incoming) {
+      const key = `${file.name}:${file.size}:${file.lastModified}`;
+      if (existing.has(key)) continue;
+      if (files.length + accepted.length >= PROJECT_CLASSIFICATION_MAX_FILES) {
+        toast.error(`一次最多上传 ${PROJECT_CLASSIFICATION_MAX_FILES} 个附件`);
+        break;
+      }
+      const extension = file.name.includes(".") ? file.name.split(".").pop()?.toLowerCase() ?? "" : "";
+      if (!PROJECT_CLASSIFICATION_FILE_EXTENSIONS.has(extension)) {
+        toast.error(`${file.name} 的文件类型暂不支持`);
+        continue;
+      }
+      if (file.size > PROJECT_CLASSIFICATION_MAX_FILE_BYTES) {
+        toast.error(`${file.name} 超过 25 MB，未加入分析`);
+        continue;
+      }
+      if (totalBytes + file.size > PROJECT_CLASSIFICATION_MAX_TOTAL_BYTES) {
+        toast.error("附件总大小不能超过 50 MB");
+        continue;
+      }
+      accepted.push(file);
+      existing.add(key);
+      totalBytes += file.size;
+    }
+    if (accepted.length > 0) setFiles((current) => [...current, ...accepted]);
+  }, [files]);
+
+  const resetFileDragState = useCallback(() => {
+    dragDepthRef.current = 0;
+    setIsDraggingFiles(false);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("dragend", resetFileDragState);
+    window.addEventListener("drop", resetFileDragState);
+    return () => {
+      window.removeEventListener("dragend", resetFileDragState);
+      window.removeEventListener("drop", resetFileDragState);
+    };
+  }, [resetFileDragState]);
+
+  const handleFileDragEnter = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current += 1;
+    setIsDraggingFiles(true);
+  }, []);
+
+  const handleFileDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = analyzing ? "none" : "copy";
+  }, [analyzing]);
+
+  const handleFileDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (dragDepthRef.current <= 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDraggingFiles(false);
+  }, []);
+
+  const handleFileDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    const droppedFiles = Array.from(event.dataTransfer.files);
+    if (!Array.from(event.dataTransfer.types).includes("Files") && droppedFiles.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    resetFileDragState();
+    if (!analyzing && droppedFiles.length > 0) addFiles(droppedFiles);
+  }, [addFiles, analyzing, resetFileDragState]);
+
+  const runAnalysis = async () => {
+    setAnalyzing(true);
+    setError(null);
+    try {
+      const next = await classifyRdProject({
+        productId,
+        categoryId,
+        subProjectId,
+        instruction,
+        files,
+      });
+      setResult(next);
+      const duplicateDrafts = next.duplicate_groups.map((group, index): ProjectClassificationMergeDraft => {
+        const primaryTaskId = group.recommended_primary_task_id && group.task_ids.includes(group.recommended_primary_task_id)
+          ? group.recommended_primary_task_id
+          : group.task_ids[0] ?? "";
+        return {
+          id: `duplicate-${index}`,
+          kind: "duplicate",
+          label: group.title,
+          reason: group.reason,
+          confidence: group.confidence,
+          taskIds: group.task_ids,
+          primaryTaskId,
+          sourceTaskIds: group.task_ids.filter((taskId) => taskId !== primaryTaskId && rootTaskIds.has(taskId)),
+          enabled: false,
+        };
+      });
+      const homogeneousDrafts = next.homogeneous_clusters.map((group, index): ProjectClassificationMergeDraft => {
+        const primaryTaskId = group.recommended_primary_task_id && group.task_ids.includes(group.recommended_primary_task_id)
+          ? group.recommended_primary_task_id
+          : group.task_ids[0] ?? "";
+        return {
+          id: `homogeneous-${index}`,
+          kind: "homogeneous",
+          label: group.label,
+          reason: group.reason,
+          taskIds: group.task_ids,
+          primaryTaskId,
+          sourceTaskIds: group.task_ids.filter((taskId) => taskId !== primaryTaskId && rootTaskIds.has(taskId)),
+          enabled: false,
+        };
+      });
+      setMergeDrafts([...duplicateDrafts, ...homogeneousDrafts]);
+    } catch (analysisError) {
+      setError(analysisError instanceof Error ? analysisError.message : "AI 全量任务归纳失败，请稍后重试");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const approvedMergeDrafts = useMemo(
+    () => mergeDrafts.filter((draft) => draft.enabled && draft.primaryTaskId && draft.sourceTaskIds.length > 0),
+    [mergeDrafts],
+  );
+  const approvedMergeTaskCount = useMemo(
+    () => approvedMergeDrafts.reduce((sum, draft) => sum + draft.sourceTaskIds.length, 0),
+    [approvedMergeDrafts],
+  );
+  const memberTaskLinesByOwner = useMemo(() => {
+    const grouped = new Map<string, RdAiProjectClassificationResult["member_task_lines"]>();
+    for (const line of result?.member_task_lines ?? []) {
+      const owner = line.primary_owner || "待指派";
+      grouped.set(owner, [...(grouped.get(owner) ?? []), line]);
+    }
+    return [...grouped.entries()];
+  }, [result]);
+
+  const updateMergeDraft = useCallback((draftId: string, update: (draft: ProjectClassificationMergeDraft) => ProjectClassificationMergeDraft) => {
+    setMergeDrafts((current) => current.map((draft) => (draft.id === draftId ? update(draft) : draft)));
+  }, []);
+
+  const chooseMergePrimary = useCallback((draftId: string, primaryTaskId: string) => {
+    updateMergeDraft(draftId, (draft) => {
+      if (!draft.taskIds.includes(primaryTaskId)) return draft;
+      const nextSources = new Set(draft.sourceTaskIds);
+      nextSources.delete(primaryTaskId);
+      if (draft.primaryTaskId && rootTaskIds.has(draft.primaryTaskId)) nextSources.add(draft.primaryTaskId);
+      return { ...draft, primaryTaskId, sourceTaskIds: [...nextSources] };
+    });
+  }, [rootTaskIds, updateMergeDraft]);
+
+  const toggleMergeSource = useCallback((draftId: string, taskId: string) => {
+    if (!rootTaskIds.has(taskId)) return;
+    updateMergeDraft(draftId, (draft) => {
+      if (draft.primaryTaskId === taskId) return draft;
+      const nextSources = new Set(draft.sourceTaskIds);
+      if (nextSources.has(taskId)) nextSources.delete(taskId);
+      else nextSources.add(taskId);
+      return { ...draft, sourceTaskIds: [...nextSources] };
+    });
+  }, [rootTaskIds, updateMergeDraft]);
+
+  const requestMergeConfirmation = useCallback(() => {
+    if (approvedMergeDrafts.length === 0) {
+      toast.error("请先勾选至少一组，并选择要并入的任务");
+      return;
+    }
+    const usedTaskIds = new Set<string>();
+    for (const draft of approvedMergeDrafts) {
+      for (const taskId of [draft.primaryTaskId, ...draft.sourceTaskIds]) {
+        if (usedTaskIds.has(taskId)) {
+          toast.error("同一任务不能同时出现在多个待合并组，请先调整分析结果");
+          return;
+        }
+        usedTaskIds.add(taskId);
+      }
+    }
+    setShowMergeConfirm(true);
+  }, [approvedMergeDrafts]);
+
+  const executeApprovedMerges = useCallback(async () => {
+    if (merging || approvedMergeDrafts.length === 0) return;
+    setMerging(true);
+    setError(null);
+    let completedGroups = 0;
+    try {
+      for (const draft of approvedMergeDrafts) {
+        await attachRdTasksToParent(draft.sourceTaskIds, draft.primaryTaskId);
+        const primaryTask = taskById.get(draft.primaryTaskId);
+        for (const sourceTaskId of draft.sourceTaskIds) {
+          const sourceTask = taskById.get(sourceTaskId);
+          recordAudit({
+            actor: classificationAuditActor,
+            action: "task.edited",
+            resource: { type: "task", id: sourceTaskId, name: sourceTask?.title ?? sourceTaskId },
+            changes: [{ field: "parent_task_id", before: "", after: draft.primaryTaskId }],
+            comment: `依据 AI 全量归纳的人工确认，将任务并入主任务「${primaryTask?.title ?? draft.primaryTaskId}」；原任务内容与记录完整保留`,
+            metadata: {
+              parent_task_id: draft.primaryTaskId,
+              subtask_origin: "attached",
+              ai_classification_group: draft.kind,
+              ai_classification_label: draft.label,
+            },
+            source: "web",
+          });
+        }
+        completedGroups += 1;
+      }
+      await onMerged();
+      toast.success(`已确认 ${completedGroups} 组主任务线，并入 ${approvedMergeTaskCount} 条任务`);
+      setShowMergeConfirm(false);
+      onClose();
+    } catch (mergeError) {
+      if (completedGroups > 0) await onMerged();
+      setShowMergeConfirm(false);
+      setResult(null);
+      setMergeDrafts([]);
+      setError(
+        `${completedGroups > 0 ? `已完成 ${completedGroups} 组；` : ""}${mergeError instanceof Error ? mergeError.message : "任务合并失败，请重新分析后重试"}`,
+      );
+    } finally {
+      setMerging(false);
+    }
+  }, [approvedMergeDrafts, approvedMergeTaskCount, classificationAuditActor, merging, onClose, onMerged, taskById]);
+
+  const renderTaskLinks = (taskIds: string[], primaryTaskId?: string | null) => (
+    <div className="mt-3 flex max-h-32 flex-wrap gap-2 overflow-y-auto pr-1">
+      {taskIds.map((taskId) => {
+        const task = taskById.get(taskId);
+        if (!task) return null;
+        return (
+          <button
+            key={taskId}
+            type="button"
+            onClick={() => onOpenTask(task)}
+            className={cn(
+              "group inline-flex max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-left text-xs font-medium transition-colors",
+              primaryTaskId === taskId
+                ? "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+            )}
+          >
+            <span className="max-w-[260px] truncate">{task.title}</span>
+            {primaryTaskId === taskId && <span className="shrink-0 text-[10px] text-amber-700">建议保留</span>}
+            <ArrowRight className="h-3 w-3 shrink-0 opacity-50 transition-transform group-hover:translate-x-0.5" />
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const renderMergeDraftEditor = (draft: ProjectClassificationMergeDraft, advice: string) => (
+    <article
+      key={draft.id}
+      className={cn(
+        "rounded-xl border p-4 transition-colors",
+        draft.enabled
+          ? draft.kind === "duplicate" ? "border-amber-300 bg-amber-50/60" : "border-blue-300 bg-blue-50/60"
+          : "border-slate-200 bg-slate-50/50",
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          checked={draft.enabled}
+          disabled={draft.sourceTaskIds.length === 0}
+          onChange={(event) => updateMergeDraft(draft.id, (current) => ({ ...current, enabled: event.target.checked }))}
+          className="mt-1 h-4 w-4 shrink-0 accent-slate-950"
+          aria-label={`纳入合并：${draft.label}`}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <Input
+              value={draft.label}
+              onChange={(event) => updateMergeDraft(draft.id, (current) => ({ ...current, label: event.target.value.slice(0, 120) }))}
+              className="h-8 min-w-0 border-transparent bg-transparent px-1 text-sm font-semibold text-slate-900 shadow-none hover:border-slate-200 focus-visible:border-slate-300 focus-visible:bg-white focus-visible:ring-0"
+              aria-label="调整任务组名称"
+            />
+            {draft.confidence !== undefined && (
+              <span className="mt-1 shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                {Math.round(draft.confidence * 100)}%
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs leading-5 text-slate-600">{draft.reason}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        {draft.taskIds.map((taskId) => {
+          const task = taskById.get(taskId);
+          if (!task) return null;
+          const isPrimary = draft.primaryTaskId === taskId;
+          const canAttach = rootTaskIds.has(taskId);
+          const selectedAsSource = draft.sourceTaskIds.includes(taskId);
+          return (
+            <div key={taskId} className="flex items-center gap-2 border-b border-slate-100 px-3 py-2.5 last:border-b-0">
+              <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600">
+                <input
+                  type="radio"
+                  name={`classification-primary-${draft.id}`}
+                  checked={isPrimary}
+                  onChange={() => chooseMergePrimary(draft.id, taskId)}
+                  className="h-3.5 w-3.5 accent-slate-950"
+                />
+                保留
+              </label>
+              {!isPrimary && (
+                <label
+                  className={cn(
+                    "flex shrink-0 items-center gap-1.5 text-[11px] font-medium",
+                    canAttach ? "cursor-pointer text-slate-600" : "cursor-not-allowed text-slate-300",
+                  )}
+                  title={canAttach ? "确认后作为完整子任务并入" : "已有父任务，只能保留为目标，不能再次并入"}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedAsSource}
+                    disabled={!canAttach}
+                    onChange={() => toggleMergeSource(draft.id, taskId)}
+                    className="h-3.5 w-3.5 accent-slate-950"
+                  />
+                  并入
+                </label>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium text-slate-800">{task.title}</p>
+                <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                  {task.primary_owner || "待指派"}{task.category_path ? ` · ${task.category_path}` : ""}
+                </p>
+              </div>
+              {!canAttach && !isPrimary && (
+                <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-400">已有上级</span>
+              )}
+              <button
+                type="button"
+                onClick={() => onOpenTask(task)}
+                className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                aria-label={`查看任务 ${task.title}`}
+              >
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex items-start justify-between gap-3 border-t border-slate-200/80 pt-3 text-xs leading-5">
+        <p className={draft.kind === "duplicate" ? "text-amber-900" : "text-blue-900"}>
+          <span className="font-semibold">建议：</span>{advice}
+        </p>
+        <span className="shrink-0 text-slate-400">已选 {draft.sourceTaskIds.length} 条</span>
+      </div>
+    </article>
+  );
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-sm sm:p-6"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="project-classification-title"
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 16, scale: 0.985 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 10, scale: 0.99 }}
+        transition={RD_PANEL_TRANSITION}
+        className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-[#f7f8fa] shadow-[0_30px_90px_rgba(15,23,42,0.35)]"
+      >
+        <header className="flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4 sm:px-7">
+          <div className="flex min-w-0 items-start gap-3.5">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-amber-300 shadow-sm">
+              <Layers3 className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 id="project-classification-title" className="text-lg font-semibold tracking-tight text-slate-950">
+                  AI 全量任务归纳
+                </h2>
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                  人工确认后执行
+                </span>
+              </div>
+              <p className="mt-1 truncate text-sm text-slate-500">
+                {scopeLabel} · {scopedTasks.length} 条未归档任务
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={analyzing || merging}
+            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="关闭全量任务归纳"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </header>
+
+        {!result ? (
+          <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[0.78fr_1.22fr]">
+            <aside className="border-b border-slate-200 bg-slate-950 px-6 py-7 text-white lg:border-b-0 lg:border-r lg:px-7">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">Analysis brief</p>
+              <h3 className="mt-3 max-w-sm text-2xl font-semibold leading-tight tracking-tight">
+                先把任务看成一个组合，再判断哪些应该合并。
+              </h3>
+              <p className="mt-4 max-w-md text-sm leading-6 text-slate-300">
+                系统会结合任务标题、描述、主责人、进度和父子层级，识别真正重复与“相似但应并行”的任务。
+              </p>
+              <div className="mt-7 space-y-3">
+                {[
+                  [CopyCheck, "疑似重复", "给出置信度、保留建议和人工复核动作"],
+                  [Layers3, "同质聚类", "把目标相近的任务集中呈现，避免重复投入"],
+                  [ShieldCheck, "确认前不改数据", "可调整保留任务与并入项，只有二次确认后才执行"],
+                ].map(([Icon, title, description]) => {
+                  const ItemIcon = Icon as React.ComponentType<{ className?: string }>;
+                  return (
+                    <div key={String(title)} className="flex gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-3.5">
+                      <ItemIcon className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                      <div>
+                        <p className="text-sm font-medium text-white">{String(title)}</p>
+                        <p className="mt-0.5 text-xs leading-5 text-slate-400">{String(description)}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </aside>
+
+            <main className="flex flex-col p-5 sm:p-7">
+              <label htmlFor="project-classification-instruction" className="text-sm font-semibold text-slate-900">
+                本次分析重点 <span className="font-normal text-slate-400">（选填）</span>
+              </label>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                可补充产品阶段、交付边界或你特别担心的重复方向；留空则执行完整检查。
+              </p>
+              <Textarea
+                id="project-classification-instruction"
+                value={instruction}
+                onChange={(event) => setInstruction(event.target.value.slice(0, 8000))}
+                placeholder="例如：重点检查测试验证类任务是否重复；同一物料的打样、验证和问题关闭应视为一个交付链路，不要误判为重复。"
+                className="mt-3 min-h-[150px] resize-y rounded-xl border-slate-200 bg-white px-4 py-3 text-sm leading-6 shadow-sm focus-visible:ring-slate-400"
+              />
+              <div className="mt-2 text-right text-[11px] text-slate-400">{instruction.length} / 8000</div>
+
+              <div className="mt-5 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">补充附件 <span className="font-normal text-slate-400">（选填）</span></p>
+                  <p className="mt-1 text-xs text-slate-500">最多 5 个，每个不超过 25 MB</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={analyzing || files.length >= PROJECT_CLASSIFICATION_MAX_FILES}
+                  className="h-9 rounded-lg border-slate-300 bg-white text-slate-700"
+                >
+                  <Paperclip className="mr-1.5 h-4 w-4" />
+                  选择附件
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  disabled={analyzing}
+                  className="hidden"
+                  accept={PROJECT_CLASSIFICATION_FILE_ACCEPT}
+                  onChange={(event) => {
+                    addFiles(Array.from(event.target.files ?? []));
+                    event.target.value = "";
+                  }}
+                />
+              </div>
+
+              <div
+                onDragEnter={handleFileDragEnter}
+                onDragOver={handleFileDragOver}
+                onDragLeave={handleFileDragLeave}
+                onDrop={handleFileDrop}
+                data-drag-active={isDraggingFiles ? "true" : "false"}
+                aria-label="附件拖拽上传区域"
+                aria-live="polite"
+                className={cn(
+                  "relative mt-3 min-h-[76px] rounded-xl border border-dashed p-3 transition-[border-color,background-color,box-shadow] duration-150",
+                  isDraggingFiles
+                    ? "border-amber-400 bg-amber-50 shadow-[0_0_0_4px_rgba(251,191,36,0.13)]"
+                    : "border-slate-300 bg-white/70",
+                )}
+              >
+                {isDraggingFiles && (
+                  <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center gap-2 rounded-lg bg-amber-50/95 text-sm font-semibold text-amber-800 backdrop-blur-[1px]">
+                    <FileUp className="h-4 w-4 animate-bounce" />
+                    松开即可添加附件
+                  </div>
+                )}
+                <div className={cn("transition-opacity", isDraggingFiles && "opacity-20")}>
+                  {files.length === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={analyzing}
+                      className="flex h-12 w-full items-center justify-center gap-2 rounded-lg text-sm text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                    >
+                      <FileUp className="h-4 w-4" />
+                      拖拽附件到此处，或点击选择
+                    </button>
+                  ) : (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {files.map((file) => (
+                        <div key={`${file.name}-${file.lastModified}`} className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                          <FileText className="h-4 w-4 shrink-0 text-slate-500" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-medium text-slate-800">{file.name}</p>
+                            <p className="text-[10px] text-slate-400">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setFiles((current) => current.filter((item) => item !== file))}
+                            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                            aria-label={`移除 ${file.name}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {error && (
+                <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-700">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <div className="mt-auto flex flex-col-reverse gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                <p className="max-w-md text-xs leading-5 text-slate-500">
+                  AI 只生成分析草稿，不会自动改任务；结果页可人工调整并在二次确认后执行合并。
+                </p>
+                <Button
+                  type="button"
+                  onClick={runAnalysis}
+                  disabled={analyzing}
+                  className="h-10 shrink-0 rounded-lg bg-slate-950 px-5 text-white shadow-sm hover:bg-slate-800"
+                >
+                  {analyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4 text-amber-300" />}
+                  {analyzing ? "正在分批分析线上任务…" : "生成全量归纳分析"}
+                </Button>
+              </div>
+            </main>
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p className="text-xs font-medium text-slate-500">已分析任务</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-950">{result.scope.analyzed_task_count}</p>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm">
+                <p className="text-xs font-medium text-amber-700">疑似重复组</p>
+                <p className="mt-1 text-2xl font-semibold text-amber-950">{result.duplicate_groups.length}</p>
+              </div>
+              <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 shadow-sm">
+                <p className="text-xs font-medium text-blue-700">同质任务组</p>
+                <p className="mt-1 text-2xl font-semibold text-blue-950">{result.homogeneous_clusters.length}</p>
+              </div>
+            </div>
+
+            <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+                <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                全量任务概览
+              </div>
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{result.summary}</p>
+              <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                <span className="rounded-full bg-slate-100 px-2.5 py-1">{result.provider === "local" ? "本地初筛" : "AI 语义分析"}</span>
+                {result.scope.attachment_count > 0 && <span className="rounded-full bg-slate-100 px-2.5 py-1">参考 {result.scope.attachment_count} 个附件</span>}
+                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">确认前不修改任务</span>
+              </div>
+            </section>
+
+            {result.warnings.length > 0 && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">
+                {result.warnings.map((warning) => <p key={warning}>• {warning}</p>)}
+              </div>
+            )}
+
+            <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+                    <GitBranch className="h-4 w-4 text-indigo-600" />成员主任务线
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">按主责人整理根任务，已存在的子任务不会被重复计算。</p>
+                </div>
+                <span className="text-xs text-slate-400">{result.member_task_lines.length} 条主任务线</span>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {memberTaskLinesByOwner.map(([owner, lines]) => (
+                  <article key={owner} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+                      <span className="truncate text-sm font-semibold text-slate-900">{owner}</span>
+                      <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] text-slate-500 ring-1 ring-slate-200">{lines.length} 条</span>
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      {lines.map((line, index) => (
+                        <div key={`${line.line_title}-${index}`}>
+                          <p className="text-xs font-semibold text-slate-800">{line.line_title}</p>
+                          {line.rationale && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{line.rationale}</p>}
+                          {renderTaskLinks(line.task_ids, line.recommended_primary_task_id)}
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+                {memberTaskLinesByOwner.length === 0 && (
+                  <p className="text-sm text-slate-500">本次没有生成成员主任务线。</p>
+                )}
+              </div>
+            </section>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950"><CopyCheck className="h-4 w-4 text-amber-600" />疑似重复</h3>
+                  <span className="text-xs text-slate-400">{result.duplicate_groups.length} 组</span>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {result.duplicate_groups.length === 0 ? (
+                    <p className="rounded-lg bg-slate-50 px-3 py-4 text-sm text-slate-500">未发现需要优先复核的重复任务。</p>
+                  ) : result.duplicate_groups.map((group, index) => {
+                    const draft = mergeDrafts.find((item) => item.id === `duplicate-${index}`);
+                    return draft ? renderMergeDraftEditor(draft, group.action) : null;
+                  })}
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Layers3 className="h-4 w-4 text-blue-600" />同质任务聚类</h3>
+                  <span className="text-xs text-slate-400">{result.homogeneous_clusters.length} 组</span>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {result.homogeneous_clusters.length === 0 ? (
+                    <p className="rounded-lg bg-slate-50 px-3 py-4 text-sm text-slate-500">未发现明显的同质任务集中现象。</p>
+                  ) : result.homogeneous_clusters.map((cluster, index) => {
+                    const draft = mergeDrafts.find((item) => item.id === `homogeneous-${index}`);
+                    return draft ? renderMergeDraftEditor(draft, cluster.consolidation_advice) : null;
+                  })}
+                </div>
+              </section>
+            </div>
+
+            <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="text-sm font-semibold text-slate-950">建议分类</h3>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {result.categories.map((category, index) => (
+                  <article key={`${category.label}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="text-sm font-semibold text-slate-900">{category.label}</h4>
+                      <span className="text-[11px] text-slate-400">{category.task_ids.length} 条</span>
+                    </div>
+                    <p className="mt-1.5 text-xs leading-5 text-slate-500">{category.rationale}</p>
+                    {renderTaskLinks(category.task_ids)}
+                  </article>
+                ))}
+                {result.categories.length === 0 && <p className="text-sm text-slate-500">本次没有生成新的分类建议。</p>}
+              </div>
+            </section>
+
+            {result.recommendations.length > 0 && (
+              <section className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-5 text-white shadow-sm">
+                <h3 className="text-sm font-semibold text-white">下一步治理建议</h3>
+                <ol className="mt-3 space-y-2">
+                  {result.recommendations.map((recommendation, index) => (
+                    <li key={`${recommendation}-${index}`} className="flex gap-3 text-sm leading-6 text-slate-300">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-300/40 bg-amber-300/10 text-[10px] font-semibold text-amber-300">{index + 1}</span>
+                      {recommendation}
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+          </div>
+        )}
+
+        {result && (
+          <footer className="flex flex-col-reverse gap-3 border-t border-slate-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+            <div>
+              <p className="text-xs text-slate-500">结果生成于 {new Date(result.generated_at).toLocaleString("zh-CN")}，合并后源任务将作为完整子任务保留。</p>
+              {approvedMergeTaskCount > 0 && (
+                <p className="mt-1 text-xs font-medium text-slate-800">已选择 {approvedMergeDrafts.length} 组，共 {approvedMergeTaskCount} 条任务待并入</p>
+              )}
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={merging}
+                onClick={() => {
+                  setResult(null);
+                  setMergeDrafts([]);
+                }}
+                className="rounded-lg border-slate-300"
+              >
+                调整条件并重算
+              </Button>
+              <Button type="button" variant="outline" disabled={merging} onClick={onClose} className="rounded-lg border-slate-300">关闭</Button>
+              <Button
+                type="button"
+                disabled={merging || approvedMergeTaskCount === 0}
+                onClick={requestMergeConfirmation}
+                className="rounded-lg bg-slate-950 text-white hover:bg-slate-800"
+              >
+                <GitBranch className="mr-1.5 h-4 w-4 text-amber-300" />
+                确认合并 {approvedMergeTaskCount > 0 ? `${approvedMergeTaskCount} 条` : ""}
+              </Button>
+            </div>
+          </footer>
+        )}
+      </motion.div>
+
+      <AlertDialog open={showMergeConfirm} onOpenChange={(open) => { if (!merging) setShowMergeConfirm(open); }}>
+        <AlertDialogContent className="max-w-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认整理为主任务线？</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3 text-left">
+              <span className="block">
+                将执行 {approvedMergeDrafts.length} 组合并，把 {approvedMergeTaskCount} 条独立任务挂到选定主任务下。任务标题、描述、主责人、日期、评分、审批状态、进展留痕、讨论、附件和操作记录均保留。
+              </span>
+              <span className="block rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                {approvedMergeDrafts.slice(0, 5).map((draft) => {
+                  const primary = taskById.get(draft.primaryTaskId);
+                  return `${draft.label}：${draft.sourceTaskIds.length} 条 → ${primary?.title ?? draft.primaryTaskId}`;
+                }).join("\n")}
+                {approvedMergeDrafts.length > 5 ? `\n另有 ${approvedMergeDrafts.length - 5} 组` : ""}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={merging}>返回调整</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={merging}
+              onClick={(event) => {
+                event.preventDefault();
+                void executeApprovedMerges();
+              }}
+              className="bg-slate-950 text-white hover:bg-slate-800"
+            >
+              {merging ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+              {merging ? "正在合并…" : "确认并执行"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </motion.div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSystemPanorama?: boolean } = {}) {
@@ -10294,6 +11205,12 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const shouldReduceMotion = useReducedMotion();
   const location = useLocation();
   const navigate = useNavigate();
+  const initialActivityActor = useMemo<TaskActivityActor | null>(() => {
+    const params = new URLSearchParams(location.search);
+    const id = params.get("activity_user_id")?.trim() ?? "";
+    const name = params.get("activity_user_name")?.trim() ?? "";
+    return id || name ? { id: id || null, name } : null;
+  }, [location.search]);
   const { lang } = useI18n();
   const usCollab = location.pathname.startsWith("/us-collab");
   const productionWorkspace = isProductionWorkspace();
@@ -10311,6 +11228,8 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   // 「移动到其他类目」按钮门控：专职移动权限，或具备转派/编辑的高级角色（与后端 move 接口一致）。
   const canMoveTask = useAnyPermission(PERMISSIONS.RD_TASK_MOVE, PERMISSIONS.RD_TASK_REASSIGN, PERMISSIONS.RD_TASK_EDIT);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
+  // 管理员成员视角严格跟随任务转派权限；立项终审/直接立项本身不授予全员任务读取能力。
+  const canViewCombinedMemberTasks = !usCollab && !productionWorkspace && canReassignTasks;
   const canSyncProductionPermission = usePermission(PERMISSIONS.RD_TASK_SYNC_PRODUCTION);
   const canSyncProduction = canSyncProductionPermission && !usCollab && !productionWorkspace;
   const RD_ADMIN_AUDIT_ACTOR = useAuditActor(usCollab ? "协同管理员" : productionWorkspace ? "生产管理员" : "研发管理员");
@@ -10320,6 +11239,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<Task | null>(null);
   const [showClearData, setShowClearData] = useState(false);
   const [showProposalDialog, setShowProposalDialog] = useState(false);
+  const [showProjectClassification, setShowProjectClassification] = useState(false);
   const [syncedProductionTaskIds, setSyncedProductionTaskIds] = useState<Set<string>>(() => new Set());
   const [syncingProductionTaskId, setSyncingProductionTaskId] = useState<string | null>(null);
   useEffect(() => {
@@ -10365,7 +11285,19 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   // 打开任务详情的统一入口：协同/研发驾驶舱均进各自的全屏双栏详情页（不走抽屉）。
   // 任务对象随 location.state 带给详情页 → 秒开渲染（详情页后台再拉最新覆盖）
   const openTaskDetail = useCallback(
-    (task: Task) => {
+    (task: Task, activityActor?: TaskActivityActor) => {
+      const activitySearch = (() => {
+        if (!activityActor?.name && !activityActor?.id) return "";
+        const params = new URLSearchParams();
+        if (activityActor.id) params.set("activity_user_id", activityActor.id);
+        if (activityActor.name) params.set("activity_user_name", activityActor.name);
+        const query = params.toString();
+        return query ? `?${query}` : "";
+      })();
+      if (task.source_workspace === "us-collab") {
+        navigate(`/us-collab-task/${encodeURIComponent(task.task_id)}${activitySearch}`, { state: { task } });
+        return;
+      }
       // 打开即上报已读：若当前用户正是备注目标人，回执会从「待查看」转「已查看」。
       // 乐观本地更新该任务回执为已读（服务端下次拉取校正）。
       setNoteReceipts((prev) => {
@@ -10375,14 +11307,14 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       });
       void markRdTaskNotesRead(task.task_id).catch(() => {});
       if (isUsCollabWorkspace()) {
-        navigate(`/us-collab-task/${encodeURIComponent(task.task_id)}`, { state: { task } });
+        navigate(`/us-collab-task/${encodeURIComponent(task.task_id)}${activitySearch}`, { state: { task } });
         return;
       }
       if (isProductionWorkspace()) {
-        navigate(`/production-task/${encodeURIComponent(task.task_id)}`, { state: { task } });
+        navigate(`/production-task/${encodeURIComponent(task.task_id)}${activitySearch}`, { state: { task } });
         return;
       }
-      navigate(`/rd-task/${encodeURIComponent(task.task_id)}`, { state: { task } });
+      navigate(`/rd-task/${encodeURIComponent(task.task_id)}${activitySearch}`, { state: { task } });
     },
     [navigate],
   );
@@ -10393,6 +11325,8 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   // 概览「人员任务」专用：主库 + 所有产品库合并的分类树（跨产品聚合，与个人工作台主责同源）。
   // null = 尚未加载/加载失败，此时回退到当前 `categories`（主库），保证不空白、不崩溃。
   const [mergedCategories, setMergedCategories] = useState<Category[] | null>(null);
+  // 管理员人员视角专用：研发任务 + 协同任务。KPI 与 AI 分析仍只读上面的研发合并树。
+  const [memberTaskCategories, setMemberTaskCategories] = useState<Category[] | null>(null);
   const [peopleProfiles, setPeopleProfiles] = useState<PersonProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -10444,6 +11378,16 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       .catch(() => setMergedCategories(null));
   }, []);
 
+  const loadMemberTaskCategories = useCallback(() => {
+    if (!canViewCombinedMemberTasks) {
+      setMemberTaskCategories(null);
+      return;
+    }
+    fetchRdMemberTaskCategories()
+      .then((combined) => setMemberTaskCategories(combined))
+      .catch(() => setMemberTaskCategories(null));
+  }, [canViewCombinedMemberTasks]);
+
   useEffect(() => {
     loadCategories();
     fetchRdProducts().then(setProducts).catch(() => {
@@ -10454,8 +11398,11 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   // 概览模式下保持「合并树」新鲜：进入概览、跨产品移动(panoramaReloadToken)、或本地任务变更
   // 触发 categories 刷新时一并重拉。board 模式不拉(用单库 categories 即可，省一次请求)。
   useEffect(() => {
-    if (mode === "overview") loadMergedCategories();
-  }, [mode, categories, panoramaReloadToken, loadMergedCategories]);
+    if (mode === "overview") {
+      loadMergedCategories();
+      loadMemberTaskCategories();
+    }
+  }, [mode, categories, panoramaReloadToken, loadMergedCategories, loadMemberTaskCategories]);
 
   const handleSaveProducts = async (next: ProductDef[]) => {
     await saveRdProducts(next);
@@ -10705,8 +11652,11 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     [kpiCategories, categories, catStats, kpiRisks],
   );
   // 「人员任务」与 KPI 同范围；子任务只在父任务详情/合并关系中展示。
-  const peopleCategories = kpiCategories;
-  const personLoads = useMemo(() => computePersonLoads(peopleCategories), [peopleCategories]);
+  const peopleCategories = mode === "overview" ? (memberTaskCategories ?? kpiCategories) : categories;
+  const personLoads = useMemo(
+    () => computePersonLoads(peopleCategories, 8, peopleProfiles),
+    [peopleCategories, peopleProfiles],
+  );
   // 概览模式只向「人员任务驾驶舱」提供跨产品库根任务，避免子任务重复显示为独立卡片。
   const peopleAllTasks = useMemo(() => {
     const tasks = rootTasksFromCategories(peopleCategories);
@@ -10720,6 +11670,10 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       return 0;
     });
   }, [peopleCategories]);
+  const classificationTasks = useMemo(
+    () => rootTasksFromCategories(mode === "overview" ? (mergedCategories ?? categories) : categories),
+    [categories, mergedCategories, mode],
+  );
 
   const enterBoard = (catId: string, productId: string = MAIN_PRODUCT_ID) => {
     // 切换产品时把该产品的独立任务树装载进 `categories`；同产品（含主产品）无需重载。
@@ -10759,7 +11713,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     };
   }, [allTasks]);
   const openPersonDetail = (name: string) => {
-    if (!name || /已离职|待指派|外部机构/.test(name)) return;
+    if (!isTaskOwnerMember(name, undefined, peopleProfiles)) return;
     setSelectedPersonName(name);
   };
   const selectedPersonProfile = useMemo(
@@ -10840,6 +11794,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           personLoads={personLoads}
           // 概览「人员任务」用跨所有产品库的任务全集（与 personLoads 角标同范围）
           allTasks={peopleAllTasks}
+          initialActivityActor={initialActivityActor}
           onSelectSystem={enterBoard}
           onSelectTask={openTaskDetail}
           onSelectPerson={openPersonDetail}
@@ -10864,6 +11819,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           onToggleProductionSync={handleToggleProductionSync}
           onManageProducts={canCreateTask ? () => setShowProductManage(true) : undefined}
           canManageProducts={canCreateTask}
+          onAiClassifyTasks={canDirectProject && !usCollab && !productionWorkspace ? () => setShowProjectClassification(true) : undefined}
           panoramaReloadToken={panoramaReloadToken}
           hideSystemPanorama={hideSystemPanorama}
         />
@@ -10926,7 +11882,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               onClose={() => setSelectedPersonName(null)}
               onOpenTask={(task) => {
                 setSelectedPersonName(null);
-                openTaskDetail(task);
+                openTaskDetail(task, { id: selectedPersonLoad?.user_id, name: selectedPersonName });
               }}
             />
           )}
@@ -10952,6 +11908,22 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               products={products}
               onConfirm={handleSingleMoveTaskConfirm}
               onClose={() => setMoveTaskTarget(null)}
+            />
+          )}
+          {showProjectClassification && (
+            <ProjectClassificationDialog
+              key="all-online-task-classification"
+              scopeLabel="全部线上任务（跨产品库）"
+              tasks={classificationTasks}
+              onClose={() => setShowProjectClassification(false)}
+              onOpenTask={(task) => {
+                setShowProjectClassification(false);
+                openTaskDetail(task);
+              }}
+              onMerged={() => {
+                loadCategories();
+                setPanoramaReloadToken((token) => token + 1);
+              }}
             />
           )}
         </AnimatePresence>
@@ -10999,7 +11971,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     <TooltipProvider delayDuration={150}>
       <div className="flex min-h-full flex-col overflow-hidden rounded-[8px] border border-slate-200/80 bg-[#f4f7fb] shadow-[0_24px_60px_rgba(15,23,42,0.08)]">
         {/* Breadcrumb / back to overview */}
-        <div className="flex items-center gap-3 border-b border-slate-200/80 bg-white px-5 py-2.5 animate-rd-fade-in">
+        <div className="flex min-w-0 items-center gap-3 border-b border-slate-200/80 bg-white px-5 py-2.5 animate-rd-fade-in">
           <button
             type="button"
             onClick={() => {
@@ -11028,7 +12000,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           {selectedLabel && (
             <>
               <span className="text-xs text-slate-300">›</span>
-              <span className="text-sm font-medium text-slate-800">{selectedLabel}</span>
+              <span className="min-w-0 truncate text-sm font-medium text-slate-800">{selectedLabel}</span>
             </>
           )}
         </div>
@@ -11201,7 +12173,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               onClose={() => setSelectedPersonName(null)}
               onOpenTask={(task) => {
                 setSelectedPersonName(null);
-                openTaskDetail(task);
+                openTaskDetail(task, { id: selectedPersonLoad?.user_id, name: selectedPersonName });
               }}
             />
           )}

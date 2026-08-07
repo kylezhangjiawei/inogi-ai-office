@@ -25,7 +25,13 @@ import {
 import { cn } from "./components/ui/utils";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
-import { AuditAction, AuditLog, getAuditActionMeta } from "./lib/auditLog";
+import {
+  auditActorMatchesIdentity,
+  getAuditActionMeta,
+  type AuditAction,
+  type AuditActorIdentity,
+  type AuditLog,
+} from "./lib/auditLog";
 
 // ─── Icon mapping ────────────────────────────────────────────────────────────
 
@@ -276,6 +282,8 @@ function AuditLogEntry({
   canAddNote = false,
   onAddNote,
   notePlaceholder,
+  selectedActor,
+  onActorClick,
 }: {
   log: AuditLog;
   showResource?: boolean;
@@ -287,6 +295,8 @@ function AuditLogEntry({
   onAddNote?: (logId: string, text: string) => Promise<void>;
   /** 备注输入框占位文案（不同模块角色叫法不同）。 */
   notePlaceholder?: string;
+  selectedActor?: AuditActorIdentity | null;
+  onActorClick?: (actor: AuditActorIdentity) => void;
 }) {
   const meta = getAuditActionMeta(log.action);
   const tone = TONE_STYLES[meta.tone];
@@ -300,6 +310,10 @@ function AuditLogEntry({
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const actorSelected = Boolean(selectedActor && (
+    auditActorMatchesIdentity(log.actor, selectedActor)
+    || auditActorMatchesIdentity(selectedActor, log.actor)
+  ));
 
   const submitNote = async () => {
     const text = draft.trim();
@@ -339,7 +353,22 @@ function AuditLogEntry({
       <div className="min-w-0 flex-1 pt-0.5">
         {/* Action line */}
         <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm">
-          <span className="font-semibold text-slate-900">{log.actor.name}</span>
+          {onActorClick ? (
+            <button
+              type="button"
+              aria-pressed={actorSelected}
+              onClick={() => onActorClick({ id: log.actor.id, name: log.actor.name })}
+              title={t(actorSelected ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")}
+              className={cn(
+                "cursor-pointer rounded px-1 py-0.5 font-semibold text-slate-900 transition-colors hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+                actorSelected && "bg-indigo-100 text-indigo-800 ring-1 ring-inset ring-indigo-200",
+              )}
+            >
+              {log.actor.name}
+            </button>
+          ) : (
+            <span className="font-semibold text-slate-900">{log.actor.name}</span>
+          )}
           {log.actor.role && (
             <span className="text-[10px] text-slate-400">{t(log.actor.role)}</span>
           )}
@@ -528,6 +557,8 @@ export function AuditTimeline({
   canAddNote = false,
   onAddNote,
   notePlaceholder,
+  selectedActor,
+  onActorClick,
 }: {
   logs: AuditLog[];
   showResource?: boolean;
@@ -540,6 +571,8 @@ export function AuditTimeline({
   onAddNote?: (logId: string, text: string) => Promise<void>;
   /** 备注输入框占位文案（不同模块的角色叫法不同，如协同模块为「主管」）。 */
   notePlaceholder?: string;
+  selectedActor?: AuditActorIdentity | null;
+  onActorClick?: (actor: AuditActorIdentity) => void;
 }) {
   useI18n(); // 共享组件自行订阅语言切换（不依赖父级是否订阅）
   if (logs.length === 0) {
@@ -563,6 +596,8 @@ export function AuditTimeline({
           canAddNote={canAddNote}
           onAddNote={onAddNote}
           notePlaceholder={notePlaceholder}
+          selectedActor={selectedActor}
+          onActorClick={onActorClick}
         />
       ))}
     </div>

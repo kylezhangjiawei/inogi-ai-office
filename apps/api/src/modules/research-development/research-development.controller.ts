@@ -63,6 +63,15 @@ function canManageAnyTask(permissions: string[]): boolean {
   return permissions.includes('*') || RD_TASK_MANAGER_PERMISSIONS.some((code) => permissions.includes(code));
 }
 
+function buildAuditLogViewer(req: AuthedRequest) {
+  const permissions = req.user?.permissions ?? [];
+  return {
+    userId: req.user?.id,
+    userName: req.user?.name,
+    canReadAll: canManageAnyTask(permissions),
+  };
+}
+
 type AuthedRequest = { user?: { id?: string; name?: string; role?: string; permissions?: string[] } };
 type DirectProgressNoteUpload = {
   objectKey: string;
@@ -151,8 +160,8 @@ export class ResearchDevelopmentController {
   ) {}
 
   @Get('snapshot')
-  snapshot() {
-    return this.rdService.snapshot();
+  snapshot(@Request() req: AuthedRequest) {
+    return this.rdService.snapshot(buildAuditLogViewer(req));
   }
 
   @Get('task-categories')
@@ -164,6 +173,13 @@ export class ResearchDevelopmentController {
   @Get('merged-task-categories')
   mergedTaskCategories() {
     return this.rdService.getMergedTaskCategories();
+  }
+
+  /** 研发管理员人员视角：研发全产品任务 + 协同任务的只读展示投影。 */
+  @Get('member-task-categories')
+  @Permissions('rd-task:reassign')
+  memberTaskCategories() {
+    return this.rdService.getMemberTaskCategories();
   }
 
   /** 研发侧查询当前同步状态；撤销后的记录继续返回，供按钮与审计状态判断。 */
@@ -300,7 +316,7 @@ export class ResearchDevelopmentController {
 
   /** 原子批量并入：一次校验、一次写回，全成功或全失败。 */
   @Post('task-categories/tasks/attach-parent-batch')
-  @Permissions('rd-task:edit')
+  @Permissions('rd-task:edit', 'rd-project:direct')
   attachTasksAsSubtasks(
     @Body() payload: { task_ids?: unknown; parent_task_id?: unknown },
     @Request() req: AuthedRequest,
@@ -1041,6 +1057,12 @@ export class ResearchDevelopmentController {
     return this.rdService.getWorkspace(req.user?.id, req.user?.name);
   }
 
+  /** 研发个人工作台：只聚合当前登录人在研发池与协同池中的任务。 */
+  @Get('workspace/combined')
+  workspaceCombined(@Request() req: { user?: { id?: string; name?: string } }) {
+    return this.rdService.getCombinedWorkspace(req.user?.id, req.user?.name);
+  }
+
   @Put('workspace')
   @Permissions('rd-task:create', 'rd-task:edit')
   saveWorkspace(@Body() payload: Record<string, unknown>) {
@@ -1131,8 +1153,8 @@ export class ResearchDevelopmentController {
   }
 
   @Get('audit-logs')
-  auditLogs() {
-    return this.rdService.getAuditLogs();
+  auditLogs(@Request() req: AuthedRequest) {
+    return this.rdService.getAuditLogs(buildAuditLogViewer(req));
   }
 
   @Post('audit-logs')

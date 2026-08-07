@@ -6,7 +6,9 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 
 const packageVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version as string
-const devApiTarget = process.env.VITE_DEV_API_TARGET || 'http://localhost:3000'
+// Keep standalone `npm run dev:web` aligned with the dedicated API port used by
+// `npm run dev`; port 3000 may belong to another local project.
+const devApiTarget = process.env.VITE_DEV_API_TARGET || 'http://127.0.0.1:3001'
 
 function resolveGitSha() {
   const fromEnvironment = process.env.VITE_GIT_SHA || process.env.APP_GIT_SHA || process.env.GIT_COMMIT || process.env.SOURCE_VERSION
