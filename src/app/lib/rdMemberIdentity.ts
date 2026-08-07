@@ -30,6 +30,25 @@ export function isNonPersonTaskOwner(value: unknown): boolean {
 }
 
 /**
+ * 成员身份主键：有 user_id 就认 user_id，没有（存量任务）才回退姓名。
+ *
+ * 驾驶舱的人员负载、头像角标、人员抽屉一律按这个键索引 —— 只按姓名索引会把两位
+ * 同名同事当成一个人：负载相加、任务混进同一个抽屉，下游还会拿到另一个人的 user_id。
+ */
+export function memberIdentityKey(name: unknown, userId?: unknown): string {
+  const id = normalizeMemberName(userId);
+  return id ? `id:${id}` : `name:${normalizeMemberName(name)}`;
+}
+
+/** 两个「姓名 + user_id」是否指同一个人。 */
+export function isSameMember(
+  a: { name?: unknown; user_id?: unknown },
+  b: { name?: unknown; user_id?: unknown },
+): boolean {
+  return memberIdentityKey(a.name, a.user_id) === memberIdentityKey(b.name, b.user_id);
+}
+
+/**
  * 判断任务主责是否能成为驾驶舱里的“成员”。
  *
  * - 传入人员目录时，账号必须按 user_id 命中当前驾驶舱配置；

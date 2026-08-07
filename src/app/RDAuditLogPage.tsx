@@ -33,6 +33,7 @@ import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
 import { cn } from "./components/ui/utils";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
+import { todayLocalDateStr } from "./lib/taskDue";
 import { isUsCollabWorkspace } from "./lib/rdApi";
 
 type FilterValue<T extends string> = T | "all";
@@ -350,7 +351,8 @@ export function RDAuditLogPage() {
       setKeyword("驳回 阻塞 转派 封存 reset rejected archived");
       return;
     }
-    const today = new Date().toISOString().slice(0, 10);
+    // 本地日历日：toISOString() 取 UTC 日期，UTC+8 每天 0–8 点点「今天」会筛成昨天，查不到当天留痕
+    const today = todayLocalDateStr();
     setSince(today);
     setUntil(today);
   };

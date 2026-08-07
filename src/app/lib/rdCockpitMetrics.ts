@@ -1,13 +1,8 @@
 import type { RdCategory, RdTask } from "./rdApi";
-import { taskOverdueDays } from "./taskDue";
+import { daysUntilDue, taskOverdueDays } from "./taskDue";
 import { t } from "./i18n";
 import { rootTasksFromCategories } from "./rdTaskTreeVisibility";
-import { isTaskOwnerMember } from "./rdMemberIdentity";
-
-const now = new Date();
-const today = new Date(
-  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`,
-);
+import { isTaskOwnerMember, memberIdentityKey, type RdMemberDirectoryEntry } from "./rdMemberIdentity";
 
 export type Risk = {
   task: RdTask;
@@ -29,6 +24,8 @@ export type CatStat = {
 };
 
 export type PersonLoad = {
+  /** 身份主键（memberIdentityKey）。同名同事靠它区分，勿用 name 当索引。 */
+  key: string;
   name: string;
   count: number;
   max: number;
@@ -37,12 +34,10 @@ export type PersonLoad = {
 };
 
 function daysUntil(dateStr?: string): number | null {
-  if (!dateStr) return null;
-  const date = new Date(dateStr);
-  return Math.ceil((date.getTime() - today.getTime()) / 86_400_000);
+  return daysUntilDue(dateStr);
 }
 
-function getTaskRiskReason(task: RdTask): { type: Risk["type"]; reason: string } | null {
+export function getTaskRiskReason(task: RdTask): { type: Risk["type"]; reason: string } | null {
   if (task.archived || task.status === "completed") return null;
   const daysLeft = daysUntil(task.due_date);
   if (task.status === "pending_review") {
@@ -153,30 +148,45 @@ export function buildCatStats(categories: RdCategory[], risks: Risk[]): CatStat[
   });
 }
 
-export function computePersonLoads(categories: RdCategory[], maxPerPerson = 8): PersonLoad[] {
-  const counts = new Map<string, number>();
-  const onLeave = new Set<string>();
-  const userIds = new Map<string, string>();
+export function computePersonLoads(
+  categories: RdCategory[],
+  maxPerPerson = 8,
+  peopleDirectory?: readonly RdMemberDirectoryEntry[],
+): PersonLoad[] {
+  // 按身份主键聚合：同名同事各自成条，不再把两人的负载相加。
+  const rows = new Map<string, { name: string; userId: string | null; count: number; onLeave: boolean }>();
 
   for (const task of rootTasksFromCategories(categories)) {
     const archived = task.archived || task.status === "archived";
     const active = !archived && task.status !== "completed";
-    if (active && isTaskOwnerMember(task.primary_owner, task.primary_owner_user_id)) {
-      counts.set(task.primary_owner, (counts.get(task.primary_owner) ?? 0) + 1);
-      if (task.status === "paused_leave") onLeave.add(task.primary_owner);
-      if (task.primary_owner_user_id && !userIds.has(task.primary_owner)) {
-        userIds.set(task.primary_owner, task.primary_owner_user_id);
-      }
+    if (!active) continue;
+    // 必须传人员目录：不传时 isTaskOwnerMember 只挡黑名单占位值，驾驶舱配置的成员白名单会整段失效。
+    if (!isTaskOwnerMember(task.primary_owner, task.primary_owner_user_id, peopleDirectory)) continue;
+
+    const key = memberIdentityKey(task.primary_owner, task.primary_owner_user_id);
+    const row = rows.get(key);
+    if (row) {
+      row.count += 1;
+      if (task.status === "paused_leave") row.onLeave = true;
+      if (!row.userId && task.primary_owner_user_id) row.userId = task.primary_owner_user_id;
+    } else {
+      rows.set(key, {
+        name: task.primary_owner,
+        userId: task.primary_owner_user_id ?? null,
+        count: 1,
+        onLeave: task.status === "paused_leave",
+      });
     }
   }
 
-  return Array.from(counts.entries())
-    .map(([name, count]) => ({
-      name,
-      count,
+  return Array.from(rows.entries())
+    .map(([key, row]) => ({
+      key,
+      name: row.name,
+      count: row.count,
       max: maxPerPerson,
-      onLeave: onLeave.has(name),
-      user_id: userIds.get(name) ?? null,
+      onLeave: row.onLeave,
+      user_id: row.userId,
     }))
     .sort((a, b) => b.count - a.count);
 }

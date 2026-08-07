@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchRdTaskCategories, type RdCategory, type RdTask } from "../lib/rdApi";
+import {
+  fetchRdPeople,
+  fetchRdTaskCategories,
+  type RdCategory,
+  type RdPersonLoad,
+  type RdTask,
+} from "../lib/rdApi";
 import {
   buildCatStats,
   computePersonLoads,
@@ -11,13 +17,13 @@ import {
 import { rootTasksFromCategories } from "../lib/rdTaskTreeVisibility";
 
 export type RDCockpitSummary = {
-  /** 非归档任务总数 */
+  /** 活跃任务数：非归档**且未完成**。与个人工作台的 activeRoleTasks 同口径。 */
   totalActive: number;
   inProgress: number;
   done: number;
   /** 阻塞 + 待指派 */
   blocked: number;
-  /** 完成率（已完成 / 活跃，百分比取整） */
+  /** 完成率（已完成 / 非归档总数，百分比取整）。分母含已完成，否则完成率无意义。 */
   rate: number;
   riskCount: number;
 };
@@ -48,6 +54,8 @@ export function useRDCockpitData(): RDCockpitData {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  // 人员目录：computePersonLoads 必须拿到它才能只保留驾驶舱配置的成员（缺它则白名单失效）。
+  const [peopleDirectory, setPeopleDirectory] = useState<RdPersonLoad[]>([]);
 
   const reload = useCallback(() => setReloadToken((t) => t + 1), []);
 
@@ -72,9 +80,27 @@ export function useRDCockpitData(): RDCockpitData {
     };
   }, [reloadToken]);
 
+  // 人员目录单独拉取：失败不影响任务树展示，人员负载退化为空列表（宁可不显示，也不显示未配置的人）。
+  useEffect(() => {
+    let cancelled = false;
+    fetchRdPeople()
+      .then((people) => {
+        if (!cancelled) setPeopleDirectory(people);
+      })
+      .catch(() => {
+        if (!cancelled) setPeopleDirectory([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
+
   const risks = useMemo(() => computeRisks(categories), [categories]);
   const catStats = useMemo(() => buildCatStats(categories, risks), [categories, risks]);
-  const personLoads = useMemo(() => computePersonLoads(categories), [categories]);
+  const personLoads = useMemo(
+    () => computePersonLoads(categories, 8, peopleDirectory),
+    [categories, peopleDirectory],
+  );
 
   const allTasks = useMemo(() => {
     const tasks = rootTasksFromCategories(categories);
@@ -89,14 +115,16 @@ export function useRDCockpitData(): RDCockpitData {
   }, [categories]);
 
   const summary = useMemo<RDCockpitSummary>(() => {
-    const active = allTasks.filter((t) => !t.archived && t.status !== "archived");
-    const done = active.filter((t) => t.status === "completed").length;
+    // 「非归档」是完成率的分母；「活跃」再排除已完成，供活跃/进行中/阻塞计数使用。
+    const nonArchived = allTasks.filter((t) => !t.archived && t.status !== "archived");
+    const done = nonArchived.filter((t) => t.status === "completed").length;
+    const active = nonArchived.filter((t) => t.status !== "completed");
     return {
       totalActive: active.length,
       inProgress: active.filter((t) => t.status === "in_progress").length,
       done,
       blocked: active.filter((t) => t.status === "paused_blocked" || t.status === "pending_assign").length,
-      rate: active.length > 0 ? Math.round((done / active.length) * 100) : 0,
+      rate: nonArchived.length > 0 ? Math.round((done / nonArchived.length) * 100) : 0,
       riskCount: risks.length,
     };
   }, [allTasks, risks]);

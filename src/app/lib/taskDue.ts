@@ -46,3 +46,47 @@ export function taskOverdueDays(task: TaskDueInput, now: Date = new Date()): num
 export function isTaskOverdue(task: TaskDueInput, now?: Date): boolean {
   return taskOverdueDays(task, now) > 0;
 }
+
+// ─── 「今天」的统一取值 ────────────────────────────────────────────────────────
+// 两条铁律，三处页面（任务驾驶舱 / 主管驾驶舱 / 个人工作台）必须共用：
+//
+// 1. 每次调用都重新求值。存成模块级常量会在页面跨零点后失效 —— 台账类页面常年挂着
+//    不关，冻结的「今天」会让逾期判定、到期文案、风险严重度全部静默算错。
+// 2. 取本地日历日，绝不能用 toISOString()。后者取 UTC 日期，UTC+8 时区每天 0–8 点
+//    会得到「昨天」，导致今日到期漏计、到期筛选器筛不出、页面顶部显示错误日期。
+
+/** 今天的本地日历日，格式 YYYY-MM-DD。 */
+export function todayLocalDateStr(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * 把日期解析成「本地日历日零点」的时间戳。
+ * 纯日期串（YYYY-MM-DD）显式按本地日历日构造 —— new Date("YYYY-MM-DD") 按 UTC 零点解析，
+ * 在负时区会整体错一天。带时间的时间戳仍按真实瞬间换算到本地日历日。
+ */
+function localDayStartMs(value: string | Date): number {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime())
+      ? NaN
+      : new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  }
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (dateOnly) {
+    return new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])).getTime();
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return NaN;
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
+}
+
+/**
+ * 距截止日还剩几天：0 = 今日到期，负数 = 已过期，null = 无截止日或日期非法。
+ * 与 taskOverdueDays 同源同口径，两者不会再各算一个「今天」。
+ */
+export function daysUntilDue(dateStr?: string | null, now: Date = new Date()): number | null {
+  if (!dateStr) return null;
+  const dueMs = localDayStartMs(dateStr);
+  if (Number.isNaN(dueMs)) return null;
+  return Math.round((dueMs - localDayStartMs(now)) / DAY_MS);
+}

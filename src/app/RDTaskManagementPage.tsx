@@ -63,7 +63,7 @@ import { useAuth } from "./auth";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { usePermission, useAnyPermission } from "./hooks/usePermission";
 import { AuditActor, AuditChange, AuditLog, recordAudit, useAuditActor } from "./lib/auditLog";
-import { taskOverdueDays, isTaskOverdue } from "./lib/taskDue";
+import { daysUntilDue, taskOverdueDays, isTaskOverdue, todayLocalDateStr } from "./lib/taskDue";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -145,7 +145,80 @@ import { useAvatarDirectory } from "./lib/userAvatar";
 import { currentI18nLang, i18nLocale, t, useI18n } from "./lib/i18n";
 import { rdTaskMatchesAllText } from "./lib/rdTaskTextSearch";
 import { rootTasksFromCategories } from "./lib/rdTaskTreeVisibility";
-import { isTaskOwnerMember } from "./lib/rdMemberIdentity";
+import { isNonPersonTaskOwner, isTaskOwnerMember, memberIdentityKey } from "./lib/rdMemberIdentity";
+// 驾驶舱指标只保留一份实现（移动端 useRDCockpitData 用的是同一份），避免修一处漏一处。
+import {
+  buildCatStats,
+  computePersonLoads,
+  computeRisks,
+  flattenTasks,
+  getTaskRiskReason,
+  type CatStat,
+  type PersonLoad,
+  type Risk,
+} from "./lib/rdCockpitMetrics";
+// 保留原有对外导出面：两个任务详情页引用 flattenTasks。
+export { buildCatStats, computePersonLoads, computeRisks, flattenTasks };
+export type { CatStat, PersonLoad, Risk };
+
+// 研发执行提示 KPI 卡片筛选：点击 KPI 卡片可筛选下方任务列表
+type KpiFilter = "all" | "in_progress" | "completed" | "blocked" | "risk";
+
+const KPI_FILTER_LABEL: Record<KpiFilter, string> = {
+  all: "全部",
+  in_progress: "进行中",
+  completed: "已完成",
+  blocked: "阻塞 / 待派",
+  risk: "风险任务",
+};
+
+/**
+ * 「已归档」的统一判定，与后端 isArchivedTask 完全一致：archived 标志 **或** status==='archived'。
+ * 只认 archived 标志会漏判——虽然当前唯一的归档写入路径（applyTaskMerge）两个字段都会写，
+ * 但历史/导入数据未必，统计口径按两者取或才不会被歪掉。
+ */
+export function isArchivedTask(task: Pick<Task, "archived" | "status">): boolean {
+  return task.archived === true || task.status === "archived";
+}
+
+type TaskActivityActor = { id?: string | null; name: string };
+type SystemHealth = "healthy" | "watch" | "alert" | "idle";
+
+const HEALTH_CONFIG: Record<
+  SystemHealth,
+  { border: string; dot: string; text: string; label: string; tint: string }
+> = {
+  healthy: {
+    border: "border-slate-200/80",
+    dot: "bg-emerald-500",
+    text: "text-emerald-700",
+    label: "健康",
+    tint: "bg-gradient-to-br from-white via-white to-emerald-50/60",
+  },
+  watch: {
+    border: "border-slate-200/80",
+    dot: "bg-amber-500",
+    text: "text-amber-700",
+    label: "注意",
+    tint: "bg-gradient-to-br from-white via-white to-amber-50/60",
+  },
+  alert: {
+    border: "border-slate-200/80",
+    dot: "bg-rose-500",
+    text: "text-rose-700",
+    label: "警报",
+    tint: "bg-gradient-to-br from-white via-white to-rose-50/65",
+  },
+  idle: {
+    border: "border-slate-200/80",
+    dot: "bg-slate-300",
+    text: "text-slate-500",
+    label: "空闲",
+    tint: "bg-gradient-to-br from-white via-white to-slate-50",
+  },
+};
+
+
 import { AutoTranslatedText, fetchContentTranslation } from "./components/TranslatableText";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { RdTaskExportButton } from "./components/RdTaskExportButton";
@@ -202,10 +275,9 @@ export type PersonProfile = {
 };
 
 // ─── Today ───────────────────────────────────────────────────────────────────
-// 用本地日历日，而非 toISOString()（后者取 UTC 日期，UTC+8 时区每天 0–8 点会得到"昨天"）。
-const _todayNow = new Date();
-const TODAY_STR = `${_todayNow.getFullYear()}-${String(_todayNow.getMonth() + 1).padStart(2, "0")}-${String(_todayNow.getDate()).padStart(2, "0")}`;
-const TODAY = new Date(TODAY_STR);
+// 取值规则统一收敛到 lib/taskDue.ts：每次调用重新求值（不能存成模块级常量，否则页面
+// 跨零点后逾期判定全部错），且取本地日历日（不能用 toISOString，UTC+8 每天 0–8 点会错一天）。
+const todayStr = () => todayLocalDateStr();
 
 // ─── Demo data ────────────────────────────────────────────────────────────────
 
@@ -298,9 +370,7 @@ function normalizeIdentity(value?: string | null) {
 }
 
 function daysUntil(dateStr?: string): number | null {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  return Math.ceil((d.getTime() - TODAY.getTime()) / (1000 * 60 * 60 * 24));
+  return daysUntilDue(dateStr);
 }
 
 /**
@@ -329,9 +399,9 @@ function formatRelativeUpdate(iso?: string | null): {
 
   // 按"自然日"计算今天/昨天，不是 24 小时
   const dt = new Date(iso);
-  const today = new Date(TODAY_STR);
+  const todayNow = new Date();
   const dtDay = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
-  const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayDay = new Date(todayNow.getFullYear(), todayNow.getMonth(), todayNow.getDate());
   const dayDiff = Math.floor((todayDay.getTime() - dtDay.getTime()) / 86_400_000);
 
   const hhmm = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
@@ -352,62 +422,6 @@ const RELATIVE_UPDATE_TONE: Record<
   stale: { bg: "bg-slate-100", text: "text-slate-600", border: "border-slate-200", dot: "bg-slate-400" },
 };
 
-export type Risk = {
-  task: Task;
-  category: Category;
-  type: "overdue" | "due_soon" | "blocked" | "pending" | "slow";
-  severity: "critical" | "warning";
-  reason: string;
-};
-
-// Returns the primary risk reason for a single task, or null if no risk.
-function getTaskRiskReason(task: Task): { type: Risk["type"]; reason: string } | null {
-  if (task.archived || task.status === "completed") return null;
-  const dleft = daysUntil(task.due_date);
-  // 待审核：申请者已提交，责任在审核侧；只有"逾期后才提交"才算其逾期（方案B）。按时提交不算风险。
-  if (task.status === "pending_review") {
-    const late = taskOverdueDays(task);
-  return late > 0 ? { type: "overdue", reason: t("逾期提交 {days} 天", { days: late }) } : null;
-  }
-  if (dleft !== null && dleft < 0) return { type: "overdue", reason: t("已逾期 {days} 天", { days: -dleft }) };
-  if (task.status === "paused_blocked") return { type: "blocked", reason: t("阻塞中") };
-  if (dleft !== null && dleft <= 2)
-    return { type: "due_soon", reason: dleft === 0 ? t("今日到期") : t("{days} 天内到期", { days: dleft }) };
-  if (task.status === "pending_assign") return { type: "pending", reason: t("待人工指派") };
-  if (task.final_priority === "high" && task.progress < 30 && task.status === "in_progress")
-    return { type: "slow", reason: t("高优先级·进度偏低") };
-  return null;
-}
-
-function getTaskRiskSeverity(task: Task, type: Risk["type"]): Risk["severity"] {
-  if (type === "overdue" || type === "blocked") return "critical";
-  if (type === "due_soon") {
-    const dleft = daysUntil(task.due_date);
-    return dleft !== null && dleft <= 1 ? "critical" : "warning";
-  }
-  return "warning";
-}
-
-function collectTaskRisks(task: Task, category: Category): Risk[] {
-  const ownRisk = getTaskRiskReason(task);
-  const risks: Risk[] = ownRisk
-    ? [
-        {
-          task,
-          category,
-          type: ownRisk.type,
-          severity: getTaskRiskSeverity(task, ownRisk.type),
-          reason: ownRisk.reason,
-        },
-      ]
-    : [];
-
-  if (task.subtasks) {
-    for (const subtask of task.subtasks) risks.push(...collectTaskRisks(subtask, category));
-  }
-  return risks;
-}
-
 function collectTaskIds(tasks: Task[]): Set<string> {
   const ids = new Set<string>();
   function walk(items: Task[]) {
@@ -418,18 +432,6 @@ function collectTaskIds(tasks: Task[]): Set<string> {
   }
   walk(tasks);
   return ids;
-}
-
-export function flattenTasks(tasks: Task[]): Task[] {
-  const result: Task[] = [];
-  function walk(items: Task[]) {
-    for (const task of items) {
-      result.push(task);
-      if (task.subtasks) walk(task.subtasks);
-    }
-  }
-  walk(tasks);
-  return result;
 }
 
 /**
@@ -451,36 +453,6 @@ export function buildSubtaskParentIndex(categories: Category[]): Map<string, Tas
 /** 顶层任务（不在任何任务的 subtasks 里）。用于「并入已有任务」的候选列表与统计口径标注。 */
 export function collectTopLevelTasks(categories: Category[]): Task[] {
   return categories.flatMap((cat) => cat.children.flatMap((sub) => sub.tasks));
-}
-
-export function computeRisks(categories: Category[]): Risk[] {
-  // 驾驶舱只展示根任务；若风险来自子任务，将风险归并到对应根任务卡片。
-  const risks = categories.flatMap((cat) =>
-    cat.children.flatMap((sub) =>
-      sub.tasks.flatMap((rootTask) => {
-        const nestedRisks = collectTaskRisks(rootTask, cat).sort((a, b) => {
-          if (a.severity !== b.severity) return a.severity === "critical" ? -1 : 1;
-          return (b.task.updated_at ?? "").localeCompare(a.task.updated_at ?? "");
-        });
-        const primary = nestedRisks[0];
-        if (!primary) return [];
-        return [{
-          ...primary,
-          task: rootTask,
-          reason: primary.task.task_id === rootTask.task_id
-            ? primary.reason
-            : t("子任务风险：{reason}", { reason: primary.reason }),
-        }];
-      }),
-    ),
-  );
-  // critical first，同等严重度按更新时间倒序
-  return risks.sort((a, b) => {
-    if (a.severity !== b.severity) return a.severity === "critical" ? -1 : 1;
-    const ta = a.task.updated_at ?? "";
-    const tb = b.task.updated_at ?? "";
-    return tb > ta ? 1 : tb < ta ? -1 : 0;
-  });
 }
 
 function calcCategoryProgress(cat: Category): number {
@@ -1585,96 +1557,6 @@ function SubProjectSection({
 
 // ─── Category Sidebar ─────────────────────────────────────────────────────────
 
-export type CatStat = {
-  cat: Category;
-  /** 驾驶舱可见的未归档根任务数（含已完成，不重复计算子任务）。 */
-  total: number;
-  inProgress: number;
-  done: number;
-  blocked: number;
-  progress: number;
-  risks: number;
-  riskItems: Risk[];
-};
-
-// 研发执行提示 KPI 卡片筛选：点击 KPI 卡片可筛选下方任务列表
-type KpiFilter = "all" | "in_progress" | "completed" | "blocked" | "risk";
-
-const KPI_FILTER_LABEL: Record<KpiFilter, string> = {
-  all: "全部",
-  in_progress: "进行中",
-  completed: "已完成",
-  blocked: "阻塞 / 待派",
-  risk: "风险任务",
-};
-
-/**
- * 「已归档」的统一判定，与后端 isArchivedTask 完全一致：archived 标志 **或** status==='archived'。
- * 只认 archived 标志会漏判——虽然当前唯一的归档写入路径（applyTaskMerge）两个字段都会写，
- * 但历史/导入数据未必，统计口径按两者取或才不会被歪掉。
- */
-export function isArchivedTask(task: Pick<Task, "archived" | "status">): boolean {
-  return task.archived === true || task.status === "archived";
-}
-
-export function buildCatStats(categories: Category[], risks: Risk[]): CatStat[] {
-  return categories.map((cat) => {
-    const tasks = rootTasksFromCategories([cat]);
-    const active = tasks.filter((t) => !isArchivedTask(t));
-    const catRisks = risks.filter((r) => r.category.id === cat.id);
-    return {
-      cat,
-      total: active.length,
-      inProgress: active.filter((t) => t.status === "in_progress").length,
-      done: active.filter((t) => t.status === "completed").length,
-      blocked: active.filter((t) => t.status === "paused_blocked" || t.status === "pending_assign").length,
-      progress: calcCategoryProgress(cat),
-      risks: catRisks.length,
-      riskItems: catRisks,
-    };
-  });
-}
-
-// ─── Executive Overview helpers ──────────────────────────────────────────────
-
-export type PersonLoad = { name: string; count: number; max: number; onLeave: boolean; user_id?: string | null };
-type TaskActivityActor = { id?: string | null; name: string };
-type SystemHealth = "healthy" | "watch" | "alert" | "idle";
-
-const HEALTH_CONFIG: Record<
-  SystemHealth,
-  { border: string; dot: string; text: string; label: string; tint: string }
-> = {
-  healthy: {
-    border: "border-slate-200/80",
-    dot: "bg-emerald-500",
-    text: "text-emerald-700",
-    label: "健康",
-    tint: "bg-gradient-to-br from-white via-white to-emerald-50/60",
-  },
-  watch: {
-    border: "border-slate-200/80",
-    dot: "bg-amber-500",
-    text: "text-amber-700",
-    label: "注意",
-    tint: "bg-gradient-to-br from-white via-white to-amber-50/60",
-  },
-  alert: {
-    border: "border-slate-200/80",
-    dot: "bg-rose-500",
-    text: "text-rose-700",
-    label: "警报",
-    tint: "bg-gradient-to-br from-white via-white to-rose-50/65",
-  },
-  idle: {
-    border: "border-slate-200/80",
-    dot: "bg-slate-300",
-    text: "text-slate-500",
-    label: "空闲",
-    tint: "bg-gradient-to-br from-white via-white to-slate-50",
-  },
-};
-
 function getSystemHealth(stat: CatStat): SystemHealth {
   if (stat.total === 0) return "idle";
   if (stat.progress < 40 || stat.risks >= 3 || stat.blocked >= 3) return "alert";
@@ -1691,24 +1573,39 @@ function computeScopedPersonLoads(
   maxPerPerson = 8,
 ): PersonLoad[] {
   if (!scope) return [];
-  const counts = new Map<string, number>();
-  const onLeave = new Set<string>();
+  // 同上，按身份主键聚合，同名同事不再合成一条。
+  const rows = new Map<string, { name: string; userId: string | null; count: number; onLeave: boolean }>();
+  const bump = (name: string, userId: string | null | undefined, weight: number, onLeave: boolean) => {
+    const key = memberIdentityKey(name, userId);
+    const row = rows.get(key);
+    if (row) {
+      row.count += weight;
+      if (onLeave) row.onLeave = true;
+      if (!row.userId && userId) row.userId = userId;
+    } else {
+      rows.set(key, { name, userId: userId ?? null, count: weight, onLeave });
+    }
+  };
   for (const task of collectRootActiveTasks(scope)) {
     if (task.status === "completed") continue;
-    if (!/已离职|待指派/.test(task.primary_owner)) {
-      counts.set(task.primary_owner, (counts.get(task.primary_owner) ?? 0) + 1);
-      if (task.status === "paused_leave") onLeave.add(task.primary_owner);
+    // 与驾驶舱共用同一份占位值黑名单。历史实现是子串正则，漏掉了
+    // 未分配/未指派/暂无/外部机构/采购/研发团队/系统，这些会被当成真人显示在成员列表里。
+    if (!isNonPersonTaskOwner(task.primary_owner)) {
+      bump(task.primary_owner, task.primary_owner_user_id, 1, task.status === "paused_leave");
     }
     for (const collaborator of task.collaborators) {
-      counts.set(collaborator.name, (counts.get(collaborator.name) ?? 0) + 0.5);
+      if (isNonPersonTaskOwner(collaborator.name)) continue;
+      bump(collaborator.name, collaborator.user_id, 0.5, false);
     }
   }
-  return Array.from(counts.entries())
-    .map(([name, count]) => ({
-      name,
-      count: Math.ceil(count),
+  return Array.from(rows.entries())
+    .map(([key, row]) => ({
+      key,
+      name: row.name,
+      count: Math.ceil(row.count),
       max: maxPerPerson,
-      onLeave: onLeave.has(name),
+      onLeave: row.onLeave,
+      user_id: row.userId,
     }))
     .sort((a, b) => b.count - a.count);
 }
@@ -1716,40 +1613,6 @@ function computeScopedPersonLoads(
 /**
  * Aggregate active load per person across all categories.
  */
-export function computePersonLoads(
-  categories: Category[],
-  maxPerPerson = 8,
-  peopleDirectory?: readonly PersonProfile[],
-): PersonLoad[] {
-  const counts = new Map<string, number>();
-  const onLeave = new Set<string>();
-  // 主责姓名 → user_id：供头像按 user_id 精确解析（同名同事不会张冠李戴）。
-  // 同一姓名首个非空 user_id 即固定，后续任务不覆盖。
-  const userIds = new Map<string, string>();
-
-  // 驾驶舱头像角标只统计列表中可见的活跃根任务；子任务随父任务查看，不再单独占用角标。
-  for (const task of rootTasksFromCategories(categories)) {
-    const isActive = !isArchivedTask(task) && task.status !== "completed";
-    if (isActive && isTaskOwnerMember(task.primary_owner, task.primary_owner_user_id, peopleDirectory)) {
-      counts.set(task.primary_owner, (counts.get(task.primary_owner) ?? 0) + 1);
-      if (task.status === "paused_leave") onLeave.add(task.primary_owner);
-      if (task.primary_owner_user_id && !userIds.has(task.primary_owner)) {
-        userIds.set(task.primary_owner, task.primary_owner_user_id);
-      }
-    }
-  }
-
-  return Array.from(counts.entries())
-    .map(([name, count]) => ({
-      name,
-      count,
-      max: maxPerPerson,
-      onLeave: onLeave.has(name),
-      user_id: userIds.get(name) ?? null,
-    }))
-    .sort((a, b) => b.count - a.count);
-}
-
 function buildAiPeopleProfiles(
   people: PersonProfile[],
   loads: PersonLoad[],
@@ -1764,7 +1627,8 @@ function buildAiPeopleProfiles(
     for (const task of tasks) {
       if (task.archived) continue;
       const owner = task.primary_owner?.trim();
-      if (owner && !/已离职|待指派|外部机构/.test(owner)) {
+      // 同上，共用占位值黑名单：否则「采购/研发团队/系统」会被当成真人喂给 AI 生成人员建议。
+      if (owner && !isNonPersonTaskOwner(owner)) {
         if (task.status !== "completed") {
           const titles = tasksByOwner.get(owner) ?? [];
           if (titles.length < 6) titles.push(task.title);
@@ -1773,7 +1637,7 @@ function buildAiPeopleProfiles(
         if (task.status === "paused_blocked" || task.risk_flag) {
           blockedByOwner.set(owner, (blockedByOwner.get(owner) ?? 0) + 1);
         }
-        if (task.status === "completed" && task.updated_at?.startsWith(TODAY_STR.slice(0, 7))) {
+        if (task.status === "completed" && task.updated_at?.startsWith(todayStr().slice(0, 7))) {
           completedThisMonthByOwner.set(owner, (completedThisMonthByOwner.get(owner) ?? 0) + 1);
         }
       }
@@ -4835,7 +4699,7 @@ function PersonLoadPanel({
   loads: PersonLoad[];
   className?: string;
   onManage?: () => void;
-  onSelectPerson?: (name: string) => void;
+  onSelectPerson?: (person: PersonLoad) => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const [page, setPage] = useState(1);
@@ -4905,12 +4769,12 @@ function PersonLoadPanel({
                     : "bg-emerald-400";
             return (
               <li
-                key={p.name}
-                onClick={() => onSelectPerson?.(p.name)}
+                key={p.key}
+                onClick={() => onSelectPerson?.(p)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    onSelectPerson?.(p.name);
+                    onSelectPerson?.(p);
                   }
                 }}
                 role="button"
@@ -5556,7 +5420,7 @@ function SystemDetailHero({
             <h2 className="text-xl font-semibold tracking-tight text-slate-900">{label}</h2>
           </div>
           <p className="mt-1.5 text-xs text-slate-500">
-            {sub ? t("部件维度") : t("子系统维度")} · {t("今日")} {TODAY_STR}
+            {sub ? t("部件维度") : t("子系统维度")} · {t("今日")} {todayStr()}
           </p>
         </div>
 
@@ -7081,7 +6945,7 @@ function PersonTaskCockpit({
   allTasks: Task[];
   initialActivityActor?: TaskActivityActor | null;
   onSelectTask: (t: Task, activityActor?: TaskActivityActor) => void;
-  onSelectPerson: (name: string) => void;
+  onSelectPerson: (person: PersonLoad) => void;
   canReassign?: boolean;
   onReassignTask?: (task: Task) => void;
   canDelete?: boolean;
@@ -8138,7 +8002,7 @@ function PersonTaskCockpit({
               const avatarUrl = resolveAvatar(p.name, p.user_id);
               return (
                 <TabsTrigger
-                  key={p.name}
+                  key={p.key}
                   value={p.name}
                   className="flex min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0"
                 >
@@ -9415,7 +9279,7 @@ function ExecutiveOverview({
   initialActivityActor?: TaskActivityActor | null;
   onSelectSystem: (catId: string, productId: string) => void;
   onSelectTask: (t: Task, activityActor?: TaskActivityActor) => void;
-  onSelectPerson: (name: string) => void;
+  onSelectPerson: (person: PersonLoad) => void;
   onOpenPeople?: () => void;
   loading: boolean;
   loadError: string | null;
@@ -11319,7 +11183,12 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     [navigate],
   );
   const [moveTaskTarget, setMoveTaskTarget] = useState<Task | null>(null);
-  const [selectedPersonName, setSelectedPersonName] = useState<string | null>(null);
+  // 存身份主键而非姓名：同名同事必须能分开选中，下游也才能拿到正确的 user_id。
+  const [selectedPerson, setSelectedPerson] = useState<{
+    key: string;
+    name: string;
+    user_id: string | null;
+  } | null>(null);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   // 概览「人员任务」专用：主库 + 所有产品库合并的分类树（跨产品聚合，与个人工作台主责同源）。
@@ -11696,44 +11565,55 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       return 0;
     });
   }, [categories]);
-  const totalActive = useMemo(() => allTasks.filter((task) => !isArchivedTask(task)).length, [allTasks]);
+  // 「活跃」= 非归档且未完成，与个人工作台的 activeRoleTasks 同口径。
+  // 「非归档」仅用作完成率的分母（分母含已完成，否则完成率无意义）。
+  const nonArchivedTasks = useMemo(() => allTasks.filter((task) => !isArchivedTask(task)), [allTasks]);
+  const activeTasks = useMemo(
+    () => nonArchivedTasks.filter((task) => task.status !== "completed"),
+    [nonArchivedTasks],
+  );
+  const totalActive = activeTasks.length;
   const pendingAssign = useMemo(() => allTasks.filter((t) => t.status === "pending_assign").length, [allTasks]);
   const averageProgress = useMemo(() => {
-    const activeTasks = allTasks.filter((task) => !isArchivedTask(task));
     if (activeTasks.length === 0) return 0;
     return Math.round(activeTasks.reduce((sum, task) => sum + task.progress, 0) / activeTasks.length);
-  }, [allTasks]);
+  }, [activeTasks]);
   const allSystemSummary = useMemo(() => {
-    const activeTasks = allTasks.filter((task) => !isArchivedTask(task));
+    const done = nonArchivedTasks.filter((task) => task.status === "completed").length;
     return {
       inProgress: activeTasks.filter((task) => task.status === "in_progress").length,
-      done: activeTasks.filter((task) => task.status === "completed").length,
+      done,
       blocked: activeTasks.filter((task) => task.status === "paused_blocked" || task.status === "pending_assign").length,
-      rate: activeTasks.length > 0 ? Math.round((activeTasks.filter((task) => task.status === "completed").length / activeTasks.length) * 100) : 0,
+      rate: nonArchivedTasks.length > 0 ? Math.round((done / nonArchivedTasks.length) * 100) : 0,
     };
-  }, [allTasks]);
-  const openPersonDetail = (name: string) => {
-    if (!isTaskOwnerMember(name, undefined, peopleProfiles)) return;
-    setSelectedPersonName(name);
+  }, [activeTasks, nonArchivedTasks]);
+  const openPersonDetail = (person: PersonLoad) => {
+    if (!isTaskOwnerMember(person.name, person.user_id, peopleProfiles)) return;
+    setSelectedPerson({ key: person.key, name: person.name, user_id: person.user_id ?? null });
   };
-  const selectedPersonProfile = useMemo(
-    () => peopleProfiles.find((person) => person.name === selectedPersonName),
-    [peopleProfiles, selectedPersonName],
-  );
+  // 档案按 user_id 精确命中；无 user_id 的存量成员才回退姓名（同名时不会张冠李戴）。
+  const selectedPersonProfile = useMemo(() => {
+    if (!selectedPerson) return undefined;
+    return peopleProfiles.find(
+      (person) => memberIdentityKey(person.name, person.user_id) === selectedPerson.key,
+    );
+  }, [peopleProfiles, selectedPerson]);
   const selectedPersonLoad = useMemo(
-    () => personLoads.find((load) => load.name === selectedPersonName),
-    [personLoads, selectedPersonName],
+    () => personLoads.find((load) => load.key === selectedPerson?.key),
+    [personLoads, selectedPerson],
   );
   const selectedPersonTasks = useMemo(() => {
-    if (!selectedPersonName) return [];
-    // 用 peopleAllTasks（概览=跨所有产品库；board=当前库）与头像角标 / personLoads 同范围，
-    // 保证点开头像后抽屉里看到的任务集合与角标口径一致。
+    if (!selectedPerson) return [];
+    // 与头像角标严格同口径：peopleAllTasks 同范围（概览=跨所有产品库；board=当前库），
+    // 且同样只取「该成员主责」的「活跃（非归档且未完成）」根任务 ——
+    // 角标数 = 抽屉条数。协助任务与已完成/归档任务不进来，否则两个数字永远对不上。
     return peopleAllTasks.filter(
       (task) =>
-        task.primary_owner === selectedPersonName ||
-        task.collaborators.some((collaborator) => collaborator.name === selectedPersonName),
+        memberIdentityKey(task.primary_owner, task.primary_owner_user_id) === selectedPerson.key &&
+        !isArchivedTask(task) &&
+        task.status !== "completed",
     );
-  }, [peopleAllTasks, selectedPersonName]);
+  }, [peopleAllTasks, selectedPerson]);
 
   const selectedCategory = selectedCatId
     ? categories.find((c) => c.id === selectedCatId || c.children.some((sub) => sub.id === selectedCatId))
@@ -11873,16 +11753,16 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               onClose={() => setCompletedTaskNotice(null)}
             />
           )}
-          {selectedPersonName && (
+          {selectedPerson && (
             <PersonDetailDrawer
-              name={selectedPersonName}
+              name={selectedPerson.name}
               profile={selectedPersonProfile}
               load={selectedPersonLoad}
               tasks={selectedPersonTasks}
-              onClose={() => setSelectedPersonName(null)}
+              onClose={() => setSelectedPerson(null)}
               onOpenTask={(task) => {
-                setSelectedPersonName(null);
-                openTaskDetail(task, { id: selectedPersonLoad?.user_id, name: selectedPersonName });
+                setSelectedPerson(null);
+                openTaskDetail(task, { id: selectedPerson.user_id ?? undefined, name: selectedPerson.name });
               }}
             />
           )}
@@ -12164,16 +12044,16 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               onClose={() => setCompletedTaskNotice(null)}
             />
           )}
-          {selectedPersonName && (
+          {selectedPerson && (
             <PersonDetailDrawer
-              name={selectedPersonName}
+              name={selectedPerson.name}
               profile={selectedPersonProfile}
               load={selectedPersonLoad}
               tasks={selectedPersonTasks}
-              onClose={() => setSelectedPersonName(null)}
+              onClose={() => setSelectedPerson(null)}
               onOpenTask={(task) => {
-                setSelectedPersonName(null);
-                openTaskDetail(task, { id: selectedPersonLoad?.user_id, name: selectedPersonName });
+                setSelectedPerson(null);
+                openTaskDetail(task, { id: selectedPerson.user_id ?? undefined, name: selectedPerson.name });
               }}
             />
           )}

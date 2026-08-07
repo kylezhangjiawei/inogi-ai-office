@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { t, useI18n } from "./lib/i18n";
 import { useRDCockpitData } from "./hooks/useRDCockpitData";
+import { daysUntilDue } from "./lib/taskDue";
+import { memberIdentityKey } from "./lib/rdMemberIdentity";
 import {
   fetchRdNoteUnreadSummary,
   fetchRdTaskProgressNotes,
@@ -50,13 +52,12 @@ const FILTERS: Array<{ key: MobileFilter; label: string }> = [
 ];
 
 const TASK_PAGE = 6;
+/** 「未指派」筛选桶的哨兵键，与 memberIdentityKey 产生的键不会冲突。 */
+const UNASSIGNED_KEY = "__unassigned__";
 
+/** 与桌面驾驶舱、个人工作台同源。原实现用 toISOString() 取 UTC 日期，UTC+8 每天 0–8 点会整体错一天。 */
 function daysLeft(due?: string): number | null {
-  if (!due) return null;
-  const d = new Date(due);
-  if (Number.isNaN(d.getTime())) return null;
-  const today = new Date(new Date().toISOString().slice(0, 10));
-  return Math.ceil((d.getTime() - today.getTime()) / 86_400_000);
+  return daysUntilDue(due);
 }
 
 function formatDue(due?: string): { text: string; overdue: boolean } | null {
@@ -410,9 +411,10 @@ function MobileFeedCard({
 // ─── 主页面 ───────────────────────────────────────────────────────────────────
 export function MobileRDCockpit() {
   useI18n(); // 订阅语言切换（移动端文案已 t() 化）
-  const { loading, error, reload, risks, allTasks } = useRDCockpitData();
+  const { loading, error, reload, risks, allTasks, personLoads } = useRDCockpitData();
 
   const [filter, setFilter] = useState<MobileFilter>("all");
+  // 存身份主键而非姓名：同名同事必须能分开筛选。
   const [person, setPerson] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
   const [visible, setVisible] = useState(TASK_PAGE);
@@ -427,16 +429,31 @@ export function MobileRDCockpit() {
   // 非归档任务总数（人员「全部」标记用）
   const activeCount = useMemo(() => allTasks.filter((t) => !t.archived).length, [allTasks]);
 
-  // 人员过滤项：直接由当前任务的 primary_owner 聚合，保证 chip 计数与筛选结果一致。
+  // 人员过滤项直接复用 personLoads —— 与桌面驾驶舱的头像角标同一份计算：
+  // 只保留人员目录里配置的成员（不再把「采购 / 研发团队 / 系统 / 待指派」当成人），
+  // 按身份主键区分同名同事，且只统计活跃（非归档未完成）根任务。
+  // 「未指派」单独保留成一个桶：它不是人，但移动端确实要能筛出无主任务。
+  // 计数必须与 filteredTasks 用同一个任务集合（非归档，含已完成）——移动端有「已完成」状态页签，
+  // 若 chip 只数活跃任务，点进去看到的条数会比 chip 上的数字多。personLoads 只决定「谁出现」。
   const owners = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const t of allTasks) {
-      if (t.archived) continue;
-      const name = (t.primary_owner || "").trim() || "未指派";
-      m.set(name, (m.get(name) ?? 0) + 1);
+    const counts = new Map<string, number>();
+    let unassigned = 0;
+    for (const task of allTasks) {
+      if (task.archived) continue;
+      if (!(task.primary_owner || "").trim()) {
+        unassigned += 1;
+        continue;
+      }
+      const key = memberIdentityKey(task.primary_owner, task.primary_owner_user_id);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
-    return Array.from(m, ([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
-  }, [allTasks]);
+    const list = personLoads
+      .map((load) => ({ key: load.key, name: load.name, count: counts.get(load.key) ?? 0 }))
+      .filter((row) => row.count > 0)
+      .sort((a, b) => b.count - a.count);
+    if (unassigned > 0) list.push({ key: UNASSIGNED_KEY, name: t("未指派"), count: unassigned });
+    return list;
+  }, [allTasks, personLoads]);
 
   const normalizedKeyword = keyword.trim().toLocaleLowerCase();
 
@@ -459,7 +476,11 @@ export function MobileRDCockpit() {
       default:
         break;
     }
-    if (person) list = list.filter((t) => ((t.primary_owner || "").trim() || "未指派") === person);
+    if (person === UNASSIGNED_KEY) {
+      list = list.filter((t) => !(t.primary_owner || "").trim());
+    } else if (person) {
+      list = list.filter((t) => memberIdentityKey(t.primary_owner, t.primary_owner_user_id) === person);
+    }
     if (normalizedKeyword) {
       list = list.filter((task) =>
         [task.title, task.task_id, (task.primary_owner || "").trim() || "未指派", task.category_path]
@@ -654,12 +675,12 @@ export function MobileRDCockpit() {
               </span>
             </button>
             {owners.map((o) => {
-              const active = person === o.name;
+              const active = person === o.key;
               return (
                 <button
-                  key={o.name}
+                  key={o.key}
                   type="button"
-                  onClick={() => pickPerson(o.name)}
+                  onClick={() => pickPerson(o.key)}
                   aria-pressed={active}
                   className={cn(
                     "flex shrink-0 items-center gap-1.5 rounded-full py-1 pl-1 pr-2.5 text-[12px] font-semibold transition active:scale-[0.97]",

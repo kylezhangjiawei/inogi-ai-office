@@ -42,7 +42,7 @@ import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
-import { isTaskOverdue } from "./lib/taskDue";
+import { isTaskOverdue, todayLocalDateStr } from "./lib/taskDue";
 import { PERMISSIONS } from "./lib/permissions";
 import {
   clearRdAllTaskData,
@@ -1378,7 +1378,8 @@ function CategoryDetailDrawer({
   const categoryColor = getCategoryColorClass(category.color);
 
   const handleExportReport = () => {
-    const today = new Date().toISOString().slice(0, 10);
+    // 本地日历日：toISOString() 取 UTC 日期，UTC+8 每天 0–8 点导出的报表会标成前一天
+    const today = todayLocalDateStr();
     const rows: unknown[][] = [
       ["分类进度报表"],
       ["导出日期", today],

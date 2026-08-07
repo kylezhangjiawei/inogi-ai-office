@@ -27,12 +27,18 @@ test('研发驾驶舱列表和总任务 KPI 使用同一根任务口径', async 
     new URL('../../../src/app/RDTaskManagementPage.tsx', import.meta.url),
     'utf8',
   );
+  // buildCatStats 及其同伴已从驾驶舱页面收敛到共享库（原先页面自带一份副本，
+  // 导致成员过滤的修复只打了一半）。口径断言随之指向新位置，意图不变。
+  const metricsSource = await readFile(
+    new URL('../../../src/app/lib/rdCockpitMetrics.ts', import.meta.url),
+    'utf8',
+  );
 
   assert.match(
     source,
     /const peopleAllTasks = useMemo\(\(\) => \{\s*const tasks = rootTasksFromCategories\(peopleCategories\);/,
   );
-  assert.match(source, /const tasks = rootTasksFromCategories\(\[cat\]\);/);
+  assert.match(metricsSource, /const tasks = rootTasksFromCategories\(\[category\]\);/);
   assert.match(source, /const tasks = rootTasksFromCategories\(categories\);/);
   assert.match(source, /total: selectedSub\.tasks\.filter\(\(task\) => !isArchivedTask\(task\)\)\.length/);
   assert.match(source, /function collectRootActiveTasks/);

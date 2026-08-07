@@ -51,7 +51,7 @@ import { AuditTimeline } from "./RDAuditTimeline";
 import { ProgressAttachmentGrid, ProgressNoteList, formatTraceDateTime } from "./RDProgressEvidence";
 import { AuditActor, recordAudit, syncAuditLogsFromRemote, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
-import { isTaskOverdue, taskOverdueDays } from "./lib/taskDue";
+import { daysUntilDue, isTaskOverdue, taskOverdueDays, todayLocalDateStr } from "./lib/taskDue";
 import { buildTaskTree, collectTaskTreeIds, filterTaskTree, type TaskTreeNode } from "./lib/taskTree";
 import { workspaceTaskPreview } from "./lib/workspaceTaskPreview";
 import {
@@ -135,7 +135,8 @@ type ConfirmDialogConfig = {
   onConfirm: () => void | Promise<void>;
 };
 
-const TODAY_LABEL = new Date().toISOString().split("T")[0]!;
+/** 「今日」标签。函数而非常量：跨零点要跟着变，且必须取本地日历日（详见 lib/taskDue.ts）。 */
+const todayLabel = () => todayLocalDateStr();
 /** 附件操作类审计动作（时间线上归位展示到所属进展条目下，不再顶层平铺） */
 const ATTACHMENT_OP_ACTIONS: ReadonlySet<string> = new Set([
   "task.attachment_added",
@@ -153,12 +154,9 @@ function workspaceTaskIdentity(task: Pick<WorkspaceTask, "task_id" | "source_wor
   return `${task.source_workspace ?? (isUsCollabWorkspace() ? "us-collab" : "rd")}:${task.task_id}`;
 }
 
+/** 与 isTaskOverdue 同源，避免同一行 KPI 里两个「今天」互相矛盾。 */
 function workspaceDaysUntil(dateStr?: string): number | null {
-  if (!dateStr) return null;
-  const target = new Date(`${dateStr}T00:00:00`);
-  if (Number.isNaN(target.getTime())) return null;
-  const today = new Date(`${TODAY_LABEL}T00:00:00`);
-  return Math.round((target.getTime() - today.getTime()) / 86400000);
+  return daysUntilDue(dateStr);
 }
 
 function clampProgressValue(value: number): number {
@@ -4568,7 +4566,7 @@ export function RDMyWorkspacePage() {
               <h1 className="text-base font-semibold text-slate-950 shrink-0">
                 {t(isUsCollabWorkspace() ? "协同工作台" : "个人工作台")}
               </h1>
-              <span className="text-xs text-slate-400 shrink-0">{t("今日")} {TODAY_LABEL}</span>
+              <span className="text-xs text-slate-400 shrink-0">{t("今日")} {todayLabel()}</span>
               {/* Stat chips — always shown */}
               <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
                 {t("主责")} {activeMyCount}
