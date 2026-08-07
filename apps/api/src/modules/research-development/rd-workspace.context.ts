@@ -57,15 +57,41 @@ export const WORKSPACE_PAGE_CODES: Record<string, string[]> = {
  */
 const WORKSPACE_EXEMPT_KEYS = new Set(['rd.messages']);
 
-/** 消息端点同样豁免池级准入（类级 @Permissions 仍生效）：任意可登录研发/协同页面的用户都能读写自己的消息。 */
-const WORKSPACE_EXEMPT_URL = /\/messages(\/|\?|$)/;
+/**
+ * 豁免匹配只能针对「路径」，绝不能针对 req.url —— 后者含查询串，
+ * 任意 `?x=/messages` / `?x=/task-discussions/a` 参数都能伪造出豁免，
+ * 使任意端点跳过池级准入（实测双向越权：协同侧账号读研发池、研发侧账号读协同池）。
+ */
+export function requestPathOnly(url: string): string {
+  const cut = url.search(/[?#]/);
+  return cut === -1 ? url : url.slice(0, cut);
+}
+
+/**
+ * 消息端点同样豁免池级准入（类级 @Permissions 仍生效）：任意可登录研发/协同页面的用户都能读写自己的消息。
+ * 仅指控制器直属的 `messages` 路由（GET/POST messages、PATCH messages/:messageId）。
+ *
+ * ⚠️ 不能写成 /\/messages/ —— `task-discussions/:taskId/messages` 同样以 /messages 结尾，
+ * 会被误判成消息端点而以默认池执行（不进 ALS），导致协同池的讨论回复写进研发池。
+ */
+const WORKSPACE_EXEMPT_PATH = /\/research-development\/messages(?:\/|$)/;
 
 /**
  * 讨论邀请是线程级能力链接：受邀成员可能没有研发/协同页面码，但 service 会继续按
  * workspace + taskId + threadId + userId 做精确校验。这里只跳过“整池页面码”门禁，
  * 不跳过工作区上下文，也不会因此获得任务列表或其他讨论的访问权。
  */
-const DISCUSSION_CAPABILITY_URL = /\/task-discussions\/[^/?]+(?:\/|$|\?)/;
+const DISCUSSION_CAPABILITY_PATH = /\/research-development\/task-discussions\/[^/]+(?:\/|$)/;
+
+/** 该请求是否命中「消息端点」豁免（入参必须是已剥离查询串的路径）。 */
+export function isWorkspaceExemptPath(path: string): boolean {
+  return WORKSPACE_EXEMPT_PATH.test(path);
+}
+
+/** 该请求是否命中「讨论线程能力链接」豁免（入参必须是已剥离查询串的路径）。 */
+export function isDiscussionCapabilityPath(path: string): boolean {
+  return DISCUSSION_CAPABILITY_PATH.test(path);
+}
 
 /**
  * 「归属」码 ≠「准入」码，必须分开：
@@ -153,7 +179,8 @@ type AuthedRequest = {
 export class RdWorkspaceInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const request = context.switchToHttp().getRequest<AuthedRequest>();
-    const requestUrl = (request as { url?: string })?.url ?? '';
+    // 只用路径做豁免匹配：req.url 含查询串，直接匹配整串可被 ?x=/messages 之类的参数伪造豁免
+    const requestPath = requestPathOnly((request as { url?: string })?.url ?? '');
     const raw = request?.query?.workspace;
     const workspace = typeof raw === 'string' && raw.trim() ? raw.trim() : RD_DEFAULT_WORKSPACE;
 
@@ -162,10 +189,10 @@ export class RdWorkspaceInterceptor implements NestInterceptor {
     }
 
     // 消息端点豁免池级准入（消息是用户级全局数据，存储键同样豁免改写），直接以默认池执行
-    if (WORKSPACE_EXEMPT_URL.test(requestUrl)) {
+    if (isWorkspaceExemptPath(requestPath)) {
       return next.handle();
     }
-    const discussionCapabilityRequest = DISCUSSION_CAPABILITY_URL.test(requestUrl);
+    const discussionCapabilityRequest = isDiscussionCapabilityPath(requestPath);
 
     // 匿名请求（@Public 端点，如 oss-preview 的 HMAC 能力 URL，iframe 带不了 Authorization）：
     // 仅允许默认池且跳过页面码校验——这些端点有自己的 token 防护，且不按用户读池数据。
