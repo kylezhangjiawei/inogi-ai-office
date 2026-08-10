@@ -13,6 +13,59 @@ const workspaceSource = await read("../src/app/RDMyWorkspacePage.tsx");
 const metricsSource = await read("../src/app/lib/rdCockpitMetrics.ts");
 const hookSource = await read("../src/app/hooks/useRDCockpitData.ts");
 const mobileSource = await read("../src/app/MobileRDCockpit.tsx");
+test("研发驾驶舱保持瀑布流任务卡片，并在任务名称区展示层级", () => {
+  assert.match(cockpitSource, /function distributeIntoColumns<T>/);
+  assert.match(cockpitSource, /function useMasonryColumns\(\): number/);
+  assert.match(cockpitSource, /distributeIntoColumns\(shownTasks, masonryColumns\)/);
+  assert.doesNotMatch(cockpitSource, /renderTopicTaskFeed/);
+  assert.match(cockpitSource, /const hierarchySegments = splitCategoryPath\(task\.category_path\)\.slice\(-2\)/);
+  assert.match(cockpitSource, /const directSubtaskCount = task\.subtasks\?\.length \?\? 0/);
+  assert.match(cockpitSource, /const hierarchyRoleLabel = task\.parent_task_id/);
+  assert.match(cockpitSource, /t\("主任务 · \{count\} 个下级"/);
+});
+
+test("驾驶舱与个人工作台任务卡采用同一信息层级", () => {
+  // 驾驶舱：标签/附件/三点菜单 → 标题 → 摘要 → 小图带 → 进度 → 底部元数据。
+  assert.match(cockpitSource, /const taskAttachmentCount = attachmentPreview\?\.attachment_count \?\? task\.attachments/);
+  assert.match(cockpitSource, /const cardPreviewSlots = 4/);
+  assert.match(cockpitSource, /flex min-h-\[220px\] min-w-0 flex-col/);
+  assert.match(cockpitSource, /<MoreVertical className="h-4 w-4"/);
+  assert.doesNotMatch(cockpitSource, /\{\/\* 左侧渐变竖条 \*\/\}/);
+  const cockpitSummary = cockpitSource.indexOf("摘要优先使用最新进度");
+  const cockpitAttachments = cockpitSource.indexOf("<TaskAttachmentStrip", cockpitSummary);
+  const cockpitProgress = cockpitSource.indexOf("进度条：与参考卡片一致");
+  const cockpitMetadata = cockpitSource.indexOf("参考卡片尾部：优先级 / 截止 / 风险在左");
+  assert.ok(
+    cockpitSummary > 0 && cockpitAttachments > cockpitSummary && cockpitProgress > cockpitAttachments && cockpitMetadata > cockpitProgress,
+    "驾驶舱卡片应按摘要、附件、进度、元数据顺序展示",
+  );
+
+  // 个人工作台保持相同结构；批量加载当前可见任务附件，协同池不误用研发池预览。
+  assert.match(workspaceSource, /fetchRdTaskAttachmentPreviews\(missingIds/);
+  assert.match(workspaceSource, /const hierarchyTags = task\.category_path/);
+  assert.match(workspaceSource, /const visibleAttachmentImages = attachmentImages\.slice\(0, 4\)/);
+  assert.match(workspaceSource, /附件预览失败不阻断任务列表/);
+  assert.match(workspaceSource, /flex min-h-\[220px\] min-w-0 flex-col/);
+  assert.match(workspaceSource, /<MoreVertical className="h-4 w-4"/);
+  assert.doesNotMatch(workspaceSource, /\{\/\* Left gradient stripe \*\/\}/);
+  const workspaceSummary = workspaceSource.indexOf("<AutoTranslatedText text={cardSummary}");
+  const workspaceAttachments = workspaceSource.indexOf("visibleAttachmentImages.length > 0", workspaceSummary);
+  const workspaceProgress = workspaceSource.indexOf("{/* Progress bar */}");
+  const workspaceMetadata = workspaceSource.indexOf("卡片尾部集中呈现执行信息");
+  assert.ok(
+    workspaceSummary > 0 && workspaceAttachments > workspaceSummary && workspaceProgress > workspaceAttachments && workspaceMetadata > workspaceProgress,
+    "个人工作台卡片应按摘要、附件、进度、元数据顺序展示",
+  );
+});
+
+test("任务卡内部操作不会通过键盘冒泡误开详情，更新人头像使用更新人账号", () => {
+  assert.match(cockpitSource, /if \(e\.target !== e\.currentTarget\) return;/);
+  assert.match(workspaceSource, /if \(e\.target !== e\.currentTarget\) return;/);
+  assert.match(
+    cockpitSource,
+    /userId=\{task\.latest_progress_summary\s*\? task\.latest_progress_summary\.actor_user_id\s*:\s*task\.primary_owner_user_id\}/,
+  );
+});
 
 test("三处页面都不再把「今天」存成模块级常量", () => {
   // 模块级（行首无缩进）的日期常量会在页面跨零点后失效

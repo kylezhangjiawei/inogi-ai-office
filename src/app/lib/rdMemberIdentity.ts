@@ -68,7 +68,9 @@ export function isTaskOwnerMember(
   return directory.some((person) => {
     if (normalizeMemberName(person.status).toLowerCase() === "resigned") return false;
     const configuredUserId = normalizeMemberName(person.user_id);
-    if (userId && configuredUserId) return configuredUserId === userId;
+    // 任务已经带账号时必须按账号命中，不能因为目录中的旧成员缺少 user_id
+    // 就退回同名匹配，否则其他部门的同名账号可能越过驾驶舱白名单。
+    if (userId) return configuredUserId === userId;
     return normalizeMemberName(person.name) === name;
   });
 }

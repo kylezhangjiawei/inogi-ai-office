@@ -29,6 +29,7 @@ import {
   ListChecks,
   Loader2,
   Lock,
+  MoreVertical,
   Paperclip,
   FileText,
   Pencil,
@@ -61,6 +62,12 @@ import { formatTraceDateTime } from "./RDProgressEvidence";
 import { CollapseTransition } from "./components/CollapseTransition";
 import { useAuth } from "./auth";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu";
 import { usePermission, useAnyPermission } from "./hooks/usePermission";
 import { AuditActor, AuditChange, AuditLog, recordAudit, useAuditActor } from "./lib/auditLog";
 import { daysUntilDue, taskOverdueDays, isTaskOverdue, todayLocalDateStr } from "./lib/taskDue";
@@ -411,16 +418,6 @@ function formatRelativeUpdate(iso?: string | null): {
   if (dayDiff <= 365) return { label: t("{n} 个月前", { n: Math.floor(dayDiff / 30) }), tone: "stale" };
   return { label: t("{n} 年前", { n: Math.floor(dayDiff / 365) }), tone: "stale" };
 }
-
-const RELATIVE_UPDATE_TONE: Record<
-  "fresh" | "recent" | "aging" | "stale",
-  { bg: string; text: string; border: string; dot: string }
-> = {
-  fresh: { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500" },
-  recent: { bg: "bg-indigo-50", text: "text-indigo-700", border: "border-indigo-200", dot: "bg-indigo-500" },
-  aging: { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200", dot: "bg-amber-500" },
-  stale: { bg: "bg-slate-100", text: "text-slate-600", border: "border-slate-200", dot: "bg-slate-400" },
-};
 
 function collectTaskIds(tasks: Task[]): Set<string> {
   const ids = new Set<string>();
@@ -6742,53 +6739,19 @@ function TaskAttachmentStrip({
 }) {
   const images = attachments.filter((attachment) => attachment.mime.startsWith("image/"));
   const files = attachments.filter((attachment) => !attachment.mime.startsWith("image/"));
-  const visibleImages = images.slice(0, MAX_ATTACHMENT_PREVIEW);
-  const visibleFiles = files.slice(0, Math.max(0, MAX_ATTACHMENT_PREVIEW - visibleImages.length));
+  const cardPreviewSlots = 4;
+  const visibleImages = images.slice(0, cardPreviewSlots);
+  const visibleFiles = files.slice(0, Math.max(0, cardPreviewSlots - visibleImages.length));
   const extraCount = Math.max(0, totalCount - visibleImages.length - visibleFiles.length);
 
   return (
-    <div className="border-b border-indigo-100 bg-indigo-50/50 px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-indigo-700">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white text-indigo-600 ring-1 ring-indigo-100">
-            <Paperclip className="h-3 w-3" />
-          </span>
-          <span className="truncate">{t("附件")}</span>
-          <span className="rounded-full bg-white px-1.5 py-0.5 tabular-nums text-indigo-700 ring-1 ring-indigo-200 shadow-[0_4px_12px_rgba(79,70,229,0.06)]">
-            {totalCount}
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {images.length > 0 && (
-            <button
-              type="button"
-              disabled={loadingFull}
-              onClick={(e) => { e.stopPropagation(); onOpenGallery(0); }}
-              className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-800 disabled:cursor-wait disabled:opacity-60"
-            >
-              {loadingFull ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin align-[-2px]" /> : <ImageIcon className="mr-1 inline h-3 w-3 align-[-2px]" />}
-              {t("查看图片")}
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={loadingFull}
-            onClick={(e) => { e.stopPropagation(); onOpenAll(); }}
-            className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-800 disabled:cursor-wait disabled:opacity-60"
-          >
-            {loadingFull ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin align-[-2px]" /> : <Paperclip className="mr-1 inline h-3 w-3 align-[-2px]" />}
-            {t("查看全部")}
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-2 flex gap-2 overflow-x-auto pb-0.5">
+    <div className="flex min-w-0 gap-1.5 overflow-hidden" aria-label={t("附件预览")}>
         {visibleImages.map((img, imageIndex) => (
           <button
             key={img.id}
             type="button"
             disabled={loadingFull}
-            className="group/att relative h-16 w-20 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-indigo-100 bg-white shadow-[0_8px_18px_rgba(79,70,229,0.08)] transition-all hover:border-indigo-300 hover:shadow-[0_12px_24px_rgba(79,70,229,0.14)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-wait disabled:opacity-60"
+            className="group/att relative h-12 w-[68px] shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-slate-100 transition-all hover:border-indigo-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-wait disabled:opacity-60"
             onClick={(e) => { e.stopPropagation(); onOpenGallery(imageIndex); }}
             title={img.name}
           >
@@ -6808,13 +6771,13 @@ function TaskAttachmentStrip({
             type="button"
             disabled={loadingFull}
             onClick={(event) => { event.stopPropagation(); onOpenAll(); }}
-            className="flex h-16 w-28 shrink-0 items-center gap-2 rounded-lg border border-indigo-100 bg-white/90 px-2 text-left shadow-[0_8px_18px_rgba(79,70,229,0.07)] transition-colors hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-wait disabled:opacity-60"
+            className="flex h-12 w-[86px] shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-wait disabled:opacity-60"
             title={file.name}
           >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
-              <FileText className="h-4 w-4" />
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white text-indigo-600 ring-1 ring-slate-200">
+              <FileText className="h-3.5 w-3.5" />
             </span>
-            <span className="line-clamp-2 min-w-0 text-[10px] font-medium leading-snug text-slate-600">
+            <span className="line-clamp-2 min-w-0 text-[9px] font-medium leading-snug text-slate-600">
               {file.name}
             </span>
           </button>
@@ -6826,12 +6789,11 @@ function TaskAttachmentStrip({
             disabled={loadingFull}
             onClick={(event) => { event.stopPropagation(); onOpenAll(); }}
             aria-label={t("查看其余 {count} 个附件", { count: extraCount })}
-            className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-indigo-200 bg-white/70 text-xs font-bold tabular-nums text-indigo-600 transition-colors hover:border-indigo-400 hover:bg-indigo-50 disabled:cursor-wait disabled:opacity-60"
+            className="flex h-12 min-w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-indigo-200 bg-indigo-50/70 px-2 text-xs font-bold tabular-nums text-indigo-600 transition-colors hover:border-indigo-400 hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-60"
           >
             +{extraCount}
           </button>
         )}
-      </div>
     </div>
   );
 }
@@ -7598,9 +7560,7 @@ function PersonTaskCockpit({
     task: Task,
     taskIdx: number,
     grad: { from: string; to: string },
-    options: { showOwner?: boolean } = {},
   ) => {
-    const { showOwner = false } = options;
     const activeMember = activeTab === "all"
       ? undefined
       : personLoads.find((person) => person.key === activeTab);
@@ -7611,13 +7571,12 @@ function PersonTaskCockpit({
     const isSelectedPersonCollaborator = Boolean(
       activeMember && memberIdentityKey(task.primary_owner, task.primary_owner_user_id) !== activeMember.key,
     );
-    const shouldShowOwner = showOwner || isSelectedPersonCollaborator;
-    const sCfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.draft;
     const priorityKey: Priority = task.final_priority ?? task.ai_priority ?? "medium";
     const pCfg = PRIORITY_CONFIG[priorityKey] ?? PRIORITY_CONFIG.medium;
     const attachmentPreview = attachmentPreviewMap[task.task_id];
     const taskAttachments: RdTaskProgressAttachment[] = attachmentPreview?.attachments ?? [];
     const taskImages = taskAttachments.filter((a) => a.mime.startsWith("image/"));
+    const taskAttachmentCount = attachmentPreview?.attachment_count ?? task.attachments;
     const hasLoadedAttachments = Boolean(attachmentPreview && attachmentPreview.attachment_count > 0);
     const isRisk = riskTaskIds.has(task.task_id);
     const productionMirror = isProductionMirrorTask(task);
@@ -7628,7 +7587,6 @@ function PersonTaskCockpit({
     const lastUpdateIso =
       task.last_activity_at ?? task.latest_progress_summary?.created_at ?? task.updated_at ?? null;
     const relativeUpdate = formatRelativeUpdate(lastUpdateIso);
-    const updateTone = relativeUpdate ? RELATIVE_UPDATE_TONE[relativeUpdate.tone] : null;
     // 已完成任务的质量评分：仅展示 AI 评分；未生成时显示"评分待生成"占位，不再用规则估算误导
     const aiScore = task.status === "completed" ? aiScoreMap[task.task_id] ?? null : null;
     const aiScoreFetched = task.status === "completed" && task.task_id in aiScoreMap;
@@ -7650,6 +7608,17 @@ function PersonTaskCockpit({
       : null;
     const gradeTone = completionScore ? getGradeTone(completionScore.grade) : null;
     const showPendingScoreBadge = task.status === "completed" && !aiScore;
+    const hierarchySegments = splitCategoryPath(task.category_path).slice(-2);
+    const directSubtaskCount = task.subtasks?.length ?? 0;
+    const hierarchyRoleLabel = task.parent_task_id
+      ? t("子任务")
+      : directSubtaskCount > 0
+        ? t("主任务 · {count} 个下级", { count: directSubtaskCount })
+        : null;
+    const cardSummary =
+      task.latest_progress_summary?.text?.trim()
+      || task.description?.trim()
+      || t("暂无进展摘要");
 
     return (
       <motion.div
@@ -7663,189 +7632,141 @@ function PersonTaskCockpit({
         onClick={() => onSelectTask(task, activityActor)}
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectTask(task, activityActor); } }}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelectTask(task, activityActor);
+          }
+        }}
         className={cn(
-          "group relative cursor-pointer overflow-hidden rounded-xl border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-200 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
-          isRisk ? "border-red-200/80 hover:border-red-300" : "border-indigo-100/80 hover:border-indigo-300",
+          "group relative cursor-pointer overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_12px_28px_-12px_rgba(79,70,229,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
         )}
       >
-        {hasLoadedAttachments && (
-          <TaskAttachmentStrip
-            attachments={taskAttachments}
-            totalCount={attachmentPreview?.attachment_count ?? task.attachments}
-            loadingFull={attachmentLoadingTaskId === task.task_id}
-            priority={taskIdx < 2}
-            onOpenGallery={(startIdx) => {
-              void openCompleteImageGallery(
-                task,
-                taskImages,
-                startIdx,
-                attachmentPreview?.attachment_count ?? task.attachments,
-              );
-            }}
-            onOpenAll={() => {
-              void openCompleteAttachmentCollection(
-                task,
-                attachmentPreview?.attachment_count ?? task.attachments,
-              );
-            }}
-          />
-        )}
-
-        {/* 左侧渐变竖条 */}
-        <div
-          className="absolute left-0 top-0 h-full w-1 rounded-l-2xl"
-          style={{ background: isRisk
-            ? "linear-gradient(to bottom, #ef4444, #f97316)"
-            : `linear-gradient(to bottom, ${grad.from}, ${grad.to})` }}
-        />
-
-        <div className={cn("flex min-w-0 flex-col", spaciousCards ? "gap-2.5 px-5 py-4" : "gap-2 px-4 py-3.5")}>
-          {/* ─── 关键指标条（顶部、左对齐）：时间戳（主） + AI 评分（次） ─── */}
-          {(completionScore || showPendingScoreBadge || relativeUpdate || showProductionSyncAction) && (
-            <div className="flex flex-wrap items-center gap-2">
-              {/* 时间戳（中性白底徽标 + 彩色圆点/文字，字号 14px 与 AI 评分同字号；
-                  去掉填充色块，和右侧「转派/删除」白底胶囊统一，让 AI 评分成为唯一高亮）*/}
-              {relativeUpdate && updateTone && (
-                <div
-                  className={cn(
-                    "inline-flex h-7 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 font-medium",
-                    updateTone.text,
-                  )}
-                  title={lastUpdateIso ? t("最近更新：{time}", { time: new Date(lastUpdateIso).toLocaleString(i18nLocale()) }) : ""}
+        <div className={cn("flex min-h-[220px] min-w-0 flex-col", spaciousCards ? "gap-3 px-5 py-4" : "gap-2.5 px-4 py-3.5")}>
+          {/* 参考卡片第一行：分类标签在左，附件数量与操作菜单在右。 */}
+          <div className="flex items-start gap-3">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-hidden">
+              {hierarchySegments.map((segment) => (
+                <span
+                  key={segment}
+                  className="max-w-[138px] truncate rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700"
+                  title={segment}
                 >
-                  <span className="relative flex h-2 w-2 shrink-0">
-                    {relativeUpdate.tone === "fresh" && (
-                      <span className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-60", updateTone.dot)} />
-                    )}
-                    <span className={cn("relative inline-flex h-2 w-2 rounded-full", updateTone.dot)} />
-                  </span>
-                  <span className="text-sm leading-none tabular-nums">{relativeUpdate.label}</span>
-                </div>
+                  {segment}
+                </span>
+              ))}
+              {hierarchyRoleLabel && (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">
+                  <GitBranch className="h-3 w-3" />
+                  {hierarchyRoleLabel}
+                </span>
               )}
-
-              {/* AI 评分（次视觉，压扁的横向药丸，整体小一号）*/}
+              {isSelectedPersonCollaborator && (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-700">
+                  <Users className="h-3 w-3" />
+                  {t("协助")}
+                </span>
+              )}
+              {productionMirror && (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-700">
+                  <Lock className="h-3 w-3" />
+                  {t("研发同步 · 只读")}
+                </span>
+              )}
               {completionScore && gradeTone && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      className={cn(
-                        "inline-flex h-7 cursor-help items-center gap-1.5 rounded-lg border px-2 transition-all hover:shadow-sm",
-                        gradeTone.bg,
-                        gradeTone.border,
-                      )}
-                      title={completionScore.isFallback ? t("AI 调用失败，使用规则兜底") : t("AI 复盘评分")}
+                    <span
+                      onClick={(event) => event.stopPropagation()}
+                      className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-bold", gradeTone.bg, gradeTone.border, gradeTone.text)}
                     >
-                      <Sparkles className={cn("h-3 w-3 shrink-0", gradeTone.text)} />
-                      <span className={cn("text-[10px] font-semibold opacity-75", gradeTone.text)}>AI</span>
-                      <span className={cn("flex items-baseline gap-0.5", gradeTone.text)}>
-                        <span className="text-sm font-black leading-none tabular-nums">{completionScore.total}</span>
-                        <span className="text-[9px] font-semibold opacity-60">/100</span>
-                      </span>
-                      <span className={cn("rounded px-1 py-0.5 text-[9px] font-black text-white", gradeTone.bar)}>
-                        {completionScore.grade}·{t(completionScore.gradeLabel.trim())}
-                      </span>
-                      {completionScore.isFallback && (
-                        <span className="rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold text-amber-800">{t("兜底")}</span>
-                      )}
-                    </div>
+                      <Sparkles className="h-3 w-3" />
+                      AI {completionScore.total}/100 · {completionScore.grade}
+                    </span>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" align="start">
-                    <div className="min-w-[220px] max-w-xs space-y-1">
-                      <div className="flex items-center justify-between gap-3 text-xs font-semibold">
-                        <span>{t("AI 复盘评分")}{completionScore.isFallback ? t("（兜底）") : ""}</span>
-                        <span>{completionScore.total} / 100 · {completionScore.grade}</span>
-                      </div>
-                      {completionScore.summary && (
-                        <div className="text-[11px] leading-relaxed opacity-90">{completionScore.summary}</div>
-                      )}
-                      <ul className="space-y-0.5 text-[11px] opacity-90">
-                        {completionScore.dimensions.map((d) => (
-                          <li key={d.key} className="flex items-center justify-between gap-2">
-                            <span>{d.label}</span>
-                            <span className="tabular-nums">{d.score}/{d.max} · {d.detail}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                  <TooltipContent side="bottom" align="start" className="max-w-xs text-xs">
+                    {completionScore.summary || t("AI 复盘评分")}
                   </TooltipContent>
                 </Tooltip>
               )}
-
               {showPendingScoreBadge && (
-                <div
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-2 text-slate-400"
-                  title={aiScoreFetched ? t("AI 评分尚未生成，可在「完成」筛选中点击「AI 复盘评分」按钮批量生成") : t("正在读取 AI 评分…")}
+                <span
+                  onClick={(event) => event.stopPropagation()}
+                  className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-400"
+                  title={aiScoreFetched ? t("评分待生成") : t("评分加载中")}
                 >
-                  <Sparkles className="h-3 w-3 opacity-50" />
-                  <span className="text-[10px] font-semibold">{aiScoreFetched ? t("评分待生成") : t("评分加载中")}</span>
-                </div>
+                  <Sparkles className="h-3 w-3" />
+                  {aiScoreFetched ? t("评分待生成") : t("评分加载中")}
+                </span>
               )}
+            </div>
 
-              {!productionMirror && (showProductionSyncAction || (canReassign && onReassignTask && task.status !== "completed") || (canDelete && onDeleteTask)) && (
-                <div className="ml-auto flex items-center gap-2">
-                  {showProductionSyncAction && onToggleProductionSync && (
-                    <button
-                      type="button"
+            <div className="flex shrink-0 items-center gap-1.5">
+              {taskAttachmentCount > 0 && (
+                <button
+                  type="button"
+                  disabled={attachmentLoadingTaskId === task.task_id}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void openCompleteAttachmentCollection(task, taskAttachmentCount);
+                  }}
+                  className="inline-flex h-7 items-center gap-1 rounded-lg bg-indigo-50 px-2 text-[10px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-60"
+                  aria-label={t("查看全部附件")}
+                >
+                  {attachmentLoadingTaskId === task.task_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Paperclip className="h-3 w-3" />}
+                  {t("附件")} <span className="tabular-nums">{taskAttachmentCount}</span>
+                </button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(event) => event.stopPropagation()}
+                    className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+                    aria-label={t("更多操作")}
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-40" onClick={(event) => event.stopPropagation()}>
+                  <DropdownMenuItem onSelect={() => onSelectTask(task, activityActor)}>
+                    <ArrowRight className="h-4 w-4" />
+                    {t("查看任务")}
+                  </DropdownMenuItem>
+                  {!productionMirror && showProductionSyncAction && onToggleProductionSync && (
+                    <DropdownMenuItem
                       disabled={syncingProductionTaskId === task.task_id}
-                      onClick={(e) => { e.stopPropagation(); onToggleProductionSync(task); }}
-                      className={cn(
-                        "inline-flex h-7 items-center gap-1 rounded-md border bg-white px-2 text-[11px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-60",
-                        productionSynced
-                          ? "border-amber-200 text-amber-700 hover:bg-amber-50"
-                          : "border-sky-200 text-sky-700 hover:bg-sky-50",
-                      )}
+                      onSelect={() => onToggleProductionSync(task)}
                     >
                       {syncingProductionTaskId === task.task_id
-                        ? <RefreshCw className="h-3 w-3 animate-spin" />
+                        ? <RefreshCw className="h-4 w-4 animate-spin" />
                         : productionSynced
-                          ? <RotateCcw className="h-3 w-3" />
-                          : <RefreshCw className="h-3 w-3" />}
+                          ? <RotateCcw className="h-4 w-4" />
+                          : <RefreshCw className="h-4 w-4" />}
                       {productionSynced ? t("撤销同步") : t("同步到生产驾驶舱")}
-                    </button>
+                    </DropdownMenuItem>
                   )}
-                  {canReassign && onReassignTask && task.status !== "completed" && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); onReassignTask(task); }}
-                      className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
-                    >
-                      <UserCog className="h-3 w-3" />
+                  {!productionMirror && canReassign && onReassignTask && task.status !== "completed" && (
+                    <DropdownMenuItem onSelect={() => onReassignTask(task)}>
+                      <UserCog className="h-4 w-4" />
                       {t("转派")}
-                    </button>
+                    </DropdownMenuItem>
                   )}
-                  {canDelete && onDeleteTask && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
-                      title={t("删除任务（不可恢复）")}
-                      className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-500 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600"
-                    >
-                      <Trash2 className="h-3 w-3" />
+                  {!productionMirror && canDelete && onDeleteTask && (
+                    <DropdownMenuItem variant="destructive" onSelect={() => onDeleteTask(task)}>
+                      <Trash2 className="h-4 w-4" />
                       {t("删除")}
-                    </button>
+                    </DropdownMenuItem>
                   )}
-                </div>
-              )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-          )}
-
-          {/* ─── 标题（释放全宽、字号 16px） ─── */}
-          <div className="flex items-start gap-2">
-            <h3 className="line-clamp-2 min-w-0 flex-1 text-base font-semibold leading-snug text-slate-900">
-              <AutoTranslatedText text={task.title} />
-            </h3>
-            <ChevronRight className="h-4 w-4 shrink-0 self-center text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
           </div>
 
-          {productionMirror && (
-            <div className="inline-flex w-fit items-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">
-              <Lock className="h-3 w-3" />
-              {t("研发同步 · 只读")}
-            </div>
-          )}
+          <h3 className="line-clamp-2 text-[15px] font-bold leading-snug text-slate-900">
+            <AutoTranslatedText text={task.title} />
+          </h3>
 
           {/* ─── 备注回执状态条（管理视角：他人给任务留的备注是否被目标人查看/跟进） ─── */}
           {(() => {
@@ -7868,51 +7789,66 @@ function PersonTaskCockpit({
             );
           })()}
 
-          {/* ─── 最新进度（如有） ─── */}
-          {task.latest_progress_summary?.text && (
-            <AutoTranslatedText as="p" text={task.latest_progress_summary.text} className="line-clamp-2 rounded-md bg-indigo-50/60 px-2.5 py-1.5 text-xs leading-relaxed text-indigo-800/90" />
+          {/* 摘要优先使用最新进度，其次使用下一步与任务描述。 */}
+          <AutoTranslatedText
+            as="p"
+            text={cardSummary}
+            className="line-clamp-2 min-h-10 text-xs leading-5 text-slate-500"
+          />
+
+          {hasLoadedAttachments && (
+            <TaskAttachmentStrip
+              attachments={taskAttachments}
+              totalCount={taskAttachmentCount}
+              loadingFull={attachmentLoadingTaskId === task.task_id}
+              priority={taskIdx < 2}
+              onOpenGallery={(startIdx) => {
+                void openCompleteImageGallery(
+                  task,
+                  taskImages,
+                  startIdx,
+                  taskAttachmentCount,
+                );
+              }}
+              onOpenAll={() => {
+                void openCompleteAttachmentCollection(
+                  task,
+                  taskAttachmentCount,
+                );
+              }}
+            />
           )}
 
-          {/* ─── 元数据单行：人 · 状态 · 优先级 · 截止 · 风险 · 附件 ─── */}
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-500">
-            {isSelectedPersonCollaborator && (
-              <>
-                <span
-                  className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-inset ring-sky-200"
-                  title={t("{name} 以协作人身份参与此任务", { name: displayPersonName(activeTab) })}
-                >
-                  <Users className="size-3" />
-                  {t("协助")}
-                </span>
-                <span className="text-slate-300">·</span>
-              </>
-            )}
-            {shouldShowOwner && task.primary_owner && (
-              <>
-                <span className="inline-flex items-center gap-1.5">
-                  <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="xs" />
-                  <span className="font-medium text-slate-700">{displayPersonName(task.primary_owner)}</span>
-                </span>
-                <span className="text-slate-300">·</span>
-              </>
-            )}
-            <span className="inline-flex items-center gap-1">
-              <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.text.replace("text-", "bg-"))} />
-              {t(sCfg.label)}
+          {/* ─── 进度条：与参考卡片一致，放在执行信息之前 ─── */}
+          <div className="mt-auto flex items-center gap-2 pt-0.5">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+              <motion.div
+                className="h-full rounded-full"
+                initial={{ width: 0 }}
+                animate={{ width: `${task.progress}%` }}
+                transition={{ duration: 0.45, ease: RD_MOTION_EASE, delay: taskIdx * 0.03 }}
+                style={{ background: task.progress === 100 ? "#10b981" : `linear-gradient(90deg, ${grad.from}, ${grad.to})` }}
+              />
+            </div>
+            <span className="w-9 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">
+              {task.progress}%
             </span>
-            <span className="text-slate-300">·</span>
-            <span className={cn("font-medium", PRIORITY_INLINE_TEXT[priorityKey] ?? PRIORITY_INLINE_TEXT.medium)}>{t(`${pCfg.label}优先`)}</span>
+          </div>
+
+          {/* 参考卡片尾部：优先级 / 截止 / 风险在左，更新人与头像在右。 */}
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-slate-100 pt-2 text-[10px] text-slate-500">
+            <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold", pCfg.bg, pCfg.text)}>
+              <Flame className="h-3 w-3" />
+              {t(`${pCfg.label}优先`)}
+            </span>
             {task.due_date && (
-              <>
-                <span className="text-slate-300">·</span>
-                <span className="inline-flex items-center gap-1">
-                  <CalendarClock className="h-3 w-3 text-amber-500" />
-                  {t("止 {date}", { date: task.due_date.slice(5) })}
-                </span>
-              </>
+              <span className="inline-flex items-center gap-1">
+                <CalendarClock className="h-3 w-3 text-slate-400" />
+                {t("截止：")}{task.due_date.slice(5)}
+              </span>
             )}
             {isRisk && (
-              <span className="inline-flex items-center gap-0.5 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+              <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-1.5 py-0.5 font-semibold text-red-600">
                 <AlertTriangle className="h-3 w-3" />
                 {t("风险")}
               </span>
@@ -7932,27 +7868,18 @@ function PersonTaskCockpit({
                 {task.work_items!.filter((it) => it.done).length}/{task.work_items!.length}
               </span>
             )}
-            {task.attachments > 0 && !hasLoadedAttachments && (
-              <span className="inline-flex items-center gap-0.5 text-slate-500">
-                <Paperclip className="h-3 w-3" />
-                {task.attachments}
-              </span>
-            )}
-          </div>
-
-          {/* ─── 进度条 ─── */}
-          <div className="flex items-center gap-2 pt-0.5">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-              <motion.div
-                className="h-full rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: `${task.progress}%` }}
-                transition={{ duration: 0.45, ease: RD_MOTION_EASE, delay: taskIdx * 0.03 }}
-                style={{ background: task.progress === 100 ? "#10b981" : `linear-gradient(90deg, ${grad.from}, ${grad.to})` }}
+            <span className="ml-auto inline-flex min-w-0 items-center gap-1.5 text-slate-400">
+              {relativeUpdate && <span>{t("更新：")}{relativeUpdate.label}</span>}
+              <OwnerAvatar
+                name={task.latest_progress_summary?.actor_name || task.primary_owner}
+                userId={task.latest_progress_summary
+                  ? task.latest_progress_summary.actor_user_id
+                  : task.primary_owner_user_id}
+                size="xs"
               />
-            </div>
-            <span className="w-9 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">
-              {task.progress}%
+              <span className="max-w-[72px] truncate font-medium text-slate-600">
+                {displayPersonName(task.latest_progress_summary?.actor_name || task.primary_owner)}
+              </span>
             </span>
           </div>
         </div>
@@ -8330,7 +8257,7 @@ function PersonTaskCockpit({
                               <div key={colIdx} className={cn("flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
                                 <AnimatePresence>
                                   {column.map((task, rowIdx) =>
-                                    renderTaskCard(task, colIdx + rowIdx * masonryColumns, allGrad, { showOwner: true }),
+                                    renderTaskCard(task, colIdx + rowIdx * masonryColumns, allGrad),
                                   )}
                                 </AnimatePresence>
                               </div>
@@ -8379,7 +8306,6 @@ function PersonTaskCockpit({
                   const ratio = p.max > 0 ? p.count / p.max : 0;
                   const grad = loadRingGradient(ratio, p.onLeave);
                   const initial = p.name.replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
-
                   return (
                     <div>
                       {/* 附件图片加载中提示 */}
@@ -9330,6 +9256,7 @@ function ExecutiveOverview({
   products,
   risks,
   personLoads,
+  peopleDirectory,
   allTasks,
   initialActivityActor,
   onSelectSystem,
@@ -9367,6 +9294,7 @@ function ExecutiveOverview({
   /** 与 allTasks 同范围的风险集（概览下跨库）：KPI「风险」计数与风险筛选据此，二者才对得上。 */
   risks: Risk[];
   personLoads: PersonLoad[];
+  peopleDirectory: readonly PersonProfile[];
   allTasks: Task[];
   initialActivityActor?: TaskActivityActor | null;
   onSelectSystem: (catId: string, productId: string) => void;
@@ -9534,7 +9462,7 @@ function ExecutiveOverview({
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <RdTaskExportButton allTasks={allTasks} />
+                <RdTaskExportButton allTasks={allTasks} peopleDirectory={peopleDirectory} />
                 {canReassign && onReassign && (
                   <button
                     type="button"
@@ -9681,8 +9609,8 @@ function ExecutiveOverview({
 
             {(
               <div className="order-2 flex flex-wrap justify-start gap-2 lg:justify-end">
-                {/* 导出：按时间段导出所有人员任务完成情况（只读，所有可见驾驶舱的人可用） */}
-                <RdTaskExportButton allTasks={allTasks} />
+                {/* 导出：按时间段导出当前研发驾驶舱配置人员的任务完成情况。 */}
+                <RdTaskExportButton allTasks={allTasks} peopleDirectory={peopleDirectory} />
                 {onAiClassifyTasks && (
                   <button
                     type="button"
@@ -11777,6 +11705,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           // 且 KPI「风险」数与点开后筛出的条数对不上
           risks={kpiRisks}
           personLoads={personLoads}
+          peopleDirectory={peopleProfiles}
           // 概览「人员任务」用跨所有产品库的任务全集（与 personLoads 角标同范围）
           allTasks={peopleAllTasks}
           initialActivityActor={initialActivityActor}

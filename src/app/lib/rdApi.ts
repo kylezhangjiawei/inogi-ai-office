@@ -141,6 +141,7 @@ export type RdLatestProgressSummary = {
   text: string;
   progress: number | null;
   actor_name: string;
+  actor_user_id?: string | null;
   created_at: string;
   attachments_count: number;
 };
@@ -344,6 +345,8 @@ export type RdWorkspaceTask = {
   collab_role?: string;
   on_leave?: boolean;
   ai_pending?: boolean;
+  /** 任务全部留痕附件数量；个人工作台卡片只加载少量预览，不在列表接口内下发附件正文。 */
+  attachments?: number;
   latest_progress_summary?: RdLatestProgressSummary | null;
   /** 已完成任务的 AI 完成评分摘要；聚合接口原样透传，不参与分组计算。 */
   completion_score?: { total: number; grade: string } | null;

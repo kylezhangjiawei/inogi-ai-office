@@ -16,12 +16,15 @@ import {
   ClipboardCheck,
   Clock,
   FileText,
+  Flame,
   Folder,
   FolderOpen,
   FolderInput,
   GitBranch,
   Info,
   MessageSquare,
+  MoreVertical,
+  Paperclip,
   RefreshCw,
   Search,
   Send,
@@ -38,6 +41,12 @@ import { Checkbox } from "./components/ui/checkbox";
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
@@ -68,6 +77,7 @@ import {
   fetchRdPeople,
   fetchRdProducts,
   fetchRdTaskCategories,
+  fetchRdTaskAttachmentPreviews,
   fetchMergedTaskCategories,
   fetchRdPerformanceReports,
   fetchRdTaskProgressNotes,
@@ -85,6 +95,7 @@ import {
   type RdProductDef,
   type RdSubProject,
   type RdTaskProgressAttachment,
+  type RdTaskAttachmentPreview,
   type RdTaskProgressNote,
   type RdWorkItem,
   isUsCollabWorkspace,
@@ -96,6 +107,7 @@ import {
   type RdAiSuggestion,
   type RdWorkspaceNotification,
   type RdPerformanceReport,
+  getAttachmentThumbUrl,
 } from "./lib/rdApi";
 import { SubtaskBadge } from "./RDTaskManagementPage";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
@@ -3394,6 +3406,7 @@ function WorkspaceMoveDialog({
 
 function WorkspaceTaskCard({
   task,
+  attachmentPreview,
   onOpen,
   moveEnabled = false,
   selected = false,
@@ -3402,6 +3415,7 @@ function WorkspaceTaskCard({
   unreadCount = 0,
 }: {
   task: WorkspaceTask;
+  attachmentPreview?: RdTaskAttachmentPreview;
   onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => void;
   /** 子系统全景视图下、且为自己主责的任务才允许移动/勾选。 */
   moveEnabled?: boolean;
@@ -3412,7 +3426,6 @@ function WorkspaceTaskCard({
   unreadCount?: number;
 }) {
   const grad = WS_PRIORITY_GRAD[task.priority] ?? WS_PRIORITY_GRAD.medium!;
-  const sCfg = WS_STATUS_CONFIG[task.status] ?? WS_STATUS_CONFIG.draft!;
   const pCfg = WS_PRIORITY_CONFIG[task.priority] ?? WS_PRIORITY_CONFIG.medium!;
   const days = workspaceDaysUntil(task.due_date);
   const isOverdue = isTaskOverdue(task);
@@ -3424,6 +3437,23 @@ function WorkspaceTaskCard({
   const canAbandon =
     !isForeignWorkspace && task.role === "primary" &&
     ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
+  const hierarchyTags = task.category_path
+    .split(/[\/／>＞|]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(-2);
+  const attachmentCount = attachmentPreview?.attachment_count ?? task.attachments ?? 0;
+  const attachmentImages = (attachmentPreview?.attachments ?? [])
+    .filter((attachment) => attachment.mime.startsWith("image/"));
+  const visibleAttachmentImages = attachmentImages.slice(0, 4);
+  const hiddenAttachmentCount = Math.max(0, attachmentCount - visibleAttachmentImages.length);
+  const latestActivity = task.latest_progress_summary;
+  const taskAtRisk = isOverdue || task.status === "paused_blocked" || task.blockers.length > 0;
+  const cardSummary =
+    task.latest_progress_summary?.text?.trim()
+    || task.next_action?.trim()
+    || task.description?.trim()
+    || t("暂无进展摘要");
 
   return (
     <motion.div
@@ -3435,105 +3465,153 @@ function WorkspaceTaskCard({
       tabIndex={isPendingReview ? undefined : 0}
       aria-disabled={isPendingReview || undefined}
       title={isPendingReview ? t("待审核任务，管理员审核通过后方可操作") : undefined}
-      onKeyDown={isPendingReview ? undefined : (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(task, "detail"); } }}
+      onKeyDown={isPendingReview ? undefined : (e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(task, "detail");
+        }
+      }}
       className={cn(
-        "group relative overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_1px_4px_rgba(15,23,42,0.04)] transition-all duration-200 focus-visible:outline-none",
+        "group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-all duration-200 focus-visible:outline-none",
         isPendingReview
           ? "cursor-not-allowed select-text bg-slate-50 opacity-60 grayscale"
-          : "cursor-pointer hover:-translate-y-0.5 hover:border-slate-200 hover:shadow-[0_8px_24px_rgba(15,23,42,0.09)] focus-visible:ring-2 focus-visible:ring-slate-300",
+          : "cursor-pointer hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_12px_28px_-12px_rgba(79,70,229,0.28)] focus-visible:ring-2 focus-visible:ring-indigo-200",
         selected && "ring-2 ring-indigo-400/70",
       )}
     >
-      {/* Left gradient stripe */}
-      <div
-        className="absolute left-0 top-0 h-full w-1 rounded-l-2xl"
-        style={{ background: `linear-gradient(to bottom, ${grad.from}, ${grad.to})` }}
-      />
-
-      <div className="flex items-center gap-3.5 px-4 py-3.5">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          {/* Badges */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className={cn("inline-flex shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold", sCfg.bg, sCfg.text)}>
-              {t(sCfg.label)}
-            </span>
-            <span className={cn("inline-flex shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold", pCfg.bg, pCfg.text)}>
-              {t(pCfg.label)}
-            </span>
+      <div className="flex min-h-[220px] min-w-0 flex-col gap-2.5 px-4 py-3.5">
+        {/* 参考卡片第一行：分类标签在左，附件和三点菜单在右。 */}
+        <div className="flex items-start gap-3">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-hidden">
+            {hierarchyTags.map((tag) => (
+              <span
+                key={tag}
+                title={tag}
+                className="max-w-[150px] truncate rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700"
+              >
+                {tag}
+              </span>
+            ))}
             <span className={cn(
-              "inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+              "inline-flex shrink-0 items-center gap-0.5 rounded-md px-2 py-1 text-[10px] font-semibold",
               task.role === "primary" ? "bg-blue-50 text-blue-600" : "bg-slate-100 text-slate-500"
             )}>
               {task.role === "primary" ? t("主责") : `${t("协作")}${task.collab_role ? ` · ${task.collab_role}` : ""}`}
             </span>
             {task.source_workspace && (
               <span className={cn(
-                "inline-flex shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                task.source_workspace === "us-collab"
-                  ? "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-100"
-                  : "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100",
+                "inline-flex shrink-0 rounded-md px-2 py-1 text-[10px] font-semibold",
+                task.source_workspace === "us-collab" ? "bg-cyan-50 text-cyan-700" : "bg-indigo-50 text-indigo-700",
               )}>
                 {task.source_workspace === "us-collab" ? t("协同") : t("研发")}
               </span>
             )}
-            {/* 子任务身份：一眼看出"这不是独立任务"，并区分子建/并入 */}
             {task.parent_task_id && <SubtaskBadge task={task} />}
-            {/* 父任务侧：标出带几个子任务，与驾驶舱「含 N 个子任务」同口径 */}
             {(task.subtasks?.length ?? 0) > 0 && (
-              <span
-                className="inline-flex shrink-0 items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600"
-                title={t("本任务含 {n} 个子任务", { n: task.subtasks!.length })}
-              >
+              <span className="inline-flex shrink-0 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
                 {t("含 {n} 子任务", { n: task.subtasks!.length })}
               </span>
             )}
             {task.ai_pending && (
-              <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600">
+              <span className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-600">
                 <Sparkles className="h-2.5 w-2.5" />
                 {t("AI待确认")}
               </span>
             )}
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1.5">
+            {attachmentCount > 0 && (
+              <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg bg-indigo-50 px-2 text-[10px] font-semibold text-indigo-700">
+                <Paperclip className="h-3 w-3" />
+                {t("附件")} <span className="tabular-nums">{attachmentCount}</span>
+              </span>
+            )}
             {unreadCount > 0 && (
-              <span
-                className="ml-auto inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm"
-                title={t("有 {n} 条未读评论", { n: unreadCount })}
-              >
+              <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
+            {!isPendingReview && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(event) => event.stopPropagation()}
+                    className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+                    aria-label={t("更多操作")}
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-40" onClick={(event) => event.stopPropagation()}>
+                  <DropdownMenuItem onSelect={() => onOpen(task, "detail")}>
+                    <ArrowRight className="h-4 w-4" />
+                    {t("查看任务")}
+                  </DropdownMenuItem>
+                  {moveEnabled && !isForeignWorkspace && onMove && (
+                    <DropdownMenuItem onSelect={() => onMove(task)}>
+                      <FolderInput className="h-4 w-4" />
+                      {t("移动")}
+                    </DropdownMenuItem>
+                  )}
+                  {canAbandon && (
+                    <DropdownMenuItem onSelect={() => onOpen(task, "detail", { abandon: true })}>
+                      <X className="h-4 w-4" />
+                      {t("申请放弃")}
+                    </DropdownMenuItem>
+                  )}
+                  {moveEnabled && onToggleSelect && (
+                    <DropdownMenuItem onSelect={() => onToggleSelect(task)}>
+                      <Check className="h-4 w-4" />
+                      {selected ? t("取消选择") : t("选择任务")}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
+        </div>
+
+        <div className="flex min-w-0 flex-1 flex-col gap-2.5">
 
           {/* Title */}
-          <div className="truncate text-[13px] font-semibold leading-snug text-slate-800 group-hover:text-slate-900">
+          <div className="line-clamp-2 text-[15px] font-bold leading-snug text-slate-900">
             <AutoTranslatedText text={task.title} />
           </div>
-          {task.latest_progress_summary?.text ? (
-            <div className="line-clamp-2 rounded-lg bg-slate-50 px-2 py-1 text-[11px] leading-4 text-slate-600 ring-1 ring-slate-100">
-              {t("最新进度：")}<AutoTranslatedText text={task.latest_progress_summary.text} />
-            </div>
-          ) : null}
-
-          {/* Dates + category */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-400">
-            {task.due_date && (
-              <span className={cn("flex items-center gap-0.5", isOverdue && "text-red-400 font-semibold")}>
-                <CalendarClock className="h-2.5 w-2.5 shrink-0" />
-                {isOverdue ? t("逾期 {n} 天", { n: taskOverdueDays(task) }) : days === 0 ? t("今天到期") : `${t("止")} ${task.due_date}`}
-              </span>
-            )}
-            {!isUsCollabWorkspace() && task.category_path && (
-              <span className="truncate">{task.category_path}</span>
-            )}
-            {/* 子任务归属：卡片上直接标出父任务，不用点进抽屉才知道挂在谁下面 */}
-            {task.parent_task_id && (
-              <span className="min-w-0 truncate" title={task.parent_title || task.parent_task_id}>
-                {t("属于：{title}", { title: task.parent_title || task.parent_task_id })}
-              </span>
-            )}
+          <div className="line-clamp-2 min-h-10 text-xs leading-5 text-slate-500">
+            <AutoTranslatedText text={cardSummary} />
           </div>
 
+          {/* 参考驾驶舱附件卡：缩略图只占当前卡片宽度，剩余数量收进 +N。 */}
+          {visibleAttachmentImages.length > 0 && (
+            <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+              {visibleAttachmentImages.map((attachment) => (
+                <div
+                  key={attachment.id}
+                  className="h-12 w-[68px] shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+                  title={attachment.name}
+                >
+                  <img
+                    src={getAttachmentThumbUrl(attachment)}
+                    alt={attachment.name}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </div>
+              ))}
+              {hiddenAttachmentCount > 0 && (
+                <div className="flex h-12 min-w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-indigo-200 bg-indigo-50/70 px-2 text-xs font-bold tabular-nums text-indigo-600">
+                  +{hiddenAttachmentCount}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Progress bar */}
-          <div className="mt-0.5 flex items-center gap-2">
+          <div className="mt-auto flex items-center gap-2 pt-0.5">
             <div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100">
               <div
                 className="h-full rounded-full transition-all duration-500"
@@ -3547,59 +3625,34 @@ function WorkspaceTaskCard({
               {task.progress}%
             </span>
           </div>
-        </div>
 
-        {!isPendingReview && (
-          <div className="flex shrink-0 items-center gap-1">
-            {moveEnabled && !isForeignWorkspace && onMove && (
-              <button
-                type="button"
-                title={t("移动到其它系统 / 子项")}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMove(task);
-                }}
-                className="inline-flex cursor-pointer items-center gap-0.5 rounded-lg border border-transparent px-2 py-1 text-[11px] font-medium text-indigo-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-              >
-                <FolderInput className="h-3 w-3" />
-                {t("移动")}
-              </button>
+          {/* 卡片尾部集中呈现执行信息，便于横向扫读。 */}
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-slate-100 pt-2 text-[10px] text-slate-500">
+            <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold", pCfg.bg, pCfg.text)}>
+              <Flame className="h-3 w-3" />
+              {t(`${pCfg.label}优先`)}
+            </span>
+            {task.due_date && (
+              <span className={cn("inline-flex items-center gap-1", isOverdue && "font-semibold text-red-500")}>
+                <CalendarClock className="h-3 w-3 shrink-0" />
+                {isOverdue ? t("逾期 {n} 天", { n: taskOverdueDays(task) }) : days === 0 ? t("今天到期") : `${t("截止：")} ${task.due_date.slice(5)}`}
+              </span>
             )}
-            {canAbandon && (
-              <button
-                type="button"
-                title={t("申请放弃此任务（需管理员审核）")}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpen(task, "detail", { abandon: true });
-                }}
-                className="cursor-pointer rounded-lg border border-transparent px-2 py-1 text-[11px] font-medium text-slate-400 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
-              >
-                {t("申请放弃")}
-              </button>
+            {taskAtRisk && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-1.5 py-0.5 font-semibold text-red-600">
+                <AlertTriangle className="h-3 w-3" />
+                {t("风险")}
+              </span>
             )}
-            {moveEnabled && onToggleSelect ? (
-              <button
-                type="button"
-                title={selected ? t("取消选择") : t("勾选以批量移动")}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleSelect(task);
-                }}
-                className={cn(
-                  "ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors",
-                  selected
-                    ? "border-indigo-500 bg-indigo-500 text-white"
-                    : "border-slate-300 bg-white text-transparent hover:border-indigo-300",
-                )}
-              >
-                <Check className="h-3 w-3" />
-              </button>
-            ) : (
-              <ChevronRight className="h-4 w-4 text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
-            )}
+            <span className="ml-auto inline-flex min-w-0 items-center gap-1.5 text-slate-400">
+              {latestActivity && <span>{t("更新：")}{relativeTimeLabel(latestActivity.created_at, latestActivity.created_at)}</span>}
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-800 text-[9px] font-bold text-white">
+                {(latestActivity?.actor_name || task.owner).trim().slice(0, 1)}
+              </span>
+              <span className="max-w-[70px] truncate font-medium text-slate-600">{latestActivity?.actor_name || task.owner}</span>
+            </span>
           </div>
-        )}
+        </div>
       </div>
     </motion.div>
   );
@@ -4211,6 +4264,8 @@ export function RDMyWorkspacePage() {
     ? user.permissions.includes("*") || user.permissions.includes("rd-task:edit") || user.permissions.includes("rd-task:reassign")
     : false;
   const [workspace, setWorkspace] = useState<RdWorkspacePayload<WorkspaceTask, AiSuggestion, WorkspaceNotification>>(EMPTY_WORKSPACE);
+  const [taskAttachmentPreviews, setTaskAttachmentPreviews] = useState<Record<string, RdTaskAttachmentPreview>>({});
+  const taskAttachmentPreviewRef = useRef<Record<string, RdTaskAttachmentPreview>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [closedSuggestions, setClosedSuggestions] = useState<Set<string>>(new Set());
@@ -4360,8 +4415,35 @@ export function RDMyWorkspacePage() {
   );
   const shownTasks = filteredRoleTasks.slice(0, taskVisibleCount);
   const hasMoreTasks = taskVisibleCount < filteredRoleTasks.length;
+  const visiblePreviewTaskIds = shownTasks
+    .filter((task) => {
+      const source = task.source_workspace ?? (isUsCollabWorkspace() ? "us-collab" : "rd");
+      return source === (isUsCollabWorkspace() ? "us-collab" : "rd");
+    })
+    .map((task) => task.task_id);
+  const visiblePreviewTaskKey = visiblePreviewTaskIds.join("|");
   // Keep ref in sync so the IntersectionObserver callback always has the latest value
   filteredRoleTasksLengthRef.current = filteredRoleTasks.length;
+
+  useEffect(() => {
+    const missingIds = visiblePreviewTaskKey
+      .split("|")
+      .filter(Boolean)
+      .filter((taskId) => !(taskId in taskAttachmentPreviewRef.current));
+    if (missingIds.length === 0) return;
+    const controller = new AbortController();
+    void fetchRdTaskAttachmentPreviews(missingIds, { signal: controller.signal })
+      .then((previews) => {
+        if (!controller.signal.aborted) {
+          taskAttachmentPreviewRef.current = { ...taskAttachmentPreviewRef.current, ...previews };
+          setTaskAttachmentPreviews((current) => ({ ...current, ...previews }));
+        }
+      })
+      .catch(() => {
+        // 附件预览失败不阻断任务列表，数量仍由工作台任务投影展示。
+      });
+    return () => controller.abort();
+  }, [visiblePreviewTaskKey]);
 
   // Reset pagination when filters change
   useEffect(() => {
@@ -4761,6 +4843,11 @@ export function RDMyWorkspacePage() {
                         <WorkspaceTaskCard
                           key={workspaceTaskIdentity(task)}
                           task={task}
+                          attachmentPreview={
+                            (task.source_workspace ?? (isUsCollabWorkspace() ? "us-collab" : "rd")) === (isUsCollabWorkspace() ? "us-collab" : "rd")
+                              ? taskAttachmentPreviews[task.task_id]
+                              : undefined
+                          }
                           onOpen={openTask}
                           unreadCount={task.source_workspace === "us-collab" ? 0 : noteUnread[task.task_id] ?? 0}
                         />

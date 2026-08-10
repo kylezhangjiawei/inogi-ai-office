@@ -6776,6 +6776,7 @@ export class ResearchDevelopmentService {
       text: text || fallbackText,
       progress: Number.isFinite(progressValue) ? Math.round(progressValue) : null,
       actor_name: cleanText(value.actor_name ?? actor.name) || '系统',
+      actor_user_id: cleanUserId(value.actor_user_id ?? value.actor_id ?? actor.user_id ?? actor.id) || null,
       created_at: createdAt,
       attachments_count: attachmentsCount,
     };
@@ -8481,6 +8482,7 @@ export class ResearchDevelopmentService {
       // 阻塞起点（进入 paused_blocked 时由 updateTask 记录），协同工作台显示"已阻塞 N 天"
       blocked_since: cleanText(task.blocked_since) || null,
       ai_pending: task.ai_modified === true,
+      attachments: typeof task.attachments === 'number' ? Math.max(0, task.attachments) : 0,
       latest_progress_summary: this.normalizeLatestProgressSummary(task.latest_progress_summary),
       completion_score: this.extractCompletionScoreSummary(task.completion_score),
       // 工作项清单（任务内部轻量拆分）：工作台留痕表单据此提供「关联工作项」选择

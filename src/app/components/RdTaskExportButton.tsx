@@ -1,7 +1,7 @@
 /**
  * 研发任务驾驶舱「导出完成情况」按钮 + 起止时间弹窗。
  * 自包含：管理弹窗状态、调用 exportRdTasksXlsx 生成并下载 Excel。
- * 只读操作（导出已在页面可见的数据），不额外加权限门。
+ * 只读操作；导出前仍按当前研发驾驶舱配置人员目录做数据边界校验。
  */
 import * as React from "react";
 import { createPortal } from "react-dom";
@@ -11,13 +11,20 @@ import { toast } from "sonner";
 import { exportRdTasksXlsx } from "../lib/rdTaskExport";
 import { t, useI18n } from "../lib/i18n";
 import type { RdTask } from "../lib/rdApi";
+import type { RdMemberDirectoryEntry } from "../lib/rdMemberIdentity";
 
 function toYmd(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-export function RdTaskExportButton({ allTasks }: { allTasks: RdTask[] }) {
+export function RdTaskExportButton({
+  allTasks,
+  peopleDirectory,
+}: {
+  allTasks: RdTask[];
+  peopleDirectory: readonly RdMemberDirectoryEntry[];
+}) {
   useI18n(); // 订阅语言切换（按钮文案 t()）
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -42,7 +49,7 @@ export function RdTaskExportButton({ allTasks }: { allTasks: RdTask[] }) {
     }
     setBusy(true);
     try {
-      const count = await exportRdTasksXlsx(allTasks, { start, end });
+      const count = await exportRdTasksXlsx(allTasks, { start, end }, peopleDirectory);
       if (count === 0) {
         toast.message("该时间段内没有有活动记录的任务", { description: "已导出空表，可调整时间范围后重试。" });
       } else {
@@ -61,7 +68,7 @@ export function RdTaskExportButton({ allTasks }: { allTasks: RdTask[] }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title="按时间段导出所有人员任务完成情况（Excel）"
+        title="按时间段导出研发驾驶舱配置人员的任务完成情况（Excel）"
         className="group flex flex-none items-center gap-2 rounded-xl border border-sky-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700 active:translate-y-0 active:scale-[0.98]"
       >
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 ring-1 ring-sky-100">
@@ -84,7 +91,7 @@ export function RdTaskExportButton({ allTasks }: { allTasks: RdTask[] }) {
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
               <div>
                 <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">导出任务完成情况</h3>
-                <p className="mt-0.5 text-xs text-slate-400">选择起止日期，导出该时间段内所有人员的任务与完成状态</p>
+                <p className="mt-0.5 text-xs text-slate-400">选择起止日期，仅导出当前研发驾驶舱配置人员的任务与完成状态</p>
               </div>
               <button
                 type="button"
@@ -146,7 +153,7 @@ export function RdTaskExportButton({ allTasks }: { allTasks: RdTask[] }) {
                 ))}
               </div>
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-400 dark:bg-slate-800/50">
-                说明：含「人员汇总」与「任务明细」两个工作表；按任务最近活动时间归入时间段，封存任务不计入。
+                说明：含「人员汇总」与「任务明细」两个工作表；按任务最近活动时间归入时间段，非研发配置人员、离职及封存任务不计入。
               </p>
             </div>
 

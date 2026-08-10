@@ -5,6 +5,7 @@
 // 完成时间口径：任务无真正的 completed_at 字段，故以 last_activity_at（退化 updated_at）
 // 作为「最近活动 / 完成时间」近似——已与用户确认采用此口径。
 import type { RdTask } from "./rdApi";
+import { isTaskOwnerMember, type RdMemberDirectoryEntry } from "./rdMemberIdentity";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
@@ -53,19 +54,36 @@ export type RdExportRange = { start: string; end: string }; // YYYY-MM-DD（含�
 
 /**
  * 生成并下载 xlsx。返回纳入导出的任务数（0 表示该区间无数据，调用方可据此提示）。
- * 过滤口径：非封存(archived=false) + 最近活动时间落在 [start 00:00, end 23:59:59] 内。
+ * 过滤口径：当前研发驾驶舱配置人员主责 + 非封存 + 最近活动时间落在指定区间内。
  */
-export async function exportRdTasksXlsx(allTasks: RdTask[], range: RdExportRange): Promise<number> {
+export function filterRdTasksForExport(
+  allTasks: RdTask[],
+  range: RdExportRange,
+  peopleDirectory: readonly RdMemberDirectoryEntry[],
+): RdTask[] {
+  if (peopleDirectory.length === 0) {
+    throw new Error("研发人员目录尚未加载，已阻止导出以避免包含非研发人员数据");
+  }
+
   const startMs = new Date(`${range.start}T00:00:00`).getTime();
   const endMs = new Date(`${range.end}T23:59:59.999`).getTime();
 
-  const inRange = flatten(allTasks).filter((t) => {
-    if (t.archived) return false;
-    const at = activityTime(t);
+  return flatten(allTasks).filter((task) => {
+    if (task.archived) return false;
+    if (!isTaskOwnerMember(task.primary_owner, task.primary_owner_user_id, peopleDirectory)) return false;
+    const at = activityTime(task);
     if (!at) return false;
     const ms = new Date(at).getTime();
     return !Number.isNaN(ms) && ms >= startMs && ms <= endMs;
   });
+}
+
+export async function exportRdTasksXlsx(
+  allTasks: RdTask[],
+  range: RdExportRange,
+  peopleDirectory: readonly RdMemberDirectoryEntry[],
+): Promise<number> {
+  const inRange = filterRdTasksForExport(allTasks, range, peopleDirectory);
 
   // 明细：一任务一行，按主责人。
   const detail = inRange

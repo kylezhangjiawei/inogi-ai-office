@@ -96,6 +96,8 @@ type ConversationFeedItem =
   | { kind: "note"; createdAt: string; note: RdTaskProgressNote }
   | { kind: "message"; createdAt: string; message: RdTaskDiscussionMessage };
 
+type ProgressFeedNote = Extract<ConversationFeedItem, { kind: "note" }>;
+
 function fileKind(file: Pick<File, "type" | "name">): "image" | "video" | "file" {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
@@ -302,6 +304,18 @@ function ProgressDateHeader({ iso }: { iso: string }) {
       <span className="h-px flex-1 bg-slate-200" aria-hidden="true" />
     </div>
   );
+}
+
+function formatTimelineDate(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return { primary: iso.slice(0, 10), secondary: "" };
+  const now = new Date();
+  const dateKey = localDayKey(iso);
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const numericDate = `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return dateKey === todayKey
+    ? { primary: t("今天"), secondary: numericDate }
+    : { primary: numericDate, secondary: "" };
 }
 
 function summaryFor(
@@ -874,6 +888,7 @@ function ProgressAnchorCard({
   onActorClick,
   candidates,
   variant,
+  presentation = "card",
 }: {
   note: RdTaskProgressNote;
   summary?: RdTaskDiscussionThreadSummary;
@@ -883,6 +898,7 @@ function ProgressAnchorCard({
   onActorClick?: (actor: AuditActorIdentity) => void;
   candidates: MentionCandidate[];
   variant: "desktop" | "mobile";
+  presentation?: "card" | "timeline";
 }) {
   const tone = progressTone(note.progress);
   const sourceTask = note.source_task;
@@ -893,12 +909,26 @@ function ProgressAnchorCard({
     auditActorMatchesIdentity(note.actor, selectedActor)
     || auditActorMatchesIdentity(selectedActor, note.actor)
   ));
+  const timeline = presentation === "timeline";
   return (
-    <article className={cn("overflow-hidden rounded-lg border border-slate-200 border-l-[3px] bg-white shadow-[0_3px_12px_rgba(15,23,42,0.05)]", tone.border)}>
-      <div className={cn("flex min-h-8 items-center gap-1.5 border-b border-slate-200/80 px-2 py-1", tone.header)}>
-        <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-bold text-indigo-700">
+    <article className={cn(
+      "overflow-hidden border border-slate-200 border-l-[3px] bg-white",
+      timeline
+        ? "rounded-xl shadow-[0_5px_18px_rgba(15,23,42,0.055)]"
+        : "rounded-lg shadow-[0_3px_12px_rgba(15,23,42,0.05)]",
+      tone.border,
+    )}>
+      <div className={cn(
+        "flex items-center border-b border-slate-200/80",
+        timeline ? "min-h-10 gap-2 px-3 py-1.5" : "min-h-8 gap-1.5 px-2 py-1",
+        tone.header,
+      )}>
+        <span className={cn(
+          "inline-flex shrink-0 items-center gap-1 font-bold text-indigo-700",
+          timeline ? "text-[11px]" : "text-[10px]",
+        )}>
           <Sparkles className="h-3 w-3" />
-          {t("留痕")}
+          {t(timeline ? "进度更新" : "留痕")}
         </span>
         <span className="h-3.5 w-px shrink-0 bg-slate-300/80" aria-hidden="true" />
         {onActorClick ? (
@@ -908,7 +938,8 @@ function ProgressAnchorCard({
             onClick={() => onActorClick({ id: note.actor.id, name: note.actor.name })}
             title={t(actorSelected ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")}
             className={cn(
-              "inline-flex min-w-0 shrink cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 text-[10px] transition-colors hover:bg-indigo-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+              "inline-flex min-w-0 shrink cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-indigo-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+              timeline ? "text-[11px]" : "text-[10px]",
               actorSelected && "bg-indigo-100 text-indigo-800 ring-1 ring-inset ring-indigo-200",
             )}
           >
@@ -916,12 +947,12 @@ function ProgressAnchorCard({
             <span className="truncate font-bold text-slate-800">{note.actor.name}</span>
           </button>
         ) : (
-          <span className="inline-flex min-w-0 shrink items-center gap-1 text-[10px]">
+          <span className={cn("inline-flex min-w-0 shrink items-center gap-1", timeline ? "text-[11px]" : "text-[10px]")}>
             <ConversationAvatar name={note.actor.name} userId={note.actor.id} size="xs" />
             <span className="truncate font-bold text-slate-800">{note.actor.name}</span>
           </span>
         )}
-        <div className="min-w-0 flex-1 truncate text-[10px] text-slate-500">
+        <div className={cn("min-w-0 flex-1 truncate text-slate-500", timeline ? "text-[11px]" : "text-[10px]")}>
           <span>{note.actor.role ? t(note.actor.role) : t("研发成员")}</span>
         </div>
         {typeof note.progress === "number" && (
@@ -931,7 +962,7 @@ function ProgressAnchorCard({
         )}
         <time className="shrink-0 font-mono text-[9px] tabular-nums text-slate-500">{formatTimeWithSeconds(note.created_at)}</time>
       </div>
-      <div className="px-2.5 py-1.5">
+      <div className={cn(timeline ? "px-4 py-3" : "px-2.5 py-1.5")}>
         {sourceTask && (
           <div className="mb-1.5 flex min-w-0 items-center gap-1.5">
             <button
@@ -952,7 +983,10 @@ function ProgressAnchorCard({
           </div>
         )}
         {note.text && (
-          <p className="whitespace-pre-wrap text-[13px] leading-[18px] text-slate-800">
+          <p className={cn(
+            "whitespace-pre-wrap text-slate-800",
+            timeline ? "text-[13px] leading-5" : "text-[13px] leading-[18px]",
+          )}>
             {renderTextWithMentions(note.text, note.mentions)}
           </p>
         )}
@@ -1454,6 +1488,7 @@ export function RDTaskConversation({
   onRetryNotes,
   showHeader = true,
   threadLayout = "responsive",
+  progressPresentation = "cards",
   focusAnchor,
   focusMessageId,
   className,
@@ -1476,6 +1511,7 @@ export function RDTaskConversation({
   onRetryNotes?: () => void;
   showHeader?: boolean;
   threadLayout?: "responsive" | "replace";
+  progressPresentation?: "cards" | "timeline";
   focusAnchor?: RdFocusedDiscussionAnchor;
   focusMessageId?: string | null;
   className?: string;
@@ -1802,6 +1838,18 @@ export function RDTaskConversation({
     await loadThread(anchor, true);
   }, [loadThread]);
 
+  const openProgressThread = useCallback((note: RdTaskProgressNote) => {
+    void openThread({
+      type: "progress_note",
+      id: note.id,
+      taskId: note.source_task?.task_id ?? note.task_id,
+      author: note.actor.name,
+      preview: note.text,
+      createdAt: note.created_at,
+      note,
+    });
+  }, [openThread]);
+
   useEffect(() => {
     if (!focusAnchor || focusAnchor.type === "task" || !focusAnchor.id) return;
     const key = `${focusAnchor.type}:${focusAnchor.id}`;
@@ -1935,7 +1983,12 @@ export function RDTaskConversation({
 
   const mainContent = (
     <section
-      className="flex min-h-0 min-w-0 flex-1 flex-col bg-[radial-gradient(circle_at_top,_rgba(238,242,255,0.82),_rgba(248,250,252,0.64)_36%,_white_76%)]"
+      className={cn(
+        "flex min-h-0 min-w-0 flex-1 flex-col",
+        mode === "progress" && progressPresentation === "timeline"
+          ? "bg-white"
+          : "bg-[radial-gradient(circle_at_top,_rgba(238,242,255,0.82),_rgba(248,250,252,0.64)_36%,_white_76%)]",
+      )}
       aria-label={`${mode === "progress" ? t("进度留痕") : t("任务讨论")}：${taskTitle}`}
     >
       {main?.access_scope === "thread_invitee" && (
@@ -2049,44 +2102,57 @@ export function RDTaskConversation({
               </section>
             )}
             {mode === "progress" ? (
-              <div ref={setProgressFeedEl} className="mt-1.5 space-y-3">
-                {progressFeedGroups.map((group) => (
-                  <section key={group.dayKey} aria-label={formatDayLabel(group.firstCreatedAt)}>
-                    <ProgressDateHeader iso={group.firstCreatedAt} />
-                    <div className="mt-1 flex items-start gap-1.5">
-                      {distributeIntoColumns(group.items, Math.min(progressColumns, group.items.length)).map((column, columnIndex) => (
-                        <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-1.5">
-                          {column.map((item) => {
-                            const noteSummary = summaryFor(main?.thread_summaries ?? [], "progress_note", item.note.id);
-                            const anchor: ConversationAnchor = {
-                              type: "progress_note",
-                              id: item.note.id,
-                              taskId: item.note.source_task?.task_id ?? item.note.task_id,
-                              author: item.note.actor.name,
-                              preview: item.note.text,
-                              createdAt: item.note.created_at,
-                              note: item.note,
-                            };
-                            return (
-                              <ProgressAnchorCard
-                                key={item.note.id}
-                                note={item.note}
-                                summary={noteSummary}
-                                onOpenThread={() => void openThread(anchor)}
-                                onOpenSourceTask={onOpenSourceTask}
-                                selectedActor={selectedActor}
-                                onActorClick={onActorClick}
-                                candidates={candidates}
-                                variant={variant}
-                              />
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                ))}
-              </div>
+              progressPresentation === "timeline" ? (
+                <ProgressTimeline
+                  items={progressFeedNotes}
+                  summaries={main?.thread_summaries ?? []}
+                  onOpenThread={openProgressThread}
+                  onOpenSourceTask={onOpenSourceTask}
+                  selectedActor={selectedActor}
+                  onActorClick={onActorClick}
+                  candidates={candidates}
+                  variant={variant}
+                />
+              ) : (
+                <div ref={setProgressFeedEl} className="mt-1.5 space-y-3">
+                  {progressFeedGroups.map((group) => (
+                    <section key={group.dayKey} aria-label={formatDayLabel(group.firstCreatedAt)}>
+                      <ProgressDateHeader iso={group.firstCreatedAt} />
+                      <div className="mt-1 flex items-start gap-1.5">
+                        {distributeIntoColumns(group.items, Math.min(progressColumns, group.items.length)).map((column, columnIndex) => (
+                          <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-1.5">
+                            {column.map((item) => {
+                              const noteSummary = summaryFor(main?.thread_summaries ?? [], "progress_note", item.note.id);
+                              const anchor: ConversationAnchor = {
+                                type: "progress_note",
+                                id: item.note.id,
+                                taskId: item.note.source_task?.task_id ?? item.note.task_id,
+                                author: item.note.actor.name,
+                                preview: item.note.text,
+                                createdAt: item.note.created_at,
+                                note: item.note,
+                              };
+                              return (
+                                <ProgressAnchorCard
+                                  key={item.note.id}
+                                  note={item.note}
+                                  summary={noteSummary}
+                                  onOpenThread={() => void openThread(anchor)}
+                                  onOpenSourceTask={onOpenSourceTask}
+                                  selectedActor={selectedActor}
+                                  onActorClick={onActorClick}
+                                  candidates={candidates}
+                                  variant={variant}
+                                />
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )
             ) : (
               feedItems.map((item, index) => {
                 if (item.kind !== "message") return null;
@@ -2293,5 +2359,72 @@ export function RDTaskConversation({
       </AnimatePresence>
       </div>
     </TaskImageGalleryScope>
+  );
+}
+
+function ProgressTimeline({
+  items,
+  summaries,
+  onOpenThread,
+  onOpenSourceTask,
+  selectedActor,
+  onActorClick,
+  candidates,
+  variant,
+}: {
+  items: ProgressFeedNote[];
+  summaries: RdTaskDiscussionThreadSummary[];
+  onOpenThread: (note: RdTaskProgressNote) => void;
+  onOpenSourceTask?: (taskId: string) => void;
+  selectedActor?: AuditActorIdentity | null;
+  onActorClick?: (actor: AuditActorIdentity) => void;
+  candidates: MentionCandidate[];
+  variant: "desktop" | "mobile";
+}) {
+  return (
+    <div className="mt-3 pb-2" aria-label={t("进展留痕时间线")}>
+      {items.map((item, index) => {
+        const previous = items[index - 1];
+        const showDate = !previous || localDayKey(previous.createdAt) !== localDayKey(item.createdAt);
+        const date = formatTimelineDate(item.createdAt);
+        return (
+          <div
+            key={item.note.id}
+            className="grid grid-cols-[64px_22px_minmax(0,1fr)] sm:grid-cols-[76px_26px_minmax(0,1fr)]"
+            style={{ contentVisibility: "auto", containIntrinsicSize: "180px" }}
+          >
+            <time
+              dateTime={localDayKey(item.createdAt)}
+              aria-hidden={!showDate || undefined}
+              className={cn(
+                "pr-2 pt-1 text-right text-[11px] font-semibold tabular-nums text-slate-500",
+                !showDate && "invisible",
+              )}
+            >
+              <span className={cn("block", date.secondary && "font-bold text-slate-700")}>{date.primary}</span>
+              {date.secondary ? <span className="mt-0.5 block text-[10px] font-medium text-slate-400">{date.secondary}</span> : null}
+            </time>
+            <div className="relative flex justify-center" aria-hidden="true">
+              {index > 0 ? <span className="absolute left-1/2 top-0 h-4 w-px -translate-x-1/2 bg-slate-200" /> : null}
+              {index < items.length - 1 ? <span className="absolute bottom-0 left-1/2 top-4 w-px -translate-x-1/2 bg-slate-200" /> : null}
+              <span className="relative mt-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-indigo-600 shadow-[0_0_0_3px_rgba(99,102,241,0.13)]" />
+            </div>
+            <div className={cn("min-w-0", index < items.length - 1 ? "pb-4" : "pb-1")}>
+              <ProgressAnchorCard
+                note={item.note}
+                summary={summaryFor(summaries, "progress_note", item.note.id)}
+                onOpenThread={() => onOpenThread(item.note)}
+                onOpenSourceTask={onOpenSourceTask}
+                selectedActor={selectedActor}
+                onActorClick={onActorClick}
+                candidates={candidates}
+                variant={variant}
+                presentation="timeline"
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }

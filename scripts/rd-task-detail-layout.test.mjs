@@ -10,6 +10,23 @@ const progressEvidenceSource = await readFile(new URL("../src/app/RDProgressEvid
 const auditTimelineSource = await readFile(new URL("../src/app/RDAuditTimeline.tsx", import.meta.url), "utf8");
 const mobileCockpitSource = await readFile(new URL("../src/app/MobileRDCockpit.tsx", import.meta.url), "utf8");
 
+test("研发任务详情使用宽版总览，关键指标集中在右侧任务信息", () => {
+  assert.match(detailSource, /max-w-\[1440px\]/);
+  assert.match(detailSource, /lg:grid-cols-\[minmax\(0,1fr\)_360px\]/);
+  assert.match(detailSource, /t\("主题归属"\)/);
+  assert.doesNotMatch(detailSource, /aria-label=\{t\("任务关键指标"\)\}/);
+  assert.match(detailSource, /xl:grid-cols-\[minmax\(0,1fr\)_340px\]/);
+  const taskInfoIndex = detailSource.indexOf('{t("任务信息")}');
+  const relationIndex = detailSource.indexOf("{/* 阻塞提示节 */}");
+  assert.ok(taskInfoIndex >= 0 && relationIndex > taskInfoIndex, "missing right-side task information section");
+  const taskInfoSource = detailSource.slice(taskInfoIndex, relationIndex);
+  for (const label of ["完成进度", "风险状态", "优先级", "任务状态", "截止日期"]) {
+    assert.match(taskInfoSource, new RegExp(`t\\(\\"${label}\\"\\)`), `${label} should stay in the right-side task information`);
+  }
+  assert.match(detailSource, /const topicLabel = topicPathParts\.at\(-1\)/);
+  assert.match(detailSource, /const componentLabel = topicPathParts\.length > 1/);
+});
+
 test("研发任务详情不会用固定视口高度裁掉留痕列表", () => {
   assert.match(detailSource, /style=\{viewportHeight \? \{ minHeight: viewportHeight \} : undefined\}/);
   assert.doesNotMatch(detailSource, /style=\{viewportHeight \? \{ height: viewportHeight \} : undefined\}/);
@@ -17,7 +34,19 @@ test("研发任务详情不会用固定视口高度裁掉留痕列表", () => {
 
 test("任务筛选和卡片内留言展开时仍保留记录可视高度", () => {
   assert.match(detailSource, /lg:min-h-\[440px\]/);
-  assert.match(conversationSource, /className="flex min-h-0 min-w-0 flex-1 flex-col/);
+  assert.match(conversationSource, /"flex min-h-0 min-w-0 flex-1 flex-col"/);
+});
+
+test("研发任务详情以纵向时间线展示进展留痕并保留原卡片能力", () => {
+  assert.match(detailSource, /progressPresentation="timeline"/);
+  assert.match(conversationSource, /function ProgressTimeline\(/);
+  assert.match(conversationSource, /aria-label=\{t\("进展留痕时间线"\)\}/);
+  assert.match(conversationSource, /grid-cols-\[64px_22px_minmax\(0,1fr\)\]/);
+  assert.match(conversationSource, /style=\{\{ contentVisibility: "auto", containIntrinsicSize: "180px" \}\}/);
+  assert.match(conversationSource, /presentation="timeline"/);
+  assert.match(conversationSource, /t\(timeline \? "进度更新" : "留痕"\)/);
+  assert.match(conversationSource, /<ProgressAttachmentGrid[\s\S]*imageDisplay="clipped-cards"/);
+  assert.match(conversationSource, /commentsOpen \? \([\s\S]*<InlineNoteComments/);
 });
 
 test("采购动态作为页签紧跟在合并关系之后", () => {

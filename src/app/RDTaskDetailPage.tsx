@@ -11,6 +11,7 @@ import {
   Download,
   FileText,
   GitBranch,
+  Layers3,
   Lock,
   Loader2,
   MessageCircleMore,
@@ -76,6 +77,7 @@ import {
 import { ProcurementActivitySection, ProcurementLinkChip, TransferToProcurementModal, useProcurementTaskLink } from "./procurement/components/rdInsertion";
 import { createHttpIssueService } from "./lib/issue/issueHttpService";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
+import { isTaskOverdue } from "./lib/taskDue";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
 import {
@@ -1220,6 +1222,14 @@ export default function RDTaskDetailPage() {
   const pCfg = PRIORITY_CONFIG[task.final_priority] ?? PRIORITY_CONFIG.medium;
   const blockedDays = blockedDaysOf(task);
   const workItems = task.work_items ?? [];
+  const topicPathParts = String(task.category_path ?? "")
+    .split(/\s*\/\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const topicLabel = topicPathParts.at(-1) ?? t("待归类任务");
+  const componentLabel = topicPathParts.length > 1 ? topicPathParts.at(-2)! : topicLabel;
+  const overdue = isTaskOverdue(task);
+  const riskLabel = task.status === "paused_blocked" ? t("阻塞中") : overdue ? t("已逾期") : t("正常");
 
   // 双栏大屏至少占满可用视口；内容过多时允许页面自然增长，不能裁掉留痕列表。
   return (
@@ -1230,7 +1240,7 @@ export default function RDTaskDetailPage() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       style={viewportHeight ? { minHeight: viewportHeight } : undefined}
-      className="mx-auto flex max-w-[1200px] flex-col gap-4 px-2 pt-4 sm:px-4"
+      className="mx-auto flex max-w-[1440px] flex-col gap-4 px-2 pt-4 sm:px-4"
     >
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-3">
@@ -1340,46 +1350,109 @@ export default function RDTaskDetailPage() {
         )}
       </div>
 
+      {/* 详情总览：保留当前项目的材料卡样式，只重排信息层级。 */}
+      <section className="material-card overflow-hidden">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="min-w-0 px-5 py-4">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-500">
+              <FileText className="h-3.5 w-3.5 text-indigo-500" />
+              {t("任务描述")}
+            </div>
+            {task.description ? (
+              <AutoTranslatedText
+                as="p"
+                text={task.description}
+                className="cockpit-scroll max-h-32 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-slate-700"
+              />
+            ) : (
+              <p className="text-sm text-slate-400">{t("暂未填写任务描述")}</p>
+            )}
+          </div>
+          <div className="border-t border-slate-100 bg-slate-50/55 px-5 py-4 lg:border-l lg:border-t-0">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                <Layers3 className="h-3.5 w-3.5 text-indigo-500" />
+                {t("主题归属")}
+              </span>
+              {canManage && !task.archived && (
+                <button
+                  type="button"
+                  onClick={() => void openMoveDialog()}
+                  className="cursor-pointer text-xs font-semibold text-indigo-600 hover:underline"
+                >
+                  {t("移动")}
+                </button>
+              )}
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="rounded-md border border-indigo-100 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">
+                  {componentLabel}
+                </span>
+                {topicLabel !== componentLabel && (
+                  <span className="min-w-0 truncate rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700">
+                    {topicLabel}
+                  </span>
+                )}
+              </div>
+              <p className="truncate text-[11px] text-slate-400" title={task.category_path || undefined}>
+                {task.category_path || t("暂未设置分类路径")}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* 美式 content-first 布局：主内容（描述/工作项/时间线）居左，Properties 侧栏居右（GitHub issue / Linear 范式） */}
-      <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔；超高自身内滚）══ */}
         <div className="cockpit-scroll min-h-0 xl:order-2 xl:overflow-y-auto">
         <div className="material-card divide-y divide-slate-100">
           {/* 字段节 */}
           <div className="space-y-2.5 px-4 py-3.5">
+            <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-600">
+              <Layers3 className="h-3.5 w-3.5 text-indigo-500" />
+              {t("任务信息")}
+            </div>
             {[
               { label: t("完成进度"), value: (
-                <span className="flex items-center gap-2">
+                <span className="flex items-center justify-end gap-2">
                   <Progress value={task.progress} className="h-1.5 w-24" />
                   <span className="tabular-nums">{task.progress}%</span>
                 </span>
               ) },
+              { label: t("风险状态"), value: (
+                <span className={cn(
+                  "inline-flex items-center justify-end gap-1 font-semibold",
+                  task.status === "paused_blocked" || overdue ? "text-red-600" : "text-emerald-600",
+                )}>
+                  {task.status === "paused_blocked" || overdue
+                    ? <AlertTriangle className="h-3.5 w-3.5" />
+                    : <CheckCircle2 className="h-3.5 w-3.5" />}
+                  {riskLabel}
+                </span>
+              ) },
+              { label: t("优先级"), value: <span className={cn("font-semibold", pCfg.text)}>{t(`${pCfg.label}优先`)}</span> },
+              { label: t("任务状态"), value: (
+                <span className={cn("inline-flex items-center justify-end gap-1.5 font-semibold", sCfg.text)}>
+                  <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
+                  {t(sCfg.label)}
+                </span>
+              ) },
+              { label: t("任务编号"), value: <span className="font-mono text-xs">{task.task_id}</span> },
               { label: t("开始日期"), value: task.start_date || "—" },
               { label: t("截止日期"), value: (
-                <span className="flex items-center gap-1">
+                <span className="inline-flex items-center justify-end gap-1">
                   <CalendarClock className="h-3.5 w-3.5 text-amber-500" />
                   {task.due_date || "—"}
                 </span>
               ) },
-              // 研发侧特有：BOM 分类路径（协同池无此概念，协同详情页不展示）+ 移动类目入口
-              { label: t("分类路径"), value: (
-                <span className="flex min-w-0 items-center justify-end gap-2">
-                  <span className="truncate" title={task.category_path || undefined}>{task.category_path || "—"}</span>
-                  {canManage && !task.archived && (
-                    <button
-                      type="button"
-                      onClick={() => void openMoveDialog()}
-                      className="shrink-0 cursor-pointer text-xs font-medium text-indigo-600 hover:underline"
-                    >
-                      {t("移动")}
-                    </button>
-                  )}
-                </span>
-              ) },
+              { label: t("组件"), value: componentLabel },
+              { label: t("主题"), value: topicLabel },
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
                 <span className="shrink-0 text-xs text-slate-400">{row.label}</span>
-                <span className="min-w-0 truncate text-right font-medium text-slate-700">{row.value}</span>
+                <span className="min-w-0 flex-1 truncate text-right font-medium text-slate-700">{row.value}</span>
               </div>
             ))}
           </div>
@@ -1692,18 +1765,6 @@ export default function RDTaskDetailPage() {
 
         {/* ══ 主内容列（左）：纵向过程叙事——Tab 卡吃掉剩余高度，内容内滚 ══ */}
         <div className="flex min-h-0 min-w-0 flex-col gap-4 xl:order-1">
-          {/* 任务描述 */}
-          {task.description && (
-            <div className="shrink-0 material-card px-4 py-3">
-              <div className="mb-1.5 text-xs font-semibold text-slate-500">{t("任务描述")}</div>
-              <AutoTranslatedText
-                as="p"
-                text={task.description}
-                className="cockpit-scroll max-h-40 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
-              />
-            </div>
-          )}
-
           {/* 工作项（只读展示）：创建/勾选/删除入口在个人工作台，成员按需自建 */}
           <div className="shrink-0">
             <WorkItemsSection
@@ -1807,6 +1868,7 @@ export default function RDTaskDetailPage() {
                   notesLoading={notesLoading}
                   showHeader={false}
                   threadLayout="replace"
+                  progressPresentation="timeline"
                   onUnreadChange={setDiscussionUnread}
                   onOpenSourceTask={(sourceTaskId) => {
                     if (sourceTaskId !== taskId) navigate(taskDetailPath(sourceTaskId));
