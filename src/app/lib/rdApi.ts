@@ -235,7 +235,13 @@ export function isProductionMirrorTask(task: Pick<RdTask, "production_sync"> | n
 }
 
 export type RdSubProject = { id: string; label: string; tasks: RdTask[] };
-export type RdCategory = { id: string; label: string; children: RdSubProject[] };
+export type RdCategory = {
+  id: string;
+  label: string;
+  children: RdSubProject[];
+  /** 服务端结构版本；整树保存时原样回传，用于拒绝陈旧页面覆盖他人修改。 */
+  _structure_revision?: string;
+};
 
 // ── Products (产品线) ──────────────────────────────────────────────────────────
 
@@ -267,7 +273,7 @@ export function fetchProductTaskCategories(productId: string) {
 }
 
 export function saveProductTaskCategories(productId: string, categories: RdCategory[]) {
-  return requestJson<{ ok: boolean }>(`/product-task-categories/${encodeURIComponent(productId)}`, {
+  return requestJson<{ ok: boolean; categories?: RdCategory[] }>(`/product-task-categories/${encodeURIComponent(productId)}`, {
     method: 'PUT',
     body: JSON.stringify(categories),
   });

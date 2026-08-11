@@ -791,9 +791,57 @@ function normalizeTaskShape(task: JsonRecord, categoryLabel: string, childLabel:
   };
 }
 
-function cloneCategoryShell(category: JsonRecord): JsonRecord {
-  return {
+const RD_TASK_STRUCTURE_REVISION_FIELD = '_structure_revision';
+
+function taskCategoryStructureRevision(categories: unknown[]): string {
+  const projectTask = (task: JsonRecord): JsonRecord => ({
+    task_id: cleanText(task.task_id),
+    subtasks: asArray(task.subtasks).filter(isRecord).map(projectTask),
+  });
+  const projection = asArray(categories).filter(isRecord).map((category) => ({
+    id: cleanText(category.id),
+    label: cleanText(category.label),
+    children: asArray(category.children).filter(isRecord).map((child) => ({
+      id: cleanText(child.id),
+      label: cleanText(child.label),
+      tasks: asArray(child.tasks).filter(isRecord).map(projectTask),
+    })),
+  }));
+  return createHash('sha256').update(JSON.stringify(projection)).digest('hex').slice(0, 24);
+}
+
+function decorateTaskCategoriesWithStructureRevision(categories: JsonRecord[]): JsonRecord[] {
+  const revision = taskCategoryStructureRevision(categories);
+  return categories.map((category) => ({
     ...category,
+    [RD_TASK_STRUCTURE_REVISION_FIELD]: revision,
+  }));
+}
+
+function submittedTaskCategoryStructureRevision(categories: unknown[]): string {
+  const revisions = new Set(
+    asArray(categories)
+      .filter(isRecord)
+      .map((category) => cleanText(category[RD_TASK_STRUCTURE_REVISION_FIELD]))
+      .filter(Boolean),
+  );
+  if (revisions.size !== 1) {
+    throw new ConflictException('系统树已更新，请刷新后再修改');
+  }
+  return Array.from(revisions)[0];
+}
+
+function assertTaskCategoryStructureRevision(current: JsonRecord[], submittedRevision: string): void {
+  if (taskCategoryStructureRevision(current) !== submittedRevision) {
+    throw new ConflictException('系统树已被其他人更新，请刷新后再修改');
+  }
+}
+
+function cloneCategoryShell(category: JsonRecord): JsonRecord {
+  const categoryData = { ...category };
+  delete categoryData[RD_TASK_STRUCTURE_REVISION_FIELD];
+  return {
+    ...categoryData,
     id: String(category.id ?? `rd-cat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     label: String(category.label ?? '未命名分类'),
     children: asArray(category.children)
@@ -846,105 +894,127 @@ function ensureChild(category: JsonRecord, label: string, id?: string): JsonReco
   return child;
 }
 
-function findBomTarget(task: JsonRecord, sourceCategory: JsonRecord, sourceChild: JsonRecord, categories: JsonRecord[]) {
-  const segments = splitCategoryPath(task.category_path);
-  const sourceCategoryLabel = String(sourceCategory.label ?? '');
-  const sourceChildLabel = String(sourceChild.label ?? '');
-  const systemByKey = new Map(RD_POC_BOM_CATEGORIES.map((system) => [normalizeBomKey(system.label), system]));
-  const candidateSystemKeys = [
-    normalizeBomKey(segments[0]),
-    normalizeBomKey(sourceCategoryLabel),
-  ].filter(Boolean);
-  const system = candidateSystemKeys.map((key) => systemByKey.get(key)).find(Boolean);
-  if (!system) return null;
-
-  const partByKey = new Map(
-    system.parts.map((part, index) => [normalizeBomKey(part), { label: part, id: bomChildId(system.id, index) }] as const),
-  );
-  const candidatePartKeys = [
-    normalizeBomKey(segments[1]),
-    normalizeBomKey(sourceChildLabel),
-    ...segments.map(normalizeBomKey),
-  ].filter(Boolean);
-  const knownPart = candidatePartKeys.map((key) => partByKey.get(key)).find(Boolean);
-  const partLabel = knownPart?.label ?? segments[1] ?? sourceChildLabel ?? '待分类';
-  const category = findCategoryByLabel(categories, system.label);
-  if (!category) return null;
-  const child = ensureChild(category, partLabel, knownPart?.id);
-  return { category, child, systemLabel: system.label, partLabel };
-}
-
 function ensurePocBomTaskCategories(rawCategories: unknown[]): JsonRecord[] {
   const rawRecords = asArray(rawCategories).filter(isRecord);
-  const normalized: JsonRecord[] = RD_POC_BOM_CATEGORIES.map((system) => {
-    const existing = rawRecords.find((category) => {
-      return category.id === system.id || normalizeBomKey(category.label) === normalizeBomKey(system.label);
-    });
-    const existingChildren = asArray(existing?.children).filter(isRecord);
-    return {
-      ...(existing ?? {}),
-      id: system.id,
-      label: (existing && typeof existing.label === 'string' && existing.label.trim()) ? existing.label : system.label,
-      children: system.parts.map((part, index) => {
-        const childId = bomChildId(system.id, index);
-        const existingChild = existingChildren.find((c) => c.id === childId) ?? findChildByLabel(existingChildren, part);
-        return {
-          ...(existingChild ?? {}),
-          id: childId,
-          label: (existingChild && typeof existingChild.label === 'string' && existingChild.label.trim()) ? existingChild.label : part,
+  const sourceRecords: JsonRecord[] = rawRecords.length > 0
+    ? rawRecords
+    : RD_POC_BOM_CATEGORIES.map((system) => ({
+        id: system.id,
+        label: system.label,
+        children: system.parts.map((part, index) => ({
+          id: bomChildId(system.id, index),
+          label: part,
           tasks: [],
-        };
-      }),
-    };
-  });
+        })),
+      }));
 
-  const customCategories = new Map<string, JsonRecord>();
-  for (const category of rawRecords) {
-    const isBomCategory = RD_POC_BOM_CATEGORIES.some((system) => {
-      return category.id === system.id || normalizeBomKey(category.label) === normalizeBomKey(system.label);
-    });
-    if (isBomCategory) continue;
-    const shell = cloneCategoryShell(category);
-    customCategories.set(String(shell.id), shell);
-    normalized.push(shell);
-  }
-
-  for (const sourceCategory of rawRecords) {
-    let sourceShell =
-      customCategories.get(String(sourceCategory.id ?? '')) ??
-      normalized.find((category) => {
-        return category.id === sourceCategory.id || normalizeBomKey(category.label) === normalizeBomKey(sourceCategory.label);
-      });
+  // BOM only seeds a brand-new tree. Once data exists, its category/child structure is
+  // user-managed and must be preserved exactly. Structural position is the source of
+  // truth; task category_path is derived from the current labels for every consumer.
+  const normalized = sourceRecords.map(cloneCategoryShell);
+  sourceRecords.forEach((sourceCategory, categoryIndex) => {
+    const sourceShell = normalized[categoryIndex];
     for (const { child: sourceChild, task } of collectCategoryTasks(sourceCategory)) {
-      const bomTarget = findBomTarget(task, sourceCategory, sourceChild, normalized);
-      if (bomTarget) {
-        const tasks = asArray(bomTarget.child.tasks);
-        // 必须 append：这里按源顺序遍历，prepend 会把任务列表整体反序，导致
-        // readNormalizedTaskCategories 每次都判定「变了」并写回 —— 纯读也写库、
-        // 且顺序在两个状态间来回翻。append 保持存储顺序，读操作因此幂等。
-        // （新任务在前由 createTask 的插入顺序决定，不该由归一化器翻转。）
-        bomTarget.child.tasks = [
-          ...tasks,
-          normalizeTaskShape(task, bomTarget.systemLabel, bomTarget.partLabel),
-        ];
-        continue;
-      }
-
-      if (!sourceShell) {
-        sourceShell = cloneCategoryShell(sourceCategory);
-        customCategories.set(String(sourceShell.id), sourceShell);
-        normalized.push(sourceShell);
-      }
-      const targetChild = ensureChild(sourceShell, String(sourceChild.label ?? '未命名子项'), String(sourceChild.id ?? ''));
-      // 同上：自定义分类一侧同样必须 append，否则同样反序 + 每读必写
+      const shellChildren = asArray(sourceShell.children).filter(isRecord);
+      const sourceChildId = String(sourceChild.id ?? '');
+      const targetChild = shellChildren.find((child) => String(child.id ?? '') === sourceChildId)
+        ?? findChildByLabel(shellChildren, String(sourceChild.label ?? ''))
+        ?? ensureChild(sourceShell, String(sourceChild.label ?? '未命名子项'), sourceChildId);
       targetChild.tasks = [
         ...asArray(targetChild.tasks),
         normalizeTaskShape(task, String(sourceShell.label ?? '未命名分类'), String(targetChild.label ?? '未命名子项')),
       ];
     }
-  }
+  });
 
   return normalized;
+}
+
+type CategoryTaskSnapshot = {
+  allIdCounts: Map<string, number>;
+  invalidTaskCount: number;
+  rootTasksById: Map<string, JsonRecord>;
+};
+
+function snapshotCategoryTasks(categories: unknown[]): CategoryTaskSnapshot {
+  const allIdCounts = new Map<string, number>();
+  const rootTasksById = new Map<string, JsonRecord>();
+  let invalidTaskCount = 0;
+
+  const collectTasks = (tasks: unknown[], root: boolean) => {
+    for (const task of tasks) {
+      if (!isRecord(task)) continue;
+      const taskId = cleanText(task.task_id);
+      if (!taskId) {
+        invalidTaskCount += 1;
+      } else {
+        allIdCounts.set(taskId, (allIdCounts.get(taskId) ?? 0) + 1);
+        if (root && !rootTasksById.has(taskId)) rootTasksById.set(taskId, task);
+      }
+      collectTasks(asArray(task.subtasks), false);
+    }
+  };
+
+  for (const category of categories) {
+    if (!isRecord(category)) continue;
+    for (const child of asArray(category.children)) {
+      if (isRecord(child)) collectTasks(asArray(child.tasks), true);
+    }
+  }
+  return { allIdCounts, invalidTaskCount, rootTasksById };
+}
+
+/**
+ * 整树 PUT 只能修改分类结构：任务实体必须来自锁内刚读到的服务端真值。
+ * 这同时拒绝删除、注入、重复或改变父子层级的 task_id，避免结构权限绕过任务 CRUD 权限。
+ */
+function reconcileStructureSaveWithServerTasks(current: unknown[], next: JsonRecord[]): JsonRecord[] {
+  const currentSnapshot = snapshotCategoryTasks(current);
+  const nextSnapshot = snapshotCategoryTasks(next);
+  const hasDuplicateIds = (snapshot: CategoryTaskSnapshot) =>
+    Array.from(snapshot.allIdCounts.values()).some((count) => count !== 1);
+
+  if (
+    currentSnapshot.invalidTaskCount > 0
+    || nextSnapshot.invalidTaskCount > 0
+    || hasDuplicateIds(currentSnapshot)
+    || hasDuplicateIds(nextSnapshot)
+  ) {
+    throw new BadRequestException('任务树包含缺失或重复的任务编号，请刷新后重试');
+  }
+
+  const currentIds = new Set(currentSnapshot.allIdCounts.keys());
+  const nextIds = new Set(nextSnapshot.allIdCounts.keys());
+  const missingTaskIds = Array.from(currentIds).filter((taskId) => !nextIds.has(taskId));
+  const extraTaskIds = Array.from(nextIds).filter((taskId) => !currentIds.has(taskId));
+  const currentRootIds = new Set(currentSnapshot.rootTasksById.keys());
+  const nextRootIds = new Set(nextSnapshot.rootTasksById.keys());
+  const rootShapeChanged = currentRootIds.size !== nextRootIds.size
+    || Array.from(currentRootIds).some((taskId) => !nextRootIds.has(taskId));
+  if (missingTaskIds.length > 0 || extraTaskIds.length > 0 || rootShapeChanged) {
+    throw new BadRequestException('节点下存在任务，只能修改名称或使用专用移动功能，不能直接增删任务');
+  }
+
+  return next.map((category) => {
+    const categoryLabel = String(category.label ?? '未命名分类');
+    return {
+      ...category,
+      children: asArray(category.children).filter(isRecord).map((child) => {
+        const childLabel = String(child.label ?? '未命名子项');
+        return {
+          ...child,
+          tasks: asArray(child.tasks).filter(isRecord).map((submittedTask) => {
+            const taskId = cleanText(submittedTask.task_id);
+            const serverTask = currentSnapshot.rootTasksById.get(taskId);
+            if (!serverTask) {
+              throw new BadRequestException('任务层级已变化，请刷新后重试');
+            }
+            return normalizeTaskShape(serverTask, categoryLabel, childLabel);
+          }),
+        };
+      }),
+    };
+  });
 }
 
 function resolveCategoryTarget(
@@ -971,7 +1041,9 @@ function resolveCategoryTarget(
 export class ResearchDevelopmentService {
   private readonly logger = new Logger(ResearchDevelopmentService.name);
   private rdStoreReadCache?: Map<string, { value: unknown; freshUntil: number }>;
+  private rdStoreCacheGenerations?: Map<string, number>;
   private rdTaskResourceCache?: Map<string, { value: unknown; freshUntil: number }>;
+  private rdTaskResourceCacheGeneration = 0;
 
   private static readonly RD_STORE_READ_CACHE_TTL_MS = 15_000;
   private static readonly RD_TASK_RESOURCE_CACHE_TTL_MS = 15_000;
@@ -1503,7 +1575,9 @@ export class ResearchDevelopmentService {
     const scoreMap: JsonRecord = isRecord(scoresRaw) ? scoresRaw : {};
     return this.writeTaskResourceCache(
       cacheKey,
-      this.applyProgressAttachmentCounts(categories, noteMap, scoreMap, options),
+      decorateTaskCategoriesWithStructureRevision(
+        this.applyProgressAttachmentCounts(categories, noteMap, scoreMap, options),
+      ),
     );
   }
 
@@ -1869,15 +1943,22 @@ export class ResearchDevelopmentService {
 
   async saveTaskCategories(payload: unknown[]) {
     await this.refreshProductionMirrorsIfNeeded();
+    const submittedRevision = submittedTaskCategoryStructureRevision(payload);
     const normalized = ensurePocBomTaskCategories(payload);
-    if (currentRdWorkspace() === PRODUCTION_WORKSPACE) {
+    // 结构编辑允许改名/移动，但不能顺带丢失任务。校验与写入放在同一把锁内，
+    // 避免校验后有新任务写入、随后又被旧整树快照覆盖。
+    const saved = await this.withTaskTreeLock(async () => {
       const current = await this.readNormalizedTaskCategories();
-      if (this.productionMirrorFingerprint(current) !== this.productionMirrorFingerprint(normalized)) {
-        throw new ForbiddenException('研发同步任务在生产驾驶舱中为只读，不能修改、移动或删除');
+      assertTaskCategoryStructureRevision(current, submittedRevision);
+      const reconciled = reconcileStructureSaveWithServerTasks(current, normalized);
+      if (currentRdWorkspace() === PRODUCTION_WORKSPACE) {
+        if (this.productionMirrorFingerprint(current) !== this.productionMirrorFingerprint(reconciled)) {
+          throw new ForbiddenException('研发同步任务在生产驾驶舱中为只读，不能修改、移动或删除');
+        }
       }
-    }
-    // 整树 PUT 与锁内单任务读改写互斥，避免旧快照整体覆盖刚落库的任务更新（仅 controller 调用，无锁内重入）
-    const saved = await this.withTaskTreeLock(() => this.writeValue('rd.taskCategories', normalized));
+      await this.writeValue('rd.taskCategories', reconciled);
+      return decorateTaskCategoriesWithStructureRevision(reconciled);
+    });
     await this.recomputeDirectorDashboard();
     return saved;
   }
@@ -1961,13 +2042,40 @@ export class ResearchDevelopmentService {
 
   /** 读取指定产品的独立研发分类树（首次访问自动 seed 空 BOM） */
   async getProductTaskCategories(productId: string): Promise<JsonRecord[]> {
+    const snapshot = await this.readProductTaskCategorySnapshot(productId);
+    if (!snapshot.needsWrite) return decorateTaskCategoriesWithStructureRevision(snapshot.categories);
+
+    // 快路径保持纯读；只有 seed/迁移需要写回时才获取写锁，并在锁内重读避免覆盖并发任务更新。
+    return this.withTaskTreeLock(async () => {
+      const latest = await this.readProductTaskCategorySnapshot(productId);
+      if (latest.needsWrite) {
+        await this.saveProductCategoryStore({ ...latest.store, [productId]: latest.categories });
+      }
+      return decorateTaskCategoriesWithStructureRevision(latest.categories);
+    });
+  }
+
+  private async getProductTaskCategoriesUnlocked(productId: string): Promise<JsonRecord[]> {
+    // 锁内调用者后续若有变更会显式写回；锁外只读场景不得因归一化产生隐式整库写。
+    return (await this.readProductTaskCategorySnapshot(productId)).categories;
+  }
+
+  private async readProductTaskCategorySnapshot(productId: string): Promise<{
+    store: Record<string, unknown>;
+    categories: JsonRecord[];
+    needsWrite: boolean;
+  }> {
     const store = await this.readProductCategoryStore();
     if (Array.isArray(store[productId]) && (store[productId] as unknown[]).length > 0) {
-      return ensurePocBomTaskCategories(store[productId] as unknown[]);
+      const current = store[productId] as unknown[];
+      const normalized = ensurePocBomTaskCategories(current);
+      return {
+        store,
+        categories: normalized,
+        needsWrite: JSON.stringify(current) !== JSON.stringify(normalized),
+      };
     }
-    const seed = ensurePocBomTaskCategories([]);
-    await this.saveProductCategoryStore({ ...store, [productId]: seed });
-    return seed;
+    return { store, categories: ensurePocBomTaskCategories([]), needsWrite: true };
   }
 
   /**
@@ -2165,19 +2273,29 @@ export class ResearchDevelopmentService {
   }
 
   /** 保存指定产品的研发分类树 */
-  async saveProductTaskCategoriesForProduct(productId: string, categories: unknown[]): Promise<{ ok: boolean }> {
-    const store = await this.readProductCategoryStore();
+  async saveProductTaskCategoriesForProduct(
+    productId: string,
+    categories: unknown[],
+  ): Promise<{ ok: true; categories: JsonRecord[] }> {
+    const submittedRevision = submittedTaskCategoryStructureRevision(categories);
     const normalized = ensurePocBomTaskCategories(categories);
-    if (currentRdWorkspace() === PRODUCTION_WORKSPACE) {
+    const result = await this.withTaskTreeLock(async () => {
+      const store = await this.readProductCategoryStore();
       const current = Array.isArray(store[productId])
         ? ensurePocBomTaskCategories(store[productId] as unknown[])
         : ensurePocBomTaskCategories([]);
-      if (this.productionMirrorFingerprint(current) !== this.productionMirrorFingerprint(normalized)) {
-        throw new ForbiddenException('研发同步任务在生产驾驶舱中为只读，不能修改、移动或删除');
+      assertTaskCategoryStructureRevision(current, submittedRevision);
+      const reconciled = reconcileStructureSaveWithServerTasks(current, normalized);
+      if (currentRdWorkspace() === PRODUCTION_WORKSPACE) {
+        if (this.productionMirrorFingerprint(current) !== this.productionMirrorFingerprint(reconciled)) {
+          throw new ForbiddenException('研发同步任务在生产驾驶舱中为只读，不能修改、移动或删除');
+        }
       }
-    }
-    await this.saveProductCategoryStore({ ...store, [productId]: normalized });
-    return { ok: true };
+      await this.saveProductCategoryStore({ ...store, [productId]: reconciled });
+      return { ok: true as const, categories: decorateTaskCategoriesWithStructureRevision(reconciled) };
+    });
+    await this.recomputeDirectorDashboard();
+    return result;
   }
 
   /**
@@ -2382,7 +2500,8 @@ export class ResearchDevelopmentService {
   private async readTaskCategoriesForProduct(productId: string): Promise<JsonRecord[]> {
     const pid = cleanText(productId);
     if (!pid || pid === RD_MAIN_PRODUCT_ID) return this.readNormalizedTaskCategories();
-    return this.getProductTaskCategories(pid);
+    // 内部读路径保持纯读，可安全用于锁内变更和锁外分类上下文。
+    return this.getProductTaskCategoriesUnlocked(pid);
   }
 
   /** 写回指定产品的分类树（主产品→主库；其余→对应产品库）。 */
@@ -2392,7 +2511,12 @@ export class ResearchDevelopmentService {
       await this.writeValue('rd.taskCategories', categories);
       return;
     }
-    await this.saveProductTaskCategoriesForProduct(pid, categories);
+    // 调用者均在任务树写锁内；直接合并当前 product store，避免重入公开整树保存方法死锁。
+    const store = await this.readProductCategoryStore();
+    await this.saveProductCategoryStore({
+      ...store,
+      [pid]: ensurePocBomTaskCategories(categories),
+    });
   }
 
   /**
@@ -4362,7 +4486,22 @@ export class ResearchDevelopmentService {
     return { ok: true };
   }
 
-  private async recomputeDirectorDashboard(): Promise<void> {
+  private directorDashboardWriteLock: Promise<unknown> = Promise.resolve();
+
+  private recomputeDirectorDashboard(): Promise<void> {
+    // 每次重算在轮到自己执行时才读取最新树，避免旧快照的慢重算最后覆盖新看板。
+    const run = this.directorDashboardWriteLock.then(
+      () => this.recomputeDirectorDashboardUnlocked(),
+      () => this.recomputeDirectorDashboardUnlocked(),
+    );
+    this.directorDashboardWriteLock = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async recomputeDirectorDashboardUnlocked(): Promise<void> {
     const [mainCategories, people, users, productStore] = await Promise.all([
       this.readNormalizedTaskCategories(),
       this.getPeople(),
@@ -10655,9 +10794,8 @@ export class ResearchDevelopmentService {
       identity.people,
       identity.users,
     );
-    if (JSON.stringify(raw) !== JSON.stringify(normalized)) {
-      await this.writeValue('rd.taskCategories', normalized);
-    }
+    // 读取必须保持纯读。旧实现在 GET 中用旧快照整树写回，会覆盖并发创建/更新的任务。
+    // 显式任务或结构变更会在 taskTreeWriteLock 内持久化归一化结果。
     return normalized;
   }
 
@@ -11034,6 +11172,20 @@ export class ResearchDevelopmentService {
     return this.rdStoreReadCache;
   }
 
+  private getStoreCacheGenerations() {
+    this.rdStoreCacheGenerations ??= new Map();
+    return this.rdStoreCacheGenerations;
+  }
+
+  private storeCacheGeneration(storeKey: string): number {
+    return this.getStoreCacheGenerations().get(storeKey) ?? 0;
+  }
+
+  private bumpStoreCacheGeneration(storeKey: string): void {
+    const generations = this.getStoreCacheGenerations();
+    generations.set(storeKey, (generations.get(storeKey) ?? 0) + 1);
+  }
+
   private getTaskResourceCache() {
     this.rdTaskResourceCache ??= new Map();
     return this.rdTaskResourceCache;
@@ -11047,7 +11199,7 @@ export class ResearchDevelopmentService {
     const scope = viewer?.hasFullAccess || viewer?.canReadAll
       ? 'all'
       : `user:${cleanText(viewer?.userId)}:${personNameLookupKey(viewer?.userName)}`;
-    return `${currentRdWorkspace()}|${resource}|${scope}|${taskIds.slice().sort().join(',')}`;
+    return `${currentRdWorkspace()}|g:${this.rdTaskResourceCacheGeneration}|${resource}|${scope}|${taskIds.slice().sort().join(',')}`;
   }
 
   private readTaskResourceCache<T>(key: string): T | undefined {
@@ -11073,7 +11225,12 @@ export class ResearchDevelopmentService {
 
   private invalidateCachedStoreValues(keys: RdStoreKey[]) {
     const cache = this.getStoreReadCache();
-    for (const key of keys) cache.delete(resolveRdStoreKey(key));
+    for (const key of keys) {
+      const storeKey = resolveRdStoreKey(key);
+      this.bumpStoreCacheGeneration(storeKey);
+      cache.delete(storeKey);
+    }
+    this.rdTaskResourceCacheGeneration += 1;
     this.getTaskResourceCache().clear();
   }
 
@@ -11087,16 +11244,20 @@ export class ResearchDevelopmentService {
       return this.cloneCachedValue(cached.value);
     }
     if (cached) cache.delete(storeKey);
+    const generation = this.storeCacheGeneration(storeKey);
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: storeKey },
       select: { value: true },
     });
     const value = setting?.value ?? null;
-    if (cache.size >= 200) cache.clear();
-    cache.set(storeKey, {
-      value: this.cloneCachedValue(value),
-      freshUntil: Date.now() + ResearchDevelopmentService.RD_STORE_READ_CACHE_TTL_MS,
-    });
+    // 查库期间若发生了写入/事务失效，这份旧快照只能返给本次读取，不得回填覆盖新缓存。
+    if (generation === this.storeCacheGeneration(storeKey)) {
+      if (cache.size >= 200) cache.clear();
+      cache.set(storeKey, {
+        value: this.cloneCachedValue(value),
+        freshUntil: Date.now() + ResearchDevelopmentService.RD_STORE_READ_CACHE_TTL_MS,
+      });
+    }
     return this.cloneCachedValue(value);
   }
 
@@ -11121,10 +11282,12 @@ export class ResearchDevelopmentService {
   private async writeValue(key: RdStoreKey, value: unknown) {
     const setting = await this.buildSettingUpsert(key, value);
     const storeKey = resolveRdStoreKey(key);
+    this.bumpStoreCacheGeneration(storeKey);
     this.getStoreReadCache().set(storeKey, {
       value: this.cloneCachedValue(setting.value),
       freshUntil: Date.now() + ResearchDevelopmentService.RD_STORE_READ_CACHE_TTL_MS,
     });
+    this.rdTaskResourceCacheGeneration += 1;
     this.getTaskResourceCache().clear();
     return this.cloneCachedValue(setting.value);
   }

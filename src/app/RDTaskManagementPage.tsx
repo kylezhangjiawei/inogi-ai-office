@@ -1786,7 +1786,7 @@ function CategorySidebar({
           const expanded = expandedId === cat.id;
 
           const isReserved = isReservedBomSystem(cat.id);
-          const subTaskCount = cat.children.reduce((sum, sub) => sum + sub.tasks.length, 0);
+          const subTaskCount = cat.children.reduce((sum, sub) => sum + collectTaskIds(sub.tasks).size, 0);
           return (
             <motion.div
               key={cat.id}
@@ -1852,9 +1852,16 @@ function CategorySidebar({
                     {!isReserved && (
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "delete-system", category: cat }); }}
-                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                        title={subTaskCount > 0 ? t("删除（含 {count} 个任务，将一并删除）", { count: subTaskCount }) : t("删除")}
+                        aria-disabled={subTaskCount > 0}
+                        aria-label={subTaskCount > 0 ? t("不能删除：含 {count} 个任务，请先移空", { count: subTaskCount }) : t("删除 {name}", { name: cat.label })}
+                        onClick={(e) => { e.stopPropagation(); if (subTaskCount === 0) onRequestEditor({ mode: "delete-system", category: cat }); }}
+                        className={cn(
+                          "rounded p-1 transition-colors",
+                          subTaskCount > 0
+                            ? "cursor-not-allowed text-slate-300"
+                            : "text-slate-400 hover:bg-red-50 hover:text-red-600",
+                        )}
+                        title={subTaskCount > 0 ? t("含 {count} 个任务，请先移空后再删除", { count: subTaskCount }) : t("删除")}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1894,7 +1901,7 @@ function CategorySidebar({
                       const subIds = collectTaskIds(sub.tasks);
                       const subRisks = riskItems.filter((risk) => subIds.has(risk.task.task_id));
                       const selected = selectedId === sub.id;
-                      const subTaskTotal = sub.tasks.length;
+                      const subTaskTotal = collectTaskIds(sub.tasks).size;
 
                       return (
                         <div
@@ -1930,15 +1937,9 @@ function CategorySidebar({
                               {canManageTree && (
                                 <button
                                   type="button"
-                                  disabled={subTaskTotal > 0}
-                                  onClick={(e) => { e.stopPropagation(); if (subTaskTotal === 0) onRequestEditor({ mode: "edit-sub", category: cat, sub }); }}
-                                  className={cn(
-                                    "rounded p-1 transition-colors",
-                                    subTaskTotal > 0
-                                      ? "cursor-not-allowed text-slate-300"
-                                      : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
-                                  )}
-                                  title={subTaskTotal > 0 ? t("含 {count} 个任务，请先移空后再改名", { count: subTaskTotal }) : t("重命名")}
+                                  onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "edit-sub", category: cat, sub }); }}
+                                  className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                                  title={t("重命名")}
                                 >
                                   <Pencil className="h-3 w-3" />
                                 </button>
@@ -1956,7 +1957,8 @@ function CategorySidebar({
                               {canManageTree && (
                                 <button
                                   type="button"
-                                  disabled={subTaskTotal > 0}
+                                  aria-disabled={subTaskTotal > 0}
+                                  aria-label={subTaskTotal > 0 ? t("不能删除：含 {count} 个任务，请先移空", { count: subTaskTotal }) : t("删除 {name}", { name: sub.label })}
                                   onClick={(e) => { e.stopPropagation(); if (subTaskTotal === 0) onRequestEditor({ mode: "delete-sub", category: cat, sub }); }}
                                   className={cn(
                                     "rounded p-1 transition-colors",
@@ -11393,8 +11395,9 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       if (boardProductId === MAIN_PRODUCT_ID) {
         saved = await saveRdTaskCategories(nextCategories);
       } else {
-        await saveProductTaskCategories(boardProductId, nextCategories);
-        saved = nextCategories;
+        const result = await saveProductTaskCategories(boardProductId, nextCategories);
+        // 滚动发布期间旧 API 只返回 { ok: true }；缺失服务端树时立即重读，不回退到本地乐观快照。
+        saved = result.categories ?? await fetchProductTaskCategories(boardProductId);
       }
       setCategories(saved);
       setPanoramaReloadToken((n) => n + 1);
