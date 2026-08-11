@@ -99,6 +99,11 @@ model ChatMessage {
   reaction       String?
   // 用户消息附带的图片/文件附件，结构：[{ fileId, name, mime, size, objectKey }]
   attachments    Json?
+  /// assistant 消息的 ReAct 工具调用步骤，结构：[{ callId, tool, label, status, detail, args, output }]。
+  /// args/output 是截断后的调用参数与观察值，供步骤条展开查看（仅会话本人可见）。
+  /// 落库而非只走 SSE：刷新后步骤条要能回放，且「分享给同事」的越权确认要靠它判断
+  /// 回答是否引用了具体任务数据（见前端 TASK_REF_TOOLS）。
+  toolSteps      Json?
   feedback       ChatFeedback?
   createdAt      DateTime         @default(now())
 }
@@ -183,6 +188,32 @@ model ApiRequestLog {
   @@index([statusCode, createdAt])
   @@index([path, createdAt])
   @@index([userId, createdAt])
+}
+
+/// MateChat ReAct 写操作的「待确认动作卡」。
+/// 曾经整表塞在 SystemSetting 的单个 KV 键里，靠进程内 Map 锁防重复执行——那把锁只在单实例下成立，
+/// 且读-改-写整份 JSON 天然有竞态。独立成表后，确认走 `WHERE status='pending'` 的条件更新原子抢占。
+model ChatPendingAction {
+  id             String   @id
+  userId         String
+  conversationId String
+  /// 关联的 assistant 消息 id（回答落库后回填）；支撑刷新后确认卡按消息恢复
+  messageId      String?
+  tool           String
+  /// 已归一化的执行载荷（确认时直接投给对应服务）
+  payload        Json
+  /// 推给前端渲染的卡片内容（label/summary/fields/expiresAt）
+  card           Json
+  /// pending（待确认）→ executing（已抢占，执行中）→ executed；用户取消或过期为 canceled。
+  /// executing 是并发抢占的中间态：执行失败会退回 pending，允许用户重试。
+  status         String   @default("pending")
+  resultMessage  String   @default("")
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([conversationId, userId, status])
+  @@index([status, expiresAt])
 }
 
 model SystemSetting {

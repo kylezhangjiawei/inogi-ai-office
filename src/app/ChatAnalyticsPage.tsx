@@ -790,6 +790,37 @@ export function ChatAnalyticsPage() {
                 </article>
               </section>
 
+              {summary.phaseBreakdown.length > 0 && (
+                <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_4px_20px_rgba(15,23,42,0.03)]">
+                  <SectionHeader
+                    title="首答延迟分段"
+                    description="总耗时看不出瓶颈在哪；分段后按 p95 决定先优化哪一步。「首字」已包含它上方各步。"
+                  />
+                  <div className="mt-4 overflow-x-auto">
+                    <table className="w-full min-w-[520px] text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-left text-xs text-slate-400">
+                          <th className="pb-2 font-medium">阶段</th>
+                          <th className="pb-2 text-right font-medium">p50</th>
+                          <th className="pb-2 text-right font-medium">p95</th>
+                          <th className="pb-2 text-right font-medium">样本</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {summary.phaseBreakdown.map((phase) => (
+                          <tr key={phase.key} className="border-b border-slate-50 last:border-0">
+                            <td className="py-2 text-slate-700">{phase.label}</td>
+                            <td className="py-2 text-right tabular-nums text-slate-600">{formatMs(phase.p50Ms)}</td>
+                            <td className="py-2 text-right font-semibold tabular-nums text-slate-900">{formatMs(phase.p95Ms)}</td>
+                            <td className="py-2 text-right tabular-nums text-slate-400">{phase.samples}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              )}
+
               <section className="mt-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-[0_4px_20px_rgba(15,23,42,0.025)] lg:px-6">
                 <div className="flex flex-col gap-5 lg:flex-row lg:items-center">
                   <div className="lg:w-56">

@@ -463,6 +463,9 @@ export class ChatAnalyticsService {
       : null;
     const p50ResponseMs = this.percentile(latencies, 50);
     const p95ResponseMs = this.percentile(latencies, 95);
+    // 分段耗时：总耗时只说明"慢"，分不清是检索慢、模型慢还是工具慢。
+    // 老埋点没有 timings 字段，取不到就跳过该样本，不影响其余统计。
+    const phaseBreakdown = this.summarizePhaseTimings(completedEvents);
 
     const actionCount = (type: string) => events.filter((event) => event.eventType === type).length;
     const rate = (numerator: number, denominator: number) =>
@@ -937,6 +940,7 @@ export class ChatAnalyticsService {
         avgResponseMs,
         p50ResponseMs,
         p95ResponseMs,
+        phaseBreakdown,
         successRate: completedEvents.length + failedEvents.length > 0
           ? rate(completedEvents.length, completedEvents.length + failedEvents.length)
           : null,
@@ -1362,6 +1366,47 @@ export class ChatAnalyticsService {
     }
     if (sources.length === 0) sources.push('模型通用知识');
     return sources;
+  }
+
+  /** 首答延迟的分段口径：与 chat.service 写入的 metadata.timings 一一对应 */
+  private static readonly LATENCY_PHASES: Array<{ key: string; label: string }> = [
+    { key: 'history', label: '历史与附件组装' },
+    { key: 'rewrite', label: '查询改写' },
+    { key: 'dbSearch', label: '结构化检索' },
+    { key: 'ragSearch', label: '知识库检索' },
+    { key: 'firstToken', label: '首字（含以上全部）' },
+    { key: 'tools', label: '工具执行' },
+  ];
+
+  /**
+   * 把各条回答的 metadata.timings 汇总成每个阶段的 p50/p95。
+   * 用 p50/p95 而不是均值：延迟分布是长尾的，均值会被少数极端样本带偏，看不出典型体验。
+   */
+  private summarizePhaseTimings(events: Array<{ metadata: Prisma.JsonValue }>) {
+    const buckets = new Map<string, number[]>();
+    for (const event of events) {
+      const metadata = event.metadata;
+      if (!metadata || Array.isArray(metadata) || typeof metadata !== 'object') continue;
+      const timings = (metadata as Prisma.JsonObject).timings;
+      if (!timings || Array.isArray(timings) || typeof timings !== 'object') continue;
+      for (const phase of ChatAnalyticsService.LATENCY_PHASES) {
+        const value = (timings as Prisma.JsonObject)[phase.key];
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) continue;
+        const bucket = buckets.get(phase.key) ?? [];
+        bucket.push(value);
+        buckets.set(phase.key, bucket);
+      }
+    }
+    return ChatAnalyticsService.LATENCY_PHASES.filter((phase) => buckets.has(phase.key)).map((phase) => {
+      const values = buckets.get(phase.key) ?? [];
+      return {
+        key: phase.key,
+        label: phase.label,
+        samples: values.length,
+        p50Ms: this.percentile(values, 50),
+        p95Ms: this.percentile(values, 95),
+      };
+    });
   }
 
   private percentile(values: number[], percentile: number) {
