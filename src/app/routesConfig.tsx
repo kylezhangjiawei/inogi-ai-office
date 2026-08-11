@@ -109,6 +109,7 @@ const BASE_NAV_GROUPS: NavGroup[] = [
       { label: "个人工作台", path: "/proc-my-workspace", icon: GanttChartSquare, requiredPermission: "page:proc-my-workspace" },
       { label: "物料库", path: "/proc-materials", icon: Warehouse, requiredPermission: "page:proc-materials" },
       { label: "供应商报价库", path: "/proc-quote-book", icon: Store, requiredPermission: "page:proc-quote-book" },
+      { label: "操作留痕", path: "/proc-audit-log", icon: ShieldCheck, requiredPermission: "page:proc-audit-log" },
     ],
   },
   {

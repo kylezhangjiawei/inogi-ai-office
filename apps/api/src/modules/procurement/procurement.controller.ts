@@ -15,6 +15,7 @@ import {
   ImportMaterialsDto,
   LinkPurchaseOrderDto,
   ProcAttachmentInputDto,
+  ProcAuditLogQueryDto,
   ReassignProcTaskDto,
   ReceiveGoodsDto,
   RenameCategoryDto,
@@ -40,7 +41,7 @@ type AuthedRequest = {
 
 /**
  * 采购管理接口。
- * 读操作只需页面权限（page:proc-cockpit / page:proc-materials，由前端路由守卫控制），
+ * 普通读操作只需登录并由前端页面权限控制；操作留痕额外由后端强制校验 page:proc-audit-log，
  * 写操作按 proc-task:* / material:* 操作码校验（全局 RolesGuard 生效，'*' 直通）。
  */
 @Controller('procurement')
@@ -58,6 +59,13 @@ export class ProcurementController {
       name: req.user.name ?? req.user.username ?? '',
       permissions: req.user.permissions ?? [],
     };
+  }
+
+  /** 采购模块写操作留痕，只读、独立页面权限。 */
+  @Get('audit-logs')
+  @Permissions('page:proc-audit-log')
+  listAuditLogs(@Query() query: ProcAuditLogQueryDto) {
+    return this.service.listAuditLogs(query);
   }
 
   // ── 任务 ────────────────────────────────────────────────────────────────────

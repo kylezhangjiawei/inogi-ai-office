@@ -117,6 +117,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:proc-my-workspace', label: '采购个人工作台', description: '成员视角：只看分配给我的采购任务，按阶段分组推进', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-my-workspace', sortOrder: 46 },
   { code: 'page:proc-materials', label: '采购物料库', description: '物料主数据与库存/在途资产视角：分类、审核与历史价格', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-materials', sortOrder: 47 },
   { code: 'page:proc-quote-book', label: '供应商报价库', description: '同一商品跨厂家比价：树形维护厂家报价与起订量阶梯价', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-quote-book', sortOrder: 48 },
+  { code: 'page:proc-audit-log', label: '采购操作留痕', description: '查看采购任务、物料、报价、成员和系统树的写操作记录', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-audit-log', sortOrder: 49 },
 
   { code: 'page:ui-design', label: 'AI 图像生成', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/ui-design', sortOrder: 300 },
   { code: 'page:image-library', label: '图像作品库', description: '历史创作、收藏作品与上游用量统计', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/image-library', sortOrder: 305 },

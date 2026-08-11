@@ -104,6 +104,17 @@ export interface ProcTaskListQuery {
   pageSize?: string;
 }
 
+export interface ProcAuditLogQuery {
+  page?: string | number;
+  pageSize?: string | number;
+  keyword?: string;
+  action?: string;
+  section?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  snapshotAt?: string;
+}
+
 export interface ProcMaterialListQuery {
   keyword?: string;
   category?: string;

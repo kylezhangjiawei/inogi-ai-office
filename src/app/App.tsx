@@ -73,6 +73,7 @@ const ProcMyWorkspacePage = lazyNamed(() => import("./procurement"), "ProcMyWork
 const MaterialWorkbenchPage = lazyNamed(() => import("./procurement"), "MaterialWorkbenchPage");
 const QuoteBookPage = lazyNamed(() => import("./procurement"), "QuoteBookPage");
 const ProcPeopleManagementPage = lazyNamed(() => import("./procurement"), "ProcPeopleManagementPage");
+const ProcAuditLogPage = lazyNamed(() => import("./procurement/ProcAuditLogPage"), "ProcAuditLogPage");
 const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");
 const ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");
 const QualityDMSPage = lazyNamed(() => import("./QualityDMSPage"), "QualityDMSPage");
@@ -476,6 +477,7 @@ const router = createBrowserRouter([
       { path: asChildPath(routePath("page:proc-my-workspace", "/proc-my-workspace")), element: makeLazyProtected(<ProcMyWorkspacePage />, "page:proc-my-workspace") },
       { path: asChildPath(routePath("page:proc-materials", "/proc-materials")), element: makeLazyProtected(<MaterialWorkbenchPage />, "page:proc-materials") },
       { path: asChildPath(routePath("page:proc-quote-book", "/proc-quote-book")), element: makeLazyProtected(<QuoteBookPage />, "page:proc-quote-book") },
+      { path: asChildPath(routePath("page:proc-audit-log", "/proc-audit-log")), element: makeLazyProtected(<ProcAuditLogPage />, "page:proc-audit-log") },
       // 采购人员管理独立页：从驾驶舱进入，不进侧边栏菜单（对齐研发 rd-people-management 模式）
       // 与采购驾驶舱**共用同一权限码**的兄弟页面：路径必须保持固定。
       // 若也用 routePath("page:proc-cockpit") 解析，两条路由会解析到同一路径，本页直接失联。

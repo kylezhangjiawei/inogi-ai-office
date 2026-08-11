@@ -38,6 +38,7 @@ import {
   PROC_STATUS_TRANSITIONS,
   PROC_TERMINAL_STATUSES,
   type ProcActor,
+  type ProcAuditLogQuery,
   type ProcMaterialListQuery,
   type ProcStatus,
   type ProcTaskListQuery,
@@ -143,6 +144,63 @@ export interface TaskQuoteBookOptionsResult {
   quotes: TaskQuoteBookOption[];
 }
 
+const PROC_AUDIT_SAFE_META_FIELDS = new Set([
+  'buyer',
+  'buyerUserId',
+  'code',
+  'materialId',
+  'materialIds',
+  'method',
+  'name',
+  'nodeId',
+  'parentId',
+  'priority',
+  'productId',
+  'purchaseOrderId',
+  'quantity',
+  'quotationId',
+  'receivedQty',
+  'status',
+  'targetStatus',
+  'taskId',
+  'taskIds',
+  'userId',
+]);
+
+const MAX_PROC_AUDIT_KEYWORD_LENGTH = 100;
+
+function auditDetailValue(value: Prisma.JsonValue | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return `${value.length} 项`;
+  if (typeof value === 'object') return '已提交';
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  const text = String(value).trim();
+  if (!text) return null;
+  return text.length > 120 ? `${text.slice(0, 120)}…` : text;
+}
+
+function safeAuditDetails(meta: Prisma.JsonValue): Array<{ field: string; value: string }> {
+  if (!meta || Array.isArray(meta) || typeof meta !== 'object') return [];
+  const details: Array<{ field: string; value: string }> = [];
+  for (const [field, value] of Object.entries(meta)) {
+    if (!PROC_AUDIT_SAFE_META_FIELDS.has(field)) continue;
+    const displayValue = auditDetailValue(value);
+    if (displayValue !== null) details.push({ field, value: displayValue });
+  }
+  return details;
+}
+
+function boundedAuditPageValue(
+  value: string | number | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(parsed)));
+}
+
 const PROC_TASK_VIEW_INCLUDE = Prisma.validator<Prisma.ProcTaskInclude>()({
   attachments: { orderBy: { createdAt: 'asc' } },
   logs: { orderBy: { createdAt: 'asc' } },
@@ -160,6 +218,84 @@ export class ProcurementService {
     private readonly chatService: ChatService,
     private readonly rdService: ResearchDevelopmentService,
   ) {}
+
+  async listAuditLogs(query: ProcAuditLogQuery) {
+    const requestedPage = boundedAuditPageValue(query.page, 1, 1, Number.MAX_SAFE_INTEGER);
+    const pageSize = boundedAuditPageValue(query.pageSize, 20, 10, 100);
+    const where: Prisma.AuditLogWhereInput = { resource: 'procurement' };
+    const action = query.action?.trim().toUpperCase();
+    if (action && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(action)) where.action = action;
+    if (query.section?.trim()) where.resourceId = query.section.trim();
+
+    const createdAt: Prisma.DateTimeFilter = {};
+    const dateFrom = query.dateFrom ? new Date(query.dateFrom) : null;
+    const dateTo = query.dateTo ? new Date(query.dateTo) : null;
+    const now = new Date();
+    const requestedSnapshot = query.snapshotAt ? new Date(query.snapshotAt) : null;
+    const snapshotAt = requestedSnapshot
+      && !Number.isNaN(requestedSnapshot.getTime())
+      && requestedSnapshot < now
+      ? requestedSnapshot
+      : now;
+    if (dateFrom && !Number.isNaN(dateFrom.getTime())) createdAt.gte = dateFrom;
+    if (dateTo && !Number.isNaN(dateTo.getTime())) createdAt.lt = dateTo;
+    createdAt.lte = snapshotAt;
+    where.createdAt = createdAt;
+
+    const keyword = query.keyword?.trim().slice(0, MAX_PROC_AUDIT_KEYWORD_LENGTH);
+    if (keyword) {
+      where.OR = [
+        { action: { contains: keyword, mode: 'insensitive' } },
+        { resourceId: { contains: keyword, mode: 'insensitive' } },
+        {
+          user: {
+            is: {
+              OR: [
+                { name: { contains: keyword, mode: 'insensitive' } },
+                { englishName: { contains: keyword, mode: 'insensitive' } },
+                { username: { contains: keyword, mode: 'insensitive' } },
+              ],
+            },
+          },
+        },
+      ];
+    }
+
+    const { total, page, rows } = await this.prisma.$transaction(async (tx) => {
+      const snapshotTotal = await tx.auditLog.count({ where });
+      const snapshotPage = Math.min(requestedPage, Math.max(1, Math.ceil(snapshotTotal / pageSize)));
+      const snapshotRows = await tx.auditLog.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (snapshotPage - 1) * pageSize,
+        take: pageSize,
+        include: {
+          user: { select: { id: true, name: true, englishName: true, username: true } },
+        },
+      });
+      return { total: snapshotTotal, page: snapshotPage, rows: snapshotRows };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+
+    return {
+      total,
+      page,
+      pageSize,
+      snapshotAt: snapshotAt.toISOString(),
+      items: rows.map((row) => ({
+        id: row.id,
+        action: row.action,
+        section: row.resourceId || 'other',
+        operator: row.user
+          ? {
+              id: row.user.id,
+              name: row.user.name || row.user.englishName || row.user.username || '未知用户',
+            }
+          : { id: null, name: '系统' },
+        occurredAt: row.createdAt.toISOString(),
+        details: safeAuditDetails(row.meta),
+      })),
+    };
+  }
 
   // ── 任务 ────────────────────────────────────────────────────────────────────
 

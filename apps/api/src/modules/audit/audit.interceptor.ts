@@ -2,6 +2,7 @@ import {
   CallHandler,
   ExecutionContext,
   Injectable,
+  Logger,
   NestInterceptor,
 } from '@nestjs/common';
 import { Request } from 'express';
@@ -14,6 +15,8 @@ const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(AuditInterceptor.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -36,6 +39,11 @@ export class AuditInterceptor implements NestInterceptor {
             meta: this.sanitizeMeta(req.body, resource),
             ip,
           },
+        }).catch((error: unknown) => {
+          this.logger.error(
+            `审计日志写入失败: ${req.method} ${req.path}`,
+            error instanceof Error ? error.stack : String(error),
+          );
         });
       }),
     );

@@ -1,10 +1,11 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
   ArrayUnique,
   IsArray,
   IsBoolean,
+  IsDateString,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -18,6 +19,49 @@ import {
 } from 'class-validator';
 
 import { PROC_STATUSES } from '../procurement.types';
+
+export class ProcAuditLogQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(10)
+  @Max(100)
+  pageSize?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  keyword?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => typeof value === 'string' ? value.trim().toUpperCase() : value)
+  @IsIn(['POST', 'PUT', 'PATCH', 'DELETE'])
+  action?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  section?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
+
+  @IsOptional()
+  @IsDateString()
+  snapshotAt?: string;
+}
 
 /** 任务附件：已先经 /api/files/upload 拿到 OSS 地址，此处只登记引用。 */
 export class ProcAttachmentInputDto {
