@@ -9,6 +9,7 @@ import {
   Loader2,
   LockKeyhole,
   Package,
+  PackageSearch,
   Pencil,
   Plus,
   Search,
@@ -50,6 +51,7 @@ import { usePermission } from "../../hooks/usePermission";
 import { useI18n } from "../../lib/i18n";
 import { DEFAULT_PROCUREMENT_PRODUCT_ID, useProcurementProducts } from "../data";
 import { ProcurementModuleDetail } from "./ProcurementModuleDetail";
+import { CoreMaterialsPanorama } from "./CoreMaterialsPanorama";
 import {
   createProcTaskTreeNode,
   deleteProcTaskTreeNode,
@@ -354,6 +356,14 @@ export function ProcurementSystemTree({
   onCloseModule,
   onOpenModule,
   onProductChange,
+  coreMode,
+  coreMaterialsByProduct,
+  coreMaterialLimit,
+  coreConfigLoading,
+  coreConfigError,
+  onRetryCoreConfig,
+  onCoreModeChange,
+  onSaveCoreMaterials,
 }: {
   tasks: ProcurementTask[];
   materials: Material[];
@@ -365,6 +375,14 @@ export function ProcurementSystemTree({
   onCloseModule?: () => void;
   onOpenModule?: (node: ProcTaskTreeNode, productId: string) => void;
   onProductChange?: (productId: string) => void;
+  coreMode: boolean;
+  coreMaterialsByProduct: Record<string, string[]>;
+  coreMaterialLimit: number;
+  coreConfigLoading: boolean;
+  coreConfigError: string | null;
+  onRetryCoreConfig: () => void;
+  onCoreModeChange: (active: boolean) => void;
+  onSaveCoreMaterials: (productId: string, materialIds: string[]) => Promise<void>;
 }) {
   const { t } = useI18n();
   const shouldReduceMotion = useReducedMotion();
@@ -580,10 +598,32 @@ export function ProcurementSystemTree({
               {t("返回任务驾驶舱")}
             </button>
           )}
+          <div className="inline-flex items-center gap-1 rounded-lg bg-slate-100 p-1" role="tablist" aria-label={t("子系统全景视图")}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!coreMode}
+              onClick={() => onCoreModeChange(false)}
+              className={cn("inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold", !coreMode ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-800")}
+            >
+              <Layers3 className="size-3.5" />
+              {t("分类全景")}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={coreMode}
+              onClick={() => onCoreModeChange(true)}
+              className={cn("inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold", coreMode ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-800")}
+            >
+              <PackageSearch className="size-3.5" />
+              {t("核心配件")}
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {!loading && !error && visibleNodes.length > 0 && (
+          {!coreMode && !loading && !error && visibleNodes.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
               {legend.map(({ count, health }) => {
                 const style = NODE_HEALTH_STYLE[health];
@@ -597,7 +637,7 @@ export function ProcurementSystemTree({
               })}
             </div>
           )}
-          <div className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-100">
+          {!coreMode && <div className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-100">
             <Search className="size-3.5 text-slate-400" />
             <Input
               value={keyword}
@@ -610,8 +650,8 @@ export function ProcurementSystemTree({
                 <X className="size-3" />
               </button>
             )}
-          </div>
-          {canManage && (
+          </div>}
+          {!coreMode && canManage && (
             <>
               {manageMode && canEdit && (
                 <button type="button" onClick={() => setEditor({ mode: "add-root" })} className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100">
@@ -674,7 +714,7 @@ export function ProcurementSystemTree({
         </div>
       </div>
 
-      <div className="relative border-b border-slate-100 bg-slate-50/80 px-11 py-2">
+      {!coreMode && <div className="relative border-b border-slate-100 bg-slate-50/80 px-11 py-2">
         <button
           type="button"
           onClick={() => scrollCategoryNav(-1)}
@@ -767,9 +807,24 @@ export function ProcurementSystemTree({
         >
           <ChevronRight className="size-4" />
         </button>
-      </div>
+      </div>}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+      <div className={cn("min-h-0 flex-1", coreMode ? "flex" : "overflow-y-auto p-5")}>
+        {coreMode ? (
+          <CoreMaterialsPanorama
+            productId={activeProductId}
+            productName={activeProduct?.name ?? activeProductId}
+            roots={roots}
+            materials={materials}
+            configuredIds={coreMaterialsByProduct[activeProductId] ?? []}
+            maxItems={coreMaterialLimit}
+            configLoading={coreConfigLoading}
+            configError={coreConfigError}
+            canManage={canEdit}
+            onRetryConfig={onRetryCoreConfig}
+            onSave={onSaveCoreMaterials}
+          />
+        ) : <>
         {activeRoot && canManage && manageMode && (
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2">
             <div className="min-w-0">
@@ -853,11 +908,12 @@ export function ProcurementSystemTree({
             </motion.div>
           </AnimatePresence>
         )}
+        </>}
       </div>
 
       <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50 px-5 py-2 text-[11px] leading-4 text-slate-500">
-        <span>{t("点击分类或名称卡片可筛选任务；节点有采购任务后不能修改或删除。")}</span>
-        {selected && (
+        <span>{t(coreMode ? "核心配件按 T+ 物料去重，仅展示具体数量，不汇总分类节点库存。" : "点击分类或名称卡片可筛选任务；节点有采购任务后不能修改或删除。")}</span>
+        {!coreMode && selected && (
           <div className="flex items-center gap-3">
             {onShowTasks && (
               <button type="button" onClick={() => onShowTasks(activeProductId)} className="cursor-pointer rounded-md bg-indigo-600 px-2.5 py-1 font-semibold text-white transition-colors duration-200 hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">

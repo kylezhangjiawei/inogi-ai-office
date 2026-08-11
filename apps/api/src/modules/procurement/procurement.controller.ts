@@ -19,6 +19,8 @@ import {
   ReceiveGoodsDto,
   RenameCategoryDto,
   ReviewMaterialDto,
+  SetProcCoreMaterialsDto,
+  SetProcTaskCriticalMaterialsDto,
   TransferFromRdDto,
   TransitionProcTaskDto,
   UpdateProcTaskTreeNodeDto,
@@ -141,6 +143,16 @@ export class ProcurementController {
     @Request() req: AuthedRequest,
   ) {
     return this.service.updateTask(id, dto, this.actor(req));
+  }
+
+  @Put('tasks/:id/critical-materials')
+  @Permissions('proc-task:create')
+  setTaskCriticalMaterials(
+    @Param('id') id: string,
+    @Body() dto: SetProcTaskCriticalMaterialsDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.setTaskCriticalMaterials(id, dto, this.actor(req));
   }
 
   @Post('tasks/:id/confirm')
@@ -344,6 +356,21 @@ export class ProcurementController {
   @Get('task-tree')
   getTaskTree(@Query('productId') productId?: string) {
     return this.service.getProcTaskTree(productId);
+  }
+
+  @Get('task-tree/core-materials')
+  getCoreMaterials() {
+    return this.service.getCoreMaterialConfig();
+  }
+
+  @Put('task-tree/core-materials/:productId')
+  @Permissions('proc-task:create')
+  setCoreMaterials(
+    @Param('productId') productId: string,
+    @Body() dto: SetProcCoreMaterialsDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.setCoreMaterialConfig(productId, dto, this.actor(req));
   }
 
   @Post('task-tree/nodes')

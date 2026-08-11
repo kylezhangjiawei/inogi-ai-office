@@ -211,18 +211,83 @@ function RuntimeVersionGuard() {
   return null;
 }
 
+const MOBILE_VIEWPORT_DEBOUNCE_MS = 250;
+
 /**
- * 响应式跟踪是否移动视口：监听 resize，使「桌面浏览器缩放 / 设备模拟器切换 / 横竖屏旋转」
- * 也能即时触发 L2 跳转。纯同步判断只在首屏算一次，切换尺寸不刷新就不会跳，故这里用状态化。
+ * 响应式跟踪是否移动视口：首屏同步判断，后续 resize 停止 250ms 后再更新。
+ * 拖拽分屏或跨显示器时会产生密集的中间宽度，防抖可避免短暂越过 768px 就切换整套路由。
  */
 function useIsMobileViewport() {
   const [mobile, setMobile] = useState(isMobileViewport);
   useEffect(() => {
-    const onResize = () => setMobile(isMobileViewport());
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    let resizeTimer: number | undefined;
+    const onResize = () => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        setMobile(isMobileViewport());
+      }, MOBILE_VIEWPORT_DEBOUNCE_MS);
+    };
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => {
+      window.clearTimeout(resizeTimer);
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
   return mobile;
+}
+
+function desktopTargetFromMobileLocation(
+  pathname: string,
+  search: string,
+  hash: string,
+) {
+  const suffix = `${search}${hash}`;
+  const taskMatch = pathname.match(/^\/(m|us-collab-m|production-m)\/task\/([^/]+)$/);
+  const discussionMatch = pathname.match(/^\/(us-collab-m|m)\/discussion\/([^/]+)$/);
+
+  if (taskMatch?.[1] === "us-collab-m") {
+    return `/us-collab-task/${encodeURIComponent(taskMatch[2])}${suffix}`;
+  }
+  if (taskMatch?.[1] === "production-m") {
+    return `/production-task/${encodeURIComponent(taskMatch[2])}${suffix}`;
+  }
+  if (taskMatch) {
+    return `/rd-task/${encodeURIComponent(taskMatch[2])}${suffix}`;
+  }
+
+  if (discussionMatch?.[1] === "us-collab-m") {
+    return `/us-collab-rd-discussion/${encodeURIComponent(discussionMatch[2])}${suffix}`;
+  }
+  if (discussionMatch) {
+    return `/rd-discussion/${encodeURIComponent(discussionMatch[2])}${suffix}`;
+  }
+  if (pathname.startsWith("/m/chat-analytics")) {
+    return `${routePath("page:chat-analytics", "/chat-analytics")}${suffix}`;
+  }
+  if (pathname.startsWith("/us-collab-m")) {
+    return `${routePath("page:us-collab-cockpit", "/us-collab-cockpit")}${suffix}`;
+  }
+  if (pathname.startsWith("/production-m")) {
+    return `/production-dashboard${suffix}`;
+  }
+  return `${routePath("page:rd-task-management", "/rd-task-management")}${suffix}`;
+}
+
+/** 移动路由的宽屏守卫：恢复到桌面宽度后回到同工作区、同业务页面。 */
+function ResponsiveMobileLayout() {
+  const location = useLocation();
+  const isMobile = useIsMobileViewport();
+
+  if (!isMobile) {
+    const desktopTarget = desktopTargetFromMobileLocation(
+      location.pathname,
+      location.search,
+      location.hash,
+    );
+    return <Navigate to={desktopTarget} replace />;
+  }
+
+  return <MobileLayout />;
 }
 
 function ProtectedLayout() {
@@ -247,12 +312,26 @@ function ProtectedLayout() {
   // 工作区感知：协同路由（/us-collab-*）跳协同移动端，其余跳研发移动端——否则协同用户
   // 会被甩到研发池的移动驾驶舱（数据完全对不上）。
   if (isMobile) {
+    const taskMatch = location.pathname.match(/^\/(rd-task|us-collab-task|production-task)\/([^/]+)$/);
     const discussionMatch = location.pathname.match(/^\/(us-collab-)?rd-discussion\/([^/]+)$/);
-    const target = discussionMatch
-      ? `${discussionMatch[1] ? "/us-collab-m" : "/m"}/discussion/${encodeURIComponent(discussionMatch[2])}${location.search}${location.hash}`
-      : location.pathname === "/chat-analytics"
-        ? `/m/chat-analytics${location.search}${location.hash}`
-        : location.pathname.startsWith("/us-collab") ? "/us-collab-m" : "/m";
+    const suffix = `${location.search}${location.hash}`;
+    const taskMobileBase = taskMatch?.[1] === "us-collab-task"
+      ? "/us-collab-m"
+      : taskMatch?.[1] === "production-task"
+        ? "/production-m"
+        : "/m";
+    const workspaceMobileBase = location.pathname.startsWith("/us-collab")
+      ? "/us-collab-m"
+      : location.pathname.startsWith("/production-") || location.pathname === "/rd-director-dashboard"
+        ? "/production-m"
+        : "/m";
+    const target = taskMatch
+      ? `${taskMobileBase}/task/${encodeURIComponent(taskMatch[2])}${suffix}`
+      : discussionMatch
+        ? `${discussionMatch[1] ? "/us-collab-m" : "/m"}/discussion/${encodeURIComponent(discussionMatch[2])}${suffix}`
+        : location.pathname === "/chat-analytics"
+          ? `/m/chat-analytics${suffix}`
+          : `${workspaceMobileBase}${suffix}`;
     return <Navigate to={target} replace />;
   }
 
@@ -447,11 +526,12 @@ const router = createBrowserRouter([
   },
   {
     // 移动端独立路由树：自带鉴权外壳，不复用桌面 Root（其写死 min-w-1024 + 侧边栏）。
-    // L1 直达：领导可直接访问 /m（书签 / 二维码 / IM 卡片）。
+    // L1 直达：移动视口访问 /m 可直接进入；恢复宽屏后由外层守卫自动返回桌面驾驶舱。
     path: "/m",
-    Component: MobileLayout,
+    Component: ResponsiveMobileLayout,
     children: [
-      { index: true, element: lazyWrap(<MobileRDCockpit />) },
+      { index: true, element: makeLazyProtected(<MobileRDCockpit />, "page:rd-task-management") },
+      { path: "task/:taskId", element: makeLazyProtected(<MobileRDCockpit />, "page:rd-task-management") },
       { path: "discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       { path: asChildPath(routePath("page:chat-analytics", "/chat-analytics")), element: makeLazyProtected(<MobileChatAnalyticsPage />, "page:chat-analytics") },
       { path: "*", element: <Navigate to="/m" replace /> },
@@ -461,11 +541,22 @@ const router = createBrowserRouter([
     // 协同移动端：完整复用研发移动驾驶舱组件。路由必须以 /us-collab 开头——
     // rdApi 按该前缀自动给所有请求带 ?workspace=us-collab，数据即协同池，组件零改动。
     path: "/us-collab-m",
-    Component: MobileLayout,
+    Component: ResponsiveMobileLayout,
     children: [
-      { index: true, element: lazyWrap(<MobileRDCockpit />) },
+      { index: true, element: makeLazyProtected(<MobileRDCockpit />, "page:us-collab-cockpit") },
+      { path: "task/:taskId", element: makeLazyProtected(<MobileRDCockpit />, "page:us-collab-cockpit") },
       { path: "discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       { path: "*", element: <Navigate to="/us-collab-m" replace /> },
+    ],
+  },
+  {
+    // Keep the /production- prefix so rdApi consistently targets the production workspace.
+    path: "/production-m",
+    Component: ResponsiveMobileLayout,
+    children: [
+      { index: true, element: makeLazyProtected(<MobileRDCockpit />, "page:rd-director-dashboard") },
+      { path: "task/:taskId", element: makeLazyProtected(<MobileRDCockpit />, "page:rd-director-dashboard") },
+      { path: "*", element: <Navigate to="/production-m" replace /> },
     ],
   },
 ]);

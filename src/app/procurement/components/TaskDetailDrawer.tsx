@@ -9,12 +9,12 @@ import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
 import { MoveTaskDialog } from "./MoveTaskDialog";
-import { taskRequester, type ProcurementTask } from "../data";
+import { refreshProcurement, taskRequester, useProcurementData, type ProcurementTask } from "../data";
 import { listQuotations, rejectProcTask, type Quotation } from "../../lib/procurementApi";
-import { refreshProcurement } from "../data";
 import { toast } from "sonner";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
+import { TaskCriticalMaterials } from "./TaskCriticalMaterials";
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {
   const { t } = useI18n();
@@ -28,6 +28,7 @@ function Info({ label, value }: { label: string; value: React.ReactNode }) {
 
 export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onClose: () => void }) {
   const { t } = useI18n();
+  const { materials } = useProcurementData();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -202,6 +203,8 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
             </div>
             {task.consumableNote && <div className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-700">{t('低值易耗品：')}<AutoTranslatedText text={task.consumableNote} /></div>}
           </div>
+
+          <TaskCriticalMaterials task={task} materials={materials} />
 
           {/* 研发转采购时携带的图纸/说明：随采购任务展示，读取地址由后端按 OSS key 动态重签。 */}
           {task.attachmentList.length > 0 && (

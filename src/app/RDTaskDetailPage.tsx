@@ -360,6 +360,9 @@ export default function RDTaskDetailPage() {
   const [people, setPeople] = useState<PersonProfile[]>([]);
   const [showHandover, setShowHandover] = useState(false);
   const [showEditInfo, setShowEditInfo] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [descriptionSaving, setDescriptionSaving] = useState(false);
   const [showAddCollab, setShowAddCollab] = useState(false);
   const [showComplete, setShowComplete] = useState(false);
   // ── 研发侧特有动作（与驾驶舱抽屉同口径）：提交审核 / 转采购 / 生成问题 / 移动类目 ──
@@ -511,6 +514,8 @@ export default function RDTaskDetailPage() {
     setNoteTaskFilter("all");
     setAuditTaskFilter("all");
     setSelectedActivityActor(null);
+    setEditingDescription(false);
+    setDescriptionDraft("");
     void loadProgressGroup();
     return () => { progressLoadSeqRef.current += 1; };
   }, [loadProgressGroup, taskId]);
@@ -697,10 +702,40 @@ export default function RDTaskDetailPage() {
       comment: t("研发详情页编辑任务信息"),
       source: "web",
     });
-    setTask((prev) => (prev ? { ...prev, title, description: nextDescription } : prev));
+    setTask((prev) => (prev?.task_id === task.task_id ? { ...prev, title, description: nextDescription } : prev));
     setAllTasks((prev) => prev.map((item) => (item.task_id === task.task_id ? { ...item, title, description: nextDescription } : item)));
     setShowEditInfo(false);
     toast.success(t("任务信息已更新"));
+  };
+
+  /** 描述卡就地编辑：复用任务信息更新与审计链路，避免出现两套保存口径。 */
+  const startDescriptionEdit = () => {
+    if (!task || !canManage || task.archived) return;
+    setDescriptionDraft(task.description ?? "");
+    setEditingDescription(true);
+  };
+
+  const cancelDescriptionEdit = () => {
+    if (descriptionSaving) return;
+    setDescriptionDraft(task?.description ?? "");
+    setEditingDescription(false);
+  };
+
+  const saveDescription = async () => {
+    if (!task || descriptionSaving) return;
+    if (descriptionDraft === (task.description ?? "")) {
+      setEditingDescription(false);
+      return;
+    }
+    setDescriptionSaving(true);
+    try {
+      await handleEditInfo(task.title, descriptionDraft);
+      setEditingDescription(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("保存失败，请重试"));
+    } finally {
+      setDescriptionSaving(false);
+    }
   };
 
   const savePriority = async (next: RdPriority) => {
@@ -1354,11 +1389,71 @@ export default function RDTaskDetailPage() {
       <section className="material-card overflow-hidden">
         <div className="grid lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="min-w-0 px-5 py-4">
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-500">
-              <FileText className="h-3.5 w-3.5 text-indigo-500" />
-              {t("任务描述")}
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                <FileText className="h-3.5 w-3.5 text-indigo-500" />
+                {t("任务描述")}
+              </span>
+              {canManage && !task.archived && !editingDescription && (
+                <button
+                  type="button"
+                  onClick={startDescriptionEdit}
+                  aria-label={t("编辑任务描述")}
+                  className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-indigo-600 transition-colors hover:bg-indigo-50"
+                >
+                  <Pencil className="h-3 w-3" />
+                  {t("编辑")}
+                </button>
+              )}
             </div>
-            {task.description ? (
+            {editingDescription ? (
+              <div className="space-y-2">
+                <Textarea
+                  value={descriptionDraft}
+                  onChange={(event) => setDescriptionDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      cancelDescriptionEdit();
+                    } else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                      event.preventDefault();
+                      void saveDescription();
+                    }
+                  }}
+                  rows={4}
+                  autoFocus
+                  disabled={descriptionSaving}
+                  placeholder={t("补充任务背景、目标与交付要求…")}
+                  aria-label={t("任务描述")}
+                  className="cockpit-scroll min-h-24 w-full resize-y rounded-lg border-slate-200 text-sm leading-6"
+                />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] text-slate-400">{t("Ctrl+Enter 保存，Esc 取消")}</span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={descriptionSaving}
+                      onClick={cancelDescriptionEdit}
+                      className="h-8 px-3 text-xs"
+                    >
+                      {t("取消")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={descriptionSaving}
+                      onClick={() => void saveDescription()}
+                      className="h-8 gap-1.5 bg-indigo-600 px-3 text-xs text-white hover:bg-indigo-700"
+                    >
+                      {descriptionSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                      {t("保存")}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : task.description ? (
               <AutoTranslatedText
                 as="p"
                 text={task.description}

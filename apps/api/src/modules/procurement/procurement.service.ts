@@ -24,6 +24,8 @@ import {
   ReceiveGoodsDto,
   RenameCategoryDto,
   ReviewMaterialDto,
+  SetProcCoreMaterialsDto,
+  SetProcTaskCriticalMaterialsDto,
   TransferFromRdDto,
   TransitionProcTaskDto,
   UpdateProcTaskTreeNodeDto,
@@ -141,6 +143,15 @@ export interface TaskQuoteBookOptionsResult {
   quotes: TaskQuoteBookOption[];
 }
 
+const PROC_TASK_VIEW_INCLUDE = Prisma.validator<Prisma.ProcTaskInclude>()({
+  attachments: { orderBy: { createdAt: 'asc' } },
+  logs: { orderBy: { createdAt: 'asc' } },
+  purchaseOrderRefs: true,
+  criticalMaterials: { orderBy: { sortOrder: 'asc' } },
+});
+
+type ProcTaskView = Prisma.ProcTaskGetPayload<{ include: typeof PROC_TASK_VIEW_INCLUDE }>;
+
 @Injectable()
 export class ProcurementService {
   constructor(
@@ -185,11 +196,7 @@ export class ProcurementService {
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: {
-          attachments: { orderBy: { createdAt: 'asc' } },
-          logs: { orderBy: { createdAt: 'asc' } },
-          purchaseOrderRefs: true,
-        },
+        include: PROC_TASK_VIEW_INCLUDE,
       }),
     ]);
 
@@ -213,9 +220,7 @@ export class ProcurementService {
     const task = await this.prisma.procTask.findUnique({
       where: { id },
       include: {
-        attachments: { orderBy: { createdAt: 'asc' } },
-        logs: { orderBy: { createdAt: 'asc' } },
-        purchaseOrderRefs: true,
+        ...PROC_TASK_VIEW_INCLUDE,
         quotations: { orderBy: { quoteDate: 'desc' } },
         material: true,
       },
@@ -243,7 +248,7 @@ export class ProcurementService {
     const requesterDept = await this.resolveRequesterDepartment(actor.id, dto.requesterDept);
     const existing = await this.prisma.procTask.findUnique({
       where: { rdTaskId },
-      include: { attachments: true, logs: true, purchaseOrderRefs: true },
+      include: PROC_TASK_VIEW_INCLUDE,
     });
     if (existing && existing.status !== 'cancelled') {
       return { ...this.serializeTask(existing), alreadyTransferred: true };
@@ -286,7 +291,7 @@ export class ProcurementService {
             },
           },
         },
-        include: { attachments: true, logs: true, purchaseOrderRefs: true },
+        include: PROC_TASK_VIEW_INCLUDE,
       });
       return { ...this.serializeTask(updated), alreadyTransferred: false };
     }
@@ -307,7 +312,7 @@ export class ProcurementService {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const transferred = await this.prisma.procTask.findUnique({
           where: { rdTaskId },
-          include: { attachments: true, logs: true, purchaseOrderRefs: true },
+          include: PROC_TASK_VIEW_INCLUDE,
         });
         if (transferred) {
           return { ...this.serializeTask(transferred), alreadyTransferred: true };
@@ -499,7 +504,7 @@ export class ProcurementService {
           },
         },
       },
-      include: { attachments: true, logs: true, purchaseOrderRefs: true },
+      include: PROC_TASK_VIEW_INCLUDE,
     });
     return this.serializeTask(task);
   }
@@ -554,7 +559,75 @@ export class ProcurementService {
           create: { kind: 'action', text: '更新任务信息', actor: actor.name, actorUserId: actor.id },
         },
       },
-      include: { attachments: true, logs: true, purchaseOrderRefs: true },
+      include: PROC_TASK_VIEW_INCLUDE,
+    });
+    return this.serializeTask(task);
+  }
+
+  async setTaskCriticalMaterials(
+    id: string,
+    dto: SetProcTaskCriticalMaterialsDto,
+    actor: ProcActor,
+  ) {
+    await this.requireTask(id);
+    const items = dto.items.map((item) => ({
+      materialId: item.materialId.trim(),
+      leadTimeDays: item.leadTimeDays ?? null,
+    }));
+    const materialIds = items.map((item) => item.materialId);
+    if (new Set(materialIds).size !== materialIds.length) {
+      throw new BadRequestException('同一任务不能重复配置同一个重点物料');
+    }
+
+    if (materialIds.length > 0) {
+      const existingMaterials = await this.prisma.procMaterial.findMany({
+        where: { id: { in: materialIds } },
+        select: {
+          id: true,
+          tpInventoryCode: true,
+          balances: {
+            where: { syncedAt: { not: null } },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      });
+      if (existingMaterials.length !== materialIds.length) {
+        throw new BadRequestException('重点物料配置中包含不存在的物料');
+      }
+      const hasUnavailableMaterial = existingMaterials.some((material) => (
+        !material.tpInventoryCode?.trim() || material.balances.length === 0
+      ));
+      if (hasUnavailableMaterial) {
+        throw new BadRequestException('重点物料必须已关联 T+ 并完成库存同步');
+      }
+    }
+
+    const task = await this.prisma.procTask.update({
+      where: { id },
+      data: {
+        criticalMaterials: {
+          deleteMany: {},
+          ...(items.length > 0
+            ? {
+                create: items.map((item, sortOrder) => ({
+                  material: { connect: { id: item.materialId } },
+                  sortOrder,
+                  leadTimeDays: item.leadTimeDays,
+                })),
+              }
+            : {}),
+        },
+        logs: {
+          create: {
+            kind: 'action',
+            text: `更新重点物料库存配置（${items.length} 项）`,
+            actor: actor.name,
+            actorUserId: actor.id,
+          },
+        },
+      },
+      include: PROC_TASK_VIEW_INCLUDE,
     });
     return this.serializeTask(task);
   }
@@ -602,7 +675,7 @@ export class ProcurementService {
           },
         },
       },
-      include: { attachments: true, logs: true, purchaseOrderRefs: true },
+      include: PROC_TASK_VIEW_INCLUDE,
     });
     return this.serializeTask(updated);
   }
@@ -634,7 +707,7 @@ export class ProcurementService {
           },
         },
       },
-      include: { attachments: true, logs: true, purchaseOrderRefs: true },
+      include: PROC_TASK_VIEW_INCLUDE,
     });
     // 站内通知研发对接人/需求提出人（通知失败不影响驳回本身）
     const recipient = task.rdContact || task.requester;
@@ -675,7 +748,7 @@ export class ProcurementService {
           },
         },
       },
-      include: { attachments: true, logs: true, purchaseOrderRefs: true },
+      include: PROC_TASK_VIEW_INCLUDE,
     });
     return this.serializeTask(updated);
   }
@@ -716,7 +789,7 @@ export class ProcurementService {
           },
         },
       },
-      include: { attachments: true, logs: true, purchaseOrderRefs: true },
+      include: PROC_TASK_VIEW_INCLUDE,
     });
     return this.serializeTask(updated);
   }
@@ -737,7 +810,7 @@ export class ProcurementService {
           },
         },
       },
-      include: { attachments: true, logs: true, purchaseOrderRefs: true },
+      include: PROC_TASK_VIEW_INCLUDE,
     });
     return this.serializeTask(updated);
   }
@@ -1517,6 +1590,98 @@ export class ProcurementService {
 
   // ── 采购任务系统树 ───────────────────────────────────────────────────────────
 
+  private static readonly CORE_MATERIALS_KEY_PREFIX = 'procurement:core-materials:v1:';
+  private static readonly MAX_CORE_MATERIALS_PER_PRODUCT = 30;
+
+  async getCoreMaterialConfig() {
+    const rows = await this.prisma.runtimeState.findMany({
+      where: { key: { startsWith: ProcurementService.CORE_MATERIALS_KEY_PREFIX } },
+    });
+    const products: Record<string, string[]> = {};
+    for (const row of rows) {
+      const productId = row.key.slice(ProcurementService.CORE_MATERIALS_KEY_PREFIX.length);
+      if (!productId) continue;
+      try {
+        const parsed = JSON.parse(row.value) as { materialIds?: unknown };
+        if (!Array.isArray(parsed.materialIds)) continue;
+        products[productId] = parsed.materialIds.filter((id): id is string => typeof id === 'string');
+      } catch {
+        products[productId] = [];
+      }
+    }
+    return { maxItems: ProcurementService.MAX_CORE_MATERIALS_PER_PRODUCT, products };
+  }
+
+  async setCoreMaterialConfig(
+    productId: string,
+    dto: SetProcCoreMaterialsDto,
+    actor: ProcActor,
+  ) {
+    const normalizedProductId = normalizeProcProductId(productId);
+    const materialIds = dto.materialIds.map((id) => id.trim());
+    if (materialIds.some((id) => !id)) {
+      throw new BadRequestException('核心配件不能包含空物料编号');
+    }
+    if (materialIds.length > ProcurementService.MAX_CORE_MATERIALS_PER_PRODUCT) {
+      throw new BadRequestException(`每个产品最多配置 ${ProcurementService.MAX_CORE_MATERIALS_PER_PRODUCT} 个核心配件`);
+    }
+    if (new Set(materialIds).size !== materialIds.length) {
+      throw new BadRequestException('同一产品不能重复配置同一个核心配件');
+    }
+
+    if (materialIds.length > 0) {
+      const [nodes, materials] = await Promise.all([
+        this.prisma.procTaskTreeNode.findMany({
+          where: {
+            productId: normalizedProductId,
+            parentId: { not: null },
+            children: { none: {} },
+            materialId: { in: materialIds },
+          },
+          select: { materialId: true },
+        }),
+        this.prisma.procMaterial.findMany({
+          where: { id: { in: materialIds } },
+          select: {
+            id: true,
+            tpInventoryCode: true,
+            balances: {
+              where: { syncedAt: { not: null } },
+              select: { id: true },
+              take: 1,
+            },
+          },
+        }),
+      ]);
+      const productMaterialIds = new Set(nodes.flatMap((node) => node.materialId ? [node.materialId] : []));
+      if (materialIds.some((id) => !productMaterialIds.has(id))) {
+        throw new BadRequestException('核心配件必须来自当前产品的子系统叶子物料');
+      }
+      if (materials.length !== materialIds.length) {
+        throw new BadRequestException('核心配件配置中包含不存在的物料');
+      }
+      if (materials.some((material) => !material.tpInventoryCode?.trim() || material.balances.length === 0)) {
+        throw new BadRequestException('核心配件必须已关联 T+ 并完成库存同步');
+      }
+    }
+
+    await this.prisma.runtimeState.upsert({
+      where: { key: `${ProcurementService.CORE_MATERIALS_KEY_PREFIX}${normalizedProductId}` },
+      create: {
+        key: `${ProcurementService.CORE_MATERIALS_KEY_PREFIX}${normalizedProductId}`,
+        value: JSON.stringify({ materialIds, updatedAt: new Date().toISOString(), updatedBy: actor.id }),
+      },
+      update: {
+        value: JSON.stringify({ materialIds, updatedAt: new Date().toISOString(), updatedBy: actor.id }),
+      },
+    });
+    return {
+      maxItems: ProcurementService.MAX_CORE_MATERIALS_PER_PRODUCT,
+      productId: normalizedProductId,
+      materialIds,
+    };
+  }
+
   /** 首次打开时用库存 BOM 附件中的「分类 / 名称」初始化两级目录。 */
   private async ensureProcTaskTreeSeeded() {
     const existing = await this.prisma.procTaskTreeNode.count();
@@ -2263,9 +2428,7 @@ export class ProcurementService {
   // ── 序列化 ───────────────────────────────────────────────────────────────────
 
   private serializeTask(
-    task: Prisma.ProcTaskGetPayload<{
-      include: { attachments: true; logs: true; purchaseOrderRefs: true };
-    }>,
+    task: ProcTaskView,
     currentRequesterDepartment?: string | null,
   ) {
     return {
@@ -2336,6 +2499,10 @@ export class ProcurementService {
         approvalStatus: r.approvalStatus ?? undefined,
         status: r.status ?? undefined,
       })),
+      criticalMaterials: task.criticalMaterials.map((item) => ({
+        materialId: item.materialId,
+        leadTimeDays: item.leadTimeDays ?? undefined,
+      })),
       logs: task.logs.map((l) => ({
         at: l.createdAt.toISOString().slice(0, 10),
         text: l.text,
@@ -2370,10 +2537,21 @@ export class ProcurementService {
 
   private serializeMaterial(
     m: Prisma.ProcMaterialGetPayload<object> & {
-      balances: { stockQty: Prisma.Decimal | number }[];
+      balances: {
+        stockQty: Prisma.Decimal | number;
+        availableQty: Prisma.Decimal | number;
+        inTransitQty: Prisma.Decimal | number;
+        syncedAt: Date | null;
+      }[];
     },
   ) {
     const stockQty = m.balances.reduce((sum, b) => sum + num(b.stockQty), 0);
+    const availableQty = m.balances.reduce((sum, b) => sum + num(b.availableQty), 0);
+    const inTransitQty = m.balances.reduce((sum, b) => sum + num(b.inTransitQty), 0);
+    const inventorySyncedAt = m.balances.reduce<string | undefined>((latest, balance) => {
+      const current = balance.syncedAt?.toISOString();
+      return current && (!latest || current > latest) ? current : latest;
+    }, undefined);
     return {
       id: m.id,
       name: m.name,
@@ -2387,6 +2565,9 @@ export class ProcurementService {
       isConsumable: m.isConsumable,
       safeStock: num(m.safeStock),
       stockQty,
+      availableQty,
+      inTransitQty,
+      inventorySyncedAt,
       reviewStatus: m.reviewStatus,
       reviewSource: m.reviewSource ?? undefined,
       reviewNote: m.reviewNote ?? undefined,

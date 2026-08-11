@@ -21,9 +21,12 @@ const classificationDialog = cockpit.slice(
   cockpit.indexOf("// ─── Main Page"),
 );
 
-test("cockpit exposes an independent full-task AI classification action", () => {
+test("cockpit keeps the full-task AI workflow but hides its entry behind the release switch", () => {
   assert.match(cockpit, /onAiClassifyTasks/);
   assert.match(cockpit, /AI 全量归纳/);
+  assert.match(cockpit, /const AI_FULL_CLASSIFICATION_VISIBLE = false/);
+  assert.match(cockpit, /onAiClassifyTasks=\{AI_FULL_CLASSIFICATION_VISIBLE && canDirectProject/);
+  assert.match(cockpit, /AI_FULL_CLASSIFICATION_VISIBLE && showProjectClassification \? \(/);
   assert.match(cockpit, /scopeLabel="全部线上任务（跨产品库）"/);
   assert.match(cockpit, /tasks=\{classificationTasks\}/);
   assert.doesNotMatch(cockpit, />\s*AI 归类总结\s*</);

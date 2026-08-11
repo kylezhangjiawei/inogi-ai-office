@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsIn,
@@ -11,6 +12,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -205,6 +207,36 @@ export class UpdateProcTaskDto {
   @IsOptional()
   @IsBoolean()
   businessDone?: boolean;
+}
+
+export class ProcTaskCriticalMaterialInputDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  materialId!: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(36500)
+  leadTimeDays?: number | null;
+}
+
+export class SetProcTaskCriticalMaterialsDto {
+  @IsArray()
+  @ArrayMaxSize(4)
+  @ValidateNested({ each: true })
+  @Type(() => ProcTaskCriticalMaterialInputDto)
+  items!: ProcTaskCriticalMaterialInputDto[];
+}
+
+export class SetProcCoreMaterialsDto {
+  @IsArray()
+  @ArrayMaxSize(30)
+  @ArrayUnique()
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  materialIds!: string[];
 }
 
 export class TransitionProcTaskDto {

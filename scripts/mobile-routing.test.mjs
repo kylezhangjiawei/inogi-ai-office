@@ -1,0 +1,69 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+const appSource = readFileSync(
+  new URL("../src/app/App.tsx", import.meta.url),
+  "utf8",
+);
+const mobileSource = readFileSync(
+  new URL("../src/app/MobileRDCockpit.tsx", import.meta.url),
+  "utf8",
+);
+
+const shellSource = readFileSync(
+  new URL("../src/app/MobileShell.tsx", import.meta.url),
+  "utf8",
+);
+
+
+test("移动端路由只在窗口尺寸稳定后切换", () => {
+  assert.match(appSource, /MOBILE_VIEWPORT_DEBOUNCE_MS\s*=\s*250/);
+  assert.match(appSource, /window\.clearTimeout\(resizeTimer\)/);
+  assert.match(
+    appSource,
+    /resizeTimer\s*=\s*window\.setTimeout\([\s\S]*?setMobile\(isMobileViewport\(\)\)[\s\S]*?MOBILE_VIEWPORT_DEBOUNCE_MS/,
+  );
+});
+
+test("移动路由恢复宽屏后自动回到对应桌面页面", () => {
+  assert.match(appSource, /function ResponsiveMobileLayout\(\)/);
+  assert.match(appSource, /if \(!isMobile\)\s*{[\s\S]*?<Navigate to=\{desktopTarget\} replace/);
+  assert.match(appSource, /path:\s*"\/m",\s*\n\s*Component:\s*ResponsiveMobileLayout/);
+  assert.match(appSource, /path:\s*"\/us-collab-m",\s*\n\s*Component:\s*ResponsiveMobileLayout/);
+  assert.match(appSource, /\/rd-discussion\/\$\{encodeURIComponent\(discussionMatch\[2\]\)\}/);
+  assert.match(appSource, /\/us-collab-rd-discussion\/\$\{encodeURIComponent\(discussionMatch\[2\]\)\}/);
+  assert.match(appSource, /routePath\("page:rd-task-management",\s*"\/rd-task-management"\)/);
+  assert.match(appSource, /routePath\("page:us-collab-cockpit",\s*"\/us-collab-cockpit"\)/);
+  assert.match(appSource, /path:\s*"\/production-m",\s*\n\s*Component:\s*ResponsiveMobileLayout/);
+  assert.match(appSource, /path:\s*"task\/:taskId"/);
+  assert.match(appSource, /\/production-task\/\$\{encodeURIComponent\(taskMatch\[2\]\)\}/);
+});
+
+test("移动任务详情保留任务 ID 和工作区上下文", () => {
+  assert.match(mobileSource, /useParams<\{ taskId: string \}>\(\)/);
+  assert.match(mobileSource, /taskIndex\.byId\.get\(routeTaskId\)/);
+  assert.match(mobileSource, /navigate\([\s\S]*?workspaceBase[\s\S]*?encodeURIComponent\(task\.task_id\)/);
+  assert.match(mobileSource, /const MOBILE_DATA_REFRESH_INTERVAL_MS = 15_000/);
+  assert.match(mobileSource, /window\.setInterval\(refresh, MOBILE_DATA_REFRESH_INTERVAL_MS\)/);
+});
+
+test("生产移动端保持 production 路由前缀", () => {
+  assert.match(shellSource, /isProductionWorkspace\(\)/);
+  assert.match(shellSource, /isProduction \? "\/production-m" : "\/m"/);
+  assert.match(appSource, /pathname\.startsWith\("\/production-"\)/);
+});
+
+test("移动驾驶舱复用对应桌面端权限边界", () => {
+  assert.match(appSource, /makeLazyProtected\(<MobileRDCockpit \/>, "page:rd-task-management"\)/);
+  assert.match(appSource, /makeLazyProtected\(<MobileRDCockpit \/>, "page:us-collab-cockpit"\)/);
+  assert.match(appSource, /makeLazyProtected\(<MobileRDCockpit \/>, "page:rd-director-dashboard"\)/);
+  assert.doesNotMatch(
+    appSource,
+    /\{ index: true, element: lazyWrap\(<MobileRDCockpit \/>\) \}/,
+  );
+});
+
+test("移动任务切换按任务 ID 重挂详情组件", () => {
+  assert.match(mobileSource, /<MobileTaskDetail[\s\S]*?key=\{activeTask\.task_id\}/);
+});

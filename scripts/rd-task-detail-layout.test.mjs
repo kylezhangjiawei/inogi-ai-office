@@ -37,6 +37,16 @@ test("任务筛选和卡片内留言展开时仍保留记录可视高度", () =>
   assert.match(conversationSource, /"flex min-h-0 min-w-0 flex-1 flex-col"/);
 });
 
+test("任务描述支持有权限人员就地编辑并复用任务信息更新链路", () => {
+  assert.match(detailSource, /canManage && !task\.archived && !editingDescription/);
+  assert.match(detailSource, /aria-label=\{t\("编辑任务描述"\)\}/);
+  assert.match(detailSource, /value=\{descriptionDraft\}/);
+  assert.match(detailSource, /await handleEditInfo\(task\.title, descriptionDraft\)/);
+  assert.match(detailSource, /event\.key === "Enter" && \(event\.ctrlKey \|\| event\.metaKey\)/);
+  assert.match(detailSource, /event\.key === "Escape"/);
+  assert.match(detailSource, /setEditingDescription\(false\);[\s\S]*setDescriptionDraft\(""\);[\s\S]*void loadProgressGroup\(\)/);
+});
+
 test("研发任务详情以纵向时间线展示进展留痕并保留原卡片能力", () => {
   assert.match(detailSource, /progressPresentation="timeline"/);
   assert.match(conversationSource, /function ProgressTimeline\(/);

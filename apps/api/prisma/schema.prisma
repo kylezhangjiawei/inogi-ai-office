@@ -1143,6 +1143,7 @@ model ProcMaterial {
   bomNodes        ProcBomNode[]
   taskTreeNodes   ProcTaskTreeNode[]
   tasks           ProcTask[]
+  criticalTaskLinks ProcTaskCriticalMaterial[]
   quotations      ProcQuotation[]
   supplierQuotes  ProcSupplierQuote[]
   balances        ProcInventoryBalance[]
@@ -1233,6 +1234,8 @@ model ProcTask {
   attachments         ProcTaskAttachment[]
   quotations          ProcQuotation[]
   purchaseOrderRefs   ProcPurchaseOrderRef[]
+  /// 该任务独立关注的重点库存物料，不与其他采购任务共享配置
+  criticalMaterials   ProcTaskCriticalMaterial[]
   logs                ProcTaskLog[]
   createdBy           String?
   createdAt           DateTime               @default(now())
@@ -1245,6 +1248,23 @@ model ProcTask {
   @@index([treeNodeId])
   @@index([buyerUserId])
   @@index([needDate])
+}
+
+/// 采购任务级重点物料配置：同一物料可被不同任务关注，并拥有不同采购周期与显示顺序。
+model ProcTaskCriticalMaterial {
+  id           String       @id @default(cuid())
+  taskId       String
+  task         ProcTask     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  materialId   String
+  material     ProcMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  sortOrder    Int          @default(0)
+  leadTimeDays Int?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([taskId, materialId])
+  @@index([taskId, sortOrder])
+  @@index([materialId])
 }
 
 /// 任务附件：真实 OSS 文件（图纸 / 报价单 / 其他）。

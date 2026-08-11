@@ -48,6 +48,11 @@ export interface ProcTaskPurchaseOrder {
   status?: string;
 }
 
+export interface ProcTaskCriticalMaterialSetting {
+  materialId: string;
+  leadTimeDays?: number;
+}
+
 export interface ProcurementTask {
   id: string;
   code: string;
@@ -83,6 +88,7 @@ export interface ProcurementTask {
   attachments: number;
   attachmentList: ProcTaskAttachment[];
   purchaseOrders: ProcTaskPurchaseOrder[];
+  criticalMaterials: ProcTaskCriticalMaterialSetting[];
   consumableNote?: string;
   selectedQuotationId?: string;
   quotationSubtotal?: number;
@@ -115,6 +121,9 @@ export interface Material {
   isConsumable: boolean;
   safeStock: number;
   stockQty: number;
+  availableQty: number;
+  inTransitQty: number;
+  inventorySyncedAt?: string;
   reviewStatus: MaterialReviewStatus;
   reviewSource?: MaterialReviewSource;
   reviewNote?: string;
@@ -401,6 +410,16 @@ export async function updateProcTask(
   });
 }
 
+export async function setProcTaskCriticalMaterials(
+  id: string,
+  items: ProcTaskCriticalMaterialSetting[],
+): Promise<ProcurementTask> {
+  return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/critical-materials`, {
+    method: "PUT",
+    body: JSON.stringify({ items }),
+  });
+}
+
 export async function confirmProcTask(id: string): Promise<ProcurementTask> {
   return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/confirm`, { method: "POST" });
 }
@@ -582,6 +601,25 @@ export async function listMaterials(signal?: AbortSignal): Promise<Material[]> {
 
 export async function listProcTaskTree(productId: string, signal?: AbortSignal): Promise<{ roots: ProcTaskTreeNode[] }> {
   return request(`/task-tree?productId=${encodeURIComponent(productId)}`, { signal });
+}
+
+export interface ProcCoreMaterialConfig {
+  maxItems: number;
+  products: Record<string, string[]>;
+}
+
+export async function getProcCoreMaterialConfig(signal?: AbortSignal): Promise<ProcCoreMaterialConfig> {
+  return request("/task-tree/core-materials", { signal });
+}
+
+export async function setProcCoreMaterialConfig(
+  productId: string,
+  materialIds: string[],
+): Promise<{ maxItems: number; productId: string; materialIds: string[] }> {
+  return request(`/task-tree/core-materials/${encodeURIComponent(productId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ materialIds }),
+  });
 }
 
 export async function createProcTaskTreeNode(input: ProcTaskTreeNodeInput): Promise<ProcTaskTreeNode> {

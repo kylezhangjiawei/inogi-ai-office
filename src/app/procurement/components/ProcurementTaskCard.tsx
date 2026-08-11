@@ -1,140 +1,262 @@
-// 采购任务卡（瀑布流）：复刻研发任务卡外壳——左彩边/附件预览/转派删除/主日期/进度条/下一步/负责人。
-import { ChevronRight, ExternalLink } from "lucide-react";
+// 采购任务共享卡：驾驶舱与个人工作台共用，视觉结构对齐研发任务驾驶舱。
+import {
+  AlertTriangle,
+  ArrowRight,
+  CalendarClock,
+  ChevronRight,
+  ExternalLink,
+  Flame,
+  MoreVertical,
+  Paperclip,
+  Settings2,
+  Trash2,
+  UserCog,
+} from "lucide-react";
+
+import { AutoTranslatedText } from "../../components/TranslatableText";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../../components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
 import { cn } from "../../components/ui/utils";
-import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
-import { taskRequester, type ProcurementTask } from "../data";
-import { BusinessLinePill, MainDateBadge, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, useProcCan } from "./common";
+import { isProcurementTaskOverdue, taskMainDate, taskRequester, type Material, type ProcurementTask } from "../data";
+import { BusinessLinePill, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, useProcCan } from "./common";
 import { DECISION_STATUSES, nextPermissionOf } from "./taskActions";
+import { TaskCriticalMaterials, TaskCriticalMaterialsEditor } from "./TaskCriticalMaterials";
 
-/**
- * 卡片本身是 <button>，表单弹窗不能嵌在内部，
- * 因此三个动作以回调上抛，由页面统一持有 useProcTaskAction 并渲染弹窗。
- */
-export function ProcurementTaskCard({ task, onOpen, onNext, onReassign, onRemove }: {
+const PRIORITY_TONE = {
+  high: { label: "高优先", className: "bg-rose-50 text-rose-700" },
+  medium: { label: "中优先", className: "bg-amber-50 text-amber-700" },
+  low: { label: "低优先", className: "bg-slate-100 text-slate-600" },
+} as const;
+
+export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassign, onRemove }: {
   task: ProcurementTask;
-  onOpen: (t: ProcurementTask) => void;
-  onNext?: (t: ProcurementTask) => void;
-  onReassign?: (t: ProcurementTask) => void;
-  onRemove?: (t: ProcurementTask) => void;
+  materials: Material[];
+  onOpen: (task: ProcurementTask) => void;
+  onNext?: (task: ProcurementTask) => void;
+  onReassign?: (task: ProcurementTask) => void;
+  onRemove?: (task: ProcurementTask) => void;
 }) {
   const { t } = useI18n();
   const can = useProcCan();
   const meta = PROC_STATUS_META[task.status];
   const requester = taskRequester(task);
-  const pct = task.quantity > 0 ? Math.round((task.arrivedQty / task.quantity) * 100) : 0;
+  const mainDate = taskMainDate(task);
+  const overdue = isProcurementTaskOverdue(task);
+  const progress = task.quantity > 0
+    ? Math.min(100, Math.max(0, Math.round((task.arrivedQty / task.quantity) * 100)))
+    : 0;
+  const priority = PRIORITY_TONE[task.priority];
   const isPendingConfirm = task.status === "pending_confirm";
-  const leftBar = task.priority === "high" ? "bg-red-400" : task.priority === "medium" ? "bg-amber-400" : "bg-slate-300";
-  const stop = (e: React.MouseEvent, fn: () => void) => { e.stopPropagation(); fn(); };
+  const latestLog = task.logs.at(-1)?.text?.trim() || t("暂无流程更新");
+  const previewAttachments = task.attachmentList.slice(0, 3);
+  const canAdvance = Boolean(meta.next && can(nextPermissionOf(task)) && onNext);
+  const canConfigureCriticalMaterials = can("proc-task:create");
+
+  const runWithoutOpening = (event: React.MouseEvent, action: () => void) => {
+    event.stopPropagation();
+    action();
+  };
 
   return (
-    <button
-      type="button"
+    <TaskCriticalMaterialsEditor task={task} materials={materials}>
+      {({ openEditor }) => (
+        <article
       onClick={() => onOpen(task)}
       className={cn(
-        "material-card relative w-full overflow-hidden p-4 text-left transition hover:shadow-md",
-        isPendingConfirm && "ring-2 ring-rose-300",
+        "group relative w-full cursor-pointer overflow-hidden rounded-2xl border border-slate-200/80 bg-white text-left shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_12px_28px_-12px_rgba(79,70,229,0.28)]",
+        isPendingConfirm && "border-rose-200 ring-1 ring-rose-200",
       )}
     >
-      <span className={cn("absolute inset-y-0 left-0 w-1", isPendingConfirm ? "bg-rose-400" : leftBar)} />
+      <div className="flex min-h-[220px] min-w-0 flex-col gap-2.5 px-4 py-3.5">
+        <div className="flex items-start gap-3">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-hidden">
+            <BusinessLinePill line={task.businessLine} />
+            <SourcePill source={task.source} />
+            <MethodPill method={task.method} />
+            <StatusPill status={task.status} />
+          </div>
 
-      {isPendingConfirm && (
-        <div className="mb-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-[11px] font-semibold text-rose-600">● {t('待采购确认提交（研发流转）')}</div>
-      )}
-
-      {/* 时间标 + 转派/删除 */}
-      <div className="flex items-center justify-between text-[11px] text-slate-400">
-        <span>{task.code}</span>
-        <span className="flex items-center gap-2">
-          {can("proc-task:reassign") && <span role="button" tabIndex={0} onClick={(e) => stop(e, () => onReassign?.(task))} className="cursor-pointer rounded px-1 py-0.5 hover:bg-slate-50 hover:text-slate-600">{t('转派')}</span>}
-          {can("proc-task:delete") && <span role="button" tabIndex={0} onClick={(e) => stop(e, () => onRemove?.(task))} className="cursor-pointer rounded px-1 py-0.5 hover:bg-rose-50 hover:text-rose-600">{t('删除')}</span>}
-        </span>
-      </div>
-
-      {/* 附件预览占位 */}
-      {task.attachments > 0 && (
-        <div className="mt-2 flex gap-1.5">
-          {Array.from({ length: Math.min(task.attachments, 3) }).map((_, i) => (
-            <span key={i} className="flex h-12 w-16 items-center justify-center rounded-md border border-dashed border-slate-200 bg-slate-50 text-[10px] text-slate-400">{t('图纸')}{i + 1}</span>
-          ))}
+          <div className="flex shrink-0 items-center gap-1.5">
+            {task.attachments > 0 ? (
+              <span className="inline-flex h-7 items-center gap-1 rounded-lg bg-indigo-50 px-2 text-[10px] font-semibold text-indigo-700">
+                <Paperclip className="size-3" />
+                {t("附件")} <span className="tabular-nums">{task.attachments}</span>
+              </span>
+            ) : null}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(event) => event.stopPropagation()}
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors duration-150 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+                  aria-label={t("更多操作")}
+                >
+                  <MoreVertical className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-40" onClick={(event) => event.stopPropagation()}>
+                <DropdownMenuItem onSelect={() => onOpen(task)}>
+                  <ArrowRight className="size-4" />
+                  {t("查看任务")}
+                </DropdownMenuItem>
+                {canConfigureCriticalMaterials ? (
+                  <DropdownMenuItem onSelect={openEditor}>
+                    <Settings2 className="size-4" />
+                    {t("库存设置")}
+                  </DropdownMenuItem>
+                ) : null}
+                {canAdvance ? (
+                  <DropdownMenuItem onSelect={() => onNext?.(task)}>
+                    <ChevronRight className="size-4" />
+                    {t(meta.next!)}
+                  </DropdownMenuItem>
+                ) : null}
+                {can("proc-task:reassign") && onReassign ? (
+                  <DropdownMenuItem onSelect={() => onReassign(task)}>
+                    <UserCog className="size-4" />
+                    {t("转派")}
+                  </DropdownMenuItem>
+                ) : null}
+                {can("proc-task:delete") && onRemove ? (
+                  <DropdownMenuItem variant="destructive" onSelect={() => onRemove(task)}>
+                    <Trash2 className="size-4" />
+                    {t("删除")}
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
-      )}
 
-      {/* pills */}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <BusinessLinePill line={task.businessLine} />
-        <SourcePill source={task.source} />
-        <MethodPill method={task.method} />
-        <StatusPill status={task.status} />
-      </div>
+        <div className="flex items-center gap-2 text-[10px] text-slate-400">
+          <span className="font-semibold tabular-nums">{task.code}</span>
+          {isPendingConfirm ? (
+            <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 font-semibold text-rose-700">
+              <span className="size-1.5 rounded-full bg-rose-500" />
+              {t("待采购确认")}
+            </span>
+          ) : null}
+        </div>
 
-      {/* 标题 */}
-      <div className="mt-2 text-sm font-semibold text-slate-900">
-        <AutoTranslatedText text={task.materialName} />
-        {task.spec && <> · <AutoTranslatedText text={task.spec} /></>}
-        {" "}<span className="text-slate-400">× {task.quantity}{t(task.unit)}</span>
-      </div>
+        <h3 className="line-clamp-2 text-[15px] font-bold leading-snug text-slate-900">
+          <AutoTranslatedText text={task.materialName} />
+          {task.spec ? <> · <AutoTranslatedText text={task.spec} /></> : null}
+          <span className="ml-1 text-xs font-semibold text-slate-400">
+            × <span className="tabular-nums">{task.quantity.toLocaleString()}</span>{t(task.unit)}
+          </span>
+        </h3>
 
-      {/* 主日期（最大字号） */}
-      <div className="mt-2"><MainDateBadge task={task} big /></div>
+        <AutoTranslatedText
+          as="p"
+          text={latestLog}
+          className="line-clamp-2 min-h-10 text-pretty text-xs leading-5 text-slate-500"
+        />
 
-      {/* 付款 · 到货 */}
-      <div className="mt-1.5 text-[11px] text-slate-500">
-        {task.paymentDate ? <>{t('付款')} {task.paymentDate}{task.paymentNote ? <>（<AutoTranslatedText text={task.paymentNote} />）</> : null}</> : t('未付款')}
-        {" · "}{t('到货')} <span className="tabular-nums">{task.arrivedQty.toLocaleString()} / {task.quantity.toLocaleString()}</span>
-      </div>
+        {previewAttachments.length > 0 ? (
+          <div className="grid grid-cols-3 gap-1.5">
+            {previewAttachments.map((attachment) => {
+              const isImage = attachment.mimeType?.startsWith("image/");
+              return (
+                <div key={attachment.id} className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                  {isImage ? (
+                    <img src={attachment.fileUrl} alt={attachment.fileName} loading="lazy" className="h-16 w-full object-cover" />
+                  ) : (
+                    <div className="flex h-16 items-center justify-center text-slate-400"><Paperclip className="size-4" /></div>
+                  )}
+                  <p className="truncate px-1.5 py-1 text-[9px] text-slate-500">{attachment.fileName}</p>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
 
-      {/* 进度条 */}
-      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-        <div className={cn("h-full rounded-full", pct >= 100 ? "bg-emerald-500" : "bg-indigo-500")} style={{ width: `${pct}%` }} />
-      </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[10px] text-slate-500">
+          <span>
+            {task.paymentDate ? `${t("付款")} ${task.paymentDate}` : t("未付款")}
+          </span>
+          <span>
+            {t("到货")} <strong className="tabular-nums text-slate-700">{task.arrivedQty.toLocaleString()} / {task.quantity.toLocaleString()}</strong>
+          </span>
+        </div>
 
-      {/* 下一步 + 负责人 */}
-      <div className="mt-3 flex items-center justify-between">
-        {meta.next && can(nextPermissionOf(task)) ? (
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => stop(e, () => onNext?.(task))}
+        <TaskCriticalMaterials task={task} materials={materials} />
+
+        {canAdvance ? (
+          <button
+            type="button"
+            onClick={(event) => runWithoutOpening(event, () => onNext?.(task))}
             className={cn(
-              "inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition",
+              "inline-flex w-fit cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
               isPendingConfirm ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-indigo-600 text-white hover:bg-indigo-700",
             )}
           >
-            {t(meta.next)}
-            {/* 决策类：点击是「去详情处理」而非就地执行，用箭头把预期说清楚 */}
-            {DECISION_STATUSES.includes(task.status) && <ChevronRight className="h-3 w-3" />}
-            {task.method === "direct" && task.status === "pending_purchase" && <ExternalLink className="h-3 w-3" />}
+            {t(meta.next!)}
+            {DECISION_STATUSES.includes(task.status) ? <ChevronRight className="size-3" /> : null}
+            {task.method === "direct" && task.status === "pending_purchase" ? <ExternalLink className="size-3" /> : null}
+          </button>
+        ) : null}
+
+        <div className="mt-auto flex items-center gap-2 pt-0.5">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+            <div className={cn("h-full rounded-full", progress >= 100 ? "bg-emerald-500" : "bg-indigo-500")} style={{ width: `${progress}%` }} />
+          </div>
+          <span className="w-9 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">{progress}%</span>
+        </div>
+
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-slate-100 pt-2 text-[10px] text-slate-500">
+          <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold", priority.className)}>
+            <Flame className="size-3" />
+            {t(priority.label)}
           </span>
-        ) : (
-          <span className={cn("text-xs font-medium", task.status === "completed" ? "text-emerald-600" : "text-slate-400")}>{t(meta.label)}</span>
-        )}
-        {/* 需求提出人 → 采购负责人（同一人时只显示一个） */}
-        <span className="flex items-center gap-1.5 text-xs text-slate-600">
-          {requester.name !== task.buyer && (
-            <>
-              <span className="flex items-center gap-1" title={`${t('需求提出')} · ${t(requester.dept)}`}>
-                <span className="text-[10px] text-slate-400">{t('提出')}</span>
-                <PersonAvatar name={requester.name} size="xs" />
-                {requester.name}
-              </span>
-              <span className="text-slate-300">→</span>
-            </>
-          )}
+          {mainDate.date ? (
+            <span className="inline-flex items-center gap-1">
+              <CalendarClock className="size-3 text-slate-400" />
+              {t(mainDate.label)}：<span className="tabular-nums">{mainDate.date.slice(5)}</span>
+            </span>
+          ) : null}
+          {overdue ? (
+            <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 font-semibold text-rose-600">
+              <AlertTriangle className="size-3" />
+              {t("逾期")}
+            </span>
+          ) : null}
+
           <Tooltip>
+          <button
+            type="button"
+            onClick={(event) => runWithoutOpening(event, () => onOpen(task))}
+            className="ml-auto inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+            aria-label={t("查看任务")}
+          >
+            {t("查看")} <ArrowRight className="size-3" />
+          </button>
+
             <TooltipTrigger asChild>
-              <span className="flex items-center gap-1">
-                {requester.name !== task.buyer && <span className="text-[10px] text-slate-400">{t('采购')}</span>}
+              <span className="inline-flex min-w-0 items-center gap-1.5 text-slate-400">
                 <PersonAvatar name={task.buyer} size="xs" />
-                {task.buyer}
+                <span className="max-w-[72px] truncate font-medium text-slate-600">{task.buyer}</span>
               </span>
             </TooltipTrigger>
-            <TooltipContent side="top">{t('采购负责人')}</TooltipContent>
+            <TooltipContent side="top">
+              {requester.name === task.buyer
+                ? t("采购负责人")
+                : `${t("需求提出")}：${requester.name} → ${t("采购负责人")}：${task.buyer}`}
+            </TooltipContent>
           </Tooltip>
-        </span>
+        </div>
+
+        {task.consumableNote ? (
+          <AutoTranslatedText as="p" text={task.consumableNote} className="truncate text-[10px] text-slate-400" />
+        ) : null}
       </div>
-      {task.consumableNote && <div className="mt-1 text-[10px] text-slate-400">· <AutoTranslatedText text={task.consumableNote} /></div>}
-    </button>
+        </article>
+      )}
+    </TaskCriticalMaterialsEditor>
   );
 }

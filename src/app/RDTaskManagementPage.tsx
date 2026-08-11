@@ -90,7 +90,7 @@ import {
   fetchRdPeople,
   fetchRdTaskCategories,
   fetchRdMemberTaskCategories,
-  fetchMergedTaskCategories,
+  fetchRdCockpitTaskCategories,
   fetchRdTaskCompletionScore,
   fetchRdTaskCompletionScores,
   fetchRdTaskCompletionScoreDebug,
@@ -178,6 +178,9 @@ const KPI_FILTER_LABEL: Record<KpiFilter, string> = {
   blocked: "阻塞 / 待派",
   risk: "风险任务",
 };
+
+// AI 全量归纳暂不对外开放：保留完整分析与人工确认流程，后续评审通过后只需恢复此开关。
+const AI_FULL_CLASSIFICATION_VISIBLE = false;
 
 /**
  * 「已归档」的统一判定，与后端 isArchivedTask 完全一致：archived 标志 **或** status==='archived'。
@@ -11264,7 +11267,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
 
   // 拉取「所有产品库合并」的分类树，供概览人员负载跨产品聚合。失败则回退到主库(mergedCategories=null)。
   const loadMergedCategories = useCallback(() => {
-    fetchMergedTaskCategories()
+    fetchRdCockpitTaskCategories()
       .then((merged) => setMergedCategories(merged))
       .catch(() => setMergedCategories(null));
   }, []);
@@ -11733,7 +11736,9 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           onToggleProductionSync={handleToggleProductionSync}
           onManageProducts={canCreateTask ? () => setShowProductManage(true) : undefined}
           canManageProducts={canCreateTask}
-          onAiClassifyTasks={canDirectProject && !usCollab && !productionWorkspace ? () => setShowProjectClassification(true) : undefined}
+          onAiClassifyTasks={AI_FULL_CLASSIFICATION_VISIBLE && canDirectProject && !usCollab && !productionWorkspace
+            ? () => setShowProjectClassification(true)
+            : undefined}
           panoramaReloadToken={panoramaReloadToken}
           hideSystemPanorama={hideSystemPanorama}
         />
@@ -11825,7 +11830,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               onClose={() => setMoveTaskTarget(null)}
             />
           )}
-          {showProjectClassification && (
+          {AI_FULL_CLASSIFICATION_VISIBLE && showProjectClassification ? (
             <ProjectClassificationDialog
               key="all-online-task-classification"
               scopeLabel="全部线上任务（跨产品库）"
@@ -11840,7 +11845,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                 setPanoramaReloadToken((token) => token + 1);
               }}
             />
-          )}
+          ) : null}
         </AnimatePresence>
         {showProposalDialog && (
           <RDProjectProposalDialog

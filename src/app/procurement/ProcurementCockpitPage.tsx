@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../components/ui/input";
 import { useNavigate, useSearchParams } from "react-router";
-import { Activity, AlertTriangle, ClipboardList, Download, FolderTree, Layers3, PackageCheck, Plus, Search, Truck, UserCog, Users } from "lucide-react";
+import { Activity, AlertTriangle, ClipboardList, Download, FolderTree, Layers3, PackageCheck, PackageSearch, Plus, Search, Truck, UserCog, Users } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
@@ -18,7 +18,7 @@ import { MoveTaskDialog } from "./components/MoveTaskDialog";
 import { BatchReassignModal, NewRequirementModal, PoMatchModal } from "./components/modals";
 import { usePermission } from "../hooks/usePermission";
 import { exportProcTasksXlsx } from "./exportTasks";
-import type { ProcTaskTreeNode } from "../lib/procurementApi";
+import { getProcCoreMaterialConfig, setProcCoreMaterialConfig, type ProcCoreMaterialConfig, type ProcTaskTreeNode } from "../lib/procurementApi";
 
 const ACTIVE_STATUSES: ProcStatus[] = ["pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "pending_purchase", "in_transit", "partial_arrival"];
 const TRANSIT_STATUSES: ProcStatus[] = ["in_transit", "partial_arrival"];
@@ -39,6 +39,9 @@ export function ProcurementCockpitPage() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchMoveOpen, setBatchMoveOpen] = useState(false);
   const [poMatchOpen, setPoMatchOpen] = useState(false);
+  const [coreMaterialConfig, setCoreMaterialConfig] = useState<ProcCoreMaterialConfig>({ maxItems: 30, products: {} });
+  const [coreConfigLoading, setCoreConfigLoading] = useState(true);
+  const [coreConfigError, setCoreConfigError] = useState<string | null>(null);
   const navigate = useNavigate();
   const [kw, setKw] = useState("");
   // 写操作按钮按系统管理配置的操作码显隐；物料审核在工作台物料详情里做（带完整上下文）
@@ -61,11 +64,16 @@ export function ProcurementCockpitPage() {
       next.delete("view");
       next.delete("module");
       next.delete("product");
-    } else next.set("view", "systems");
+      next.delete("core");
+    } else {
+      next.set("view", "systems");
+      next.delete("core");
+    }
     return next;
   }, { replace: true });
   const moduleParam = params.get("module");
   const systemProductParam = params.get("product");
+  const coreMode = params.get("core") === "1";
   const openSystemModule = useCallback((node: ProcTaskTreeNode, productId: string) => {
     setTreeNode(node);
     setParams((current) => {
@@ -73,6 +81,7 @@ export function ProcurementCockpitPage() {
       next.set("view", "systems");
       next.set("product", productId);
       next.set("module", node.id);
+      next.delete("core");
       return next;
     });
   }, [setParams]);
@@ -93,6 +102,42 @@ export function ProcurementCockpitPage() {
       return next;
     }, { replace: true });
   }, [setParams]);
+  const setCoreMode = useCallback((active: boolean) => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("view", "systems");
+      next.delete("module");
+      if (active) next.set("core", "1");
+      else next.delete("core");
+      return next;
+    }, { replace: true });
+  }, [setParams]);
+  const saveCoreMaterials = useCallback(async (productId: string, materialIds: string[]) => {
+    const saved = await setProcCoreMaterialConfig(productId, materialIds);
+    setCoreMaterialConfig((current) => ({
+      maxItems: saved.maxItems,
+      products: { ...current.products, [saved.productId]: saved.materialIds },
+    }));
+  }, []);
+
+  const loadCoreMaterialConfig = useCallback(async (signal?: AbortSignal) => {
+    setCoreConfigLoading(true);
+    setCoreConfigError(null);
+    try {
+      setCoreMaterialConfig(await getProcCoreMaterialConfig(signal));
+    } catch (cause) {
+      if (signal?.aborted) return;
+      setCoreConfigError(cause instanceof Error ? cause.message : t("核心配件配置加载失败"));
+    } finally {
+      if (!signal?.aborted) setCoreConfigLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadCoreMaterialConfig(controller.signal);
+    return () => controller.abort();
+  }, [loadCoreMaterialConfig]);
 
   const materialParam = params.get("material");
   const taskParam = params.get("task");
@@ -134,6 +179,20 @@ export function ProcurementCockpitPage() {
     overdue: treeScopedTasks.filter(isProcurementTaskOverdue).length,
     week: treeScopedTasks.filter(isThisWeek).length,
   }), [treeScopedTasks]);
+
+  const coreInventorySummary = useMemo(() => {
+    const configuredIds = new Set(Object.values(coreMaterialConfig.products).flat());
+    let total = 0;
+    let shortage = 0;
+    let low = 0;
+    for (const material of materials) {
+      if (!configuredIds.has(material.id) || !material.tpInventoryCode?.trim() || !material.inventorySyncedAt) continue;
+      total += 1;
+      if (material.availableQty <= 0) shortage += 1;
+      else if (material.safeStock > 0 && material.availableQty < material.safeStock) low += 1;
+    }
+    return { total, shortage, low, abnormal: shortage + low };
+  }, [coreMaterialConfig.products, materials]);
 
   // 人员泳道维度：采购负责人 + 研发对接人 + 需求提出人
   const people = useMemo(() => {
@@ -213,6 +272,22 @@ export function ProcurementCockpitPage() {
             <Layers3 className="size-4" />
             {t("子系统全景")}
           </button>
+          <button
+            type="button"
+            onClick={() => setCoreMode(true)}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-600 transition-colors duration-200 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+          >
+            <PackageSearch className="size-4" />
+            {t("核心配件")}
+            <span className="rounded-full bg-slate-100 px-1.5 text-[11px] tabular-nums text-slate-500">
+              {coreConfigLoading ? "—" : coreInventorySummary.total}
+            </span>
+            {coreInventorySummary.abnormal > 0 ? (
+              <span className="rounded-full bg-rose-50 px-1.5 text-[11px] tabular-nums text-rose-700">
+                {t("异常")} {coreInventorySummary.abnormal}
+              </span>
+            ) : null}
+          </button>
             <>
               <button
                 type="button"
@@ -247,6 +322,14 @@ export function ProcurementCockpitPage() {
             onCloseModule={closeSystemModule}
             onOpenModule={openSystemModule}
             onProductChange={setSystemProduct}
+            coreMode={coreMode}
+            coreMaterialsByProduct={coreMaterialConfig.products}
+            coreMaterialLimit={coreMaterialConfig.maxItems}
+            coreConfigLoading={coreConfigLoading}
+            coreConfigError={coreConfigError}
+            onRetryCoreConfig={() => void loadCoreMaterialConfig()}
+            onCoreModeChange={setCoreMode}
+            onSaveCoreMaterials={saveCoreMaterials}
           />
         </div>
       ) : (
@@ -312,6 +395,7 @@ export function ProcurementCockpitPage() {
                     <div key={t.id} className="mb-3 break-inside-avoid">
                       <ProcurementTaskCard
                         task={t}
+                        materials={materials}
                         onOpen={setOpen}
                         onNext={(task) => taskAction.runNext(task, "card")}
                         onReassign={taskAction.reassign}

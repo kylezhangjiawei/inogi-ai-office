@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, ArrowLeft, Clock, History, ImageIcon, Inbox, Loader2, MessageCircleMore, RefreshCw, Search, Users, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Clock, GitBranch, History, ImageIcon, Inbox, Info, Loader2, MessageCircleMore, Paperclip, RefreshCw, Search, Users, X } from "lucide-react";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { t, useI18n } from "./lib/i18n";
@@ -9,23 +10,27 @@ import { daysUntilDue } from "./lib/taskDue";
 import { memberIdentityKey } from "./lib/rdMemberIdentity";
 import {
   fetchRdNoteUnreadSummary,
-  fetchRdTaskProgressNotes,
+  fetchRdTaskProgressNoteGroup,
   markRdTaskNotesRead,
+  type RdCategory,
   type RdTask,
+  type RdTaskProgressAttachment,
   type RdTaskProgressNote,
+  type RdTaskProgressGroupTask,
   type RdTaskStatus,
 } from "./lib/rdApi";
 import { RDTaskConversation } from "./RDTaskConversation";
-import { MobileAttachmentPreviewHost } from "./RDProgressEvidence";
+import { MobileAttachmentPreviewHost, ProgressAttachmentGrid } from "./RDProgressEvidence";
+import { getAuditActionMeta, useAuditLogs } from "./lib/auditLog";
+import { ProcurementActivitySection, useProcurementTaskLink } from "./procurement/components/rdInsertion";
 import {
   closeMobileOverlay,
-  isCurrentMobileOverlay,
   pushMobileOverlayState,
   useBodyScrollLock,
   useMobileOverlayBack,
 } from "./hooks/useMobileOverlay";
 
-const TASK_DETAIL_OVERLAY = "rd-mobile-task-detail";
+const MOBILE_DATA_REFRESH_INTERVAL_MS = 15_000;
 const CARD_IMAGE_OVERLAY = "rd-mobile-card-image";
 
 // ─── 文案 / 配色映射（移动端自带一份，与桌面同口径、样式独立）────────────────────
@@ -87,6 +92,46 @@ function sameUnreadCounts(current: Record<string, number>, next: Record<string, 
   const nextKeys = Object.keys(next);
   return currentKeys.length === nextKeys.length
     && currentKeys.every((key) => current[key] === next[key]);
+}
+
+type MobileTaskIndex = {
+  byId: Map<string, RdTask>;
+};
+
+function buildMobileTaskIndex(categories: RdCategory[]): MobileTaskIndex {
+  const byId = new Map<string, RdTask>();
+  const visit = (task: RdTask): void => {
+    byId.set(task.task_id, task);
+    for (const child of task.subtasks ?? []) visit(child);
+  };
+  for (const category of categories) {
+    for (const subProject of category.children) {
+      for (const task of subProject.tasks) visit(task);
+    }
+  }
+  return { byId };
+}
+
+function mobileWorkspaceBase(pathname: string): "/m" | "/us-collab-m" | "/production-m" {
+  if (pathname.startsWith("/us-collab-m")) return "/us-collab-m";
+  if (pathname.startsWith("/production-m")) return "/production-m";
+  return "/m";
+}
+
+function priorityLabel(task: RdTask): string {
+  const priority = task.final_priority ?? task.ai_priority;
+  if (priority === "high") return t("高优先");
+  if (priority === "low") return t("低优先");
+  return t("中优先");
+}
+
+function formatFullDate(value?: string): string {
+  const text = value?.trim();
+  if (!text) return "—";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+  return parsed.toLocaleString();
 }
 
 /** 取分类路径最后一级作为话题标签（小红书风格的 # 标签）。 */
@@ -234,7 +279,7 @@ function ImageLightbox({
   );
 }
 
-// ─── 瀑布流卡片（竖向：状态 + 标签 → 封面 → 标题 → 最新进展 → 进度 → 负责人行）──────
+// ─── 瀑布流卡片（竖向：状态 + 标签 → 标题 → 最新进展 → 封面 → 进度 → 负责人行）──────
 function MobileFeedCard({
   task,
   isRisk,
@@ -322,7 +367,20 @@ function MobileFeedCard({
         )}
       </div>
 
-      {/* 封面：进度留痕里的图片附件缩略图，点击放大预览（阻止冒泡，避免误开详情）*/}
+
+      {/* 标题 */}
+      <h3 className="px-3 pt-2.5 text-[14px] font-semibold leading-snug text-slate-900 line-clamp-3 break-words">
+        {task.title}
+      </h3>
+
+      {/* 最新进展（部分任务有 → 制造瀑布高度差）*/}
+      {summary && (
+        <p className="px-3 pt-1.5 text-[12px] leading-relaxed text-slate-400 line-clamp-2 break-words">
+          {summary}
+        </p>
+      )}
+
+      {/* 封面：放在进度条上方，点击放大预览（阻止冒泡，避免误开详情）*/}
       {cover.length > 0 && (
         <button
           type="button"
@@ -349,18 +407,6 @@ function MobileFeedCard({
             )}
           </div>
         </button>
-      )}
-
-      {/* 标题 */}
-      <h3 className="px-3 pt-2 text-[14px] font-semibold leading-snug text-slate-900 line-clamp-3 break-words">
-        {task.title}
-      </h3>
-
-      {/* 最新进展（部分任务有 → 制造瀑布高度差）*/}
-      {summary && (
-        <p className="px-3 pt-1.5 text-[12px] leading-relaxed text-slate-400 line-clamp-2 break-words">
-          {summary}
-        </p>
       )}
 
       {/* 进度 */}
@@ -411,18 +457,40 @@ function MobileFeedCard({
 // ─── 主页面 ───────────────────────────────────────────────────────────────────
 export function MobileRDCockpit() {
   useI18n(); // 订阅语言切换（移动端文案已 t() 化）
-  const { loading, error, reload, risks, allTasks, personLoads } = useRDCockpitData();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { taskId: routeTaskId } = useParams<{ taskId: string }>();
+  const { categories, loading, error, reload, risks, allTasks, personLoads } = useRDCockpitData();
+  const workspaceBase = mobileWorkspaceBase(location.pathname);
+  const taskIndex = useMemo(() => buildMobileTaskIndex(categories), [categories]);
+  const activeTask = routeTaskId ? taskIndex.byId.get(routeTaskId) ?? null : null;
 
   const [filter, setFilter] = useState<MobileFilter>("all");
   // 存身份主键而非姓名：同名同事必须能分开筛选。
   const [person, setPerson] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
   const [visible, setVisible] = useState(TASK_PAGE);
-  const [activeTask, setActiveTask] = useState<RdTask | null>(null);
   // 灯箱状态提升到页面级：避免在 columns 多列容器里渲染 fixed 元素的布局怪相，
   // 也避免灯箱作为卡片子节点时 onClick 经 React 树冒泡回卡片误开详情。
   const [lightbox, setLightbox] = useState<{ images: string[]; thumbnails: string[]; index: number } | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Keep task facts fresh while the mobile shell remains mounted. The detail
+  // route derives from this response, so a desktop edit replaces the visible
+  // mobile task object instead of leaving a stale open-time snapshot behind.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") reload();
+    };
+    const interval = window.setInterval(refresh, MOBILE_DATA_REFRESH_INTERVAL_MS);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("rd:task-updated", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("rd:task-updated", refresh);
+    };
+  }, [reload]);
 
   const riskTaskIds = useMemo(() => new Set(risks.map((r) => r.task.task_id)), [risks]);
 
@@ -440,12 +508,15 @@ export function MobileRDCockpit() {
     let unassigned = 0;
     for (const task of allTasks) {
       if (task.archived) continue;
-      if (!(task.primary_owner || "").trim()) {
-        unassigned += 1;
-        continue;
+      const primaryName = (task.primary_owner || "").trim();
+      if (!primaryName) unassigned += 1;
+      const memberKeys = new Set<string>();
+      if (primaryName) memberKeys.add(memberIdentityKey(primaryName, task.primary_owner_user_id));
+      for (const collaborator of task.collaborators ?? []) {
+        const collaboratorName = collaborator.name.trim();
+        if (collaboratorName) memberKeys.add(memberIdentityKey(collaboratorName, collaborator.user_id));
       }
-      const key = memberIdentityKey(task.primary_owner, task.primary_owner_user_id);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+      for (const key of memberKeys) counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     const list = personLoads
       .map((load) => ({ key: load.key, name: load.name, count: counts.get(load.key) ?? 0 }))
@@ -479,11 +550,22 @@ export function MobileRDCockpit() {
     if (person === UNASSIGNED_KEY) {
       list = list.filter((t) => !(t.primary_owner || "").trim());
     } else if (person) {
-      list = list.filter((t) => memberIdentityKey(t.primary_owner, t.primary_owner_user_id) === person);
+      list = list.filter((task) =>
+        memberIdentityKey(task.primary_owner, task.primary_owner_user_id) === person
+        || (task.collaborators ?? []).some(
+          (collaborator) => memberIdentityKey(collaborator.name, collaborator.user_id) === person,
+        ),
+      );
     }
     if (normalizedKeyword) {
       list = list.filter((task) =>
-        [task.title, task.task_id, (task.primary_owner || "").trim() || "未指派", task.category_path]
+        [
+          task.title,
+          task.task_id,
+          (task.primary_owner || "").trim() || "未指派",
+          ...(task.collaborators ?? []).map((collaborator) => collaborator.name),
+          task.category_path,
+        ]
           .some((value) => String(value ?? "").toLocaleLowerCase().includes(normalizedKeyword)),
       );
     }
@@ -514,13 +596,8 @@ export function MobileRDCockpit() {
     return () => io.disconnect();
   }, [filteredTasks.length]);
 
-  const dismissActiveTask = useCallback(() => setActiveTask(null), []);
   const dismissLightbox = useCallback(() => setLightbox(null), []);
-  const closeActiveTask = useCallback(
-    () => closeMobileOverlay(TASK_DETAIL_OVERLAY, dismissActiveTask),
-    [dismissActiveTask],
-  );
-  useMobileOverlayBack(Boolean(activeTask), TASK_DETAIL_OVERLAY, dismissActiveTask);
+  const closeActiveTask = useCallback(() => navigate(workspaceBase), [navigate, workspaceBase]);
   useMobileOverlayBack(Boolean(lightbox), CARD_IMAGE_OVERLAY, dismissLightbox);
 
   const shownTasks = filteredTasks.slice(0, visible);
@@ -553,7 +630,7 @@ export function MobileRDCockpit() {
     const refresh = () => {
       if (document.visibilityState === "visible") void refreshNoteUnread();
     };
-    const interval = window.setInterval(refresh, 15_000);
+    const interval = window.setInterval(refresh, MOBILE_DATA_REFRESH_INTERVAL_MS);
     void refreshNoteUnread();
     window.addEventListener("focus", refresh);
     window.addEventListener("rd:discussion-updated", refresh);
@@ -564,15 +641,20 @@ export function MobileRDCockpit() {
     };
   }, [refreshNoteUnread]);
 
-  // 打开任务详情：压入一条 history，使「系统返回键 / 详情内返回」都只关详情、不退出 /m。
-  const openTask = (task: RdTask) => {
-    pushMobileOverlayState(TASK_DETAIL_OVERLAY);
-    setActiveTask(task);
-    // 只标记正式留痕已读；讨论仍按线程逐个已读，避免打开任务时把尚未查看的对话误清空。
+  const openTask = useCallback((task: RdTask) => {
+    void reload();
+    navigate(`${workspaceBase}/task/${encodeURIComponent(task.task_id)}`);
+    // Formal progress is displayed for the full relation group. The API marks
+    // that same group read; discussion threads retain their own read receipts.
     void markRdTaskNotesRead(task.task_id)
       .catch(() => {})
       .finally(() => { void refreshNoteUnread(); });
-  };
+  }, [navigate, refreshNoteUnread, reload, workspaceBase]);
+
+  const openTaskById = useCallback((taskId: string) => {
+    void reload();
+    navigate(`${workspaceBase}/task/${encodeURIComponent(taskId)}`);
+  }, [navigate, reload, workspaceBase]);
 
   // 首屏加载 / 错误（仅当还没有任何数据时占满）
   if (loading && allTasks.length === 0) {
@@ -721,6 +803,20 @@ export function MobileRDCockpit() {
         </div>
       </div>
 
+      {error && allTasks.length > 0 ? (
+        <div role="status" className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          <AlertTriangle size={14} className="shrink-0" />
+          <span className="min-w-0 flex-1">{t("刷新失败，当前显示上次同步的数据")}</span>
+          <button
+            type="button"
+            onClick={reload}
+            className="min-h-9 shrink-0 rounded-lg bg-white px-2.5 font-semibold text-amber-800 ring-1 ring-amber-200"
+          >
+            {t("重试")}
+          </button>
+        </div>
+      ) : null}
+
       {/* ── 任务瀑布流 ───────────────────────────────────────────────────── */}
       <div className="px-4 pt-3">
         <div className="mb-2.5 flex items-center justify-between">
@@ -771,10 +867,28 @@ export function MobileRDCockpit() {
       {activeTask && (
         <MobileTaskDetail
           task={activeTask}
+          key={activeTask.task_id}
           isRisk={riskTaskIds.has(activeTask.task_id)}
           onClose={closeActiveTask}
+          onOpenTask={openTaskById}
           onDiscussionActivity={handleDiscussionActivity}
         />
+      )}
+      {routeTaskId && !activeTask && !loading && (
+        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-slate-50 px-8 text-center">
+          <AlertTriangle className="text-amber-400" size={32} />
+          <div>
+            <div className="text-base font-bold text-slate-900">{t("任务不存在或无权访问")}</div>
+            <div className="mt-1 text-xs text-slate-400">{routeTaskId}</div>
+          </div>
+          <button
+            type="button"
+            onClick={closeActiveTask}
+            className="rounded-full bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white"
+          >
+            {t("返回驾驶舱")}
+          </button>
+        </div>
       )}
 
       {/* ── 封面缩略图点击放大 —— 页面级灯箱（层级高于详情）── */}
@@ -798,46 +912,94 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
   task,
   isRisk,
   onClose,
+  onOpenTask,
   onDiscussionActivity,
 }: {
   task: RdTask;
   isRisk: boolean;
   onClose: () => void;
+  onOpenTask: (taskId: string) => void;
   onDiscussionActivity?: () => void;
 }) {
   const [notes, setNotes] = useState<RdTaskProgressNote[]>([]);
+  const [groupNotes, setGroupNotes] = useState<RdTaskProgressNote[]>([]);
+  const [groupTasks, setGroupTasks] = useState<RdTaskProgressGroupTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [detailTab, setDetailTab] = useState<"conversation" | "progress">("progress");
+  const noteRequestRef = useRef<AbortController | null>(null);
+  const [detailTab, setDetailTab] = useState<"overview" | "progress" | "conversation" | "attachments" | "activity">("progress");
+  const allTaskAuditLogs = useAuditLogs({ resourceType: "task" });
+  const { task: procurementTask } = useProcurementTaskLink(task.task_id);
 
   const status = STATUS_META[task.status] ?? STATUS_META.draft;
   const owner = (task.primary_owner || "").trim() || t("未指派");
 
-  const loadNotes = useCallback(async () => {
-    setLoading(true);
+  const loadNotes = useCallback(async (showLoading = true) => {
+    noteRequestRef.current?.abort();
+    const controller = new AbortController();
+    noteRequestRef.current = controller;
+    if (showLoading) setLoading(true);
     setLoadError(null);
     try {
-      setNotes(await fetchRdTaskProgressNotes(task.task_id));
+      const data = await fetchRdTaskProgressNoteGroup(task.task_id, controller.signal);
+      if (controller.signal.aborted) return;
+      setGroupTasks(data.tasks);
+      setGroupNotes(data.notes);
+      setNotes(data.notes.filter((note) => (note.source_task?.task_id ?? note.task_id) === task.task_id));
+      void markRdTaskNotesRead(task.task_id).catch(() => {}).finally(onDiscussionActivity);
     } catch (e) {
+      if (controller.signal.aborted) return;
       setLoadError(e instanceof Error ? e.message : t("加载操作留痕失败"));
     } finally {
-      setLoading(false);
+      if (noteRequestRef.current === controller) {
+        noteRequestRef.current = null;
+        setLoading(false);
+      }
     }
-  }, [task.task_id]);
+  }, [onDiscussionActivity, task.task_id]);
 
   useEffect(() => {
     void loadNotes();
+    return () => noteRequestRef.current?.abort();
   }, [loadNotes]);
 
   useBodyScrollLock(true);
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && isCurrentMobileOverlay(TASK_DETAIL_OVERLAY)) onClose();
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadNotes(false);
     };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+    const interval = window.setInterval(refresh, MOBILE_DATA_REFRESH_INTERVAL_MS);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("rd:discussion-updated", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("rd:discussion-updated", refresh);
+    };
+  }, [loadNotes]);
+
+  const groupTaskIds = useMemo(
+    () => new Set([task.task_id, ...groupTasks.map((groupTask) => groupTask.task_id)]),
+    [groupTasks, task.task_id],
+  );
+  const attachments = useMemo(() => {
+    const seen = new Set<string>();
+    return groupNotes.flatMap((note) => note.attachments ?? []).filter((attachment) => {
+      const key = attachment.object_key ?? attachment.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }) as RdTaskProgressAttachment[];
+  }, [groupNotes]);
+  const auditLogs = useMemo(
+    () => allTaskAuditLogs
+      .filter((log) => groupTaskIds.has(log.resource.id))
+      .sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
+    [allTaskAuditLogs, groupTaskIds],
+  );
+  const workItems = task.work_items ?? [];
+  const completedWorkItems = workItems.filter((item) => item.done).length;
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col overscroll-none bg-slate-50" role="dialog" aria-modal="true" aria-label={t("任务详情")}>
@@ -856,23 +1018,26 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
           <div className="mt-0.5 flex items-center gap-1.5 text-[11px]">
             <span className={cn("inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-semibold", status.tint)}>
               <span className={cn("h-1.5 w-1.5 rounded-full", status.dot)} />
-              {status.label}
+              {t(status.label)}
             </span>
             <span className="min-w-0 truncate text-slate-400">{owner}</span>
             {isRisk && (
               <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-red-50 px-1.5 py-0.5 font-bold text-red-600">
                 <AlertTriangle size={10} />
                 {t("风险")}
-</span>
+              </span>
             )}
           </div>
         </div>
       </header>
 
-      <nav className="grid shrink-0 grid-cols-2 gap-1 border-b border-slate-200 bg-white px-3 py-1.5" aria-label={t("任务详情视图")}>
+      <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-1.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label={t("任务详情视图")}>
         {([
           { key: "progress", label: t("进度留痕"), icon: History },
+          { key: "overview", label: t("任务概览"), icon: Info },
           { key: "conversation", label: t("任务讨论"), icon: MessageCircleMore },
+          { key: "attachments", label: t("附件库"), icon: Paperclip },
+          { key: "activity", label: t("操作记录"), icon: Activity },
         ] as const).map((item) => {
           const Icon = item.icon;
           const active = detailTab === item.key;
@@ -883,7 +1048,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
               onClick={() => setDetailTab(item.key)}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex h-9 items-center justify-center gap-1.5 rounded-xl text-xs font-bold transition-colors",
+                "flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-bold transition-colors",
                 active ? "bg-indigo-50 text-indigo-700" : "text-slate-500 active:bg-slate-50",
               )}
             >
@@ -893,6 +1058,191 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
           );
         })}
       </nav>
+
+      {detailTab === "overview" && (
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {task.production_sync && (
+            <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-3">
+              <div className="flex items-center gap-2 text-sm font-bold text-indigo-700">
+                <GitBranch size={15} />
+                {t("研发同步只读任务")}
+              </div>
+              <div className="mt-1 text-xs leading-relaxed text-indigo-500">
+                {t("源任务")}：{task.production_sync.source_task_id} · {t("同步时间")}：{formatFullDate(task.production_sync.synced_at)}
+              </div>
+            </section>
+          )}
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="text-xs font-bold text-slate-500">{t("任务描述")}</div>
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+              {task.description?.trim() || t("暂无任务描述")}
+            </p>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-xs font-bold text-slate-500">{t("任务信息")}</div>
+              <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold", isRisk ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600")}>
+                {isRisk ? t("风险") : t("正常")}
+              </span>
+            </div>
+            <dl className="grid grid-cols-2 gap-2">
+              {[
+                { label: t("任务编号"), value: task.task_id },
+                { label: t("完成进度"), value: `${Math.max(0, Math.min(100, task.progress))}%` },
+                { label: t("任务状态"), value: t(status.label) },
+                { label: t("优先级"), value: priorityLabel(task) },
+                { label: t("开始日期"), value: formatFullDate(task.start_date) },
+                { label: t("截止日期"), value: formatFullDate(task.due_date) },
+                { label: t("附件数量"), value: String(attachments.length || task.attachments || 0) },
+                { label: t("最后更新"), value: formatFullDate(task.last_activity_at ?? task.updated_at) },
+              ].map((item) => (
+                <div key={item.label} className="min-w-0 rounded-xl bg-slate-50 p-2.5">
+                  <dt className="text-[10px] font-semibold text-slate-400">{item.label}</dt>
+                  <dd className="mt-1 break-words text-xs font-bold text-slate-700">{item.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-2 rounded-xl bg-slate-50 p-2.5">
+              <div className="text-[10px] font-semibold text-slate-400">{t("完整分类")}</div>
+              <div className="mt-1 break-words text-xs font-bold text-slate-700">{task.category_path || "—"}</div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-500">
+              <Users size={14} />
+              {t("任务成员")}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">
+                {t("主责")} · {owner}
+              </span>
+              {(task.collaborators ?? []).map((collaborator) => (
+                <span key={collaborator.id || collaborator.user_id || collaborator.name} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                  {collaborator.name}{collaborator.role ? ` · ${collaborator.role}` : ""}
+                </span>
+              ))}
+              {(task.collaborators ?? []).length === 0 && (
+                <span className="text-xs text-slate-400">{t("暂无协作人")}</span>
+              )}
+            </div>
+          </section>
+
+          {workItems.length > 0 && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+                  <ClipboardList size={14} />
+                  {t("工作项")}
+                </div>
+                <span className="text-[11px] font-bold text-slate-400">{completedWorkItems}/{workItems.length}</span>
+              </div>
+              <ul className="space-y-2">
+                {workItems.map((item) => (
+                  <li key={item.id} className="flex items-start gap-2 rounded-xl bg-slate-50 p-2.5">
+                    <CheckCircle2 size={15} className={item.done ? "mt-0.5 shrink-0 text-emerald-500" : "mt-0.5 shrink-0 text-slate-300"} />
+                    <div className="min-w-0 flex-1">
+                      <div className={cn("break-words text-xs font-semibold", item.done ? "text-slate-400 line-through" : "text-slate-700")}>{item.title}</div>
+                      {item.owner_name && <div className="mt-0.5 text-[10px] text-slate-400">{item.owner_name}</div>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {groupTasks.length > 1 && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-500">
+                <GitBranch size={14} />
+                {t("合并关系")} · {groupTasks.length}
+              </div>
+              <div className="space-y-1.5">
+                {groupTasks.map((groupTask) => (
+                  <button
+                    key={groupTask.task_id}
+                    type="button"
+                    onClick={() => onOpenTask(groupTask.task_id)}
+                    disabled={groupTask.task_id === task.task_id}
+                    className={cn(
+                      "flex w-full items-start gap-2 rounded-xl px-2.5 py-2 text-left",
+                      groupTask.task_id === task.task_id ? "bg-indigo-50" : "bg-slate-50 active:bg-slate-100",
+                    )}
+                  >
+                    <span className="mt-0.5 shrink-0 text-[10px] font-bold text-slate-400">{groupTask.note_count}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words text-xs font-bold text-slate-700">{groupTask.title}</span>
+                      <span className="mt-0.5 block break-words text-[10px] text-slate-400">{groupTask.path.join(" / ")}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {task.completion_score && (
+            <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold text-emerald-700">{t("完成质量评分")}</div>
+                <div className="text-lg font-black text-emerald-700">{task.completion_score.grade} · {task.completion_score.total}</div>
+              </div>
+            </section>
+          )}
+
+          {procurementTask && <ProcurementActivitySection task={procurementTask} />}
+        </div>
+      )}
+
+      {detailTab === "attachments" && (
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-sm font-bold text-slate-900">{t("附件库")}</div>
+            <span className="text-xs font-semibold text-slate-400">{attachments.length}</span>
+          </div>
+          {loading ? (
+            <div className="flex justify-center py-12 text-slate-400"><Loader2 className="animate-spin" size={22} /></div>
+          ) : loadError ? (
+            <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-8 text-center">
+              <div className="text-xs font-semibold text-rose-700">{loadError}</div>
+              <button
+                type="button"
+                onClick={() => void loadNotes()}
+                className="mt-3 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-4 text-xs font-bold text-rose-700 active:bg-rose-100"
+              >
+                <RefreshCw size={14} />
+                {t("重新加载")}
+              </button>
+            </div>
+          ) : attachments.length > 0 ? (
+            <ProgressAttachmentGrid attachments={attachments} imageDisplay="cards" className="space-y-2" />
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-12 text-center text-xs text-slate-400">{t("暂无附件")}</div>
+          )}
+        </div>
+      )}
+
+      {detailTab === "activity" && (
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {auditLogs.length > 0 ? (
+            <ol className="space-y-2">
+              {auditLogs.map((log) => (
+                <li key={log.id} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-xs font-bold text-slate-700">{t(getAuditActionMeta(log.action).label)}</div>
+                    <div className="shrink-0 text-[10px] text-slate-400">{new Date(log.timestamp).toLocaleString()}</div>
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-500">{log.actor.name}{log.actor.role ? ` · ${log.actor.role}` : ""}</div>
+                  {(log.comment || log.resource.name) && <div className="mt-2 break-words text-xs leading-5 text-slate-600">{log.comment || log.resource.name}</div>}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-12 text-center text-xs text-slate-400">{t("暂无操作记录")}</div>
+          )}
+        </div>
+      )}
 
       {detailTab === "conversation" && (
         <RDTaskConversation
@@ -909,7 +1259,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
         <RDTaskConversation
           taskId={task.task_id}
           taskTitle={task.title}
-          notes={notes}
+          notes={groupNotes}
           mode="progress"
           variant="mobile"
           notesLoading={loading}

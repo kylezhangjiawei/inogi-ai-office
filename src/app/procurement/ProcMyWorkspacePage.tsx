@@ -27,7 +27,7 @@ type StatKey = "active" | "pending" | "overdue" | "week";
 export function ProcMyWorkspacePage() {
   const { t } = useI18n();
   const { user } = useAuth();
-  const { tasks, loading, error } = useProcurementData();
+  const { tasks, materials, loading, error } = useProcurementData();
   const [open, setOpen] = useState<ProcurementTask | null>(null);
   const [stat, setStat] = useState<StatKey | null>(null);
   const taskAction = useProcTaskAction({ onOpenDetail: setOpen });
@@ -104,11 +104,12 @@ export function ProcMyWorkspacePage() {
                   {t(stage.label)}
                   <span className="rounded-full bg-slate-100 px-2 text-[11px] font-medium tabular-nums text-slate-500">{list.length}</span>
                 </h2>
-                <div className="grid grid-cols-3 items-start gap-3">
+                <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {list.map((task) => (
                     <ProcurementTaskCard
                       key={task.id}
                       task={task}
+                      materials={materials}
                       onOpen={setOpen}
                       onNext={(x) => taskAction.runNext(x, "card")}
                       onReassign={taskAction.reassign}

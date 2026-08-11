@@ -12,6 +12,9 @@ const cockpitSource = await read("../src/app/RDTaskManagementPage.tsx");
 const workspaceSource = await read("../src/app/RDMyWorkspacePage.tsx");
 const metricsSource = await read("../src/app/lib/rdCockpitMetrics.ts");
 const hookSource = await read("../src/app/hooks/useRDCockpitData.ts");
+const rdApiSource = await read("../src/app/lib/rdApi.ts");
+const rdControllerSource = await read("../apps/api/src/modules/research-development/research-development.controller.ts");
+const rdServiceSource = await read("../apps/api/src/modules/research-development/research-development.service.ts");
 const mobileSource = await read("../src/app/MobileRDCockpit.tsx");
 test("研发驾驶舱保持瀑布流任务卡片，并在任务名称区展示层级", () => {
   assert.match(cockpitSource, /function distributeIntoColumns<T>/);
@@ -140,6 +143,27 @@ test("移动端驾驶舱把人员目录传进 computePersonLoads", () => {
   assert.match(hookSource, /computePersonLoads\(categories,\s*8,\s*peopleDirectory\)/);
 });
 
+test("移动端人员目录低频刷新且失败时保留最后成功快照", () => {
+  assert.match(hookSource, /PEOPLE_DIRECTORY_REFRESH_INTERVAL_MS = 60_000/);
+  assert.match(hookSource, /fetchRdPeople\(\{ signal: controller\.signal \}\)/);
+  assert.match(hookSource, /window\.setInterval\(refreshPeople, PEOPLE_DIRECTORY_REFRESH_INTERVAL_MS\)/);
+  assert.doesNotMatch(hookSource, /setPeopleDirectory\(\[\]\)/);
+});
+
+test("移动端驾驶舱从全产品合并接口一次获取任务事实与全部封面", () => {
+  // 任务事实和图片必须来自同一棵全产品树，避免主库以外的任务在移动端丢图。
+  assert.match(hookSource, /fetchRdCockpitTaskCategories\(\{ includeCovers: true, signal: controller\.signal \}\)/);
+  assert.doesNotMatch(hookSource, /fetchRdTaskCategories|mergeTaskCovers|Promise\.all/);
+  assert.match(rdApiSource, /cockpit-task-categories\$\{options\.includeCovers \? "\?include_covers=1" : ""\}/);
+  assert.match(
+    rdControllerSource,
+    /cockpitTaskCategories\(@Query\('include_covers'\) includeCovers\?: string\)[\s\S]*?getMergedTaskCategories\(\{ includeCovers: includeCovers === '1' \}\)/,
+  );
+  assert.match(rdServiceSource, /async getMergedTaskCategories\(options: \{ includeCovers\?: boolean \} = \{\}\)/);
+  assert.match(rdServiceSource, /'merged-task-categories:covers'/);
+  assert.match(rdServiceSource, /applyProgressAttachmentCounts\(categories, noteMap, scoreMap, options\)/);
+});
+
 test("人员身份按 memberIdentityKey 索引，不用姓名当主键", () => {
   assert.match(metricsSource, /memberIdentityKey\(task\.primary_owner,\s*task\.primary_owner_user_id\)/);
   // PersonLoad 必须带 key 字段
@@ -219,11 +243,13 @@ test("移动端驾驶舱的到期计算与桌面同源，不再用 UTC 日期", 
   assert.match(mobileSource, /function daysLeft[\s\S]{0,120}?return daysUntilDue\(due\);/);
 });
 
-test("移动端人员筛选走成员目录与身份主键，不再裸用姓名", () => {
+test("移动端人员筛选走成员目录与身份主键，并与 PC 一样包含主责和协作任务", () => {
   // 历史实现直接聚合 primary_owner，会把「采购/研发团队/系统」当成人，且同名同事合并
   assert.match(mobileSource, /personLoads/);
   assert.match(mobileSource, /memberIdentityKey\(task\.primary_owner,\s*task\.primary_owner_user_id\)/);
-  assert.match(mobileSource, /memberIdentityKey\(t\.primary_owner,\s*t\.primary_owner_user_id\) === person/);
+  assert.match(mobileSource, /memberIdentityKey\(task\.primary_owner,\s*task\.primary_owner_user_id\) === person/);
+  assert.match(mobileSource, /\(task\.collaborators \?\? \[\]\)\.some\([\s\S]*?memberIdentityKey\(collaborator\.name, collaborator\.user_id\) === person/);
+  assert.match(mobileSource, /for \(const collaborator of task\.collaborators \?\? \[\]\)/);
   assert.doesNotMatch(mobileSource, /\(\(t\.primary_owner \|\| ""\)\.trim\(\) \|\| "未指派"\) === person/);
   // 「未指派」保留为独立筛选桶，不混进成员列表
   assert.match(mobileSource, /const UNASSIGNED_KEY = "__unassigned__";/);
@@ -242,4 +268,18 @@ test("移动端 summary 的活跃口径与桌面一致", () => {
   assert.match(hookSource, /const active = nonArchived\.filter\(\(t\) => t\.status !== "completed"\);/);
   assert.match(hookSource, /totalActive: active\.length,/);
   assert.match(hookSource, /rate: nonArchived\.length > 0/);
+});
+
+test("移动端后台刷新失败保留最后一次全产品任务快照", () => {
+  assert.match(hookSource, /const hasTaskSnapshotRef = useRef\(false\)/);
+  assert.match(hookSource, /hasTaskSnapshotRef\.current = true/);
+  assert.doesNotMatch(hookSource, /setCategories\(\[\]\)/);
+  assert.match(mobileSource, /刷新失败，当前显示上次同步的数据/);
+});
+
+test("驾驶舱专用全产品任务接口只对驾驶舱角色开放", () => {
+  assert.match(
+    rdControllerSource,
+    /@Get\('cockpit-task-categories'\)\s*@Permissions\('page:rd-task-management', 'page:us-collab-cockpit', 'page:rd-director-dashboard'\)/,
+  );
 });

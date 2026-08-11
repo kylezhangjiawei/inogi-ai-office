@@ -643,9 +643,21 @@ export function fetchRdTaskCategories(options: { includeCovers?: boolean; signal
 }
 
 /** 主库 + 所有产品库合并的分类树。用于驾驶舱概览「人员任务」跨产品聚合（与个人工作台主责同源）。 */
-export function fetchMergedTaskCategories() {
-  return requestJson<RdCategory[]>("/merged-task-categories").then(normalizeArchivedFlags);
+export function fetchMergedTaskCategories(options: { includeCovers?: boolean; signal?: AbortSignal } = {}) {
+  return requestJson<RdCategory[]>(
+    `/merged-task-categories${options.includeCovers ? "?include_covers=1" : ""}`,
+    options.signal ? { signal: options.signal } : undefined,
+  ).then(normalizeArchivedFlags);
 }
+
+/** 驾驶舱专用全产品任务树；服务端会校验对应页面权限。 */
+export function fetchRdCockpitTaskCategories(options: { includeCovers?: boolean; signal?: AbortSignal } = {}) {
+  return requestJson<RdCategory[]>(
+    `/cockpit-task-categories${options.includeCovers ? "?include_covers=1" : ""}`,
+    options.signal ? { signal: options.signal } : undefined,
+  ).then(normalizeArchivedFlags);
+}
+
 
 export function saveRdTaskCategories(payload: RdCategory[]) {
   return requestJson<RdCategory[]>("/task-categories", {
@@ -996,8 +1008,8 @@ export function saveRdDirectorDashboard(payload: RdDirectorDashboardPayload) {
   });
 }
 
-export function fetchRdPeople() {
-  return requestJson<RdPersonLoad[]>("/people");
+export function fetchRdPeople(options: { signal?: AbortSignal } = {}) {
+  return requestJson<RdPersonLoad[]>("/people", options.signal ? { signal: options.signal } : undefined);
 }
 
 /**

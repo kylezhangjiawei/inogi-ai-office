@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { BarChart3, LayoutDashboard, LogOut, Menu } from "lucide-react";
 import { useAuth } from "./auth";
-import { isUsCollabWorkspace } from "./lib/rdApi";
+import { isProductionWorkspace, isUsCollabWorkspace } from "./lib/rdApi";
 import { initI18n, t, useI18n } from "./lib/i18n";
 import { hasPermission } from "./lib/permissions";
 import { cn } from "./components/ui/utils";
@@ -82,13 +82,18 @@ export function MobileLayout() {
 
   const initial = (user.name?.trim()?.[0] ?? "研").toUpperCase();
   const isChatAnalytics = location.pathname.startsWith("/m/chat-analytics");
+  const isProduction = isProductionWorkspace();
   const returnsToUsCollab = location.pathname.startsWith("/us-collab-m")
     || new URLSearchParams(location.search).get("from") === "us-collab";
-  const cockpitPath = returnsToUsCollab ? "/us-collab-m" : "/m";
-  const cockpitLabel = returnsToUsCollab ? t("协同任务驾驶舱") : t("研发任务驾驶舱");
+  const cockpitPath = returnsToUsCollab ? "/us-collab-m" : isProduction ? "/production-m" : "/m";
+  const cockpitLabel = returnsToUsCollab
+    ? t("协同任务驾驶舱")
+    : isProduction
+      ? t("生产驾驶舱")
+      : t("研发任务驾驶舱");
   const shellTitle = isChatAnalytics
     ? "AI 使用与反馈"
-    : isUsCollabWorkspace() ? t("协同任务驾驶舱") : t("研发任务驾驶舱");
+    : cockpitLabel;
   const shellSubtitle = isChatAnalytics ? "管理移动视图" : t("移动协作视图");
 
   const goTo = (path: string) => {
@@ -110,7 +115,7 @@ export function MobileLayout() {
       <header className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white/90 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-md">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 font-black text-white shadow-[0_4px_12px_-4px_rgba(79,70,229,0.5)]">
-            {isChatAnalytics ? <BarChart3 size={18} /> : <span className="text-base">{isUsCollabWorkspace() ? "协" : "研"}</span>}
+            {isChatAnalytics ? <BarChart3 size={18} /> : <span className="text-base">{isUsCollabWorkspace() ? "协" : isProduction ? "产" : "研"}</span>}
           </span>
           <div className="min-w-0 leading-tight">
             <div className="truncate text-[17px] font-bold text-slate-900">

@@ -171,9 +171,17 @@ export class ResearchDevelopmentController {
 
   /** 主库 + 所有产品库合并的分类树。供研发驾驶舱概览「人员任务」跨产品聚合，与个人工作台主责口径一致。 */
   @Get('merged-task-categories')
-  mergedTaskCategories() {
-    return this.rdService.getMergedTaskCategories();
+  mergedTaskCategories(@Query('include_covers') includeCovers?: string) {
+    return this.rdService.getMergedTaskCategories({ includeCovers: includeCovers === '1' });
   }
+
+  /** 驾驶舱专用全产品任务树。后端强制校验页面权限，避免仅靠前端路由隔离。 */
+  @Get('cockpit-task-categories')
+  @Permissions('page:rd-task-management', 'page:us-collab-cockpit', 'page:rd-director-dashboard')
+  cockpitTaskCategories(@Query('include_covers') includeCovers?: string) {
+    return this.rdService.getMergedTaskCategories({ includeCovers: includeCovers === '1' });
+  }
+
 
   /** 研发管理员人员视角：研发全产品任务 + 协同任务的只读展示投影。 */
   @Get('member-task-categories')

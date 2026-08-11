@@ -1513,9 +1513,13 @@ export class ResearchDevelopmentService {
    * 的人员任务跨产品聚合——「任务是任务，产品是产品」：一个人的任务是其在所有产品库任务的并集，
    * 不被「当前产品库」切分，故概览头像负载与个人工作台口径一致。
    */
-  async getMergedTaskCategories() {
+  async getMergedTaskCategories(options: { includeCovers?: boolean } = {}) {
     await this.refreshProductionMirrorsIfNeeded();
-    const cacheKey = this.taskResourceCacheKey('merged-task-categories', [], { hasFullAccess: true });
+    const cacheKey = this.taskResourceCacheKey(
+      options.includeCovers ? 'merged-task-categories:covers' : 'merged-task-categories',
+      [],
+      { hasFullAccess: true },
+    );
     const cached = this.readTaskResourceCache<JsonRecord[]>(cacheKey);
     if (cached) return cached;
     const [categories, noteMap, scoresRaw] = await Promise.all([
@@ -1526,7 +1530,7 @@ export class ResearchDevelopmentService {
     const scoreMap: JsonRecord = isRecord(scoresRaw) ? scoresRaw : {};
     return this.writeTaskResourceCache(
       cacheKey,
-      this.applyProgressAttachmentCounts(categories, noteMap, scoreMap),
+      this.applyProgressAttachmentCounts(categories, noteMap, scoreMap, options),
     );
   }
 
@@ -5770,14 +5774,21 @@ export class ResearchDevelopmentService {
       });
     }
     const taskById = new Map<string, JsonRecord>();
+    const relationRootByTaskId = new Map<string, string>();
+    const indexTask = (task: JsonRecord, rootTaskId?: string): void => {
+      const taskId = String(task.task_id ?? '').trim();
+      if (!taskId) return;
+      const resolvedRootTaskId = rootTaskId ?? taskId;
+      taskById.set(taskId, task);
+      relationRootByTaskId.set(taskId, resolvedRootTaskId);
+      for (const child of asArray(task.subtasks).filter(isRecord)) indexTask(child, resolvedRootTaskId);
+    };
     for (const cat of asArray(categories).filter(isRecord)) {
       for (const sub of asArray(cat.children).filter(isRecord)) {
-        for (const t of asArray(sub.tasks).filter(isRecord)) {
-          taskById.set(String(t.task_id ?? ''), t);
-          for (const st of asArray(t.subtasks).filter(isRecord)) taskById.set(String(st.task_id ?? ''), st);
-        }
+        for (const task of asArray(sub.tasks).filter(isRecord)) indexTask(task);
       }
     }
+    const relationRootOf = (taskId: string): string => relationRootByTaskId.get(taskId) ?? taskId;
     const summary: Record<string, number> = {};
     for (const [taskId, notes] of Object.entries(map)) {
       const task = taskById.get(taskId);
@@ -5794,13 +5805,17 @@ export class ResearchDevelopmentService {
         const createdAt = String(n.created_at ?? '');
         return createdAt > lastRead; // ISO 字符串可直接字典序比较
       }).length;
-      if (count > 0) summary[taskId] = count;
+      if (count > 0) {
+        const cardTaskId = relationRootOf(taskId);
+        summary[cardTaskId] = (summary[cardTaskId] ?? 0) + count;
+      }
     }
     // 协作对话采用逐线程已读；任务卡上的总角标仍合并展示，进入任务后只有真正打开
     // 对应会话/线程才会清除，避免“看了任务概览却把所有讨论都误标已读”。
     const discussionUnread = await this.getDiscussionUnreadSummary(viewer);
     for (const [taskId, count] of Object.entries(discussionUnread)) {
-      summary[taskId] = (summary[taskId] ?? 0) + count;
+      const cardTaskId = relationRootOf(taskId);
+      summary[cardTaskId] = (summary[cardTaskId] ?? 0) + count;
     }
     return summary;
   }
@@ -5810,15 +5825,19 @@ export class ResearchDevelopmentService {
     const userId = cleanUserId(viewer.userId);
     const cleanTaskId = taskId.trim();
     if (!userId || !cleanTaskId) return { ok: false };
-    // 校验任务存在，防止任意字符串 taskId 污染 rd.noteReads 无界增长
-    const task = await this.findTaskAcrossStores(cleanTaskId);
-    if (!task) return { ok: false };
+    // The detail feed is relation-group scoped, so its read receipt must use the
+    // same scope. Otherwise a parent can display a child's note while leaving
+    // that child permanently unread on every device.
+    const categories = await this.getMergedTaskCategories();
+    const relation = buildRdTaskProgressRelationGroup(categories, cleanTaskId);
+    if (!relation) return { ok: false };
+    const readAt = new Date().toISOString();
     // 复用留痕锁串行化读改写，避免并发标记互相覆盖
     await this.withProgressNoteLock(async () => {
       const raw = await this.readValue('rd.noteReads');
       const all: Record<string, unknown> = isRecord(raw) ? { ...raw } : {};
       const mine: Record<string, unknown> = isRecord(all[userId]) ? { ...(all[userId] as Record<string, unknown>) } : {};
-      mine[cleanTaskId] = new Date().toISOString();
+      for (const relationTask of relation.tasks) mine[relationTask.taskId] = readAt;
       all[userId] = mine;
       await this.writeValue('rd.noteReads', all as unknown as JsonRecord);
     });
