@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type ChatPendingAction } from '@prisma/client';
 import OpenAI from 'openai';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -11,6 +11,16 @@ import { RagService, type RagUserContext } from '../rag/rag.service';
 import { isWorkspaceAllowed } from '../research-development/rd-workspace.context';
 import { ResearchDevelopmentService } from '../research-development/research-development.service';
 import { ChatFileExportService } from './chat-file-export.service';
+import { shanghaiDayStart } from './chat-streak.service';
+import { THOUGHT_PARAM } from './react-loop';
+import {
+  AGENT_ACTIONS,
+  AGENT_ACTION_PAYLOAD_KEY,
+  type AgentActionDef,
+  type AgentActionTool,
+} from './agent-actions';
+import { checkAgentPermission } from './agent-permission';
+import { canManageTaskStructure } from '../research-development/research-development.controller';
 import type { StoredChatAttachment } from './chat-attachment.service';
 
 /** 前端确认卡数据：写操作先生成待确认动作，用户点确认后才执行 */
@@ -46,6 +56,14 @@ type ToolSpec = {
   definition: OpenAI.Chat.Completions.ChatCompletionTool;
   /** 前端步骤条显示的动作名（如「查询研发任务」） */
   label: string;
+  /**
+   * 挂载该工具所需的权限（任一命中即可）；缺省表示人人可用。
+   * 只决定「要不要把工具定义发给模型」——execute 里各自的权限校验才是真正的闸门，两者不可互相替代。
+   * 不挂无权限的工具，模型就不会拿它去试，省掉一整轮上游调用与一次注定失败的工具执行。
+   */
+  permissions?: string[];
+  /** 该工具是否计入每日生图配额（生图/改图），超额后不再下发 */
+  countsAgainstImageQuota?: boolean;
   /** 该工具的执行超时（缺省 TOOL_TIMEOUT_MS；生图等长任务单独放宽） */
   timeoutMs?: number;
   execute: (
@@ -96,12 +114,18 @@ type TaskRow = {
   pendingReviewType: string;
 };
 
-/** 待确认动作 KV 存储键（沿用 chat.conv-memory 的免 migration 模式） */
-const PENDING_ACTIONS_KEY = 'chat.pendingActions';
 /** 待确认动作有效期：过期后确认按钮失效，须让模型重新发起 */
 const PENDING_ACTION_TTL_MS = 30 * 60 * 1000;
-/** KV 中最多保留的动作数（含已执行/已取消，超出淘汰最旧） */
-const PENDING_ACTIONS_MAX = 200;
+
+/**
+ * 每人每日生图次数上限（上海自然日）。
+ * 生图是 ReAct 里唯一不经用户确认、又真花钱的动作（生视频有独立成本闸门），
+ * 单请求的轮次上限拦不住「一天问一百次」，故加日闸门。超额后生图工具当天不再下发。
+ */
+const DAILY_IMAGE_TOOL_LIMIT = (() => {
+  const raw = Number(process.env.MATECHAT_DAILY_IMAGE_LIMIT);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 20;
+})();
 
 /** 与 POST /research-development/messages 端点一致的发消息权限 */
 const SEND_MESSAGE_PERMISSIONS = [
@@ -155,21 +179,73 @@ const PROC_QUERY_PERMISSIONS = [
   'proc:sync-erp',
 ];
 
-type PendingActionEntry = {
-  id: string;
-  userId: string;
-  conversationId: string;
-  /** 关联的 assistant 消息 id（回答落库后回填）；支撑刷新后确认卡按消息恢复 */
-  messageId?: string;
-  tool: 'create_task' | 'send_reminder' | 'update_task_progress' | 'approve_task_review' | 'generate_video';
-  /** 已归一化的执行载荷（确认时直接投给对应服务） */
+/** 会生成待确认动作卡的写操作工具 */
+type PendingActionTool =
+  | 'create_task'
+  | 'send_reminder'
+  | 'update_task_progress'
+  | 'approve_task_review'
+  | 'generate_video'
+  /** 注册表驱动的系统操作（确认级） */
+  | AgentActionTool;
+
+/** ChatPendingAction 行取出后定型的形态（payload/card 是 Json 列，读出来是 JsonValue） */
+type PendingActionEntry = Omit<ChatPendingAction, 'payload' | 'card'> & {
   payload: Record<string, unknown>;
   card: PendingActionCard;
-  status: 'pending' | 'executed' | 'canceled';
-  createdAt: string;
-  expiresAt: string;
-  resultMessage?: string;
 };
+
+/**
+ * 给工具定义注入统一的 thought 参数（ReAct 的显式推理）。
+ *
+ * 在这里统一注入而不是逐个工具手写：12 个工具的 schema 各不相同，手写会漏、会写歪，
+ * 且以后加工具还得记得补。返回副本，不改动注册表里的原定义。
+ * 故意不放进 required——模型忘填时应该照常执行工具，而不是整轮调用失败。
+ */
+function withThoughtParam(
+  definition: OpenAI.Chat.Completions.ChatCompletionTool,
+): OpenAI.Chat.Completions.ChatCompletionTool {
+  if (definition.type !== 'function') return definition;
+  const params = (definition.function.parameters ?? {}) as {
+    type?: string;
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+  return {
+    ...definition,
+    function: {
+      ...definition.function,
+      parameters: {
+        ...params,
+        type: params.type ?? 'object',
+        properties: {
+          [THOUGHT_PARAM]: {
+            type: 'string',
+            description:
+              '调用这个工具的理由，一句话（不超过 30 字），例如「先查逾期任务再按负责人归类」。会展示给用户，说明你为什么要这一步。',
+          },
+          ...(params.properties ?? {}),
+        },
+      },
+    },
+  };
+}
+
+/** 非 pending 状态下拒绝确认/取消时给用户的说法 */
+function pendingActionBusyMessage(status: string): string {
+  if (status === 'executed') return '该动作已执行，不能重复操作';
+  if (status === 'executing') return '该动作正在执行中，请稍候';
+  return '该动作已取消，不能重复操作';
+}
+
+/** Json 列取出时定型；payload/card 都是本服务自己写进去的，形状可信 */
+function toPendingActionEntry(row: ChatPendingAction): PendingActionEntry {
+  return {
+    ...row,
+    payload: (row.payload ?? {}) as Record<string, unknown>,
+    card: row.card as unknown as PendingActionCard,
+  };
+}
 
 /**
  * MateChat ReAct 只读工具集（第一期）：任务查询 / 知识库检索 / 人员查询。
@@ -178,7 +254,6 @@ type PendingActionEntry = {
 @Injectable()
 export class ChatToolsService {
   private readonly logger = new Logger(ChatToolsService.name);
-  private readonly pendingActionLocks = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -256,6 +331,7 @@ export class ChatToolsService {
     },
     create_task: {
       label: '发起立项（待确认）',
+      permissions: RD_TASK_CREATE_PERMISSIONS,
       definition: {
         type: 'function',
         function: {
@@ -283,6 +359,7 @@ export class ChatToolsService {
     },
     send_reminder: {
       label: '发送催办通知（待确认）',
+      permissions: SEND_MESSAGE_PERMISSIONS,
       definition: {
         type: 'function',
         function: {
@@ -304,6 +381,7 @@ export class ChatToolsService {
     },
     update_task_progress: {
       label: '更新任务进展（待确认）',
+      permissions: PROGRESS_NOTE_PERMISSIONS,
       definition: {
         type: 'function',
         function: {
@@ -325,6 +403,7 @@ export class ChatToolsService {
     },
     approve_task_review: {
       label: '任务审批（待确认）',
+      permissions: RD_TASK_REVIEW_PERMISSIONS,
       definition: {
         type: 'function',
         function: {
@@ -359,6 +438,7 @@ export class ChatToolsService {
     },
     query_procurement: {
       label: '查询采购数据',
+      permissions: PROC_QUERY_PERMISSIONS,
       definition: {
         type: 'function',
         function: {
@@ -383,6 +463,7 @@ export class ChatToolsService {
     },
     generate_image: {
       label: '生成图片',
+      countsAgainstImageQuota: true,
       timeoutMs: IMAGE_TOOL_TIMEOUT_MS,
       definition: {
         type: 'function',
@@ -411,6 +492,7 @@ export class ChatToolsService {
     },
     edit_image: {
       label: '修改图片',
+      countsAgainstImageQuota: true,
       timeoutMs: IMAGE_TOOL_TIMEOUT_MS,
       definition: {
         type: 'function',
@@ -475,12 +557,168 @@ export class ChatToolsService {
   };
 
   /** OpenAI tools 参数（第一期全员可用：三个工具均为只读，暴露面与既有聊天检索一致） */
-  buildToolDefinitions(): OpenAI.Chat.Completions.ChatCompletionTool[] {
-    return Object.values(this.tools).map((t) => t.definition);
+  /**
+   * 按用户权限 + 当日配额裁剪后挂载给模型的工具定义。
+   *
+   * 没权限的工具不下发：否则模型会拿它去试（如无立项权限的人说「帮我立项」），
+   * 白烧一轮上游调用 + 一次注定返回「无权限」的工具执行，用户还要多等一轮。
+   *
+   * 生图配额是成本闸门：ReAct 里生图不需要用户确认，一句「画张图」就能触发，
+   * 单张几十秒到一两分钟且真花钱——单请求的轮次上限管不住「一天问一百次」。
+   */
+  async buildAgentTools(
+    user: RagUserContext,
+  ): Promise<{ definitions: OpenAI.Chat.Completions.ChatCompletionTool[]; imageQuotaExhausted: boolean }> {
+    const imageQuotaExhausted = (await this.countTodayImageUsage(user.userId)) >= DAILY_IMAGE_TOOL_LIMIT;
+    const definitions = Object.values(this.tools)
+      .filter((t) => !t.permissions || this.hasAnyPermission(user, t.permissions))
+      .filter((t) => !(imageQuotaExhausted && t.countsAgainstImageQuota))
+      .map((t) => withThoughtParam(t.definition));
+
+    // 注册表驱动的系统操作：权限从控制器方法反射，注册表里没有可抄错的权限码。
+    // 反射不到声明（undeclared）时这里同样不挂载——失败关闭，见 agent-permission。
+    for (const action of AGENT_ACTIONS) {
+      const verdict = checkAgentPermission(action.controller, action.handler, user.permissions ?? []);
+      if (!verdict.allowed) {
+        if (verdict.reason === 'undeclared') {
+          // 这会让功能「静默消失」，必须留痕，否则以后排查会毫无线索
+          this.logger.error(
+            `Agent 操作 ${action.tool} 无法挂载：${action.handler} 未声明 @Permissions，已按失败关闭处理`,
+          );
+        }
+        continue;
+      }
+      definitions.push(withThoughtParam(this.agentActionDefinition(action)));
+    }
+    return { definitions, imageQuotaExhausted };
+  }
+
+  /**
+   * 今日（上海自然日）该用户已产生的图片生成条数。
+   * 从 AiUsageLog 统计而不是新建计数表：那张表本来就按 [userId, createdAt] 建了索引，
+   * 且记的是真实产生的用量，重启、多实例都不会丢计数。
+   */
+  private async countTodayImageUsage(userId: string): Promise<number> {
+    try {
+      return await this.prisma.aiUsageLog.count({
+        where: { userId, modality: 'image', createdAt: { gte: shanghaiDayStart(new Date()) } },
+      });
+    } catch (error) {
+      // 统计失败不该让用户连话都说不了：放行，配额是成本护栏不是安全边界
+      this.logger.warn(`生图配额统计失败，本轮放行: ${error instanceof Error ? error.message : error}`);
+      return 0;
+    }
   }
 
   toolLabel(name: string): string {
     return this.tools[name]?.label ?? name;
+  }
+
+  /** 由注册表条目生成模型可见的工具定义 */
+  private agentActionDefinition(action: AgentActionDef): OpenAI.Chat.Completions.ChatCompletionTool {
+    return {
+      type: 'function',
+      function: {
+        name: action.tool,
+        description: action.description,
+        parameters: {
+          type: 'object',
+          properties: {
+            task_id: { type: 'string', description: '任务编号，如 RD-2026-190498-ZFB' },
+            [action.field]: action.fieldSchema,
+          },
+          required: ['task_id', action.field],
+        },
+      },
+    };
+  }
+
+  /**
+   * 执行注册表操作。
+   *
+   * 权限在这里**二次校验**：挂载时裁剪只是省一轮空转，真闸门在执行前。
+   * 目标任务经 findTaskById 定位，它只覆盖研发池，协同池任务在这一层就找不到。
+   */
+  private async executeAgentAction(
+    action: AgentActionDef,
+    args: Record<string, unknown>,
+    user: RagUserContext,
+    conversationId: string,
+  ): Promise<ChatToolResult> {
+    const verdict = checkAgentPermission(action.controller, action.handler, user.permissions ?? []);
+    if (!verdict.allowed) {
+      return {
+        ok: false,
+        summary: '无操作权限',
+        content: `当前用户没有执行「${action.label}」的权限，请如实告知用户，不要尝试其他方式绕过。`,
+      };
+    }
+
+    const taskId = String(args.task_id ?? '').trim();
+    if (!taskId) return { ok: false, summary: '缺少任务编号', content: '需要提供 task_id。' };
+    const task = await this.findTaskById(taskId);
+    if (!task) {
+      return {
+        ok: false,
+        summary: '任务不存在',
+        content: `找不到任务 ${taskId}（中美协同池的任务不支持修改）。请先用 query_tasks 确认任务编号。`,
+      };
+    }
+
+    const normalized = action.normalize(args[action.field]);
+    if (!normalized.ok) {
+      return { ok: false, summary: '参数无效', content: normalized.message };
+    }
+
+    const payload = { [AGENT_ACTION_PAYLOAD_KEY[action.tool]]: normalized.value };
+    const fields = [
+      { label: '任务', value: `[${task.taskId}] ${task.title}` },
+      { label: '当前负责人', value: task.owner },
+      { label: action.fieldLabel, value: normalized.display },
+    ];
+
+    if (action.risk === 'confirm') {
+      const card = await this.savePendingAction(user, conversationId, action.tool, { taskId, payload }, {
+        label: action.label.replace('（待确认）', ''),
+        summary: `${action.label.replace('（待确认）', '')}：${task.title}`,
+        fields,
+      });
+      return {
+        ok: true,
+        summary: `已生成确认卡：${action.fieldLabel} → ${normalized.display}`,
+        content: `已生成「${action.label}」待确认动作（任务 ${task.taskId}，${action.fieldLabel}改为 ${normalized.display}）。尚未生效：需要用户点击确认卡才会真正修改。请告知用户核对后确认，不要声称已经改好。`,
+        pendingAction: card,
+      };
+    }
+
+    try {
+      await this.applyTaskUpdate(taskId, payload, user);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, summary: '修改失败', content: `修改失败：${message}。请如实告知用户。` };
+    }
+    return {
+      ok: true,
+      summary: `${action.fieldLabel} → ${normalized.display}`,
+      content: `已将任务 ${task.taskId}「${task.title}」的${action.fieldLabel}改为 ${normalized.display}，修改已生效。`,
+    };
+  }
+
+  /**
+   * 调用 rdService.updateTask，requester 上下文与控制器逐字一致。
+   * canEditAny 复用控制器导出的 canManageTaskStructure——两边各写一份迟早会分叉。
+   * 归属校验（普通成员只能改自己主责/协作的任务）由服务层负责，这里不重复实现。
+   */
+  private async applyTaskUpdate(
+    taskId: string,
+    payload: Record<string, unknown>,
+    user: RagUserContext,
+  ): Promise<void> {
+    await this.rdService.updateTask(taskId, payload, {
+      requesterUserId: user.userId,
+      requesterName: user.name,
+      canEditAny: canManageTaskStructure(user.permissions ?? []),
+    });
   }
 
   /** 执行工具（带超时 + 审计）。任何失败都以文本结果返回给模型，不抛异常。 */
@@ -492,6 +730,7 @@ export class ChatToolsService {
     ctx: ChatToolContext = {},
   ): Promise<ChatToolResult> {
     const spec = this.tools[name];
+    const agentAction = AGENT_ACTIONS.find((a) => a.tool === name);
     const startedAt = Date.now();
     let args: Record<string, unknown> = {};
     try {
@@ -504,7 +743,24 @@ export class ChatToolsService {
     }
 
     let result: ChatToolResult;
-    if (!spec) {
+    if (agentAction) {
+      // 注册表操作：超时与审计沿用同一条路径，只是执行体不同
+      try {
+        result = await Promise.race([
+          this.executeAgentAction(agentAction, args, user, conversationId),
+          new Promise<ChatToolResult>((resolve) =>
+            setTimeout(
+              () => resolve({ ok: false, summary: '执行超时', content: '操作超时，请如实告知用户，不要假定已生效。' }),
+              TOOL_TIMEOUT_MS,
+            ),
+          ),
+        ]);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Agent 操作 ${name} 执行失败: ${message}`);
+        result = { ok: false, summary: '执行失败', content: `操作失败：${message}。请如实告知用户。` };
+      }
+    } else if (!spec) {
       result = { ok: false, summary: '未知工具', content: `工具 ${name} 不存在，请改用已提供的工具。` };
     } else {
       const timeoutMs = spec.timeoutMs ?? TOOL_TIMEOUT_MS;
@@ -1495,78 +1751,70 @@ export class ChatToolsService {
     };
   }
 
-  // ── 待确认动作：KV 存储 + 确认/取消 ─────────────────────────────────────────
-
-  private async readPendingActions(): Promise<Record<string, PendingActionEntry>> {
-    const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: PENDING_ACTIONS_KEY },
-      select: { value: true },
-    });
-    const value = setting?.value;
-    return value && typeof value === 'object' && !Array.isArray(value)
-      ? ({ ...(value as Record<string, PendingActionEntry>) })
-      : {};
-  }
-
-  private async writePendingActions(map: Record<string, PendingActionEntry>): Promise<void> {
-    // 淘汰：已终结且超过 24h 的条目 + 超量最旧条目
-    const entries = Object.values(map).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    const kept = entries
-      .filter((e) => e.status === 'pending' || new Date(e.createdAt).getTime() > cutoff)
-      .slice(0, PENDING_ACTIONS_MAX);
-    const next: Record<string, PendingActionEntry> = {};
-    for (const e of kept) next[e.id] = e;
-    await this.prisma.systemSetting.upsert({
-      where: { key: PENDING_ACTIONS_KEY },
-      create: { key: PENDING_ACTIONS_KEY, category: 'matechat', value: next as unknown as Prisma.InputJsonValue },
-      update: { value: next as unknown as Prisma.InputJsonValue },
-    });
-  }
+  // ── 待确认动作：独立表存储 + 确认/取消 ───────────────────────────────────────
 
   private async savePendingAction(
     user: RagUserContext,
     conversationId: string,
-    tool: PendingActionEntry['tool'],
+    tool: PendingActionTool,
     payload: Record<string, unknown>,
     cardBase: { label: string; summary: string; fields: Array<{ label: string; value: string }> },
   ): Promise<PendingActionCard> {
     const now = new Date();
     const id = `act-${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
+    const expiresAt = new Date(now.getTime() + PENDING_ACTION_TTL_MS);
     const card: PendingActionCard = {
       id,
       tool,
-      expiresAt: new Date(now.getTime() + PENDING_ACTION_TTL_MS).toISOString(),
+      expiresAt: expiresAt.toISOString(),
       ...cardBase,
     };
-    const map = await this.readPendingActions();
-    map[id] = {
-      id,
-      userId: user.userId,
-      conversationId,
-      tool,
-      payload,
-      card,
-      status: 'pending',
-      createdAt: now.toISOString(),
-      expiresAt: card.expiresAt,
-    };
-    await this.writePendingActions(map);
+    await this.prisma.chatPendingAction.create({
+      data: {
+        id,
+        userId: user.userId,
+        conversationId,
+        tool,
+        payload: payload as Prisma.InputJsonValue,
+        card: card as unknown as Prisma.InputJsonValue,
+        status: 'pending',
+        expiresAt,
+      },
+    });
+    // 过期卡清理（fire-and-forget）：原 KV 实现靠每次写入时裁剪，独立表后单独收口
+    void this.purgeStalePendingActions();
     return card;
+  }
+
+  /**
+   * 清理不再有价值的卡：已过期仍挂 pending 的，和终结超过 24h 的。
+   * 失败只记日志——清理是卫生工作，不能影响正在进行的对话。
+   */
+  private async purgeStalePendingActions(): Promise<void> {
+    const now = new Date();
+    try {
+      await this.prisma.chatPendingAction.updateMany({
+        where: { status: 'pending', expiresAt: { lt: now } },
+        data: { status: 'canceled', resultMessage: '已过期' },
+      });
+      await this.prisma.chatPendingAction.deleteMany({
+        where: {
+          status: { in: ['executed', 'canceled'] },
+          updatedAt: { lt: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+        },
+      });
+    } catch (error) {
+      this.logger.warn(`待确认动作清理失败: ${error instanceof Error ? error.message : error}`);
+    }
   }
 
   /** 回答落库后，把本轮生成的待确认动作绑定到 assistant 消息（供刷新后按消息恢复卡片） */
   async bindActionsToMessage(actionIds: string[], messageId: string): Promise<void> {
     if (actionIds.length === 0) return;
-    const map = await this.readPendingActions();
-    let changed = false;
-    for (const id of actionIds) {
-      if (map[id]) {
-        map[id].messageId = messageId;
-        changed = true;
-      }
-    }
-    if (changed) await this.writePendingActions(map);
+    await this.prisma.chatPendingAction.updateMany({
+      where: { id: { in: actionIds } },
+      data: { messageId },
+    });
   }
 
   /** 列出会话内仍待确认（pending 且未过期）的动作卡，带其所属消息 id，供前端刷新后恢复 */
@@ -1574,48 +1822,79 @@ export class ChatToolsService {
     conversationId: string,
     user: RagUserContext,
   ): Promise<Array<{ messageId: string | null; card: PendingActionCard }>> {
-    const map = await this.readPendingActions();
-    const nowMs = Date.now();
-    return Object.values(map)
-      .filter(
-        (e) =>
-          e.conversationId === conversationId &&
-          e.userId === user.userId &&
-          e.status === 'pending' &&
-          new Date(e.expiresAt).getTime() > nowMs,
-      )
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .map((e) => ({ messageId: e.messageId ?? null, card: e.card }));
-  }
-
-  /** 用户点击「确认执行」：以用户本人身份执行动作（权限二次校验） */
-  async confirmPendingAction(actionId: string, user: RagUserContext): Promise<{ ok: true; message: string }> {
-    const previous = this.pendingActionLocks.get(actionId) ?? Promise.resolve();
-    const run = previous.then(
-      () => this.confirmPendingActionUnlocked(actionId, user),
-      () => this.confirmPendingActionUnlocked(actionId, user),
-    );
-    const tracked = run.finally(() => {
-      if (this.pendingActionLocks.get(actionId) === tracked) this.pendingActionLocks.delete(actionId);
+    const rows = await this.prisma.chatPendingAction.findMany({
+      where: {
+        conversationId,
+        userId: user.userId,
+        status: 'pending',
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'asc' },
     });
-    this.pendingActionLocks.set(actionId, tracked);
-    return run;
+    return rows
+      .map(toPendingActionEntry)
+      .map((e) => ({ messageId: e.messageId, card: e.card }));
   }
 
-  private async confirmPendingActionUnlocked(
-    actionId: string,
-    user: RagUserContext,
-  ): Promise<{ ok: true; message: string }> {
-    const map = await this.readPendingActions();
-    const entry = map[actionId];
-    if (!entry) throw new NotFoundException('该动作不存在或已过期清理');
+  /**
+   * 用户点击「确认执行」：以用户本人身份执行动作（权限二次校验）。
+   *
+   * 并发防护靠 `WHERE status='pending'` 的条件更新原子抢占——多标签页连点、
+   * 多实例同时收到请求，只有一个能把状态改成 executing，其余直接被拒。
+   * 原实现用进程内 Map 锁，加一个实例就失效。
+   */
+  async confirmPendingAction(actionId: string, user: RagUserContext): Promise<{ ok: true; message: string }> {
+    const row = await this.prisma.chatPendingAction.findUnique({ where: { id: actionId } });
+    if (!row) throw new NotFoundException('该动作不存在或已过期清理');
+    const entry = toPendingActionEntry(row);
     if (entry.userId !== user.userId) throw new ForbiddenException('只能确认自己发起的动作');
-    if (entry.status !== 'pending') throw new BadRequestException(`该动作已${entry.status === 'executed' ? '执行' : '取消'}，不能重复操作`);
-    if (new Date(entry.expiresAt).getTime() < Date.now()) {
-      entry.status = 'canceled';
-      entry.resultMessage = '已过期';
-      await this.writePendingActions(map);
+    if (entry.status !== 'pending') throw new BadRequestException(pendingActionBusyMessage(entry.status));
+    if (entry.expiresAt.getTime() < Date.now()) {
+      await this.prisma.chatPendingAction.updateMany({
+        where: { id: actionId, status: 'pending' },
+        data: { status: 'canceled', resultMessage: '已过期' },
+      });
       throw new BadRequestException('该动作已过期（30 分钟有效），请在对话里重新发起');
+    }
+
+    // 原子抢占：输掉竞争的请求 count=0，直接拒绝，绝不重复执行写操作
+    const claimed = await this.prisma.chatPendingAction.updateMany({
+      where: { id: actionId, status: 'pending', expiresAt: { gt: new Date() } },
+      data: { status: 'executing' },
+    });
+    if (claimed.count !== 1) throw new BadRequestException('该动作正在执行或已处理，不能重复操作');
+
+    let message: string;
+    try {
+      message = await this.executePendingAction(entry, user);
+    } catch (error) {
+      // 执行失败（权限不足 / 下游报错）：退回 pending，这张卡还能重试，不静默作废
+      await this.prisma.chatPendingAction.updateMany({
+        where: { id: actionId, status: 'executing' },
+        data: { status: 'pending' },
+      });
+      throw error;
+    }
+
+    await this.prisma.chatPendingAction.update({
+      where: { id: actionId },
+      data: { status: 'executed', resultMessage: message },
+    });
+    this.auditAction(user.userId, entry, 'confirmed', message);
+    return { ok: true, message };
+  }
+
+  /** 真正执行动作卡对应的写操作，返回回给用户的结果文案。权限在此二次校验。 */
+  private async executePendingAction(entry: PendingActionEntry, user: RagUserContext): Promise<string> {
+    // 注册表操作：确认时重新反射权限再执行，与首次调用同一把闸门
+    const agentAction = AGENT_ACTIONS.find((a) => a.tool === entry.tool);
+    if (agentAction) {
+      const verdict = checkAgentPermission(agentAction.controller, agentAction.handler, user.permissions ?? []);
+      if (!verdict.allowed) throw new ForbiddenException(`没有执行「${agentAction.label}」的权限`);
+      const taskId = String(entry.payload.taskId ?? '');
+      const payload = (entry.payload.payload ?? {}) as Record<string, unknown>;
+      await this.applyTaskUpdate(taskId, payload, user);
+      return `已完成「${agentAction.label.replace('（待确认）', '')}」（任务 ${taskId}）。`;
     }
 
     let message: string;
@@ -1700,23 +1979,21 @@ export class ChatToolsService {
       message = `已发送通知给 ${String(entry.payload.recipient_name ?? '')}。`;
     }
 
-    entry.status = 'executed';
-    entry.resultMessage = message;
-    await this.writePendingActions(map);
-    this.auditAction(user.userId, entry, 'confirmed', message);
-    return { ok: true, message };
+    return message;
   }
 
   /** 用户点击「取消」 */
   async cancelPendingAction(actionId: string, user: RagUserContext): Promise<{ ok: true; message: string }> {
-    const map = await this.readPendingActions();
-    const entry = map[actionId];
-    if (!entry) throw new NotFoundException('该动作不存在或已过期清理');
+    const row = await this.prisma.chatPendingAction.findUnique({ where: { id: actionId } });
+    if (!row) throw new NotFoundException('该动作不存在或已过期清理');
+    const entry = toPendingActionEntry(row);
     if (entry.userId !== user.userId) throw new ForbiddenException('只能取消自己发起的动作');
-    if (entry.status !== 'pending') throw new BadRequestException('该动作已处理，不能重复操作');
-    entry.status = 'canceled';
-    entry.resultMessage = '用户已取消';
-    await this.writePendingActions(map);
+    // 条件更新：已在执行中的动作不能取消（写操作已经投出去了），并发取消也只有一个能成
+    const canceled = await this.prisma.chatPendingAction.updateMany({
+      where: { id: actionId, status: 'pending' },
+      data: { status: 'canceled', resultMessage: '用户已取消' },
+    });
+    if (canceled.count !== 1) throw new BadRequestException(pendingActionBusyMessage(entry.status));
     this.auditAction(user.userId, entry, 'canceled', '用户取消执行');
     return { ok: true, message: '已取消，未执行任何操作。' };
   }

@@ -80,6 +80,14 @@ function shiftDayKey(dateKey: string, days: number): string {
 }
 
 /** 稳定的自然日序号，确保相邻日期轮换到相邻素材，而不是在 09→10 等进位时重复。 */
+/**
+ * 上海自然日的起点（对应的 UTC 时刻），供「今日用量」类查询做时间下界。
+ * 与 shanghaiDayKey 同一套边界，避免出现打卡按上海日、配额按服务器时区的错位。
+ */
+export function shanghaiDayStart(date: Date): Date {
+  return new Date(`${shanghaiDayKey(date)}T00:00:00+08:00`);
+}
+
 export function dayOrdinal(dateKey: string): number {
   return Math.floor(Date.parse(`${dateKey}T00:00:00.000Z`) / 86_400_000);
 }

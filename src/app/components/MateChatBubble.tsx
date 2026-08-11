@@ -19,6 +19,7 @@ import {
   Send,
   Share2,
   Sparkles,
+  Square,
   ThumbsDown,
   ThumbsUp,
   Trash2,
@@ -28,7 +29,7 @@ import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { authFetch } from "../lib/authSession";
-import { i18nLocale } from "../lib/i18n";
+import { i18nLocale, t, useI18n } from "../lib/i18n";
 import { compressImageFile } from "../lib/resourceImage";
 import { uploadResourceFile } from "../lib/resourceUpload";
 import { useAuth } from "../auth";
@@ -76,6 +77,8 @@ type ApiMessage = {
     status: string;
   } | null;
   attachments?: AttachmentView[];
+  /** assistant 消息的 ReAct 工具步骤终态（后端落库，历史回放用；存量消息为 null） */
+  toolSteps?: ToolStep[] | null;
   sources?: Array<"db" | "rag" | "web" | "attachment" | "ai">;
   createdAt: string;
 };
@@ -108,8 +111,20 @@ type SseEvent =
   /** 对话内生成的文件（Excel/Word），挂到 assistant 消息下方复用附件卡展示 */
   | { type: "files_generated"; attachments: AttachmentView[] }
   | { type: "done"; messageId: string; title?: string }
+  /** 首字之前的阶段提示（检索中/思考中…），收到第一个 delta 后前端自行清掉 */
+  | { type: "status"; label: string }
   /** ReAct 工具调用步骤：running 先到，同 callId 的 ok/error 原位更新 */
-  | { type: "tool_step"; callId: string; tool: string; label: string; status: "running" | "ok" | "error"; detail?: string }
+  | {
+      type: "tool_step";
+      callId: string;
+      tool: string;
+      label: string;
+      status: "running" | "ok" | "error";
+      detail?: string;
+      thought?: string;
+      args?: string;
+      output?: string;
+    }
   /** ReAct 写操作待确认动作卡（用户点确认/取消走 /chat/actions 端点） */
   | { type: "pending_action"; action: PendingActionCard }
   | { type: "error"; message: string };
@@ -117,8 +132,23 @@ type SseEvent =
 /** assistant 消息附加的引用数据，由 'citations' SSE 事件填充 */
 type MessageCitations = { citations: RagCitation[]; filteredByPermission: number };
 
-/** assistant 消息的工具调用步骤，由 'tool_step' SSE 事件填充 */
-type ToolStep = { callId: string; tool: string; label: string; status: "running" | "ok" | "error"; detail?: string };
+/**
+ * assistant 消息的工具调用步骤。流式期间由 'tool_step' SSE 事件填充，
+ * 历史回放时由 ChatMessage.toolSteps 水合——两条来源同形，共用同一套渲染。
+ */
+type ToolStep = {
+  callId: string;
+  tool: string;
+  label: string;
+  status: "running" | "ok" | "error";
+  detail?: string;
+  /** 模型调用这个工具的理由（ReAct 的 Thought），随 tool_call 参数一起到达 */
+  thought?: string;
+  /** 模型传给工具的参数，展开面板用（后端已截断） */
+  args?: string;
+  /** 工具回给模型的观察值，展开面板用（后端已截断） */
+  output?: string;
+};
 
 /**
  * 会把「具体任务」的标识/状态带进回答正文的工具。
@@ -531,6 +561,13 @@ export function MateChatBubble() {
   const [loadingConvs, setLoadingConvs] = useState(false);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [sending, setSending] = useState(false);
+  // 「停止生成」：中止 SSE 请求。连接一断后端就停 ReAct 循环（不再发起新一轮上游调用、
+  // 不再执行新的工具批次），已生成的部分正文由后端照常落库。
+  useI18n(); // 订阅语言切换，切到英文后下方 t() 的文案立即重渲染
+  const abortRef = useRef<AbortController | null>(null);
+  // 每次发送自增。停止后的对账是后台轮询，可能拖到几十秒后才返回——期间用户若已发出新问题
+  // 或切走会话，这份旧快照就不能再往界面上铺，否则会把新的乐观消息冲掉。
+  const sendSeqRef = useRef(0);
   const [keyword, setKeyword] = useState("");
   const [draft, setDraft] = useState("");
   const [renameTitle, setRenameTitle] = useState("");
@@ -545,6 +582,10 @@ export function MateChatBubble() {
   const [msgToolSteps, setMsgToolSteps] = useState<Record<string, ToolStep[]>>({});
   // key = message id, value = 写操作待确认动作卡（确认/取消后原位更新状态）
   const [msgPendingActions, setMsgPendingActions] = useState<Record<string, PendingActionView[]>>({});
+  // 已展开的工具步骤，key = `${messageId}:${callId}`（按消息隔离，避免不同回答的同名步骤互相影响）
+  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
+  // key = message id，值为首字之前的阶段提示。上游 TTFT 可达数十秒，这段时间要让用户知道系统在干什么
+  const [msgStatus, setMsgStatus] = useState<Record<string, string>>({});
   // 个性化快捷建议：按当前账号逾期/待审核/权限由后端拼装；拉取失败回退静态 QUICK_PROMPTS
   const [dynamicPrompts, setDynamicPrompts] = useState<string[] | null>(null);
   // RAG 探活状态（embedding 配置 + 索引文档数）
@@ -727,30 +768,84 @@ export function MateChatBubble() {
 
   // ── 切换会话时加载消息 ──────────────────────────────────────────────────────
 
+  /**
+   * 从服务端拉取会话消息并恢复挂在消息上的确认卡。
+   * 切换会话时用，「停止生成」后也用——中断没有 done 事件，得靠重拉把乐观占位换成
+   * 后端已落库的半截回答（含真实 id），否则气泡会永远停在「生成中」。
+   */
+  /** 把一份服务端消息列表铺到界面上，并恢复挂在消息上的工具步骤与确认卡 */
+  const applyConversation = useCallback(async (convId: string, msgs: ApiMessage[]) => {
+    setMessages(msgs);
+    // 恢复工具步骤条：没有它，刷新后分享含任务数据的回答会跳过越权确认（见 TASK_REF_TOOLS）
+    const stepsByMsg: Record<string, ToolStep[]> = {};
+    for (const m of msgs) {
+      if (m.toolSteps && m.toolSteps.length > 0) stepsByMsg[m.id] = m.toolSteps;
+    }
+    setMsgToolSteps(stepsByMsg);
+    // 恢复未决确认卡：挂回其所属消息（无 messageId 的兜底挂到最后一条 assistant 消息）
+    const pendings = await apiGetPendingActions(convId);
+    const lastAssistantId = [...msgs].reverse().find((m) => m.role === "assistant")?.id;
+    const byMsg: Record<string, PendingActionView[]> = {};
+    for (const p of pendings) {
+      const mid = p.messageId ?? lastAssistantId;
+      if (!mid) continue;
+      (byMsg[mid] ??= []).push({ ...p.card, status: "pending" });
+    }
+    setMsgPendingActions(byMsg);
+  }, []);
+
+  const hydrateConversation = useCallback(
+    async (convId: string) => applyConversation(convId, await apiGetMessages(convId)),
+    [applyConversation],
+  );
+
+  /**
+   * 「停止生成」后与服务端对账。
+   *
+   * 中断没有 done 事件，而后端是在循环退出之后才把半截回答落库——本轮若还有工具在跑
+   * （生图预算 5 分钟），落库会更晚。此时直接重拉会得到一份还没有这条回答的列表，
+   * 把用户刚看到的正文当场抹掉。所以轮询到它出现为止，且**任何情况下都不删本地气泡**：
+   * 对不上就让用户继续看着已流式收到的内容，下次切换会话自然被真实数据覆盖。
+   */
+  const reconcileAfterStop = useCallback(
+    async (convId: string, userMessageId: string, seq: number, replacedAssistantId?: string) => {
+      // 退避到约 5.5 分钟：中断时若还有生图在跑（预算 5 分钟），后端要等它跑完才落库。
+      // 有 seq 守卫兜底，用户一旦发新问题或切走会话，轮询立即停止，不会白转。
+      for (const waitMs of [0, 400, 1000, 2000, 4000, 8000, 15000, 30000, 30000, 30000, 30000, 30000, 30000, 30000, 30000, 30000, 30000]) {
+        if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+        if (sendSeqRef.current !== seq) return; // 用户已发新问题或切了会话，这份快照作废
+        try {
+          const msgs = await apiGetMessages(convId);
+          if (sendSeqRef.current !== seq) return;
+          const userIdx = msgs.findIndex((m) => m.id === userMessageId);
+          // 重新回答场景下旧答案要到落库事务里才删掉，必须排除它，否则会误判为「已落库」
+          const landed =
+            userIdx >= 0 &&
+            msgs.slice(userIdx + 1).some((m) => m.role === "assistant" && m.id !== replacedAssistantId);
+          if (landed) {
+            await applyConversation(convId, msgs);
+            return;
+          }
+        } catch {
+          // 网络抖动：下一轮重试，不打断用户
+        }
+      }
+    },
+    [applyConversation],
+  );
+
   useEffect(() => {
     if (!activeId) return;
     const convId = activeId;
     setLoadingMsgs(true);
     setMessages([]);
     setMsgPendingActions({});
-    apiGetMessages(convId)
-      .then(async (msgs) => {
-        setMessages(msgs);
-        // 恢复未决确认卡：挂回其所属消息（无 messageId 的兜底挂到最后一条 assistant 消息）
-        const pendings = await apiGetPendingActions(convId);
-        if (pendings.length === 0) return;
-        const lastAssistantId = [...msgs].reverse().find((m) => m.role === "assistant")?.id;
-        const byMsg: Record<string, PendingActionView[]> = {};
-        for (const p of pendings) {
-          const mid = p.messageId ?? lastAssistantId;
-          if (!mid) continue;
-          (byMsg[mid] ??= []).push({ ...p.card, status: "pending" });
-        }
-        setMsgPendingActions(byMsg);
-      })
+    setExpandedSteps(new Set());
+    setMsgStatus({});
+    hydrateConversation(convId)
       .catch((err) => toast.error(err instanceof Error ? err.message : "加载消息失败"))
       .finally(() => setLoadingMsgs(false));
-  }, [activeId]);
+  }, [activeId, hydrateConversation]);
 
   // ── 消息自动滚动到底部 ──────────────────────────────────────────────────────
 
@@ -1041,6 +1136,8 @@ export function MateChatBubble() {
       const now = new Date().toISOString();
       // 在函数作用域声明：finally 块要访问它，不能放进 try 块（块级作用域下 finally 取不到 → ReferenceError）。
       let realUserId = tempUserId;
+      // 同理提到函数作用域：中断落在 catch 里，要靠它判断「有没有写出内容」来决定保留还是撤掉气泡。
+      let streamedContent = "";
 
       // 普通提问追加一问一答；重新回答只在原位置替换 AI 占位，不重复创建用户问题。
       setMessages((prev) => isRegenerate && regenerateMessage
@@ -1053,6 +1150,11 @@ export function MateChatBubble() {
             { id: tempAiId, role: "assistant", content: "", model: selectedModel || null, reaction: null, createdAt: now },
           ]);
 
+      const abortController = new AbortController();
+      abortRef.current = abortController;
+      sendSeqRef.current += 1;
+      const sendSeq = sendSeqRef.current;
+
       try {
         const res = await authFetch(`/api/chat/conversations/${activeId}/messages`, {
           method: "POST",
@@ -1062,6 +1164,7 @@ export function MateChatBubble() {
             attachments: attachPayload.length > 0 ? attachPayload : undefined,
             regenerateMessageId: regenerateMessage?.id,
           }),
+          signal: abortController.signal,
         });
 
         if (!res.ok) {
@@ -1075,7 +1178,6 @@ export function MateChatBubble() {
         const reader = res.body!.getReader();
         const decoder = new TextDecoder();
         let buf = "";
-        let streamedContent = "";
         let currentFromDb = false;
         let currentFromRag = false;
         let currentFromWeb = false;
@@ -1146,6 +1248,9 @@ export function MateChatBubble() {
                   label: event.label,
                   status: event.status,
                   detail: event.detail,
+                  thought: event.thought,
+                  args: event.args,
+                  output: event.output,
                 };
                 setMsgToolSteps((prev) => {
                   const cur = prev[tempAiId] ?? [];
@@ -1153,6 +1258,10 @@ export function MateChatBubble() {
                   const next = idx >= 0 ? cur.map((s, i) => (i === idx ? step : s)) : [...cur, step];
                   return { ...prev, [tempAiId]: next };
                 });
+              }
+
+              if (event.type === "status") {
+                setMsgStatus((prev) => ({ ...prev, [tempAiId]: event.label }));
               }
 
               if (event.type === "pending_action") {
@@ -1164,6 +1273,14 @@ export function MateChatBubble() {
               }
 
               if (event.type === "delta") {
+                // 正文开始了，阶段提示功成身退
+                if (streamedContent === "") {
+                  setMsgStatus((prev) => {
+                    if (!(tempAiId in prev)) return prev;
+                    const { [tempAiId]: _done, ...rest } = prev;
+                    return rest;
+                  });
+                }
                 streamedContent += event.delta;
                 const captured = streamedContent;
                 setMessages((prev) =>
@@ -1218,6 +1335,19 @@ export function MateChatBubble() {
                   const { [tempAiId]: pulled, ...rest } = prev;
                   return { ...rest, [realAiId]: pulled };
                 });
+                // 展开态按 `${messageId}:${callId}` 存，消息换 id 后要跟着搬，不然面板会自己收起
+                setMsgStatus((prev) => {
+                  if (!(tempAiId in prev)) return prev;
+                  const { [tempAiId]: _dropped, ...rest } = prev;
+                  return rest; // 回答已出，阶段提示不再需要，顺手清掉临时键
+                });
+                setExpandedSteps((prev) => {
+                  const next = new Set<string>();
+                  for (const key of prev) {
+                    next.add(key.startsWith(`${tempAiId}:`) ? `${realAiId}:${key.slice(tempAiId.length + 1)}` : key);
+                  }
+                  return next;
+                });
                 setConversations((prev) =>
                   prev.map((c) =>
                     c.id === activeId
@@ -1255,17 +1385,54 @@ export function MateChatBubble() {
           }
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "发送失败");
-        setMessages((prev) => isRegenerate && regenerateMessage
-          ? prev.map((message) => message.id === tempAiId ? regenerateMessage : message)
-          : prev.filter((m) => m.id !== tempAiId && (realUserId !== tempUserId || m.id !== tempUserId)));
+        // 用户主动停止：不是错误，不弹 toast。
+        if (err instanceof DOMException && err.name === "AbortError") {
+          if (streamedContent.trim()) {
+            // 已经写出了一部分：后端会把它落库，但那发生在中断之后（本轮若还有工具在跑会更晚），
+            // 故轮询对账而不是立刻重拉，期间保留用户已看到的内容。
+            void reconcileAfterStop(activeId, realUserId, sendSeq, regenerateMessage?.id);
+          } else {
+            // 一个字都没写出来就停：后端同样不会落一条空回答，占位气泡必须就地撤掉，
+            // 否则它会永远停在「生成中」，等一条永远不会出现的消息。
+            setMessages((prev) => isRegenerate && regenerateMessage
+              ? prev.map((message) => (message.id === tempAiId ? regenerateMessage : message))
+              : prev.filter((m) => m.id !== tempAiId));
+          }
+        } else {
+          toast.error(err instanceof Error ? err.message : "发送失败");
+          setMessages((prev) => isRegenerate && regenerateMessage
+            ? prev.map((message) => message.id === tempAiId ? regenerateMessage : message)
+            : prev.filter((m) => m.id !== tempAiId && (realUserId !== tempUserId || m.id !== tempUserId)));
+        }
       } finally {
+        // 所有退出路径（完成/出错/中断）统一清掉阶段提示，避免临时键残留
+        setMsgStatus((prev) => {
+          if (!(tempAiId in prev)) return prev;
+          const { [tempAiId]: _dropped, ...rest } = prev;
+          return rest;
+        });
+        abortRef.current = null;
         setSending(false);
         void (realUserId); // suppress unused warning
       }
     },
-    [activeId, sending, draft, selectedModel, attachments],
+    [activeId, sending, draft, selectedModel, attachments, reconcileAfterStop],
   );
+
+  /** 展开/收起某个工具步骤的调用参数与返回结果 */
+  const toggleStep = useCallback((stepKey: string) => {
+    setExpandedSteps((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(stepKey)) next.add(stepKey);
+      return next;
+    });
+  }, []);
+
+  /** 停止生成：中止 SSE 请求，后端据此停掉 ReAct 循环（不再发起新一轮上游调用与工具批次） */
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, []);
 
   // ── ReAct 写操作确认卡：确认执行 / 取消 ──────────────────────────────────────
 
@@ -1768,22 +1935,76 @@ export function MateChatBubble() {
                               {/* ReAct 工具步骤：模型查任务/知识库/人员的过程可视化 */}
                               {!isUser && (msgToolSteps[msg.id]?.length ?? 0) > 0 && (
                                 <div className="mb-1.5 flex flex-col items-start gap-1">
-                                  {msgToolSteps[msg.id].map((step) => (
-                                    <div
-                                      key={step.callId}
-                                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-xs text-slate-600"
-                                    >
-                                      {step.status === "running" ? (
+                                  {msgToolSteps[msg.id].map((step) => {
+                                    // 执行中还没有观察值，展开无意义；只有拿到 args/output 才可点开
+                                    const expandable = Boolean(step.args || step.output);
+                                    const stepKey = `${msg.id}:${step.callId}`;
+                                    const expanded = expandedSteps.has(stepKey);
+                                    const StepIcon =
+                                      step.status === "running" ? (
                                         <Loader2 className="h-3 w-3 animate-spin text-indigo-500" />
                                       ) : step.status === "ok" ? (
                                         <Check className="h-3 w-3 text-emerald-500" />
                                       ) : (
                                         <AlertTriangle className="h-3 w-3 text-amber-500" />
-                                      )}
-                                      <span>{step.label}</span>
-                                      {step.detail && <span className="text-slate-400">· {step.detail}</span>}
-                                    </div>
-                                  ))}
+                                      );
+                                    return (
+                                      <div key={step.callId} className="flex max-w-full flex-col items-start gap-1">
+                                        {/* ReAct 的 Thought：模型为什么要这一步。和结论分开显示，不混进回答正文 */}
+                                        {step.thought && (
+                                          <div className="flex max-w-full items-start gap-1.5 pl-0.5 text-xs italic text-slate-400">
+                                            <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
+                                            <span className="min-w-0">{step.thought}</span>
+                                          </div>
+                                        )}
+                                        <button
+                                          type="button"
+                                          disabled={!expandable}
+                                          onClick={() => toggleStep(stepKey)}
+                                          aria-expanded={expandable ? expanded : undefined}
+                                          className={cn(
+                                            "inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-left text-xs text-slate-600",
+                                            expandable && "transition hover:border-indigo-200 hover:text-indigo-600",
+                                            !expandable && "cursor-default",
+                                          )}
+                                        >
+                                          {StepIcon}
+                                          <span className="shrink-0">{step.label}</span>
+                                          {step.detail && (
+                                            <span className="truncate text-slate-400">· {step.detail}</span>
+                                          )}
+                                          {expandable && (
+                                            <ChevronDown
+                                              className={cn(
+                                                "h-3 w-3 shrink-0 text-slate-400 transition-transform",
+                                                expanded && "rotate-180",
+                                              )}
+                                            />
+                                          )}
+                                        </button>
+                                        {expanded && (
+                                          <div className="w-full max-w-full space-y-2 rounded-xl border border-slate-200 bg-white/70 p-2.5 text-xs">
+                                            {step.args && (
+                                              <div>
+                                                <div className="mb-1 font-medium text-slate-500">{t("调用参数")}</div>
+                                                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-2 font-mono text-[11px] leading-5 text-slate-600">
+                                                  {step.args}
+                                                </pre>
+                                              </div>
+                                            )}
+                                            {step.output && (
+                                              <div>
+                                                <div className="mb-1 font-medium text-slate-500">{t("返回结果")}</div>
+                                                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-2 leading-5 text-slate-600">
+                                                  {step.output}
+                                                </pre>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               )}
                               {(msg.content || isStreaming) && (
@@ -1801,14 +2022,20 @@ export function MateChatBubble() {
                                   style={isUser ? { whiteSpace: "pre-wrap", wordBreak: "break-word" } : { wordBreak: "break-word" }}
                                 >
                                   {isStreaming && !msg.content ? (
-                                    <span className="flex items-center gap-1.5">
-                                      {[0, 1, 2].map((i) => (
-                                        <span
-                                          key={i}
-                                          className="h-2 w-2 rounded-full bg-slate-400 animate-bounce"
-                                          style={{ animationDelay: `${i * 160}ms`, animationDuration: "0.72s" }}
-                                        />
-                                      ))}
+                                    <span className="flex items-center gap-2">
+                                      <span className="flex items-center gap-1.5">
+                                        {[0, 1, 2].map((i) => (
+                                          <span
+                                            key={i}
+                                            className="h-2 w-2 rounded-full bg-slate-400 animate-bounce"
+                                            style={{ animationDelay: `${i * 160}ms`, animationDuration: "0.72s" }}
+                                          />
+                                        ))}
+                                      </span>
+                                      {/* 阶段提示：上游首字可能要几十秒，别让用户对着三个点猜系统在干嘛 */}
+                                      {msgStatus[msg.id] && (
+                                        <span className="text-xs text-slate-400">{t(msgStatus[msg.id])}</span>
+                                      )}
                                     </span>
                                   ) : isUser ? (
                                     msg.content
@@ -2293,15 +2520,27 @@ export function MateChatBubble() {
                       >
                         <Paperclip className="h-4 w-4" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleSend()}
-                        disabled={!canSend}
-                        className="material-button-primary disabled:opacity-50"
-                      >
-                        <Send className="h-4 w-4" />
-                        {sending ? "发送中…" : "发送"}
-                      </button>
+                      {sending ? (
+                        <button
+                          type="button"
+                          onClick={handleStop}
+                          className="material-button-primary"
+                          title={t("停止生成（已生成的部分会保留）")}
+                        >
+                          <Square className="h-3.5 w-3.5 fill-current" />
+                          {t("停止")}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void handleSend()}
+                          disabled={!canSend}
+                          className="material-button-primary disabled:opacity-50"
+                        >
+                          <Send className="h-4 w-4" />
+                          {t("发送")}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

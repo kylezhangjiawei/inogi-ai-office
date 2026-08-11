@@ -20,6 +20,7 @@ import {
   CONTENT_SLOT_QUICK_SUGGESTIONS_KEY,
   DEFAULT_QUICK_SUGGESTIONS,
 } from '../chat/chat-tools.service';
+import { CONTENT_SLOT_STATUS_LABELS_KEY, DEFAULT_STATUS_LABELS } from '../chat/chat.service';
 
 export const CONTENT_SLOT_LOGIN_BG_KEY = 'content_slot.login_background';
 /** 运营素材 AI 生成月度上限配置 KV 键 */
@@ -47,6 +48,8 @@ type SlotDef = {
   defaultMode: SlotMode;
   defaultPrompt: string;
   promptVars: string[];
+  /** list 型素材位「未配置」时的内置默认。每个位各有各的默认，不能共用一份 */
+  defaultList?: string[];
   note: string;
 };
 
@@ -88,7 +91,28 @@ const SLOTS: SlotDef[] = [
     defaultMode: 'off',
     defaultPrompt: '',
     promptVars: [],
+    defaultList: DEFAULT_QUICK_SUGGESTIONS,
     note: '固定模式使用下方自定义列表；关闭时使用系统内置默认建议',
+  },
+  {
+    key: 'matechat_status_labels',
+    kvKey: CONTENT_SLOT_STATUS_LABELS_KEY,
+    name: 'MateChat 等待期阶段提示',
+    location: 'MateChat 回答生成前气泡里的状态文字（上游首字可能要数十秒，这段时间告诉用户系统在干什么）',
+    type: 'list',
+    owner: 'content',
+    modes: ['static', 'off'],
+    defaultMode: 'off',
+    defaultPrompt: '',
+    promptVars: [],
+    // 顺序必须与 chat.service 的 STATUS_LABEL_ORDER 一致，否则运营配置会错位
+    defaultList: [
+      DEFAULT_STATUS_LABELS.understanding,
+      DEFAULT_STATUS_LABELS.retrieving,
+      DEFAULT_STATUS_LABELS.thinking,
+      DEFAULT_STATUS_LABELS.organizing,
+    ],
+    note: '固定模式下按顺序填 4 条：①理解问题 ②检索资料 ③思考 ④整理结果；留空的那条使用系统内置默认。自定义文案不参与英文翻译。',
   },
   {
     key: 'login_background',
@@ -215,7 +239,10 @@ export class ContentSlotsService {
       const config = await this.readConfig(def);
       let current: SlotCurrent | null = null;
       if (def.type === 'list') {
-        const list = config.mode === 'static' && config.staticList.length > 0 ? config.staticList : DEFAULT_QUICK_SUGGESTIONS;
+        const list =
+          config.mode === 'static' && config.staticList.length > 0
+            ? config.staticList
+            : (def.defaultList ?? []);
         current = { image_url: null, text: null, list, date: null };
       } else if (def.type === 'image') {
         if (config.mode === 'static') {

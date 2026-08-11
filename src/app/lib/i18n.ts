@@ -30,6 +30,16 @@ let currentLang: I18nLang = (() => {
  * 字典 seed 尚未同步或请求暂时失败时回退成中文，保证中美协同核心导航和操作可用。
  */
 const BUILTIN_EN_FALLBACKS: Record<string, string> = {
+  // MateChat ReAct：等待期阶段提示与步骤条文案
+  "正在理解你的问题…": "Understanding your question…",
+  "正在检索内部资料…": "Searching internal data…",
+  "正在思考…": "Thinking…",
+  "正在整理结果…": "Organizing results…",
+  "停止": "Stop",
+  "发送": "Send",
+  "停止生成（已生成的部分会保留）": "Stop generating (what's written so far is kept)",
+  "调用参数": "Call parameters",
+  "返回结果": "Result",
   "协同任务详情": "Collaboration Task Details",
   "待指派": "Unassigned",
   "未指派": "Unassigned",

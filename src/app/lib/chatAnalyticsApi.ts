@@ -17,6 +17,14 @@ export type ChatAnalyticsSummary = {
   avgResponseMs: number | null;
   p50ResponseMs: number | null;
   p95ResponseMs: number | null;
+  /** 首答延迟分段（历史组装/改写/检索/首字/工具），老埋点没有该字段时为空数组 */
+  phaseBreakdown: Array<{
+    key: string;
+    label: string;
+    samples: number;
+    p50Ms: number | null;
+    p95Ms: number | null;
+  }>;
   successRate: number | null;
   trackedAnswers: number;
   failedAnswers: number;
