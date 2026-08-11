@@ -32,6 +32,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "./components/ui/sheet";
+import { getUsageRankingPage } from "./lib/usageRankingPagination";
 
 const RANGE_TABS: Array<{ value: UsageRange; label: string }> = [
   { value: "today", label: "今日" },
@@ -80,6 +81,67 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function RankingPagination({
+  page,
+  totalItems,
+  itemLabel,
+  onPageChange,
+}: {
+  page: number;
+  totalItems: number;
+  itemLabel: string;
+  onPageChange: (page: number) => void;
+}) {
+  const { safePage, firstItem, lastItem, visiblePages, hasPrevious, hasNext } =
+    getUsageRankingPage(totalItems, page);
+
+  return (
+    <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-3">
+      <span className="text-xs text-slate-500">
+        第 <span className="tabular-nums text-slate-700">{firstItem}–{lastItem}</span> 条，共{" "}
+        <span className="tabular-nums font-semibold text-slate-700">{totalItems}</span> {itemLabel}
+      </span>
+      <nav className="flex items-center gap-1" aria-label={`${itemLabel}排行分页`}>
+        <button
+          type="button"
+          aria-label="上一页"
+          disabled={!hasPrevious}
+          onClick={() => onPageChange(safePage - 1)}
+          className="flex size-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-indigo-200 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <ChevronLeft className="size-4" />
+        </button>
+        {visiblePages.map((pageNumber) => (
+          <button
+            key={pageNumber}
+            type="button"
+            aria-label={`第 ${pageNumber} 页`}
+            aria-current={safePage === pageNumber ? "page" : undefined}
+            onClick={() => onPageChange(pageNumber)}
+            className={cn(
+              "h-11 min-w-11 rounded-lg px-2 text-xs font-semibold tabular-nums transition-colors",
+              safePage === pageNumber
+                ? "bg-indigo-600 text-white shadow-sm"
+                : "border border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:text-indigo-600",
+            )}
+          >
+            {pageNumber}
+          </button>
+        ))}
+        <button
+          type="button"
+          aria-label="下一页"
+          disabled={!hasNext}
+          onClick={() => onPageChange(safePage + 1)}
+          className="flex size-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-indigo-200 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <ChevronRight className="size-4" />
+        </button>
+      </nav>
+    </div>
+  );
+}
+
 function StatCard({
   icon,
   label,
@@ -116,13 +178,28 @@ function StatCard({
 export function AiUsageDashboardPage() {
   const [range, setRange] = useState<UsageRange>("today");
   const [data, setData] = useState<UsageDashboard | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [backfilling, setBackfilling] = useState(false);
   const [detailTarget, setDetailTarget] = useState<UsageDetailTarget | null>(null);
   const [detailData, setDetailData] = useState<UsageDetails | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailPage, setDetailPage] = useState(1);
+  const [modelPage, setModelPage] = useState(1);
+  const [userPage, setUserPage] = useState(1);
+
+  function handleRangeChange(nextRange: UsageRange) {
+    if (nextRange === range) return;
+    setRange(nextRange);
+    setData(null);
+    setLoadError(null);
+    setLoading(true);
+    setModelPage(1);
+    setUserPage(1);
+    setDetailTarget(null);
+    setDetailData(null);
+  }
 
   async function handleBackfill() {
     setBackfilling(true);
@@ -140,9 +217,15 @@ export function AiUsageDashboardPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     fetchAiUsageDashboard(range)
       .then((d) => !cancelled && setData(d))
-      .catch((err) => !cancelled && toast.error(err instanceof Error ? err.message : "读取失败"))
+      .catch((err) => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : "读取失败";
+        setLoadError(message);
+        toast.error(message);
+      })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
@@ -191,6 +274,13 @@ export function AiUsageDashboardPage() {
     [data],
   );
 
+  const modelRows = data?.by_model ?? [];
+  const userRows = data?.by_user ?? [];
+  const modelPageState = getUsageRankingPage(modelRows.length, modelPage);
+  const userPageState = getUsageRankingPage(userRows.length, userPage);
+  const visibleModelRows = modelRows.slice(modelPageState.startIndex, modelPageState.endIndex);
+  const visibleUserRows = userRows.slice(userPageState.startIndex, userPageState.endIndex);
+
   const t = data?.totals;
   const detailSummary = detailData?.summary;
 
@@ -209,7 +299,7 @@ export function AiUsageDashboardPage() {
                 <button
                   key={r.value}
                   type="button"
-                  onClick={() => setRange(r.value)}
+                  onClick={() => handleRangeChange(r.value)}
                   className={cn(
                     "rounded-lg px-4 py-1.5 text-sm font-medium transition-colors",
                     range === r.value ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700",
@@ -250,6 +340,23 @@ export function AiUsageDashboardPage() {
         </div>
       </section>
 
+      {loading && !data ? (
+        <section className="material-card flex min-h-72 items-center justify-center gap-2 text-sm text-slate-500" aria-live="polite">
+          <Loader2 className="size-5 animate-spin text-indigo-500" /> 正在加载{RANGE_LABELS[range]}数据...
+        </section>
+      ) : loadError && !data ? (
+        <section className="material-card flex min-h-72 flex-col items-center justify-center gap-3 px-6 text-center" role="alert">
+          <div className="rounded-full bg-rose-50 p-3 text-rose-600"><Info className="size-6" /></div>
+          <div>
+            <div className="font-semibold text-slate-900">暂时无法加载{RANGE_LABELS[range]}数据</div>
+            <div className="mt-1 text-sm text-slate-500">{loadError}</div>
+          </div>
+          <button type="button" className="material-button-secondary w-fit" onClick={() => setReloadKey((key) => key + 1)}>
+            <RefreshCw className="size-4" /> 重试
+          </button>
+        </section>
+      ) : (
+      <>
       {/* 汇总卡片 */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-7">
         <StatCard
@@ -345,22 +452,28 @@ export function AiUsageDashboardPage() {
         </div>
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid items-stretch gap-6 lg:grid-cols-2">
         {/* 按模型排行 */}
-        <section className="material-card p-6">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h3 className="text-lg font-semibold text-slate-900">按模型用量排行</h3>
-            <span className="text-xs text-slate-400">点击模型查看明细</span>
+        <section className="material-card flex min-h-96 flex-col overflow-hidden p-0">
+          <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-6 py-5">
+            <h3 className="text-balance text-lg font-semibold text-slate-900">按模型用量排行</h3>
+            <div className="shrink-0 text-right">
+              <div className="text-xs font-semibold tabular-nums text-slate-600">共 {modelRows.length} 个模型</div>
+              <div className="mt-0.5 text-xs text-slate-400">点击模型查看明细</div>
+            </div>
           </div>
           {loading && !data ? (
-            <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
+            <div className="flex flex-1 items-center justify-center gap-2 px-6 py-10 text-sm text-slate-400">
               <Loader2 className="h-4 w-4 animate-spin" /> 加载中...
             </div>
           ) : (data?.by_model.length ?? 0) === 0 ? (
-            <div className="py-10 text-center text-sm text-slate-400">该时间段暂无使用记录</div>
+            <div className="flex flex-1 items-center justify-center px-6 py-10 text-center text-sm text-slate-400">
+              该时间段暂无使用记录
+            </div>
           ) : (
-            <div className="space-y-2.5">
-              {data!.by_model.map((m) => {
+            <div className="flex-1 px-6 py-4">
+              <div className="space-y-2.5">
+              {visibleModelRows.map((m) => {
                 const meta = modalityMeta(m.modality);
                 const cost =
                   m.modality === "video" ? `¥${m.cost_yuan}` : m.modality === "image" ? `$${m.cost_usd}` : "—";
@@ -402,25 +515,39 @@ export function AiUsageDashboardPage() {
                   </button>
                 );
               })}
+              </div>
             </div>
           )}
+          {modelRows.length > 0 ? (
+            <RankingPagination
+              page={modelPageState.safePage}
+              totalItems={modelRows.length}
+              itemLabel="个模型"
+              onPageChange={setModelPage}
+            />
+          ) : null}
         </section>
 
         {/* 按人员排行 */}
-        <section className="material-card p-6">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h3 className="text-lg font-semibold text-slate-900">按人员用量排行</h3>
-            <span className="text-xs text-slate-400">点击人员查看明细</span>
+        <section className="material-card flex min-h-96 flex-col overflow-hidden p-0">
+          <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-6 py-5">
+            <h3 className="text-balance text-lg font-semibold text-slate-900">按人员用量排行</h3>
+            <div className="shrink-0 text-right">
+              <div className="text-xs font-semibold tabular-nums text-slate-600">共 {userRows.length} 位成员</div>
+              <div className="mt-0.5 text-xs text-slate-400">点击人员查看明细</div>
+            </div>
           </div>
           {loading && !data ? (
-            <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
+            <div className="flex flex-1 items-center justify-center gap-2 px-6 py-10 text-sm text-slate-400">
               <Loader2 className="h-4 w-4 animate-spin" /> 加载中...
             </div>
           ) : (data?.by_user.length ?? 0) === 0 ? (
-            <div className="py-10 text-center text-sm text-slate-400">该时间段暂无使用记录</div>
+            <div className="flex flex-1 items-center justify-center px-6 py-10 text-center text-sm text-slate-400">
+              该时间段暂无使用记录
+            </div>
           ) : (
-            <div className="material-scrollbar overflow-x-auto">
-              <table className="w-full text-left text-sm">
+            <div className="material-scrollbar flex-1 overflow-x-auto px-6 py-4">
+              <table className="min-w-max text-left text-sm">
                 <thead className="text-xs text-slate-400">
                   <tr>
                     <th className="pb-2 pr-2 font-medium">#</th>
@@ -435,49 +562,63 @@ export function AiUsageDashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {data!.by_user.map((u, i) => (
-                    <tr
-                      key={u.user_id}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`查看 ${u.name} 的 AI 使用详情`}
-                      onClick={() =>
-                        openDetails({
+                  {visibleUserRows.map((u, i) => {
+                    const userDetails = {
                           title: `${u.name} 的 AI 使用详情`,
                           description: `${u.department ? `${u.department} · ` : ""}${RANGE_LABELS[range]}逐次调用记录`,
                           userId: u.user_id,
-                        })
-                      }
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          event.currentTarget.click();
-                        }
-                      }}
-                      className="group cursor-pointer text-slate-700 transition-colors hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-300"
-                    >
-                      <td className="py-2 pr-2 text-slate-400">{i + 1}</td>
+                    } satisfies UsageDetailTarget;
+                    return (
+                      <tr
+                        key={u.user_id}
+                        onClick={() => openDetails(userDetails)}
+                        className="group cursor-pointer text-slate-700 transition-colors hover:bg-indigo-50/40"
+                      >
+                      <td className="py-2 pr-2 text-slate-400 tabular-nums">
+                        {userPageState.startIndex + i + 1}
+                      </td>
                       <td className="py-2 pr-2">
                         <div className="font-medium text-slate-800">{u.name}</div>
                         {u.department && <div className="text-xs text-slate-400">{u.department}</div>}
                       </td>
-                      <td className="py-2 pr-2 text-right font-bold text-slate-900">{u.calls}</td>
-                      <td className="py-2 pr-2 text-right">{u.chat_calls}</td>
-                      <td className="py-2 pr-2 text-right">{u.image_calls}</td>
-                      <td className="py-2 pr-2 text-right">{u.video_calls}</td>
-                      <td className="py-2 pr-2 text-right text-slate-500">{u.tokens ? u.tokens.toLocaleString() : "—"}</td>
-                      <td className="py-2 text-right text-slate-500">{u.cost_cny_approx ? `¥${u.cost_cny_approx}` : "—"}</td>
+                      <td className="py-2 pr-2 text-right font-bold tabular-nums text-slate-900">{u.calls}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums">{u.chat_calls}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums">{u.image_calls}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums">{u.video_calls}</td>
+                      <td className="py-2 pr-2 text-right tabular-nums text-slate-500">{u.tokens ? u.tokens.toLocaleString() : "—"}</td>
+                      <td className="py-2 text-right tabular-nums text-slate-500">{u.cost_cny_approx ? `¥${u.cost_cny_approx}` : "—"}</td>
                       <td className="py-2 pl-1">
-                        <ChevronRight className="h-3.5 w-3.5 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-indigo-500" />
+                        <button
+                          type="button"
+                          aria-label={`查看 ${u.name} 的 AI 使用详情`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openDetails(userDetails);
+                          }}
+                          className="flex size-8 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-indigo-50 hover:text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                        >
+                          <ChevronRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                        </button>
                       </td>
-                    </tr>
-                  ))}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
+          {userRows.length > 0 ? (
+            <RankingPagination
+              page={userPageState.safePage}
+              totalItems={userRows.length}
+              itemLabel="位成员"
+              onPageChange={setUserPage}
+            />
+          ) : null}
         </section>
       </div>
+      </>
+      )}
 
       <Sheet
         open={Boolean(detailTarget)}
