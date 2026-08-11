@@ -54,7 +54,8 @@ const RD_TASK_STRUCTURE_MANAGER_PERMISSIONS = [
   'rd-people:manage',
 ] as const;
 
-function canManageTaskStructure(permissions: string[]): boolean {
+/** 导出供 MateChat Agent 复用：Agent 必须和控制器用同一套「能否改任意任务」判定，不能各写一份 */
+export function canManageTaskStructure(permissions: string[]): boolean {
   return permissions.includes('*')
     || RD_TASK_STRUCTURE_MANAGER_PERMISSIONS.some((code) => permissions.includes(code));
 }

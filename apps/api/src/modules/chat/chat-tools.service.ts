@@ -13,6 +13,14 @@ import { ResearchDevelopmentService } from '../research-development/research-dev
 import { ChatFileExportService } from './chat-file-export.service';
 import { shanghaiDayStart } from './chat-streak.service';
 import { THOUGHT_PARAM } from './react-loop';
+import {
+  AGENT_ACTIONS,
+  AGENT_ACTION_PAYLOAD_KEY,
+  type AgentActionDef,
+  type AgentActionTool,
+} from './agent-actions';
+import { checkAgentPermission } from './agent-permission';
+import { canManageTaskStructure } from '../research-development/research-development.controller';
 import type { StoredChatAttachment } from './chat-attachment.service';
 
 /** 前端确认卡数据：写操作先生成待确认动作，用户点确认后才执行 */
@@ -177,7 +185,9 @@ type PendingActionTool =
   | 'send_reminder'
   | 'update_task_progress'
   | 'approve_task_review'
-  | 'generate_video';
+  | 'generate_video'
+  /** 注册表驱动的系统操作（确认级） */
+  | AgentActionTool;
 
 /** ChatPendingAction 行取出后定型的形态（payload/card 是 Json 列，读出来是 JsonValue） */
 type PendingActionEntry = Omit<ChatPendingAction, 'payload' | 'card'> & {
@@ -564,6 +574,22 @@ export class ChatToolsService {
       .filter((t) => !t.permissions || this.hasAnyPermission(user, t.permissions))
       .filter((t) => !(imageQuotaExhausted && t.countsAgainstImageQuota))
       .map((t) => withThoughtParam(t.definition));
+
+    // 注册表驱动的系统操作：权限从控制器方法反射，注册表里没有可抄错的权限码。
+    // 反射不到声明（undeclared）时这里同样不挂载——失败关闭，见 agent-permission。
+    for (const action of AGENT_ACTIONS) {
+      const verdict = checkAgentPermission(action.controller, action.handler, user.permissions ?? []);
+      if (!verdict.allowed) {
+        if (verdict.reason === 'undeclared') {
+          // 这会让功能「静默消失」，必须留痕，否则以后排查会毫无线索
+          this.logger.error(
+            `Agent 操作 ${action.tool} 无法挂载：${action.handler} 未声明 @Permissions，已按失败关闭处理`,
+          );
+        }
+        continue;
+      }
+      definitions.push(withThoughtParam(this.agentActionDefinition(action)));
+    }
     return { definitions, imageQuotaExhausted };
   }
 
@@ -588,6 +614,113 @@ export class ChatToolsService {
     return this.tools[name]?.label ?? name;
   }
 
+  /** 由注册表条目生成模型可见的工具定义 */
+  private agentActionDefinition(action: AgentActionDef): OpenAI.Chat.Completions.ChatCompletionTool {
+    return {
+      type: 'function',
+      function: {
+        name: action.tool,
+        description: action.description,
+        parameters: {
+          type: 'object',
+          properties: {
+            task_id: { type: 'string', description: '任务编号，如 RD-2026-190498-ZFB' },
+            [action.field]: action.fieldSchema,
+          },
+          required: ['task_id', action.field],
+        },
+      },
+    };
+  }
+
+  /**
+   * 执行注册表操作。
+   *
+   * 权限在这里**二次校验**：挂载时裁剪只是省一轮空转，真闸门在执行前。
+   * 目标任务经 findTaskById 定位，它只覆盖研发池，协同池任务在这一层就找不到。
+   */
+  private async executeAgentAction(
+    action: AgentActionDef,
+    args: Record<string, unknown>,
+    user: RagUserContext,
+    conversationId: string,
+  ): Promise<ChatToolResult> {
+    const verdict = checkAgentPermission(action.controller, action.handler, user.permissions ?? []);
+    if (!verdict.allowed) {
+      return {
+        ok: false,
+        summary: '无操作权限',
+        content: `当前用户没有执行「${action.label}」的权限，请如实告知用户，不要尝试其他方式绕过。`,
+      };
+    }
+
+    const taskId = String(args.task_id ?? '').trim();
+    if (!taskId) return { ok: false, summary: '缺少任务编号', content: '需要提供 task_id。' };
+    const task = await this.findTaskById(taskId);
+    if (!task) {
+      return {
+        ok: false,
+        summary: '任务不存在',
+        content: `找不到任务 ${taskId}（中美协同池的任务不支持修改）。请先用 query_tasks 确认任务编号。`,
+      };
+    }
+
+    const normalized = action.normalize(args[action.field]);
+    if (!normalized.ok) {
+      return { ok: false, summary: '参数无效', content: normalized.message };
+    }
+
+    const payload = { [AGENT_ACTION_PAYLOAD_KEY[action.tool]]: normalized.value };
+    const fields = [
+      { label: '任务', value: `[${task.taskId}] ${task.title}` },
+      { label: '当前负责人', value: task.owner },
+      { label: action.fieldLabel, value: normalized.display },
+    ];
+
+    if (action.risk === 'confirm') {
+      const card = await this.savePendingAction(user, conversationId, action.tool, { taskId, payload }, {
+        label: action.label.replace('（待确认）', ''),
+        summary: `${action.label.replace('（待确认）', '')}：${task.title}`,
+        fields,
+      });
+      return {
+        ok: true,
+        summary: `已生成确认卡：${action.fieldLabel} → ${normalized.display}`,
+        content: `已生成「${action.label}」待确认动作（任务 ${task.taskId}，${action.fieldLabel}改为 ${normalized.display}）。尚未生效：需要用户点击确认卡才会真正修改。请告知用户核对后确认，不要声称已经改好。`,
+        pendingAction: card,
+      };
+    }
+
+    try {
+      await this.applyTaskUpdate(taskId, payload, user);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, summary: '修改失败', content: `修改失败：${message}。请如实告知用户。` };
+    }
+    return {
+      ok: true,
+      summary: `${action.fieldLabel} → ${normalized.display}`,
+      content: `已将任务 ${task.taskId}「${task.title}」的${action.fieldLabel}改为 ${normalized.display}，修改已生效。`,
+    };
+  }
+
+  /**
+   * 调用 rdService.updateTask，requester 上下文与控制器逐字一致。
+   * canEditAny 复用控制器导出的 canManageTaskStructure——两边各写一份迟早会分叉。
+   * 归属校验（普通成员只能改自己主责/协作的任务）由服务层负责，这里不重复实现。
+   */
+  private async applyTaskUpdate(
+    taskId: string,
+    payload: Record<string, unknown>,
+    user: RagUserContext,
+  ): Promise<void> {
+    await this.rdService.updateTask(taskId, payload, {
+      requesterUserId: user.userId,
+      requesterName: user.name,
+      canEditAny: canManageTaskStructure(user.permissions ?? []),
+    });
+  }
+
   /** 执行工具（带超时 + 审计）。任何失败都以文本结果返回给模型，不抛异常。 */
   async execute(
     name: string,
@@ -597,6 +730,7 @@ export class ChatToolsService {
     ctx: ChatToolContext = {},
   ): Promise<ChatToolResult> {
     const spec = this.tools[name];
+    const agentAction = AGENT_ACTIONS.find((a) => a.tool === name);
     const startedAt = Date.now();
     let args: Record<string, unknown> = {};
     try {
@@ -609,7 +743,24 @@ export class ChatToolsService {
     }
 
     let result: ChatToolResult;
-    if (!spec) {
+    if (agentAction) {
+      // 注册表操作：超时与审计沿用同一条路径，只是执行体不同
+      try {
+        result = await Promise.race([
+          this.executeAgentAction(agentAction, args, user, conversationId),
+          new Promise<ChatToolResult>((resolve) =>
+            setTimeout(
+              () => resolve({ ok: false, summary: '执行超时', content: '操作超时，请如实告知用户，不要假定已生效。' }),
+              TOOL_TIMEOUT_MS,
+            ),
+          ),
+        ]);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Agent 操作 ${name} 执行失败: ${message}`);
+        result = { ok: false, summary: '执行失败', content: `操作失败：${message}。请如实告知用户。` };
+      }
+    } else if (!spec) {
       result = { ok: false, summary: '未知工具', content: `工具 ${name} 不存在，请改用已提供的工具。` };
     } else {
       const timeoutMs = spec.timeoutMs ?? TOOL_TIMEOUT_MS;
@@ -1735,6 +1886,17 @@ export class ChatToolsService {
 
   /** 真正执行动作卡对应的写操作，返回回给用户的结果文案。权限在此二次校验。 */
   private async executePendingAction(entry: PendingActionEntry, user: RagUserContext): Promise<string> {
+    // 注册表操作：确认时重新反射权限再执行，与首次调用同一把闸门
+    const agentAction = AGENT_ACTIONS.find((a) => a.tool === entry.tool);
+    if (agentAction) {
+      const verdict = checkAgentPermission(agentAction.controller, agentAction.handler, user.permissions ?? []);
+      if (!verdict.allowed) throw new ForbiddenException(`没有执行「${agentAction.label}」的权限`);
+      const taskId = String(entry.payload.taskId ?? '');
+      const payload = (entry.payload.payload ?? {}) as Record<string, unknown>;
+      await this.applyTaskUpdate(taskId, payload, user);
+      return `已完成「${agentAction.label.replace('（待确认）', '')}」（任务 ${taskId}）。`;
+    }
+
     let message: string;
     if (entry.tool === 'create_task') {
       if (!this.hasAnyPermission(user, RD_TASK_CREATE_PERMISSIONS)) throw new ForbiddenException('没有立项权限');
