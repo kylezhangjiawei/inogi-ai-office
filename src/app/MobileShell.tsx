@@ -23,7 +23,7 @@ const MENU_OVERLAY = "mobile-shell-menu";
  *  - 自带鉴权守卫（未登录跳 /login），与桌面同一套 AuthProvider，不重复登录态。
  *  - 不复用桌面 `Root`（那层写死 min-w-1024 + 侧边栏），所以桌面端零影响。
  *  - 顶栏 + 抽屉菜单（移动页面切换 / 退出）；内容区用 `Outlet` 渲染移动页。
- *  - 高度用 100dvh（避开 iOS 地址栏吃掉 100vh 的经典坑）。
+ *  - 最小高度用 100dvh（避开 iOS 地址栏吃掉 100vh，同时允许长页面把备案栏推到内容末尾）。
  *  - 横向间距用固定 px：顶栏 `px-4`(16px) 与内容区 gutter 完全一致，标题与正文同一条左边线。
  */
 export function MobileLayout() {
@@ -112,7 +112,7 @@ export function MobileLayout() {
   const closeMenu = () => closeMobileOverlay(MENU_OVERLAY, () => setMenuOpen(false));
 
   return (
-    <div className="flex h-[100dvh] flex-col bg-slate-50">
+    <div className="flex min-h-[100dvh] flex-col bg-slate-50">
       <header className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white/90 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-md">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 font-black text-white shadow-[0_4px_12px_-4px_rgba(79,70,229,0.5)]">
@@ -137,7 +137,7 @@ export function MobileLayout() {
         </button>
       </header>
 
-      <main className="min-h-0 flex-1">
+      <main className="flex-1">
         <Outlet />
       </main>
 

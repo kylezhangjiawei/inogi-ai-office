@@ -27,6 +27,9 @@ const recordFooterSource = readFileSync(
   new URL("../src/app/components/SiteRecordFooter.tsx", import.meta.url),
   "utf8",
 );
+const publicSecurityRecordIcon = readFileSync(
+  new URL("../public/gongan.png", import.meta.url),
+);
 
 
 test("移动端路由只在窗口尺寸稳定后切换", () => {
@@ -80,9 +83,24 @@ test("移动任务切换按任务 ID 重挂详情组件", () => {
   assert.match(mobileSource, /<MobileTaskDetail[\s\S]*?key=\{activeTask\.task_id\}/);
 });
 
-test("桌面、移动端与登录页底部统一展示工信部备案链接", () => {
+test("移动端壳层随长内容增长，备案栏不会停在首屏中部", () => {
+  assert.match(shellSource, /<div className="flex min-h-\[100dvh\] flex-col bg-slate-50">/);
+  assert.match(shellSource, /<main className="flex-1">[\s\S]*?<Outlet \/>[\s\S]*?<\/main>/);
+  assert.doesNotMatch(shellSource, /<div className="flex h-\[100dvh\] flex-col bg-slate-50">/);
+  assert.doesNotMatch(shellSource, /<main className="min-h-0 flex-1">/);
+});
+
+test("桌面、移动端与登录页底部统一展示工信部及公安备案链接", () => {
   assert.match(recordFooterSource, /苏ICP备2021046412号-3/);
   assert.match(recordFooterSource, /https:\/\/beian\.miit\.gov\.cn\/#\/Integrated\/index/);
+  assert.match(recordFooterSource, /苏公网安备32011202001840号/);
+  assert.match(recordFooterSource, /https:\/\/www\.beian\.gov\.cn\/portal\/registerSystemInfo\?recordcode=/);
+  assert.match(recordFooterSource, /PUBLIC_SECURITY_RECORD_CODE = "32011202001840"/);
+  assert.match(recordFooterSource, /<img src="\/gongan\.png" alt="公安备案图标" width=\{18\} height=\{18\}/);
+  assert.deepEqual(
+    [...publicSecurityRecordIcon.subarray(0, 8)],
+    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  );
   assert.match(recordFooterSource, /target="_blank"/);
   assert.match(recordFooterSource, /rel="noopener noreferrer"/);
   assert.match(rootSource, /<SiteRecordFooter \/>/);
