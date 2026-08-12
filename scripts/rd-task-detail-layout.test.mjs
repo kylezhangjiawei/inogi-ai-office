@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import {
+import ts from "typescript";
+
+const gestureSource = await readFile(new URL("../src/app/lib/taskImageGesture.ts", import.meta.url), "utf8");
+const gestureJavaScript = ts.transpileModule(gestureSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  },
+  fileName: "taskImageGesture.ts",
+}).outputText;
+const gestureModuleUrl = `data:text/javascript;base64,${Buffer.from(gestureJavaScript).toString("base64")}`;
+const {
   TASK_IMAGE_DOUBLE_TAP_SCALE,
   TASK_IMAGE_MAX_SCALE,
   TASK_IMAGE_MIN_SCALE,
@@ -11,7 +22,7 @@ import {
   midpointBetweenPointers,
   pinchTaskImageTransform,
   zoomTaskImageTransform,
-} from "../src/app/lib/taskImageGesture.ts";
+} = await import(gestureModuleUrl);
 
 const detailSource = await readFile(new URL("../src/app/RDTaskDetailPage.tsx", import.meta.url), "utf8");
 const collabDetailSource = await readFile(new URL("../src/app/UsCollabTaskDetailPage.tsx", import.meta.url), "utf8");
