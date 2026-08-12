@@ -10,6 +10,12 @@
  *
  * 目标任务一律经 findTaskById 定位，而它只覆盖研发池（主库 + 产品库）。
  * 协同池任务在这一层就定位不到，跨池写在结构上不可能发生。
+ *
+ * 两种形态：
+ * - field：单任务改单字段，参数固定 `{ task_id, <字段> }`，出口固定 rdService.updateTask
+ * - custom：自带参数 schema，可多目标、可走 updateTask 以外的服务方法。执行体不在本文件
+ *   （本文件不碰 service），由 ChatToolsService 按工具名提供，那里对 AgentCustomActionTool
+ *   做穷尽检查——加了工具却没配执行体，编译期就报错。
  */
 import { ResearchDevelopmentController } from '../research-development/research-development.controller';
 import type { ControllerClass } from './agent-permission';
@@ -17,21 +23,37 @@ import type { ControllerClass } from './agent-permission';
 export type AgentActionRisk = 'direct' | 'confirm';
 
 /**
- * 注册表工具名。收成字面量联合而不是 string，才能让 AGENT_ACTION_PAYLOAD_KEY 做穷尽检查：
- * 新增操作却忘了配 payload 字段名时编译期就报错，而不是运行时拼出 `{ undefined: value }` 写进库。
+ * 注册表工具名。收成字面量联合而不是 string，才能让 AGENT_ACTION_PAYLOAD_KEY（field 型）
+ * 与 ChatToolsService 的执行体表（custom 型）做穷尽检查：新增操作却忘了配套时编译期就报错，
+ * 而不是运行时拼出 `{ undefined: value }` 写进库、或调用一个不存在的执行体。
  */
-export const AGENT_ACTION_TOOLS = [
+export const AGENT_FIELD_ACTION_TOOLS = [
   'set_task_priority',
   'set_task_description',
   'reassign_task',
   'set_task_due_date',
 ] as const;
-export type AgentActionTool = (typeof AGENT_ACTION_TOOLS)[number];
+export const AGENT_CUSTOM_ACTION_TOOLS = [
+  'request_task_merge',
+  'move_tasks_category',
+  'attach_tasks_to_parent',
+  'request_task_abandon',
+] as const;
+export const AGENT_ACTION_TOOLS = [...AGENT_FIELD_ACTION_TOOLS, ...AGENT_CUSTOM_ACTION_TOOLS] as const;
+export type AgentFieldActionTool = (typeof AGENT_FIELD_ACTION_TOOLS)[number];
+export type AgentCustomActionTool = (typeof AGENT_CUSTOM_ACTION_TOOLS)[number];
+export type AgentActionTool = AgentFieldActionTool | AgentCustomActionTool;
 
-/** 单个字段的改写意图：把工具参数翻成 rdService.updateTask 的 payload 片段 */
-export type AgentActionDef = {
-  /** 工具名，同时是模型看到的函数名 */
-  tool: AgentActionTool;
+/**
+ * 单次调用能带的任务数上限。
+ *
+ * 存在的理由不是性能，是「误操作面」：模型把 60 条任务一次并进某个父任务，用户在确认卡上
+ * 只看得到前几条，等于闭眼确认。上限逼模型分批，每批都要单独确认。
+ */
+export const AGENT_BATCH_MAX_TASKS = 20;
+
+/** 两种形态共有的声明部分 */
+type AgentActionCommon = {
   /** 步骤条上显示的动作名 */
   label: string;
   risk: AgentActionRisk;
@@ -40,6 +62,13 @@ export type AgentActionDef = {
   handler: string;
   /** 给模型看的工具说明 */
   description: string;
+};
+
+/** 单个字段的改写意图：把工具参数翻成 rdService.updateTask 的 payload 片段 */
+export type AgentFieldActionDef = AgentActionCommon & {
+  kind: 'field';
+  /** 工具名，同时是模型看到的函数名 */
+  tool: AgentFieldActionTool;
   /** 该操作要改的字段名（除 task_id 外的那一个参数） */
   field: string;
   fieldSchema: Record<string, unknown>;
@@ -51,6 +80,26 @@ export type AgentActionDef = {
    */
   normalize: (raw: unknown) => { ok: true; value: unknown; display: string } | { ok: false; message: string };
 };
+
+/**
+ * 自定义形态：只声明模型看到的参数长什么样，参数校验与执行由 ChatToolsService 的执行体负责。
+ * 声明与执行分家，是为了让本文件保持「不 import 任何 service」——否则注册表会把整个
+ * 研发服务拖进依赖图，测试里也就没法单独加载它。
+ */
+export type AgentCustomActionDef = AgentActionCommon & {
+  kind: 'custom';
+  tool: AgentCustomActionTool;
+  /** JSON Schema 的 properties（thought 参数由 withThoughtParam 统一注入，此处不写） */
+  properties: Record<string, Record<string, unknown>>;
+  required: string[];
+};
+
+export type AgentActionDef = AgentFieldActionDef | AgentCustomActionDef;
+
+/** 收窄到 field 型：调用方据此决定走 updateTask 出口还是自定义执行体 */
+export function isFieldAction(action: AgentActionDef): action is AgentFieldActionDef {
+  return action.kind === 'field';
+}
 
 const PRIORITY_MAP: Record<string, string> = {
   高: 'high',
@@ -78,6 +127,7 @@ function normalizeDate(raw: unknown): { ok: true; value: unknown; display: strin
 
 export const AGENT_ACTIONS: AgentActionDef[] = [
   {
+    kind: 'field',
     tool: 'set_task_priority',
     label: '调整任务优先级',
     risk: 'direct',
@@ -96,6 +146,7 @@ export const AGENT_ACTIONS: AgentActionDef[] = [
     },
   },
   {
+    kind: 'field',
     tool: 'set_task_description',
     label: '修改任务描述',
     risk: 'direct',
@@ -114,6 +165,7 @@ export const AGENT_ACTIONS: AgentActionDef[] = [
     },
   },
   {
+    kind: 'field',
     tool: 'reassign_task',
     label: '改派任务负责人（待确认）',
     risk: 'confirm',
@@ -132,6 +184,7 @@ export const AGENT_ACTIONS: AgentActionDef[] = [
     },
   },
   {
+    kind: 'field',
     tool: 'set_task_due_date',
     label: '修改任务截止日期（待确认）',
     risk: 'confirm',
@@ -144,10 +197,94 @@ export const AGENT_ACTIONS: AgentActionDef[] = [
     fieldLabel: '新截止日期',
     normalize: normalizeDate,
   },
+  {
+    kind: 'custom',
+    tool: 'request_task_merge',
+    label: '申请任务合并（待确认）',
+    risk: 'confirm',
+    controller: ResearchDevelopmentController,
+    handler: 'updateTask',
+    description:
+      '把一个研发任务并入另一个任务：源任务的子任务、进展留痕、附件、协作人都会并入目标任务，源任务归档保留。' +
+      '整理重复/高度重叠的任务时用它。这是审核流操作——调用后生成确认卡，用户确认后也只是「提交合并申请」，' +
+      '还需管理员审核通过才真正合并。绝不要说「已合并」，只说「已生成确认卡」。源任务与目标任务必须在同一个任务库。',
+    properties: {
+      source_task_id: { type: 'string', description: '被并入方（合并后归档）的任务编号' },
+      target_task_id: { type: 'string', description: '保留方（合并去向）的任务编号' },
+      reason: { type: 'string', description: '合并原因，审核人据此判断，必填' },
+    },
+    required: ['source_task_id', 'target_task_id', 'reason'],
+  },
+  {
+    kind: 'custom',
+    tool: 'move_tasks_category',
+    label: '移动任务归类（待确认）',
+    risk: 'confirm',
+    controller: ResearchDevelopmentController,
+    handler: 'moveTasks',
+    description:
+      '把一个或多个研发任务移动到另一个分类 / 子项目下——只改归属位置，不改任务的任何内容。' +
+      `支持一次传多个任务编号（最多 ${AGENT_BATCH_MAX_TASKS} 个），要移动多条时**一次调用传完**，不要逐条调用。` +
+      '调用后生成确认卡，用户确认才生效。目标分类只能是主产品库的分类。',
+    properties: {
+      task_ids: {
+        type: 'array',
+        items: { type: 'string' },
+        description: `要移动的任务编号列表，一次最多 ${AGENT_BATCH_MAX_TASKS} 个`,
+      },
+      target_category: {
+        type: 'string',
+        description: '目标分类，格式为「分类」或「分类/子项目」，如「电源部分/电池」',
+      },
+    },
+    required: ['task_ids', 'target_category'],
+  },
+  {
+    kind: 'custom',
+    tool: 'attach_tasks_to_parent',
+    label: '并入父任务（待确认）',
+    risk: 'confirm',
+    controller: ResearchDevelopmentController,
+    handler: 'attachTasksAsSubtasks',
+    description:
+      '把一个或多个顶层任务挂到某个父任务下成为它的子任务——任务本身都保留，只改层级关系。' +
+      '把同一主题下零散的任务归拢时用它（区别于 request_task_merge：那个会归档源任务）。' +
+      `支持一次传多个任务编号（最多 ${AGENT_BATCH_MAX_TASKS} 个），要归拢多条时**一次调用传完**。` +
+      '调用后生成确认卡，用户确认才生效。',
+    properties: {
+      task_ids: {
+        type: 'array',
+        items: { type: 'string' },
+        description: `要并入的任务编号列表，一次最多 ${AGENT_BATCH_MAX_TASKS} 个`,
+      },
+      parent_task_id: { type: 'string', description: '目标父任务编号' },
+    },
+    required: ['task_ids', 'parent_task_id'],
+  },
+  {
+    kind: 'custom',
+    tool: 'request_task_abandon',
+    label: '申请放弃任务（待确认）',
+    risk: 'confirm',
+    controller: ResearchDevelopmentController,
+    handler: 'updateTask',
+    description:
+      '为一个研发任务提交「放弃」申请。用户要求「删除任务」时用这个工具——这是任务下线的唯一路径，' +
+      '你没有直接删除任务的能力，要向用户说明走的是放弃审核流程。审核通过后任务会被彻底移除且不可恢复。' +
+      '调用后生成确认卡，用户确认后也只是「提交申请」，仍需管理员审核。绝不要说「已删除」「已放弃」，只说「已生成确认卡」。',
+    properties: {
+      task_id: { type: 'string', description: '要申请放弃的任务编号' },
+      reason: { type: 'string', description: '放弃原因，审核人据此判断，必填' },
+    },
+    required: ['task_id', 'reason'],
+  },
 ];
 
-/** updateTask 的 payload 字段名：与控制器接受的 payload 键一致 */
-export const AGENT_ACTION_PAYLOAD_KEY: Record<AgentActionTool, string> = {
+/**
+ * field 型操作对应的 updateTask payload 字段名：与控制器接受的 payload 键一致。
+ * custom 型不进这张表——它们的 payload 由各自的执行体拼装。
+ */
+export const AGENT_ACTION_PAYLOAD_KEY: Record<AgentFieldActionTool, string> = {
   set_task_priority: 'final_priority',
   set_task_description: 'description',
   reassign_task: 'primary_owner',

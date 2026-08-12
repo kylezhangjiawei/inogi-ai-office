@@ -163,7 +163,7 @@ const MAX_AUDIT_LOGS = 1000;
 const DEFAULT_BOM_TASK_TYPE = '研发任务';
 // 主产品（便携式制氧机）：其任务分类树存于 rd.taskCategories；其余产品存于 rd.productTaskCategories[productId]。
 // 与前端 MAIN_PRODUCT_ID 保持一致，是跨产品移动任务时判断「写哪个 store」的唯一依据。
-const RD_MAIN_PRODUCT_ID = 'prod-portable-o2';
+export const RD_MAIN_PRODUCT_ID = 'prod-portable-o2';
 const PROGRESS_NOTE_MAX_FILES = 10;
 const PROGRESS_NOTE_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const PROGRESS_NOTE_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
@@ -3722,6 +3722,16 @@ export class ResearchDevelopmentService {
             await this.applyTaskMerge(taskId, targetId, initiator).catch((err) => {
               // eslint-disable-next-line no-console
               console.error('[updateTask] applyTaskMerge failed', err);
+              // 审核已判「通过」且状态已落库，这里再抛会让整个 updateTask 失败、把审核也回滚掉。
+              // 所以不抛——但绝不能只留一行服务端日志：审核人看到的是「已通过」，
+              // 发起人以为已合并，实际源任务原封不动，没有任何人会发现。
+              void this.notifyTaskMergeFailure(
+                originalTask as JsonRecord,
+                targetId,
+                initiator,
+                String(_reviewer_name ?? '管理员'),
+                err instanceof Error ? err.message : String(err),
+              );
             });
           }
         }
@@ -3935,6 +3945,69 @@ export class ResearchDevelopmentService {
         recipient_name: submitterName || null, // keep a name fallback in case a task has a stale linked user_id
         subject,
         body,
+      });
+    } catch {
+      // best-effort
+    }
+  }
+
+  /**
+   * 合并审核已通过、但 applyTaskMerge 执行失败时的兜底告知。
+   *
+   * 这条路径的危险之处在于「所有人都以为成功了」：审核接口返回 200，审核人看到「已通过」，
+   * 发起人收到的是审核通过通知，而源任务其实原封不动。所以这里必须同时做到
+   * ①通知发起人 ②通知审核人 ③落审计——少任何一条，失败就还是隐形的。
+   *
+   * 整个方法 best-effort：告知失败不能再把已经落库的审核结果搅乱。
+   */
+  private async notifyTaskMergeFailure(
+    task: JsonRecord,
+    targetId: string,
+    initiator: { id: string; name: string },
+    reviewerName: string,
+    reason: string,
+  ): Promise<void> {
+    const taskId = cleanText(task.task_id);
+    const taskTitle = cleanText(task.title);
+    const subject = `[合并未执行] 「${taskTitle}」审核已通过，但合并失败`;
+    const body =
+      `任务「${taskTitle}」(${taskId}) 的合并申请已审核通过，但系统执行合并到目标任务 ${targetId} 时失败，` +
+      `该任务**未被合并、也未归档，保持原状**。失败原因：${reason || '未知'}。请到研发任务驾驶舱确认后重新发起合并。`;
+
+    try {
+      await this.createMessage({
+        sender: { id: null, name: '系统通知', role: 'system' },
+        recipient_id: initiator.id || null,
+        recipient_name: initiator.name || null,
+        subject,
+        body,
+      });
+    } catch {
+      // best-effort：发起人可能已离职/无账号，不能因此挡住后面给审核人的告知
+    }
+
+    // 审核人是「点了通过」的那个人，最需要知道结果与他看到的不一致
+    try {
+      if (reviewerName && reviewerName !== initiator.name) {
+        await this.createMessage({
+          sender: { id: null, name: '系统通知', role: 'system' },
+          recipient_name: reviewerName,
+          subject,
+          body,
+        });
+      }
+    } catch {
+      // best-effort
+    }
+
+    try {
+      await this.createAuditLog({
+        actor: { id: initiator.id || null, name: initiator.name || '系统' },
+        action: 'task.merge_failed',
+        resource: { type: 'task', id: taskId, name: taskTitle || taskId },
+        comment: `合并到 ${targetId} 失败：${reason || '未知'}；任务保持原状`,
+        metadata: { target_task_id: targetId, reviewer_name: reviewerName },
+        source: 'api',
       });
     } catch {
       // best-effort

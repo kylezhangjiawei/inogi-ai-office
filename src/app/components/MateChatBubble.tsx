@@ -1813,31 +1813,31 @@ export function MateChatBubble() {
                     {activeConv?.title ?? "MateChat"}
                   </h2>
                 </div>
-                <div className="ml-4 flex items-center gap-2">
+                <div className="ml-4 flex shrink-0 items-center gap-2">
                   {activeConv && (
                     <>
                       <button
                         type="button"
                         onClick={() => void togglePin()}
-                        className="material-button-secondary px-3 py-2 text-xs"
+                        className="material-button-secondary shrink-0 whitespace-nowrap px-3 py-2 text-xs"
                       >
-                        <Pin className="h-4 w-4" />
+                        <Pin className="h-4 w-4 shrink-0" />
                         {activeConv.pinned ? "取消置顶" : "置顶"}
                       </button>
                       <button
                         type="button"
                         onClick={() => { setRenameTitle(activeConv.title); setIsRenaming(true); }}
-                        className="material-button-secondary px-3 py-2 text-xs"
+                        className="material-button-secondary shrink-0 whitespace-nowrap px-3 py-2 text-xs"
                       >
-                        <PencilLine className="h-4 w-4" />
+                        <PencilLine className="h-4 w-4 shrink-0" />
                         重命名
                       </button>
                       <button
                         type="button"
                         onClick={() => void removeConversation()}
-                        className="material-button-secondary px-3 py-2 text-xs text-red-500"
+                        className="material-button-secondary shrink-0 whitespace-nowrap px-3 py-2 text-xs text-red-500"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4 shrink-0" />
                         删除
                       </button>
                     </>
@@ -1845,7 +1845,7 @@ export function MateChatBubble() {
                   <button
                     type="button"
                     onClick={() => setOpen(false)}
-                    className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-slate-500 transition hover:text-slate-900"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-slate-500 transition hover:text-slate-900"
                   >
                     <X className="h-4 w-4" />
                   </button>

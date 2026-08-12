@@ -3490,6 +3490,10 @@ export function ApprovalActionDialog({
                 ? <>{t("确认通过「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」的协作变更审核？通过后协同人变更将生效，任务回到进行中。")}</>
                 : task.pending_review_type === "due_date"
                 ? <>{t("确认通过「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」的截止日期变更审核？通过后任务的截止日期将更新为申请值，并回到进行中。")}</>
+                : task.pending_review_type === "merge"
+                ? <>{t("确认通过「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」的合并审核？通过后本任务的子任务、进展留痕、附件与协作人将并入目标任务，本任务随即归档。")}</>
+                : task.pending_review_type === "abandon"
+                ? <>{t("确认通过「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」的放弃审核？通过后本任务及其子任务将被彻底移除，不可恢复。")}</>
                 : <>{t("确认通过「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」的审核？任务将标记为已完成，进度设为 100%。")}</>
               : <>{t("将「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」打回给负责人重新修改。")}</>
             }
