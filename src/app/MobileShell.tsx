@@ -7,6 +7,7 @@ import { initI18n, t, useI18n } from "./lib/i18n";
 import { hasPermission } from "./lib/permissions";
 import { cn } from "./components/ui/utils";
 import { Toaster } from "./components/ui/sonner";
+import { SiteRecordFooter } from "./components/SiteRecordFooter";
 import {
   closeMobileOverlay,
   isCurrentMobileOverlay,
@@ -139,6 +140,8 @@ export function MobileLayout() {
       <main className="min-h-0 flex-1">
         <Outlet />
       </main>
+
+      <SiteRecordFooter className="pb-[max(0.5rem,env(safe-area-inset-bottom))]" />
 
       {menuOpen && (
         <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="移动端菜单" onClick={closeMenu}>

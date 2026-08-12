@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, PlayCircle, RefreshCw, Table2, Trash2, Video, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, PlayCircle, RefreshCw, Table2, Trash2, Video, X, ZoomIn, ZoomOut } from "lucide-react";
 import { cn } from "./components/ui/utils";
 import { currentI18nLang, i18nLocale, t, useI18n } from "./lib/i18n";
 import { renderTextWithMentions } from "./components/MentionInput";
@@ -13,6 +13,19 @@ import {
   useBodyScrollLock,
   useMobileOverlayBack,
 } from "./hooks/useMobileOverlay";
+import {
+  TASK_IMAGE_DOUBLE_TAP_SCALE,
+  TASK_IMAGE_MIN_SCALE,
+  TASK_IMAGE_ZOOM_STEP,
+  clampTaskImageTransform,
+  distanceBetweenPointers,
+  midpointBetweenPointers,
+  pinchTaskImageTransform,
+  zoomTaskImageTransform,
+  type PointerPosition,
+  type TaskImageTransform,
+  type TaskImageViewport,
+} from "./lib/taskImageGesture";
 
 const TASK_GALLERY_OVERLAY = "rd-task-image-gallery";
 const ATTACHMENT_PREVIEW_OVERLAY = "rd-attachment-preview";
@@ -238,11 +251,26 @@ export function TaskImageLightbox({
   const current = images[index];
   const hasPrev = index > 0;
   const hasNext = index < images.length - 1;
+  const zoomEnabled = isMobileRoute();
+  const currentImageId = current.att.id;
   const currentUrl = getAttachmentUrl(current.att);
+  const gestureViewportRef = useRef<HTMLDivElement>(null);
+  const carouselFrameRef = useRef<HTMLDivElement>(null);
   const imageFrameRef = useRef<HTMLDivElement>(null);
+  const imageElementRef = useRef<HTMLImageElement>(null);
+  const zoomLabelRef = useRef<HTMLSpanElement>(null);
+  const activePointersRef = useRef(new Map<number, PointerPosition>());
+  const gestureLayoutRef = useRef<(TaskImageViewport & { center: PointerPosition }) | null>(null);
+  const imageTransformRef = useRef<TaskImageTransform>({ scale: TASK_IMAGE_MIN_SCALE, x: 0, y: 0 });
+  const pendingImageTransformRef = useRef<TaskImageTransform | null>(null);
+  const imageTransformFrameRef = useRef<number | null>(null);
+  const gestureStartTransformRef = useRef<TaskImageTransform>({ scale: TASK_IMAGE_MIN_SCALE, x: 0, y: 0 });
+  const gestureStartPointerRef = useRef<PointerPosition | null>(null);
+  const pinchStartDistanceRef = useRef<number | null>(null);
+  const pinchStartMidpointRef = useRef<PointerPosition | null>(null);
   const pointerStartXRef = useRef<number | null>(null);
-  const pointerIdRef = useRef<number | null>(null);
   const draggedRef = useRef(false);
+  const hadMultitouchRef = useRef(false);
   const suppressBackdropClickRef = useRef(false);
   const lastWheelNavigationRef = useRef(0);
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
@@ -253,39 +281,155 @@ export function TaskImageLightbox({
     onIndexChange(nextIndex);
   }, [images.length, index, onIndexChange]);
 
-  const setDragOffset = useCallback((offset: number, animate: boolean) => {
-    const frame = imageFrameRef.current;
+  const setGalleryOffset = useCallback((offset: number, animate: boolean) => {
+    const frame = carouselFrameRef.current;
     if (!frame) return;
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     frame.style.transition = animate && !reduceMotion ? "transform 160ms ease-out" : "none";
     frame.style.transform = `translate3d(${offset}px, 0, 0)`;
   }, []);
 
-  const finishPointerGesture = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (pointerIdRef.current !== event.pointerId || pointerStartXRef.current == null) return;
-    const deltaX = event.clientX - pointerStartXRef.current;
+  const measureGestureLayout = useCallback(() => {
+    const viewport = gestureViewportRef.current;
+    if (!viewport) return null;
+    const image = imageElementRef.current;
+    const rect = viewport.getBoundingClientRect();
+    const layout = {
+      width: viewport.clientWidth,
+      height: viewport.clientHeight,
+      imageWidth: image?.offsetWidth || viewport.clientWidth,
+      imageHeight: image?.offsetHeight || viewport.clientHeight,
+      center: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+    };
+    gestureLayoutRef.current = layout;
+    return layout;
+  }, []);
+
+  const applyImageTransform = useCallback((next: TaskImageTransform, animate: boolean) => {
+    const frame = imageFrameRef.current;
+    const layout = gestureLayoutRef.current ?? measureGestureLayout();
+    if (!frame || !layout) return imageTransformRef.current;
+    const normalized = clampTaskImageTransform(next, layout);
+    imageTransformRef.current = normalized;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    frame.style.transition = animate && !reduceMotion ? "transform 180ms ease-out" : "none";
+    frame.style.transform = `translate3d(${normalized.x}px, ${normalized.y}px, 0) scale(${normalized.scale})`;
+    if (zoomLabelRef.current) zoomLabelRef.current.textContent = `${Math.round(normalized.scale * 100)}%`;
+    return normalized;
+  }, [measureGestureLayout]);
+
+  const scheduleImageTransform = useCallback((next: TaskImageTransform) => {
+    pendingImageTransformRef.current = next;
+    if (imageTransformFrameRef.current != null) return;
+    imageTransformFrameRef.current = window.requestAnimationFrame(() => {
+      imageTransformFrameRef.current = null;
+      const pending = pendingImageTransformRef.current;
+      pendingImageTransformRef.current = null;
+      if (pending) applyImageTransform(pending, false);
+    });
+  }, [applyImageTransform]);
+
+  const flushScheduledImageTransform = useCallback(() => {
+    if (imageTransformFrameRef.current != null) {
+      window.cancelAnimationFrame(imageTransformFrameRef.current);
+      imageTransformFrameRef.current = null;
+    }
+    const pending = pendingImageTransformRef.current;
+    pendingImageTransformRef.current = null;
+    if (pending) applyImageTransform(pending, false);
+  }, [applyImageTransform]);
+
+  const resetImageTransform = useCallback((animate: boolean) => {
+    return applyImageTransform({ scale: TASK_IMAGE_MIN_SCALE, x: 0, y: 0 }, animate);
+  }, [applyImageTransform]);
+
+  const zoomImageTo = useCallback((requestedScale: number, focus?: PointerPosition, animate = true) => {
+    const currentTransform = imageTransformRef.current;
+    const layout = gestureLayoutRef.current ?? measureGestureLayout();
+    if (!layout || !focus) {
+      return applyImageTransform({ ...currentTransform, scale: requestedScale }, animate);
+    }
+    return applyImageTransform(zoomTaskImageTransform(currentTransform, requestedScale, focus, layout.center), animate);
+  }, [applyImageTransform, measureGestureLayout]);
+
+  const finishPointerGesture = useCallback((event: React.PointerEvent<HTMLDivElement>, cancelled = false) => {
+    if (!activePointersRef.current.has(event.pointerId)) return;
+    flushScheduledImageTransform();
+    const wasMultitouch = hadMultitouchRef.current;
+    const swipeStartX = pointerStartXRef.current;
+    activePointersRef.current.delete(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    suppressBackdropClickRef.current = draggedRef.current || wasMultitouch;
+
+    if (activePointersRef.current.size > 0) {
+      const remainingPointers = Array.from(activePointersRef.current.values());
+      const remainingPointer = remainingPointers[0];
+      gestureStartPointerRef.current = remainingPointer ?? null;
+      gestureStartTransformRef.current = { ...imageTransformRef.current };
+      pinchStartDistanceRef.current = remainingPointers.length >= 2
+        ? distanceBetweenPointers(remainingPointers[0], remainingPointers[1])
+        : null;
+      pinchStartMidpointRef.current = remainingPointers.length >= 2
+        ? midpointBetweenPointers(remainingPointers[0], remainingPointers[1])
+        : null;
+      pointerStartXRef.current = null;
+      return;
+    }
+
+    const deltaX = swipeStartX == null ? 0 : event.clientX - swipeStartX;
     const threshold = Math.min(120, Math.max(48, event.currentTarget.clientWidth * 0.08));
     const nextIndex = deltaX < 0 ? index + 1 : index - 1;
-    const canMove = Math.abs(deltaX) >= threshold && nextIndex >= 0 && nextIndex < images.length;
-    suppressBackdropClickRef.current = draggedRef.current;
+    const canMove = !cancelled
+      && !wasMultitouch
+      && imageTransformRef.current.scale === TASK_IMAGE_MIN_SCALE
+      && Math.abs(deltaX) >= threshold
+      && nextIndex >= 0
+      && nextIndex < images.length;
     pointerStartXRef.current = null;
-    pointerIdRef.current = null;
+    gestureStartPointerRef.current = null;
+    pinchStartDistanceRef.current = null;
+    pinchStartMidpointRef.current = null;
     draggedRef.current = false;
-    setDragOffset(0, !canMove);
+    hadMultitouchRef.current = false;
+    setGalleryOffset(0, !canMove);
     if (canMove) moveTo(nextIndex);
-  }, [images.length, index, moveTo, setDragOffset]);
+  }, [flushScheduledImageTransform, images.length, index, moveTo, setGalleryOffset]);
 
-  const cancelPointerGesture = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (pointerIdRef.current !== event.pointerId) return;
-    suppressBackdropClickRef.current = draggedRef.current;
+  useLayoutEffect(() => {
+    flushScheduledImageTransform();
+    activePointersRef.current.clear();
     pointerStartXRef.current = null;
-    pointerIdRef.current = null;
+    gestureStartPointerRef.current = null;
+    pinchStartDistanceRef.current = null;
+    pinchStartMidpointRef.current = null;
     draggedRef.current = false;
-    setDragOffset(0, true);
-  }, [setDragOffset]);
+    hadMultitouchRef.current = false;
+    setGalleryOffset(0, false);
+    resetImageTransform(false);
+  }, [currentImageId, flushScheduledImageTransform, resetImageTransform, setGalleryOffset]);
+
+  useLayoutEffect(() => {
+    const viewport = gestureViewportRef.current;
+    if (!viewport) return undefined;
+    const updateLayout = () => {
+      measureGestureLayout();
+      applyImageTransform(imageTransformRef.current, false);
+    };
+    updateLayout();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(updateLayout);
+    observer.observe(viewport);
+    if (imageElementRef.current) observer.observe(imageElementRef.current);
+    return () => observer.disconnect();
+  }, [applyImageTransform, currentImageId, measureGestureLayout]);
+
+  useEffect(() => () => {
+    if (imageTransformFrameRef.current != null) window.cancelAnimationFrame(imageTransformFrameRef.current);
+  }, []);
 
   useEffect(() => {
-    setDragOffset(0, false);
     const neighborUrls = [images[index - 1], images[index + 1]]
       .filter((image): image is GalleryImage => Boolean(image))
       .map((image) => getAttachmentUrl(image.att))
@@ -294,7 +438,7 @@ export function TaskImageLightbox({
       const preload = new Image();
       preload.src = url;
     }
-  }, [images, index, setDragOffset]);
+  }, [images, index]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -318,6 +462,27 @@ export function TaskImageLightbox({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          {zoomEnabled && (
+            <>
+              <button
+                type="button"
+                onClick={() => zoomImageTo(imageTransformRef.current.scale - TASK_IMAGE_ZOOM_STEP)}
+                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white/90 transition hover:bg-white/20"
+                aria-label="缩小图片"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <span ref={zoomLabelRef} className="w-11 text-center text-[11px] tabular-nums text-white/70" aria-live="polite">100%</span>
+              <button
+                type="button"
+                onClick={() => zoomImageTo(imageTransformRef.current.scale + TASK_IMAGE_ZOOM_STEP)}
+                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white/90 transition hover:bg-white/20"
+                aria-label="放大图片"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+            </>
+          )}
           <a
             href={getAttachmentDownloadUrl(current.att)}
             download={current.att.name}
@@ -340,27 +505,83 @@ export function TaskImageLightbox({
       </div>
 
       <div
-        className="relative flex min-h-0 flex-1 touch-pan-y select-none items-center justify-center px-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-14"
+        ref={gestureViewportRef}
+        className={cn(
+          "relative flex min-h-0 flex-1 select-none items-center justify-center px-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-14",
+          zoomEnabled ? "touch-none overflow-hidden" : "touch-pan-y",
+        )}
+        aria-label={zoomEnabled ? "图片手势区域，可双指缩放，放大后拖动" : undefined}
         onPointerDown={(event) => {
-          if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+          if (event.pointerType === "mouse" && event.button !== 0) return;
+          if (!zoomEnabled && !event.isPrimary) return;
           // 导航按钮属于点击控件，不能让外层滑动区捕获它的 pointer。
           // 否则 pointerup/click 会被重定向到遮罩容器并触发关闭预览。
           if (event.target instanceof Element && event.target.closest("button, a")) return;
-          pointerStartXRef.current = event.clientX;
-          pointerIdRef.current = event.pointerId;
-          draggedRef.current = false;
+          const point = { x: event.clientX, y: event.clientY };
+          measureGestureLayout();
+          activePointersRef.current.set(event.pointerId, point);
           event.currentTarget.setPointerCapture(event.pointerId);
+          if (activePointersRef.current.size === 1) {
+            gestureStartPointerRef.current = point;
+            gestureStartTransformRef.current = { ...imageTransformRef.current };
+            pointerStartXRef.current = imageTransformRef.current.scale === TASK_IMAGE_MIN_SCALE ? event.clientX : null;
+            draggedRef.current = false;
+            return;
+          }
+          const [first, second] = Array.from(activePointersRef.current.values());
+          hadMultitouchRef.current = true;
+          draggedRef.current = true;
+          pointerStartXRef.current = null;
+          pinchStartDistanceRef.current = distanceBetweenPointers(first, second);
+          pinchStartMidpointRef.current = midpointBetweenPointers(first, second);
+          gestureStartTransformRef.current = { ...imageTransformRef.current };
         }}
         onPointerMove={(event) => {
-          if (pointerIdRef.current !== event.pointerId || pointerStartXRef.current == null) return;
-          let deltaX = event.clientX - pointerStartXRef.current;
-          if (Math.abs(deltaX) > 6) draggedRef.current = true;
-          if ((!hasPrev && deltaX > 0) || (!hasNext && deltaX < 0)) deltaX *= 0.22;
-          setDragOffset(deltaX, false);
+          if (!activePointersRef.current.has(event.pointerId)) return;
+          activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+          const points = Array.from(activePointersRef.current.values());
+          if (points.length >= 2) {
+            if (!zoomEnabled) return;
+            const [first, second] = points;
+            const startDistance = pinchStartDistanceRef.current || distanceBetweenPointers(first, second);
+            const startMidpoint = pinchStartMidpointRef.current || midpointBetweenPointers(first, second);
+            const midpoint = midpointBetweenPointers(first, second);
+            const startTransform = gestureStartTransformRef.current;
+            const viewportCenter = gestureLayoutRef.current?.center ?? { x: 0, y: 0 };
+            scheduleImageTransform(pinchTaskImageTransform({
+              startTransform,
+              startDistance,
+              currentDistance: distanceBetweenPointers(first, second),
+              startMidpoint,
+              currentMidpoint: midpoint,
+              viewportCenter,
+            }));
+            return;
+          }
+
+          const startPoint = gestureStartPointerRef.current;
+          if (!startPoint) return;
+          const deltaX = event.clientX - startPoint.x;
+          const deltaY = event.clientY - startPoint.y;
+          if (Math.hypot(deltaX, deltaY) > 6) draggedRef.current = true;
+          if (imageTransformRef.current.scale > TASK_IMAGE_MIN_SCALE) {
+            const startTransform = gestureStartTransformRef.current;
+            scheduleImageTransform({ ...startTransform, x: startTransform.x + deltaX, y: startTransform.y + deltaY });
+            return;
+          }
+          let galleryOffset = deltaX;
+          if ((!hasPrev && galleryOffset > 0) || (!hasNext && galleryOffset < 0)) galleryOffset *= 0.22;
+          setGalleryOffset(galleryOffset, false);
         }}
         onPointerUp={finishPointerGesture}
-        onPointerCancel={cancelPointerGesture}
+        onPointerCancel={(event) => finishPointerGesture(event, true)}
+        onLostPointerCapture={(event) => finishPointerGesture(event, true)}
+        onDoubleClick={zoomEnabled ? (event) => {
+          const nextScale = imageTransformRef.current.scale > TASK_IMAGE_MIN_SCALE ? TASK_IMAGE_MIN_SCALE : TASK_IMAGE_DOUBLE_TAP_SCALE;
+          zoomImageTo(nextScale, { x: event.clientX, y: event.clientY });
+        } : undefined}
         onWheel={(event) => {
+          if (imageTransformRef.current.scale > TASK_IMAGE_MIN_SCALE) return;
           if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || Math.abs(event.deltaX) < 36) return;
           event.preventDefault();
           const now = Date.now();
@@ -386,21 +607,28 @@ export function TaskImageLightbox({
             <ChevronLeft className="h-6 w-6" />
           </button>
         )}
-        <div ref={imageFrameRef} className="relative flex h-full w-full items-center justify-center will-change-transform">
+        <div ref={carouselFrameRef} className="relative flex h-full w-full items-center justify-center will-change-transform">
           {loadedUrl !== currentUrl && <Loader2 className="absolute size-7 animate-spin text-white/70" aria-hidden="true" />}
-          <img
-            key={currentUrl}
-            src={currentUrl}
-            alt={current.att.name}
-            loading="eager"
-            decoding="async"
-            draggable={false}
-            onLoad={() => setLoadedUrl(currentUrl)}
-            className={cn(
-              "relative max-h-full max-w-full rounded-lg object-contain shadow-2xl transition-opacity duration-150",
-              loadedUrl === currentUrl ? "opacity-100" : "opacity-0",
-            )}
-          />
+          <div ref={imageFrameRef} className="relative flex h-full w-full origin-center items-center justify-center will-change-transform">
+            <img
+              ref={imageElementRef}
+              key={currentUrl}
+              src={currentUrl}
+              alt={current.att.name}
+              loading="eager"
+              decoding="async"
+              draggable={false}
+              onLoad={() => {
+                setLoadedUrl(currentUrl);
+                measureGestureLayout();
+                applyImageTransform(imageTransformRef.current, false);
+              }}
+              className={cn(
+                "relative max-h-full max-w-full rounded-lg object-contain shadow-2xl transition-opacity duration-150",
+                loadedUrl === currentUrl ? "opacity-100" : "opacity-0",
+              )}
+            />
+          </div>
         </div>
         {hasNext && (
           <button

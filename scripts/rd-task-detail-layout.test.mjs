@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
+import {
+  TASK_IMAGE_DOUBLE_TAP_SCALE,
+  TASK_IMAGE_MAX_SCALE,
+  TASK_IMAGE_MIN_SCALE,
+  TASK_IMAGE_ZOOM_STEP,
+  clampTaskImageTransform,
+  distanceBetweenPointers,
+  midpointBetweenPointers,
+  pinchTaskImageTransform,
+  zoomTaskImageTransform,
+} from "../src/app/lib/taskImageGesture.ts";
 
 const detailSource = await readFile(new URL("../src/app/RDTaskDetailPage.tsx", import.meta.url), "utf8");
 const collabDetailSource = await readFile(new URL("../src/app/UsCollabTaskDetailPage.tsx", import.meta.url), "utf8");
@@ -169,4 +180,72 @@ test("task detail images use width-clipped cards while preview keeps the complet
   assert.match(progressEvidenceSource, /\.\.\.attachments\.filter\(\(attachment\) => !\(attachment\.mime \?\? ""\)\.startsWith\("image\/"\)\)/);
   assert.match(progressEvidenceSource, /attachmentsToGalleryImages\(attachments\)/);
   assert.match(progressEvidenceSource, /onIndexChange=\{\(next\) => setGalleryPreview/);
+});
+
+test("task image preview supports pinch zoom, panning and scale-aware gallery swipes", () => {
+  assert.match(progressEvidenceSource, /activePointersRef = useRef\(new Map/);
+  assert.match(progressEvidenceSource, /pinchTaskImageTransform/);
+  assert.match(progressEvidenceSource, /zoomTaskImageTransform/);
+  assert.match(progressEvidenceSource, /onDoubleClick=/);
+  assert.match(progressEvidenceSource, /onLostPointerCapture=/);
+  assert.match(progressEvidenceSource, /aria-label=\{zoomEnabled \? "图片手势区域，可双指缩放，放大后拖动" : undefined\}/);
+  assert.match(progressEvidenceSource, /zoomEnabled \? "touch-none overflow-hidden" : "touch-pan-y"/);
+  assert.match(progressEvidenceSource, /\{zoomEnabled && \(/);
+  assert.match(progressEvidenceSource, /imageTransformRef\.current\.scale > TASK_IMAGE_MIN_SCALE/);
+  assert.match(progressEvidenceSource, /\[currentImageId, flushScheduledImageTransform, resetImageTransform, setGalleryOffset\]/);
+  assert.match(progressEvidenceSource, /new ResizeObserver\(updateLayout\)/);
+  assert.match(progressEvidenceSource, /onLoad=\{\(\) => \{\s+setLoadedUrl\(currentUrl\);\s+measureGestureLayout\(\);\s+applyImageTransform/);
+  assert.match(progressEvidenceSource, /suppressBackdropClickRef\.current = draggedRef\.current \|\| wasMultitouch;\s+\n\s+if \(activePointersRef\.current\.size > 0\)/);
+});
+
+test("task image gesture math preserves the pinch focus and clamps zoom and panning", () => {
+  assert.equal(TASK_IMAGE_MIN_SCALE, 1);
+  assert.equal(TASK_IMAGE_MAX_SCALE, 4);
+  assert.equal(TASK_IMAGE_DOUBLE_TAP_SCALE, 2);
+  assert.equal(TASK_IMAGE_ZOOM_STEP, 0.5);
+  assert.equal(distanceBetweenPointers({ x: 0, y: 0 }, { x: 3, y: 4 }), 5);
+  assert.deepEqual(midpointBetweenPointers({ x: 10, y: 20 }, { x: 30, y: 50 }), { x: 20, y: 35 });
+
+  const pinch = pinchTaskImageTransform({
+    startTransform: { scale: 1, x: 0, y: 0 },
+    startDistance: 100,
+    currentDistance: 250,
+    startMidpoint: { x: 250, y: 350 },
+    currentMidpoint: { x: 270, y: 360 },
+    viewportCenter: { x: 200, y: 300 },
+  });
+  assert.deepEqual(pinch, { scale: 2.5, x: -55, y: -65 });
+
+  assert.deepEqual(
+    clampTaskImageTransform({ scale: 10, x: 999, y: -999 }, {
+      width: 400,
+      height: 600,
+      imageWidth: 300,
+      imageHeight: 500,
+    }),
+    { scale: 4, x: 400, y: -700 },
+  );
+  assert.deepEqual(
+    clampTaskImageTransform({ scale: 0.25, x: 100, y: -100 }, {
+      width: 400,
+      height: 600,
+      imageWidth: 300,
+      imageHeight: 500,
+    }),
+    { scale: 1, x: 0, y: 0 },
+  );
+});
+
+test("task image button and double-tap zoom keep the selected point stationary", () => {
+  const zoomed = zoomTaskImageTransform(
+    { scale: 1, x: 0, y: 0 },
+    TASK_IMAGE_DOUBLE_TAP_SCALE,
+    { x: 250, y: 350 },
+    { x: 200, y: 300 },
+  );
+  assert.deepEqual(zoomed, { scale: 2, x: -50, y: -50 });
+  assert.deepEqual(
+    zoomTaskImageTransform(zoomed, TASK_IMAGE_MIN_SCALE, { x: 250, y: 350 }, { x: 200, y: 300 }),
+    { scale: 1, x: 0, y: 0 },
+  );
 });

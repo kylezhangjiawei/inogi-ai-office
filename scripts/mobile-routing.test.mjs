@@ -15,6 +15,18 @@ const shellSource = readFileSync(
   new URL("../src/app/MobileShell.tsx", import.meta.url),
   "utf8",
 );
+const rootSource = readFileSync(
+  new URL("../src/app/Root.tsx", import.meta.url),
+  "utf8",
+);
+const loginSource = readFileSync(
+  new URL("../src/app/LoginPage.tsx", import.meta.url),
+  "utf8",
+);
+const recordFooterSource = readFileSync(
+  new URL("../src/app/components/SiteRecordFooter.tsx", import.meta.url),
+  "utf8",
+);
 
 
 test("移动端路由只在窗口尺寸稳定后切换", () => {
@@ -66,4 +78,14 @@ test("移动驾驶舱复用对应桌面端权限边界", () => {
 
 test("移动任务切换按任务 ID 重挂详情组件", () => {
   assert.match(mobileSource, /<MobileTaskDetail[\s\S]*?key=\{activeTask\.task_id\}/);
+});
+
+test("桌面、移动端与登录页底部统一展示工信部备案链接", () => {
+  assert.match(recordFooterSource, /苏ICP备2021046412号-3/);
+  assert.match(recordFooterSource, /https:\/\/beian\.miit\.gov\.cn\/#\/Integrated\/index/);
+  assert.match(recordFooterSource, /target="_blank"/);
+  assert.match(recordFooterSource, /rel="noopener noreferrer"/);
+  assert.match(rootSource, /<SiteRecordFooter \/>/);
+  assert.match(shellSource, /<SiteRecordFooter className="pb-\[max\(0\.5rem,env\(safe-area-inset-bottom\)\)\]" \/>/);
+  assert.match(loginSource, /<SiteRecordFooter className="mt-4 w-full max-w-5xl border-white\/50 bg-white\/55" \/>/);
 });

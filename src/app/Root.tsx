@@ -6,6 +6,7 @@ import { MateChatBubble } from "./components/MateChatBubble";
 import { MateChatReminderModal } from "./components/matechat/MateChatReminderModal";
 import { Toaster } from "./components/ui/sonner";
 import { Sidebar } from "./components/sidebar_1";
+import { SiteRecordFooter } from "./components/SiteRecordFooter";
 import {
   LayoutChromeActionsContext,
   LayoutChromeStateContext,
@@ -67,6 +68,7 @@ export function Root() {
               <main className="min-w-0 flex-1 overflow-y-auto overflow-x-auto px-3 py-3 sm:px-4 sm:py-4 md:px-6 md:py-6">
                 <Outlet />
               </main>
+              <SiteRecordFooter />
             </div>
             <MateChatBubble />
             <MateChatReminderModal />

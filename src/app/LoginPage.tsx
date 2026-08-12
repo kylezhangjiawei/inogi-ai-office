@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate } from "react-router";
 import { Eye, EyeOff, LockKeyhole, User } from "lucide-react";
 import { useAuth } from "./auth";
 import { authFetch } from "./lib/authSession";
+import { SiteRecordFooter } from "./components/SiteRecordFooter";
 import logo from "../assets/logo.png";
 
 const DEFAULT_LOGIN_BG = "https://matechat.gitcode.com/png/home/bgHome.png";
@@ -75,7 +76,7 @@ export function LoginPage() {
 
   return (
     <div
-      className="flex min-h-[100dvh] items-center justify-center bg-center bg-cover bg-no-repeat px-4 py-6"
+      className="flex min-h-[100dvh] flex-col items-center bg-center bg-cover bg-no-repeat px-4 py-6"
       style={{
         backgroundImage: `url(${bgUrl})`,
         paddingLeft: "max(1rem, env(safe-area-inset-left))",
@@ -84,7 +85,7 @@ export function LoginPage() {
         paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
       }}
     >
-      <div className="grid w-full max-w-sm overflow-hidden rounded-3xl border border-white/70 bg-white/80 shadow-[0_30px_60px_rgba(15,23,42,0.12)] backdrop-blur-md lg:max-w-5xl lg:grid-cols-[1.1fr_0.9fr]">
+      <div className="my-auto grid w-full max-w-sm overflow-hidden rounded-3xl border border-white/70 bg-white/80 shadow-[0_30px_60px_rgba(15,23,42,0.12)] backdrop-blur-md lg:max-w-5xl lg:grid-cols-[1.1fr_0.9fr]">
         {/* 品牌区：桌面为左栏大图文，手机不渲染（改用卡片内的紧凑品牌头，见下） */}
         <div className="hidden bg-[linear-gradient(145deg,#4338ca_0%,#6366f1_55%,#a5b4fc_100%)] p-10 text-white lg:flex lg:flex-col lg:justify-between">
           <div>
@@ -187,6 +188,7 @@ export function LoginPage() {
           </div>
         </div>
       </div>
+      <SiteRecordFooter className="mt-4 w-full max-w-5xl border-white/50 bg-white/55" />
     </div>
   );
 }
