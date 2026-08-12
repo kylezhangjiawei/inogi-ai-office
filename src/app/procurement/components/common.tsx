@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogTitle } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "../../components/ui/popover";
 import { cn } from "../../components/ui/utils";
+import { MobileZoomableImage } from "../../components/MobileZoomableImage";
 import { useAvatarDirectory } from "../../lib/userAvatar";
 import { subscribeDepartmentChanges } from "../../lib/departmentDirectory";
 import { hasPermission } from "../../lib/permissions";
@@ -446,7 +447,13 @@ export function ImageLightbox({ url, onClose }: { url: string; onClose: () => vo
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent aria-describedby={undefined} className="w-auto max-w-[90vw] border-none bg-transparent p-0 shadow-none">
         <DialogTitle className="sr-only">{translate("商品图片")}</DialogTitle>
-        <img src={url} alt="" className="max-h-[85vh] max-w-full rounded-xl bg-white object-contain shadow-2xl" />
+        <MobileZoomableImage
+          src={url}
+          alt={translate("商品图片")}
+          className="h-[85vh] w-[90vw]"
+          imageClassName="rounded-xl bg-white shadow-2xl"
+          stopPropagation={false}
+        />
       </DialogContent>
     </Dialog>
   );

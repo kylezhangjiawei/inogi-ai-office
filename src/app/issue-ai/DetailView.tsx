@@ -35,6 +35,7 @@ import {
 import { cn } from "../components/ui/utils";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
+import { MobileImagePreviewLink } from "../components/MobileZoomableImage";
 import {
   DimensionChip,
   LikelihoodIndicator,
@@ -178,9 +179,9 @@ function ChatAttachment({
       )}
     >
       {isImage && (
-        <a href={att.fileUrl} target="_blank" rel="noreferrer" className="mb-2 block overflow-hidden rounded-md">
+        <MobileImagePreviewLink src={att.fileUrl} alt={att.fileName} title={att.fileName} className="mb-2 block overflow-hidden rounded-md">
           <img src={att.fileUrl} alt={att.fileName} className="max-h-40 w-full object-cover" />
-        </a>
+        </MobileImagePreviewLink>
       )}
       <div className="flex min-w-0 items-center gap-2">
         {isImage ? <ImageIcon className="size-3.5 shrink-0" /> : <Paperclip className="size-3.5 shrink-0" />}

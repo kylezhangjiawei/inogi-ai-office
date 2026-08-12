@@ -7,6 +7,7 @@ import { renderTextWithMentions } from "./components/MentionInput";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { getAttachmentDownloadUrl, getAttachmentPreviewUrl, getAttachmentThumbUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "./lib/xlsxPreview";
+import { isMobileViewport } from "./lib/mobileRouting";
 import {
   closeMobileOverlay,
   pushMobileOverlayState,
@@ -251,7 +252,9 @@ export function TaskImageLightbox({
   const current = images[index];
   const hasPrev = index > 0;
   const hasNext = index < images.length - 1;
-  const zoomEnabled = isMobileRoute();
+  // The responsive desktop task-detail route is also used directly on phones.
+  // Enable gestures by actual viewport as well as by the dedicated /m route.
+  const zoomEnabled = isMobileRoute() || isMobileViewport();
   const currentImageId = current.att.id;
   const currentUrl = getAttachmentUrl(current.att);
   const gestureViewportRef = useRef<HTMLDivElement>(null);

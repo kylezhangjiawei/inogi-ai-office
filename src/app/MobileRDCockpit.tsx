@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, ArrowLeft, CheckCircle2, ClipboardList, Clock,
 import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+import { MobileZoomableImage } from "./components/MobileZoomableImage";
 import { t, useI18n } from "./lib/i18n";
 import { useRDCockpitData } from "./hooks/useRDCockpitData";
 import { daysUntilDue } from "./lib/taskDue";
@@ -240,12 +241,14 @@ function ImageLightbox({
         className="flex min-h-0 flex-1 items-center justify-center px-4 pb-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <img
+        <MobileZoomableImage
           src={current}
           alt="附件预览"
           loading="eager"
           decoding="async"
-          className="max-h-full max-w-full rounded-lg object-contain"
+          className="h-full w-full"
+          imageClassName="rounded-lg"
+          controlsClassName={images.length > 1 ? "!bottom-20" : undefined}
         />
       </div>
       {images.length > 1 && (

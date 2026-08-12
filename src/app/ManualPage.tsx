@@ -14,6 +14,7 @@ import React from "react";
 import { ArrowLeft, BookOpen, GanttChartSquare, LayoutGrid } from "lucide-react";
 import { Link, Navigate, useParams } from "react-router";
 import { cn } from "./components/ui/utils";
+import { MobileImagePreviewLink } from "./components/MobileZoomableImage";
 import { t, useI18n, type I18nLang } from "./lib/i18n";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
@@ -848,16 +849,16 @@ export function ManualTopicPage() {
 
         {/* 整页截图 + 红色编号，与下方条目一一对应。
             图是 1600px 宽，塞进正文容器会缩到 ~75%，界面上的小字就糊了——
-            故整图可点，新标签页打开原图看细节。 */}
+            故整图可点；移动端进入可缩放预览，桌面端仍在新标签页查看原图。 */}
         <figure className="space-y-1.5">
-          <a
-            href={shotSrc}
-            target="_blank"
-            rel="noreferrer"
+          <MobileImagePreviewLink
+            src={shotSrc}
+            alt={t(topic.title)}
+            title={t(topic.title)}
             className="block overflow-hidden rounded border border-slate-200 bg-slate-50 transition hover:border-indigo-300"
           >
             <ManualShotImage shot={topic.shot} lang={lang} alt={t(topic.title)} />
-          </a>
+          </MobileImagePreviewLink>
           <figcaption className="text-xs text-slate-400">{t("点击图片查看大图")}</figcaption>
         </figure>
 
@@ -913,14 +914,14 @@ export function ManualTopicPage() {
                 <h4 className="text-sm font-semibold text-slate-900">{t(dive.title)}</h4>
                 <p className="mt-1 text-xs leading-5 text-slate-500">{t("打开方式")}：{t(dive.entry)}</p>
                 <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] lg:items-start">
-                  <a
-                    href={manualShotSrc(dive.shot, lang)}
-                    target="_blank"
-                    rel="noreferrer"
+                  <MobileImagePreviewLink
+                    src={manualShotSrc(dive.shot, lang)}
+                    alt={t(dive.title)}
+                    title={t(dive.title)}
                     className="block overflow-hidden rounded border border-slate-200 bg-slate-50 transition hover:border-indigo-300"
                   >
                     <ManualShotImage shot={dive.shot} lang={lang} alt={t(dive.title)} />
-                  </a>
+                  </MobileImagePreviewLink>
                   <ol className="grid gap-2">
                     {dive.points.map((point) => (
                       // n=0 表示这张图没打编号（如整页详情页），退化成普通圆点，别显示个「0」

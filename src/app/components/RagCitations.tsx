@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { createPortal } from "react-dom";
 import { BookOpen, ChevronDown, ChevronUp, Download, Eye, ExternalLink, FileText, Globe, Sparkles, X } from "lucide-react";
 import { cn } from "./ui/utils";
+import { MobileZoomableImage } from "./MobileZoomableImage";
 import { RagCitation, RagChunk, SOURCE_TYPE_LABELS, type RagSourceType } from "../lib/ragApi";
 
 // ─── 来源类型 → 图标颜色 ───────────────────────────────────────────────────────
@@ -182,11 +183,12 @@ export function RagCitations({
           role="dialog"
           aria-modal="true"
         >
-          <img
+          <MobileZoomableImage
             src={lightbox.url}
             alt={lightbox.alt}
-            className="max-h-[88vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
+            className="h-[88vh] w-[92vw]"
+            imageClassName="rounded-lg shadow-2xl"
+            stopPropagation={false}
           />
           <div className="absolute left-1/2 top-4 max-w-[80vw] -translate-x-1/2 truncate rounded-full bg-black/50 px-3 py-1 text-xs text-white">
             {lightbox.alt}

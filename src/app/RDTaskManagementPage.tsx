@@ -58,6 +58,7 @@ import { NativeSelect } from "./components/ui/native-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
+import { MobileZoomableImage } from "./components/MobileZoomableImage";
 import { formatTraceDateTime } from "./RDProgressEvidence";
 import { CollapseTransition } from "./components/CollapseTransition";
 import { useAuth } from "./auth";
@@ -6669,19 +6670,24 @@ function ImageGallery({
 
       {/* Main image */}
       <AnimatePresence mode="wait">
-        <motion.img
+        <motion.div
           key={idx}
-          src={getAttachmentUrl(images[idx])}
-          alt={images[idx].name}
           initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.96 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.96 }}
           transition={{ duration: 0.15, ease: RD_MOTION_EASE }}
-          className="max-h-[78vh] max-w-[82vw] rounded-2xl object-contain shadow-2xl"
+          className="h-[78vh] w-[82vw] max-w-full"
           onClick={(e) => e.stopPropagation()}
-          loading="eager"
-          decoding="async"
-        />
+        >
+          <MobileZoomableImage
+            src={getAttachmentUrl(images[idx])}
+            alt={images[idx].name}
+            className="h-full w-full"
+            imageClassName="rounded-2xl shadow-2xl"
+            controlsClassName={images.length > 1 ? "!bottom-20" : undefined}
+            stopPropagation={false}
+          />
+        </motion.div>
       </AnimatePresence>
 
       {/* Prev / Next */}

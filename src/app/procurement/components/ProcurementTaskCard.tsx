@@ -22,6 +22,7 @@ import {
 } from "../../components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
 import { cn } from "../../components/ui/utils";
+import { isImagePreviewSource, MobileImagePreviewLink } from "../../components/MobileZoomableImage";
 import { useI18n } from "../../lib/i18n";
 import { isProcurementTaskOverdue, taskMainDate, taskRequester, type Material, type ProcurementTask } from "../data";
 import { BusinessLinePill, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, useProcCan } from "./common";
@@ -161,11 +162,23 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
         {previewAttachments.length > 0 ? (
           <div className="grid grid-cols-3 gap-1.5">
             {previewAttachments.map((attachment) => {
-              const isImage = attachment.mimeType?.startsWith("image/");
+              const isImage = isImagePreviewSource(
+                attachment.mimeType,
+                attachment.fileName,
+                attachment.fileUrl,
+              );
               return (
                 <div key={attachment.id} className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                   {isImage ? (
-                    <img src={attachment.fileUrl} alt={attachment.fileName} loading="lazy" className="h-16 w-full object-cover" />
+                    <MobileImagePreviewLink
+                      src={attachment.fileUrl}
+                      alt={attachment.fileName}
+                      title={attachment.fileName}
+                      className="block"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <img src={attachment.fileUrl} alt={attachment.fileName} loading="lazy" className="h-16 w-full object-cover" />
+                    </MobileImagePreviewLink>
                   ) : (
                     <div className="flex h-16 items-center justify-center text-slate-400"><Paperclip className="size-4" /></div>
                   )}

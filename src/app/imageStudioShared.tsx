@@ -33,6 +33,7 @@ import {
 import { toast } from "sonner";
 
 import { cn } from "./components/ui/utils";
+import { MobileZoomableImage } from "./components/MobileZoomableImage";
 import { authFetch, readErrorMessage } from "./lib/authSession";
 import type { AiModelOption } from "./lib/aiModelOptions";
 
@@ -782,7 +783,11 @@ export function ImagePreviewModal({ item, onClose }: { item: GeneratedImage; onC
         className="relative flex h-[70dvh] w-[70dvw] max-w-[calc(100vw-32px)] items-center justify-center overflow-hidden rounded-[18px] border border-white/15 bg-slate-950 shadow-[0_28px_80px_rgba(15,23,42,0.42)]"
         onClick={(event) => event.stopPropagation()}
       >
-        <img src={item.imageUrl || item.imageData} alt={item.prompt} className="h-full w-full object-contain" />
+        <MobileZoomableImage
+          src={item.imageUrl || item.imageData || ""}
+          alt={item.prompt}
+          className="h-full w-full"
+        />
         <button
           className="absolute right-3 top-3 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white/92 text-slate-600 shadow-sm transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
           type="button"

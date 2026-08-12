@@ -17,6 +17,7 @@ import {
 import { useModalFocus } from "../hooks/useModalFocus";
 import { getExternalDocumentVersionPreviewContent } from "../lib/externalDocsApi";
 import { cn } from "./ui/utils";
+import { MobileZoomableImage } from "./MobileZoomableImage";
 
 export type ExternalEvidenceVersion = {
   id: string;
@@ -353,11 +354,12 @@ function VersionEvidencePanel({
           className="min-h-0 flex-1 border-0 bg-slate-200"
         />
       ) : blob && kind === "image" ? (
-        <div className="material-scrollbar flex min-h-0 flex-1 items-start justify-center overflow-auto bg-slate-200 p-4">
-          <img
+        <div className="material-scrollbar flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-slate-200 p-4">
+          <MobileZoomableImage
             src={objectUrl}
             alt={`${version.version} 原文`}
-            className="max-w-full rounded-sm bg-white shadow-[0_12px_32px_rgba(15,23,42,0.16)]"
+            className="h-full w-full"
+            imageClassName="rounded-sm bg-white shadow-[0_12px_32px_rgba(15,23,42,0.16)]"
           />
         </div>
       ) : (

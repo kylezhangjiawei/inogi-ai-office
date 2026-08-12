@@ -31,6 +31,16 @@ const conversationSource = await readFile(new URL("../src/app/RDTaskConversation
 const progressEvidenceSource = await readFile(new URL("../src/app/RDProgressEvidence.tsx", import.meta.url), "utf8");
 const auditTimelineSource = await readFile(new URL("../src/app/RDAuditTimeline.tsx", import.meta.url), "utf8");
 const mobileCockpitSource = await readFile(new URL("../src/app/MobileRDCockpit.tsx", import.meta.url), "utf8");
+const mobileRoutingSource = await readFile(new URL("../src/app/lib/mobileRouting.ts", import.meta.url), "utf8");
+const mobileRoutingJavaScript = ts.transpileModule(mobileRoutingSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  },
+  fileName: "mobileRouting.ts",
+}).outputText;
+const mobileRoutingModuleUrl = `data:text/javascript;base64,${Buffer.from(mobileRoutingJavaScript).toString("base64")}`;
+const { isMobileViewport } = await import(mobileRoutingModuleUrl);
 
 test("研发任务详情使用宽版总览，关键指标集中在右侧任务信息", () => {
   assert.match(detailSource, /max-w-\[1440px\]/);
@@ -194,6 +204,9 @@ test("task detail images use width-clipped cards while preview keeps the complet
 });
 
 test("task image preview supports pinch zoom, panning and scale-aware gallery swipes", () => {
+  assert.match(progressEvidenceSource, /import \{ isMobileViewport \} from "\.\/lib\/mobileRouting"/);
+  assert.match(progressEvidenceSource, /const zoomEnabled = isMobileRoute\(\) \|\| isMobileViewport\(\)/);
+  assert.match(mobileRoutingSource, /const effectiveWidth = Math\.min\(window\.innerWidth, window\.screen\?\.width \?\? Number\.POSITIVE_INFINITY\)/);
   assert.match(progressEvidenceSource, /activePointersRef = useRef\(new Map/);
   assert.match(progressEvidenceSource, /pinchTaskImageTransform/);
   assert.match(progressEvidenceSource, /zoomTaskImageTransform/);
@@ -207,6 +220,22 @@ test("task image preview supports pinch zoom, panning and scale-aware gallery sw
   assert.match(progressEvidenceSource, /new ResizeObserver\(updateLayout\)/);
   assert.match(progressEvidenceSource, /onLoad=\{\(\) => \{\s+setLoadedUrl\(currentUrl\);\s+measureGestureLayout\(\);\s+applyImageTransform/);
   assert.match(progressEvidenceSource, /suppressBackdropClickRef\.current = draggedRef\.current \|\| wasMultitouch;\s+\n\s+if \(activePointersRef\.current\.size > 0\)/);
+});
+
+test("task image preview enables zoom on a real phone even when the desktop layout widens the viewport", () => {
+  const hadWindow = Object.hasOwn(globalThis, "window");
+  const previousWindow = globalThis.window;
+
+  try {
+    globalThis.window = { innerWidth: 1024, screen: { width: 430 } };
+    assert.equal(isMobileViewport(), true);
+
+    globalThis.window = { innerWidth: 1024, screen: { width: 1440 } };
+    assert.equal(isMobileViewport(), false);
+  } finally {
+    if (hadWindow) globalThis.window = previousWindow;
+    else delete globalThis.window;
+  }
 });
 
 test("task image gesture math preserves the pinch focus and clamps zoom and panning", () => {

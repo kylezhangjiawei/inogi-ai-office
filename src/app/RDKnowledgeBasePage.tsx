@@ -132,6 +132,7 @@ import { useAvatarDirectory } from "./lib/userAvatar";
 import { hasPermission } from "./lib/permissions";
 import { recordAudit, useAuditActor } from "./lib/auditLog";
 import { KbAdvancedPreview } from "./components/KbAdvancedPreview";
+import { MobileZoomableImage } from "./components/MobileZoomableImage";
 import {
   fetchKbCategories,
   fetchKbEntries,
@@ -1801,12 +1802,12 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
 
           {/* Image preview */}
           {!loading && fileType === 'image' && fileUrl && (
-            <div className="flex items-center justify-center w-full p-4">
-              <img
+            <div className="flex h-[70vh] w-full items-center justify-center p-4">
+              <MobileZoomableImage
                 src={fileUrl}
                 alt={entry.title}
-                className="max-w-full max-h-[70vh] object-contain rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
-                draggable={false}
+                className="h-full w-full"
+                imageClassName="rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
               />
             </div>
           )}

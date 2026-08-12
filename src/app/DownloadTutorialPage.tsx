@@ -3,6 +3,7 @@ import { Apple, ArrowLeft, BookOpen, Download, Laptop, MonitorDown, Smartphone }
 import { Link, Navigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+import { MobileImagePreviewLink } from "./components/MobileZoomableImage";
 import { CLASH_SUBSCRIPTION_URL } from "./lib/appConfig";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
@@ -280,15 +281,23 @@ function TutorialImageSlot({ step }: { step: TutorialStep }) {
 
   return (
     <div className="flex justify-center lg:justify-end">
-      <div className={cn("w-full overflow-hidden rounded-sm border border-slate-100 bg-slate-50 shadow-sm", shapeClass)}>
-        {step.imageSrc ? (
+      {step.imageSrc ? (
+        <MobileImagePreviewLink
+          src={step.imageSrc}
+          alt={step.imageAlt ?? step.title}
+          title={step.title}
+          openOnDesktop={false}
+          className={cn("block w-full overflow-hidden rounded-sm border border-slate-100 bg-slate-50 shadow-sm", shapeClass)}
+        >
           <img src={step.imageSrc} alt={step.imageAlt ?? step.title} className="h-full w-full object-contain" />
-        ) : (
+        </MobileImagePreviewLink>
+      ) : (
+        <div className={cn("w-full overflow-hidden rounded-sm border border-slate-100 bg-slate-50 shadow-sm", shapeClass)}>
           <div className="flex h-full w-full items-center justify-center border border-dashed border-slate-200 bg-white text-sm font-medium text-slate-300">
             图片预留位置
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

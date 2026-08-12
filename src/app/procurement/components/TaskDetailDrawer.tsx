@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 import { TaskCriticalMaterials } from "./TaskCriticalMaterials";
+import { isImagePreviewSource, MobileImagePreviewLink } from "../../components/MobileZoomableImage";
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {
   const { t } = useI18n();
@@ -211,16 +212,35 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
             <div className="rounded-xl border border-slate-100 p-4">
               <div className="mb-2 text-sm font-semibold text-slate-700">{t("需求附件（{count}）", { count: task.attachmentList.length })}</div>
               <ul className="space-y-2">
-                {task.attachmentList.map((attachment) => (
-                  <li key={attachment.id}>
-                    <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600 hover:border-indigo-200 hover:bg-indigo-50/40 hover:text-indigo-700">
+                {task.attachmentList.map((attachment) => {
+                  const content = (
+                    <>
                       <Paperclip className="h-3.5 w-3.5 shrink-0" />
                       <span className="min-w-0 flex-1 truncate">{attachment.fileName}</span>
                       {attachment.fileSize > 0 && <span className="shrink-0 text-[10px] text-slate-400">{attachment.fileSize >= 1024 * 1024 ? `${(attachment.fileSize / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(attachment.fileSize / 1024)} KB`}</span>}
                       <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                    </a>
-                  </li>
-                ))}
+                    </>
+                  );
+                  const className = "flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600 hover:border-indigo-200 hover:bg-indigo-50/40 hover:text-indigo-700";
+                  return (
+                    <li key={attachment.id}>
+                      {isImagePreviewSource(attachment.mimeType, attachment.fileName, attachment.fileUrl) ? (
+                        <MobileImagePreviewLink
+                          src={attachment.fileUrl}
+                          alt={attachment.fileName}
+                          title={attachment.fileName}
+                          className={className}
+                        >
+                          {content}
+                        </MobileImagePreviewLink>
+                      ) : (
+                        <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className={className}>
+                          {content}
+                        </a>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

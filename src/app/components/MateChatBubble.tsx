@@ -41,6 +41,7 @@ import { sendRdMessage } from "../lib/rdApi";
 import { isChatUsableModel } from "../lib/aiModelOptions";
 import { hasPermission } from "../lib/permissions";
 import { RagCitations, RagPermissionNotice } from "./RagCitations";
+import { MobileImagePreviewLink } from "./MobileZoomableImage";
 
 // ─── 类型 ─────────────────────────────────────────────────────────────────────
 
@@ -2125,11 +2126,11 @@ export function MateChatBubble() {
                                 <div className={cn("mt-2 flex flex-wrap gap-2", isUser ? "justify-end" : "justify-start")}>
                                   {msg.attachments.map((att) =>
                                     att.isImage && att.url ? (
-                                      <a
+                                      <MobileImagePreviewLink
                                         key={att.fileId}
-                                        href={att.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
+                                        src={att.url}
+                                        alt={att.name}
+                                        downloadUrl={att.url}
                                         className="block overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
                                         title={att.name}
                                       >
@@ -2140,7 +2141,7 @@ export function MateChatBubble() {
                                           decoding="async"
                                           className="max-h-44 max-w-[220px] object-cover"
                                         />
-                                      </a>
+                                      </MobileImagePreviewLink>
                                     ) : (
                                       <a
                                         key={att.fileId}
