@@ -295,22 +295,22 @@ test('handled=false 下推到 SQL，顶栏拉几条就是几条待办', async ()
 });
 
 // 这条锁的是本轮最初那个问题：采购主管兼有研发权限，就被卷进研发审核通知。
-test('审核通知收件人只认 rd-review:notify，不再认 rd-task:edit', async () => {
+test('审核通知收件人只认 rd-task:review-notify，不再认 rd-task:edit', async () => {
   const { service } = makeService();
   const users = [
     { id: 'u-super', name: '超管', role: { permissions: ['*'] } },
     // 真正的研发审核人
-    { id: 'u-rd-admin', name: '研发管理员', role: { permissions: ['rd-review:notify', 'page:rd-task-management'] } },
+    { id: 'u-rd-admin', name: '研发管理员', role: { permissions: ['rd-task:review-notify', 'page:rd-task-management'] } },
     // 采购主管：兼有研发操作码与页面码，但没有接收审核通知的码
     { id: 'u-purchase', name: '采购主管', role: { permissions: ['rd-task:edit', 'page:rd-task-management'] } },
     // 有通知码但不属研发池（页面码是协同池的）
-    { id: 'u-collab', name: '协同管理员', role: { permissions: ['rd-review:notify', 'page:us-collab-cockpit'] } },
+    { id: 'u-collab', name: '协同管理员', role: { permissions: ['rd-task:review-notify', 'page:us-collab-cockpit'] } },
     // 普通研发人员：默认角色持有 rd-task:edit，从前会收到全部审核通知
     { id: 'u-member', name: '研发人员', role: { permissions: ['rd-task:edit', 'page:rd-my-workspace'] } },
   ];
   service.prisma.user = { findMany: async () => users };
 
-  const recipients = await service.getUsersWithAnyPermission(['rd-review:notify']);
+  const recipients = await service.getUsersWithAnyPermission(['rd-task:review-notify']);
   const ids = recipients.map((r: any) => r.id).sort();
 
   assert.deepEqual(ids, ['u-rd-admin', 'u-super'], '只有超管和持通知码的研发池成员收到');

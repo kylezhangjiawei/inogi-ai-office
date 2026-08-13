@@ -177,8 +177,13 @@ const CATEGORY = 'research-development';
  * （例如同时兼研发权限的采购主管）一并卷进研发审核通知。
  * 迁移 20260813150000 已按原口径把此码灌给现有角色，切换当天收件人不变；
  * 之后在角色管理页取消勾选即可精确收敛，不必再改代码。
+ *
+ * ⚠️ 命名空间必须是 rd-task：角色管理页把操作码挂到哪个页面下，是按命名空间
+ * token 与页面码求交集算分的（RoleManagement.actionPageScore，≥180 分才归到页面）。
+ * 叫 rd-review:notify 只能匹配上 rd 一个 token（100 分），会掉进「模块公共功能权限」，
+ * 管理员在「研发任务驾驶舱」下根本找不到它。
  */
-const RD_REVIEW_NOTIFY_PERMISSION = 'rd-review:notify';
+const RD_REVIEW_NOTIFY_PERMISSION = 'rd-task:review-notify';
 const MAX_AUDIT_LOGS = 1000;
 const DEFAULT_BOM_TASK_TYPE = '研发任务';
 // 主产品（便携式制氧机）：其任务分类树存于 rd.taskCategories；其余产品存于 rd.productTaskCategories[productId]。
