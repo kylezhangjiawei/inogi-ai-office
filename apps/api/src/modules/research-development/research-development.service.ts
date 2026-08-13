@@ -2553,9 +2553,7 @@ export class ResearchDevelopmentService {
     // 仅用于防御直连 API / 脏数据。此处尚未写库（仅改了内存工作副本），抛错即安全回滚。
     if (collected.size < ids.length) {
       const missing = ids.filter((id) => !collected.has(id));
-      throw new BadRequestException(
-        `部分任务无法移动（可能是子任务或已不存在）：${missing.join('、')}`,
-      );
+      throw new BadRequestException(this.describeUnmovableTasks(missing, productTrees, collected));
     }
 
     // 个人工作台来的移动请求：非管理员只能移动「自己负责的任务」。与 getWorkspace 的 isPrimary 同口径——
@@ -2858,6 +2856,65 @@ export class ResearchDevelopmentService {
         ...(productPids.length > 0 ? ['rd.productTaskCategories' as const] : []),
       ]);
     }
+  }
+
+  /**
+   * 把「没能移动的 id」翻译成人看得懂的原因。
+   *
+   * 旧文案是「可能是子任务或已不存在」——两种处境完全不同却混在一句里：
+   * 前者要去父任务里摘出，后者要重新生成确认卡，用户无从判断该做哪个。
+   * 而 Agent 的查询工具是递归进 subtasks 的，它会说「任务都存在」，
+   * 与这里只认顶层的判定直接冲突，用户看到的就是自相矛盾的两句话。
+   *
+   * ⚠️ 必须同时扫 collected：调用方若同时选了父任务和它的子任务，
+   * 父任务已被 removeFromTree 摘走，子任务在剩下的树里也就找不到了。
+   */
+  private describeUnmovableTasks(
+    missingIds: string[],
+    trees: Map<string, JsonRecord[]>,
+    collected: Map<string, JsonRecord>,
+  ): string {
+    const parentOf = new Map<string, JsonRecord>();
+    const walk = (tasks: unknown[], parent: JsonRecord | null): void => {
+      for (const t of tasks) {
+        if (!isRecord(t)) continue;
+        const tid = cleanText(t.task_id);
+        if (tid && parent) parentOf.set(tid, parent);
+        walk(asArray(t.subtasks), t);
+      }
+    };
+    for (const categories of trees.values()) {
+      for (const cat of categories) {
+        if (!isRecord(cat)) continue;
+        for (const child of asArray(cat.children).filter(isRecord)) walk(asArray(child.tasks), null);
+      }
+    }
+    for (const task of collected.values()) walk(asArray(task.subtasks), task);
+
+    const nested: string[] = [];
+    const absent: string[] = [];
+    for (const id of missingIds) {
+      const parent = parentOf.get(id);
+      if (parent) {
+        const title = cleanText(parent.title) || cleanText(parent.task_id) || '未命名任务';
+        nested.push(`${id}（已并入「${title}」）`);
+      } else {
+        absent.push(id);
+      }
+    }
+
+    const parts: string[] = [];
+    if (nested.length > 0) {
+      parts.push(
+        `以下任务已经是子任务，不能直接移动归类：${nested.join('、')}。请先在任务详情里从父任务摘出，再重新移动。`,
+      );
+    }
+    if (absent.length > 0) {
+      parts.push(
+        `以下任务不存在，可能已被删除或合并：${absent.join('、')}。若这是 AI 生成的确认卡，请重新生成后再执行。`,
+      );
+    }
+    return parts.join('\n');
   }
 
   /** 在工作副本里按 task_id 定位任务及其结构位置（含所属库/分类/子项目/结构父任务）。 */

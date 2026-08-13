@@ -208,3 +208,50 @@ test('不可逆操作的说明里必须写明「只是提交申请、仍需审�
     assert.ok(byTool(tool).description.includes('确认卡'), `${tool} 的说明必须点明只生成确认卡`);
   }
 });
+
+/**
+ * 任务树被摊平成 TaskRow 列表时，父子关系一度整个丢失——Agent 因此看不出
+ * 「这是子任务」，会照常把它放进「移动任务归类」确认卡；而 moveTasks 只认顶层任务，
+ * 用户点了执行才失败，且报错与 Agent 刚说过的「任务都存在」自相矛盾。
+ */
+test('摊平任务树时保留父任务，子任务不被当成顶层任务', async () => {
+  const { ChatToolsService } = await import('../src/modules/chat/chat-tools.service');
+  const service = Object.create(ChatToolsService.prototype) as any;
+  service.prisma = {
+    systemSetting: {
+      findMany: async () => [
+        {
+          key: 'rd.taskCategories',
+          value: [
+            {
+              id: 'c1',
+              label: '系统 A',
+              children: [
+                {
+                  id: 's1',
+                  label: '子项 1',
+                  tasks: [
+                    {
+                      task_id: 'RD-PARENT',
+                      title: '压缩机总成',
+                      subtasks: [{ task_id: 'RD-CHILD', title: '压缩机罩测试' }],
+                    },
+                    { task_id: 'RD-TOP', title: '独立任务' },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  const rows: any[] = await service.loadTaskRows();
+  const byId = new Map<string, any>(rows.map((r) => [r.taskId as string, r]));
+
+  assert.equal(byId.get('RD-TOP')?.parentTaskId, null, '顶层任务没有父任务');
+  assert.equal(byId.get('RD-PARENT')?.parentTaskId, null);
+  assert.equal(byId.get('RD-CHILD')?.parentTaskId, 'RD-PARENT', '子任务必须记住父任务编号');
+  assert.equal(byId.get('RD-CHILD')?.parentTitle, '压缩机总成', '报错要能报出父任务标题');
+});

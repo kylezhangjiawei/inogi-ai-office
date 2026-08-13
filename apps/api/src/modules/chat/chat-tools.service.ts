@@ -121,6 +121,14 @@ type TaskRow = {
   /** 来源库：主产品 / 产品·XX / 中美协同 */
   store: string;
   pendingReviewType: string;
+  /**
+   * 结构父任务；顶层任务为 null。
+   * 任务树在这里被摊平成一维列表，不记下来的话 Agent 就看不出「这是子任务」——
+   * 它会照常把子任务放进「移动归类」确认卡，而 moveTasks 只认顶层任务，
+   * 用户点了执行才报错，且与 Agent 刚说过的「任务都存在」自相矛盾。
+   */
+  parentTaskId: string | null;
+  parentTitle: string;
 };
 
 /** 待确认动作有效期：过期后确认按钮失效，须让模型重新发起 */
@@ -881,6 +889,19 @@ export class ChatToolsService {
           if (!resolved.ok) return { error: resolved.message };
           const located = await this.locateTasks(ids.value);
           if ('error' in located) return located;
+          // moveTasks 只认顶层任务。子任务在这里就拦下，别等用户点了确认才失败——
+          // 那时的报错还会和 query_tasks 刚给出的「任务都存在」自相矛盾。
+          const nested = located.tasks.filter((task) => task.parentTaskId);
+          if (nested.length > 0) {
+            const detail = nested
+              .map((task) => `${task.taskId}（已并入「${task.parentTitle || task.parentTaskId}」）`)
+              .join('、');
+            return {
+              error:
+                `以下任务已经是子任务，不能直接移动归类：${detail}。` +
+                `请先把它们从父任务摘出（detach_parent），或改为移动其父任务。本次未做任何改动。`,
+            };
+          }
           return {
             payload: {
               taskIds: ids.value,
@@ -1938,7 +1959,12 @@ export class ChatToolsService {
     const clean = (v: unknown) => String(v ?? '').trim();
 
     const rows: TaskRow[] = [];
-    const collect = (tasks: unknown[], path: string, store: string) => {
+    const collect = (
+      tasks: unknown[],
+      path: string,
+      store: string,
+      parent: { id: string; title: string } | null = null,
+    ) => {
       for (const raw of tasks) {
         if (rows.length >= MAX_TASK_ROWS) return;
         const task = asRecord(raw);
@@ -1957,9 +1983,14 @@ export class ChatToolsService {
             path: taskPath || '未分类',
             store,
             pendingReviewType: clean(task.pending_review_type),
+            parentTaskId: parent?.id || null,
+            parentTitle: parent?.title ?? '',
           });
         }
-        collect(asArray(task.subtasks), taskPath, store);
+        collect(asArray(task.subtasks), taskPath, store, {
+          id: clean(task.task_id),
+          title: title || clean(task.task_id),
+        });
       }
     };
     const walkTree = (tree: unknown, store: string) => {
