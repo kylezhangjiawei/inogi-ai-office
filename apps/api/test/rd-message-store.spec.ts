@@ -148,6 +148,8 @@ test('listMessages 返回前端契约的 snake_case 字段', async () => {
       meta: null,
       type: null,
       taskId: null,
+      source: 'rd',
+      category: 'notice',
       read: false,
       handled: false,
       createdAt,
@@ -157,10 +159,12 @@ test('listMessages 返回前端契约的 snake_case 字段', async () => {
   const [message] = await service.listMessages({ limit: 10 }, { userId: 'user-1', hasFullAccess: true });
 
   assert.deepEqual(Object.keys(message).sort(), [
-    'body', 'created_at', 'handled', 'id', 'read',
+    'body', 'category', 'created_at', 'handled', 'id', 'read',
     'recipient_id', 'recipient_name', 'recipient_person_id',
-    'sender_id', 'sender_name', 'sender_role', 'subject',
+    'sender_id', 'sender_name', 'sender_role', 'source', 'subject',
   ]);
+  assert.equal(message.source, 'rd');
+  assert.equal(message.category, 'notice');
   assert.equal(message.created_at, createdAt.toISOString());
   assert.equal(message.recipient_id, 'user-1');
   assert.ok(!('meta' in message), 'meta 为空时不应出现在返回里（与表化前一致）');
@@ -317,6 +321,52 @@ test('审核通知收件人只认 rd-task:review-notify，不再认 rd-task:edit
   assert.ok(!ids.includes('u-purchase'), '采购主管不再收到研发审核通知');
   assert.ok(!ids.includes('u-member'), 'rd-task:edit 不再等同于「该收通知」');
   assert.ok(!ids.includes('u-collab'), '协同池成员不进研发池的收件人（页面码定池未变）');
+});
+
+// 迁移 20260813190000 的回填 CASE 是这张映射表的镜像，两处必须一致，
+// 否则历史消息归在「待办」、同类新消息归在「通知」。
+test('分类由消息类型派生，未知类型归为通知', async () => {
+  const { service } = makeService();
+  const categoryOf = (body: string) => service.buildMessageRecord(payload({ body })).category;
+  const structured = (type: string) => JSON.stringify({ type, task_id: 't' });
+
+  assert.equal(categoryOf(structured('review_request')), 'todo');
+  assert.equal(categoryOf(structured('perf_self_assessment')), 'todo');
+  assert.equal(categoryOf(structured('review_result')), 'result');
+  assert.equal(categoryOf(structured('discussion_mention')), 'mention');
+  assert.equal(categoryOf(structured('某种以后才有的新类型')), 'notice');
+  assert.equal(categoryOf('纯文本通知'), 'notice', '无结构化 type 的消息归为通知');
+});
+
+test('来源：调用方自报优先，未报则按当前工作区', async () => {
+  const { service } = makeService();
+
+  assert.equal(service.buildMessageRecord(payload({ source: 'procurement' })).source, 'procurement');
+  assert.equal(service.buildMessageRecord(payload()).source, 'rd', '默认工作区即研发池');
+});
+
+test('来源/分类筛选下推到 SQL，空数组视为不筛', async () => {
+  const { service, calls } = makeService();
+  service.getMessageRecipientIdentity = async () => ({ userId: 'u1', nameKey: '', personIds: new Set<string>() });
+
+  await service.listMessages(
+    { recipient_id: 'u1', source: ['procurement', 'video'], category: ['todo'] },
+    { userId: 'u1', hasFullAccess: true },
+  );
+  const withFilter = calls.find((c) => c.method === 'findMany')!;
+  assert.ok(withFilter.args.where.AND.some((c: any) => c.source?.in?.join() === 'procurement,video'));
+  assert.ok(withFilter.args.where.AND.some((c: any) => c.category?.in?.join() === 'todo'));
+
+  calls.length = 0;
+  await service.listMessages(
+    { recipient_id: 'u1', source: [], category: [] },
+    { userId: 'u1', hasFullAccess: true },
+  );
+  const noFilter = calls.find((c) => c.method === 'findMany')!;
+  assert.ok(
+    !noFilter.args.where.AND.some((c: any) => c.source || c.category),
+    '空数组绝不能下推成 in: []，那会一条都查不出来',
+  );
 });
 
 test('无权修改他人消息', async () => {

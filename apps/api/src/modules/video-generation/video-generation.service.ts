@@ -563,6 +563,7 @@ export class VideoGenerationService implements OnModuleInit {
         ? `你的视频已生成完成（${modeLabel} · ${row.resolution} · ${row.duration}s，计费 ¥${row.costYuan}）。可在视频库查看。`
         : `你的视频生成失败：${row.errorMessage ?? '未知原因'}。本次未产生费用，可重试。`;
       await this.rdService.createMessage({
+        source: 'video',
         sender: { name: '视频生成' },
         recipient_id: row.userId,
         recipient_name: user?.name ?? null,

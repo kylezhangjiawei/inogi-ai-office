@@ -314,6 +314,12 @@ model RdMessage {
   subject           String?
   body              String   @db.Text
   meta              Json?
+  /// 来源：哪个业务模块发的。rd / us-collab / production / procurement / video / performance / assistant。
+  /// 研发服务内部发的通知按当前工作区取值，跨模块调用方（采购、视频、助手）自报。
+  source            String   @default("rd")
+  /// 分类：给用户看的那一层。todo 待办 / result 结果 / mention 提及 / notice 通知。
+  /// 由 type 派生（messageCategoryOf），新增消息类型时只需扩这一处映射，筛选器不受影响。
+  category          String   @default("notice")
   /// 从结构化 body 提取并落列：审核类通知要按 (type, taskId) 批量置 handled，
   /// 留在 body 里就只能全表逐条 JSON.parse。纯文本 body 的消息两列为空。
   type              String?
@@ -323,6 +329,8 @@ model RdMessage {
   createdAt         DateTime @default(now())
 
   @@index([recipientId, handled, createdAt])
+  /// 「我的待办」「我的提及」是消息中心最常用的筛选，走这条索引
+  @@index([recipientId, category, createdAt])
   @@index([recipientPersonId])
   @@index([recipientNameKey])
   @@index([type, taskId, handled])

@@ -994,8 +994,13 @@ export class ResearchDevelopmentController {
     @Query('handled') handled?: string,
     @Query('before_created_at') beforeCreatedAt?: string,
     @Query('before_id') beforeId?: string,
+    @Query('source') source?: string,
+    @Query('category') category?: string,
   ) {
     const parsedLimit = limit ? Number(limit) : undefined;
+    // source / category 支持逗号分隔多选
+    const splitCsv = (value?: string) =>
+      (value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
     return this.rdService.listMessages(
       {
         user_id: req.user?.id,
@@ -1004,6 +1009,8 @@ export class ResearchDevelopmentController {
         handled: handled === 'true' ? true : handled === 'false' ? false : undefined,
         before_created_at: beforeCreatedAt,
         before_id: beforeId,
+        source: splitCsv(source),
+        category: splitCsv(category),
       },
       buildViewer(req),
     );

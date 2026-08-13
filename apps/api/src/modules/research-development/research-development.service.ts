@@ -105,8 +105,43 @@ type MessageRecipientIdentity = {
   nameKey: string;
   personIds: Set<string>;
 };
+/** 消息来源：哪个业务模块发的。研发服务内部按当前工作区取值，跨模块调用方自报。 */
+export type MessageSource =
+  | 'rd'
+  | 'us-collab'
+  | 'production'
+  | 'procurement'
+  | 'video'
+  | 'performance'
+  | 'assistant';
+
+/** 消息分类：给用户看的那一层，由 type 派生。 */
+export type MessageCategory = 'todo' | 'result' | 'mention' | 'notice';
+
+/**
+ * type → 分类的唯一映射口径。
+ * ⚠️ 迁移 20260813190000 的回填 SQL 是这张表的镜像，改这里必须同步改那里，
+ * 否则会出现「历史消息归在待办、同类新消息归在通知」的分裂。
+ * 新增消息类型时只需在这里加一行，前端筛选器不用动。
+ */
+function messageCategoryOf(type: string | null | undefined): MessageCategory {
+  switch (cleanText(type)) {
+    case 'review_request':
+    case 'perf_self_assessment':
+      return 'todo';
+    case 'review_result':
+      return 'result';
+    case 'discussion_mention':
+      return 'mention';
+    default:
+      return 'notice';
+  }
+}
+
 type CreateMessagePayload = {
   sender: { id?: string | null; name?: string | null; role?: string | null };
+  /** 省略时按当前工作区推断（研发服务内部调用的默认行为） */
+  source?: MessageSource;
   recipient_id?: string | null;
   recipient_person_id?: string | null;
   recipient_name?: string | null;
@@ -8108,6 +8143,8 @@ export class ResearchDevelopmentService {
       user_name: report.user_name,
     });
     await this.createMessage({
+      // 绩效虽由研发服务发出，但对用户而言是独立模块，归到研发下会误导
+      source: 'performance',
       sender: { id: null, name: '系统通知', role: 'system' },
       recipient_id: report.user_id,
       recipient_name: report.user_name,
@@ -8393,6 +8430,8 @@ export class ResearchDevelopmentService {
       subject: row.subject,
       body: row.body,
       ...(row.meta === null || row.meta === undefined ? {} : { meta: row.meta }),
+      source: row.source,
+      category: row.category,
       read: row.read,
       handled: row.handled,
       created_at: row.createdAt.toISOString(),
@@ -8441,6 +8480,10 @@ export class ResearchDevelopmentService {
       limit?: number;
       /** 只要未处理的（顶栏铃铛用）：拉 5 条就是 5 条待办，不必多取再前端筛 */
       handled?: boolean;
+      /** 按来源筛（研发/采购/视频…），多选取并集 */
+      source?: string[];
+      /** 按分类筛（待办/结果/提及/通知），多选取并集 */
+      category?: string[];
       /** keyset 游标：取严格早于 (before_created_at, before_id) 的下一页 */
       before_created_at?: string;
       before_id?: string;
@@ -8454,6 +8497,11 @@ export class ResearchDevelopmentService {
     if (typeof filters?.handled === 'boolean') {
       conditions.push({ handled: filters.handled });
     }
+    // 空数组视为「不筛」，不能下推成 in: [] —— 那会一条都查不出来
+    const sources = (filters?.source ?? []).map(cleanText).filter(Boolean);
+    if (sources.length > 0) conditions.push({ source: { in: sources } });
+    const categories = (filters?.category ?? []).map(cleanText).filter(Boolean);
+    if (categories.length > 0) conditions.push({ category: { in: categories } });
 
     // 游标按 (createdAt, id) 复合比较：同一批扇出通知的 createdAt 完全相同，
     // 只用时间做游标会在批次边界上漏页或重页。
@@ -8537,6 +8585,9 @@ export class ResearchDevelopmentService {
       meta: payload.meta ? (payload.meta as Prisma.InputJsonObject) : Prisma.DbNull,
       type: cleanText(parsedBody?.type) || null,
       taskId: cleanText(parsedBody?.task_id) || null,
+      // 调用方没自报来源就按当前工作区算——研发服务内部发的通知天然属于所在池
+      source: payload.source ?? (currentRdWorkspace() as MessageSource),
+      category: messageCategoryOf(cleanText(parsedBody?.type)),
       read: false,
       handled: false,
       createdAt: new Date(),
@@ -8559,6 +8610,8 @@ export class ResearchDevelopmentService {
       subject: row.subject ?? null,
       body: row.body,
       ...(row.meta === undefined || row.meta === Prisma.DbNull ? {} : { meta: row.meta }),
+      source: row.source ?? 'rd',
+      category: row.category ?? 'notice',
       read: false,
       handled: false,
       created_at: (row.createdAt as Date).toISOString(),

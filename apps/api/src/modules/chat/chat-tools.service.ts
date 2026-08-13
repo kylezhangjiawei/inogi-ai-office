@@ -2330,6 +2330,7 @@ export class ChatToolsService {
     } else {
       if (!this.hasAnyPermission(user, SEND_MESSAGE_PERMISSIONS)) throw new ForbiddenException('没有发送站内通知的权限');
       await this.rdService.createMessage({
+        source: 'assistant',
         sender: { id: user.userId, name: user.name ?? '未知用户', role: user.roleName ?? null },
         recipient_id: (entry.payload.recipient_id as string) ?? null,
         recipient_person_id: (entry.payload.recipient_person_id as string) ?? null,

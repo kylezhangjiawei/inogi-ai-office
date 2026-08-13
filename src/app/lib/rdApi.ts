@@ -2608,6 +2608,35 @@ export function submitRdSupervisorAssessment(
 
 // ── 站内消息 ────────────────────────────────────────────────────────────────
 
+export type RdMessageSource =
+  | "rd"
+  | "us-collab"
+  | "production"
+  | "procurement"
+  | "video"
+  | "performance"
+  | "assistant";
+
+export type RdMessageCategory = "todo" | "result" | "mention" | "notice";
+
+/** 来源展示名。后端新增来源而前端未同步时，UI 兜底显示原始值而不是空白。 */
+export const RD_MESSAGE_SOURCE_LABELS: Record<RdMessageSource, string> = {
+  rd: "研发",
+  "us-collab": "中美协同",
+  production: "生产",
+  procurement: "采购",
+  video: "视频",
+  performance: "绩效",
+  assistant: "助手",
+};
+
+export const RD_MESSAGE_CATEGORY_LABELS: Record<RdMessageCategory, string> = {
+  todo: "待办",
+  result: "结果",
+  mention: "提及",
+  notice: "通知",
+};
+
 export type RdMessage = {
   id: string;
   sender_id: string | null;
@@ -2618,6 +2647,10 @@ export type RdMessage = {
   recipient_name: string | null;
   subject: string | null;
   body: string;
+  /** 来源业务模块；旧数据默认 rd */
+  source: RdMessageSource;
+  /** 给用户看的分类，由后端按消息类型派生 */
+  category: RdMessageCategory;
   read: boolean;
   handled?: boolean;
   /** 结构化元数据（如视频完成通知的跳转信息 { kind, video_id, route }），供 UI 渲染跳转按钮 */
@@ -2691,6 +2724,10 @@ export function fetchRdMessages(filters?: {
   /** keyset 游标：传上一页最后一条的 created_at + id，取更早的一页 */
   before_created_at?: string;
   before_id?: string;
+  /** 按来源筛，多选取并集；空数组等同不筛 */
+  source?: RdMessageSource[];
+  /** 按分类筛，多选取并集；空数组等同不筛 */
+  category?: RdMessageCategory[];
 }) {
   const params = new URLSearchParams();
   if (filters?.recipient_id) params.set("recipient_id", filters.recipient_id);
@@ -2698,6 +2735,8 @@ export function fetchRdMessages(filters?: {
   if (typeof filters?.handled === "boolean") params.set("handled", String(filters.handled));
   if (filters?.before_created_at) params.set("before_created_at", filters.before_created_at);
   if (filters?.before_id) params.set("before_id", filters.before_id);
+  if (filters?.source?.length) params.set("source", filters.source.join(","));
+  if (filters?.category?.length) params.set("category", filters.category.join(","));
   const qs = params.toString();
   return requestJson<RdMessage[]>(`/messages${qs ? `?${qs}` : ""}`);
 }
