@@ -142,6 +142,8 @@ import {
   type RdProductStatus,
   getAttachmentUrl,
   getAttachmentThumbUrl,
+  isDefaultSubProject,
+  RD_DEFAULT_SUBPROJECT_LABEL,
 } from "./lib/rdApi";
 import { RDReportsPanel } from "./RDReportsPanel";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
@@ -1448,6 +1450,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
 
 function SubProjectSection({
   sub,
+  categoryLabel,
   keyword,
   statusFilter,
   priorityFilter,
@@ -1455,6 +1458,8 @@ function SubProjectSection({
   onOpen,
 }: {
   sub: SubProject;
+  /** 父分类名：sub 是自动补出的默认子项时用它作标题，避免界面上出现一层「默认」 */
+  categoryLabel?: string;
   keyword: string;
   statusFilter: TaskStatus | "all";
   priorityFilter: Priority | "all";
@@ -1470,9 +1475,11 @@ function SubProjectSection({
 
   if (filteredTasks.length === 0 && (keyword || statusFilter !== "all" || priorityFilter !== "all" || dueFilter !== "all")) return null;
   const progress = calcSubProgress(sub);
+  // 纯一级分类的任务落在自动补出的默认子项里；标题显示分类名，不显示「默认」
+  const displayLabel = isDefaultSubProject(sub) ? (categoryLabel || sub.label) : sub.label;
   const subRiskCategory: Category = {
     id: "",
-    label: sub.label,
+    label: displayLabel,
     children: [{ ...sub, tasks: filteredTasks }],
   };
   const subRisks = computeRisks([subRiskCategory]);
@@ -1486,7 +1493,7 @@ function SubProjectSection({
           type="button"
           onClick={() => setOpen((v) => !v)}
           className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-all duration-200 hover:bg-white/80 hover:text-slate-800 active:scale-90"
-                  aria-label={open ? t("收起 {name}", { name: sub.label }) : t("展开 {name}", { name: sub.label })}
+                  aria-label={open ? t("收起 {name}", { name: displayLabel }) : t("展开 {name}", { name: displayLabel })}
           aria-expanded={open}
         >
           <ChevronRight
@@ -1498,7 +1505,7 @@ function SubProjectSection({
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-semibold text-slate-900">{sub.label}</h3>
+            <h3 className="text-base font-semibold text-slate-900">{displayLabel}</h3>
             <span className="text-xs font-semibold text-slate-500">
               {t("{count} 个活跃任务", { count: activeCount })}
             </span>
@@ -1511,7 +1518,7 @@ function SubProjectSection({
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="start">
-                  <RiskListTooltip title={t("{name} · {count} 个风险任务", { name: sub.label, count: riskCount })} risks={subRisks} />
+                  <RiskListTooltip title={t("{name} · {count} 个风险任务", { name: displayLabel, count: riskCount })} risks={subRisks} />
                 </TooltipContent>
               </Tooltip>
             )}
@@ -1897,7 +1904,9 @@ function CategorySidebar({
                       expanded ? "translate-y-0 pb-2 pt-1 opacity-100" : "-translate-y-1 py-0 opacity-0",
                     )}
                   >
-                    {cat.children.map((sub) => {
+                    {cat.children.filter((sub) => !isDefaultSubProject(sub)).map((sub) => {
+                      // 自动补出的默认子项不进导航树：它不是用户建的层级，
+                      // 露出来会让人以为自己多建了一层，而且删掉下次读取还会补回来。
                       const subIds = collectTaskIds(sub.tasks);
                       const subRisks = riskItems.filter((risk) => subIds.has(risk.task.task_id));
                       const selected = selectedId === sub.id;
@@ -2525,9 +2534,13 @@ function AiCreatePanel({
     });
     setAiState("processing");
     try {
+      // 给 AI 的可选分类路径。自动补出的默认子项不作为一段暴露——只给分类名即可，
+      // 服务端解析时会自己落到该分类的默认子项。
       const categoryLabels = categories.flatMap((category) => [
         category.label,
-        ...category.children.map((child) => `${category.label} / ${child.label}`),
+        ...category.children
+          .filter((child) => !isDefaultSubProject(child))
+          .map((child) => `${category.label} / ${child.label}`),
       ]);
       const aiPeopleProfiles = buildAiPeopleProfiles(peopleProfiles, personLoads, categories);
       const result = selectedFiles.length > 0
@@ -5846,6 +5859,7 @@ function TasksByPartSection({
           <SubProjectSection
             key={part.id}
             sub={part}
+            categoryLabel={category.label}
             keyword={normalizedKeyword}
             statusFilter={statusFilter}
             priorityFilter={priorityFilter}
@@ -5934,7 +5948,7 @@ function PartHealthGrid({
               >
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">
-                    {sub.label}
+                    {isDefaultSubProject(sub) ? category.label : sub.label}
                   </span>
                   <span
                     className={cn("h-1.5 w-1.5 shrink-0 rounded-full", config.dot)}
@@ -7617,7 +7631,11 @@ function PersonTaskCockpit({
       : null;
     const gradeTone = completionScore ? getGradeTone(completionScore.grade) : null;
     const showPendingScoreBadge = task.status === "completed" && !aiScore;
-    const hierarchySegments = splitCategoryPath(task.category_path).slice(-2);
+    // 存储里的 category_path 对纯一级分类是「系统 / 默认 / 类型」三段（格式刻意不变，
+    // 改成两段会让按位置解析的消费方把类型段误当子项）。展示时把「默认」那段剔掉。
+    const hierarchySegments = splitCategoryPath(task.category_path)
+      .filter((seg) => seg !== RD_DEFAULT_SUBPROJECT_LABEL)
+      .slice(-2);
     const directSubtaskCount = task.subtasks?.length ?? 0;
     const hierarchyRoleLabel = task.parent_task_id
       ? t("子任务")

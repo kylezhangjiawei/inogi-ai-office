@@ -10,6 +10,7 @@ import { PROC_STATUS_LABELS, PROC_TERMINAL_STATUSES, type ProcStatus } from '../
 import { RagService, type RagUserContext } from '../rag/rag.service';
 import { isWorkspaceAllowed } from '../research-development/rd-workspace.context';
 import {
+  RD_DEFAULT_SUBPROJECT_FLAG,
   RD_MAIN_PRODUCT_ID,
   ResearchDevelopmentService,
 } from '../research-development/research-development.service';
@@ -2049,18 +2050,20 @@ export class ChatToolsService {
     return rows.find((t) => t.taskId === taskId) ?? null;
   }
 
-  /** 按分类名解析 category_id / sub_project_id（支持「分类」或「分类/子项目」） */
+  /**
+   * 按分类名解析 category_id / sub_project_id（支持「分类」或「分类/子项目」）。
+   *
+   * 走 rdService.getTaskCategories 而不是直接读 rd.taskCategories：原始 KV 没有经过
+   * BOM 归一化，也不含一级分类自动补出的默认子项，Agent 会看到一棵和页面不一样的树
+   * ——表现为「页面上能选的分类，Agent 说不存在」。
+   */
   private async resolveCategory(
     input: string,
   ): Promise<
     | { ok: true; categoryId: string; subProjectId: string; pathLabel: string }
     | { ok: false; message: string }
   > {
-    const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: 'rd.taskCategories' },
-      select: { value: true },
-    });
-    const categories = (Array.isArray(setting?.value) ? setting.value : []).map((c) =>
+    const categories = (await this.rdService.getTaskCategories({ skipMirrorRefresh: true })).map((c) =>
       c && typeof c === 'object' && !Array.isArray(c) ? (c as Record<string, unknown>) : {},
     );
     const clean = (v: unknown) => String(v ?? '').trim();
@@ -2087,13 +2090,20 @@ export class ChatToolsService {
       };
     }
     if (!subProject) {
+      // 正常情况下 ensureDefaultSubProject 已保证每个分类至少有一个子项；
+      // 走到这里说明拿到的树本身是坏的，保留兜底而不是假装成功。
       return { ok: false, message: `分类「${clean(category.label)}」下没有任何子项目，无法立项。` };
     }
+    // 自动补出来的默认子项不是用户建的层级，不能出现在确认卡与回答里，
+    // 否则纯一级分类会显示成「电源部分 / 默认」，看的人会以为自己漏建了什么。
+    const isDefaultSub = subProject[RD_DEFAULT_SUBPROJECT_FLAG] === true;
     return {
       ok: true,
       categoryId: clean(category.id),
       subProjectId: clean(subProject.id),
-      pathLabel: [clean(category.label), clean(subProject.label)].filter(Boolean).join(' / '),
+      pathLabel: isDefaultSub
+        ? clean(category.label)
+        : [clean(category.label), clean(subProject.label)].filter(Boolean).join(' / '),
     };
   }
 

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { AGENT_BATCH_MAX_TASKS } from '../src/modules/chat/agent-actions';
 import { ChatToolsService } from '../src/modules/chat/chat-tools.service';
 import type { RagUserContext } from '../src/modules/rag/rag.service';
+import { ensureDefaultSubProject } from '../src/modules/research-development/research-development.service';
 
 /**
  * custom 型 Agent 操作的**发起前校验**。
@@ -19,13 +20,17 @@ import type { RagUserContext } from '../src/modules/rag/rag.service';
 type Task = { task_id: string; title: string; status?: string; primary_owner?: string };
 
 /** 主库/产品库两棵树：库隔离是合并与并入父任务的关键前置条件 */
-function fakePrisma(main: Task[], product: Task[], counter: { findMany: number }) {
-  const tree = (tasks: Task[]) => [
-    { id: 'cat-power', label: '电源部分', children: [{ id: 'sub-battery', label: '电池', tasks }] },
-  ];
+const mainTree = (tasks: Task[], extraCategories: unknown[] = []) => [
+  { id: 'cat-power', label: '电源部分', children: [{ id: 'sub-battery', label: '电池', tasks }] },
+  ...extraCategories,
+];
+
+function fakePrisma(main: Task[], product: Task[], counter: { findMany: number }, extra: unknown[]) {
   const values: Record<string, unknown> = {
-    'rd.taskCategories': tree(main),
-    'rd.productTaskCategories': { 'prod-x': tree(product) },
+    'rd.taskCategories': mainTree(main, extra),
+    'rd.productTaskCategories': {
+      'prod-x': [{ id: 'cat-x', label: 'X 系统', children: [{ id: 'sub-x', label: 'X 子项', tasks: product }] }],
+    },
     'rd.products': [{ id: 'prod-x', name: 'X 产品' }],
   };
   return {
@@ -42,6 +47,21 @@ function fakePrisma(main: Task[], product: Task[], counter: { findMany: number }
   };
 }
 
+/**
+ * resolveCategory 现在走 rdService.getTaskCategories（而不是直接读 KV），
+ * 好让 Agent 和页面看到同一棵树。
+ *
+ * 假服务必须跟着做 ensureDefaultSubProject——真实的 getTaskCategories 经
+ * readNormalizedTaskCategories 一定补过默认子项，少了这一步就不是同一个契约，
+ * 测试会对着一棵现实中不存在的树做断言。
+ */
+function fakeRdService(main: Task[], extra: unknown[]) {
+  return {
+    getTaskCategories: () =>
+      Promise.resolve(ensureDefaultSubProject(mainTree(main, extra) as Record<string, unknown>[])),
+  };
+}
+
 const USER: RagUserContext = { userId: 'u1', permissions: ['*'], name: '张三' };
 
 type Runner = {
@@ -51,10 +71,17 @@ type Runner = {
   ) => Promise<{ error: string } | { payload: Record<string, unknown>; fields: Array<{ label: string; value: string }> }>;
 };
 
-function makeRunners(main: Task[], product: Task[] = []) {
+function makeRunners(main: Task[], product: Task[] = [], extraCategories: unknown[] = []) {
   const counter = { findMany: 0 };
   const ctor = ChatToolsService as unknown as new (...args: unknown[]) => ChatToolsService;
-  const svc = new ctor(fakePrisma(main, product, counter), undefined, undefined, undefined, undefined, undefined);
+  const svc = new ctor(
+    fakePrisma(main, product, counter, extraCategories),
+    undefined,
+    fakeRdService(main, extraCategories),
+    undefined,
+    undefined,
+    undefined,
+  );
   const runners = (
     svc as unknown as { customActionRunners: () => Record<string, Runner> }
   ).customActionRunners();
@@ -200,6 +227,21 @@ test('目标分类不存在时列出可选分类，而不是只说失败', async
   );
 
   assert.ok(errorOf(result).includes('电源部分'), '要把现有分类回给模型，它才能纠偏');
+});
+
+test('纯一级分类（无子项）可以作为移动目标，且卡上不出现「默认」这一层', async () => {
+  // 「管理分类」允许建出 children 为空的一级分类，此前它既立不了项也移不进任务。
+  const { runners } = makeRunners([ACTIVE], [], [{ id: 'cat-solo', label: '独立系统', children: [] }]);
+
+  const result = await runners.move_tasks_category.plan(
+    { task_ids: ['RD-1'], target_category: '独立系统' },
+    USER,
+  );
+
+  assert.ok(!('error' in result), `一级分类应可作为目标，实际：${errorOf(result)}`);
+  const target = 'fields' in result ? result.fields.find((f) => f.label === '目标分类')?.value ?? '' : '';
+  assert.equal(target, '独立系统', '自动补出的默认子项不能出现在确认卡上');
+  assert.ok(!target.includes('默认'));
 });
 
 test('父任务不能同时出现在要并入的任务列表里', async () => {

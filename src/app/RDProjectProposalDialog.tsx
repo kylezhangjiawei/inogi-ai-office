@@ -45,7 +45,9 @@ import {
   extractRdTasksFromFile,
   extractRdTasksFromText,
   fetchProductTaskCategories,
+  isDefaultSubProject,
   isUsCollabWorkspace,
+  RD_DEFAULT_SUBPROJECT_LABEL,
 } from "./lib/rdApi";
 import { t, useI18n } from "./lib/i18n";
 import {
@@ -301,6 +303,8 @@ function buildCategoryPathGroups(categories: RdCategory[]): CategoryPathGroup[] 
   categories.forEach((category) => {
     const parts = systems.get(category.label) ?? new Set<string>();
     category.children.forEach((child) => {
+      // 服务端为纯一级分类补出的默认子项不是用户建的部件，不能出现在部件选择器里
+      if (isDefaultSubProject(child)) return;
       if (child.label) parts.add(child.label);
     });
     systems.set(category.label, parts);
@@ -308,11 +312,23 @@ function buildCategoryPathGroups(categories: RdCategory[]): CategoryPathGroup[] 
 
   return Array.from(systems.entries()).map(([systemLabel, parts]) => ({
     label: systemLabel,
-    options: Array.from(parts).map((part) => ({
-      value: `${systemLabel} / ${part} / ${DEFAULT_TASK_TYPE_FOR_CATEGORY}`,
-      label: part,
-      description: `${systemLabel} / ${part}`,
-    })),
+    // 一个部件都没有 = 纯一级分类：给它一个代表分类自身的选项，
+    // 否则这个分类在选择器里没有任何可选项，等于又不能立项了。
+    // value 仍写满三段（系统 / 默认 / 类型），与存储格式保持一致。
+    options:
+      parts.size > 0
+        ? Array.from(parts).map((part) => ({
+            value: `${systemLabel} / ${part} / ${DEFAULT_TASK_TYPE_FOR_CATEGORY}`,
+            label: part,
+            description: `${systemLabel} / ${part}`,
+          }))
+        : [
+            {
+              value: `${systemLabel} / ${RD_DEFAULT_SUBPROJECT_LABEL} / ${DEFAULT_TASK_TYPE_FOR_CATEGORY}`,
+              label: systemLabel,
+              description: systemLabel,
+            },
+          ],
   }));
 }
 
@@ -2740,9 +2756,11 @@ export function RDProjectProposalDialog({
       };
     }
     const cat = baseCategories.find((c) => c.id === parentProjectId);
+    // 纯一级分类由服务端补出默认子项，这里拿到的 children[0] 就是它——
+    // 所以「暂无子项目」只会在树本身损坏时出现，保留兜底但不再是常规路径。
     const firstChild = cat?.children[0];
     if (!firstChild) {
-      toast.error(t("所选分类下暂无子项目，请先添加子项目"));
+      toast.error(t("所选分类数据异常（缺少子项目），请刷新后重试"));
       return { target: null, categories: baseCategories };
     }
     return { target: { categoryId: parentProjectId, subProjectId: firstChild.id }, categories: baseCategories };

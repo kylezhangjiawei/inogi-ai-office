@@ -4,7 +4,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 
-import { ResearchDevelopmentService } from '../src/modules/research-development/research-development.service';
+import {
+  ensureDefaultSubProject,
+  ResearchDevelopmentService,
+} from '../src/modules/research-development/research-development.service';
 
 const editableTree = [{
   id: 'cat-base',
@@ -36,11 +39,22 @@ const editableTree = [{
   children: [],
 }];
 
+/** 模拟服务端读路径：读出来的树一定补过默认子项 */
+function injected<T>(value: T): T {
+  return ensureDefaultSubProject(value as unknown as Array<Record<string, unknown>>) as unknown as T;
+}
+
 function cloneTree<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function structureRevision(categories: typeof editableTree): string {
+// 与服务端读路径同源：readNormalizedTaskCategories / readProductTaskCategorySnapshot 都会
+// 给空 children 的一级分类补默认子项，客户端手里的版本号就是按补完的树算的。
+// 这里少这一步，就会把生产上正常的提交在测试里判成冲突。
+function structureRevision(rawCategories: typeof editableTree): string {
+  const categories = ensureDefaultSubProject(
+    rawCategories as unknown as Array<Record<string, unknown>>,
+  ) as unknown as typeof editableTree;
   const projectTask = (task: Record<string, unknown>): Record<string, unknown> => ({
     task_id: String(task.task_id ?? '').trim(),
     subtasks: ((task.subtasks as Array<Record<string, unknown>> | undefined) ?? []).map(projectTask),
@@ -77,7 +91,7 @@ test('whole-tree save preserves editable nodes exactly and synchronizes task cat
   currentTree[0].children[0].label = 'old-node-name';
   currentTree[0].children[0].tasks[0].title = '服务端最新标题';
   (currentTree[0].children[0].tasks[0] as Record<string, unknown>).progress = 77;
-  service.readNormalizedTaskCategories = async () => currentTree;
+  service.readNormalizedTaskCategories = async () => injected(currentTree);
   service.writeValue = async (_key: string, value: unknown) => {
     written = value;
     return value;
@@ -116,7 +130,7 @@ test('whole-tree save rejects deleting a node that still contains tasks', async 
 
   service.refreshProductionMirrorsIfNeeded = async () => undefined;
   service.withTaskTreeLock = (operation: () => Promise<unknown>) => operation();
-  service.readNormalizedTaskCategories = async () => cloneTree(editableTree);
+  service.readNormalizedTaskCategories = async () => injected(cloneTree(editableTree));
   service.writeValue = async (_key: string, value: unknown) => {
     writes += 1;
     return value;
@@ -139,7 +153,7 @@ test('whole-tree save rejects removing only a nested subtask', async () => {
 
   service.refreshProductionMirrorsIfNeeded = async () => undefined;
   service.withTaskTreeLock = (operation: () => Promise<unknown>) => operation();
-  service.readNormalizedTaskCategories = async () => cloneTree(editableTree);
+  service.readNormalizedTaskCategories = async () => injected(cloneTree(editableTree));
   service.writeValue = async () => { writes += 1; };
   service.recomputeDirectorDashboard = async () => undefined;
 
@@ -213,7 +227,7 @@ test('structure save rejects injected and duplicate task ids', async () => {
 
   service.refreshProductionMirrorsIfNeeded = async () => undefined;
   service.withTaskTreeLock = (operation: () => Promise<unknown>) => operation();
-  service.readNormalizedTaskCategories = async () => cloneTree(editableTree);
+  service.readNormalizedTaskCategories = async () => injected(cloneTree(editableTree));
   service.writeValue = async () => { writes += 1; };
   service.recomputeDirectorDashboard = async () => undefined;
 
@@ -293,7 +307,7 @@ test('stale structure revisions cannot roll back another administrator node edit
   let mainWrites = 0;
   mainService.refreshProductionMirrorsIfNeeded = async () => undefined;
   mainService.withTaskTreeLock = (operation: () => Promise<unknown>) => operation();
-  mainService.readNormalizedTaskCategories = async () => cloneTree(latestTree);
+  mainService.readNormalizedTaskCategories = async () => injected(cloneTree(latestTree));
   mainService.writeValue = async () => { mainWrites += 1; };
   mainService.recomputeDirectorDashboard = async () => undefined;
   await assert.rejects(

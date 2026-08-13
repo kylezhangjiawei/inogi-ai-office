@@ -108,6 +108,7 @@ import {
   type RdWorkspaceNotification,
   type RdPerformanceReport,
   getAttachmentThumbUrl,
+  RD_DEFAULT_SUBPROJECT_LABEL,
 } from "./lib/rdApi";
 import { SubtaskBadge } from "./RDTaskManagementPage";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
@@ -3440,7 +3441,8 @@ function WorkspaceTaskCard({
   const hierarchyTags = task.category_path
     .split(/[\/／>＞|]/)
     .map((part) => part.trim())
-    .filter(Boolean)
+    // 纯一级分类的路径是「系统 / 默认 / 类型」，「默认」是服务端自动补的容器，不展示
+    .filter((part) => part && part !== RD_DEFAULT_SUBPROJECT_LABEL)
     .slice(-2);
   const attachmentCount = attachmentPreview?.attachment_count ?? task.attachments ?? 0;
   const attachmentImages = (attachmentPreview?.attachments ?? [])
