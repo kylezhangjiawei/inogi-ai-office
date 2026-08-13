@@ -51,11 +51,16 @@ export const WORKSPACE_PAGE_CODES: Record<string, string[]> = {
 };
 
 /**
- * 不参与池隔离的存储键：消息通知是「用户级」数据（按 recipient 过滤），
- * 跨池割裂会导致顶栏铃铛/消息中心在不同路由下看到不同的通知流。
- * 协同池任务事件产生的通知与研发通知写同一份全局消息流。
+ * 不参与池隔离的存储键。
+ *
+ * 曾经装着 'rd.messages'：消息通知是「用户级」数据（按 recipient 过滤），跨池割裂会导致
+ * 顶栏铃铛/消息中心在不同路由下看到不同的通知流。消息已迁到 RdMessage 表，不再走
+ * resolveRdStoreKey，这条豁免自然消失 —— 表本身就是全局的，两池共用同一份流。
+ *
+ * 保留这个集合与豁免分支：JSON store 里若再出现同类「用户级、不该按池分家」的键，
+ * 加进来即可，不必重新推导一遍这个结论。
  */
-const WORKSPACE_EXEMPT_KEYS = new Set(['rd.messages']);
+const WORKSPACE_EXEMPT_KEYS = new Set<string>([]);
 
 /**
  * 豁免匹配只能针对「路径」，绝不能针对 req.url —— 后者含查询串，

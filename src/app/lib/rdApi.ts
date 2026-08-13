@@ -2683,12 +2683,29 @@ export function rdDiscussionMentionHref(
   return `${route}/${encodeURIComponent(body.task_id)}?${params.toString()}`;
 }
 
-export function fetchRdMessages(filters?: { recipient_id?: string; limit?: number }) {
+export function fetchRdMessages(filters?: {
+  recipient_id?: string;
+  limit?: number;
+  /** 只取未处理/已处理的；顶栏铃铛传 false，拉几条就是几条待办 */
+  handled?: boolean;
+  /** keyset 游标：传上一页最后一条的 created_at + id，取更早的一页 */
+  before_created_at?: string;
+  before_id?: string;
+}) {
   const params = new URLSearchParams();
   if (filters?.recipient_id) params.set("recipient_id", filters.recipient_id);
   if (typeof filters?.limit === "number") params.set("limit", String(filters.limit));
+  if (typeof filters?.handled === "boolean") params.set("handled", String(filters.handled));
+  if (filters?.before_created_at) params.set("before_created_at", filters.before_created_at);
+  if (filters?.before_id) params.set("before_id", filters.before_id);
   const qs = params.toString();
   return requestJson<RdMessage[]>(`/messages${qs ? `?${qs}` : ""}`);
+}
+
+/** 未读待办数。服务端 count，不必把消息全拉回来在前端 filter。 */
+export function fetchRdUnreadMessageCount(recipientId?: string) {
+  const qs = recipientId ? `?recipient_id=${encodeURIComponent(recipientId)}` : "";
+  return requestJson<{ unread: number }>(`/messages/unread-count${qs}`);
 }
 
 export function sendRdMessage(payload: {

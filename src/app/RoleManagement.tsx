@@ -265,6 +265,7 @@ const US_COLLAB_SHARED_ACTIONS: Array<{ code: string; label: string; description
   { code: "rd-task:create", label: "新建任务（协同池）", description: "在协同驾驶舱/工作台创建任务；与研发「新建任务」同码，仅在有权进入的池内生效" },
   { code: "rd-task:edit", label: "编辑与审批任务（协同池）", description: "修改协同任务字段/状态、处理成果与协作审批；与研发同码" },
   { code: "rd-task:reassign", label: "批量转派（协同池）", description: "协同驾驶舱顶部「批量转派」按钮；与研发同码" },
+  { code: "rd-review:notify", label: "接收审核通知（协同池）", description: "协同池审核提交时收到站内通知；与研发同码，只决定收不收通知，不决定能不能审批" },
   { code: "rd-task:move", label: "移动任务归类（协同池）", description: "协同任务移动到其他分组；与研发同码" },
   { code: "rd-task:override-priority", label: "覆盖优先级（协同池）", description: "协同任务详情页修改优先级；与研发同码" },
   { code: "rd-people:manage", label: "人员管理（协同池）", description: "协同驾驶舱顶部「人员管理」按钮，维护协同成员；与研发同码" },

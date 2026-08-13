@@ -291,6 +291,45 @@ model RdTaskDiscussionParticipant {
   @@index([userId, revokedAt, invitedAt])
 }
 
+/// 站内通知/消息。原先是 SystemSetting['rd.messages'] 里的单个 JSON 数组：
+/// 收发都要读写整包，并发写互相覆盖会静默丢整批通知；未读数只能全量拉回前端再 filter。
+/// 刻意不做工作区隔离 —— 消息是用户级数据，研发池与协同池共用同一份流
+/// （原 rd-workspace.context.ts 的 WORKSPACE_EXEMPT_KEYS 豁免，表化后天然如此）。
+model RdMessage {
+  /// 沿用 msg-<时间戳>-<随机> 的历史格式，不用 cuid：存量消息的 id 已被前端持有
+  /// （标已读按 id 提交），回填必须原样保留，因此这里不设 @default。
+  id                String   @id
+  senderId          String?
+  senderName        String   @default("系统")
+  senderRole        String?
+  /// 三种收件人标识并存：User.id / rd.people 的 person id / 姓名兜底。
+  /// 历史数据常只有其一（人员表与用户表未打通的时期），投递与查询都按并集匹配。
+  recipientId       String?
+  recipientPersonId String?
+  recipientName     String?
+  /// recipientName 的归一化形式（去括号后缀、转小写、去空白），与服务层
+  /// personNameLookupKey 同口径。落列才能把「按姓名投递」变成带索引的等值查询，
+  /// 否则只能全表拉回内存逐条归一化比对。
+  recipientNameKey  String?
+  subject           String?
+  body              String   @db.Text
+  meta              Json?
+  /// 从结构化 body 提取并落列：审核类通知要按 (type, taskId) 批量置 handled，
+  /// 留在 body 里就只能全表逐条 JSON.parse。纯文本 body 的消息两列为空。
+  type              String?
+  taskId            String?
+  read              Boolean  @default(false)
+  handled           Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  @@index([recipientId, handled, createdAt])
+  @@index([recipientPersonId])
+  @@index([recipientNameKey])
+  @@index([type, taskId, handled])
+  @@index([senderId])
+  @@index([createdAt])
+}
+
 model PermissionCatalogItem {
   id          String   @id @default(cuid())
   code        String   @unique

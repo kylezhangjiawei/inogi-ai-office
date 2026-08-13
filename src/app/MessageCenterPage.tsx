@@ -634,6 +634,10 @@ function MessageCard({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+/** 一次向服务端取多少条。筛选与关键字搜索仍在已加载的集合上做，
+ *  这个只决定「往回追多远的历史」，与下面每屏显示几条的 MESSAGE_PAGE_SIZE 无关。 */
+const MESSAGE_FETCH_SIZE = 200;
+
 type FilterType = "all" | "unread" | "review_request" | "review_result";
 
 const filterLabels: Record<FilterType, string> = {
@@ -651,6 +655,8 @@ export function MessageCenterPage() {
   const { user } = useAuth();
   const [messages, setMessages] = useState<RdMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [filter, setFilter] = useState<FilterType>("all");
   const [page, setPage] = useState(1);
@@ -669,20 +675,49 @@ export function MessageCenterPage() {
     ? user.permissions.includes("*") || user.permissions.includes("rd-task:edit") || user.permissions.includes("rd-task:reassign")
     : false;
 
-  // Load messages
+  // Load messages（首屏 / 刷新：始终回到最新一页，丢弃已翻出的更早内容）
   const loadMessages = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const data = await fetchRdMessages({ recipient_id: user.id, limit: 200 });
+      const data = await fetchRdMessages({ recipient_id: user.id, limit: MESSAGE_FETCH_SIZE });
       // Sort newest first
       setMessages(data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+      setHasMore(data.length === MESSAGE_FETCH_SIZE);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("加载消息失败"));
     } finally {
       setLoading(false);
     }
   }, [user?.id]);
+
+  // 翻更早的一页：游标取当前最后一条的 (created_at, id)。
+  // 表化前这里是一次性拉 200 条封顶，再早的历史在界面上根本够不着。
+  const loadEarlier = useCallback(async () => {
+    if (!user?.id) return;
+    const oldest = messages[messages.length - 1];
+    if (!oldest) return;
+    setLoadingMore(true);
+    try {
+      const older = await fetchRdMessages({
+        recipient_id: user.id,
+        limit: MESSAGE_FETCH_SIZE,
+        before_created_at: oldest.created_at,
+        before_id: oldest.id,
+      });
+      setHasMore(older.length === MESSAGE_FETCH_SIZE);
+      if (older.length > 0) {
+        setMessages((prev) => {
+          const seen = new Set(prev.map((m) => m.id));
+          return [...prev, ...older.filter((m) => !seen.has(m.id))];
+        });
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("加载更早消息失败"));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [user?.id, messages]);
 
   useEffect(() => {
     void loadMessages();
@@ -999,6 +1034,21 @@ export function MessageCenterPage() {
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
+          </div>
+        )}
+
+        {/* 翻到已加载集合的末尾后，才向服务端再要更早的一页 */}
+        {!loading && hasMore && safePage === totalPages && (
+          <div className="mt-3 flex justify-center">
+            <button
+              type="button"
+              onClick={() => { void loadEarlier(); }}
+              disabled={loadingMore}
+              className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loadingMore ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}
+              {loadingMore ? t("加载中...") : t("加载更早的消息")}
+            </button>
           </div>
         )}
       </section>

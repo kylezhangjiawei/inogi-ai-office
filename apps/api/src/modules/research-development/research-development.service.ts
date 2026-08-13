@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma, type RdMessage as RdMessageRow } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -104,6 +105,16 @@ type MessageRecipientIdentity = {
   nameKey: string;
   personIds: Set<string>;
 };
+type CreateMessagePayload = {
+  sender: { id?: string | null; name?: string | null; role?: string | null };
+  recipient_id?: string | null;
+  recipient_person_id?: string | null;
+  recipient_name?: string | null;
+  subject?: string | null;
+  body: string;
+  /** 结构化元数据（如视频完成通知的跳转信息），随消息透传给前端渲染动作/跳转按钮 */
+  meta?: Record<string, unknown> | null;
+};
 type DiscussionAnchorType = 'task' | 'progress_note' | 'message';
 type DiscussionViewer = {
   userId?: string;
@@ -141,7 +152,6 @@ type RdStoreKey =
   | 'rd.dailyReports'
   | 'rd.monthlyReports'
   | 'rd.performanceReports'
-  | 'rd.messages'
   | 'rd.proposalDrafts'
   | 'rd.products'
   | 'rd.productTaskCategories'
@@ -159,6 +169,16 @@ type RdStoreKey =
   | `deptkb.${string}.memberLevels`;
 
 const CATEGORY = 'research-development';
+/**
+ * 「接收审核通知」独立权限码。
+ *
+ * 刻意与 rd-task:edit / rd-task:reassign 分开：那两个回答「能不能改任务」，
+ * 默认「研发人员」角色就持有，拿来当收件依据会把任何被授予研发权限的岗位
+ * （例如同时兼研发权限的采购主管）一并卷进研发审核通知。
+ * 迁移 20260813150000 已按原口径把此码灌给现有角色，切换当天收件人不变；
+ * 之后在角色管理页取消勾选即可精确收敛，不必再改代码。
+ */
+const RD_REVIEW_NOTIFY_PERMISSION = 'rd-review:notify';
 const MAX_AUDIT_LOGS = 1000;
 const DEFAULT_BOM_TASK_TYPE = '研发任务';
 // 主产品（便携式制氧机）：其任务分类树存于 rd.taskCategories；其余产品存于 rd.productTaskCategories[productId]。
@@ -1079,7 +1099,16 @@ function resolveCategoryTarget(
 
 @Injectable()
 export class ResearchDevelopmentService {
-  private readonly logger = new Logger(ResearchDevelopmentService.name);
+  /**
+   * 日志器挂原型（静态实例 + getter），不用实例字段：单测普遍以
+   * Object.create(ResearchDevelopmentService.prototype) 造桩，实例字段初始化器不会执行，
+   * this.logger 会是 undefined —— 任何走到日志的分支都会抛错，
+   * 尤其 best-effort catch 里的告警：本该「记一笔就算了」，反而变成新的故障源。
+   */
+  private static readonly sharedLogger = new Logger(ResearchDevelopmentService.name);
+  private get logger(): Logger {
+    return ResearchDevelopmentService.sharedLogger;
+  }
   private rdStoreReadCache?: Map<string, { value: unknown; freshUntil: number }>;
   private rdStoreCacheGenerations?: Map<string, number>;
   private rdTaskResourceCache?: Map<string, { value: unknown; freshUntil: number }>;
@@ -3859,7 +3888,7 @@ export class ResearchDevelopmentService {
   private async getUsersWithAnyPermission(codes: string[]): Promise<Array<{ id: string; name: string }>> {
     // 收件人须同时具备：指定操作码之一 + 当前工作区的页面码（超管 '*' 通行）。
     // 操作码跨池共享（协同角色同样持有 rd-task:edit 等），只按操作码捞人会把
-    // 研发池的审核通知发给协同角色用户——rd.messages 是全局消息流（用户级过滤、
+    // 研发池的审核通知发给协同角色用户——RdMessage 是全局消息表（用户级过滤、
     // 有意豁免池隔离），一旦发错人，对方在任何工作台都能看到研发通知。
     // 页面码定池：用「page:」前缀的页面码约束收件人所属池（rd-people:manage 等
     // 双池准入特殊码不作为归属依据）。
@@ -3916,9 +3945,14 @@ export class ResearchDevelopmentService {
   }
 
   private async notifyAdminsOfPendingReview(task: JsonRecord, patch: JsonRecord): Promise<void> {
+    // 在 try 外：catch 里的日志要能报出是哪一类审核的通知失败了
+    const reviewType = String(patch.pending_review_type ?? task.pending_review_type ?? 'result');
     try {
-      const reviewType = String(patch.pending_review_type ?? task.pending_review_type ?? 'result');
-      let admins = await this.getUsersWithAnyPermission(['rd-task:edit', 'rd-task:reassign']);
+      // 收件人只看「接收审核通知」这一个独立码，不再复用 rd-task:edit / rd-task:reassign。
+      // 那两个是「能不能改任务」的操作码，默认「研发人员」角色就持有；拿它当收件依据，
+      // 等于任何被授予研发权限的岗位（哪怕本职是采购）都会被卷进研发审核通知里。
+      // 能否审批仍由控制器的 @Permissions 把关，与这里彻底解耦。
+      let admins = await this.getUsersWithAnyPermission([RD_REVIEW_NOTIFY_PERMISSION]);
       if (reviewType === 'proposal') {
         // 立项类：审批流配置了谁审，就通知谁（含手动增删的结果）；未配置回退管理员集
         const poolRecipients = await this.getProposalReviewRecipients().catch(() => []);
@@ -3949,16 +3983,20 @@ export class ResearchDevelopmentService {
       });
       const typeLabel = reviewTypeLabel(reviewType);
       const subject = `[待审核·${typeLabel}] 「${task.title}」申请${typeLabel}审核`;
-      for (const admin of admins) {
-        await this.createMessage({
+      // 收件人是「全体审核人」，一条 INSERT 落 N 行，不逐个来回
+      await this.createMessages(
+        admins.map((admin) => ({
           sender: { id: null, name: '系统通知', role: 'system' },
           recipient_id: admin.id,
           subject,
           body,
-        });
-      }
-    } catch {
-      // best-effort
+        })),
+      );
+    } catch (err) {
+      // best-effort：通知失败不阻断审核提交，但必须留痕，否则线上「没收到通知」无从排查
+      this.logger.warn(
+        `[待审核通知] 发送失败 (task=${cleanText(task.task_id)}, type=${reviewType}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -4006,8 +4044,11 @@ export class ResearchDevelopmentService {
         subject,
         body,
       });
-    } catch {
-      // best-effort
+    } catch (err) {
+      // best-effort：审核结果已落库，告知失败不回滚，但要留痕
+      this.logger.warn(
+        `[审核结果通知] 发送失败 (task=${cleanText(task.task_id)}, type=${reviewType}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -4042,8 +4083,11 @@ export class ResearchDevelopmentService {
         subject,
         body,
       });
-    } catch {
+    } catch (err) {
       // best-effort：发起人可能已离职/无账号，不能因此挡住后面给审核人的告知
+      this.logger.warn(
+        `[合并失败告知] 发给发起人失败 (task=${taskId}, to=${initiator.name || initiator.id}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     // 审核人是「点了通过」的那个人，最需要知道结果与他看到的不一致
@@ -4056,8 +4100,10 @@ export class ResearchDevelopmentService {
           body,
         });
       }
-    } catch {
-      // best-effort
+    } catch (err) {
+      this.logger.warn(
+        `[合并失败告知] 发给审核人失败 (task=${taskId}, to=${reviewerName}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     try {
@@ -4069,8 +4115,10 @@ export class ResearchDevelopmentService {
         metadata: { target_task_id: targetId, reviewer_name: reviewerName },
         source: 'api',
       });
-    } catch {
-      // best-effort
+    } catch (err) {
+      this.logger.warn(
+        `[合并失败留痕] 审计日志写入失败 (task=${taskId}, target=${targetId}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -4085,6 +4133,7 @@ export class ResearchDevelopmentService {
       const body = `${reviewerName} 已批准协作申请，你现在是任务「${taskTitle}」的协作人。${ownerName ? `主责人：${ownerName}` : ''}`;
       const subject = `[协作任务] 「${taskTitle}」你已被加入协作`;
       const seenRecipients = new Set<string>();
+      const payloads: CreateMessagePayload[] = [];
 
       for (const collaborator of collaborators) {
         const recipientId = cleanUserId(collaborator.user_id);
@@ -4101,7 +4150,7 @@ export class ResearchDevelopmentService {
         if (!recipientKey || seenRecipients.has(recipientKey)) continue;
         seenRecipients.add(recipientKey);
 
-        await this.createMessage({
+        payloads.push({
           sender: { id: null, name: '系统通知', role: 'system' },
           recipient_id: recipientId || null,
           recipient_person_id: recipientPersonId || null,
@@ -4110,8 +4159,11 @@ export class ResearchDevelopmentService {
           body,
         });
       }
-    } catch {
-      // best-effort
+      await this.createMessages(payloads);
+    } catch (err) {
+      this.logger.warn(
+        `[协作批准通知] 发送失败 (task=${cleanText(task.task_id)}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -4144,6 +4196,7 @@ export class ResearchDevelopmentService {
       const body = `${actorName} 将你加入任务「${taskTitle}」的协作。${ownerName ? `主责人：${ownerName}` : ''}`;
       const subject = `[协作任务] 「${taskTitle}」你已被加入协作`;
       const seen = new Set<string>();
+      const payloads: CreateMessagePayload[] = [];
       for (const c of newOnes) {
         const recipientId = cleanUserId((c as JsonRecord).user_id);
         const recipientPersonId = cleanText((c as JsonRecord).id);
@@ -4154,7 +4207,7 @@ export class ResearchDevelopmentService {
           : recipientNameKey ? `n:${recipientNameKey}` : '';
         if (!key || seen.has(key)) continue;
         seen.add(key);
-        await this.createMessage({
+        payloads.push({
           sender: { id: null, name: '系统通知', role: 'system' },
           recipient_id: recipientId || null,
           recipient_person_id: recipientPersonId || null,
@@ -4163,8 +4216,11 @@ export class ResearchDevelopmentService {
           body,
         });
       }
-    } catch {
-      // best-effort
+      await this.createMessages(payloads);
+    } catch (err) {
+      this.logger.warn(
+        `[新增协作人通知] 发送失败 (task=${cleanText(task.task_id)}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -4193,8 +4249,10 @@ export class ResearchDevelopmentService {
         subject,
         body,
       });
-    } catch {
-      // best-effort
+    } catch (err) {
+      this.logger.warn(
+        `[主责指派通知] 发送失败 (task=${cleanText(task.task_id)}, to=${newOwnerName}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -4203,32 +4261,33 @@ export class ResearchDevelopmentService {
     reviewType = '',
   ): Promise<void> {
     if (taskIds.size === 0) return;
-    const all = (await this.readArray('rd.messages')).filter(isRecord);
-    let changed = false;
-    const next = all.map((message) => {
-      const body = cleanText(message.body);
-      if (!body) return message;
-
-      let parsed: Record<string, unknown> | null = null;
-      try {
-        parsed = JSON.parse(body) as Record<string, unknown>;
-      } catch {
-        return message;
-      }
-
-      const sameTask =
-        parsed.type === 'review_request' &&
-        taskIds.has(cleanText(parsed.task_id)) &&
-        (!reviewType || cleanText(parsed.review_type || 'result') === reviewType);
-      if (!sameTask) return message;
-
-      changed = true;
-      return { ...message, handled: true, read: true };
+    // (type, taskId, handled) 走索引先把候选缩到这几个任务的待审通知；
+    // review_type 没单独落列，在这个极小的集合里解析 body 判定即可
+    // （表化前这里要对全部 5000 条消息逐条 JSON.parse）。
+    const candidates = await this.prisma.rdMessage.findMany({
+      where: { type: 'review_request', taskId: { in: [...taskIds] }, handled: false },
+      select: { id: true, body: true },
     });
+    if (candidates.length === 0) return;
 
-    if (changed) {
-      await this.writeValue('rd.messages', next);
-    }
+    const matchedIds = candidates
+      .filter((message) => {
+        if (!reviewType) return true;
+        let parsed: Record<string, unknown> | null = null;
+        try {
+          parsed = JSON.parse(cleanText(message.body)) as Record<string, unknown>;
+        } catch {
+          return false;
+        }
+        return cleanText(parsed.review_type || 'result') === reviewType;
+      })
+      .map((message) => message.id);
+    if (matchedIds.length === 0) return;
+
+    await this.prisma.rdMessage.updateMany({
+      where: { id: { in: matchedIds } },
+      data: { handled: true, read: true },
+    });
   }
 
   private async markReviewRequestMessagesHandled(taskId: string, reviewType: string): Promise<void> {
@@ -4242,25 +4301,29 @@ export class ResearchDevelopmentService {
     patch: { read?: boolean; handled?: boolean },
     viewer: { userId?: string; hasFullAccess?: boolean },
   ) {
-    const all = (await this.readArray('rd.messages')).filter(isRecord);
-    const idx = all.findIndex((m) => m.id === messageId);
-    if (idx === -1) throw new NotFoundException('消息不存在');
-    const msg = all[idx];
-    if (!viewer.hasFullAccess && viewer.userId !== msg.recipient_id && viewer.userId !== msg.sender_id) {
+    const msg = await this.prisma.rdMessage.findUnique({ where: { id: messageId } });
+    if (!msg) throw new NotFoundException('消息不存在');
+    if (!viewer.hasFullAccess && viewer.userId !== msg.recipientId && viewer.userId !== msg.senderId) {
       // Name-based fallback: system messages may carry only a recipient name, or a stale linked user_id.
-      if (msg.recipient_name && viewer.userId) {
+      if (msg.recipientName && viewer.userId) {
         const users = await this.listIdentityUsers();
         const caller = users.find((u) => u.id === viewer.userId);
-        if (!caller || personNameLookupKey(caller.name) !== personNameLookupKey(String(msg.recipient_name))) {
+        if (!caller || personNameLookupKey(caller.name) !== personNameLookupKey(msg.recipientName)) {
           throw new BadRequestException('无权修改此消息');
         }
       } else {
         throw new BadRequestException('无权修改此消息');
       }
     }
-    all[idx] = { ...msg, ...patch };
-    await this.writeValue('rd.messages', all);
-    return all[idx];
+    // 只改本条的标志位，行级更新天然不会碰到别人的消息（表化前这里要重写整个数组）
+    const updated = await this.prisma.rdMessage.update({
+      where: { id: messageId },
+      data: {
+        ...(typeof patch.read === 'boolean' ? { read: patch.read } : {}),
+        ...(typeof patch.handled === 'boolean' ? { handled: patch.handled } : {}),
+      },
+    });
+    return this.serializeMessage(updated);
   }
 
   /** 取用户在「人员管理」配置的知识库权限分值 kb_level（0-100，缺省 20）。 */
@@ -4412,6 +4475,7 @@ export class ResearchDevelopmentService {
       }
 
       const seen = new Set<string>();
+      const payloads: CreateMessagePayload[] = [];
       for (const rcp of recipients) {
         const nameKey = personNameLookupKey(rcp.name);
         const key = rcp.user_id ? `u:${rcp.user_id}` : rcp.person_id ? `p:${rcp.person_id}` : nameKey ? `n:${nameKey}` : '';
@@ -4419,7 +4483,7 @@ export class ResearchDevelopmentService {
         if (actorUserId && rcp.user_id === actorUserId) continue; // 不通知操作者本人
         if (seen.has(key)) continue;
         seen.add(key);
-        await this.createMessage({
+        payloads.push({
           sender: { id: null, name: '系统通知', role: 'system' },
           recipient_id: rcp.user_id || null,
           recipient_person_id: rcp.person_id || null,
@@ -4428,8 +4492,11 @@ export class ResearchDevelopmentService {
           body,
         });
       }
-    } catch {
-      // best-effort
+      await this.createMessages(payloads);
+    } catch (err) {
+      this.logger.warn(
+        `[任务删除通知] 发送失败 (task=${cleanText(task.task_id)}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -4595,12 +4662,13 @@ export class ResearchDevelopmentService {
       const subject = `[任务合并] 「${srcTitle}」已并入「${tgtTitle}」`;
       const body = `${initiator.name || '研发成员'} 将任务「${srcTitle}」合并到「${tgtTitle}」（合并后由其担任主责）。原任务已归档保留，进度留痕与附件已并入目标任务。`;
       const seen = new Set<string>();
+      const payloads: CreateMessagePayload[] = [];
       for (const rcp of recipients) {
         const nameKey = personNameLookupKey(rcp.name);
         const key = rcp.user_id ? `u:${rcp.user_id}` : rcp.person_id ? `p:${rcp.person_id}` : nameKey ? `n:${nameKey}` : '';
         if (!key || seen.has(key)) continue;
         seen.add(key);
-        await this.createMessage({
+        payloads.push({
           sender: { id: null, name: '系统通知', role: 'system' },
           recipient_id: rcp.user_id || null,
           recipient_person_id: rcp.person_id || null,
@@ -4609,8 +4677,11 @@ export class ResearchDevelopmentService {
           body,
         });
       }
-    } catch {
-      // best-effort
+      await this.createMessages(payloads);
+    } catch (err) {
+      this.logger.warn(
+        `[任务合并通知] 发送失败 (source=${cleanText(source.task_id)}, target=${cleanText(target.task_id)}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -5302,7 +5373,7 @@ export class ResearchDevelopmentService {
     void this.syncProgressNoteToRag(taskId, note as unknown as JsonRecord);
 
     // @ 提及通知（fire-and-forget）：给每个被 @ 的人发站内消息——
-    // 顶栏铃铛 / 消息中心 / 工作台通知读同一条 rd.messages 流，一次投递多处到位
+    // 顶栏铃铛 / 消息中心 / 工作台通知读同一张 RdMessage 表，一次投递多处到位
     if (mentions.length > 0) {
       void this.notifyNoteMentions({
         taskId,
@@ -5869,7 +5940,12 @@ export class ResearchDevelopmentService {
     const excerpt = params.body
       ? (params.body.length > 160 ? `${params.body.slice(0, 160)}…` : params.body)
       : '发送了一个附件';
+    // 正文与收件人无关，循环外算一次即可
+    const messageBody = params.anchorType === 'task' && !params.replyToId
+      ? `${params.actorName} 在任务《${title}》发起了讨论：\n${excerpt}`
+      : `${params.actorName} 回复了任务《${title}》中的讨论：\n${excerpt}`;
     const seen = new Set<string>();
+    const payloads: CreateMessagePayload[] = [];
     for (const recipient of recipients) {
       if (recipient.userId && recipient.userId === params.actorId) continue;
       if (recipient.userId && params.mentionedUserIds.has(recipient.userId)) continue;
@@ -5883,17 +5959,16 @@ export class ResearchDevelopmentService {
             : '';
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      await this.createMessage({
+      payloads.push({
         sender: { id: params.actorId, name: params.actorName, role: null },
         recipient_id: recipient.userId || null,
         recipient_person_id: recipient.personId || null,
         recipient_name: recipient.name || null,
         subject: `协作对话：${title}`,
-        body: params.anchorType === 'task' && !params.replyToId
-          ? `${params.actorName} 在任务《${title}》发起了讨论：\n${excerpt}`
-          : `${params.actorName} 回复了任务《${title}》中的讨论：\n${excerpt}`,
+        body: messageBody,
       });
     }
+    await this.createMessages(payloads);
   }
 
   async markTaskDiscussionRead(
@@ -5989,30 +6064,33 @@ export class ResearchDevelopmentService {
     const excerpt = params.noteText.length > 200 ? `${params.noteText.slice(0, 200)}…` : params.noteText;
     const targets = params.targetUserIds
       ?? await this.resolveMentionTargetUserIds(params.mentions, params.actorId);
-    for (const uid of targets) {
-      const body = params.discussion
-        ? JSON.stringify({
-            type: 'discussion_mention',
-            task_id: params.taskId,
-            task_title: title,
-            thread_id: params.discussion.threadId,
-            anchor_type: params.discussion.anchorType,
-            anchor_id: params.discussion.anchorId,
-            message_id: params.discussion.messageId,
-            actor_name: params.actorName,
-            excerpt,
-            access_scope: 'thread_invitee',
-          })
-        : `${params.actorName} 在任务《${title}》的评论中提到了你：\n${excerpt}`;
-      await this.createMessage({
+    // 正文与被@的人无关，循环外算一次即可
+    const body = params.discussion
+      ? JSON.stringify({
+          type: 'discussion_mention',
+          task_id: params.taskId,
+          task_title: title,
+          thread_id: params.discussion.threadId,
+          anchor_type: params.discussion.anchorType,
+          anchor_id: params.discussion.anchorId,
+          message_id: params.discussion.messageId,
+          actor_name: params.actorName,
+          excerpt,
+          access_scope: 'thread_invitee',
+        })
+      : `${params.actorName} 在任务《${title}》的评论中提到了你：\n${excerpt}`;
+    await this.createMessages(
+      targets.map((uid) => ({
         sender: { id: params.actorId, name: params.actorName, role: null },
         recipient_id: uid,
         subject: `评论提及：${title}`,
         body,
-      }).catch((err) => {
-        this.logger.warn(`[评论@通知] 发送失败 (task=${params.taskId}, to=${uid}): ${err instanceof Error ? err.message : err}`);
-      });
-    }
+      })),
+    ).catch((err) => {
+      this.logger.warn(
+        `[评论@通知] 发送失败 (task=${params.taskId}, to=${targets.join(',')}): ${err instanceof Error ? err.message : err}`,
+      );
+    });
   }
 
   // ── 评论未读红点（微信式）：任务级已读位点 rd.noteReads ──────────────────────
@@ -8015,23 +8093,7 @@ export class ResearchDevelopmentService {
     const periodLabel = report.summary?.period_label ?? report.month;
 
     // 先把该成员同月旧的「绩效自评」通知置为已处理，避免重新生成产生重复待办。
-    const existing = (await this.readArray('rd.messages')).filter(isRecord);
-    let superseded = false;
-    const cleaned = existing.map((m) => {
-      if (m.recipient_id !== report.user_id || m.handled === true) return m;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(typeof m.body === 'string' ? m.body : '');
-      } catch {
-        return m;
-      }
-      if (isRecord(parsed) && parsed.type === 'perf_self_assessment' && parsed.month === report.month) {
-        superseded = true;
-        return { ...m, handled: true };
-      }
-      return m;
-    });
-    if (superseded) await this.writeValue('rd.messages', cleaned);
+    await this.markPerfMessagesHandled(report.user_id, (parsed) => parsed.month === report.month);
 
     const body = JSON.stringify({
       type: 'perf_self_assessment',
@@ -8114,23 +8176,40 @@ export class ResearchDevelopmentService {
 
   /** 把指定绩效报表对应、发给某成员的「绩效自评」通知标记为已处理。 */
   private async markPerfSelfAssessmentMessagesHandled(reportId: string, userId: string): Promise<void> {
-    const all = (await this.readArray('rd.messages')).filter(isRecord);
-    let changed = false;
-    const next = all.map((m) => {
-      if (m.recipient_id !== userId || m.handled === true) return m;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(typeof m.body === 'string' ? m.body : '');
-      } catch {
-        return m;
-      }
-      if (isRecord(parsed) && parsed.type === 'perf_self_assessment' && parsed.report_id === reportId) {
-        changed = true;
-        return { ...m, handled: true, read: true };
-      }
-      return m;
+    await this.markPerfMessagesHandled(userId, (parsed) => parsed.report_id === reportId, true);
+  }
+
+  /**
+   * 把某成员未处理的「绩效自评」通知按 body 条件置为已处理。
+   * report_id / month 没有单独落列，但 (type + recipientId + handled) 已把候选缩到个位数，
+   * 在这个集合里解析 body 判定即可 —— 表化前这里要遍历全部消息逐条 JSON.parse。
+   */
+  private async markPerfMessagesHandled(
+    userId: string,
+    matches: (parsed: Record<string, unknown>) => boolean,
+    alsoMarkRead = false,
+  ): Promise<void> {
+    const candidates = await this.prisma.rdMessage.findMany({
+      where: { recipientId: userId, type: 'perf_self_assessment', handled: false },
+      select: { id: true, body: true },
     });
-    if (changed) await this.writeValue('rd.messages', next);
+    const matchedIds = candidates
+      .filter((message) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(cleanText(message.body));
+        } catch {
+          return false;
+        }
+        return isRecord(parsed) && matches(parsed);
+      })
+      .map((message) => message.id);
+    if (matchedIds.length === 0) return;
+
+    await this.prisma.rdMessage.updateMany({
+      where: { id: { in: matchedIds } },
+      data: { handled: true, ...(alsoMarkRead ? { read: true } : {}) },
+    });
   }
 
   /** 宽松评分：基线 78，按完成率/活跃度加分，阻塞/逾期仅小幅扣分且封顶，确保评价不过于苛刻。 */
@@ -8276,32 +8355,53 @@ export class ResearchDevelopmentService {
     return { userId: cleanId, nameKey, personIds };
   }
 
-  private messageMatchesRecipient(message: JsonRecord, identity: MessageRecipientIdentity): boolean {
-    const recipientId = cleanUserId(message.recipient_id);
-    if (recipientId && recipientId === identity.userId) return true;
-
-    const recipientPersonId = cleanText(message.recipient_person_id);
-    if (recipientPersonId && identity.personIds.has(recipientPersonId)) return true;
-
-    if (identity.nameKey) {
-      const recipientNameKey = personNameLookupKey(message.recipient_name);
-      if (recipientNameKey && recipientNameKey === identity.nameKey) return true;
-    }
-
-    return false;
+  /**
+   * 「这条消息发给此人」的 SQL 条件：与原先内存里的 messageMatchesRecipient 同口径
+   * （user id / person id / 归一化姓名 三者取并集）。
+   * 三个标识全空时返回一个恒假条件——不能返回 {}，那会退化成「匹配全部消息」。
+   */
+  private messageRecipientWhere(identity: MessageRecipientIdentity): Prisma.RdMessageWhereInput {
+    const or: Prisma.RdMessageWhereInput[] = [];
+    if (identity.userId) or.push({ recipientId: identity.userId });
+    if (identity.personIds.size > 0) or.push({ recipientPersonId: { in: [...identity.personIds] } });
+    if (identity.nameKey) or.push({ recipientNameKey: identity.nameKey });
+    return or.length > 0 ? { OR: or } : { id: { in: [] } };
   }
 
-  private messageMatchesParticipant(message: JsonRecord, identity: MessageRecipientIdentity): boolean {
-    return cleanUserId(message.sender_id) === identity.userId || this.messageMatchesRecipient(message, identity);
+  /** 「此人是这条消息的发件人或收件人」——原 messageMatchesParticipant 的 SQL 版。 */
+  private messageParticipantWhere(identity: MessageRecipientIdentity): Prisma.RdMessageWhereInput {
+    const recipient = this.messageRecipientWhere(identity);
+    if (!identity.userId) return recipient;
+    return { OR: [{ senderId: identity.userId }, recipient] };
   }
 
-  async listMessages(
-    filters?: { user_id?: string; recipient_id?: string; limit?: number },
+  /** 表行 → 前端既有的 snake_case 契约（rdApi.ts 的 RdMessage）。字段名不能变。 */
+  private serializeMessage(row: RdMessageRow): JsonRecord {
+    return {
+      id: row.id,
+      sender_id: row.senderId,
+      sender_name: row.senderName,
+      sender_role: row.senderRole,
+      recipient_id: row.recipientId,
+      recipient_person_id: row.recipientPersonId,
+      recipient_name: row.recipientName,
+      subject: row.subject,
+      body: row.body,
+      ...(row.meta === null || row.meta === undefined ? {} : { meta: row.meta }),
+      read: row.read,
+      handled: row.handled,
+      created_at: row.createdAt.toISOString(),
+    };
+  }
+
+  /**
+   * 把 listMessages / countUnreadMessages 共用的可见性条件拼出来。
+   * 返回 null 表示「该调用者看不到任何消息」，调用方直接短路。
+   */
+  private async buildMessageVisibility(
+    filters?: { user_id?: string; recipient_id?: string },
     viewer?: { userId?: string; hasFullAccess?: boolean },
-  ) {
-    const all = (await this.readArray('rd.messages')).filter(isRecord);
-    const limit = Math.max(1, Math.min(500, filters?.limit ?? 200));
-    let filtered = all;
+  ): Promise<Prisma.RdMessageWhereInput[] | null> {
     const identityCache = new Map<string, Promise<MessageRecipientIdentity>>();
     const resolveIdentity = (userId?: string) => {
       const id = cleanUserId(userId);
@@ -8311,38 +8411,88 @@ export class ResearchDevelopmentService {
       return identityCache.get(id)!;
     };
 
+    const conditions: Prisma.RdMessageWhereInput[] = [];
+
     // Privacy: non-managers can only see messages they sent or received
     if (viewer && !viewer.hasFullAccess) {
       const ownId = viewer.userId;
-      if (!ownId) return [];
-      const ownIdentity = await resolveIdentity(ownId);
-      filtered = filtered.filter((m) => this.messageMatchesParticipant(m, ownIdentity));
+      if (!ownId) return null;
+      conditions.push(this.messageParticipantWhere(await resolveIdentity(ownId)));
     }
 
     if (filters?.user_id) {
-      const userIdentity = await resolveIdentity(filters.user_id);
-      filtered = filtered.filter((m) => this.messageMatchesParticipant(m, userIdentity));
+      conditions.push(this.messageParticipantWhere(await resolveIdentity(filters.user_id)));
     }
     if (filters?.recipient_id) {
-      const recipientIdentity = await resolveIdentity(filters.recipient_id);
-      filtered = filtered.filter((m) => this.messageMatchesRecipient(m, recipientIdentity));
+      conditions.push(this.messageRecipientWhere(await resolveIdentity(filters.recipient_id)));
     }
-    return filtered
-      .slice()
-      .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')))
-      .slice(0, limit);
+    return conditions;
   }
 
-  async createMessage(payload: {
-    sender: { id?: string | null; name?: string | null; role?: string | null };
-    recipient_id?: string | null;
-    recipient_person_id?: string | null;
-    recipient_name?: string | null;
-    subject?: string | null;
-    body: string;
-    /** 结构化元数据（如视频完成通知的跳转信息），随消息透传给前端渲染动作/跳转按钮 */
-    meta?: Record<string, unknown> | null;
-  }) {
+  async listMessages(
+    filters?: {
+      user_id?: string;
+      recipient_id?: string;
+      limit?: number;
+      /** 只要未处理的（顶栏铃铛用）：拉 5 条就是 5 条待办，不必多取再前端筛 */
+      handled?: boolean;
+      /** keyset 游标：取严格早于 (before_created_at, before_id) 的下一页 */
+      before_created_at?: string;
+      before_id?: string;
+    },
+    viewer?: { userId?: string; hasFullAccess?: boolean },
+  ) {
+    const limit = Math.max(1, Math.min(500, filters?.limit ?? 200));
+    const conditions = await this.buildMessageVisibility(filters, viewer);
+    if (conditions === null) return [];
+
+    if (typeof filters?.handled === 'boolean') {
+      conditions.push({ handled: filters.handled });
+    }
+
+    // 游标按 (createdAt, id) 复合比较：同一批扇出通知的 createdAt 完全相同，
+    // 只用时间做游标会在批次边界上漏页或重页。
+    const beforeAt = filters?.before_created_at ? new Date(filters.before_created_at) : null;
+    if (beforeAt && !Number.isNaN(beforeAt.getTime())) {
+      const beforeId = cleanText(filters?.before_id);
+      conditions.push(
+        beforeId
+          ? {
+              OR: [
+                { createdAt: { lt: beforeAt } },
+                { createdAt: beforeAt, id: { lt: beforeId } },
+              ],
+            }
+          : { createdAt: { lt: beforeAt } },
+      );
+    }
+
+    const rows = await this.prisma.rdMessage.findMany({
+      where: conditions.length > 0 ? { AND: conditions } : undefined,
+      // id 作次序兜底：同一批扇出通知的 createdAt 完全相同，只按时间排序分页会不稳定
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit,
+    });
+    return rows.map((row) => this.serializeMessage(row));
+  }
+
+  /**
+   * 未读待办数。表化之前顶栏只能全量拉 50 条回前端 filter 算这个数，
+   * 既不准（超过 50 条就封顶）又是每用户每分钟一次全量读。
+   */
+  async countUnreadMessages(
+    filters?: { user_id?: string; recipient_id?: string },
+    viewer?: { userId?: string; hasFullAccess?: boolean },
+  ): Promise<{ unread: number }> {
+    const conditions = await this.buildMessageVisibility(filters, viewer);
+    if (conditions === null) return { unread: 0 };
+    conditions.push({ read: false, handled: false });
+    const unread = await this.prisma.rdMessage.count({ where: { AND: conditions } });
+    return { unread };
+  }
+
+  /** 校验并构造一条待落库的消息（纯函数）：createMessage 与 createMessages 共用同一口径。 */
+  private buildMessageRecord(payload: CreateMessagePayload): Prisma.RdMessageCreateManyInput {
     const body = (payload.body ?? '').trim();
     if (!body) throw new BadRequestException('消息内容不能为空');
     if (body.length > 4000) throw new BadRequestException('消息内容过长 (上限 4000 字符)');
@@ -8354,24 +8504,76 @@ export class ResearchDevelopmentService {
       throw new BadRequestException('请指定接收人');
     }
 
-    const message = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      sender_id: payload.sender.id ?? null,
-      sender_name: payload.sender.name ?? '系统',
-      sender_role: payload.sender.role ?? null,
-      recipient_id: recipientId,
-      recipient_person_id: recipientPersonId,
-      recipient_name: recipientName,
+    // 结构化 body 的 type / task_id 落列，审核类通知才能按索引批量置 handled；
+    // 纯文本 body 解析失败即留空，不影响投递。
+    let parsedBody: Record<string, unknown> | null = null;
+    if (body.startsWith('{')) {
+      try {
+        const parsed: unknown = JSON.parse(body);
+        if (isRecord(parsed)) parsedBody = parsed;
+      } catch {
+        parsedBody = null;
+      }
+    }
+
+    return {
+      // 沿用历史 msg- 前缀：前端标已读按 id 提交，collectInboxMessagesAsNotifications
+      // 也靠这个前缀区分消息与派生通知。随机段用 uuid，批量插入同毫秒也不会撞 id。
+      id: `msg-${Date.now()}-${randomUUID().slice(0, 8)}`,
+      senderId: payload.sender.id ?? null,
+      senderName: payload.sender.name ?? '系统',
+      senderRole: payload.sender.role ?? null,
+      recipientId,
+      recipientPersonId,
+      recipientName,
+      recipientNameKey: personNameLookupKey(recipientName) || null,
       subject: (payload.subject ?? '').trim() || null,
       body,
-      ...(payload.meta ? { meta: payload.meta } : {}),
+      meta: payload.meta ? (payload.meta as Prisma.InputJsonObject) : Prisma.DbNull,
+      type: cleanText(parsedBody?.type) || null,
+      taskId: cleanText(parsedBody?.task_id) || null,
       read: false,
-      created_at: new Date().toISOString(),
+      handled: false,
+      createdAt: new Date(),
     };
+  }
 
-    const existing = (await this.readArray('rd.messages')).filter(isRecord);
-    await this.writeValue('rd.messages', [message, ...existing].slice(0, 5000));
-    return message;
+  /**
+   * 待落库记录 → 前端契约。createMany 不回传行，又不值得为回包多查一次库，
+   * 因此这里从写入参数还原；字段与 serializeMessage 必须保持一致。
+   */
+  private serializeMessageInput(row: Prisma.RdMessageCreateManyInput): JsonRecord {
+    return {
+      id: row.id as string,
+      sender_id: row.senderId ?? null,
+      sender_name: row.senderName ?? '系统',
+      sender_role: row.senderRole ?? null,
+      recipient_id: row.recipientId ?? null,
+      recipient_person_id: row.recipientPersonId ?? null,
+      recipient_name: row.recipientName ?? null,
+      subject: row.subject ?? null,
+      body: row.body,
+      ...(row.meta === undefined || row.meta === Prisma.DbNull ? {} : { meta: row.meta }),
+      read: false,
+      handled: false,
+      created_at: (row.createdAt as Date).toISOString(),
+    };
+  }
+
+  async createMessage(payload: CreateMessagePayload) {
+    const row = await this.prisma.rdMessage.create({ data: this.buildMessageRecord(payload) });
+    return this.serializeMessage(row);
+  }
+
+  /**
+   * 批量投递（扇出通知专用）：一条 INSERT 落 N 行。
+   * 表化之前这里是「读整包 → 追加 → 写回」，N 个收件人要把整个 JSON 数组重写 N 遍。
+   */
+  private async createMessages(payloads: CreateMessagePayload[]): Promise<JsonRecord[]> {
+    if (payloads.length === 0) return [];
+    const rows = payloads.map((payload) => this.buildMessageRecord(payload));
+    await this.prisma.rdMessage.createMany({ data: rows });
+    return rows.map((row) => this.serializeMessageInput(row));
   }
 
   // ── Proposal drafts (AI 立项 草稿) ──────────────────────────────────────
@@ -8969,18 +9171,19 @@ export class ResearchDevelopmentService {
     currentNameKey: string,
     currentPersonIds = new Set<string>(),
   ): Promise<JsonRecord[]> {
-    const messages = (await this.readArray('rd.messages')).filter(isRecord);
-    const matched = messages.filter((m) => {
-      // Exclude messages that have already been fully handled (approved/rejected)
-      if (Boolean(m.handled)) return false;
-      const recipientId = cleanUserId(m.recipient_id);
-      if (recipientId && recipientId === currentUserId) return true;
-      const recipientPersonId = cleanText(m.recipient_person_id);
-      if (recipientPersonId && currentPersonIds.has(recipientPersonId)) return true;
-      const nameKey = personNameLookupKey(m.recipient_name);
-      if (nameKey && nameKey === currentNameKey) return true;
-      return false;
+    // 收件人条件与 messageRecipientWhere 同口径，外加「未处理」——已审批/已驳回的不再是待办
+    const rows = await this.prisma.rdMessage.findMany({
+      where: {
+        handled: false,
+        ...this.messageRecipientWhere({
+          userId: currentUserId,
+          nameKey: currentNameKey,
+          personIds: currentPersonIds,
+        }),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
+    const matched = rows.map((row) => this.serializeMessage(row));
 
     return matched.map((m) => {
       const senderName = cleanText(m.sender_name) || '系统';
