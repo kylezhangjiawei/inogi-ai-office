@@ -850,6 +850,7 @@ export class ProcurementService {
     if (recipient) {
       try {
         await this.rdService.createMessage({
+          source: 'procurement',
           sender: { id: actor.id, name: actor.name, role: '采购' },
           recipient_name: recipient,
           subject: '转采购需求被驳回',

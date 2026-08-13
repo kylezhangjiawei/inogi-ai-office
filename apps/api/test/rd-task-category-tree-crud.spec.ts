@@ -454,3 +454,63 @@ test('non-main product UI renders the server-confirmed tree instead of an optimi
   assert.match(systemDeleteButton, /aria-disabled=\{subTaskCount > 0\}/);
   assert.match(systemDeleteButton, /if \(subTaskCount === 0\)/);
 });
+
+// 「移动归类」失败时的报错必须说清是哪种处境：
+// 旧文案「可能是子任务或已不存在」把两种完全不同的原因混在一句里，用户无从判断
+// 该去父任务里摘出、还是该重新生成确认卡；而 Agent 的查询是递归进 subtasks 的，
+// 它会说「任务都存在」，与只认顶层的移动判定直接冲突。
+test('移动归类失败时区分「已并入父任务」与「确实不存在」', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+
+  const trees = new Map<string, any[]>([
+    ['main', [
+      {
+        id: 'cat-1',
+        label: '系统 A',
+        children: [
+          {
+            id: 'sub-1',
+            label: '子项 1',
+            tasks: [
+              {
+                task_id: 'RD-PARENT',
+                title: '压缩机总成',
+                subtasks: [{ task_id: 'RD-CHILD', title: '压缩机罩测试' }],
+              },
+            ],
+          },
+        ],
+      },
+    ]],
+  ]);
+
+  const message = service.describeUnmovableTasks(
+    ['RD-CHILD', 'RD-GONE'],
+    trees,
+    new Map(),
+  );
+
+  assert.match(message, /RD-CHILD（已并入「压缩机总成」）/, '子任务要报出它的父任务标题');
+  assert.match(message, /从父任务摘出/, '要告诉用户下一步做什么');
+  assert.match(message, /RD-GONE/, '不存在的任务要单独列出');
+  assert.match(message, /重新生成/, '不存在的情况要引导重新生成确认卡');
+  assert.ok(
+    !/可能是子任务或已不存在/.test(message),
+    '不能再出现把两种原因混为一谈的旧文案',
+  );
+});
+
+// 同时选中父任务和它的子任务时，父任务已被摘走，子任务在剩余树里也找不到——
+// 若只扫剩余树会把它误报成「不存在」，实际它是随父任务一起被收走的。
+test('父任务已被摘出时，其子任务仍能被认出是子任务而非不存在', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+
+  const collected = new Map<string, any>([
+    ['RD-PARENT', { task_id: 'RD-PARENT', title: '压缩机总成', subtasks: [{ task_id: 'RD-CHILD', title: '罩测试' }] }],
+  ]);
+
+  const message = service.describeUnmovableTasks(['RD-CHILD'], new Map(), collected);
+
+  assert.match(message, /RD-CHILD（已并入「压缩机总成」）/);
+  assert.ok(!/不存在/.test(message), '不能误报成不存在');
+});

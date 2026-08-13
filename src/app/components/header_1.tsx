@@ -7,7 +7,7 @@ import { useDepartmentDirectory } from "../lib/departmentDirectory";
 import { useUserAvatar } from "../lib/userAvatar";
 import { i18nLocale, setI18nLang, t, useI18n } from "../lib/i18n";
 import { AutoTranslatedText } from "./TranslatableText";
-import { fetchRdMessages, patchRdMessage, type RdMessage } from "../lib/rdApi";
+import { fetchRdMessages, fetchRdUnreadMessageCount, patchRdMessage, type RdMessage } from "../lib/rdApi";
 import { useLayoutChromeState } from "../lib/layoutChrome";
 import { cn } from "./ui/utils";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
@@ -62,18 +62,21 @@ export function Header() {
   const avatar = useUserAvatar(user?.id);
   const [open, setOpen] = useState(false);
   const [rdMessages, setRdMessages] = useState<RdMessage[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const today = new Date().toLocaleDateString(i18nLocale(), { year: "numeric", month: "2-digit", day: "2-digit" });
 
+  // 下拉只展示 5 条，就只取 5 条未处理的；未读数走服务端 count。
+  // 从前是每 60s 全量拉 50 条回来在前端 filter 出未读数，超过 50 条还会算不准。
   const loadRdMessages = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const data = await fetchRdMessages({ recipient_id: user.id, limit: 50 });
-      setRdMessages(
-        data
-          .filter((message) => !message.handled)
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
-      );
+      const [data, counted] = await Promise.all([
+        fetchRdMessages({ recipient_id: user.id, limit: 5, handled: false }),
+        fetchRdUnreadMessageCount(user.id),
+      ]);
+      setRdMessages(data);
+      setUnreadCount(counted.unread);
       window.dispatchEvent(new CustomEvent("rd:messages-updated"));
     } catch {
       // silent — header should not disrupt UX on failure
@@ -100,14 +103,18 @@ export function Header() {
   }, [open]);
 
   const markMessageRead = useCallback((messageId: string) => {
-    setRdMessages((prev) => prev.map((item) => (item.id === messageId ? { ...item, read: true } : item)));
+    // 乐观更新徽标：服务端 count 要等下一次轮询才回来，先本地减一避免数字滞留
+    setRdMessages((prev) => {
+      const target = prev.find((item) => item.id === messageId);
+      if (target && !target.read) setUnreadCount((n) => Math.max(0, n - 1));
+      return prev.map((item) => (item.id === messageId ? { ...item, read: true } : item));
+    });
     void patchRdMessage(messageId, { read: true })
       .then(() => window.dispatchEvent(new CustomEvent("rd:messages-updated")))
       .catch(() => {});
   }, []);
 
-  const unreadCount = useMemo(() => rdMessages.filter((m) => !m.read).length, [rdMessages]);
-  const previewMessages = useMemo(() => rdMessages.slice(0, 5), [rdMessages]);
+  const previewMessages = rdMessages;
 
   const title = useMemo(() => {
     const departmentKb = DEPT_KBS.find(

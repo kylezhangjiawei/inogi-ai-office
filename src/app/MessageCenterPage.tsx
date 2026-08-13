@@ -31,8 +31,12 @@ import {
   patchRdMessage,
   rdDiscussionMentionHref,
   updateRdTask,
+  RD_MESSAGE_CATEGORY_LABELS,
+  RD_MESSAGE_SOURCE_LABELS,
   type RdDiscussionMentionBody,
   type RdMessage,
+  type RdMessageCategory,
+  type RdMessageSource,
   type RdPerformanceReport,
 } from "./lib/rdApi";
 import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
@@ -90,6 +94,12 @@ function parseBody(raw: string): ParsedBody {
   } catch {
     return { type: "unknown", raw };
   }
+}
+
+/** 消息卡片上的来源标签。后端新增来源而前端标签表未同步时，兜底显示原始值，不留空白。 */
+function SourceChip({ source }: { source: RdMessage["source"] }) {
+  const label = RD_MESSAGE_SOURCE_LABELS[source] ?? source;
+  return <span className="material-chip bg-slate-100 text-slate-600">{t(label)}</span>;
 }
 
 /** “待审核”在统计卡片和列表筛选中必须使用完全相同的口径。 */
@@ -407,6 +417,7 @@ function MessageCard({
             <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
               {msg.read ? t("已读") : t("未读")}
             </span>
+            <SourceChip source={msg.source} />
             <span className="material-chip bg-blue-100 text-blue-700">{t("审核申请")}</span>
             <span className={cn("material-chip", rb.review_type === "collaboration" ? "bg-purple-50 text-purple-700" : rb.review_type === "proposal" ? "bg-indigo-50 text-indigo-700" : rb.review_type === "due_date" ? "bg-sky-50 text-sky-700" : rb.review_type === "abandon" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700")}>
               {reviewTypeLabel}
@@ -503,6 +514,7 @@ function MessageCard({
             <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
               {msg.read ? t("已读") : t("未读")}
             </span>
+            <SourceChip source={msg.source} />
             <span className={cn("material-chip", approved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700")}>
               {approved ? t("已批准") : t("已打回")}
             </span>
@@ -552,6 +564,7 @@ function MessageCard({
             <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
               {msg.read ? t("已读") : t("未读")}
             </span>
+            <SourceChip source={msg.source} />
             <span className="material-chip bg-violet-100 text-violet-700">{t("绩效自评")}</span>
             {!msg.read && !isHandled && <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />}
             {isHandled && <span className="material-chip bg-emerald-50 text-emerald-600">{t("已提交")}</span>}
@@ -603,6 +616,7 @@ function MessageCard({
           <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
             {msg.read ? t("已读") : t("未读")}
           </span>
+          <SourceChip source={msg.source} />
           <span className="material-chip bg-slate-100 text-slate-600">{t("系统消息")}</span>
           {!msg.read && (
             <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />
@@ -634,6 +648,69 @@ function MessageCard({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+/** 一次向服务端取多少条。关键字搜索与未读/类型标签仍在已加载的集合上做，
+ *  这个只决定「往回追多远的历史」，与下面每屏显示几条的 MESSAGE_PAGE_SIZE 无关。 */
+const MESSAGE_FETCH_SIZE = 200;
+
+/** 筛选项展示顺序：待办排最前，用户进来最先要处理的就是它 */
+const CATEGORY_ORDER: RdMessageCategory[] = ["todo", "result", "mention", "notice"];
+const SOURCE_ORDER: RdMessageSource[] = [
+  "rd", "us-collab", "production", "procurement", "video", "performance", "assistant",
+];
+
+function toggleIn<T>(list: T[], value: T): T[] {
+  return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
+}
+
+/** 一行可多选的筛选胶囊。全不选 = 不筛，语义上等同「全部」。 */
+function FilterChipRow<T extends string>({
+  label,
+  options,
+  selected,
+  onToggle,
+  onClear,
+}: {
+  label: string;
+  options: Array<{ value: T; label: string }>;
+  selected: T[];
+  onToggle: (value: T) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="mr-1 w-8 shrink-0 text-xs font-medium text-slate-400">{label}</span>
+      <button
+        type="button"
+        onClick={onClear}
+        className={cn(
+          "cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors",
+          selected.length === 0
+            ? "border-blue-200 bg-blue-50 font-semibold text-blue-700"
+            : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
+        )}
+      >
+        {t("全部")}
+      </button>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={selected.includes(option.value)}
+          onClick={() => onToggle(option.value)}
+          className={cn(
+            "cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors",
+            selected.includes(option.value)
+              ? "border-blue-200 bg-blue-50 font-semibold text-blue-700"
+              : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 type FilterType = "all" | "unread" | "review_request" | "review_result";
 
 const filterLabels: Record<FilterType, string> = {
@@ -651,6 +728,11 @@ export function MessageCenterPage() {
   const { user } = useAuth();
   const [messages, setMessages] = useState<RdMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  // 空数组 = 不筛。这两个走服务端，改动会触发重新拉取（见 loadMessages 依赖）
+  const [sourceFilter, setSourceFilter] = useState<RdMessageSource[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<RdMessageCategory[]>([]);
   const [keyword, setKeyword] = useState("");
   const [filter, setFilter] = useState<FilterType>("all");
   const [page, setPage] = useState(1);
@@ -669,20 +751,57 @@ export function MessageCenterPage() {
     ? user.permissions.includes("*") || user.permissions.includes("rd-task:edit") || user.permissions.includes("rd-task:reassign")
     : false;
 
-  // Load messages
+  // Load messages（首屏 / 刷新：始终回到最新一页，丢弃已翻出的更早内容）
   const loadMessages = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const data = await fetchRdMessages({ recipient_id: user.id, limit: 200 });
+      const data = await fetchRdMessages({
+        recipient_id: user.id,
+        limit: MESSAGE_FETCH_SIZE,
+        source: sourceFilter,
+        category: categoryFilter,
+      });
       // Sort newest first
       setMessages(data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+      setHasMore(data.length === MESSAGE_FETCH_SIZE);
+      setPage(1); // 换筛选条件后停在旧页码会显示空列表
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("加载消息失败"));
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, sourceFilter, categoryFilter]);
+
+  // 翻更早的一页：游标取当前最后一条的 (created_at, id)。
+  // 表化前这里是一次性拉 200 条封顶，再早的历史在界面上根本够不着。
+  const loadEarlier = useCallback(async () => {
+    if (!user?.id) return;
+    const oldest = messages[messages.length - 1];
+    if (!oldest) return;
+    setLoadingMore(true);
+    try {
+      const older = await fetchRdMessages({
+        recipient_id: user.id,
+        limit: MESSAGE_FETCH_SIZE,
+        before_created_at: oldest.created_at,
+        before_id: oldest.id,
+        source: sourceFilter,
+        category: categoryFilter,
+      });
+      setHasMore(older.length === MESSAGE_FETCH_SIZE);
+      if (older.length > 0) {
+        setMessages((prev) => {
+          const seen = new Set(prev.map((m) => m.id));
+          return [...prev, ...older.filter((m) => !seen.has(m.id))];
+        });
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("加载更早消息失败"));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [user?.id, messages, sourceFilter, categoryFilter]);
 
   useEffect(() => {
     void loadMessages();
@@ -940,6 +1059,24 @@ export function MessageCenterPage() {
           </button>
         </div>
 
+        {/* 来源 / 分类筛选：走服务端，对全部历史生效，不只是已加载的这一页 */}
+        <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-4">
+          <FilterChipRow
+            label={t("分类")}
+            options={CATEGORY_ORDER.map((value) => ({ value, label: t(RD_MESSAGE_CATEGORY_LABELS[value]) }))}
+            selected={categoryFilter}
+            onToggle={(value) => setCategoryFilter((prev) => toggleIn(prev, value))}
+            onClear={() => setCategoryFilter([])}
+          />
+          <FilterChipRow
+            label={t("来源")}
+            options={SOURCE_ORDER.map((value) => ({ value, label: t(RD_MESSAGE_SOURCE_LABELS[value]) }))}
+            selected={sourceFilter}
+            onToggle={(value) => setSourceFilter((prev) => toggleIn(prev, value))}
+            onClear={() => setSourceFilter([])}
+          />
+        </div>
+
         {/* Message list */}
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-16 text-slate-400">
@@ -999,6 +1136,21 @@ export function MessageCenterPage() {
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
+          </div>
+        )}
+
+        {/* 翻到已加载集合的末尾后，才向服务端再要更早的一页 */}
+        {!loading && hasMore && safePage === totalPages && (
+          <div className="mt-3 flex justify-center">
+            <button
+              type="button"
+              onClick={() => { void loadEarlier(); }}
+              disabled={loadingMore}
+              className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loadingMore ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}
+              {loadingMore ? t("加载中...") : t("加载更早的消息")}
+            </button>
           </div>
         )}
       </section>

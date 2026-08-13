@@ -32,6 +32,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'rd-task:archive', label: '封存/解封任务', description: '触发任务封存或解除封存（需审批）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 82 },
   { code: 'rd-task:reassign', label: '转派任务', description: '批量或单条任务重分配（高级权限）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 83 },
   { code: 'rd-task:view-all', label: '只读查看全部留痕', description: '跨部门只读查看研发驾驶舱的全部进度留痕与附件（不含编辑/转派等管理权限）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 83.5 },
+  { code: 'rd-task:review-notify', label: '接收审核通知', description: '成果/协作/截止日期/放弃类审核提交时收到站内通知。与「能否审批」解耦：兼任研发权限但不负责审核的岗位，取消此项即可不再收到通知', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 83.8 },
   { code: 'rd-task:move', label: '移动任务归类', description: '将任务移动到其他系统、子项或产品（含跨产品移动）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 84 },
   { code: 'rd-task:sync-production', label: '同步任务到生产驾驶舱', description: '将研发任务同步或撤销同步到生产驾驶舱；生产侧镜像始终只读', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 84.5 },
   { code: 'rd-task:override-priority', label: '覆盖优先级', description: '覆盖 AI 判定的优先级（组长及以上）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 85 },

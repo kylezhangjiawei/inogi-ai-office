@@ -975,18 +975,42 @@ export class ResearchDevelopmentController {
     });
   }
 
+  // 放在 @Get('messages') 之前：今天两者不冲突（'messages' 只精确匹配自身），
+  // 但一旦有人加了 @Get('messages/:id')，声明顺序在前才不会被参数路由吃掉。
+  // 路径仍命中 isWorkspaceExemptPath 的 /messages(/|$)，与列表接口同样豁免池级准入。
+  @Get('messages/unread-count')
+  countUnreadMessages(@Request() req: AuthedRequest, @Query('recipient_id') recipientId?: string) {
+    return this.rdService.countUnreadMessages(
+      { user_id: req.user?.id, recipient_id: recipientId },
+      buildViewer(req),
+    );
+  }
+
   @Get('messages')
   listMessages(
     @Request() req: AuthedRequest,
     @Query('recipient_id') recipientId?: string,
     @Query('limit') limit?: string,
+    @Query('handled') handled?: string,
+    @Query('before_created_at') beforeCreatedAt?: string,
+    @Query('before_id') beforeId?: string,
+    @Query('source') source?: string,
+    @Query('category') category?: string,
   ) {
     const parsedLimit = limit ? Number(limit) : undefined;
+    // source / category 支持逗号分隔多选
+    const splitCsv = (value?: string) =>
+      (value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
     return this.rdService.listMessages(
       {
         user_id: req.user?.id,
         recipient_id: recipientId,
         limit: Number.isFinite(parsedLimit) ? (parsedLimit as number) : undefined,
+        handled: handled === 'true' ? true : handled === 'false' ? false : undefined,
+        before_created_at: beforeCreatedAt,
+        before_id: beforeId,
+        source: splitCsv(source),
+        category: splitCsv(category),
       },
       buildViewer(req),
     );

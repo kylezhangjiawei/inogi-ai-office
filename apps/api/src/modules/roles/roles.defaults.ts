@@ -35,6 +35,9 @@ export const DEFAULT_ROLES: DefaultRole[] = [
       'rd-task:archive',
       'rd-task:reassign',
       'rd-task:override-priority',
+      // 新装默认只给管理员：审核通知就该落在真正负责审核的岗位上。
+      // 存量环境由迁移 20260813150000 按旧口径平移，可能比这里更宽，之后在界面上收敛。
+      'rd-task:review-notify',
       'rd-people:manage',
       'rd-approval-flow:manage',
       'rd-audit:clear',
