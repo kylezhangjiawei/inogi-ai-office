@@ -234,7 +234,43 @@ export function isProductionMirrorTask(task: Pick<RdTask, "production_sync"> | n
   return task?.production_sync?.source_workspace === "rd" && task.production_sync.read_only === true;
 }
 
-export type RdSubProject = { id: string; label: string; tasks: RdTask[] };
+export type RdSubProject = {
+  id: string;
+  label: string;
+  tasks: RdTask[];
+  /**
+   * 服务端为「没有子项的一级分类」自动补出的容器。任务在存储上只能挂在第二级，
+   * 这一层是为了让纯一级分类也能承载任务，不是用户建的层级——
+   * 展示与选择器里都要隐去，见 isDefaultSubProject / formatCategoryPath。
+   */
+  is_default?: boolean;
+};
+
+/** 与后端 RD_DEFAULT_SUBPROJECT_LABEL 保持一致 */
+export const RD_DEFAULT_SUBPROJECT_LABEL = '默认';
+
+/** 是否为服务端自动补出的默认子项（用户没建过、不该看见的那一层） */
+export function isDefaultSubProject(sub: Pick<RdSubProject, 'is_default'> | undefined | null): boolean {
+  return sub?.is_default === true;
+}
+
+/**
+ * 分类路径的展示文案：剔除自动补出的默认子项那一段。
+ *
+ * 只用于展示。存储里的 category_path 仍然保持「系统 / 子项 / 类型」三段不变——
+ * splitCategoryPath 的消费方按位置解析，改存储格式会让「电源部分 / 测试验证」
+ * 被误读成子项叫「测试验证」，那种错很隐蔽。
+ */
+export function formatCategoryPath(
+  path: string | null | undefined,
+  defaultLabel = RD_DEFAULT_SUBPROJECT_LABEL,
+): string {
+  return String(path ?? '')
+    .split('/')
+    .map((seg) => seg.trim())
+    .filter((seg) => seg && seg !== defaultLabel)
+    .join(' / ');
+}
 export type RdCategory = {
   id: string;
   label: string;

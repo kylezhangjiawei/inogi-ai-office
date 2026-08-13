@@ -6,6 +6,10 @@ import {
   AGENT_ACTIONS,
   AGENT_ACTION_PAYLOAD_KEY,
   AGENT_ACTION_TOOLS,
+  AGENT_BATCH_MAX_TASKS,
+  AGENT_CUSTOM_ACTION_TOOLS,
+  AGENT_FIELD_ACTION_TOOLS,
+  isFieldAction,
 } from '../src/modules/chat/agent-actions';
 import { checkAgentPermission, requiredPermissionsFor } from '../src/modules/chat/agent-permission';
 
@@ -47,12 +51,30 @@ test('工作台成员能改任务，但权限来自控制器声明而非注册�
   assert.ok(verdict.allowed && verdict.required.includes('page:rd-my-workspace'));
 });
 
-test('工具名唯一，且每条都有对应的 payload 字段映射', () => {
+test('工具名唯一，且每条 field 型都有对应的 payload 字段映射', () => {
   const names = AGENT_ACTIONS.map((a) => a.tool);
   assert.equal(new Set(names).size, names.length, '工具名重复会让调用落到错误实现上');
 
-  for (const action of AGENT_ACTIONS) {
+  // custom 型不走 updateTask，故意不进这张表；只有 field 型必须有映射
+  for (const action of AGENT_ACTIONS.filter(isFieldAction)) {
     assert.ok(AGENT_ACTION_PAYLOAD_KEY[action.tool], `${action.tool} 缺少 payload 字段映射`);
+  }
+});
+
+test('两种形态的清单不重叠，且合起来等于总清单', () => {
+  const field = [...AGENT_FIELD_ACTION_TOOLS];
+  const custom = [...AGENT_CUSTOM_ACTION_TOOLS];
+
+  assert.equal(
+    field.filter((t) => (custom as string[]).includes(t)).length,
+    0,
+    '同一个工具同时属于两种形态，分派时会走错出口',
+  );
+  assert.deepEqual([...AGENT_ACTION_TOOLS].sort(), [...field, ...custom].sort());
+  // 形态标记与所属清单必须一致，否则 isFieldAction 会把 custom 型判成 field 型
+  for (const action of AGENT_ACTIONS) {
+    const inFieldList = (field as string[]).includes(action.tool);
+    assert.equal(isFieldAction(action), inFieldList, `${action.tool} 的 kind 与所属清单不一致`);
   }
 });
 
@@ -61,15 +83,33 @@ test('分级符合约定：只有可逆且不改对外承诺的字段才允许�
   const confirm = AGENT_ACTIONS.filter((a) => a.risk === 'confirm').map((a) => a.tool);
 
   assert.deepEqual(direct.sort(), ['set_task_description', 'set_task_priority']);
-  assert.deepEqual(confirm.sort(), ['reassign_task', 'set_task_due_date']);
+  assert.deepEqual(confirm.sort(), [
+    'attach_tasks_to_parent',
+    'move_tasks_category',
+    'reassign_task',
+    'request_task_abandon',
+    'request_task_merge',
+    'set_task_due_date',
+  ]);
+  // 新增的四条都不可逆或影响他人，任何一条被降级成 direct 都意味着「AI 说改就改」
+  for (const tool of AGENT_CUSTOM_ACTION_TOOLS) {
+    assert.equal(byTool(tool).risk, 'confirm', `${tool} 必须走确认卡`);
+  }
 });
 
 // ── 参数归一化：模型给什么都不能写进库里坏数据 ────────────────────────────────
 
 const byTool = (tool: string) => AGENT_ACTIONS.find((a) => a.tool === tool)!;
 
+/** 取 field 型条目；取错形态直接失败，避免断言悄悄跳过 */
+const fieldByTool = (tool: string) => {
+  const action = byTool(tool);
+  assert.ok(isFieldAction(action), `${tool} 不是 field 型`);
+  return action;
+};
+
 test('优先级接受中文与英文，其余一律拒绝', () => {
-  const action = byTool('set_task_priority');
+  const action = fieldByTool('set_task_priority');
 
   assert.deepEqual(action.normalize('高'), { ok: true, value: 'high', display: '高' });
   assert.deepEqual(action.normalize('low'), { ok: true, value: 'low', display: '低' });
@@ -79,7 +119,7 @@ test('优先级接受中文与英文，其余一律拒绝', () => {
 });
 
 test('截止日期必须是真实存在的日期，格式对但日子不存在也要拒', () => {
-  const action = byTool('set_task_due_date');
+  const action = fieldByTool('set_task_due_date');
 
   assert.deepEqual(action.normalize('2026-09-30'), { ok: true, value: '2026-09-30', display: '2026-09-30' });
   assert.equal(action.normalize('2026-02-31').ok, false, '2 月 31 日不存在，不能写进库');
@@ -89,7 +129,7 @@ test('截止日期必须是真实存在的日期，格式对但日子不存在�
 });
 
 test('描述不接受空串，超长拒绝，展示值截断', () => {
-  const action = byTool('set_task_description');
+  const action = fieldByTool('set_task_description');
 
   assert.equal(action.normalize('   ').ok, false, '空描述应让用户去页面操作，而不是被 AI 清空');
   assert.equal(action.normalize('x'.repeat(2001)).ok, false);
@@ -101,7 +141,7 @@ test('描述不接受空串，超长拒绝，展示值截断', () => {
 });
 
 test('改派负责人要求非空姓名', () => {
-  const action = byTool('reassign_task');
+  const action = fieldByTool('reassign_task');
 
   assert.equal(action.normalize('').ok, false);
   assert.equal(action.normalize('  ').ok, false);
@@ -115,4 +155,56 @@ test('注册表与工具名清单严格一一对应', () => {
   const implemented = AGENT_ACTIONS.map((a) => a.tool).sort();
 
   assert.deepEqual(implemented, declared);
+});
+
+// ── custom 型：参数 schema 与权限来源 ─────────────────────────────────────────
+
+test('每条 custom 型的 required 都在自己的 properties 里声明过', () => {
+  // required 里写了 properties 没有的键，上游会拒整个工具定义，表现为「这个工具从来不被调用」
+  for (const action of AGENT_ACTIONS) {
+    if (isFieldAction(action)) continue;
+    for (const key of action.required) {
+      assert.ok(action.properties[key], `${action.tool} 的 required 含未声明参数 ${key}`);
+    }
+    assert.ok(action.required.length > 0, `${action.tool} 没有必填参数`);
+  }
+});
+
+test('合并与放弃走 updateTask 的权限，移动与并入走各自端点的权限', () => {
+  // 权限码一律来自控制器声明。这里断言的是「指到了哪个 handler」——指错端点
+  // 就等于借用了另一个操作的权限门槛，是最难看出来的越权方式。
+  assert.equal(byTool('request_task_merge').handler, 'updateTask');
+  assert.equal(byTool('request_task_abandon').handler, 'updateTask');
+  assert.equal(byTool('move_tasks_category').handler, 'moveTasks');
+  assert.equal(byTool('attach_tasks_to_parent').handler, 'attachTasksAsSubtasks');
+
+  // 并入父任务要求 rd-task:edit / rd-project:direct，普通工作台成员拿不到
+  const attach = byTool('attach_tasks_to_parent');
+  assert.equal(checkAgentPermission(attach.controller, attach.handler, ['page:rd-my-workspace']).allowed, false);
+  assert.equal(checkAgentPermission(attach.controller, attach.handler, ['rd-task:edit']).allowed, true);
+});
+
+test('批量工具在说明里给出上限，且上限是个能防误操作的小数', () => {
+  assert.ok(AGENT_BATCH_MAX_TASKS > 0 && AGENT_BATCH_MAX_TASKS <= 50, '上限过大等于让用户闭眼确认');
+
+  for (const tool of ['move_tasks_category', 'attach_tasks_to_parent'] as const) {
+    const action = byTool(tool);
+    assert.ok(!isFieldAction(action));
+    assert.ok(
+      !isFieldAction(action) && action.properties.task_ids?.type === 'array',
+      `${tool} 的 task_ids 必须是数组，否则模型会退回逐条调用`,
+    );
+    assert.ok(
+      action.description.includes(String(AGENT_BATCH_MAX_TASKS)),
+      `${tool} 的说明里要写明上限，否则模型只会在被拒后才知道`,
+    );
+  }
+});
+
+test('不可逆操作的说明里必须写明「只是提交申请、仍需审核」', () => {
+  // 模型最容易犯的错就是把「已生成确认卡」说成「已删除/已合并」。
+  for (const tool of ['request_task_merge', 'request_task_abandon'] as const) {
+    assert.ok(byTool(tool).description.includes('审核'), `${tool} 的说明必须点明还要走审核`);
+    assert.ok(byTool(tool).description.includes('确认卡'), `${tool} 的说明必须点明只生成确认卡`);
+  }
 });

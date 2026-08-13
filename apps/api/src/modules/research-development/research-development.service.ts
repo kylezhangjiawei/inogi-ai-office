@@ -163,7 +163,12 @@ const MAX_AUDIT_LOGS = 1000;
 const DEFAULT_BOM_TASK_TYPE = '研发任务';
 // 主产品（便携式制氧机）：其任务分类树存于 rd.taskCategories；其余产品存于 rd.productTaskCategories[productId]。
 // 与前端 MAIN_PRODUCT_ID 保持一致，是跨产品移动任务时判断「写哪个 store」的唯一依据。
-const RD_MAIN_PRODUCT_ID = 'prod-portable-o2';
+export const RD_MAIN_PRODUCT_ID = 'prod-portable-o2';
+// 一级分类没有子项时自动补的默认子项。任务只能存在于第二级，这个容器让「纯一级分类」
+// 也能承载任务；前端按 RD_DEFAULT_SUBPROJECT_FLAG 把这一层从展示与选择器里隐去。
+export const RD_DEFAULT_SUBPROJECT_LABEL = '默认';
+export const RD_DEFAULT_SUBPROJECT_ID_SUFFIX = '-default';
+export const RD_DEFAULT_SUBPROJECT_FLAG = 'is_default';
 const PROGRESS_NOTE_MAX_FILES = 10;
 const PROGRESS_NOTE_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const PROGRESS_NOTE_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
@@ -892,6 +897,41 @@ function ensureChild(category: JsonRecord, label: string, id?: string): JsonReco
   children.push(child);
   category.children = children;
   return child;
+}
+
+/**
+ * 只有一级、没有任何子项的分类，补一个默认子项。
+ *
+ * 任务在存储上只存在于 `分类 → 子项 → tasks` 的第二级，一级分类自身没有 tasks 容器。
+ * 而「管理分类」允许建出 children 为空的一级分类，于是那个分类下既立不了项
+ * （createTask 抛「指定的子项目不存在」）也移不进任务（moveTasks 要求子项必填）。
+ * 这里在读取时补一个默认子项，让两级结构永远成立——协同池早就是这个模式
+ * （所有立项统一落「协同任务 / 默认」容器，用户永远不用选）。
+ *
+ * 三条硬约束：
+ * - **id 必须确定性派生**：随机 id 会让每次读出来的树都不同，而树结构要参与
+ *   taskCategoryStructureRevision 计算，客户端提交时就会被判成「系统树已更新」。
+ * - **必须幂等**：整树 PUT 回来时补出来的子项会被持久化，再读一次不能又补一个。
+ * - **只补空 children**：已有子项的分类一律不碰。
+ */
+export function ensureDefaultSubProject(categories: JsonRecord[]): JsonRecord[] {
+  return categories.map((category) => {
+    if (!isRecord(category)) return category;
+    const children = asArray(category.children).filter(isRecord);
+    if (children.length > 0) return category;
+    const categoryId = cleanText(category.id) || 'cat';
+    return {
+      ...category,
+      children: [
+        {
+          id: `${categoryId}${RD_DEFAULT_SUBPROJECT_ID_SUFFIX}`,
+          label: RD_DEFAULT_SUBPROJECT_LABEL,
+          [RD_DEFAULT_SUBPROJECT_FLAG]: true,
+          tasks: [],
+        },
+      ],
+    };
+  });
 }
 
 function ensurePocBomTaskCategories(rawCategories: unknown[]): JsonRecord[] {
@@ -1956,8 +1996,13 @@ export class ResearchDevelopmentService {
           throw new ForbiddenException('研发同步任务在生产驾驶舱中为只读，不能修改、移动或删除');
         }
       }
-      await this.writeValue('rd.taskCategories', reconciled);
-      return decorateTaskCategoriesWithStructureRevision(reconciled);
+      // 必须与读路径做同一次注入再算版本号：读路径会给空 children 的一级分类补默认子项，
+      // 若这里按客户端提交的原树落盘并回传版本号，下一次读取补完后版本号就变了，
+      // 客户端拿着回传的旧版本号再提交必然被判「系统树已更新」——新建一级分类后
+      // 紧接着做任何结构修改都会失败。
+      const withDefaults = ensureDefaultSubProject(reconciled);
+      await this.writeValue('rd.taskCategories', withDefaults);
+      return decorateTaskCategoriesWithStructureRevision(withDefaults);
     });
     await this.recomputeDirectorDashboard();
     return saved;
@@ -2069,13 +2114,16 @@ export class ResearchDevelopmentService {
     if (Array.isArray(store[productId]) && (store[productId] as unknown[]).length > 0) {
       const current = store[productId] as unknown[];
       const normalized = ensurePocBomTaskCategories(current);
+      // needsWrite 只比较 BOM 归一化的结果：默认子项在这之后补，故它自身永远不会触发
+      // 「读的时候整树写回」——那是本文件明确禁止的（会覆盖并发的任务写入）。
+      // 补出来的子项会在下一次真实写入（建/移任务）时顺带落盘。
       return {
         store,
-        categories: normalized,
+        categories: ensureDefaultSubProject(normalized),
         needsWrite: JSON.stringify(current) !== JSON.stringify(normalized),
       };
     }
-    return { store, categories: ensurePocBomTaskCategories([]), needsWrite: true };
+    return { store, categories: ensureDefaultSubProject(ensurePocBomTaskCategories([])), needsWrite: true };
   }
 
   /**
@@ -2281,9 +2329,13 @@ export class ResearchDevelopmentService {
     const normalized = ensurePocBomTaskCategories(categories);
     const result = await this.withTaskTreeLock(async () => {
       const store = await this.readProductCategoryStore();
-      const current = Array.isArray(store[productId])
-        ? ensurePocBomTaskCategories(store[productId] as unknown[])
-        : ensurePocBomTaskCategories([]);
+      // 与 readProductTaskCategorySnapshot 逐字同源：客户端手里的版本号是按注入后的树算的，
+      // 这里少一次注入就会把正常提交判成「系统树已更新」。
+      const current = ensureDefaultSubProject(
+        Array.isArray(store[productId])
+          ? ensurePocBomTaskCategories(store[productId] as unknown[])
+          : ensurePocBomTaskCategories([]),
+      );
       assertTaskCategoryStructureRevision(current, submittedRevision);
       const reconciled = reconcileStructureSaveWithServerTasks(current, normalized);
       if (currentRdWorkspace() === PRODUCTION_WORKSPACE) {
@@ -2291,8 +2343,9 @@ export class ResearchDevelopmentService {
           throw new ForbiddenException('研发同步任务在生产驾驶舱中为只读，不能修改、移动或删除');
         }
       }
-      await this.saveProductCategoryStore({ ...store, [productId]: reconciled });
-      return { ok: true as const, categories: decorateTaskCategoriesWithStructureRevision(reconciled) };
+      const withDefaults = ensureDefaultSubProject(reconciled);
+      await this.saveProductCategoryStore({ ...store, [productId]: withDefaults });
+      return { ok: true as const, categories: decorateTaskCategoriesWithStructureRevision(withDefaults) };
     });
     await this.recomputeDirectorDashboard();
     return result;
@@ -2341,9 +2394,11 @@ export class ResearchDevelopmentService {
 
     const targetProductId = cleanText(target?.productId);
     const targetCategoryId = cleanText(target?.categoryId);
+    // 子项可以不传：纯一级分类由调用方只给到系统这一层，落到该分类的默认子项。
+    // 产品与系统仍然必填——那两个缺了就无从定位目标树。
     const targetSubId = cleanText(target?.subId);
-    if (!targetProductId || !targetCategoryId || !targetSubId) {
-      throw new BadRequestException('移动目标不完整（缺少产品 / 系统 / 子项）');
+    if (!targetProductId || !targetCategoryId) {
+      throw new BadRequestException('移动目标不完整（缺少产品 / 系统）');
     }
 
     // 校验目标产品存在，避免 typo 的 productId 在 store 里写出脏条目
@@ -2358,11 +2413,13 @@ export class ResearchDevelopmentService {
     const productTrees = new Map<string, JsonRecord[]>();
     for (const [pid, raw] of Object.entries(productStore)) {
       if (pid === RD_MAIN_PRODUCT_ID) continue;
-      productTrees.set(pid, ensurePocBomTaskCategories(asArray(raw)));
+      // 与 readProductTaskCategorySnapshot 保持同一套归一化：少补默认子项会让
+      // 「移到产品库的纯一级分类」找不到落点。
+      productTrees.set(pid, ensureDefaultSubProject(ensurePocBomTaskCategories(asArray(raw))));
     }
     // 目标产品若尚未在 store（首次承接任务），按空 BOM 种入工作副本。
     if (targetProductId !== RD_MAIN_PRODUCT_ID && !productTrees.has(targetProductId)) {
-      productTrees.set(targetProductId, ensurePocBomTaskCategories([]));
+      productTrees.set(targetProductId, ensureDefaultSubProject(ensurePocBomTaskCategories([])));
     }
 
     const targetTree = targetProductId === RD_MAIN_PRODUCT_ID ? mainTree : productTrees.get(targetProductId)!;
@@ -2370,9 +2427,12 @@ export class ResearchDevelopmentService {
       (c): c is JsonRecord => isRecord(c) && cleanText(c.id) === targetCategoryId,
     );
     if (!targetCategory) throw new BadRequestException('目标系统不存在');
-    const targetChild = asArray(targetCategory.children)
-      .filter(isRecord)
-      .find((ch) => cleanText(ch.id) === targetSubId);
+    const targetChildren = asArray(targetCategory.children).filter(isRecord);
+    // 没传子项 → 落到第一个子项。经 ensureDefaultSubProject 后每个分类至少有一个，
+    // 纯一级分类拿到的就是那个默认子项。
+    const targetChild = targetSubId
+      ? targetChildren.find((ch) => cleanText(ch.id) === targetSubId)
+      : targetChildren[0];
     if (!targetChild) throw new BadRequestException('目标子项不存在');
     const targetCatLabel = String(targetCategory.label ?? '');
     const targetSubLabel = String(targetChild.label ?? '');
@@ -3722,6 +3782,16 @@ export class ResearchDevelopmentService {
             await this.applyTaskMerge(taskId, targetId, initiator).catch((err) => {
               // eslint-disable-next-line no-console
               console.error('[updateTask] applyTaskMerge failed', err);
+              // 审核已判「通过」且状态已落库，这里再抛会让整个 updateTask 失败、把审核也回滚掉。
+              // 所以不抛——但绝不能只留一行服务端日志：审核人看到的是「已通过」，
+              // 发起人以为已合并，实际源任务原封不动，没有任何人会发现。
+              void this.notifyTaskMergeFailure(
+                originalTask as JsonRecord,
+                targetId,
+                initiator,
+                String(_reviewer_name ?? '管理员'),
+                err instanceof Error ? err.message : String(err),
+              );
             });
           }
         }
@@ -3935,6 +4005,69 @@ export class ResearchDevelopmentService {
         recipient_name: submitterName || null, // keep a name fallback in case a task has a stale linked user_id
         subject,
         body,
+      });
+    } catch {
+      // best-effort
+    }
+  }
+
+  /**
+   * 合并审核已通过、但 applyTaskMerge 执行失败时的兜底告知。
+   *
+   * 这条路径的危险之处在于「所有人都以为成功了」：审核接口返回 200，审核人看到「已通过」，
+   * 发起人收到的是审核通过通知，而源任务其实原封不动。所以这里必须同时做到
+   * ①通知发起人 ②通知审核人 ③落审计——少任何一条，失败就还是隐形的。
+   *
+   * 整个方法 best-effort：告知失败不能再把已经落库的审核结果搅乱。
+   */
+  private async notifyTaskMergeFailure(
+    task: JsonRecord,
+    targetId: string,
+    initiator: { id: string; name: string },
+    reviewerName: string,
+    reason: string,
+  ): Promise<void> {
+    const taskId = cleanText(task.task_id);
+    const taskTitle = cleanText(task.title);
+    const subject = `[合并未执行] 「${taskTitle}」审核已通过，但合并失败`;
+    const body =
+      `任务「${taskTitle}」(${taskId}) 的合并申请已审核通过，但系统执行合并到目标任务 ${targetId} 时失败，` +
+      `该任务**未被合并、也未归档，保持原状**。失败原因：${reason || '未知'}。请到研发任务驾驶舱确认后重新发起合并。`;
+
+    try {
+      await this.createMessage({
+        sender: { id: null, name: '系统通知', role: 'system' },
+        recipient_id: initiator.id || null,
+        recipient_name: initiator.name || null,
+        subject,
+        body,
+      });
+    } catch {
+      // best-effort：发起人可能已离职/无账号，不能因此挡住后面给审核人的告知
+    }
+
+    // 审核人是「点了通过」的那个人，最需要知道结果与他看到的不一致
+    try {
+      if (reviewerName && reviewerName !== initiator.name) {
+        await this.createMessage({
+          sender: { id: null, name: '系统通知', role: 'system' },
+          recipient_name: reviewerName,
+          subject,
+          body,
+        });
+      }
+    } catch {
+      // best-effort
+    }
+
+    try {
+      await this.createAuditLog({
+        actor: { id: initiator.id || null, name: initiator.name || '系统' },
+        action: 'task.merge_failed',
+        resource: { type: 'task', id: taskId, name: taskTitle || taskId },
+        comment: `合并到 ${targetId} 失败：${reason || '未知'}；任务保持原状`,
+        metadata: { target_task_id: targetId, reviewer_name: reviewerName },
+        source: 'api',
       });
     } catch {
       // best-effort
@@ -10789,10 +10922,12 @@ export class ResearchDevelopmentService {
     const raw = await this.readArray('rd.taskCategories');
     const bomNormalized = ensurePocBomTaskCategories(raw);
     const identity = await this.getIdentityContext();
-    const normalized = this.normalizeCategoriesWithIdentity(
-      bomNormalized.filter(isRecord),
-      identity.people,
-      identity.users,
+    const normalized = ensureDefaultSubProject(
+      this.normalizeCategoriesWithIdentity(
+        bomNormalized.filter(isRecord),
+        identity.people,
+        identity.users,
+      ),
     );
     // 读取必须保持纯读。旧实现在 GET 中用旧快照整树写回，会覆盖并发创建/更新的任务。
     // 显式任务或结构变更会在 taskTreeWriteLock 内持久化归一化结果。

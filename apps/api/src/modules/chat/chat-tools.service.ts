@@ -9,15 +9,24 @@ import { computeReplenishRows } from '../procurement/replenish-core';
 import { PROC_STATUS_LABELS, PROC_TERMINAL_STATUSES, type ProcStatus } from '../procurement/procurement.types';
 import { RagService, type RagUserContext } from '../rag/rag.service';
 import { isWorkspaceAllowed } from '../research-development/rd-workspace.context';
-import { ResearchDevelopmentService } from '../research-development/research-development.service';
+import {
+  RD_DEFAULT_SUBPROJECT_FLAG,
+  RD_MAIN_PRODUCT_ID,
+  ResearchDevelopmentService,
+} from '../research-development/research-development.service';
 import { ChatFileExportService } from './chat-file-export.service';
 import { shanghaiDayStart } from './chat-streak.service';
 import { THOUGHT_PARAM } from './react-loop';
 import {
   AGENT_ACTIONS,
   AGENT_ACTION_PAYLOAD_KEY,
+  AGENT_BATCH_MAX_TASKS,
+  isFieldAction,
   type AgentActionDef,
   type AgentActionTool,
+  type AgentCustomActionDef,
+  type AgentCustomActionTool,
+  type AgentFieldActionDef,
 } from './agent-actions';
 import { checkAgentPermission } from './agent-permission';
 import { canManageTaskStructure } from '../research-development/research-development.controller';
@@ -193,6 +202,43 @@ type PendingActionTool =
 type PendingActionEntry = Omit<ChatPendingAction, 'payload' | 'card'> & {
   payload: Record<string, unknown>;
   card: PendingActionCard;
+};
+
+/** 可申请放弃的任务状态：与工作台「申请放弃」入口的判定一致（活跃任务才能放弃） */
+const ABANDONABLE_TASK_STATUSES = ['in_progress', 'paused_leave', 'paused_blocked', 'on_hold'];
+
+/**
+ * loadTaskRows 一次最多收集的任务行数。
+ *
+ * 这是**防御性上限**（挡住任务树异常膨胀把内存吃光），不是展示条数限制——展示侧各自 slice
+ * （query_tasks 只列 30 条），汇总侧要的是全量。原值 800 会让超出部分的任务对
+ * findTaskById / locateTasks「不存在」，于是 Agent 写工具对真实存在的任务报「找不到」，
+ * get_dashboard_summary 的统计也会偏小；而这两种错都不会报错，只会悄悄给出错误答案。
+ * 行本身是十来个短字段的扁平对象，抬到这个量级的内存开销可以忽略。
+ */
+const MAX_TASK_ROWS = 20_000;
+
+/**
+ * custom 型操作校验通过后的执行计划。
+ * payload 会原样落进确认卡，用户点确认时再交给 apply——所以它必须是可 JSON 序列化的纯数据。
+ */
+type CustomActionPlan = {
+  payload: Record<string, unknown>;
+  /** 确认卡摘要 */
+  summary: string;
+  /** 确认卡字段：用户就靠这些判断要不要点确认，影响面必须写进去 */
+  fields: Array<{ label: string; value: string }>;
+  /** 回给模型的观察值里描述这次动作的那句话 */
+  detail: string;
+};
+
+/** custom 型操作的执行体：plan 只校验取值不写库，apply 才落写 */
+type CustomActionRunner = {
+  plan: (
+    args: Record<string, unknown>,
+    user: RagUserContext,
+  ) => Promise<CustomActionPlan | { error: string }>;
+  apply: (payload: Record<string, unknown>, user: RagUserContext) => Promise<string>;
 };
 
 /**
@@ -616,19 +662,21 @@ export class ChatToolsService {
 
   /** 由注册表条目生成模型可见的工具定义 */
   private agentActionDefinition(action: AgentActionDef): OpenAI.Chat.Completions.ChatCompletionTool {
-    return {
-      type: 'function',
-      function: {
-        name: action.tool,
-        description: action.description,
-        parameters: {
-          type: 'object',
+    const { properties, required } = isFieldAction(action)
+      ? {
           properties: {
             task_id: { type: 'string', description: '任务编号，如 RD-2026-190498-ZFB' },
             [action.field]: action.fieldSchema,
           },
           required: ['task_id', action.field],
-        },
+        }
+      : { properties: action.properties, required: action.required };
+    return {
+      type: 'function',
+      function: {
+        name: action.tool,
+        description: action.description,
+        parameters: { type: 'object', properties, required },
       },
     };
   }
@@ -653,7 +701,18 @@ export class ChatToolsService {
         content: `当前用户没有执行「${action.label}」的权限，请如实告知用户，不要尝试其他方式绕过。`,
       };
     }
+    return isFieldAction(action)
+      ? this.executeFieldAction(action, args, user, conversationId)
+      : this.executeCustomAction(action, args, user, conversationId);
+  }
 
+  /** field 型：单任务改单字段，出口固定 rdService.updateTask */
+  private async executeFieldAction(
+    action: AgentFieldActionDef,
+    args: Record<string, unknown>,
+    user: RagUserContext,
+    conversationId: string,
+  ): Promise<ChatToolResult> {
     const taskId = String(args.task_id ?? '').trim();
     if (!taskId) return { ok: false, summary: '缺少任务编号', content: '需要提供 task_id。' };
     const task = await this.findTaskById(taskId);
@@ -702,6 +761,294 @@ export class ChatToolsService {
       summary: `${action.fieldLabel} → ${normalized.display}`,
       content: `已将任务 ${task.taskId}「${task.title}」的${action.fieldLabel}改为 ${normalized.display}，修改已生效。`,
     };
+  }
+
+  /**
+   * custom 型：参数校验与写出口都在各自的执行体里。
+   *
+   * plan 只做校验与取值，不写任何库——confirm 级操作从「模型调用」到「用户确认」之间可能
+   * 隔几分钟，期间任务可能已被别人改动，所以真正的写在 apply 里做，且 apply 由确认流程调用。
+   */
+  private async executeCustomAction(
+    action: AgentCustomActionDef,
+    args: Record<string, unknown>,
+    user: RagUserContext,
+    conversationId: string,
+  ): Promise<ChatToolResult> {
+    const planned = await this.customActionRunners()[action.tool].plan(args, user);
+    if ('error' in planned) {
+      return { ok: false, summary: '参数无效', content: planned.error };
+    }
+    const bareLabel = action.label.replace('（待确认）', '');
+
+    if (action.risk === 'confirm') {
+      const card = await this.savePendingAction(user, conversationId, action.tool, planned.payload, {
+        label: bareLabel,
+        summary: planned.summary,
+        fields: planned.fields,
+      });
+      return {
+        ok: true,
+        summary: `已生成确认卡：${planned.summary}`,
+        content: `已生成「${bareLabel}」待确认动作（${planned.detail}）。尚未生效：需要用户点击确认卡才会执行。请告知用户核对后确认，不要声称已经做完。`,
+        pendingAction: card,
+      };
+    }
+
+    try {
+      const message = await this.customActionRunners()[action.tool].apply(planned.payload, user);
+      return { ok: true, summary: planned.summary, content: message };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, summary: '执行失败', content: `执行失败：${message}。请如实告知用户。` };
+    }
+  }
+
+  /**
+   * custom 型操作的执行体表。
+   *
+   * 键类型是 AgentCustomActionTool，注册表里加了工具却没在这里配执行体，编译期就报错——
+   * 与 AGENT_ACTION_PAYLOAD_KEY 对 field 型的穷尽检查是同一个用意。
+   */
+  private customActionRunners(): Record<AgentCustomActionTool, CustomActionRunner> {
+    const text = (v: unknown) => String(v ?? '').trim();
+
+    return {
+      request_task_merge: {
+        plan: async (args) => {
+          const sourceId = text(args.source_task_id);
+          const targetId = text(args.target_task_id);
+          const reason = text(args.reason);
+          if (!sourceId || !targetId) return { error: '需要同时提供源任务编号（被并入方）与目标任务编号（保留方）。' };
+          if (sourceId === targetId) return { error: '源任务与目标任务不能是同一个任务。' };
+          if (!reason) return { error: '需要提供合并原因，审核人要据此判断是否通过。' };
+          const source = await this.findTaskById(sourceId);
+          if (!source) return { error: this.taskNotFoundHint(sourceId, '源任务') };
+          const target = await this.findTaskById(targetId);
+          if (!target) return { error: this.taskNotFoundHint(targetId, '目标任务') };
+          // 跨库合并在 applyTaskMerge 里是「审核通过后才抛错」，那时用户已经点过确认、
+          // 审核人也已经批过，失败只留在服务端日志里。必须在发起前就挡住。
+          if (source.store !== target.store) {
+            return {
+              error: `任务合并只能在同一个任务库内进行：${sourceId} 在「${source.store}」，${targetId} 在「${target.store}」。请改选同库的目标任务。`,
+            };
+          }
+          if (source.status === 'pending_review') {
+            return { error: `任务 ${sourceId} 正在审核中，需等当前审核结束后才能申请合并。` };
+          }
+          if (source.status === 'completed' || source.status === 'archived') {
+            return { error: `任务 ${sourceId} 已是「${source.status}」状态，不再支持合并。` };
+          }
+          return {
+            payload: { sourceId, targetId, reason },
+            summary: `申请合并：${source.title} → ${target.title}`,
+            fields: [
+              { label: '被并入（将归档）', value: `[${source.taskId}] ${source.title}` },
+              { label: '合并去向（保留）', value: `[${target.taskId}] ${target.title}` },
+              { label: '合并原因', value: reason },
+              { label: '影响', value: '源任务的子任务、进展留痕、附件、协作人并入目标任务；源任务归档' },
+            ],
+            detail: `源任务 ${source.taskId}「${source.title}」并入目标任务 ${target.taskId}「${target.title}」，确认后提交审核`,
+          };
+        },
+        apply: async (payload, user) => {
+          const sourceId = text(payload.sourceId);
+          const targetId = text(payload.targetId);
+          await this.applyTaskUpdate(
+            sourceId,
+            {
+              status: 'pending_review',
+              pending_review_type: 'merge',
+              pending_merge_target: targetId,
+              pending_merge_reason: text(payload.reason),
+              pending_merge_requested_at: new Date().toISOString(),
+              pending_merge_requested_by: user.name ?? '',
+              pending_merge_requested_by_id: user.userId,
+            },
+            user,
+          );
+          return `已提交任务合并申请（${sourceId} → ${targetId}），等待管理员审核；审核通过后才会真正合并。`;
+        },
+      },
+
+      move_tasks_category: {
+        plan: async (args) => {
+          const ids = this.normalizeTaskIds(args.task_ids);
+          if ('error' in ids) return ids;
+          const targetCategory = text(args.target_category);
+          if (!targetCategory) return { error: '需要提供目标分类，格式为「分类」或「分类/子项目」。' };
+          const resolved = await this.resolveCategory(targetCategory);
+          if (!resolved.ok) return { error: resolved.message };
+          const located = await this.locateTasks(ids.value);
+          if ('error' in located) return located;
+          return {
+            payload: {
+              taskIds: ids.value,
+              categoryId: resolved.categoryId,
+              subProjectId: resolved.subProjectId,
+              pathLabel: resolved.pathLabel,
+            },
+            summary: `移动 ${located.tasks.length} 条任务到「${resolved.pathLabel}」`,
+            fields: [
+              { label: '目标分类', value: resolved.pathLabel },
+              { label: `任务（${located.tasks.length} 条）`, value: this.describeTasks(located.tasks) },
+            ],
+            detail: `${located.tasks.length} 条任务移动到「${resolved.pathLabel}」`,
+          };
+        },
+        apply: async (payload, user) => {
+          const perms = user.permissions ?? [];
+          // 与控制器 moveTasks 的判定逐字一致：管理员可移动任意任务，
+          // 仅有工作台页面权限的普通成员只能移动自己负责的（由服务层兜底校验）。
+          const canMoveAny =
+            perms.includes('*') ||
+            perms.includes('rd-task:move') ||
+            perms.includes('rd-task:reassign') ||
+            perms.includes('rd-task:edit');
+          const result = await this.rdService.moveTasks(
+            payload.taskIds,
+            {
+              productId: RD_MAIN_PRODUCT_ID,
+              categoryId: text(payload.categoryId),
+              subId: text(payload.subProjectId),
+            },
+            { requesterUserId: user.userId, requesterName: user.name, canMoveAny },
+          );
+          return `已把 ${result.movedCount} 条任务移动到「${text(payload.pathLabel)}」，修改已生效。`;
+        },
+      },
+
+      attach_tasks_to_parent: {
+        plan: async (args) => {
+          const ids = this.normalizeTaskIds(args.task_ids);
+          if ('error' in ids) return ids;
+          const parentTaskId = text(args.parent_task_id);
+          if (!parentTaskId) return { error: '需要提供目标父任务编号。' };
+          if (ids.value.includes(parentTaskId)) {
+            return { error: `父任务 ${parentTaskId} 不能同时出现在要并入的任务列表里。` };
+          }
+          const parent = await this.findTaskById(parentTaskId);
+          if (!parent) return { error: this.taskNotFoundHint(parentTaskId, '父任务') };
+          const located = await this.locateTasks(ids.value);
+          if ('error' in located) return located;
+          const foreign = located.tasks.filter((t) => t.store !== parent.store);
+          if (foreign.length > 0) {
+            return {
+              error: `只能并入同一个任务库内的父任务：父任务在「${parent.store}」，而 ${foreign
+                .map((t) => t.taskId)
+                .join('、')} 在别的库。`,
+            };
+          }
+          return {
+            payload: { taskIds: ids.value, parentTaskId },
+            summary: `${located.tasks.length} 条任务并入「${parent.title}」`,
+            fields: [
+              { label: '父任务', value: `[${parent.taskId}] ${parent.title}` },
+              { label: `并入任务（${located.tasks.length} 条）`, value: this.describeTasks(located.tasks) },
+              { label: '影响', value: '这些任务成为父任务的子任务，任务内容与负责人不变' },
+            ],
+            detail: `${located.tasks.length} 条任务并入父任务 ${parent.taskId}「${parent.title}」`,
+          };
+        },
+        apply: async (payload, user) => {
+          const taskIds = Array.isArray(payload.taskIds) ? payload.taskIds.map((id) => text(id)) : [];
+          const parentTaskId = text(payload.parentTaskId);
+          await this.rdService.attachTasksAsSubtasks(taskIds, parentTaskId, {
+            userId: user.userId,
+            userName: user.name,
+            canEditAny: canManageTaskStructure(user.permissions ?? []),
+          });
+          return `已把 ${taskIds.length} 条任务并入父任务 ${parentTaskId}，修改已生效。`;
+        },
+      },
+
+      request_task_abandon: {
+        plan: async (args) => {
+          const taskId = text(args.task_id);
+          const reason = text(args.reason);
+          if (!taskId) return { error: '需要提供要申请放弃的任务编号。' };
+          if (!reason) return { error: '需要提供放弃原因，审核人要据此判断是否通过。' };
+          const task = await this.findTaskById(taskId);
+          if (!task) return { error: this.taskNotFoundHint(taskId, '任务') };
+          // 与工作台「申请放弃」的可发起状态一致：只有活跃任务能申请放弃
+          if (!ABANDONABLE_TASK_STATUSES.includes(task.status)) {
+            return { error: `任务 ${taskId} 当前状态为「${task.status}」，只有进行中/挂起类的任务才能申请放弃。` };
+          }
+          return {
+            payload: { taskId, reason },
+            summary: `申请放弃：${task.title}`,
+            fields: [
+              { label: '任务', value: `[${task.taskId}] ${task.title}` },
+              { label: '当前负责人', value: task.owner },
+              { label: '放弃原因', value: reason },
+              { label: '影响', value: '审核通过后任务及其子任务将被彻底移除，不可恢复' },
+            ],
+            detail: `任务 ${task.taskId}「${task.title}」提交放弃申请`,
+          };
+        },
+        apply: async (payload, user) => {
+          const taskId = text(payload.taskId);
+          await this.applyTaskUpdate(
+            taskId,
+            {
+              status: 'pending_review',
+              pending_review_type: 'abandon',
+              pending_abandon_reason: text(payload.reason),
+              pending_abandon_requested_at: new Date().toISOString(),
+            },
+            user,
+          );
+          return `已提交任务 ${taskId} 的放弃申请，等待管理员审核；审核通过后任务才会被移除。`;
+        },
+      },
+    };
+  }
+
+  /** 找不到任务时的统一提示：说清为什么找不到，并给出纠偏动作 */
+  private taskNotFoundHint(taskId: string, role: string): string {
+    return `找不到${role} ${taskId}（中美协同池的任务不支持此操作）。请先用 query_tasks 确认任务编号。`;
+  }
+
+  /** 批量参数归一化：去空去重、卡上限。上限存在的意义见 AGENT_BATCH_MAX_TASKS。 */
+  private normalizeTaskIds(raw: unknown): { value: string[] } | { error: string } {
+    if (!Array.isArray(raw)) return { error: 'task_ids 必须是任务编号数组。' };
+    const ids = Array.from(new Set(raw.map((v) => String(v ?? '').trim()).filter(Boolean)));
+    if (ids.length === 0) return { error: '至少要提供一个任务编号。' };
+    if (ids.length > AGENT_BATCH_MAX_TASKS) {
+      return {
+        error: `一次最多处理 ${AGENT_BATCH_MAX_TASKS} 个任务，本次传了 ${ids.length} 个。请分批调用，每批单独由用户确认。`,
+      };
+    }
+    return { value: ids };
+  }
+
+  /**
+   * 批量定位任务；只要有一个定位不到就整批拒绝——半批生效比整批失败更难收拾。
+   *
+   * 整棵任务树只读一次：findTaskById 每次调用都会重读全树，逐个查 20 条就是 20 次全表读，
+   * 单个工具只有 10s 预算（TOOL_TIMEOUT_MS），那样必超时。
+   */
+  private async locateTasks(taskIds: string[]): Promise<{ tasks: TaskRow[] } | { error: string }> {
+    const rows = await this.loadTaskRows();
+    const byId = new Map(rows.map((t) => [t.taskId, t]));
+    const tasks: TaskRow[] = [];
+    const missing: string[] = [];
+    for (const id of taskIds) {
+      const task = byId.get(id);
+      if (task) tasks.push(task);
+      else missing.push(id);
+    }
+    if (missing.length > 0) {
+      return {
+        error: `找不到这些任务：${missing.join('、')}（中美协同池的任务不支持此操作）。请先用 query_tasks 核对编号后重试，本次未做任何改动。`,
+      };
+    }
+    return { tasks };
+  }
+
+  /** 确认卡上的任务清单：全列出来，用户要看得到自己在确认什么 */
+  private describeTasks(tasks: TaskRow[]): string {
+    return tasks.map((t) => `[${t.taskId}] ${t.title}`).join('\n');
   }
 
   /**
@@ -1593,7 +1940,7 @@ export class ChatToolsService {
     const rows: TaskRow[] = [];
     const collect = (tasks: unknown[], path: string, store: string) => {
       for (const raw of tasks) {
-        if (rows.length >= 800) return;
+        if (rows.length >= MAX_TASK_ROWS) return;
         const task = asRecord(raw);
         const title = clean(task.title);
         const taskPath = clean(task.category_path) || path;
@@ -1703,18 +2050,20 @@ export class ChatToolsService {
     return rows.find((t) => t.taskId === taskId) ?? null;
   }
 
-  /** 按分类名解析 category_id / sub_project_id（支持「分类」或「分类/子项目」） */
+  /**
+   * 按分类名解析 category_id / sub_project_id（支持「分类」或「分类/子项目」）。
+   *
+   * 走 rdService.getTaskCategories 而不是直接读 rd.taskCategories：原始 KV 没有经过
+   * BOM 归一化，也不含一级分类自动补出的默认子项，Agent 会看到一棵和页面不一样的树
+   * ——表现为「页面上能选的分类，Agent 说不存在」。
+   */
   private async resolveCategory(
     input: string,
   ): Promise<
     | { ok: true; categoryId: string; subProjectId: string; pathLabel: string }
     | { ok: false; message: string }
   > {
-    const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: 'rd.taskCategories' },
-      select: { value: true },
-    });
-    const categories = (Array.isArray(setting?.value) ? setting.value : []).map((c) =>
+    const categories = (await this.rdService.getTaskCategories({ skipMirrorRefresh: true })).map((c) =>
       c && typeof c === 'object' && !Array.isArray(c) ? (c as Record<string, unknown>) : {},
     );
     const clean = (v: unknown) => String(v ?? '').trim();
@@ -1741,13 +2090,20 @@ export class ChatToolsService {
       };
     }
     if (!subProject) {
+      // 正常情况下 ensureDefaultSubProject 已保证每个分类至少有一个子项；
+      // 走到这里说明拿到的树本身是坏的，保留兜底而不是假装成功。
       return { ok: false, message: `分类「${clean(category.label)}」下没有任何子项目，无法立项。` };
     }
+    // 自动补出来的默认子项不是用户建的层级，不能出现在确认卡与回答里，
+    // 否则纯一级分类会显示成「电源部分 / 默认」，看的人会以为自己漏建了什么。
+    const isDefaultSub = subProject[RD_DEFAULT_SUBPROJECT_FLAG] === true;
     return {
       ok: true,
       categoryId: clean(category.id),
       subProjectId: clean(subProject.id),
-      pathLabel: [clean(category.label), clean(subProject.label)].filter(Boolean).join(' / '),
+      pathLabel: isDefaultSub
+        ? clean(category.label)
+        : [clean(category.label), clean(subProject.label)].filter(Boolean).join(' / '),
     };
   }
 
@@ -1891,6 +2247,11 @@ export class ChatToolsService {
     if (agentAction) {
       const verdict = checkAgentPermission(agentAction.controller, agentAction.handler, user.permissions ?? []);
       if (!verdict.allowed) throw new ForbiddenException(`没有执行「${agentAction.label}」的权限`);
+      // 出口必须与发起时同源分派：field 型走 updateTask，custom 型走各自的执行体。
+      // 这里若只留 updateTask 一条路，custom 型的卡会被拿错 payload 去写任务字段。
+      if (!isFieldAction(agentAction)) {
+        return this.customActionRunners()[agentAction.tool].apply(entry.payload, user);
+      }
       const taskId = String(entry.payload.taskId ?? '');
       const payload = (entry.payload.payload ?? {}) as Record<string, unknown>;
       await this.applyTaskUpdate(taskId, payload, user);

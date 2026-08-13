@@ -16,15 +16,45 @@ const rdApiSource = await read("../src/app/lib/rdApi.ts");
 const rdControllerSource = await read("../apps/api/src/modules/research-development/research-development.controller.ts");
 const rdServiceSource = await read("../apps/api/src/modules/research-development/research-development.service.ts");
 const mobileSource = await read("../src/app/MobileRDCockpit.tsx");
+const proposalSource = await read("../src/app/RDProjectProposalDialog.tsx");
 test("研发驾驶舱保持瀑布流任务卡片，并在任务名称区展示层级", () => {
   assert.match(cockpitSource, /function distributeIntoColumns<T>/);
   assert.match(cockpitSource, /function useMasonryColumns\(\): number/);
   assert.match(cockpitSource, /distributeIntoColumns\(shownTasks, masonryColumns\)/);
   assert.doesNotMatch(cockpitSource, /renderTopicTaskFeed/);
-  assert.match(cockpitSource, /const hierarchySegments = splitCategoryPath\(task\.category_path\)\.slice\(-2\)/);
+  // 仍取 category_path 的最后两段；中间允许过滤掉自动补出的「默认」子项那一段
+  assert.match(cockpitSource, /const hierarchySegments = splitCategoryPath\(task\.category_path\)[\s\S]{0,200}?\.slice\(-2\)/);
   assert.match(cockpitSource, /const directSubtaskCount = task\.subtasks\?\.length \?\? 0/);
   assert.match(cockpitSource, /const hierarchyRoleLabel = task\.parent_task_id/);
   assert.match(cockpitSource, /t\("主任务 · \{count\} 个下级"/);
+
+  // 纯一级分类的 category_path 是「系统 / 默认 / 类型」三段（存储格式刻意不变）。
+  // 「默认」是服务端为一级分类自动补的容器，两处任务卡都必须把它从层级标签里剔掉，
+  // 否则用户会看到一个自己没建过的层级。
+  assert.match(cockpitSource, /\.filter\(\(seg\) => seg !== RD_DEFAULT_SUBPROJECT_LABEL\)/);
+  assert.match(workspaceSource, /part !== RD_DEFAULT_SUBPROJECT_LABEL/);
+});
+
+test("一级分类的默认子项不进导航树、不进部件选择器，且分类仍可立项", () => {
+  // 服务端给没有子项的一级分类补一个 is_default 容器（任务只能挂在第二级）。
+  // 这一层是实现细节，用户不该看见，但也不能因为把它藏起来就让分类无处可选——
+  // 那等于又回到「一级分类立不了项」。
+  assert.match(cockpitSource, /cat\.children\.filter\(\(sub\) => !isDefaultSubProject\(sub\)\)\.map/);
+  assert.match(cockpitSource, /isDefaultSubProject\(sub\) \? \(categoryLabel \|\| sub\.label\) : sub\.label/);
+
+  // 部件选择器：默认子项被过滤掉；过滤后没有任何部件时必须回退出一个代表分类自身的选项
+  assert.match(proposalSource, /if \(isDefaultSubProject\(child\)\) return;/);
+  assert.match(proposalSource, /parts\.size > 0/);
+  assert.match(
+    proposalSource,
+    /\$\{systemLabel\} \/ \$\{RD_DEFAULT_SUBPROJECT_LABEL\} \/ \$\{DEFAULT_TASK_TYPE_FOR_CATEGORY\}/,
+  );
+  // 立项不再因「分类下没有子项目」被拦掉
+  assert.doesNotMatch(proposalSource, /所选分类下暂无子项目，请先添加子项目/);
+
+  // 服务端：读与写必须做同一次注入，否则结构版本号对不上（实测踩到过 409）
+  assert.match(rdServiceSource, /const withDefaults = ensureDefaultSubProject\(reconciled\)/);
+  assert.match(rdServiceSource, /categories: ensureDefaultSubProject\(normalized\)/);
 });
 
 test("驾驶舱与个人工作台任务卡采用同一信息层级", () => {

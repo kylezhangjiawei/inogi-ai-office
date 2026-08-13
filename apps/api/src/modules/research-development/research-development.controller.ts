@@ -377,6 +377,7 @@ export class ResearchDevelopmentController {
     },
     @Request() req: AuthedRequest,
   ) {
+    // targetSubId 可省：纯一级分类只给到系统这一层，服务层落到该分类的默认子项。
     // 个人工作台放开「移动归类」：管理员（* / rd-task:move / rd-task:reassign / rd-task:edit）可移动任意任务；
     // 仅有 page:rd-my-workspace 的普通研发只能移动自己负责的任务（由服务层按 owner 兜底校验）。
     const perms = req.user?.permissions ?? [];
