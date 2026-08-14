@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { OcrService } from '../ocr/ocr.service';
 import { SecureConfigService } from '../security/secure-config.service';
 
@@ -21,10 +22,10 @@ export type ExternalDifference = {
 
 type DiffCandidate = Pick<ExternalDifference, 'id' | 'type' | 'location' | 'before' | 'after' | 'source'>;
 type AiRuntimeConfig = {
-  apiKey: string;
+  targets: AiGatewayTarget[];
+  timeoutMs?: number;
   model: string;
   provider: string;
-  baseURL?: string;
 };
 
 type DiffOperation = { kind: 'equal' | 'removed' | 'added'; text: string };
@@ -50,6 +51,7 @@ export class ExternalDocumentAiService {
     private readonly config: ConfigService,
     private readonly secureConfig: SecureConfigService,
     private readonly ocrService: OcrService,
+    private readonly aiGateway: AiGatewayService,
   ) {}
 
   async integrationStatus() {
@@ -419,6 +421,24 @@ export class ExternalDocumentAiService {
   }
 
   private async resolveRuntimeConfig(): Promise<AiRuntimeConfig> {
+    const fallback = await this.resolveFallbackTarget();
+    const routing = await this.aiGateway.resolveTargets(
+      'external_docs.version_compare',
+      fallback ? [fallback] : [],
+    );
+    const primary = routing.targets[0];
+    if (!primary) {
+      throw new BadRequestException('尚未配置可用的 AI 文本模型，请先在“AI模型管理”中启用默认模型');
+    }
+    return {
+      targets: routing.targets,
+      timeoutMs: routing.timeoutMs,
+      model: primary.model,
+      provider: primary.provider,
+    };
+  }
+
+  private async resolveFallbackTarget(): Promise<AiGatewayTarget | null> {
     const rows = await this.prisma.integrationConfig.findMany({
       where: { kind: 'openai', isActive: true },
       orderBy: { updatedAt: 'desc' },
@@ -449,23 +469,23 @@ export class ExternalDocumentAiService {
       if (apiKey && selected.model) {
         const metadata = this.record(selected.metadata);
         return {
+          id: selected.id,
+          connectionId: selected.id,
           apiKey,
           model: selected.model,
           provider: selected.provider || 'openai-compatible',
-          baseURL: this.textValue(metadata.base_url) || undefined,
+          baseUrl: this.textValue(metadata.base_url) || undefined,
         };
       }
     }
 
     const envApiKey = this.config.get<string>('OPENAI_API_KEY')?.trim();
-    if (!envApiKey) {
-      throw new BadRequestException('尚未配置可用的 AI 文本模型，请先在“AI模型管理”中启用默认模型');
-    }
+    if (!envApiKey) return null;
     return {
       apiKey: envApiKey,
       model: this.config.get<string>('OPENAI_MODEL')?.trim() || 'gpt-4.1-mini',
       provider: 'openai',
-      baseURL: this.config.get<string>('OPENAI_BASE_URL')?.trim() || undefined,
+      baseUrl: this.config.get<string>('OPENAI_BASE_URL')?.trim() || undefined,
     };
   }
 
@@ -475,44 +495,26 @@ export class ExternalDocumentAiService {
     const configuredQwenMaxTokens = Number(
       this.config.get('EXTERNAL_DOCS_QWEN_JSON_MAX_TOKENS') ?? DEFAULT_QWEN_JSON_MAX_TOKENS,
     );
-    const qwenJsonOptions = this.isQwenProvider(runtime.provider)
-      ? ({
-          // Qwen's thinking tokens share the completion budget. For a large JSON
-          // difference list this can truncate the visible JSON before it closes.
-          enable_thinking: false,
-          max_tokens: Number.isFinite(configuredQwenMaxTokens) && configuredQwenMaxTokens > 0
-            ? Math.round(configuredQwenMaxTokens)
-            : DEFAULT_QWEN_JSON_MAX_TOKENS,
-        } as Record<string, unknown>)
-      : {};
-    const client = new OpenAI({
-      apiKey: runtime.apiKey,
-      ...(runtime.baseURL ? { baseURL: runtime.baseURL } : {}),
-      timeout: Number.isFinite(externalDocsTimeout) && externalDocsTimeout > 0 ? externalDocsTimeout : 60_000,
-      // A background comparison already has an explicit deterministic fallback.
-      // Avoid the SDK multiplying the configured timeout with two implicit retries.
-      maxRetries: 0,
+    const qwenMaxTokens = runtime.targets.some((target) => this.isQwenProvider(target.provider))
+      ? Number.isFinite(configuredQwenMaxTokens) && configuredQwenMaxTokens > 0
+        ? Math.round(configuredQwenMaxTokens)
+        : DEFAULT_QWEN_JSON_MAX_TOKENS
+      : undefined;
+    const result = await this.aiGateway.complete({
+      scene: 'external_docs.version_compare',
+      targets: runtime.targets,
+      messages,
+      responseFormat: { type: 'json_object' },
+      retryWithoutResponseFormat: true,
+      temperature: 0.1,
+      maxTokens: qwenMaxTokens,
+      timeoutMs: runtime.timeoutMs ?? (
+        Number.isFinite(externalDocsTimeout) && externalDocsTimeout > 0 ? externalDocsTimeout : 60_000
+      ),
     });
-    try {
-      const response = await client.chat.completions.create({
-        model: runtime.model,
-        messages,
-        response_format: { type: 'json_object' },
-        temperature: 0.1,
-        ...qwenJsonOptions,
-      });
-      return response.choices[0]?.message?.content ?? '{}';
-    } catch (firstError) {
-      if (!this.shouldRetryWithoutJsonMode(firstError)) throw firstError;
-      this.logger.warn(`AI JSON mode 调用失败，回退普通 JSON 提示: ${(firstError as Error).message}`);
-      const response = await client.chat.completions.create({
-        model: runtime.model,
-        messages,
-        temperature: 0.1,
-        ...qwenJsonOptions,
-      });
-      return response.choices[0]?.message?.content ?? '{}';
-    }
+    runtime.model = result.model;
+    runtime.provider = result.provider;
+    return result.content || '{}';
   }
 
   private parseJson(raw: string) {
@@ -555,13 +557,6 @@ export class ExternalDocumentAiService {
     if (/法规|标准|合规|警告|危险|禁止|不得|责任|价格|金额|型号|参数|电压|电流|功率|尺寸|公差|保修|联系方式/.test(content)) return 'high';
     if (candidate.type === 'removed' || candidate.type === 'modified') return 'medium';
     return 'low';
-  }
-
-  private shouldRetryWithoutJsonMode(error: unknown) {
-    const info = this.record(error);
-    const status = Number(info.status);
-    const message = (error as Error)?.message?.toLowerCase() ?? '';
-    return status === 400 && /response[_ -]?format|json[_ -]?mode|json_object/.test(message);
   }
 
   private isQwenProvider(provider: string) {

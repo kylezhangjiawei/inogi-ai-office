@@ -23,9 +23,10 @@ type MailboxMetadata = {
  * - embedding=向量化（RAG 检索），不可当对话模型
  * - document=文档解析（如 qwen-doc 系列），只用于文件读取，不可当对话模型
  * - video=视频生成（图生视频 / 文生视频），不可当对话模型
+ * - audio=实时语音合成 / 语音对话，不可当普通对话模型
  * - auto=根据模型名称自动推断（兜底）
  */
-type AiModelUsageKind = 'text' | 'multimodal' | 'image' | 'embedding' | 'document' | 'video' | 'auto';
+type AiModelUsageKind = 'text' | 'multimodal' | 'image' | 'embedding' | 'document' | 'video' | 'audio' | 'auto';
 
 const VALID_USAGE_KINDS: readonly string[] = [
   'text',
@@ -34,6 +35,7 @@ const VALID_USAGE_KINDS: readonly string[] = [
   'embedding',
   'document',
   'video',
+  'audio',
   'auto',
 ];
 
@@ -247,8 +249,75 @@ export class IntegrationManagementService {
       }),
     ]);
 
+    const connectionIds = items.map((item) => item.id);
+    const [latestGatewayAttempts, todayGatewayAttempts] = connectionIds.length > 0
+      ? await Promise.all([
+          this.prisma.aiGatewayAttempt.findMany({
+            where: { connectionId: { in: connectionIds } },
+            orderBy: { createdAt: 'desc' },
+            distinct: ['connectionId'],
+          }),
+          this.prisma.aiGatewayAttempt.groupBy({
+            by: ['connectionId'],
+            where: {
+              connectionId: { in: connectionIds },
+              createdAt: { gte: this.getShanghaiDayStart() },
+            },
+            _count: { _all: true },
+          }),
+        ])
+      : [[], []];
+
+    const latestAttemptByConnection = new Map(
+      latestGatewayAttempts
+        .filter((attempt) => Boolean(attempt.connectionId))
+        .map((attempt) => [attempt.connectionId as string, attempt]),
+    );
+    const todayAttemptsByConnection = new Map(
+      todayGatewayAttempts
+        .filter((group) => Boolean(group.connectionId))
+        .map((group) => [group.connectionId as string, group._count._all]),
+    );
+
     return {
-      items: items.map((item) => this.toAiModelResponse(item)),
+      items: items.map((item) => {
+        const response = this.toAiModelResponse(item);
+        const latestAttempt = latestAttemptByConnection.get(item.id);
+        const todayGatewayRequests = todayAttemptsByConnection.get(item.id) ?? 0;
+        if (!latestAttempt) {
+          return {
+            ...response,
+            today_requests: response.today_requests + todayGatewayRequests,
+          };
+        }
+
+        const metadataRuntimeAt = Math.max(
+          this.timestampOrZero(response.last_success_at),
+          this.timestampOrZero(response.last_failure_at),
+        );
+        const gatewayRuntimeAt = latestAttempt.createdAt.getTime();
+        if (gatewayRuntimeAt <= metadataRuntimeAt) {
+          return {
+            ...response,
+            today_requests: response.today_requests + todayGatewayRequests,
+          };
+        }
+
+        const gatewayRuntimeIso = latestAttempt.createdAt.toISOString();
+        const gatewaySucceeded = latestAttempt.status === 'success';
+        const gatewayFailed = latestAttempt.status === 'failed';
+        return {
+          ...response,
+          current_status: gatewaySucceeded ? '运行正常' : gatewayFailed ? '连接异常' : '临时熔断',
+          last_success_at: gatewaySucceeded ? gatewayRuntimeIso : response.last_success_at,
+          last_failure_at: gatewayFailed ? gatewayRuntimeIso : response.last_failure_at,
+          last_latency_ms: latestAttempt.latencyMs > 0 ? latestAttempt.latencyMs : response.last_latency_ms,
+          today_requests: response.today_requests + todayGatewayRequests,
+          last_error_message: gatewaySucceeded
+            ? null
+            : latestAttempt.errorMessage || latestAttempt.errorCode || response.last_error_message,
+        };
+      }),
       total,
       page,
       page_size: pageSize,
@@ -352,8 +421,15 @@ export class IntegrationManagementService {
     }
 
     const provider = payload.provider?.trim() || existing?.provider || 'openai';
+    const usageKind = this.resolveConnectionTestUsageKind(
+      payload.usage_kind,
+      existingMetadata.usage_kind,
+      model,
+    );
     const useImageModelTest = this.shouldUseImageModelConnectionTest(provider, model);
     const useEmbeddingModelTest = this.shouldUseEmbeddingConnectionTest(model);
+    const useDashScopeNativeTest = !useImageModelTest
+      && (usageKind === 'image' || usageKind === 'video' || usageKind === 'audio');
 
     try {
       const result = useImageModelTest
@@ -363,7 +439,15 @@ export class IntegrationManagementService {
             baseUrl || undefined,
             provider,
           )
-        : useEmbeddingModelTest
+        : useDashScopeNativeTest
+          ? await this.openAiScreeningService.testDashScopeNativeConnection(
+              usageKind,
+              apiKey,
+              model,
+              baseUrl || undefined,
+              provider,
+            )
+          : useEmbeddingModelTest || usageKind === 'embedding'
           ? await this.openAiScreeningService.testEmbeddingConnection(
               apiKey,
               model,
@@ -451,6 +535,28 @@ export class IntegrationManagementService {
   private shouldUseEmbeddingConnectionTest(model: string) {
     const normalizedModel = model.trim().toLowerCase();
     return /(^|[\-_/])embed(ding)?(s)?($|[\-_/])/.test(normalizedModel) || normalizedModel.includes('embedding');
+  }
+
+  private resolveConnectionTestUsageKind(
+    requestedKind: string | undefined,
+    storedKind: AiModelUsageKind,
+    model: string,
+  ): AiModelUsageKind {
+    const explicitKind = requestedKind?.trim();
+    if (explicitKind && VALID_USAGE_KINDS.includes(explicitKind) && explicitKind !== 'auto') {
+      return explicitKind as AiModelUsageKind;
+    }
+    if (storedKind && storedKind !== 'auto') {
+      return storedKind;
+    }
+
+    const normalizedModel = model.trim().toLowerCase();
+    if (this.shouldUseEmbeddingConnectionTest(normalizedModel)) return 'embedding';
+    if (/qwen-image|wan\d.*image|gpt-image|dall-e/.test(normalizedModel)) return 'image';
+    if (/happyhorse|(^|[\-_/])(i2v|t2v|r2v)($|[\-_/])/.test(normalizedModel)) return 'video';
+    if (/audio|tts|speech|realtime/.test(normalizedModel)) return 'audio';
+    if (/doc/.test(normalizedModel)) return 'document';
+    return 'text';
   }
 
   private async resolveOperatorName(userId?: string) {
@@ -644,6 +750,7 @@ export class IntegrationManagementService {
 
   private toAiModelResponse(config: IntegrationConfig) {
     const metadata = this.parseAiModelMetadata(config.metadata);
+    const hasTodayUsage = metadata.today_usage_date === this.getShanghaiDateKey();
     return {
       id: config.id,
       name: config.name,
@@ -654,8 +761,8 @@ export class IntegrationManagementService {
       last_success_at: metadata.last_success_at,
       last_failure_at: metadata.last_failure_at,
       last_latency_ms: metadata.last_latency_ms,
-      today_requests: metadata.today_requests,
-      today_tokens: metadata.today_tokens,
+      today_requests: hasTodayUsage ? metadata.today_requests : 0,
+      today_tokens: hasTodayUsage ? metadata.today_tokens : 0,
       total_tokens: metadata.total_tokens,
       daily_token_usage: metadata.daily_token_usage,
       enabled: config.isActive,
@@ -706,6 +813,22 @@ export class IntegrationManagementService {
       day: '2-digit',
     });
     return formatter.format(new Date());
+  }
+
+  private getShanghaiDayStart() {
+    const shanghaiOffsetMs = 8 * 60 * 60 * 1000;
+    const shanghaiNow = new Date(Date.now() + shanghaiOffsetMs);
+    return new Date(Date.UTC(
+      shanghaiNow.getUTCFullYear(),
+      shanghaiNow.getUTCMonth(),
+      shanghaiNow.getUTCDate(),
+    ) - shanghaiOffsetMs);
+  }
+
+  private timestampOrZero(value: string | null) {
+    if (!value) return 0;
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) ? timestamp : 0;
   }
 
   private parseDailyTokenUsage(value: unknown): AiModelDailyTokenUsage[] {

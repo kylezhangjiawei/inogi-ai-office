@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI, { toFile } from 'openai';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { OcrService } from '../ocr/ocr.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { resolveRdStoreKey } from './rd-workspace.context';
@@ -322,6 +324,8 @@ export type RdTaskCompletionScoreInput = {
 type AiProvider = 'openai' | 'qwen';
 
 type AiModelRuntimeConfig = {
+  id?: string;
+  connectionId?: string;
   provider: AiProvider;
   model: string;
   apiKey: string;
@@ -367,6 +371,7 @@ export class RdAiService {
     private readonly prisma: PrismaService,
     private readonly ocrService: OcrService,
     private readonly secureConfigService: SecureConfigService,
+    private readonly aiGateway: AiGatewayService,
   ) {
     this.timeoutMs = Number(this.config.get('OPENAI_TIMEOUT_MS') ?? 120_000);
     // 立项提取场景允许更长等待，可通过 RD_EXTRACT_TIMEOUT_MS 覆盖，默认 5 分钟
@@ -447,29 +452,16 @@ export class RdAiService {
       throw new BadRequestException('选择单条或部分任务微调时需要提供 selectedTaskIds');
     }
 
-    const selectedModel = await this.resolveSceneModelConfig('text_task_extract').catch(() => null);
-    if (!selectedModel) {
-      return {
-        tasks: currentTasks,
-        change_summary: ['AI 模型未配置，已保留当前立项草稿。'],
-        warnings: ['请先在 AI 模型管理中配置可用模型，再使用智能微调。'],
-        provider: 'local',
-        model: 'local-refine-fallback',
-      };
-    }
-
-    const { provider, model, apiKey, baseUrl } = selectedModel;
-    const client = this.createClient(apiKey, provider, baseUrl, this.extractTimeoutMs);
-
-    let response: OpenAI.Chat.Completions.ChatCompletion;
+    let gatewayResult: { content: string; model: string; provider: AiProvider } | null;
     try {
-      response = await client.chat.completions.create({
-        model,
+      gatewayResult = await this.completeTextGateway({
+        scene: 'rd.project_structuring',
+        legacySceneId: 'text_task_extract',
         messages: this.buildProposalRefineMessages({ ...input, instruction, scope, selectedTaskIds }, currentTasks),
-        response_format: { type: 'json_object' },
+        json: true,
         temperature: 0.2,
-        max_tokens: this.extractMaxTokens,
-        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+        maxTokens: this.extractMaxTokens,
+        defaultTimeoutMs: this.extractTimeoutMs,
       });
     } catch (error) {
       if (this.isExternalAiTimeout(error)) {
@@ -483,15 +475,24 @@ export class RdAiService {
       }
       throw this.toExternalAiException(error, 'AI 立项微调服务调用失败');
     }
+    if (!gatewayResult) {
+      return {
+        tasks: currentTasks,
+        change_summary: ['AI 模型未配置，已保留当前立项草稿。'],
+        warnings: ['请先在 AI 模型管理中配置可用模型，再使用智能微调。'],
+        provider: 'local',
+        model: 'local-refine-fallback',
+      };
+    }
 
-    const content = this.stringifyMessageContent(response.choices[0]?.message?.content) || '{}';
+    const content = gatewayResult.content || '{}';
     const parsed = this.parseProposalRefinePayload(content, { ...input, instruction, scope, selectedTaskIds }, currentTasks);
     const result: RdAiProposalRefineResult = {
       tasks: parsed.tasks.length > 0 ? parsed.tasks : currentTasks,
       change_summary: parsed.change_summary.length > 0 ? parsed.change_summary : ['已根据微调要求重新整理立项草稿。'],
       warnings: parsed.warnings,
-      provider,
-      model,
+      provider: gatewayResult.provider,
+      model: gatewayResult.model,
     };
 
     await this.recordAiArtifact('proposal_refine', 'text', undefined, await this.readFilePolicyRuntime(), {
@@ -503,8 +504,8 @@ export class RdAiService {
         currentTasks,
       }).slice(0, 32000),
       ai_result: result,
-      model,
-      provider,
+      model: gatewayResult.model,
+      provider: gatewayResult.provider,
     });
 
     return result;
@@ -554,8 +555,12 @@ export class RdAiService {
       .slice(0, 16_000);
     const skippedAttachments = attachmentResults.filter((item) => !item.text).map((item) => item.name);
 
-    const selectedModel = await this.resolveSceneModelConfig('text_task_extract').catch(() => null);
-    if (!selectedModel?.apiKey) {
+    const routing = await this.resolveTextGatewayRoute(
+      'rd.project_structuring',
+      'text_task_extract',
+      this.extractTimeoutMs,
+    ).catch(() => null);
+    if (!routing) {
       return this.buildLocalProjectClassification(
         input.scope,
         tasks,
@@ -564,6 +569,8 @@ export class RdAiService {
         ['AI 模型未配置，当前结果仅使用标题相似度做本地初筛。', ...skippedAttachments.map((name) => `附件“${name}”未提取到可分析内容。`)],
       );
     }
+    const configuredProvider = this.normalizeProvider(routing.targets[0].provider, routing.targets[0].model);
+    const configuredModel = routing.targets[0].model;
 
     const compactTask = (task: RdAiProjectClassificationTask, descriptionLimit: number) => ({
       task_id: task.task_id,
@@ -599,8 +606,8 @@ export class RdAiService {
         member_task_lines: this.buildLocalMemberTaskLines(tasks),
         recommendations: ['任务池目前没有明显的重复项，无需合并。'],
         warnings: skippedAttachments.map((name) => `附件“${name}”未提取到可分析内容。`),
-        provider: selectedModel.provider,
-        model: selectedModel.model,
+        provider: configuredProvider,
+        model: configuredModel,
         generated_at: generatedAt,
       };
     }
@@ -622,15 +629,10 @@ export class RdAiService {
     ].join('\n');
 
     try {
-      const client = this.createClient(
-        selectedModel.apiKey,
-        selectedModel.provider,
-        selectedModel.baseUrl,
-        this.extractTimeoutMs,
-      );
       const adjudicate = async (cluster: RdAiProjectClassificationTask[]) => {
-        const response = await client.chat.completions.create({
-          model: selectedModel.model,
+        const result = await this.aiGateway.complete({
+          scene: 'rd.project_structuring',
+          targets: routing.targets,
           messages: [
             { role: 'system', content: systemPrompt },
             {
@@ -642,23 +644,30 @@ export class RdAiService {
               ].join('\n\n'),
             },
           ],
-          response_format: { type: 'json_object' },
+          responseFormat: { type: 'json_object' },
+          retryWithoutResponseFormat: true,
           temperature: 0.15,
-          max_tokens: Math.min(this.extractMaxTokens, 1200),
-          ...(selectedModel.provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+          maxTokens: Math.min(this.extractMaxTokens, 1200),
+          timeoutMs: routing.timeoutMs,
         });
-        return this.parseMergeVerdict(
-          this.stringifyMessageContent(response.choices[0]?.message?.content) || '{}',
-          cluster,
-        );
+        return {
+          verdict: this.parseMergeVerdict(result.content || '{}', cluster),
+          provider: this.normalizeProvider(result.provider, result.model),
+          model: result.model,
+        };
       };
 
       // 并发 3：比串行快，又不至于把模型服务打满。
-      const verdicts: Array<{ cluster: RdAiProjectClassificationTask[]; verdict: RdAiMergeVerdict }> = [];
+      const verdicts: Array<{
+        cluster: RdAiProjectClassificationTask[];
+        verdict: RdAiMergeVerdict;
+        provider: AiProvider;
+        model: string;
+      }> = [];
       for (let index = 0; index < analyzedClusters.length; index += 3) {
         const wave = analyzedClusters.slice(index, index + 3);
         const waveResults = await Promise.all(
-          wave.map(async (cluster) => ({ cluster, verdict: await adjudicate(cluster) })),
+          wave.map(async (cluster) => ({ cluster, ...(await adjudicate(cluster)) })),
         );
         verdicts.push(...waveResults);
       }
@@ -723,8 +732,8 @@ export class RdAiService {
             : []),
           ...skippedAttachments.map((name) => `附件“${name}”未提取到可分析内容。`),
         ],
-        provider: selectedModel.provider,
-        model: selectedModel.model,
+        provider: verdicts[0]?.provider ?? configuredProvider,
+        model: verdicts[0]?.model ?? configuredModel,
         generated_at: generatedAt,
       };
     } catch (error) {
@@ -1161,8 +1170,12 @@ export class RdAiService {
     }
     const truncated = trimmed.slice(0, 32000);
     const sceneId = source === 'text' ? 'text_task_extract' : 'file_task_extract';
-    const selectedModel = await this.resolveSceneModelConfig(sceneId);
-    if (!selectedModel) {
+    const routing = await this.resolveTextGatewayRoute(
+      'rd.project_structuring',
+      sceneId,
+      this.extractTimeoutMs,
+    ).catch(() => null);
+    if (!routing) {
       const parsed = this.extractWithLocalParser(truncated, input);
       await this.recordAiArtifact('task_extract', source, input.file?.originalname, filePolicy, {
         original_text: truncated,
@@ -1177,32 +1190,29 @@ export class RdAiService {
       };
     }
 
-    const { provider, model, apiKey, baseUrl } = selectedModel;
-    let resultProvider: AiProvider = provider;
-    let resultModel = model;
-    // 立项提取可能需要处理较长文本，使用专用超时（默认 5 分钟）
-    const client = this.createClient(apiKey, provider, baseUrl, this.extractTimeoutMs);
     const messages = this.buildMessages(truncated, input);
-
-    let response: OpenAI.Chat.Completions.ChatCompletion;
+    let response: Awaited<ReturnType<AiGatewayService['complete']>>;
     try {
-      response = await client.chat.completions.create({
-        model,
+      response = await this.aiGateway.complete({
+        scene: 'rd.project_structuring',
+        targets: routing.targets,
         messages,
-        response_format: { type: 'json_object' },
-        max_tokens: this.extractMaxTokens,
-        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+        responseFormat: { type: 'json_object' },
+        retryWithoutResponseFormat: true,
+        maxTokens: this.extractMaxTokens,
+        timeoutMs: routing.timeoutMs,
       });
     } catch (error) {
       if (this.isExternalAiTimeout(error)) {
         const parsed = this.extractWithLocalParser(truncated, input);
         parsed.summary = 'AI 服务调用超时，已使用本地规则解析。';
+        const timeoutTarget = routing.targets[0];
         await this.recordAiArtifact('task_extract', source, input.file?.originalname, filePolicy, {
           original_text: truncated,
           ai_result: parsed,
           timeout: true,
-          model,
-          provider,
+          model: timeoutTarget.model,
+          provider: this.normalizeProvider(timeoutTarget.provider, timeoutTarget.model),
         });
         return {
           ...parsed,
@@ -1215,20 +1225,31 @@ export class RdAiService {
       throw this.toExternalAiException(error, 'AI 立项文本解析服务调用失败');
     }
 
-    const firstChoice = response.choices[0];
-    const firstAiContent = this.stringifyMessageContent(firstChoice?.message?.content) || '{}';
+    let resultProvider = this.normalizeProvider(response.provider, response.model);
+    let resultModel = response.model;
+    const firstAiContent = response.content || '{}';
     let content = firstAiContent;
     let parsed = this.parseTasksPayload(content, input);
     const emptyRepairMetadata: Record<string, unknown> = {
       first_ai_response: firstAiContent.slice(0, 8000),
-      first_ai_finish_reason: firstChoice?.finish_reason ?? null,
+      first_ai_finish_reason: null,
       first_ai_usage: response.usage ?? null,
     };
 
     if (parsed.tasks.length === 0) {
-      const sameModelRepair = await this.retryEmptyTaskExtraction(client, provider, model, truncated, input, 'same_model').catch((error) => {
+      const sameModelTargets = routing.targets.filter((target) => (
+        target.model === resultModel
+        && this.normalizeProvider(target.provider, target.model) === resultProvider
+      ));
+      const sameModelRepair = await this.retryEmptyTaskExtraction(
+        sameModelTargets.length > 0 ? sameModelTargets : routing.targets,
+        routing.timeoutMs,
+        truncated,
+        input,
+        'same_model',
+      ).catch((error) => {
         this.logger.warn(
-          `[extractFromText] empty-result same-model repair failed. source=${source} model=${model} error=${(error as Error).message}`,
+          `[extractFromText] empty-result same-model repair failed. source=${source} model=${resultModel} error=${(error as Error).message}`,
         );
         emptyRepairMetadata.same_model_repair_error = (error as Error).message;
         return null;
@@ -1239,34 +1260,32 @@ export class RdAiService {
         if (sameModelRepair.parsed.tasks.length > 0) {
           content = sameModelRepair.content;
           parsed = sameModelRepair.parsed;
+          resultProvider = sameModelRepair.provider;
+          resultModel = sameModelRepair.model;
           emptyRepairMetadata.repaired_by_ai = true;
-          emptyRepairMetadata.repair_model = model;
-          emptyRepairMetadata.repair_provider = provider;
+          emptyRepairMetadata.repair_model = sameModelRepair.model;
+          emptyRepairMetadata.repair_provider = sameModelRepair.provider;
         }
       }
     }
 
     if (parsed.tasks.length === 0) {
-      const fallbackModel = await this.resolveSceneFallbackModelConfig(sceneId, selectedModel).catch(() => null);
-      if (fallbackModel) {
-        emptyRepairMetadata.fallback_ai_model = fallbackModel.model;
-        emptyRepairMetadata.fallback_ai_provider = fallbackModel.provider;
-        const fallbackClient = this.createClient(
-          fallbackModel.apiKey,
-          fallbackModel.provider,
-          fallbackModel.baseUrl,
-          this.extractTimeoutMs,
-        );
+      const fallbackTargets = routing.targets.filter((target) => !(
+        target.model === resultModel
+        && this.normalizeProvider(target.provider, target.model) === resultProvider
+      ));
+      if (fallbackTargets.length > 0) {
+        emptyRepairMetadata.fallback_ai_model = fallbackTargets[0].model;
+        emptyRepairMetadata.fallback_ai_provider = this.normalizeProvider(fallbackTargets[0].provider, fallbackTargets[0].model);
         const fallbackRepair = await this.retryEmptyTaskExtraction(
-          fallbackClient,
-          fallbackModel.provider,
-          fallbackModel.model,
+          fallbackTargets,
+          routing.timeoutMs,
           truncated,
           input,
           'fallback_model',
         ).catch((error) => {
           this.logger.warn(
-            `[extractFromText] empty-result fallback-model repair failed. source=${source} model=${fallbackModel.model} error=${(error as Error).message}`,
+            `[extractFromText] empty-result fallback-model repair failed. source=${source} model=${fallbackTargets[0].model} error=${(error as Error).message}`,
           );
           emptyRepairMetadata.fallback_ai_error = (error as Error).message;
           return null;
@@ -1277,11 +1296,11 @@ export class RdAiService {
           if (fallbackRepair.parsed.tasks.length > 0) {
             content = fallbackRepair.content;
             parsed = fallbackRepair.parsed;
-            resultProvider = fallbackModel.provider;
-            resultModel = fallbackModel.model;
+            resultProvider = fallbackRepair.provider;
+            resultModel = fallbackRepair.model;
             emptyRepairMetadata.repaired_by_ai = true;
-            emptyRepairMetadata.repair_model = fallbackModel.model;
-            emptyRepairMetadata.repair_provider = fallbackModel.provider;
+            emptyRepairMetadata.repair_model = fallbackRepair.model;
+            emptyRepairMetadata.repair_provider = fallbackRepair.provider;
           }
         }
       }
@@ -1297,12 +1316,12 @@ export class RdAiService {
           original_text: truncated,
           ai_result: fallback,
           ai_empty_result: true,
-          model,
-          provider,
+          model: resultModel,
+          provider: resultProvider,
           ...emptyRepairMetadata,
         });
         this.logger.warn(
-          `[extractFromText] AI returned empty tasks, used local fallback. source=${source} model=${model} raw_text_length=${truncated.length}`,
+          `[extractFromText] AI returned empty tasks, used local fallback. source=${source} model=${resultModel} raw_text_length=${truncated.length}`,
         );
         return {
           ...fallback,
@@ -1584,23 +1603,34 @@ export class RdAiService {
   }
 
   private async retryEmptyTaskExtraction(
-    client: OpenAI,
-    provider: AiProvider,
-    model: string,
+    targets: AiGatewayTarget[],
+    timeoutMs: number,
     textBody: string,
     input: RdAiExtractInput,
     reason: 'same_model' | 'fallback_model',
-  ): Promise<{ content: string; parsed: { tasks: RdAiTaskDraft[]; suggested_category?: string; suggested_product?: string; summary?: string } }> {
-    const response = await client.chat.completions.create({
-      model,
+  ): Promise<{
+    content: string;
+    parsed: { tasks: RdAiTaskDraft[]; suggested_category?: string; suggested_product?: string; summary?: string };
+    provider: AiProvider;
+    model: string;
+  }> {
+    const response = await this.aiGateway.complete({
+      scene: 'rd.project_structuring',
+      targets,
       messages: this.buildEmptyResultRepairMessages(textBody, input, reason),
-      response_format: { type: 'json_object' },
+      responseFormat: { type: 'json_object' },
+      retryWithoutResponseFormat: true,
       temperature: 0.1,
-      max_tokens: this.extractMaxTokens,
-      ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      maxTokens: this.extractMaxTokens,
+      timeoutMs,
     });
-    const content = this.stringifyMessageContent(response.choices[0]?.message?.content) || '{}';
-    return { content, parsed: this.parseTasksPayload(content, input) };
+    const content = response.content || '{}';
+    return {
+      content,
+      parsed: this.parseTasksPayload(content, input),
+      provider: this.normalizeProvider(response.provider, response.model),
+      model: response.model,
+    };
   }
 
   private buildEmptyResultRepairMessages(
@@ -2417,6 +2447,65 @@ export class RdAiService {
     return fallback;
   }
 
+  private async resolveTextGatewayRoute(
+    scene: string,
+    legacySceneId: string,
+    defaultTimeoutMs = this.timeoutMs,
+    advanceRoundRobin = true,
+  ): Promise<{ targets: AiGatewayTarget[]; timeoutMs: number } | null> {
+    const primary = await this.resolveSceneModelConfig(legacySceneId).catch(() => null);
+    const fallback = primary
+      ? await this.resolveSceneFallbackModelConfig(legacySceneId, primary).catch(() => null)
+      : null;
+    const fallbackTargets = [primary, fallback]
+      .filter((target): target is AiModelRuntimeConfig => target !== null);
+    const routing = await this.aiGateway.resolveTargets(
+      scene,
+      fallbackTargets,
+      { advanceRoundRobin },
+    );
+    if (routing.targets.length === 0) return null;
+    return { targets: routing.targets, timeoutMs: routing.timeoutMs ?? defaultTimeoutMs };
+  }
+
+  private async completeTextGateway(input: {
+    scene: string;
+    legacySceneId: string;
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
+    json?: boolean;
+    temperature?: number;
+    maxTokens?: number;
+    defaultTimeoutMs?: number;
+  }): Promise<{
+    content: string;
+    model: string;
+    provider: AiProvider;
+    usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+  } | null> {
+    const routing = await this.resolveTextGatewayRoute(
+      input.scene,
+      input.legacySceneId,
+      input.defaultTimeoutMs,
+    );
+    if (!routing) return null;
+    const result = await this.aiGateway.complete({
+      scene: input.scene,
+      targets: routing.targets,
+      messages: input.messages,
+      ...(input.json ? { responseFormat: { type: 'json_object' } as const } : {}),
+      retryWithoutResponseFormat: Boolean(input.json),
+      ...(typeof input.temperature === 'number' ? { temperature: input.temperature } : {}),
+      ...(typeof input.maxTokens === 'number' ? { maxTokens: input.maxTokens } : {}),
+      timeoutMs: routing.timeoutMs,
+    });
+    return {
+      content: result.content,
+      model: result.model,
+      provider: this.normalizeProvider(result.provider, result.model),
+      usage: result.usage,
+    };
+  }
+
   private isSameRuntimeModel(left: AiModelRuntimeConfig, right: AiModelRuntimeConfig): boolean {
     return left.provider === right.provider && left.model === right.model && (left.baseUrl ?? '') === (right.baseUrl ?? '');
   }
@@ -2476,6 +2565,7 @@ export class RdAiService {
   }
 
   private toRuntimeModelConfig(config: {
+    id?: string;
     provider: string | null;
     model: string | null;
     encryptedSecret: string;
@@ -2488,6 +2578,8 @@ export class RdAiService {
     const metadata = this.parseAiModelMetadata(config.metadata);
     const provider = this.normalizeProvider(config.provider, model);
     return {
+      id: config.id,
+      connectionId: config.id,
       provider,
       model,
       apiKey,
@@ -2686,40 +2778,33 @@ export class RdAiService {
     const systemPrompt = this.buildProgressSystemPrompt((input.task.work_items?.length ?? 0) > 0, lang);
     const userMessage = this.buildProgressUserMessage(combinedEvidence, input);
 
-    // Text path — AI 模型管理优先（scene → default），不从 .env 读取模型 key。
-    const selectedModel = await this.resolveSceneModelConfig('progress_summary').catch(() => null);
-    const apiKey = selectedModel?.apiKey ?? null;
-    const provider: AiProvider = selectedModel?.provider ?? 'openai';
-    const model = selectedModel?.model ?? DEFAULT_TEXT_MODEL;
-    const baseUrl = selectedModel?.baseUrl;
     const primaryFilename = files[0]?.originalname;
 
-    if (!apiKey) {
-      return {
-        progress: Math.max(0, input.task.current_progress ?? 0),
-        stage: '资料已上传，AI 未配置，无法自动判断',
-        confidence: 40,
-        basis: ['未在 AI 模型管理中配置可用模型', '当前仅记录文件元信息'],
-        recommendation: '请在 AI 模型管理中配置可用模型，或人工选择进度节点。',
-        provider: 'local',
-        model: 'local-progress-fallback',
-        source,
-        raw_text_length: totalRawLength,
-      };
-    }
-
-    const client = this.createClient(apiKey, provider, baseUrl);
-    let response: OpenAI.Chat.Completions.ChatCompletion;
+    let gatewayResult: { content: string; model: string; provider: AiProvider };
     try {
-      response = await client.chat.completions.create({
-        model,
+      const result = await this.completeTextGateway({
+        scene: 'rd.progress_assessment',
+        legacySceneId: 'progress_summary',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        response_format: { type: 'json_object' },
-        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+        json: true,
       });
+      if (!result) {
+        return {
+          progress: Math.max(0, input.task.current_progress ?? 0),
+          stage: '资料已上传，AI 未配置，无法自动判断',
+          confidence: 40,
+          basis: ['未在 AI 模型管理中配置可用模型', '当前仅记录文件元信息'],
+          recommendation: '请在 AI 模型管理中配置可用模型，或人工选择进度节点。',
+          provider: 'local',
+          model: 'local-progress-fallback',
+          source,
+          raw_text_length: totalRawLength,
+        };
+      }
+      gatewayResult = result;
     } catch (error) {
       if (this.isExternalAiTimeout(error)) {
         const parsed = this.buildTimeoutProgressFallback(input.task, source, totalRawLength);
@@ -2727,24 +2812,30 @@ export class RdAiService {
           combined_evidence: combinedEvidence,
           ai_result: parsed,
           timeout: true,
-          model,
-          provider,
+          model: 'gateway',
+          provider: 'gateway',
           file_count: files.length,
         });
         return parsed;
       }
       throw this.toExternalAiException(error, 'AI 进度判断服务调用失败');
     }
-    const content = response.choices[0]?.message?.content ?? '{}';
+    const content = gatewayResult.content || '{}';
     const parsed = this.parseProgressPayload(content, input.task);
     await this.recordAiArtifact('progress_assessment', source, primaryFilename, filePolicy, {
       combined_evidence: combinedEvidence,
       ai_result: parsed,
-      model,
-      provider,
+      model: gatewayResult.model,
+      provider: gatewayResult.provider,
       file_count: files.length,
     });
-    return { ...parsed, provider, model, source, raw_text_length: totalRawLength };
+    return {
+      ...parsed,
+      provider: gatewayResult.provider,
+      model: gatewayResult.model,
+      source,
+      raw_text_length: totalRawLength,
+    };
   }
 
   /** 从单个文件抽取可读文本（图片走 OCR，文档走 Qwen doc-turbo 抽取，文本直接读）。 */
@@ -2848,38 +2939,31 @@ export class RdAiService {
     const systemPrompt = this.buildProgressSystemPrompt((input.task.work_items?.length ?? 0) > 0, lang);
     const userMessage = this.buildProgressUserMessage(evidenceText, input);
 
-    const selectedModel = await this.resolveSceneModelConfig('progress_summary').catch(() => null);
-    const apiKey = selectedModel?.apiKey ?? null;
-    const provider: AiProvider = selectedModel?.provider ?? 'openai';
-    const model = selectedModel?.model ?? DEFAULT_TEXT_MODEL;
-    const baseUrl = selectedModel?.baseUrl;
-
-    if (!apiKey) {
-      return {
-        progress: Math.max(0, input.task.current_progress ?? 0),
-        stage: '资料已上传，AI 未配置，无法自动判断',
-        confidence: 40,
-        basis: ['未在 AI 模型管理中配置可用模型', '当前仅记录文件元信息'],
-        recommendation: '请在 AI 模型管理中配置可用模型，或人工选择进度节点。',
-        provider: 'local',
-        model: 'local-progress-fallback',
-        source: 'file_ocr',
-        raw_text_length: evidenceText.length,
-      };
-    }
-
-    const client = this.createClient(apiKey, provider, baseUrl);
-    let response: OpenAI.Chat.Completions.ChatCompletion;
+    let gatewayResult: { content: string; model: string; provider: AiProvider };
     try {
-      response = await client.chat.completions.create({
-        model,
+      const result = await this.completeTextGateway({
+        scene: 'rd.progress_assessment',
+        legacySceneId: 'progress_summary',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        response_format: { type: 'json_object' },
-        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+        json: true,
       });
+      if (!result) {
+        return {
+          progress: Math.max(0, input.task.current_progress ?? 0),
+          stage: '资料已上传，AI 未配置，无法自动判断',
+          confidence: 40,
+          basis: ['未在 AI 模型管理中配置可用模型', '当前仅记录文件元信息'],
+          recommendation: '请在 AI 模型管理中配置可用模型，或人工选择进度节点。',
+          provider: 'local',
+          model: 'local-progress-fallback',
+          source: 'file_ocr',
+          raw_text_length: evidenceText.length,
+        };
+      }
+      gatewayResult = result;
     } catch (error) {
       if (this.isExternalAiTimeout(error)) {
         const parsed = this.buildTimeoutProgressFallback(input.task, 'file_ocr', evidenceText.length);
@@ -2887,22 +2971,28 @@ export class RdAiService {
           ocr_text: evidenceText,
           ai_result: parsed,
           timeout: true,
-          model,
-          provider,
+          model: 'gateway',
+          provider: 'gateway',
         });
         return parsed;
       }
       throw this.toExternalAiException(error, 'AI 进度判断服务调用失败');
     }
-    const content = response.choices[0]?.message?.content ?? '{}';
+    const content = gatewayResult.content || '{}';
     const parsed = this.parseProgressPayload(content, input.task);
     await this.recordAiArtifact('progress_assessment', 'file_ocr', file.originalname, filePolicy, {
       ocr_text: evidenceText,
       ai_result: parsed,
-      model,
-      provider,
+      model: gatewayResult.model,
+      provider: gatewayResult.provider,
     });
-    return { ...parsed, provider, model, source: 'file_ocr', raw_text_length: evidenceText.length };
+    return {
+      ...parsed,
+      provider: gatewayResult.provider,
+      model: gatewayResult.model,
+      source: 'file_ocr',
+      raw_text_length: evidenceText.length,
+    };
   }
 
   private async assessProgressViaVision(
@@ -3091,9 +3181,13 @@ export class RdAiService {
 
   private isExternalAiTimeout(error: unknown): boolean {
     const record = error && typeof error === 'object' ? (error as Record<string, unknown>) : {};
+    const response = error instanceof HttpException ? error.getResponse() : null;
+    const responseRecord = response && typeof response === 'object' ? response as Record<string, unknown> : {};
     const name = error instanceof Error ? error.name : String(record.name ?? '');
-    const message = error instanceof Error ? error.message : String(record.message ?? record.error ?? '');
-    const code = String(record.code ?? record.type ?? '').toLowerCase();
+    const message = error instanceof Error
+      ? `${error.message} ${String(responseRecord.message ?? '')}`
+      : String(record.message ?? record.error ?? responseRecord.message ?? '');
+    const code = String(record.code ?? record.type ?? responseRecord.error_code ?? '').toLowerCase();
     const status = Number(record.status ?? record.statusCode);
     const text = `${name} ${message}`.toLowerCase();
     return (
@@ -3286,14 +3380,6 @@ export class RdAiService {
     filenames: string[],
     cats: Array<{ id: string; label: string }>,
   ): Promise<Array<{ filename: string; category_id: string | null; confidence: number; method: 'ai' }>> {
-    const selectedModel = await this.resolveSceneModelConfig('file_task_extract').catch(() => null)
-      ?? await this.resolveDefaultConfiguredModel().catch(() => null)
-      ?? null;
-
-    if (!selectedModel) {
-      return filenames.map((f) => ({ filename: f, category_id: null, confidence: 0, method: 'ai' as const }));
-    }
-
     const catList = cats.map((c) => `  {"id":"${c.id}","label":"${c.label}"}`).join(',\n');
     const fileList = filenames.map((f, i) => `${i + 1}. ${f}`).join('\n');
 
@@ -3304,18 +3390,20 @@ export class RdAiService {
       `请仅返回 JSON，格式：{"results":[{"filename":"...","category_id":"...","confidence":0.0-1.0}]}\n` +
       `无法判断时 category_id 为 null，confidence 为 0。`;
 
-    const client = this.createClient(selectedModel.apiKey, selectedModel.provider, selectedModel.baseUrl);
-
     let raw = '';
     try {
-      const response = await client.chat.completions.create({
-        model: selectedModel.model,
+      const result = await this.completeTextGateway({
+        scene: 'rd.project_structuring',
+        legacySceneId: 'file_task_extract',
         messages: [{ role: 'user', content: prompt }],
+        json: true,
         temperature: 0.1,
-        max_tokens: 800,
-        ...(selectedModel.provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+        maxTokens: 800,
       });
-      raw = response.choices[0]?.message?.content ?? '';
+      if (!result) {
+        return filenames.map((f) => ({ filename: f, category_id: null, confidence: 0, method: 'ai' as const }));
+      }
+      raw = result.content;
     } catch {
       return filenames.map((f) => ({ filename: f, category_id: null, confidence: 0, method: 'ai' as const }));
     }
@@ -3371,13 +3459,6 @@ export class RdAiService {
       blockedReason?: string | null;
     }>;
   }): Promise<{ text: string; model: string; provider: AiProvider } | null> {
-    const selectedModel = await this.resolveSceneModelConfig('daily_report_summary').catch(() => null);
-    if (!selectedModel?.apiKey) return null;
-
-    const provider: AiProvider = selectedModel.provider;
-    const model = selectedModel.model;
-    const baseUrl = selectedModel.baseUrl;
-
     const { userName, date, stats, tasks } = input;
     const systemPrompt =
       '你是一名研发主管的智能助理，负责把某成员当日的全部任务动态汇总成精炼、可读的中文日报。' +
@@ -3441,19 +3522,19 @@ export class RdAiService {
       tasksBlock,
     ].join('\n');
 
-    const client = this.createClient(selectedModel.apiKey, provider, baseUrl);
     try {
-      const response = await client.chat.completions.create({
-        model,
+      const result = await this.completeTextGateway({
+        scene: 'rd.reporting',
+        legacySceneId: 'daily_report_summary',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
       });
-      const text = (response.choices[0]?.message?.content ?? '').trim();
+      if (!result) return null;
+      const text = result.content.trim();
       if (!text) return null;
-      return { text, model, provider };
+      return { text, model: result.model, provider: result.provider };
     } catch (error) {
       // AI 失败不阻塞日报生成，记录后让调用方走本地兜底
       // eslint-disable-next-line no-console
@@ -3482,7 +3563,13 @@ export class RdAiService {
     lang?: 'zh' | 'en';
   }): Promise<{ text: string; model: string; provider: AiProvider } | null> {
     const selectedModel = await this.resolveSceneModelConfig('daily_report_summary').catch(() => null);
-    if (!selectedModel?.apiKey) return null;
+    const fallbackModel = selectedModel
+      ? await this.resolveSceneFallbackModelConfig('daily_report_summary', selectedModel).catch(() => null)
+      : null;
+    const fallbackTargets = [selectedModel, fallbackModel]
+      .filter((target): target is AiModelRuntimeConfig => target !== null);
+    const routing = await this.aiGateway.resolveTargets('rd.task_brief', fallbackTargets);
+    if (routing.targets.length === 0) return null;
 
     const systemPrompt =
       input.lang === 'en'
@@ -3521,19 +3608,19 @@ export class RdAiService {
       notesBlock,
     ].filter((line) => line !== '').join('\n');
 
-    const client = this.createClient(selectedModel.apiKey, selectedModel.provider, selectedModel.baseUrl);
     try {
-      const response = await client.chat.completions.create({
-        model: selectedModel.model,
+      const result = await this.aiGateway.complete({
+        scene: 'rd.task_brief',
+        targets: routing.targets,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        ...(selectedModel.provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+        timeoutMs: routing.timeoutMs ?? this.timeoutMs,
       });
-      const text = (response.choices[0]?.message?.content ?? '').trim();
+      const text = result.content.trim();
       if (!text) return null;
-      return { text, model: selectedModel.model, provider: selectedModel.provider };
+      return { text, model: result.model, provider: this.normalizeProvider(result.provider, result.model) };
     } catch (error) {
       // eslint-disable-next-line no-console
       console.warn('[summarizeTaskBrief] AI call failed:', error instanceof Error ? error.message : error);
@@ -3573,13 +3660,6 @@ export class RdAiService {
       overdue?: boolean;
     }>;
   }): Promise<{ text: string; model: string; provider: AiProvider } | null> {
-    const selectedModel = await this.resolveSceneModelConfig('monthly_report_summary').catch(() => null);
-    if (!selectedModel?.apiKey) return null;
-
-    const provider: AiProvider = selectedModel.provider;
-    const model = selectedModel.model;
-    const baseUrl = selectedModel.baseUrl;
-
     const { userName, monthLabel, stats, tasks } = input;
     const systemPrompt =
       '你是一名研发主管的智能助理，负责把某成员当月的全部任务动态汇总成结构化、可读的中文月报。' +
@@ -3647,19 +3727,19 @@ export class RdAiService {
       tasksBlock,
     ].join('\n');
 
-    const client = this.createClient(selectedModel.apiKey, provider, baseUrl);
     try {
-      const response = await client.chat.completions.create({
-        model,
+      const result = await this.completeTextGateway({
+        scene: 'rd.reporting',
+        legacySceneId: 'monthly_report_summary',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
       });
-      const text = (response.choices[0]?.message?.content ?? '').trim();
+      if (!result) return null;
+      const text = result.content.trim();
       if (!text) return null;
-      return { text, model, provider };
+      return { text, model: result.model, provider: result.provider };
     } catch (error) {
       // eslint-disable-next-line no-console
       console.warn('[summarizeMonthlyReport] AI call failed:', error instanceof Error ? error.message : error);
@@ -3703,13 +3783,6 @@ export class RdAiService {
       overdue?: boolean;
     }>;
   }): Promise<{ text: string; model: string; provider: AiProvider } | null> {
-    const selectedModel = await this.resolveSceneModelConfig('performance_review').catch(() => null);
-    if (!selectedModel?.apiKey) return null;
-
-    const provider: AiProvider = selectedModel.provider;
-    const model = selectedModel.model;
-    const baseUrl = selectedModel.baseUrl;
-
     const { userName, monthLabel, score, grade, metrics, tasks } = input;
     const systemPrompt =
       '你是一名研发主管，正在为团队成员撰写正式的月度绩效考核结论。' +
@@ -3776,19 +3849,19 @@ export class RdAiService {
       tasksBlock,
     ].join('\n');
 
-    const client = this.createClient(selectedModel.apiKey, provider, baseUrl);
     try {
-      const response = await client.chat.completions.create({
-        model,
+      const result = await this.completeTextGateway({
+        scene: 'rd.performance_review',
+        legacySceneId: 'performance_review',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
       });
-      const text = (response.choices[0]?.message?.content ?? '').trim();
+      if (!result) return null;
+      const text = result.content.trim();
       if (!text) return null;
-      return { text, model, provider };
+      return { text, model: result.model, provider: result.provider };
     } catch (error) {
       // eslint-disable-next-line no-console
       console.warn('[assessPerformance] AI call failed:', error instanceof Error ? error.message : error);
@@ -3819,13 +3892,7 @@ export class RdAiService {
       blockedReason?: string | null;
     }>;
   }): Promise<Array<{ name: string; business: string; standard: string }> | null> {
-    const selectedModel = await this.resolveSceneModelConfig('performance_review').catch(() => null);
-    if (!selectedModel?.apiKey) return null;
     if (input.items.length === 0) return null;
-
-    const provider: AiProvider = selectedModel.provider;
-    const model = selectedModel.model;
-    const baseUrl = selectedModel.baseUrl;
 
     const { userName, monthLabel, position, category, items, tasks } = input;
     const groupLabels: Record<string, string> = {
@@ -3900,17 +3967,17 @@ export class RdAiService {
       .filter(Boolean)
       .join('\n');
 
-    const client = this.createClient(selectedModel.apiKey, provider, baseUrl);
     try {
-      const response = await client.chat.completions.create({
-        model,
+      const result = await this.completeTextGateway({
+        scene: 'rd.performance_review',
+        legacySceneId: 'performance_review',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
       });
-      const raw = (response.choices[0]?.message?.content ?? '').trim();
+      if (!result) return null;
+      const raw = result.content.trim();
       if (!raw) return null;
       // 容错：剥离可能的 ```json 代码块围栏，再截取首个 [...] 数组片段解析。
       const stripped = raw.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
@@ -3962,11 +4029,7 @@ export class RdAiService {
       blockedReason?: string | null;
     }>;
   }): Promise<Array<{ name: string; weight: string; business: string; standard: string }> | null> {
-    const selectedModel = await this.resolveSceneModelConfig('performance_review').catch(() => null);
-    if (!selectedModel?.apiKey) return null;
     if (input.tasks.length === 0) return null; // 无任务则回退固定项（避免 AI 凭空编造考核项目）
-
-    const provider: AiProvider = selectedModel.provider;
     const { userName, monthLabel, position, tasks } = input;
     const groupLabels: Record<string, string> = {
       completed: '本月完成',
@@ -4010,17 +4073,17 @@ export class RdAiService {
       .filter(Boolean)
       .join('\n');
 
-    const client = this.createClient(selectedModel.apiKey, provider, selectedModel.baseUrl);
     try {
-      const response = await client.chat.completions.create({
-        model: selectedModel.model,
+      const result = await this.completeTextGateway({
+        scene: 'rd.performance_review',
+        legacySceneId: 'performance_review',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
       });
-      const raw = (response.choices[0]?.message?.content ?? '').trim();
+      if (!result) return null;
+      const raw = result.content.trim();
       if (!raw) return null;
       const stripped = raw.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
       const start = stripped.indexOf('[');
@@ -4066,10 +4129,6 @@ export class RdAiService {
     sourceTitle: string;
     sourceDescription: string;
   }): Promise<string | null> {
-    const selectedModel = await this.resolveSceneModelConfig('progress_summary').catch(() => null);
-    if (!selectedModel?.apiKey) return null;
-    const provider: AiProvider = selectedModel.provider;
-    const client = this.createClient(selectedModel.apiKey, provider, selectedModel.baseUrl);
     const systemPrompt =
       '你在把两条研发任务合并为一条。请综合二者的任务描述，输出一段【合并后的任务描述】：' +
       '保留两边的关键目标、范围与要点，去除重复，条理清晰、客观简洁（150字以内）。只输出描述正文，不要任何前后缀或解释。';
@@ -4081,15 +4140,16 @@ export class RdAiService {
       input.sourceDescription || '（无描述）',
     ].join('\n');
     try {
-      const response = await client.chat.completions.create({
-        model: selectedModel.model,
+      const result = await this.completeTextGateway({
+        scene: 'rd.progress_assessment',
+        legacySceneId: 'progress_summary',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
       });
-      const text = (response.choices[0]?.message?.content ?? '').trim();
+      if (!result) return null;
+      const text = result.content.trim();
       return text || null;
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -4254,35 +4314,25 @@ export class RdAiService {
     const systemPrompt = this.buildCompletionScoreSystemPrompt();
     const userMessage = this.buildCompletionScoreUserMessage(input);
 
-    const selectedModel = await this.resolveSceneModelConfig('progress_summary').catch(() => null);
-    const apiKey = selectedModel?.apiKey ?? null;
-    const provider: AiProvider = selectedModel?.provider ?? 'openai';
-    const model = selectedModel?.model ?? DEFAULT_TEXT_MODEL;
-    const baseUrl = selectedModel?.baseUrl;
-
-    if (!apiKey) {
-      return this.buildFallbackCompletionScore(input, 'ai_not_configured');
-    }
-
     const startedAt = new Date();
     try {
-      const client = this.createClient(apiKey, provider, baseUrl);
-      const response = await client.chat.completions.create({
-        model,
+      const result = await this.completeTextGateway({
+        scene: 'rd.progress_assessment',
+        legacySceneId: 'progress_summary',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        response_format: { type: 'json_object' },
-        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+        json: true,
       });
+      if (!result) return this.buildFallbackCompletionScore(input, 'ai_not_configured');
       const finishedAt = new Date();
-      const content = response.choices[0]?.message?.content ?? '{}';
+      const content = result.content || '{}';
       const parsed = this.parseCompletionScorePayload(content);
       return {
         ...parsed,
-        provider,
-        model,
+        provider: result.provider,
+        model: result.model,
         computed_at: finishedAt.toISOString(),
         _debug: {
           system_prompt: systemPrompt,

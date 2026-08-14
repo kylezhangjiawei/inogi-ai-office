@@ -260,6 +260,7 @@ export class MaterialClassifyService {
     // 编码可能为空，用行号做回挂键更稳
     const lines = batch.map((m, idx) => `${idx + 1}. 编码:${m.erpCode || '无'} 名称:${m.name}${m.spec ? ` 规格:${m.spec}` : ''}`);
     const result = await this.chatService.complete({
+      scene: 'procurement.material_intelligence',
       system: [
         '你是制造业物料分类助手。把每个物料归入候选分类之一，只在确实无一适配时才允许给出新分类名（简短、中文）。',
         `候选分类：${vocabulary.join('、')}`,

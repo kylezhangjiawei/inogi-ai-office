@@ -1,7 +1,7 @@
 import { createServer } from "node:net";
 
 export function resolveDevApiPort(env = process.env) {
-  const raw = env.INOGI_DEV_API_PORT ?? "3001";
+  const raw = env.INOGI_DEV_API_PORT ?? "3011";
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new TypeError(`Invalid INOGI_DEV_API_PORT: ${raw}`);

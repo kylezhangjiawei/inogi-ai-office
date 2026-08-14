@@ -2,6 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI, { toFile } from 'openai';
 
+import {
+  isAliyunOpenAiEndpoint,
+  usesDeepSeekChatCompletions,
+} from '../ai-gateway/openai-endpoint-policy';
+import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { InterviewQaItem, ScreeningResult, CandidateProfile } from './resume-screening.types';
 
 const SCREENING_SCHEMA_DESC =
@@ -83,7 +89,10 @@ export class OpenAiScreeningService {
   private readonly envDashscopeBaseUrl: string | null;
   private readonly timeoutMs: number;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly aiGateway: AiGatewayService,
+  ) {
     this.envApiKey = this.configService.get<string>('OPENAI_API_KEY') ?? null;
     this.envModel = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-4.1-mini';
     this.envBaseUrl = this.normalizeBaseUrl(this.configService.get<string>('OPENAI_BASE_URL') ?? null);
@@ -125,7 +134,7 @@ export class OpenAiScreeningService {
     };
 
     const startedAt = Date.now();
-    const { content: rawOutput, usage } = await this.callCompletionApi(
+    const { content: rawOutput, usage, modelName } = await this.callCompletionApi(
       client,
       {
         model,
@@ -139,6 +148,7 @@ export class OpenAiScreeningService {
         jsonMode: true,
       },
       provider,
+      this.toGatewayTarget(apiKey, model, overrideBaseUrl, provider),
     );
 
     const parsed = JSON.parse(rawOutput || '{}') as { name: string; jd_text: string };
@@ -146,7 +156,7 @@ export class OpenAiScreeningService {
       result: parsed,
       requestPayload: payload,
       responsePayload: { raw_output: rawOutput },
-      modelName: model,
+      modelName,
       durationMs: Date.now() - startedAt,
       usage,
     };
@@ -185,8 +195,9 @@ export class OpenAiScreeningService {
     const startedAt = Date.now();
     let rawOutput: string;
     let usage: ReturnType<typeof this.extractUsage>;
+    let usedModel = model;
     try {
-      ({ content: rawOutput, usage } = await this.callCompletionApi(
+      ({ content: rawOutput, usage, modelName: usedModel } = await this.callCompletionApi(
         client,
         {
           model,
@@ -200,6 +211,7 @@ export class OpenAiScreeningService {
           jsonMode: true,
         },
         provider,
+        this.toGatewayTarget(apiKey, model, overrideBaseUrl, provider),
       ));
     } catch (err) {
       this.logger.error(`[evaluateCandidate] API call failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -212,7 +224,7 @@ export class OpenAiScreeningService {
       result: parsed,
       requestPayload: payload,
       responsePayload: { raw_output: rawOutput, structured_output: parsed },
-      modelName: model,
+      modelName: usedModel,
       durationMs: Date.now() - startedAt,
       usage,
     };
@@ -242,7 +254,7 @@ export class OpenAiScreeningService {
     };
 
     const startedAt = Date.now();
-    const { content: rawOutput, usage } = await this.callCompletionApi(
+    const { content: rawOutput, usage, modelName } = await this.callCompletionApi(
       client,
       {
         model,
@@ -256,6 +268,7 @@ export class OpenAiScreeningService {
         jsonMode: true,
       },
       provider,
+      this.toGatewayTarget(apiKey, model, overrideBaseUrl, provider),
     );
     const parsed = JSON.parse(rawOutput || '{}') as { interview_qa?: InterviewQaItem[] };
 
@@ -265,7 +278,7 @@ export class OpenAiScreeningService {
       },
       requestPayload: payload,
       responsePayload: { raw_output: rawOutput, structured_output: parsed },
-      modelName: model,
+      modelName,
       durationMs: Date.now() - startedAt,
       usage,
     };
@@ -301,7 +314,7 @@ export class OpenAiScreeningService {
     };
 
     const startedAt = Date.now();
-    const { content: rawOutput, usage } = await this.callCompletionApi(
+    const { content: rawOutput, usage, modelName } = await this.callCompletionApi(
       client,
       {
         model,
@@ -315,6 +328,7 @@ export class OpenAiScreeningService {
         jsonMode: true,
       },
       provider,
+      this.toGatewayTarget(apiKey, model, overrideBaseUrl, provider),
     );
     const parsed = this.parseJsonObject<{
       answer?: string;
@@ -338,7 +352,7 @@ export class OpenAiScreeningService {
       },
       requestPayload: payload,
       responsePayload: { raw_output: rawOutput, structured_output: parsed },
-      modelName: model,
+      modelName,
       durationMs: Date.now() - startedAt,
       usage,
     };
@@ -371,7 +385,7 @@ export class OpenAiScreeningService {
     };
 
     const startedAt = Date.now();
-    const { content: rawOutput, usage } = await this.callCompletionApi(
+    const { content: rawOutput, usage, modelName } = await this.callCompletionApi(
       client,
       {
         model,
@@ -392,6 +406,7 @@ export class OpenAiScreeningService {
         jsonMode: true,
       },
       provider,
+      this.toGatewayTarget(apiKey, model, overrideBaseUrl, provider),
     );
 
     const parsed = this.parseJsonObject<{
@@ -426,7 +441,7 @@ export class OpenAiScreeningService {
       },
       requestPayload: payload,
       responsePayload: { raw_output: rawOutput, structured_output: parsed },
-      modelName: model,
+      modelName,
       durationMs: Date.now() - startedAt,
       usage,
     };
@@ -471,8 +486,9 @@ export class OpenAiScreeningService {
     const startedAt = Date.now();
     let rawOutput: string;
     let usage: ReturnType<typeof this.extractUsage>;
+    let usedModel = model;
     try {
-      ({ content: rawOutput, usage } = await this.callCompletionApi(
+      ({ content: rawOutput, usage, modelName: usedModel } = await this.callCompletionApi(
         client,
         {
           model,
@@ -492,6 +508,7 @@ export class OpenAiScreeningService {
           jsonMode: true,
         },
         provider,
+        this.toGatewayTarget(apiKey, model, overrideBaseUrl, provider),
       ));
     } catch (err) {
       this.logger.error(`[screenResumeFromText] API call failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -578,7 +595,7 @@ export class OpenAiScreeningService {
       screening_result: screeningResult,
       requestPayload: payload,
       responsePayload: { raw_output: rawOutput!, structured_output: parsed },
-      modelName: model,
+      modelName: usedModel,
       durationMs: Date.now() - startedAt,
       usage: usage!,
     };
@@ -802,6 +819,115 @@ export class OpenAiScreeningService {
   }
 
   /**
+   * 对 DashScope 原生协议模型做不计费的连通性探测。
+   *
+   * 图片、视频、语音模型不支持 OpenAI compatible-mode。这里向对应的
+   * 原生端点发送一个刻意缺少必填生成参数的请求：供应商返回参数校验错误
+   * 即说明域名、鉴权、协议路由均已连通；鉴权、模型不支持、路径不存在等
+   * 错误仍按失败返回。这样“全部测试”不会意外生成付费内容。
+   */
+  async testDashScopeNativeConnection(
+    usageKind: 'image' | 'video' | 'audio',
+    overrideApiKey?: string,
+    overrideModel?: string,
+    overrideBaseUrl?: string,
+    provider?: string,
+  ) {
+    const apiKey = this.resolveApiKey(provider, overrideApiKey);
+    if (!apiKey) {
+      throw new Error('DashScope API Key 未配置');
+    }
+
+    const model = overrideModel?.trim();
+    if (!model) {
+      throw new Error('模型标识不能为空');
+    }
+
+    const configuredBaseUrl = this.resolveBaseUrl(provider, overrideBaseUrl);
+    if (!configuredBaseUrl || !isAliyunOpenAiEndpoint(configuredBaseUrl)) {
+      throw new Error(`${usageKind} 模型需要配置阿里云百炼原生协议地址`);
+    }
+
+    const origin = new URL(configuredBaseUrl).origin;
+    const isRealtimeAudio = usageKind === 'audio' && /realtime/i.test(model);
+    const url = usageKind === 'image'
+      ? `${origin}/api/v1/services/aigc/multimodal-generation/generation`
+      : usageKind === 'video'
+        ? `${origin}/api/v1/services/aigc/video-generation/video-synthesis`
+        : isRealtimeAudio
+          ? `${origin}/api-ws/v1/realtime?model=${encodeURIComponent(model)}`
+          : `${origin}/api/v1/services/audio/tts/SpeechSynthesizer`;
+
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.min(this.timeoutMs, 30_000));
+    try {
+      const response = await fetch(url, {
+        method: isRealtimeAudio ? 'GET' : 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          ...(usageKind === 'video' ? { 'X-DashScope-Async': 'enable' } : {}),
+        },
+        ...(isRealtimeAudio ? {} : {
+          body: JSON.stringify(
+            usageKind === 'image'
+              ? { model, input: { messages: [] }, parameters: { n: 0 } }
+              : usageKind === 'video'
+                ? { model, input: {} }
+                : { model, input: {} },
+          ),
+        }),
+        signal: controller.signal,
+      });
+      const rawBody = await response.text();
+      let body: Record<string, unknown> = {};
+      try {
+        body = rawBody ? JSON.parse(rawBody) as Record<string, unknown> : {};
+      } catch {
+        body = {};
+      }
+      const upstreamMessage = [body.message, body.code, rawBody]
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .join(' · ')
+        .slice(0, 600);
+
+      const isAuthenticationFailure = response.status === 401
+        || response.status === 403
+        || /unauthori[sz]ed|forbidden|access.?denied|invalid.*(?:key|token)|token.*expired/i.test(upstreamMessage);
+      const isUnsupportedModel = /unsupported model|model.+(?:not found|does not exist|not support)/i.test(upstreamMessage);
+      const isMissingEndpoint = response.status === 404 || /request path not found|endpoint.+not found/i.test(upstreamMessage);
+      const isExpectedTtsProbeRejection = usageKind === 'audio'
+        && !isRealtimeAudio
+        && response.status === 500
+        && /InternalError\.Algo|ret=415/i.test(upstreamMessage);
+      const isExpectedProbeRejection = response.status === 400
+        || response.status === 405
+        || response.status === 426
+        || isExpectedTtsProbeRejection;
+
+      if (!response.ok && (isAuthenticationFailure || isUnsupportedModel || isMissingEndpoint || !isExpectedProbeRejection)) {
+        throw new Error(upstreamMessage || `DashScope 原生接口返回 HTTP ${response.status}`);
+      }
+
+      return {
+        modelName: model,
+        baseUrl: url,
+        durationMs: Date.now() - startedAt,
+        outputText: `${usageKind} 原生接口可达（不计费参数探测，未发起内容生成）`,
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('DashScope 原生接口连通性测试超时');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
    * Unified completion call.
    * - Responses API: OpenAI models + Qwen text models (e.g. qwen3.6-plus)
    * - Chat Completions API: Qwen doc models (e.g. qwen-doc-turbo) that don't support Responses API
@@ -815,9 +941,35 @@ export class OpenAiScreeningService {
       maxTokens?: number;
     },
     provider?: string,
-  ): Promise<{ content: string; usage: ReturnType<typeof this.extractUsage> }> {
+    fallbackTarget?: AiGatewayTarget,
+  ): Promise<{ content: string; usage: ReturnType<typeof this.extractUsage>; modelName: string }> {
+    if (fallbackTarget) {
+      const routing = await this.aiGateway.resolveTargets('hr.resume_screening', [fallbackTarget]);
+      const result = await this.aiGateway.complete({
+        scene: 'hr.resume_screening',
+        targets: routing.targets,
+        messages: params.messages,
+        ...(params.jsonMode ? { responseFormat: { type: 'json_object' } as const } : {}),
+        retryWithoutResponseFormat: Boolean(params.jsonMode),
+        ...(params.maxTokens ? { maxTokens: params.maxTokens } : {}),
+        timeoutMs: routing.timeoutMs ?? this.timeoutMs,
+      });
+      return {
+        content: result.content,
+        usage: {
+          inputTokens: result.usage.promptTokens,
+          outputTokens: result.usage.completionTokens,
+          totalTokens: result.usage.totalTokens,
+        },
+        modelName: result.model,
+      };
+    }
+
     // qwen-doc-turbo and similar doc models only support Chat Completions
-    if (this.isQwenProvider(provider) && this.isDocModel(params.model)) {
+    if (
+      (this.isQwenProvider(provider) && this.isDocModel(params.model)) ||
+      usesDeepSeekChatCompletions(provider, params.model)
+    ) {
       const chatParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
         model: params.model,
         messages: params.messages,
@@ -828,6 +980,7 @@ export class OpenAiScreeningService {
       return {
         content: response.choices[0].message.content ?? '',
         usage: this.extractUsage(response),
+        modelName: params.model,
       };
     }
 
@@ -859,13 +1012,31 @@ export class OpenAiScreeningService {
     return {
       content: response.output_text ?? '',
       usage: this.extractUsage(response as Parameters<typeof this.extractUsage>[0]),
+      modelName: params.model,
+    };
+  }
+
+  private toGatewayTarget(
+    apiKey: string,
+    model: string,
+    overrideBaseUrl?: string,
+    provider?: string,
+  ): AiGatewayTarget {
+    return {
+      provider: provider?.trim() || (this.isQwenProvider(provider) ? 'qwen' : 'openai'),
+      model,
+      apiKey,
+      baseUrl: this.resolveBaseUrl(provider, overrideBaseUrl) ?? undefined,
     };
   }
 
   private createClient(apiKey: string, overrideBaseUrl?: string, provider?: string) {
     const baseURL = this.resolveBaseUrl(provider, overrideBaseUrl);
-    // 代理仅对 OpenAI 生效，Qwen/阿里云等国内服务不走代理
-    const fetch = this.isQwenProvider(provider) ? undefined : this.buildProxyFetch();
+    // Proxy routing follows the actual endpoint host. Models from other brands can still be hosted by Alibaba Cloud.
+    const fetch =
+      this.isQwenProvider(provider) || isAliyunOpenAiEndpoint(baseURL)
+        ? undefined
+        : this.buildProxyFetch();
 
     return new OpenAI({
       apiKey,

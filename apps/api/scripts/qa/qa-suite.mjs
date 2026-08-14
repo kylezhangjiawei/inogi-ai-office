@@ -17,9 +17,9 @@ const envVal = (k) => env.match(new RegExp(`^${k}\\s*=\\s*"?([^"\\r\\n]+)"?`, "m
 process.env.DATABASE_URL = envVal("DATABASE_URL");
 const JWT_SECRET = envVal("JWT_SECRET");
 if (!JWT_SECRET) throw new Error("apps/api/.env 中未配置 JWT_SECRET");
-// 与 scripts/dev-all.mjs 的默认 API 端口保持一致，避免误连本机其他项目的 3000 服务。
+// 与 scripts/dev-all.mjs 的默认 API 端口保持一致，避开并行运行的 Intellifai 3001 服务。
 // CI/预发布环境可通过 QA_BASE_URL 显式覆盖。
-const BASE = (process.env.QA_BASE_URL || "http://127.0.0.1:3001/api").replace(/\/$/, "");
+const BASE = (process.env.QA_BASE_URL || "http://127.0.0.1:3011/api").replace(/\/$/, "");
 const prisma = new PrismaClient();
 
 let USER_ID = "";

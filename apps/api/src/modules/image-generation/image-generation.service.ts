@@ -9,6 +9,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { OssService } from '../oss/oss.service';
 import { AiUsageService } from '../ai-usage/ai-usage.service';
+import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { EditImageDto } from './dto/edit-image.dto';
 import { GenerateImageDto } from './dto/generate-image.dto';
 import { CreatePromptChatSessionDto, PromptChatDto } from './dto/prompt-chat.dto';
@@ -44,6 +46,8 @@ type OpenAiRuntime = {
 
 type PromptChatRuntime = OpenAiRuntime & {
   provider?: string | null;
+  targets: AiGatewayTarget[];
+  timeoutMs?: number;
 };
 
 type ImageQuality = 'auto' | 'low' | 'medium' | 'high' | 'standard' | 'hd';
@@ -132,6 +136,7 @@ export class ImageGenerationService {
     private readonly secureConfigService: SecureConfigService,
     private readonly ossService: OssService,
     private readonly aiUsageService: AiUsageService,
+    private readonly aiGateway: AiGatewayService,
   ) {}
 
   // ── 生成图片（优先命中缓存）────────────────────────────────────────────────
@@ -463,16 +468,11 @@ export class ImageGenerationService {
         take: 40,
       });
       const requestId = randomUUID();
-      const { apiKey, baseUrl, model } = await this.resolvePromptChatCredentials(dto.model_id, dto.model);
-      if (!apiKey) {
+      const runtime = await this.resolvePromptChatCredentials(dto.model_id, dto.model);
+      if (runtime.targets.length === 0) {
         throw new BadRequestException('未配置可用的文本 AI 模型，请在 AI 模型管理中添加 OpenAI 兼容模型');
       }
-
-      const client = new OpenAI({
-        apiKey,
-        ...(baseUrl ? { baseURL: baseUrl } : {}),
-        defaultHeaders: { 'X-Inogi-Prompt-Chat-Request-Id': requestId },
-      });
+      let model = runtime.model;
       const persistedHistory = storedHistory.map((item) => ({
         role: item.role === 'assistant' ? 'assistant' as const : 'user' as const,
         content: item.optimizedPrompt ? `${item.content}\nOptimized prompt:\n${item.optimizedPrompt}` : item.content,
@@ -499,10 +499,14 @@ export class ImageGenerationService {
         },
       });
 
-      const response = await client.chat.completions.create({
-        model,
+      const response = await this.aiGateway.complete({
+        requestId,
+        scene: 'image.prompt_optimization',
+        targets: runtime.targets,
         temperature: 0.35,
-        response_format: { type: 'json_object' },
+        responseFormat: { type: 'json_object' },
+        retryWithoutResponseFormat: true,
+        timeoutMs: runtime.timeoutMs ?? 60_000,
         messages: [
           {
             role: 'system',
@@ -523,7 +527,8 @@ export class ImageGenerationService {
         ],
       });
 
-      const content = response.choices[0]?.message?.content ?? '';
+      model = response.model;
+      const content = response.content;
       const parsed = this.parsePromptChatResponse(content, currentPrompt);
       const assistantMessage = await this.prisma.imagePromptChatMessage.create({
         data: {
@@ -1978,7 +1983,9 @@ export class ImageGenerationService {
         where: { id: modelId.trim(), kind: 'openai', isActive: true },
       });
       if (config && this.configIsChatUsable(config)) {
-        return this.buildOpenAiRuntime(config, config.model || requested || DEFAULT_PROMPT_CHAT_MODEL);
+        return this.resolvePromptChatRoute(
+          this.toPromptChatTarget(config, config.model || requested || DEFAULT_PROMPT_CHAT_MODEL),
+        );
       }
     }
 
@@ -1996,13 +2003,44 @@ export class ImageGenerationService {
       textConfigs[0];
 
     if (config) {
-      return this.buildOpenAiRuntime(config, config.model || requested || DEFAULT_PROMPT_CHAT_MODEL);
+      return this.resolvePromptChatRoute(
+        this.toPromptChatTarget(config, config.model || requested || DEFAULT_PROMPT_CHAT_MODEL),
+      );
     }
 
     const envKey = this.config.get<string>('OPENAI_API_KEY') ?? '';
     const envBase = this.config.get<string>('OPENAI_BASE_URL')?.trim().replace(/\/$/, '') || undefined;
     const envModel = this.config.get<string>('OPENAI_MODEL')?.trim() || DEFAULT_PROMPT_CHAT_MODEL;
-    return { apiKey: envKey, baseUrl: envBase, model: requested && !this.isImageOnlyModel(requested) ? requested : envModel };
+    const model = requested && !this.isImageOnlyModel(requested) ? requested : envModel;
+    return this.resolvePromptChatRoute({ provider: 'openai', apiKey: envKey, baseUrl: envBase, model });
+  }
+
+  private async resolvePromptChatRoute(fallback: AiGatewayTarget): Promise<PromptChatRuntime> {
+    const routing = await this.aiGateway.resolveTargets(
+      'image.prompt_optimization',
+      fallback.apiKey ? [fallback] : [],
+    );
+    const primary = routing.targets[0];
+    return {
+      apiKey: primary?.apiKey ?? '',
+      baseUrl: primary?.baseUrl,
+      model: primary?.model ?? fallback.model,
+      provider: primary?.provider ?? fallback.provider,
+      targets: routing.targets,
+      timeoutMs: routing.timeoutMs,
+    };
+  }
+
+  private toPromptChatTarget(config: IntegrationConfig, model: string): AiGatewayTarget {
+    const runtime = this.buildOpenAiRuntime(config, model);
+    return {
+      id: config.id,
+      connectionId: config.id,
+      provider: config.provider?.trim() || 'openai',
+      model: runtime.model,
+      apiKey: runtime.apiKey,
+      baseUrl: runtime.baseUrl,
+    };
   }
 
   private buildOpenAiRuntime(config: IntegrationConfig, model: string): OpenAiRuntime {

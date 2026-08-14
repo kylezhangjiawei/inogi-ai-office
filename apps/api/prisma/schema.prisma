@@ -610,17 +610,94 @@ model CandidateScreening {
 }
 
 model IntegrationConfig {
-  id                String   @id @default(cuid())
-  kind              String // mail | openai | sync_schedule
-  name              String
-  accountIdentifier String?
-  provider          String?
-  model             String?
-  encryptedSecret   String
-  metadata          Json     @default("{}")
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                    String                 @id @default(cuid())
+  kind                  String // mail | openai | sync_schedule
+  name                  String
+  accountIdentifier     String?
+  provider              String?
+  model                 String?
+  encryptedSecret       String
+  metadata              Json                   @default("{}")
+  isActive              Boolean                @default(true)
+  aiGatewayRouteTargets AiGatewayRouteTarget[]
+  aiGatewayAttempts     AiGatewayAttempt[]
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+}
+
+model AiGatewayRoute {
+  id               String                 @id @default(cuid())
+  scene            String                 @unique @db.VarChar(100)
+  name             String                 @db.VarChar(100)
+  enabled          Boolean                @default(true)
+  timeoutMs        Int                    @default(120000)
+  strategy         String                 @default("priority") @db.VarChar(30)
+  failureThreshold Int                    @default(3)
+  cooldownMs       Int                    @default(60000)
+  targets          AiGatewayRouteTarget[]
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+}
+
+model AiGatewayRouteTarget {
+  id           String            @id @default(cuid())
+  routeId      String
+  route        AiGatewayRoute    @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  connectionId String
+  connection   IntegrationConfig @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  priority     Int               @default(0)
+  weight       Int               @default(100)
+  enabled      Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@unique([routeId, connectionId])
+  @@index([routeId, enabled, priority])
+  @@index([connectionId])
+}
+
+model AiGatewayRequest {
+  id               String             @id
+  scene            String             @db.VarChar(100)
+  status           String             @db.VarChar(20)
+  provider         String?            @db.VarChar(60)
+  model            String?            @db.VarChar(120)
+  latencyMs        Int
+  attemptCount     Int
+  fallbackUsed     Boolean            @default(false)
+  promptTokens     Int                @default(0)
+  completionTokens Int                @default(0)
+  totalTokens      Int                @default(0)
+  errorCode        String?            @db.VarChar(100)
+  errorMessage     String?            @db.VarChar(500)
+  attempts         AiGatewayAttempt[]
+  createdAt        DateTime           @default(now())
+
+  @@index([createdAt])
+  @@index([scene, createdAt])
+  @@index([status, createdAt])
+  @@index([provider, createdAt])
+}
+
+model AiGatewayAttempt {
+  id           String             @id @default(cuid())
+  requestId    String
+  request      AiGatewayRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  connectionId String?
+  connection   IntegrationConfig? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  sequence     Int
+  targetKey    String             @db.VarChar(240)
+  provider     String             @db.VarChar(60)
+  model        String             @db.VarChar(120)
+  status       String             @db.VarChar(20)
+  latencyMs    Int
+  errorCode    String?            @db.VarChar(100)
+  errorMessage String?            @db.VarChar(500)
+  createdAt    DateTime           @default(now())
+
+  @@unique([requestId, sequence])
+  @@index([connectionId, createdAt])
+  @@index([status, createdAt])
 }
 
 model GeneratedImage {

@@ -45,7 +45,7 @@ export interface AiModelItem {
     tokens: number;
   }>;
   is_default_enabled: boolean;
-  /** 显式用途类型：text | multimodal | image | auto（auto 表示按模型名称自动推断） */
+  /** 显式用途类型：text | multimodal | image | embedding | document | video | audio | auto */
   usage_kind: string;
   created_at: string;
   updated_at: string;
@@ -69,7 +69,7 @@ export interface SaveAiModelPayload {
   today_requests?: number;
   today_tokens?: number;
   is_default_enabled: boolean;
-  /** 显式用途类型：text | multimodal | image | auto */
+  /** 显式用途类型：text | multimodal | image | embedding | document | video | audio | auto */
   usage_kind?: string;
 }
 
@@ -78,6 +78,7 @@ export interface TestAiModelConnectionPayload {
   provider?: string;
   model: string;
   base_url?: string;
+  usage_kind?: string;
   api_key?: string;
 }
 
@@ -89,6 +90,166 @@ export interface TestAiModelConnectionResult {
   duration_ms?: number;
   output_text?: string;
   total_tokens?: number | null;
+}
+
+export type AiGatewayRange = "today" | "month" | "year";
+export type AiGatewayStrategy = "priority" | "round_robin" | "weighted" | "lowest_latency";
+
+export interface AiGatewayRouteTarget {
+  id: string;
+  connection_id: string;
+  connection_name: string;
+  provider: string;
+  model: string;
+  priority: number;
+  weight: number;
+  enabled: boolean;
+  connection_enabled: boolean;
+}
+
+export interface AiGatewayRoute {
+  id: string;
+  scene: string;
+  name: string;
+  enabled: boolean;
+  timeout_ms: number;
+  strategy: AiGatewayStrategy;
+  failure_threshold: number;
+  cooldown_ms: number;
+  targets: AiGatewayRouteTarget[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AiGatewayOverviewGroup {
+  requests: number;
+  success_rate: number;
+  average_latency_ms: number;
+}
+
+export interface AiGatewayConnectionOverview {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  enabled: boolean;
+  usage_kind: string;
+  status: "healthy" | "warning" | "error" | "idle" | "disabled" | "circuit_open";
+  requests: number;
+  successful_requests: number;
+  failed_requests: number;
+  circuit_skips: number;
+  success_rate: number;
+  average_latency_ms: number;
+  last_latency_ms: number | null;
+  last_called_at: string | null;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  open_circuits: number;
+  last_error_code: string | null;
+  last_error_message: string | null;
+}
+
+export interface AiGatewayOverview {
+  range: AiGatewayRange;
+  totals: {
+    requests: number;
+    failed_requests: number;
+    success_rate: number;
+    fallback_rate: number;
+    average_latency_ms: number;
+    total_tokens: number;
+    circuit_skips: number;
+  };
+  by_scene: Array<AiGatewayOverviewGroup & { scene: string }>;
+  by_provider: Array<AiGatewayOverviewGroup & {
+    provider: string;
+    model: string;
+    total_tokens: number;
+  }>;
+  by_error: Array<{ error_code: string; requests: number }>;
+  /** 包含所有已配置连接，即使统计区间内尚未被调用。 */
+  connections: AiGatewayConnectionOverview[];
+  diagnostics: {
+    summary: {
+      critical: number;
+      warning: number;
+      healthy: number;
+      idle: number;
+    };
+    scenes: Array<{
+      scene: string;
+      name: string;
+      status: "critical" | "warning" | "healthy" | "idle";
+      requests: number;
+      failed_requests: number;
+      success_rate: number;
+      fallback_rate: number;
+      average_latency_ms: number;
+      circuit_skips: number;
+      open_circuits: number;
+      reasons: string[];
+    }>;
+  };
+  trend: Array<{
+    date: string;
+    requests: number;
+    success_rate: number;
+    fallback_rate: number;
+    total_tokens: number;
+    average_latency_ms: number;
+  }>;
+}
+
+export interface AiGatewayCircuit {
+  scene: string;
+  targetKey: string;
+  connectionId?: string;
+  provider: string;
+  model: string;
+  consecutiveFailures: number;
+  state: "closed" | "open";
+  openUntil?: string;
+  lastFailureAt: string;
+}
+
+export interface AiGatewayRequestAttempt {
+  sequence: number;
+  connection_id: string | null;
+  provider: string;
+  model: string;
+  status: "success" | "failed" | "circuit_open";
+  latency_ms: number;
+  error_code: string | null;
+  error_message: string | null;
+}
+
+export interface AiGatewayRequestItem {
+  id: string;
+  scene: string;
+  status: "success" | "failed";
+  provider: string | null;
+  model: string | null;
+  latency_ms: number;
+  attempt_count: number;
+  fallback_used: boolean;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  attempts: AiGatewayRequestAttempt[];
+}
+
+export interface AiGatewayRequestPage {
+  items: AiGatewayRequestItem[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total: number;
+    total_pages: number;
+  };
 }
 
 export interface OcrSupportedAction {
@@ -324,6 +485,7 @@ export const integrationManagementApi = {
         provider: payload.provider,
         model: payload.model,
         base_url: payload.base_url,
+        usage_kind: payload.usage_kind,
         ...secretPayload,
       });
 
@@ -352,6 +514,53 @@ export const integrationManagementApi = {
     return request<{ id: string }>(`/api/integration-management/ai-models/${modelId}`, {
       method: "DELETE",
     });
+  },
+  listAiGatewayRoutes() {
+    return request<{ items: AiGatewayRoute[] }>("/api/ai-gateway/routes");
+  },
+  saveAiGatewayRoute(payload: {
+    scene: string;
+    name: string;
+    enabled: boolean;
+    timeout_ms: number;
+    strategy: AiGatewayStrategy;
+    failure_threshold: number;
+    cooldown_ms: number;
+    connection_ids: string[];
+    target_weights: number[];
+  }) {
+    return request<{ id: string; scene: string; updated_at: string }>("/api/ai-gateway/routes", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+  getAiGatewayOverview(range: AiGatewayRange) {
+    return request<AiGatewayOverview>(`/api/ai-gateway/overview?range=${range}`);
+  },
+  listAiGatewayCircuits() {
+    return request<{ items: AiGatewayCircuit[] }>("/api/ai-gateway/circuits");
+  },
+  resetAiGatewayCircuits(payload: { scene?: string; target_key?: string }) {
+    return request<{ reset: number }>("/api/ai-gateway/circuits/reset", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  listAiGatewayRequests(params: {
+    scene?: string;
+    status?: "success" | "failed" | "";
+    connectionId?: string;
+    page: number;
+    pageSize: number;
+  }) {
+    const search = new URLSearchParams({
+      page: String(params.page),
+      page_size: String(params.pageSize),
+    });
+    if (params.scene?.trim()) search.set("scene", params.scene.trim());
+    if (params.status) search.set("status", params.status);
+    if (params.connectionId?.trim()) search.set("connection_id", params.connectionId.trim());
+    return request<AiGatewayRequestPage>(`/api/ai-gateway/requests?${search.toString()}`);
   },
   getOcrConfig() {
     return request<OcrConfigItem>("/api/integration-management/ocr-config");

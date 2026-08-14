@@ -477,6 +477,7 @@ export class ChatStreakService {
     ].join('\n');
 
     const result = await this.chatService.complete({
+      scene: 'chat.daily_motivation',
       system,
       messages: [{ role: 'user', content: state }],
       temperature: 1,

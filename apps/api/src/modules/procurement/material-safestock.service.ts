@@ -203,6 +203,7 @@ export class MaterialSafeStockService {
   private async judgeStockedWithAi(batch: Candidate[]) {
     const lines = batch.map((c, idx) => `${idx + 1}. ${c.erpCode || '无编码'} ${c.name}`);
     const result = await this.chatService.complete({
+      scene: 'procurement.material_intelligence',
       system: [
         '你是制造业库存管理助手。判断每个物料是否属于「常备物料」（应设安全库存、会持续复购），',
         '还是「一次性采购」（样品、定制件、开模费、单次项目物料等，不应设安全库存）。',

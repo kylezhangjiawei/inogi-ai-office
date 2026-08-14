@@ -231,6 +231,7 @@ export class I18nService {
   /** 第一轮：带术语基准与 UI 语境的批量初翻，输出 JSON 字典 */
   private async translateBatch(keys: string[], glossary: string): Promise<Record<string, string>> {
     const result = await this.chatService.complete({
+      scene: 'i18n.translation',
       system: [
         '你是企业办公系统的 UI 本地化译者，把中文界面文案翻译成简洁地道的英文。',
         '规则：',
@@ -255,6 +256,7 @@ export class I18nService {
     glossary: string,
   ): Promise<Record<string, string>> {
     const result = await this.chatService.complete({
+      scene: 'i18n.translation',
       system: [
         'You are a senior UX writer for an English-first SaaS product.',
         'Review the machine-translated UI strings below. Fix: terminology inconsistency (must follow the glossary), unnatural phrasing, button labels longer than 3 words, and any lost {placeholder} tokens.',
@@ -290,6 +292,7 @@ export class I18nService {
     if (hit?.en) return { text: hit.en, cached: true };
 
     const result = await this.chatService.complete({
+      scene: 'i18n.translation',
       system:
         'You are a professional translator for an enterprise collaboration tool. Translate the user-generated content below from Chinese to natural English. ' +
         'Preserve line breaks, numbers, file names, person names and technical identifiers as-is. Output ONLY the translation, no preamble.',

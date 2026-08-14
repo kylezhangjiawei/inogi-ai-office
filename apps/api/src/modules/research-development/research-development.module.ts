@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AiGatewayModule } from '../ai-gateway/ai-gateway.module';
 import { OcrModule } from '../ocr/ocr.module';
 import { RagModule } from '../rag/rag.module';
 import { DeptKbGuard } from './dept-kb.guard';
@@ -13,7 +14,7 @@ import { ResearchDevelopmentController } from './research-development.controller
 import { ResearchDevelopmentService } from './research-development.service';
 
 @Module({
-  imports: [OcrModule, RagModule],
+  imports: [AiGatewayModule, OcrModule, RagModule],
   controllers: [ResearchDevelopmentController, DeptKnowledgeController, RdAiController],
   providers: [
     ResearchDevelopmentService,

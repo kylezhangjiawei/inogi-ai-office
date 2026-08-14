@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import OpenAI from 'openai';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { SecureConfigService } from '../security/secure-config.service';
 
 /** 传给 AI 的报错上下文（已脱敏）。 */
@@ -41,10 +42,11 @@ export class OpsAiService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly secureConfig: SecureConfigService,
+    private readonly aiGateway: AiGatewayService,
   ) {}
 
   /** 取「集成管理」里已启用的 OpenAI 模型配置（与对话/简历筛选同源）；未配置返回 null。 */
-  private async resolveModelConfig(): Promise<{ apiKey: string; baseURL?: string; model: string } | null> {
+  private async resolveModelConfig(): Promise<AiGatewayTarget | null> {
     const cfg = await this.prisma.integrationConfig.findFirst({
       where: { kind: 'openai', isActive: true },
       orderBy: { updatedAt: 'desc' },
@@ -60,18 +62,32 @@ export class OpsAiService {
     const meta = (cfg.metadata && typeof cfg.metadata === 'object' && !Array.isArray(cfg.metadata)
       ? (cfg.metadata as Record<string, unknown>)
       : {});
-    const baseURL = typeof meta.base_url === 'string' && meta.base_url ? meta.base_url : undefined;
-    return { apiKey, baseURL, model: cfg.model?.trim() || 'gpt-4.1-mini' };
+    const baseUrl = typeof meta.base_url === 'string' && meta.base_url ? meta.base_url : undefined;
+    return {
+      id: cfg.id,
+      connectionId: cfg.id,
+      provider: cfg.provider?.trim() || 'openai',
+      apiKey,
+      baseUrl,
+      model: cfg.model?.trim() || 'gpt-4.1-mini',
+    };
   }
 
   /** 模型是否就绪（前端据此提示用户去配置）。 */
   async isReady(): Promise<boolean> {
-    return (await this.resolveModelConfig()) !== null;
+    const fallback = await this.resolveModelConfig();
+    const routing = await this.aiGateway.resolveTargets(
+      'ops.error_analysis',
+      fallback ? [fallback] : [],
+      { advanceRoundRobin: false },
+    );
+    return routing.targets.length > 0;
   }
 
   async analyze(ctx: OpsErrorContext): Promise<OpsErrorAnalysis> {
     const cfg = await this.resolveModelConfig();
-    if (!cfg) {
+    const routing = await this.aiGateway.resolveTargets('ops.error_analysis', cfg ? [cfg] : []);
+    if (routing.targets.length === 0) {
       return {
         summary: '尚未配置可用的 AI 模型，无法进行智能归因。',
         probable_causes: [],
@@ -83,7 +99,6 @@ export class OpsAiService {
       };
     }
 
-    const client = new OpenAI({ apiKey: cfg.apiKey, baseURL: cfg.baseURL, timeout: ANALYSIS_TIMEOUT_MS });
     const systemPrompt =
       '你是一名资深后端 SRE / 运维专家。根据给定的线上接口报错上下文，做根因分析。' +
       '严格只输出 JSON，键为：summary(string，一句话结论)、probable_causes(string[]，按可能性从高到低，每条简明指出原因)、' +
@@ -104,17 +119,18 @@ export class OpsAiService {
     };
 
     try {
-      const resp = await client.chat.completions.create({
-        model: cfg.model,
+      const result = await this.aiGateway.complete({
+        scene: 'ops.error_analysis',
+        targets: routing.targets,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: JSON.stringify(userPayload) },
         ],
-        response_format: { type: 'json_object' },
+        responseFormat: { type: 'json_object' },
+        timeoutMs: routing.timeoutMs ?? ANALYSIS_TIMEOUT_MS,
       });
-      const text = resp.choices[0]?.message?.content ?? '';
-      const parsed = this.parseAnalysis(text);
-      return { ...parsed, generated_by: 'ai', model: cfg.model };
+      const parsed = this.parseAnalysis(result.content);
+      return { ...parsed, generated_by: 'ai', model: result.model };
     } catch (error) {
       this.logger.warn(`[OpsAiService.analyze] AI 调用失败: ${error instanceof Error ? error.message : String(error)}`);
       return {
@@ -124,7 +140,7 @@ export class OpsAiService {
         investigation_steps: [error instanceof Error ? error.message : '未知错误'],
         fix_suggestions: [],
         generated_by: 'unavailable',
-        model: cfg.model,
+        model: routing.targets[0]?.model ?? null,
       };
     }
   }

@@ -1,6 +1,7 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { AiGatewayChatRequest, AiGatewayTarget } from '../src/modules/ai-gateway/ai-gateway.types';
 import { ExternalDocumentAiService } from '../src/modules/external-docs/external-document-ai.service';
 import { ExternalDocsService } from '../src/modules/external-docs/external-docs.service';
 
@@ -188,6 +189,7 @@ test('AI 返回内容不完整时标记为规则降级而不是 AI 已生效', a
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
   const internal = service as unknown as {
     resolveRuntimeConfig: () => Promise<Record<string, string>>;
@@ -215,4 +217,49 @@ test('AI 返回内容不完整时标记为规则降级而不是 AI 已生效', a
   assert.equal(result.generationMode, 'fallback');
   assert.match(result.provider, /fallback/);
   assert.match(result.warning ?? '', /AI 差异分类调用失败/);
+});
+
+test('对外资料归档摘要通过统一网关场景路由生成', async () => {
+  const calls: AiGatewayChatRequest[] = [];
+  const routeTarget: AiGatewayTarget = {
+    id: 'external-route',
+    connectionId: 'external-route',
+    provider: 'DeepSeek',
+    model: 'deepseek-chat',
+    apiKey: 'route-key',
+  };
+  const prisma = { integrationConfig: { findMany: async () => [] } };
+  const config = { get: () => undefined };
+  const aiGateway = {
+    resolveTargets: async () => ({ targets: [routeTarget], timeoutMs: 45_000, source: 'route' }),
+    complete: async (request: AiGatewayChatRequest) => {
+      calls.push(request);
+      return {
+        content: '{"summary":"V2.0 已完成复核，可以归档。"}',
+        model: 'deepseek-chat',
+        provider: 'DeepSeek',
+      };
+    },
+  };
+  const service = new ExternalDocumentAiService(
+    prisma as never,
+    config as never,
+    {} as never,
+    {} as never,
+    aiGateway as never,
+  );
+
+  const result = await service.regenerateSummary({
+    baselineVersion: 'V1.0',
+    candidateVersion: 'V2.0',
+    differences: [difference('diff-1')],
+  });
+
+  assert.equal(result.generationMode, 'ai');
+  assert.equal(result.model, 'deepseek-chat');
+  assert.equal(result.provider, 'DeepSeek');
+  assert.equal(calls[0]?.scene, 'external_docs.version_compare');
+  assert.equal(calls[0]?.timeoutMs, 45_000);
+  assert.equal(calls[0]?.retryWithoutResponseFormat, true);
+  assert.deepEqual(calls[0]?.responseFormat, { type: 'json_object' });
 });
