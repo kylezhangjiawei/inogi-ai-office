@@ -197,8 +197,13 @@ export function useProcurementProducts(): ProcurementProduct[] {
   return products;
 }
 
-/** 统一采购逾期口径：下单前看 Deadline/需求日期，下单后看预计到货日。 */
+/**
+ * 统一采购逾期口径：下单前看 Deadline/需求日期，下单后看预计到货日。
+ * 已完成/已取消的任务不再逾期——终态任务的日期已经没有催办意义，算进去会让驾驶舱
+ * 的「逾期」数虚高（历史上 5 个任务能显示逾期 4），卡片上也会给已取消的任务挂红标。
+ */
 export function isProcurementTaskOverdue(task: ProcurementTask): boolean {
+  if (task.status === "completed" || task.status === "cancelled") return false;
   return (taskMainDate(task).days ?? Number.POSITIVE_INFINITY) < 0;
 }
 

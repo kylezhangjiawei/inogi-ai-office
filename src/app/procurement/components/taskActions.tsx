@@ -231,10 +231,14 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
       task,
       confirm: {
         title: `确定${label}任务「${task.materialName}」？`,
+        // 终态文案带状态名，必须走 t() 的占位符而不是模板字符串拼接：
+        // 拼出来的整句不是字典 key，英文态永远查不到、也没法在 i18n 管理页补译。
         desc: cancelling
           ? "任务已进入执行阶段，将标记为「已取消」并保留操作留痕，不会真正删除。"
           : mode === "terminal"
-            ? `任务已是「${translate(PROC_STATUS_META[task.status].label)}」终态，删除后将连同留痕一并移出驾驶舱，此操作不可恢复。`
+            ? translate("任务已是「{status}」终态，删除后将连同留痕一并移出驾驶舱，此操作不可恢复。", {
+                status: translate(PROC_STATUS_META[task.status].label),
+              })
             : "该任务尚未开始执行，将被永久删除，此操作不可恢复。",
         actionLabel: label,
         tone: "danger",
