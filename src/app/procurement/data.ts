@@ -50,6 +50,27 @@ let state: ProcState = { tasks: [], materials: [], loading: true, error: null };
 let started = false;
 let inflight: Promise<void> | null = null;
 const listeners = new Set<() => void>();
+/** 研发任务详情用它感知采购侧的创建、审核、打回删除等变更。 */
+export const PROCUREMENT_REFRESH_EVENT = "inogi:procurement-refreshed";
+const procurementRefreshChannel = typeof window !== "undefined" && typeof BroadcastChannel !== "undefined"
+  ? new BroadcastChannel(PROCUREMENT_REFRESH_EVENT)
+  : null;
+
+function notifyProcurementRefreshed() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(PROCUREMENT_REFRESH_EVENT));
+  procurementRefreshChannel?.postMessage({ refreshedAt: Date.now() });
+}
+
+/** 研发侧只需要通知关联状态重查，不应为此读取整套采购任务与物料数据。 */
+export function announceProcurementRefresh() {
+  notifyProcurementRefreshed();
+}
+
+if (procurementRefreshChannel && typeof window !== "undefined") {
+  procurementRefreshChannel.addEventListener("message", () => {
+    window.dispatchEvent(new Event(PROCUREMENT_REFRESH_EVENT));
+  });
+}
 
 function emit(next: Partial<ProcState>) {
   state = { ...state, ...next };
@@ -68,6 +89,7 @@ async function load() {
   try {
     const [tasks, materials] = await Promise.all([listProcTasks(), listMaterials()]);
     emit({ tasks, materials, loading: false, error: null });
+    notifyProcurementRefreshed();
   } catch (err) {
     emit({ loading: false, error: err instanceof Error ? err.message : "采购数据加载失败" });
   }

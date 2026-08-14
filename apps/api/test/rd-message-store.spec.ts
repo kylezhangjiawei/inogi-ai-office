@@ -333,6 +333,7 @@ test('分类由消息类型派生，未知类型归为通知', async () => {
   assert.equal(categoryOf(structured('review_request')), 'todo');
   assert.equal(categoryOf(structured('perf_self_assessment')), 'todo');
   assert.equal(categoryOf(structured('review_result')), 'result');
+  assert.equal(categoryOf(structured('procurement_review_result')), 'result');
   assert.equal(categoryOf(structured('discussion_mention')), 'mention');
   assert.equal(categoryOf(structured('某种以后才有的新类型')), 'notice');
   assert.equal(categoryOf('纯文本通知'), 'notice', '无结构化 type 的消息归为通知');

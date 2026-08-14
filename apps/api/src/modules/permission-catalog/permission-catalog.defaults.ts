@@ -199,6 +199,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   // 采购管理 · 操作权限（下单/入库在畅捷通 T+ 内完成，本系统无采购审批码）
   { code: 'proc-task:create', label: '新建 / 编辑采购任务', description: '采购自建需求、维护任务信息与附件、维护物料主数据', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1600 },
   { code: 'proc-task:transfer', label: '转采购', description: '研发侧将任务转为采购需求（需带附件）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1610 },
+  { code: 'rd-procurement:review', label: '研发转采购审核', description: '研发管理员审核研发任务的转采购申请；通过后才流转并分配给采购人员', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1615 },
   { code: 'proc-task:confirm', label: '确认接收', description: '采购确认接收流转来的任务，进入询价 / 直购分支', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1620 },
   { code: 'proc-task:inquiry', label: '询价 / 推进状态', description: '从供应商报价库选择报价并推进任务状态（打样、测试、到货）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1630 },
   { code: 'proc-task:select-quote', label: '选定报价', description: '在多份报价中定标，回写物料最新价格', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1640 },

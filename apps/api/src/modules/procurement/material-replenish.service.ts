@@ -61,7 +61,7 @@ export class MaterialReplenishService {
 
     // 进行中采购任务的未到量（避免对同一缺口重复建任务）
     const openTasks = await this.prisma.procTask.findMany({
-      where: { materialId: { in: ids }, status: { notIn: PROC_TERMINAL_STATUSES } },
+      where: { materialId: { in: ids }, status: { notIn: [...PROC_TERMINAL_STATUSES, 'pending_rd_review'] } },
       select: { materialId: true, quantity: true, arrivedQty: true },
     });
 

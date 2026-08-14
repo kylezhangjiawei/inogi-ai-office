@@ -13,7 +13,10 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
-import { NativeSelect } from "../../components/ui/native-select";
+import { Button } from "../../components/ui/button";
+import { Pagination, PaginationContent, PaginationItem } from "../../components/ui/pagination";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "../../components/ui/toggle-group";
 import { cn } from "../../components/ui/utils";
 import { useI18n } from "../../lib/i18n";
 import type { Material, ProcTaskTreeNode } from "../../lib/procurementApi";
@@ -144,22 +147,18 @@ function InventoryFilterBar({
           className="h-8 pl-9 text-xs"
         />
       </div>
-      <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t("库存状态筛选") }>
+      <ToggleGroup type="single" value={tone} onValueChange={(value) => { if (value) onToneChange(value as InventoryFilter); }} aria-label={t("库存状态筛选")} className="flex flex-wrap gap-1">
         {filters.map((filter) => (
-          <button
+          <ToggleGroupItem
             key={filter.value}
-            type="button"
-            aria-pressed={tone === filter.value}
-            onClick={() => onToneChange(filter.value)}
-            className={cn(
-              "rounded-lg px-2.5 py-1.5 text-xs font-semibold",
-              tone === filter.value ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800",
-            )}
+            value={filter.value}
+            size="sm"
+            className="h-8 flex-none rounded-lg px-2.5 text-xs font-semibold text-slate-500 data-[state=on]:bg-indigo-50 data-[state=on]:text-indigo-700"
           >
             {t(filter.label)}
-          </button>
+          </ToggleGroupItem>
         ))}
-      </div>
+      </ToggleGroup>
       <span className="shrink-0 px-1 text-xs tabular-nums text-slate-500">{resultCount}/{totalCount}</span>
     </div>
   );
@@ -180,29 +179,39 @@ function InventoryPagination({
   return (
     <div className="flex items-center justify-between gap-3 px-1 py-1 text-xs text-slate-500">
       <span>{t("共 {count} 项", { count: totalItems })}</span>
-      <div className="flex items-center gap-2">
-        <button
+      <Pagination className="mx-0 w-auto">
+        <PaginationContent>
+        <PaginationItem>
+        <Button
           type="button"
+          variant="outline"
+          size="icon"
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
           aria-label={t("上一页")}
-          className="flex size-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="size-7 rounded-lg border-slate-200 text-slate-500 hover:border-indigo-200 hover:text-indigo-700"
         >
           <ChevronLeft className="size-4" />
-        </button>
+        </Button>
+        </PaginationItem>
         <span className="min-w-20 text-center font-semibold tabular-nums text-slate-600">
           {t("第 {page}/{total} 页", { page, total: totalPages })}
         </span>
-        <button
+        <PaginationItem>
+        <Button
           type="button"
+          variant="outline"
+          size="icon"
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
           aria-label={t("下一页")}
-          className="flex size-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="size-7 rounded-lg border-slate-200 text-slate-500 hover:border-indigo-200 hover:text-indigo-700"
         >
           <ChevronRight className="size-4" />
-        </button>
-      </div>
+        </Button>
+        </PaginationItem>
+        </PaginationContent>
+      </Pagination>
     </div>
   );
 }
@@ -574,26 +583,22 @@ export function CoreMaterialsPanorama({
                 className="h-9 pl-9 text-xs"
               />
             </div>
-            <NativeSelect
-              value={configSystem}
-              onValueChange={(value) => { setConfigSystem(value); setConfigPage(1); }}
-              aria-label={t("按子系统筛选")}
-              className="h-9 w-40 text-xs"
-            >
-              <option value="all">{t("全部子系统")}</option>
-              {configSystems.map((system) => <option key={system} value={system}>{system}</option>)}
-            </NativeSelect>
-            <NativeSelect
-              value={configTone}
-              onValueChange={(value) => { setConfigTone(value as InventoryFilter); setConfigPage(1); }}
-              aria-label={t("按库存状态筛选")}
-              className="h-9 w-28 text-xs"
-            >
-              <option value="all">{t("全部状态")}</option>
-              <option value="shortage">{t("缺货")}</option>
-              <option value="low">{t("偏低")}</option>
-              <option value="normal">{t("正常")}</option>
-            </NativeSelect>
+            <Select value={configSystem} onValueChange={(value) => { setConfigSystem(value); setConfigPage(1); }}>
+              <SelectTrigger aria-label={t("按子系统筛选")} className="h-9 w-40 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("全部子系统")}</SelectItem>
+                {configSystems.map((system) => <SelectItem key={system} value={system}>{system}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={configTone} onValueChange={(value) => { setConfigTone(value as InventoryFilter); setConfigPage(1); }}>
+              <SelectTrigger aria-label={t("按库存状态筛选")} className="h-9 w-28 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("全部状态")}</SelectItem>
+                <SelectItem value="shortage">{t("缺货")}</SelectItem>
+                <SelectItem value="low">{t("偏低")}</SelectItem>
+                <SelectItem value="normal">{t("正常")}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">

@@ -4,6 +4,8 @@ import { Input } from "../../components/ui/input";
 import { ChevronDown, ChevronRight, Search, X } from "lucide-react";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+import { Button } from "../../components/ui/button";
+import { Pagination, PaginationContent, PaginationItem } from "../../components/ui/pagination";
 import { cn } from "../../components/ui/utils";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
@@ -220,10 +222,12 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
       {filterActive && filtered.length > PAGE_SIZE && (
         <div className="flex shrink-0 items-center justify-between border-t border-slate-100 px-4 py-2.5 text-sm">
           <span className="text-xs text-slate-400">{t('第 {page} / {total} 页', { page: pageSafe, total: totalPages })}</span>
-          <div className="flex items-center gap-2">
-            <button type="button" disabled={pageSafe <= 1} onClick={() => setPage(pageSafe - 1)} className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 disabled:opacity-40">{t('上一页')}</button>
-            <button type="button" disabled={pageSafe >= totalPages} onClick={() => setPage(pageSafe + 1)} className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 disabled:opacity-40">{t('下一页')}</button>
-          </div>
+          <Pagination className="mx-0 w-auto">
+            <PaginationContent>
+              <PaginationItem><Button type="button" variant="outline" size="sm" disabled={pageSafe <= 1} onClick={() => setPage(pageSafe - 1)} className="h-8 rounded-lg border-slate-200 text-xs text-slate-600">{t('上一页')}</Button></PaginationItem>
+              <PaginationItem><Button type="button" variant="outline" size="sm" disabled={pageSafe >= totalPages} onClick={() => setPage(pageSafe + 1)} className="h-8 rounded-lg border-slate-200 text-xs text-slate-600">{t('下一页')}</Button></PaginationItem>
+            </PaginationContent>
+          </Pagination>
         </div>
       )}
     </div>

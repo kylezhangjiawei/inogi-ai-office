@@ -75,7 +75,7 @@ export class CreateProcTaskDto {
   unit?: string;
 
   @IsNumber()
-  @Min(0)
+  @Min(0.001)
   quantity!: number;
 
   @IsOptional()
@@ -153,6 +153,11 @@ export class TransferFromRdDto extends CreateProcTaskDto {
   @IsString()
   @MaxLength(64)
   rdContact?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  rdContactUserId?: string;
 }
 
 export class UpdateProcTaskDto {

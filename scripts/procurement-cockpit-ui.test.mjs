@@ -18,6 +18,10 @@ const systemTree = source("src/app/procurement/components/ProcurementSystemTree.
 const taskInventory = source("src/app/procurement/components/TaskCriticalMaterials.tsx");
 const taskDetail = source("src/app/procurement/components/TaskDetailDrawer.tsx");
 const workspace = source("src/app/procurement/ProcMyWorkspacePage.tsx");
+const priceHistory = source("src/app/procurement/components/PriceHistoryModal.tsx");
+const peopleManagement = source("src/app/procurement/ProcPeopleManagementPage.tsx");
+const quoteBook = source("src/app/procurement/QuoteBookPage.tsx");
+const materialTable = source("src/app/procurement/components/MaterialTable.tsx");
 
 
 test("重点物料配置归属采购任务，而不是全局物料主数据", () => {
@@ -150,4 +154,35 @@ test("采购驾驶舱和个人工作台共用研发式任务卡", () => {
   assert.match(card, /tabular-nums/);
   assert.doesNotMatch(card, /material-card relative w-full overflow-hidden p-4/);
   assert.match(workspace, /grid-cols-1[\s\S]*md:grid-cols-2[\s\S]*xl:grid-cols-3/);
+});
+
+test("采购驾驶舱人员泳道只按采购部门负责人账号统计和筛选", () => {
+  assert.match(cockpit, /useBuyerDirectory\(\{ departmentOnly: true \}\)/);
+  assert.match(cockpit, /task\.buyerUserId === buyerUserId/);
+  assert.match(cockpit, /countsByUserId/);
+  assert.match(cockpit, /采购负责人/);
+  assert.doesNotMatch(cockpit, /t\.buyer === person \|\| t\.rdContact === person/);
+  assert.doesNotMatch(cockpit, /研发对接人 \+ 需求提出人/);
+});
+
+test("采购模块的高频键盘交互统一使用项目 Radix 封装", () => {
+  assert.match(cockpit, /components\/ui\/tabs/);
+  assert.match(cockpit, /<Tabs value=\{line\}/);
+  assert.match(cockpit, /components\/ui\/toggle-group/);
+  assert.match(cockpit, /aria-label=\{t\("按采购负责人筛选"\)\}/);
+  assert.doesNotMatch(cockpit, /role="tablist"|role="tab"/);
+
+  assert.match(systemTree, /components\/ui\/tabs/);
+  assert.match(systemTree, /<Tabs value=\{coreMode \? "core" : "panorama"\}/);
+  assert.doesNotMatch(systemTree, /role="tablist"|role="tab"/);
+
+  assert.match(corePanorama, /components\/ui\/select/);
+  assert.doesNotMatch(corePanorama, /components\/ui\/native-select/);
+  assert.match(corePanorama, /components\/ui\/toggle-group/);
+  assert.match(priceHistory, /components\/ui\/toggle-group/);
+  assert.match(priceHistory, /components\/ui\/toggle/);
+  assert.match(taskDetail, /components\/ui\/collapsible/);
+  assert.match(peopleManagement, /components\/ui\/collapsible/);
+  assert.match(quoteBook, /components\/ui\/pagination/);
+  assert.match(materialTable, /components\/ui\/pagination/);
 });

@@ -1828,7 +1828,7 @@ export default function RDTaskDetailPage() {
                     task={procTask}
                     onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)}
                   />
-                ) : canTransferProc ? (
+                ) : canTransferProc && (canManage || isParticipant) ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -2174,6 +2174,7 @@ export default function RDTaskDetailPage() {
           taskId={task.task_id}
           taskTitle={task.title}
           owner={task.primary_owner}
+          ownerUserId={task.primary_owner_user_id ?? undefined}
           priority={task.final_priority}
           dueDate={task.due_date}
           attachments={transferAttachments}

@@ -2,6 +2,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowDownUp } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
+import { ScrollArea } from "../../components/ui/scroll-area";
+import { Toggle } from "../../components/ui/toggle";
+import { ToggleGroup, ToggleGroupItem } from "../../components/ui/toggle-group";
 import { cn } from "../../components/ui/utils";
 import { listQuotations, type Quotation } from "../../lib/procurementApi";
 import { fmtMoney } from "./common";
@@ -83,13 +86,13 @@ export function PriceHistoryModal({ materialName, open, onClose }: { materialNam
                 <TrendLine rows={rows} />
               </div>
               <div className="mt-4 flex items-center justify-between">
-                <button type="button" onClick={() => setGroupBySupplier((v) => !v)} className={cn("rounded-lg border px-3 py-1.5 text-xs font-medium", groupBySupplier ? "border-indigo-200 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-600 hover:bg-slate-50")}>{groupBySupplier ? `✓ ${t('按供应商分组')}` : t('按供应商分组')}</button>
-                <div className="flex items-center gap-2 text-xs">
-                  <button type="button" onClick={() => toggleSort("date")} className={cn("inline-flex items-center gap-1 rounded-lg border px-2 py-1", sortKey === "date" ? "border-indigo-200 text-indigo-600" : "border-slate-200 text-slate-500")}><ArrowDownUp className="h-3 w-3" />{t('时间')}{sortKey === "date" ? (asc ? "↑" : "↓") : ""}</button>
-                  <button type="button" onClick={() => toggleSort("price")} className={cn("inline-flex items-center gap-1 rounded-lg border px-2 py-1", sortKey === "price" ? "border-indigo-200 text-indigo-600" : "border-slate-200 text-slate-500")}><ArrowDownUp className="h-3 w-3" />{t('单价')}{sortKey === "price" ? (asc ? "↑" : "↓") : ""}</button>
-                </div>
+                <Toggle pressed={groupBySupplier} onPressedChange={setGroupBySupplier} variant="outline" size="sm" className="h-8 rounded-lg border-slate-200 px-3 text-xs data-[state=on]:border-indigo-200 data-[state=on]:bg-indigo-50 data-[state=on]:text-indigo-600">{t('按供应商分组')}</Toggle>
+                <ToggleGroup type="single" value={sortKey} onValueChange={(value) => { if (value) toggleSort(value as SortKey); }} variant="outline" size="sm" aria-label={t("报价排序")}>
+                  <ToggleGroupItem value="date" className="h-8 rounded-l-lg px-2 text-xs data-[state=on]:text-indigo-600"><ArrowDownUp className="size-3" />{t('时间')}{sortKey === "date" ? (asc ? "↑" : "↓") : ""}</ToggleGroupItem>
+                  <ToggleGroupItem value="price" className="h-8 rounded-r-lg px-2 text-xs data-[state=on]:text-indigo-600"><ArrowDownUp className="size-3" />{t('单价')}{sortKey === "price" ? (asc ? "↑" : "↓") : ""}</ToggleGroupItem>
+                </ToggleGroup>
               </div>
-              <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-100">
+              <ScrollArea className="mt-3 h-72 rounded-xl border border-slate-100">
                 {groupBySupplier ? (
                   grouped.map(([sup, list]) => (
                     <div key={sup}>
@@ -103,7 +106,7 @@ export function PriceHistoryModal({ materialName, open, onClose }: { materialNam
                     <tbody>{sorted.map((r) => <Row key={r.id} r={r} />)}</tbody>
                   </table>
                 )}
-              </div>
+              </ScrollArea>
             </>
           )}
         </div>

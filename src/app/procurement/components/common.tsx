@@ -16,8 +16,10 @@ import { CalendarDays } from "lucide-react";
 import { Calendar } from "../../components/ui/calendar";
 import { Command, CommandItem, CommandList } from "../../components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "../../components/ui/dialog";
+import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "../../components/ui/popover";
+import { Toggle } from "../../components/ui/toggle";
 import { cn } from "../../components/ui/utils";
 import { useAvatarDirectory } from "../../lib/userAvatar";
 import { subscribeDepartmentChanges } from "../../lib/departmentDirectory";
@@ -48,17 +50,17 @@ export function useProcCan() {
 // 来源 GET /procurement/buyers（全部启用用户），并入现有任务里的历史负责人名。
 // 模块级单例 + Promise 去重：一次会话只拉一次。
 
-const buyerCache = new Map<"eligible" | "all", BuyerCandidate[]>();
-const buyerPromise = new Map<"eligible" | "all", Promise<BuyerCandidate[]>>();
+type BuyerDirectoryScope = "eligible" | "department" | "all";
+const buyerCache = new Map<BuyerDirectoryScope, BuyerCandidate[]>();
+const buyerPromise = new Map<BuyerDirectoryScope, Promise<BuyerCandidate[]>>();
 
-function loadBuyersOnce(includeAll: boolean): Promise<BuyerCandidate[]> {
-  const scope = includeAll ? "all" : "eligible";
+function loadBuyersOnce(scope: BuyerDirectoryScope): Promise<BuyerCandidate[]> {
   const cached = buyerCache.get(scope);
   if (cached) return Promise.resolve(cached);
   if (!buyerPromise.has(scope)) {
     buyerPromise.set(
       scope,
-      listBuyerCandidates(undefined, includeAll)
+      listBuyerCandidates(undefined, scope)
         .then((list) => { buyerCache.set(scope, list); return list; })
         .catch(() => { buyerPromise.delete(scope); return [] as BuyerCandidate[]; }),
     );
@@ -70,15 +72,15 @@ function loadBuyersOnce(includeAll: boolean): Promise<BuyerCandidate[]> {
  * 负责人目录：suggestions 供输入建议；resolveUserId 把输入的姓名映射为 userId
  * （同名多人时返回 undefined，宁可只存名字也不张冠李戴，与头像目录同原则）。
  */
-export function useBuyerDirectory(options?: { includeAll?: boolean }) {
-  const { tasks } = useProcurementData();
+export function useBuyerDirectory(options?: { includeAll?: boolean; departmentOnly?: boolean }) {
   const includeAll = options?.includeAll ?? false;
-  const scope = includeAll ? "all" : "eligible";
+  const departmentOnly = options?.departmentOnly ?? false;
+  const scope: BuyerDirectoryScope = departmentOnly ? "department" : includeAll ? "all" : "eligible";
   const [users, setUsers] = useState<BuyerCandidate[]>(buyerCache.get(scope) ?? []);
   useEffect(() => {
     let alive = true;
     const refresh = () => {
-      void loadBuyersOnce(includeAll).then((list) => { if (alive) setUsers(list); });
+      void loadBuyersOnce(scope).then((list) => { if (alive) setUsers(list); });
     };
     refresh();
     const unsubscribe = subscribeDepartmentChanges(() => {
@@ -90,22 +92,22 @@ export function useBuyerDirectory(options?: { includeAll?: boolean }) {
       alive = false;
       unsubscribe();
     };
-  }, [includeAll]);
+  }, [scope]);
   return useMemo(() => {
     const idByName = new Map<string, string | null>(); // null = 同名冲突
     const deptByName = new Map<string, string | undefined>();
-    for (const u of users) {
+    for (const u of users.filter((user) => user.canReceiveTasks !== false)) {
       idByName.set(u.name, idByName.has(u.name) ? null : u.id);
       if (!deptByName.has(u.name)) deptByName.set(u.name, u.department);
     }
-    const names = new Set(users.map((u) => u.name));
-    for (const task of tasks) if (task.buyer) names.add(task.buyer);
+    const names = new Set(users.filter((user) => user.canReceiveTasks !== false).map((u) => u.name));
     return {
+      users,
       suggestions: Array.from(names),
       deptOf: (name: string) => deptByName.get(name),
       resolveUserId: (name: string): string | undefined => idByName.get(name) ?? undefined,
     };
-  }, [users, tasks]);
+  }, [users]);
 }
 
 
@@ -113,6 +115,7 @@ export const fmtMoney = (n?: number) => (typeof n === "number" ? `¥${n.toLocale
 
 // ── 状态元数据（含「下一步」按钮文案）─────────────────────────────────────────
 export const PROC_STATUS_META: Record<ProcStatus, { label: string; pill: string; next?: string }> = {
+  pending_rd_review: { label: "待研发审核", pill: "border-violet-300 bg-violet-50 text-violet-700" },
   pending_confirm: { label: "待处理", pill: "border-rose-300 bg-rose-50 text-rose-700", next: "确认提交" },
   pending_inquiry: { label: "待询价", pill: "border-amber-200 bg-amber-50 text-amber-700", next: "选择报价" },
   inquiring: { label: "询价中", pill: "border-blue-200 bg-blue-50 text-blue-700", next: "选定报价" },
@@ -127,8 +130,8 @@ export const PROC_STATUS_META: Record<ProcStatus, { label: string; pill: string;
 };
 
 /** 询价长流程 / 直购短流程步骤条节点。 */
-export const INQUIRY_FLOW: ProcStatus[] = ["pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "in_transit", "partial_arrival", "completed"];
-export const DIRECT_FLOW: ProcStatus[] = ["pending_purchase", "in_transit", "completed"];
+export const INQUIRY_FLOW: ProcStatus[] = ["pending_rd_review", "pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "in_transit", "partial_arrival", "completed"];
+export const DIRECT_FLOW: ProcStatus[] = ["pending_rd_review", "pending_confirm", "pending_purchase", "in_transit", "completed"];
 
 export function StatusPill({ status, className }: { status: ProcStatus; className?: string }) {
   useI18n();
@@ -233,27 +236,29 @@ const TONES: Record<Tone, { text: string; chip: string; bar: string }> = {
 };
 export function StatCell({ label, value, tone = "slate", active, badge, onClick, Icon }: { label: string; value: React.ReactNode; tone?: Tone; active?: boolean; badge?: boolean; onClick?: () => void; Icon?: React.ComponentType<{ className?: string }> }) {
   const t = TONES[tone];
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={onClick ? Boolean(active) : undefined}
-      className={cn(
-        "material-card relative flex items-center justify-between gap-2 overflow-hidden px-3 py-2.5 text-left transition-shadow duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 sm:px-4 sm:py-3",
-        onClick && "cursor-pointer hover:shadow-md",
-        active && "ring-2 ring-indigo-300",
-      )}
-    >
+  const content = (
+    <>
       <span className={cn("absolute inset-y-0 left-0 w-1", t.bar)} />
       <div className="min-w-0">
         <div className="flex items-center gap-1 text-xs text-slate-400">
           {label}
-          {badge && <span className="inline-block h-1.5 w-1.5 rounded-full bg-rose-500" />}
+          {badge && <span className="inline-block size-1.5 rounded-full bg-rose-500" />}
         </div>
         <div className={cn("mt-0.5 text-2xl font-bold tabular-nums", t.text)}>{value}</div>
       </div>
       {Icon && <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", t.chip)}><Icon className="size-4" /></span>}
-    </button>
+    </>
+  );
+  const className = cn(
+    "material-card relative flex h-auto items-center justify-between gap-2 overflow-hidden rounded-xl px-3 py-2.5 text-left transition-shadow duration-150 sm:px-4 sm:py-3",
+    onClick && "cursor-pointer hover:shadow-md",
+    active && "ring-2 ring-indigo-300",
+  );
+  if (!onClick) return <div className={className}>{content}</div>;
+  return (
+    <Toggle pressed={Boolean(active)} onPressedChange={onClick} className={className}>
+      {content}
+    </Toggle>
   );
 }
 export function PageHeader({ Icon, badge, title, description, right }: { Icon?: React.ComponentType<{ className?: string }>; badge?: string; title: string; description?: string; right?: React.ReactNode }) {
@@ -388,17 +393,18 @@ export function DateInput({
   return (
     <Popover modal open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
+        <Button
           type="button"
+          variant="outline"
           className={cn(
-            "flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-input-background px-3 text-left text-sm outline-none focus:border-indigo-300",
+            "flex h-9 w-full justify-between rounded-lg border-slate-200 bg-input-background px-3 text-left text-sm font-normal hover:bg-input-background hover:text-inherit",
             !value && "text-slate-400",
             className,
           )}
         >
           <span className="tabular-nums">{value || placeholder || translate("选择日期")}</span>
           <CalendarDays className="h-4 w-4 shrink-0 text-slate-400" />
-        </button>
+        </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-auto p-0">
         <Calendar
@@ -418,7 +424,7 @@ export function DateInput({
         />
         {clearable && value && (
           <div className="border-t border-slate-100 px-3 py-2 text-right">
-            <button type="button" onClick={() => { onChange(""); setOpen(false); }} className="text-xs text-slate-500 hover:text-indigo-600">{translate("清除")}</button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => { onChange(""); setOpen(false); }} className="h-7 rounded-lg px-2 text-xs text-slate-500 hover:text-indigo-600">{translate("清除")}</Button>
           </div>
         )}
       </PopoverContent>
@@ -428,10 +434,9 @@ export function DateInput({
 
 /** 负责人联想输入：候选来自用户目录 + 历史负责人，hint 显示部门。 */
 export function BuyerComboInput({
-  includeAll = false,
   ...props
-}: Omit<React.ComponentProps<typeof ComboInput>, "options"> & { includeAll?: boolean }) {
-  const { suggestions, deptOf } = useBuyerDirectory({ includeAll });
+}: Omit<React.ComponentProps<typeof ComboInput>, "options">) {
+  const { suggestions, deptOf } = useBuyerDirectory();
   const options = useMemo(
     () => suggestions.map((name) => ({ value: name, hint: deptOf(name) })),
     [suggestions, deptOf],

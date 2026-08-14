@@ -2,6 +2,10 @@
 // 分类/物料维度的浏览在「物料库」页，此页专注任务流。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../components/ui/input";
+import { Button } from "../components/ui/button";
+import { ScrollArea } from "../components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group";
 import { useNavigate, useSearchParams } from "react-router";
 import { Activity, AlertTriangle, ClipboardList, Download, FolderTree, Layers3, PackageCheck, PackageSearch, Plus, Search, Truck, UserCog, Users } from "lucide-react";
 import { cn } from "../components/ui/utils";
@@ -9,7 +13,7 @@ import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
 import { toast } from "sonner";
 import { daysFromToday, isProcurementTaskOverdue, refreshProcurement, taskMainDate, taskRequester, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
-import { PersonAvatar, StatCell } from "./components/common";
+import { PersonAvatar, StatCell, useBuyerDirectory } from "./components/common";
 import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
 import { ProcurementSystemTree } from "./components/ProcurementSystemTree";
 import { useProcTaskAction } from "./components/taskActions";
@@ -33,7 +37,7 @@ export function ProcurementCockpitPage() {
   const [params, setParams] = useSearchParams();
   const [open, setOpen] = useState<ProcurementTask | null>(null);
   const [stat, setStat] = useState<StatKey | null>(null);
-  const [person, setPerson] = useState<string | null>(null);
+  const [buyerUserId, setBuyerUserId] = useState<string | null>(null);
   const [treeNode, setTreeNode] = useState<ProcTaskTreeNode | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
@@ -48,6 +52,7 @@ export function ProcurementCockpitPage() {
   const canCreate = usePermission("proc-task:create");
   const canReassign = usePermission("proc-task:reassign");
   const canOrder = usePermission("proc-task:order");
+  const { users: procurementDepartmentUsers } = useBuyerDirectory({ departmentOnly: true });
   // 决策类动作（选定报价 / 测试结论）在卡片上点只打开详情，由详情提供报价与图纸依据。
   // 必须声明在 setOpen 之后——放前面会命中 TDZ，构建器不报错但运行时直接白屏。
   const taskAction = useProcTaskAction({ onOpenDetail: setOpen });
@@ -194,15 +199,29 @@ export function ProcurementCockpitPage() {
     return { total, shortage, low, abnormal: shortage + low };
   }, [coreMaterialConfig.products, materials]);
 
-  // 人员泳道维度：采购负责人 + 研发对接人 + 需求提出人
+  // 人员泳道只看采购部门正式成员；任务按采购负责人归属，不看研发对接人或需求提出人。
   const people = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const t of treeScopedTasks) {
-      const names = new Set([t.buyer, t.rdContact, taskRequester(t).name].filter(Boolean) as string[]);
-      for (const name of names) m.set(name, (m.get(name) ?? 0) + 1);
+    const uniqueNameIds = new Map<string, string | null>();
+    for (const user of procurementDepartmentUsers) {
+      uniqueNameIds.set(user.name, uniqueNameIds.has(user.name) ? null : user.id);
     }
-    return Array.from(m.entries());
-  }, [treeScopedTasks]);
+    const countsByUserId = new Map(procurementDepartmentUsers.map((user) => [user.id, 0]));
+    for (const task of treeScopedTasks) {
+      const ownerId = task.buyerUserId || (task.buyer ? uniqueNameIds.get(task.buyer) : null);
+      if (ownerId && countsByUserId.has(ownerId)) {
+        countsByUserId.set(ownerId, (countsByUserId.get(ownerId) ?? 0) + 1);
+      }
+    }
+    return procurementDepartmentUsers
+      .map((user) => ({ ...user, taskCount: countsByUserId.get(user.id) ?? 0 }))
+      .sort((a, b) => b.taskCount - a.taskCount || a.name.localeCompare(b.name, "zh-CN"));
+  }, [procurementDepartmentUsers, treeScopedTasks]);
+
+  useEffect(() => {
+    if (buyerUserId && !procurementDepartmentUsers.some((user) => user.id === buyerUserId)) {
+      setBuyerUserId(null);
+    }
+  }, [buyerUserId, procurementDepartmentUsers]);
 
   const filtered = useMemo(() => {
     let list = treeScopedTasks.filter((t) => {
@@ -215,7 +234,13 @@ export function ProcurementCockpitPage() {
       if (stat === "week") return isThisWeek(t);
       return true;
     });
-    if (person) list = list.filter((t) => t.buyer === person || t.rdContact === person || taskRequester(t).name === person);
+    if (buyerUserId) {
+      const buyer = procurementDepartmentUsers.find((user) => user.id === buyerUserId);
+      list = list.filter((task) =>
+        task.buyerUserId === buyerUserId
+        || (!task.buyerUserId && Boolean(buyer) && task.buyer === buyer!.name),
+      );
+    }
     if (materialParam) list = list.filter((t) => t.materialName === materialParam);
     const keyword = kw.trim().toLowerCase();
     if (keyword) list = list.filter((t) => `${t.code} ${t.materialName} ${t.spec} ${t.buyer} ${t.rdContact ?? ""} ${taskRequester(t).name}`.toLowerCase().includes(keyword));
@@ -226,14 +251,14 @@ export function ProcurementCockpitPage() {
       const db = taskMainDate(b).date ?? "9999";
       return da.localeCompare(db);
     });
-  }, [treeScopedTasks, stat, person, materialParam, kw]);
+  }, [treeScopedTasks, stat, buyerUserId, procurementDepartmentUsers, materialParam, kw]);
 
   const toggleStat = (k: StatKey) => setStat((cur) => (cur === k ? null : k));
 
   // 瀑布流分批渲染：首屏一批，滚动到底部哨兵自动追加；筛选条件变化重置
   const [visibleCount, setVisibleCount] = useState(WATERFALL_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => { setVisibleCount(WATERFALL_PAGE_SIZE); }, [line, treeNode?.id, person, stat, materialParam, kw]);
+  useEffect(() => { setVisibleCount(WATERFALL_PAGE_SIZE); }, [line, treeNode?.id, buyerUserId, stat, materialParam, kw]);
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || visibleCount >= filtered.length) return;
@@ -255,14 +280,16 @@ export function ProcurementCockpitPage() {
       {/* 页头（业务线 Tab + 操作按钮）/ 统计条 / 人员泳道 */}
       {view === "tasks" && (
         <div className="material-card mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2">
-          <div className="inline-flex items-center gap-1 rounded-lg bg-slate-100 p-1" role="tablist" aria-label={t("采购业务线")}>
+          <Tabs value={line} onValueChange={(value) => setLine(value as "all" | "rd" | "production")}>
+            <TabsList aria-label={t("采购业务线")} className="h-9 rounded-lg bg-slate-100 p-1">
             {([["all", "全部"], ["production", "生产"], ["rd", "研发"]] as const).map(([k, lbl]) => (
-              <button key={k} type="button" role="tab" aria-selected={line === k} onClick={() => setLine(k)} className={cn("flex cursor-pointer items-center gap-1.5 rounded-md px-4 py-1.5 text-sm transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400", line === k ? "bg-white font-semibold text-indigo-700 shadow-sm" : "font-medium text-slate-500 hover:text-slate-700")}>
+              <TabsTrigger key={k} value={k} className="h-7 gap-1.5 rounded-md px-4 text-sm text-slate-500 data-[state=active]:font-semibold data-[state=active]:text-indigo-700">
                 {t(lbl)}
                 <span className={cn("rounded-full px-1.5 text-[11px] font-medium tabular-nums", line === k ? "bg-indigo-50 text-indigo-600" : "bg-slate-200/70 text-slate-500")}>{lineCounts[k]}</span>
-              </button>
+              </TabsTrigger>
             ))}
-          </div>
+            </TabsList>
+          </Tabs>
           <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -347,23 +374,33 @@ export function ProcurementCockpitPage() {
 
       {/* 人员泳道 */}
       <div className="material-card mb-3 flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-4 sm:py-3">
-        <span className="mr-1 text-xs text-slate-400">{t('人员')}</span>
-        <button type="button" aria-pressed={!person} onClick={() => setPerson(null)} className={cn("rounded-full border px-2.5 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400", !person ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>{t('全部')}</button>
-        {people.map(([name, n]) => (
-          <button key={name} type="button" aria-pressed={person === name} onClick={() => setPerson((cur) => (cur === name ? null : name))} className={cn("flex items-center gap-1.5 rounded-full border py-0.5 pl-0.5 pr-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400", person === name ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-600 hover:bg-slate-50")}>
-            <PersonAvatar name={name} size="xs" />
-            {name}
-            <span className="rounded-full bg-slate-100 px-1.5 text-[11px] text-slate-500">{n}</span>
-          </button>
-        ))}
+        <span className="mr-1 text-xs text-slate-400">{t('采购负责人')}</span>
+        <ToggleGroup
+          type="single"
+          value={buyerUserId ?? "all"}
+          onValueChange={(value) => setBuyerUserId(!value || value === "all" ? null : value)}
+          aria-label={t("按采购负责人筛选")}
+          className="flex flex-wrap gap-1.5"
+        >
+          <ToggleGroupItem value="all" variant="outline" size="sm" className="h-7 flex-none rounded-full border px-2.5 text-xs data-[state=on]:border-indigo-300 data-[state=on]:bg-indigo-50 data-[state=on]:text-indigo-600">{t('全部')}</ToggleGroupItem>
+          {people.map((buyer) => (
+          <ToggleGroupItem key={buyer.id} value={buyer.id} variant="outline" size="sm" className="h-7 flex-none gap-1.5 rounded-full border py-0.5 pl-0.5 pr-2 text-xs data-[state=on]:border-indigo-300 data-[state=on]:bg-indigo-50 data-[state=on]:text-indigo-600">
+            <PersonAvatar name={buyer.name} size="xs" />
+            {buyer.name}
+            <span className="rounded-full bg-slate-100 px-1.5 text-[11px] text-slate-500">{buyer.taskCount}</span>
+          </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
         {treeNode && (
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={() => setTreeNode(null)}
-            className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600"
+            className="h-7 rounded-full border-indigo-200 bg-indigo-50 px-2 text-xs text-indigo-600 hover:bg-indigo-100"
           >
             {t("系统")}：<AutoTranslatedText text={treeNode.name} /> ×
-          </button>
+          </Button>
         )}
         {materialParam && (
           <button type="button" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete("material"); return n; }, { replace: true })} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600">{t('物料')}：<AutoTranslatedText text={materialParam} /> ✕</button>
@@ -379,7 +416,7 @@ export function ProcurementCockpitPage() {
       </div>
 
       {/* 任务展示区 */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <ScrollArea className="min-h-0 flex-1 pr-2">
         <div>
           {error ? (
             <div className="rounded-xl border border-dashed border-red-200 bg-red-50/40 py-12 text-center text-sm text-red-500">{error}</div>
@@ -416,7 +453,7 @@ export function ProcurementCockpitPage() {
             )}
         </div>
 
-      </div>
+      </ScrollArea>
 
         </section>
       </div>

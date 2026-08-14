@@ -979,6 +979,8 @@ export class ResearchDevelopmentController {
   // 但一旦有人加了 @Get('messages/:id')，声明顺序在前才不会被参数路由吃掉。
   // 路径仍命中 isWorkspaceExemptPath 的 /messages(/|$)，与列表接口同样豁免池级准入。
   @Get('messages/unread-count')
+  // 消息中心属于登录后的公共能力；服务层仍严格按当前 user id 隔离消息。
+  @Permissions()
   countUnreadMessages(@Request() req: AuthedRequest, @Query('recipient_id') recipientId?: string) {
     return this.rdService.countUnreadMessages(
       { user_id: req.user?.id, recipient_id: recipientId },
@@ -987,6 +989,7 @@ export class ResearchDevelopmentController {
   }
 
   @Get('messages')
+  @Permissions()
   listMessages(
     @Request() req: AuthedRequest,
     @Query('recipient_id') recipientId?: string,
@@ -1050,6 +1053,7 @@ export class ResearchDevelopmentController {
   }
 
   @Patch('messages/:messageId')
+  @Permissions()
   patchMessage(
     @Param('messageId') messageId: string,
     @Body() patch: Record<string, unknown>,

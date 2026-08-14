@@ -21,6 +21,7 @@ export class TplusSyncController {
   ) {}
 
   @Get('status')
+  @Permissions('page:proc-materials', 'page:purchase-orders', 'page:inventory-management', 'proc:sync-erp')
   status() {
     return this.sync.status();
   }
@@ -151,32 +152,38 @@ export class TplusSyncController {
 
   /** 镜像清单（读操作走页面权限）。 */
   @Get('purchase-orders/mirror')
+  @Permissions('page:purchase-orders', 'page:proc-cockpit')
   listMirror(@Query('status') status?: string) {
     return this.poMatch.listMirror(status);
   }
 
   /** 给“采购订单 / 库存管理”页面使用的 T+ 只读视图。 */
   @Get('views/inventory')
+  @Permissions('page:inventory-management')
   inventoryView(@Query() query: Record<string, unknown>) {
     return this.operations.listInventory(query);
   }
 
   @Post('views/inventory/export')
+  @Permissions('page:inventory-management')
   inventoryExport(@Query() query: Record<string, unknown>) {
     return this.operations.exportInventory(query);
   }
 
   @Get('views/inventory/:id')
+  @Permissions('page:inventory-management')
   inventoryDetail(@Param('id') id: string) {
     return this.operations.getInventoryDetail(id);
   }
 
   @Get('views/purchase-orders')
+  @Permissions('page:purchase-orders')
   purchaseOrdersView(@Query() query: Record<string, unknown>) {
     return this.operations.listPurchaseOrders(query);
   }
 
   @Get('views/purchase-orders/:id')
+  @Permissions('page:purchase-orders', 'page:purchase-order-detail')
   purchaseOrderView(@Param('id') id: string) {
     return this.operations.getPurchaseOrder(id);
   }

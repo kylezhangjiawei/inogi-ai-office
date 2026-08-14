@@ -110,6 +110,8 @@ import {
   getAttachmentThumbUrl,
   RD_DEFAULT_SUBPROJECT_LABEL,
 } from "./lib/rdApi";
+import { approveRdProcurementTransfer, rejectRdProcurementTransfer } from "./lib/procurementApi";
+import { announceProcurementRefresh } from "./procurement/data";
 import { SubtaskBadge } from "./RDTaskManagementPage";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { MentionSuggestionPanel, useMentions, type MentionCandidate } from "./components/MentionInput";
@@ -2777,6 +2779,7 @@ function NotificationDrawer({
   onReject?: (reason: string) => Promise<void>;
   onSelfAssess?: () => void;
 }) {
+  const navigate = useNavigate();
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [isActing, setIsActing] = useState(false);
@@ -2792,12 +2795,16 @@ function NotificationDrawer({
   const msgBodyType = parsedBody?.type ?? "";
   const isReviewRequest = msgBodyType === "review_request";
   const isReviewResult = msgBodyType === "review_result";
+  const isProcurementReviewResult = msgBodyType === "procurement_review_result";
   const isPerfSelfAssessment = msgBodyType === "perf_self_assessment";
   const discussionMention = parseRdDiscussionMention(notification.raw_body);
 
   // review_request fields
   const reviewType = isReviewRequest ? String(parsedBody!.review_type ?? "") : "";
   const reviewTaskId = isReviewRequest ? String(parsedBody!.task_id ?? "") : "";
+  const reviewReferenceTaskId = isReviewRequest && reviewType === "procurement_transfer"
+    ? String(parsedBody!.rd_task_id ?? "")
+    : reviewTaskId;
   const reviewTaskTitle = isReviewRequest ? String(parsedBody!.task_title ?? "") : "";
   const reviewSubmitterName = isReviewRequest ? String(parsedBody!.submitter_name ?? "") : "";
   const reviewNote = isReviewRequest ? String(parsedBody!.note ?? "") : "";
@@ -2806,18 +2813,18 @@ function NotificationDrawer({
 
   // 拉取审核任务的进度记录，作为审核参考依据
   useEffect(() => {
-    if (!isReviewRequest || !reviewTaskId) {
+    if (!isReviewRequest || !reviewReferenceTaskId) {
       setProgressNotes([]);
       return;
     }
     let cancelled = false;
     setProgressNotesLoading(true);
-    fetchRdTaskProgressNotes(reviewTaskId)
+    fetchRdTaskProgressNotes(reviewReferenceTaskId)
       .then((list) => { if (!cancelled) setProgressNotes(list); })
       .catch(() => { if (!cancelled) setProgressNotes([]); })
       .finally(() => { if (!cancelled) setProgressNotesLoading(false); });
     return () => { cancelled = true; };
-  }, [isReviewRequest, reviewTaskId]);
+  }, [isReviewRequest, reviewReferenceTaskId]);
 
   // review_result fields
   const resultApproved = isReviewResult ? String(parsedBody!.result ?? "") === "approved" : false;
@@ -2825,6 +2832,26 @@ function NotificationDrawer({
   const resultTaskId = isReviewResult ? String(parsedBody!.task_id ?? "") : "";
   const resultReviewerName = isReviewResult ? String(parsedBody!.reviewer_name ?? "管理员") : "";
   const resultReason = isReviewResult ? String(parsedBody!.reason ?? "") : "";
+  const resultReviewType = isReviewResult ? String(parsedBody!.review_type ?? "") : "";
+  const resultNote = isReviewResult ? String(parsedBody!.note ?? "") : "";
+  const resultProcurementCode = isReviewResult ? String(parsedBody!.procurement_code ?? "") : "";
+  const resultBuyerName = isReviewResult ? String(parsedBody!.buyer_name ?? "") : "";
+
+  const procurementApproved = isProcurementReviewResult ? String(parsedBody!.result ?? "") === "approved" : false;
+  const procurementMaterial = isProcurementReviewResult ? String(parsedBody!.material_name ?? "采购需求") : "";
+  const procurementCode = isProcurementReviewResult ? String(parsedBody!.procurement_code ?? "") : "";
+  const procurementSpec = isProcurementReviewResult ? String(parsedBody!.specification ?? "") : "";
+  const procurementQuantity = isProcurementReviewResult ? Number(parsedBody!.quantity ?? 0) : 0;
+  const procurementUnit = isProcurementReviewResult ? String(parsedBody!.unit ?? "") : "";
+  const procurementMethod = isProcurementReviewResult ? String(parsedBody!.procurement_method_label ?? "") : "";
+  const procurementRequester = isProcurementReviewResult ? String(parsedBody!.requester_name ?? "") : "";
+  const procurementContact = isProcurementReviewResult ? String(parsedBody!.rd_contact ?? "") : "";
+  const procurementReviewer = isProcurementReviewResult ? String(parsedBody!.reviewer_name ?? "") : "";
+  const procurementReason = isProcurementReviewResult ? String(parsedBody!.reason ?? "") : "";
+  const procurementNextAction = isProcurementReviewResult ? String(parsedBody!.next_action ?? "") : "";
+  const procurementRoute = isProcurementReviewResult ? String(parsedBody!.route ?? "") : "";
+  const procurementActionLabel = isProcurementReviewResult ? String(parsedBody!.action_label ?? "") : "";
+  const procurementRecipientReason = isProcurementReviewResult ? String(parsedBody!.recipient_reason ?? "") : "";
 
   const isHandled = Boolean(notification.handled);
   const showReviewButtons = isReviewRequest && canReview && !isHandled && !rejectOpen;
@@ -2864,11 +2891,11 @@ function NotificationDrawer({
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">{t("待审核")}</span>
               )}
               <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">
-                {reviewType === "collaboration" ? t("协作变更审核") : reviewType === "proposal" ? t("立项审核") : reviewType === "due_date" ? t("截止日期变更审核") : reviewType === "abandon" ? t("放弃任务审核") : t("成果审核")}
+                {reviewType === "procurement_transfer" ? t("转采购审核") : reviewType === "collaboration" ? t("协作变更审核") : reviewType === "proposal" ? t("立项审核") : reviewType === "due_date" ? t("截止日期变更审核") : reviewType === "abandon" ? t("放弃任务审核") : t("成果审核")}
               </span>
             </div>
             <div>
-              <div className="font-mono text-xs text-slate-400 mb-0.5">{reviewTaskId}</div>
+              <div className="font-mono text-xs text-slate-400 mb-0.5">{reviewReferenceTaskId || reviewTaskId}</div>
               <div className="text-sm font-semibold text-slate-800">{reviewTaskTitle}</div>
             </div>
             <div className="text-sm text-slate-500">{t("提交人：")}<span className="font-medium text-slate-700">{reviewSubmitterName}</span></div>
@@ -2923,27 +2950,86 @@ function NotificationDrawer({
               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${resultApproved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
                 {resultApproved ? t("✓ 审核通过") : t("✕ 被打回")}
               </span>
-              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">{t("审核结果")}</span>
+              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">
+                {resultReviewType === "procurement_transfer" ? t("转采购前置审核") : t("审核结果")}
+              </span>
             </div>
             <div>
               <div className="font-mono text-xs text-slate-400 mb-0.5">{resultTaskId}</div>
               <div className="text-sm font-semibold text-slate-800">{resultTaskTitle}</div>
             </div>
             <div className="text-sm text-slate-500">{t("审核人：")}<span className="font-medium text-slate-700">{resultReviewerName}</span></div>
+            {resultReviewType === "procurement_transfer" && (
+              <div className="grid grid-cols-2 gap-2 rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-slate-200">
+                <div><span className="text-slate-500">{t("采购编号：")}</span><span className="font-mono text-slate-700">{resultProcurementCode}</span></div>
+                {resultBuyerName && <div><span className="text-slate-500">{t("采购负责人：")}</span><span className="font-medium text-slate-700">{resultBuyerName}</span></div>}
+              </div>
+            )}
             {resultApproved ? (
               <div className="rounded-lg bg-white px-3 py-2 text-sm text-emerald-700 ring-1 ring-emerald-100">
-                {t("任务已通过审核，恭喜完成！")}
+                {resultReviewType === "procurement_transfer"
+                  ? <AutoTranslatedText text={resultNote || t("已进入采购待处理，等待采购人员确认接收。")} />
+                  : t("任务已通过审核，恭喜完成！")}
               </div>
             ) : (
               <div className="rounded-lg bg-white px-3 py-2 text-sm text-red-700 ring-1 ring-red-100">
                 <span className="font-medium">{t("打回原因：")}</span>{resultReason ? <AutoTranslatedText text={resultReason} /> : t("请联系审核人了解详情")}
+                {resultNote && <AutoTranslatedText as="p" className="mt-1 text-red-600" text={resultNote} />}
               </div>
             )}
           </div>
         )}
 
+        {/* ── Procurement review result card ── */}
+        {isProcurementReviewResult && (
+          <div className={cn("space-y-4 rounded-xl border bg-white p-4", procurementApproved ? "border-emerald-200" : "border-red-200")}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", procurementApproved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700")}>
+                {procurementApproved ? t("审核通过") : t("审核打回")}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{t("转采购审核")}</span>
+            </div>
+            <div className="border-b border-slate-100 pb-3">
+              <div className="font-mono text-xs tabular-nums text-slate-400">{procurementCode}</div>
+              <AutoTranslatedText as="div" className="mt-1 text-balance text-sm font-semibold text-slate-900" text={procurementMaterial} />
+            </div>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+              {[
+                [t("采购方式"), procurementMethod],
+                [t("数量"), `${procurementQuantity} ${procurementUnit}`.trim()],
+                [t("规格"), procurementSpec],
+                [t("需求提出人"), procurementRequester],
+                [t("研发对接人"), procurementContact],
+                [t("接收原因"), procurementRecipientReason],
+                [t("审核人"), procurementReviewer],
+              ].filter(([, value]) => value).map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <dt className="text-xs text-slate-400">{label}</dt>
+                  <dd className="mt-0.5 text-pretty text-sm font-medium text-slate-700"><AutoTranslatedText text={value} /></dd>
+                </div>
+              ))}
+            </dl>
+            {!procurementApproved && (
+              <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2">
+                <div className="text-xs font-semibold text-red-700">{t("打回原因")}</div>
+                <AutoTranslatedText as="p" className="mt-1 whitespace-pre-wrap text-pretty text-sm leading-6 text-red-800" text={procurementReason || t("未填写打回原因")} />
+              </div>
+            )}
+            <div className={cn("rounded-lg border px-3 py-2", procurementApproved ? "border-emerald-100 bg-emerald-50" : "border-slate-200 bg-slate-50")}>
+              <div className="text-xs font-semibold text-slate-600">{t("下一步")}</div>
+              <AutoTranslatedText as="p" className="mt-1 text-pretty text-sm leading-6 text-slate-700" text={procurementNextAction} />
+            </div>
+            {procurementRoute.startsWith("/") && (
+              <ActionButton variant="primary" onClick={() => navigate(procurementRoute)}>
+                {t(procurementActionLabel || (procurementApproved ? "查看采购任务" : "查看原研发任务"))}
+                <ArrowRight className="size-3.5" />
+              </ActionButton>
+            )}
+          </div>
+        )}
+
         {/* ── Plain message (fallback) ── */}
-        {!isReviewRequest && !isReviewResult && (
+        {!isReviewRequest && !isReviewResult && !isProcurementReviewResult && (
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-sm leading-6 text-slate-700">{notification.message}</p>
           </div>
@@ -2982,7 +3068,7 @@ function NotificationDrawer({
         )}
 
         {/* ── Sender info (non-review messages) ── */}
-        {notification.type === "message" && !isReviewRequest && !isReviewResult && (
+        {notification.type === "message" && !isReviewRequest && !isReviewResult && !isProcurementReviewResult && (
           <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
             <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-indigo-700">
               <MessageSquare className="h-3.5 w-3.5" />
@@ -3052,7 +3138,7 @@ function NotificationDrawer({
             </>
           )}
           <ActionButton onClick={onClose} className="ml-auto">{t("稍后处理")}</ActionButton>
-          {!isReviewRequest && !isReviewResult && (
+          {!isReviewRequest && !isReviewResult && !isProcurementReviewResult && (
             <ActionButton onClick={onDismiss} variant="primary">
               <CheckCircle2 className="h-3.5 w-3.5" />
               {t("标记已处理")}
@@ -3062,6 +3148,12 @@ function NotificationDrawer({
             <ActionButton onClick={onDismiss} variant="primary">
               <CheckCircle2 className="h-3.5 w-3.5" />
               {t("知道了")}
+            </ActionButton>
+          )}
+          {isProcurementReviewResult && (
+            <ActionButton onClick={onDismiss}>
+              <CheckCircle2 className="size-3.5" />
+              {t("标记已处理")}
             </ActionButton>
           )}
         </div>
@@ -4263,8 +4355,26 @@ export function RDMyWorkspacePage() {
   const canStartProject = canProposeProject || canDirectProject;
   const WORKSPACE_AUDIT_ACTOR = useAuditActor("研发成员");
   const canReview = user
-    ? user.permissions.includes("*") || user.permissions.includes("rd-task:edit") || user.permissions.includes("rd-task:reassign")
+    ? user.permissions.includes("*")
+      || user.permissions.includes("rd-task:edit")
+      || user.permissions.includes("rd-task:reassign")
+      || user.permissions.includes("rd-procurement:review")
     : false;
+  const canReviewNotification = useCallback((notification: WorkspaceNotification) => {
+    if (!user || !notification.raw_body) return false;
+    try {
+      const body = JSON.parse(notification.raw_body) as Record<string, unknown>;
+      if (body.type !== "review_request") return false;
+      if (String(body.review_type ?? "") === "procurement_transfer") {
+        return user.permissions.includes("*") || user.permissions.includes("rd-procurement:review");
+      }
+      return user.permissions.includes("*")
+        || user.permissions.includes("rd-task:edit")
+        || user.permissions.includes("rd-task:reassign");
+    } catch {
+      return false;
+    }
+  }, [user]);
   const [workspace, setWorkspace] = useState<RdWorkspacePayload<WorkspaceTask, AiSuggestion, WorkspaceNotification>>(EMPTY_WORKSPACE);
   const [taskAttachmentPreviews, setTaskAttachmentPreviews] = useState<Record<string, RdTaskAttachmentPreview>>({});
   const taskAttachmentPreviewRef = useRef<Record<string, RdTaskAttachmentPreview>>({});
@@ -4576,7 +4686,9 @@ export function RDMyWorkspacePage() {
     const pendingDueDate = String(body.pending_due_date ?? "").trim();
     const currentDueDate = String(body.current_due_date ?? "").trim();
     const reviewTypeLabel =
-      reviewType === "collaboration"
+      reviewType === "procurement_transfer"
+        ? t("转采购审核")
+        : reviewType === "collaboration"
         ? t("协作变更审核")
         : reviewType === "proposal"
         ? t("立项审核")
@@ -4601,7 +4713,9 @@ export function RDMyWorkspacePage() {
         ...(reviewType === "due_date" && pendingDueDate
           ? [t("截止日期：{current} → {next}", { current: currentDueDate || t("未设置"), next: pendingDueDate })]
           : []),
-        reviewType === "collaboration"
+        reviewType === "procurement_transfer"
+          ? t("通过后申请才会进入采购驾驶舱，并按采购部门负载分配采购负责人。")
+          : reviewType === "collaboration"
           ? t("通过后协作人变更会立即生效，任务回到进行中。")
           : reviewType === "proposal"
           ? t("通过后任务将正式立项并进入进行中状态，同时通知发起人。")
@@ -4612,10 +4726,15 @@ export function RDMyWorkspacePage() {
           : t("通过后任务会进入审核通过状态，并通知对应申请人员。"),
       ],
       onConfirm: async () => {
-        await updateRdTask(taskId, {
-          _review_action: "approve",
-          _reviewer_name: user?.name,
-        } as Parameters<typeof updateRdTask>[1]);
+        if (reviewType === "procurement_transfer") {
+          await approveRdProcurementTransfer(taskId);
+          announceProcurementRefresh();
+        } else {
+          await updateRdTask(taskId, {
+            _review_action: "approve",
+            _reviewer_name: user?.name,
+          } as Parameters<typeof updateRdTask>[1]);
+        }
         await patchRdMessage(notification.id, { handled: true, read: true });
         recordAudit({
           actor: WORKSPACE_AUDIT_ACTOR,
@@ -5242,7 +5361,7 @@ export function RDMyWorkspacePage() {
               createdAt: notification.created_at,
             }));
           }}
-          canReview={canReview}
+          canReview={canReview && canReviewNotification(activePanel.notification)}
           onSelfAssess={() => {
             const notif = activePanel!.kind === "notification" ? activePanel!.notification : null;
             if (notif) void openWorkspaceSelfAssess(notif);
@@ -5258,11 +5377,16 @@ export function RDMyWorkspacePage() {
               const body = JSON.parse(notif.raw_body) as Record<string, unknown>;
               const taskId = String(body.task_id ?? "");
               const taskTitle = String(body.task_title ?? "");
-              await updateRdTask(taskId, {
-                _review_action: "reject",
-                _reviewer_name: user?.name,
-                _reject_reason: reason,
-              } as Parameters<typeof updateRdTask>[1]);
+              if (String(body.review_type ?? "") === "procurement_transfer") {
+                await rejectRdProcurementTransfer(taskId, reason);
+                announceProcurementRefresh();
+              } else {
+                await updateRdTask(taskId, {
+                  _review_action: "reject",
+                  _reviewer_name: user?.name,
+                  _reject_reason: reason,
+                } as Parameters<typeof updateRdTask>[1]);
+              }
               await patchRdMessage(notif.id, { handled: true, read: true });
               recordAudit({
                 actor: WORKSPACE_AUDIT_ACTOR,

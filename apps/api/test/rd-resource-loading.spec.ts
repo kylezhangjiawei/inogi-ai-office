@@ -9,6 +9,52 @@ import { ResearchDevelopmentController } from '../src/modules/research-developme
 import { ResearchDevelopmentService } from '../src/modules/research-development/research-development.service';
 import { currentRdWorkspace, runInRdWorkspace } from '../src/modules/research-development/rd-workspace.context';
 
+test('消息读取与处理只要求登录，消息内容仍由服务层按当前用户隔离', () => {
+  for (const handler of [
+    ResearchDevelopmentController.prototype.countUnreadMessages,
+    ResearchDevelopmentController.prototype.listMessages,
+    ResearchDevelopmentController.prototype.patchMessage,
+  ]) {
+    assert.deepEqual(Reflect.getMetadata(PERMISSIONS_KEY, handler), []);
+  }
+});
+
+test('转采购只能由任务参与人或研发管理员发起，并采用服务端任务标题', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.findTaskAcrossStores = async () => ({
+    task_id: 'RD-001',
+    title: '服务端研发任务',
+    primary_owner: '研发甲',
+    primary_owner_user_id: 'rd-1',
+    collaborators: [{ name: '研发乙', user_id: 'rd-2' }],
+  });
+
+  const ownerResult = await service.requireProcurementTransferAccess('RD-001', {
+    userId: 'rd-1',
+    userName: '研发甲',
+    permissions: ['proc-task:transfer'],
+  });
+  assert.deepEqual(ownerResult, {
+    taskId: 'RD-001',
+    title: '服务端研发任务',
+    participantUserIds: ['rd-1', 'rd-2'],
+    participantNames: ['研发甲', '研发乙'],
+  });
+  await assert.doesNotReject(() => service.requireProcurementTransferAccess('RD-001', {
+    userId: 'rd-admin',
+    userName: '研发管理员',
+    permissions: ['proc-task:transfer', 'rd-people:manage'],
+  }));
+  await assert.rejects(
+    () => service.requireProcurementTransferAccess('RD-001', {
+      userId: 'rd-other',
+      userName: '其他研发成员',
+      permissions: ['proc-task:transfer'],
+    }),
+    /只能将自己主责或协作的研发任务转采购/,
+  );
+});
+
 test('task creation endpoints accept proposal permission and pass a constrained actor policy', async () => {
   const createTaskPermissions = Reflect.getMetadata(
     PERMISSIONS_KEY,

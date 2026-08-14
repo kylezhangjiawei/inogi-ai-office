@@ -2,23 +2,24 @@
 // 按负责人聚合任务负载 + 一键交接；非名录但有在制任务的人提示入录。
 import { useEffect, useMemo, useState } from "react";
 import { Input } from "../components/ui/input";
+import { Button } from "../components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
+import { ScrollArea } from "../components/ui/scroll-area";
 import { useNavigate } from "react-router";
-import { ArrowLeft, ArrowRightLeft, Loader2, Pencil, Search, Trash2, UserPlus, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRightLeft, Loader2, Pencil, Search, Users } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../components/ui/utils";
 import { usePermission } from "../hooks/usePermission";
 import {
-  addBuyerRosterMember,
   autoAssignBuyerTasks,
   batchReassignProcTasks,
   getBuyerRoster,
-  removeBuyerRosterMember,
   updateBuyerRosterMember,
   type BuyerRosterMember,
   type ProcurementTask,
 } from "../lib/procurementApi";
 import { daysFromToday, isProcurementTaskOverdue, refreshProcurement, useProcurementData } from "./data";
-import { BuyerComboInput, PageHeader, PersonAvatar, useBuyerDirectory, useConfirmDialog } from "./components/common";
+import { BuyerComboInput, PageHeader, PersonAvatar, useBuyerDirectory } from "./components/common";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
@@ -44,13 +45,10 @@ export function ProcPeopleManagementPage() {
   const navigate = useNavigate();
   const { tasks } = useProcurementData();
   const { deptOf, resolveUserId } = useBuyerDirectory();
-  const { resolveUserId: resolveAnyUserId } = useBuyerDirectory({ includeAll: true });
   const canManage = usePermission("proc-task:reassign");
-  const { confirm: confirmAction, confirmDialog } = useConfirmDialog();
 
   const [roster, setRoster] = useState<BuyerRosterMember[]>([]);
   const [keyword, setKeyword] = useState("");
-  const [addName, setAddName] = useState("");
   const [busy, setBusy] = useState(false);
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
@@ -62,27 +60,39 @@ export function ProcPeopleManagementPage() {
   }, []);
 
   const rows = useMemo<PersonRow[]>(() => {
-    const byBuyer = new Map<string, ProcurementTask[]>();
+    const memberById = new Map(roster.map((member) => [member.id, member]));
+    const uniqueNameIds = new Map<string, string | null>();
+    const byBuyer = new Map<string, ProcurementTask[]>(roster.map((member) => [member.id, []]));
+    for (const member of roster) {
+      uniqueNameIds.set(member.name, uniqueNameIds.has(member.name) ? null : member.id);
+    }
     for (const task of tasks) {
       if (TERMINAL.includes(task.status)) continue;
-      const key = task.buyer || UNASSIGNED;
+      const ownerId = task.buyerUserId && memberById.has(task.buyerUserId)
+        ? task.buyerUserId
+        : task.buyer
+          ? uniqueNameIds.get(task.buyer)
+          : null;
+      // 只统计采购部门人员；未指派任务单独保留，便于管理员补充分派。
+      const key = ownerId || (!task.buyer ? UNASSIGNED : null);
+      if (!key) continue;
       const list = byBuyer.get(key);
       if (list) list.push(task); else byBuyer.set(key, [task]);
     }
-    const memberByName = new Map(roster.map((m) => [m.name, m]));
-    for (const m of roster) if (!byBuyer.has(m.name)) byBuyer.set(m.name, []);
     const kw = keyword.trim().toLowerCase();
     return Array.from(byBuyer.entries())
-      .map(([key, active]) => ({
+      .map(([key, active]) => {
+        const member = memberById.get(key) ?? null;
+        return ({
         key,
-        name: key === UNASSIGNED ? t("未指派") : key,
-        member: memberByName.get(key) ?? null,
+        name: key === UNASSIGNED ? t("未指派") : member?.name ?? t("未知采购人员"),
+        member,
         active,
         pending: active.filter((x) => x.status === "pending_confirm").length,
         transit: active.filter((x) => TRANSIT.includes(x.status)).length,
         overdue: active.filter(isProcurementTaskOverdue).length,
         week: active.filter((x) => { const d = daysFromToday(x.expectedArrivalDate); return TRANSIT.includes(x.status) && d != null && d >= 0 && d <= 7; }).length,
-      }))
+      });})
       .filter((r) => !kw || r.key === UNASSIGNED || r.name.toLowerCase().includes(kw) || (r.member?.note ?? "").toLowerCase().includes(kw))
       // 未指派置顶，其次名录成员，再按在制任务量降序
       .sort((a, b) =>
@@ -91,25 +101,6 @@ export function ProcPeopleManagementPage() {
         b.active.length - a.active.length,
       );
   }, [tasks, roster, keyword, t]);
-
-  const addMember = async (name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    const userId = resolveAnyUserId(trimmed);
-    if (!userId) { toast.error(t("找不到该用户（或存在同名，请确认姓名）")); return; }
-    if (roster.some((m) => m.id === userId)) { toast.error(t("该成员已在名录中")); return; }
-    setBusy(true);
-    try {
-      const r = await addBuyerRosterMember(userId);
-      setRoster(r.members);
-      setAddName("");
-      toast.success(t("已加入采购成员名录：{name}", { name: trimmed }));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("添加失败"));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const autoAssign = async () => {
     setBusy(true);
@@ -131,21 +122,6 @@ export function ProcPeopleManagementPage() {
     }
   };
 
-  const removeMember = (member: BuyerRosterMember) =>
-    confirmAction({
-      title: t("移出成员名录"),
-      desc: t("确定把 {name} 移出采购成员名录吗？历史任务不受影响。", { name: member.name }),
-      tone: "danger",
-      actionLabel: t("移出"),
-      onConfirm: () => {
-        setBusy(true);
-        void removeBuyerRosterMember(member.id)
-          .then((r) => { setRoster(r.members); toast.success(t("已从名录移除：{name}", { name: member.name })); })
-          .catch((err: unknown) => toast.error(err instanceof Error ? err.message : t("移除失败")))
-          .finally(() => setBusy(false));
-      },
-    });
-
   const saveNote = async (member: BuyerRosterMember) => {
     setBusy(true);
     try {
@@ -163,7 +139,7 @@ export function ProcPeopleManagementPage() {
   const submitHandover = async (person: PersonRow) => {
     const name = target.trim();
     if (!name) { toast.error(t("请填写接收人")); return; }
-    if (person.key !== UNASSIGNED && name === person.key) { toast.error(t("接收人不能是本人")); return; }
+    if (person.key !== UNASSIGNED && name === person.name) { toast.error(t("接收人不能是本人")); return; }
     setBusy(true);
     try {
       const result = await batchReassignProcTasks(person.active.map((x) => x.id), name, resolveUserId(name));
@@ -184,11 +160,11 @@ export function ProcPeopleManagementPage() {
         Icon={Users}
         badge={t("采购管理")}
         title={t("采购人员管理")}
-        description={t("维护采购组成员名录（分配任务候选优先显示名录成员）；按负责人查看任务负载，离职/休假可一键整体交接。")}
+        description={t("仅按采购部门在职人员展示任务负载；任务只能分配给同时具备采购个人工作台权限的成员。")}
         right={
-          <button type="button" onClick={() => navigate(routePath("page:proc-cockpit", "/proc-cockpit"))} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
+          <Button type="button" variant="outline" onClick={() => navigate(routePath("page:proc-cockpit", "/proc-cockpit"))} className="h-9 rounded-lg border-slate-200 px-3 text-sm text-slate-600">
             <ArrowLeft className="h-4 w-4" />{t("返回驾驶舱")}
-          </button>
+          </Button>
         }
       />
 
@@ -203,7 +179,7 @@ export function ProcPeopleManagementPage() {
             className="h-9 w-64 rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-sm outline-none focus:border-indigo-300"
           />
         </div>
-        <span className="text-xs text-slate-400">{t("名录成员 {n} 人", { n: roster.length })}</span>
+        <span className="text-xs text-slate-400">{t("采购部门成员 {n} 人", { n: roster.length })}</span>
         {canManage && (
           <div className="ml-auto flex items-center gap-2">
             {tasks.some((task) => !TERMINAL.includes(task.status) && !task.buyer) && (
@@ -217,32 +193,23 @@ export function ProcPeopleManagementPage() {
                 {t("智能分派未分配任务")}
               </button>
             )}
-            <BuyerComboInput
-              includeAll
-              value={addName}
-              onChange={setAddName}
-              onEnter={() => void addMember(addName)}
-              placeholder={t("输入姓名添加成员…")}
-              className="h-9 w-56 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-300"
-            />
-            <button type="button" disabled={busy || !addName.trim()} onClick={() => void addMember(addName)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm disabled:opacity-60">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}{t("添加成员")}
-            </button>
           </div>
         )}
       </div>
 
       {/* 成员/负载列表 */}
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pb-4">
+      <ScrollArea className="min-h-0 flex-1 pr-2">
+      <div className="space-y-2 pb-4">
         {rows.length === 0 && <div className="material-card py-12 text-center text-sm text-slate-400">{t("暂无成员与在制任务；先在右上角添加采购组成员。")}</div>}
         {rows.map((p) => (
-          <div key={p.key} className={cn("material-card p-4", p.key === UNASSIGNED && "border-amber-200 bg-amber-50/40")}>
+          <Collapsible key={p.key} open={handover === p.key} onOpenChange={(open) => { setHandover(open ? p.key : null); setTarget(""); }} className={cn("material-card p-4", p.key === UNASSIGNED && "border-amber-200 bg-amber-50/40")}>
             <div className="flex items-center gap-2">
               <PersonAvatar name={p.key === UNASSIGNED ? "?" : p.name} size="xs" />
               <span className="text-sm font-semibold text-slate-800">{p.name}</span>
               {p.member ? (
-                <span className={cn("rounded-full border px-1.5 py-0.5 text-[10px]", p.member.disabled ? "border-slate-200 bg-slate-100 text-slate-400" : "border-indigo-200 bg-indigo-50 text-indigo-600")}>
-                  {t(p.member.disabled ? "名录 · 账号已禁用" : p.member.managedByDepartment ? "采购部门同步" : "名录成员")}
+                <span className={cn("inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]", p.member.canReceiveTasks === false ? "border-amber-200 bg-amber-50 text-amber-700" : "border-indigo-200 bg-indigo-50 text-indigo-600")}>
+                  {p.member.canReceiveTasks === false && <AlertTriangle className="h-3 w-3" />}
+                  {t(p.member.canReceiveTasks === false ? "缺少采购工作台权限" : "采购部门成员")}
                 </span>
               ) : p.key !== UNASSIGNED ? (
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-400">{t("未入名录")}</span>
@@ -257,20 +224,12 @@ export function ProcPeopleManagementPage() {
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
                 )}
-                {canManage && !p.member && p.key !== UNASSIGNED && (
-                  <button type="button" disabled={busy} onClick={() => void addMember(p.key)} className="rounded-lg border border-indigo-200 px-2 py-1 text-[11px] text-indigo-600 hover:bg-indigo-50" title={t("加入成员名录")}>
-                    {t("入名录")}
-                  </button>
-                )}
                 {canManage && (
-                  <button type="button" onClick={() => { setHandover((cur) => (cur === p.key ? null : p.key)); setTarget(""); }} disabled={p.active.length === 0} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+                  <CollapsibleTrigger asChild>
+                  <Button type="button" variant="outline" size="sm" disabled={p.active.length === 0} className="h-7 rounded-lg border-slate-200 px-2.5 text-xs text-slate-600">
                     <ArrowRightLeft className="h-3.5 w-3.5" />{t(p.key === UNASSIGNED ? "指派" : "交接")}
-                  </button>
-                )}
-                {canManage && p.member && !p.member.managedByDepartment && (
-                  <button type="button" disabled={busy} onClick={() => removeMember(p.member!)} className="rounded-lg border border-slate-200 p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-500" title={t("从名录移除")}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
+                  </CollapsibleTrigger>
                 )}
               </div>
             </div>
@@ -304,7 +263,7 @@ export function ProcPeopleManagementPage() {
               ))}
             </div>
 
-            {handover === p.key && (
+            <CollapsibleContent>
               <div className="mt-2 flex items-center gap-2">
                 <BuyerComboInput
                   autoFocus
@@ -320,11 +279,11 @@ export function ProcPeopleManagementPage() {
                   {t(p.key === UNASSIGNED ? "指派 {count} 个任务" : "交接 {count} 个任务", { count: p.active.length })}
                 </button>
               </div>
-            )}
-          </div>
+            </CollapsibleContent>
+          </Collapsible>
         ))}
       </div>
-      {confirmDialog}
+      </ScrollArea>
     </div>
   );
 }

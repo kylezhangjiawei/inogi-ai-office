@@ -16,8 +16,9 @@ import {
   type ProcurementTask,
 } from "../../lib/procurementApi";
 import { formatRdFileSize } from "../../RDProgressEvidence";
-import { DEFAULT_PROCUREMENT_PRODUCT_ID, refreshProcurement, useProcurementProducts } from "../data";
+import { announceProcurementRefresh, DEFAULT_PROCUREMENT_PRODUCT_ID, PROCUREMENT_REFRESH_EVENT, useProcurementProducts } from "../data";
 import { DateInput, PROC_STATUS_META } from "./common";
+import { usePermission } from "../../hooks/usePermission";
 
 /** 转采购可携带的研发任务附件。fileKey 用于采购侧按需重签访问地址。 */
 export type TransferAttachmentInput = {
@@ -54,9 +55,25 @@ export function useProcurementTaskLink(rdTaskId?: string) {
   }, [rdTaskId]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void refresh(controller.signal);
-    return () => controller.abort();
+    let controller = new AbortController();
+    const revalidate = () => {
+      controller.abort();
+      controller = new AbortController();
+      void refresh(controller.signal);
+    };
+    revalidate();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") revalidate();
+    };
+    window.addEventListener(PROCUREMENT_REFRESH_EVENT, revalidate);
+    window.addEventListener("focus", revalidate);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      controller.abort();
+      window.removeEventListener(PROCUREMENT_REFRESH_EVENT, revalidate);
+      window.removeEventListener("focus", revalidate);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [refresh]);
 
   return { task, loading, refresh, setTask };
@@ -65,7 +82,15 @@ export function useProcurementTaskLink(rdTaskId?: string) {
 /** 关联采购 chip：点击跳采购驾驶舱对应任务。 */
 export function ProcurementLinkChip({ task, onJump }: { task: ProcurementTask; onJump: (procTaskId: string) => void }) {
   const { t } = useI18n();
+  const canOpenProcurementCockpit = usePermission("page:proc-cockpit");
   const statusLabel = PROC_STATUS_META[task.status]?.label ?? task.status;
+  if (task.status === "pending_rd_review" || !canOpenProcurementCockpit) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
+        {t("转采购：")}{t(statusLabel)}
+      </span>
+    );
+  }
   return (
     <button
       type="button"
@@ -124,6 +149,7 @@ type TransferModalProps = {
   taskTitle: string;
   productId?: string;
   owner: string;
+  ownerUserId?: string;
   priority?: "high" | "medium" | "low";
   dueDate?: string;
   attachments?: TransferAttachmentInput[];
@@ -137,6 +163,7 @@ export function TransferToProcurementModal({
   taskTitle,
   productId = DEFAULT_PROCUREMENT_PRODUCT_ID,
   owner,
+  ownerUserId,
   priority = "medium",
   dueDate = "",
   attachments = [],
@@ -198,7 +225,7 @@ export function TransferToProcurementModal({
       toast.error(t("请填写物料名称"));
       return;
     }
-    if (!Number.isFinite(quantity) || quantity < 0) {
+    if (!Number.isFinite(quantity) || quantity <= 0) {
       toast.error(t("请填写正确的数量"));
       return;
     }
@@ -234,11 +261,14 @@ export function TransferToProcurementModal({
         };
       }));
 
+      const rdContact = form.rdContact.trim() || owner;
       const procTask = await transferProcTask({
         productId: form.productId,
         rdTaskId: taskId,
         rdTaskTitle: taskTitle,
-        rdContact: form.rdContact.trim() || owner,
+        rdContact,
+        // 对接人姓名被手工改动后不能继续沿用原账号，避免把消息发给错误的人。
+        rdContactUserId: rdContact === owner ? ownerUserId : undefined,
         materialName,
         spec: form.spec.trim(),
         unit: "件",
@@ -253,11 +283,11 @@ export function TransferToProcurementModal({
         consumableNote: form.note.trim() || undefined,
         attachments: attachmentInputs,
       });
-      await refreshProcurement();
       onTransferred?.(procTask);
+      announceProcurementRefresh();
       toast.success(procTask.alreadyTransferred
         ? t("该研发任务已关联采购任务 {code}", { code: procTask.code })
-        : t("已生成采购任务 {code}", { code: procTask.code }));
+        : t("已提交转采购审核 {code}", { code: procTask.code }));
       onClose();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("转采购失败，请稍后重试"));
@@ -297,7 +327,7 @@ export function TransferToProcurementModal({
         <div className="max-h-[70vh] overflow-y-auto px-6 py-4">
           <div className="mb-3 flex items-start gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs text-indigo-700">
             <ShoppingCart className="mt-0.5 h-4 w-4 shrink-0" />
-            {t("已带入研发任务与附件，请确认采购需求；提交后会进入采购驾驶舱的待处理列表。")}
+            {t("已带入研发任务与附件；提交后先由研发管理员审核，通过后才进入采购驾驶舱并分配采购负责人。")}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">

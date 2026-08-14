@@ -4,6 +4,8 @@ import { Input } from "../../components/ui/input";
 import { HelpCircle, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
+import { Button } from "../../components/ui/button";
+import { ScrollArea } from "../../components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
 import { cn } from "../../components/ui/utils";
 import { materialAggregates, refreshProcurement, useProcurementData, type Material } from "../data";
@@ -61,11 +63,12 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
               </div>
               <AutoTranslatedText as="div" className="mt-0.5 text-sm text-slate-500" text={`${material.spec} · ${material.category} · ${material.productLine}`} />
             </div>
-            {can("proc-task:create") && <button type="button" onClick={() => setEditOpen(true)} title={t('编辑物料主数据')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</button>}
+            {can("proc-task:create") && <Button type="button" variant="outline" size="sm" onClick={() => setEditOpen(true)} title={t('编辑物料主数据')} className="h-7 rounded-lg px-2.5 text-xs text-slate-600"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</Button>}
           </div>
         </SheetHeader>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+        <ScrollArea className="min-h-0 flex-1">
+        <div className="space-y-4 px-6 py-4">
           {/* 审核区：待审核物料 + 持审核权限者可见；核对下方完整信息后再决定 */}
           {material.reviewStatus === "pending" && can("material:review") && (
             <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
@@ -81,10 +84,10 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
                   placeholder={t('备注 / 驳回原因（可选）')}
                   className="h-8 flex-1 rounded-lg border border-amber-200 bg-white px-2 text-sm outline-none focus:border-amber-400"
                 />
-                <button type="button" disabled={reviewBusy} onClick={() => void decide("approved")} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60">
+                <Button type="button" size="sm" disabled={reviewBusy} onClick={() => void decide("approved")} className="h-8 rounded-lg bg-emerald-600 px-3 text-xs text-white hover:bg-emerald-700">
                   {reviewBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t('通过')}
-                </button>
-                <button type="button" disabled={reviewBusy} onClick={() => void decide("rejected")} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-100 disabled:opacity-60">{t('驳回')}</button>
+                </Button>
+                <Button type="button" variant="outline" size="sm" disabled={reviewBusy} onClick={() => void decide("rejected")} className="h-8 rounded-lg border-rose-200 bg-rose-50 px-3 text-xs text-rose-600 hover:bg-rose-100 hover:text-rose-700">{t('驳回')}</Button>
               </div>
             </div>
           )}
@@ -160,6 +163,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
             )}
           </div>
         </div>
+        </ScrollArea>
         <PriceHistoryModal materialName={material.name} open={historyOpen} onClose={() => setHistoryOpen(false)} />
         {editOpen && <MaterialFormModal material={material} onClose={() => setEditOpen(false)} />}
       </SheetContent>

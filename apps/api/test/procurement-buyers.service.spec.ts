@@ -12,13 +12,18 @@ function createService(prisma: Record<string, unknown>) {
   );
 }
 
-test('采购负责人候选默认仅包含采购部门或显式名录成员', async () => {
+test('采购负责人候选仅允许采购部门内且具备个人工作台权限的在职账号', async () => {
   const prisma = {
+    department: {
+      findUnique: async () => ({ name: '供应链采购中心' }),
+    },
     user: {
       findMany: async () => [
-        { id: 'buyer-dept', name: '采购甲', department: '采购部' },
-        { id: 'buyer-roster', name: '采购乙', department: '研发部' },
-        { id: 'other', name: '研发甲', department: '研发部' },
+        { id: 'buyer-dept', name: '采购甲', department: '供应链采购中心', role: { permissions: ['page:proc-my-workspace'] } },
+        { id: 'buyer-no-page', name: '采购乙', department: '供应链采购中心', role: { permissions: [] } },
+        { id: 'false-positive', name: '采购协同甲', department: '采购协同组', role: { permissions: ['page:proc-my-workspace'] } },
+        { id: 'buyer-roster', name: '采购丙', department: '研发部', role: { permissions: ['page:proc-my-workspace'] } },
+        { id: 'other', name: '研发甲', department: '研发部', role: { permissions: [] } },
       ],
     },
     runtimeState: {
@@ -30,26 +35,48 @@ test('采购负责人候选默认仅包含采购部门或显式名录成员', as
   const service = createService(prisma);
 
   const eligible = await service.listBuyerCandidates();
-  const all = await service.listBuyerCandidates(true);
+  const department = await service.listBuyerCandidates('department');
+  const all = await service.listBuyerCandidates('all');
 
   assert.deepEqual(
     eligible.map((candidate) => candidate.id).sort(),
-    ['buyer-dept', 'buyer-roster'],
+    ['buyer-dept'],
   );
   assert.deepEqual(
     all.map((candidate) => candidate.id).sort(),
-    ['buyer-dept', 'buyer-roster', 'other'],
+    ['buyer-dept', 'buyer-no-page', 'buyer-roster', 'false-positive', 'other'],
   );
+  assert.deepEqual(department.map((candidate) => candidate.id), ['buyer-dept', 'buyer-no-page']);
+  assert.equal(department.find((candidate) => candidate.id === 'buyer-no-page')?.canReceiveTasks, false);
   assert.ok(eligible.every((candidate) => candidate.inRoster));
+});
+
+test('服务端拒绝把任务分配给采购部门外或缺少个人工作台权限的账号', async () => {
+  const service = createService({});
+  (service as any).listBuyerCandidates = async () => [
+    { id: 'buyer-ok', name: '采购甲', department: '采购部', canReceiveTasks: true },
+  ];
+
+  await assert.rejects(
+    () => (service as any).resolveAssignableBuyer('outside', '研发甲'),
+    /采购负责人必须是采购部门内/,
+  );
+  assert.deepEqual(
+    await (service as any).resolveAssignableBuyer('buyer-ok', '采购甲'),
+    { id: 'buyer-ok', name: '采购甲', department: '采购部', canReceiveTasks: true },
+  );
 });
 
 test('未分配采购任务按在制负载均衡分配并记录日志', async () => {
   const updates: Array<Record<string, unknown>> = [];
   const prisma = {
+    department: {
+      findUnique: async () => ({ name: '采购部' }),
+    },
     user: {
       findMany: async () => [
-        { id: 'buyer-a', name: '采购甲', department: '采购部' },
-        { id: 'buyer-b', name: '采购乙', department: '采购部' },
+        { id: 'buyer-a', name: '采购甲', department: '采购部', role: { permissions: ['page:proc-my-workspace'] } },
+        { id: 'buyer-b', name: '采购乙', department: '采购部', role: { permissions: ['page:proc-my-workspace'] } },
       ],
     },
     runtimeState: {

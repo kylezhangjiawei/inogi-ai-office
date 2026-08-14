@@ -24,7 +24,7 @@ type AuthedRequest = {
 
 /**
  * 供应商报价库：同一商品跨厂家的比价基准维护（树形：商品 → 厂家 → 阶梯价）。
- * 读操作仅需登录（页面入口由 page:proc-quote-book 路由守卫控制）；
+ * 读操作由后端 page:proc-quote-book 权限守卫；
  * 写操作用独立操作码 quote-book:manage，过渡期兼容 proc-task:inquiry（RolesGuard 为任一命中）。
  */
 @Controller('procurement/quote-book')
@@ -40,11 +40,13 @@ export class QuoteBookController {
   }
 
   @Get()
+  @Permissions('page:proc-quote-book')
   list() {
     return this.service.listQuoteBook();
   }
 
   @Get('suppliers')
+  @Permissions('page:proc-quote-book')
   listSuppliers() {
     return this.service.listSuppliers();
   }
