@@ -550,7 +550,31 @@ export class ProcurementService {
       return { ...this.serializeTask(existing), alreadyTransferred: true };
     }
     if (existing) {
-      // 审核驳回（或取消）后的重新提交：更新需求内容、回到待处理重走审核，保留历史日志与旧附件
+      // 审核驳回（或取消）后的重新提交：更新需求内容、回到待处理重走审核，保留历史日志与旧附件。
+      // 弹窗默认带入研发任务全部附件，与旧附件指向同一批 OSS 对象，不去重的话每重提一次就多出
+      // 一份同名附件。存量附件可能没落 fileKey、只把 key 藏在 oss-preview 的 query 里，所以三种
+      // 身份（fileKey / fileUrl / url 里的 key）任一命中即视为同一份。
+      const attachmentIdentities = (a: { fileKey?: string | null; fileUrl?: string | null }): string[] => {
+        const ids: string[] = [];
+        if (a.fileKey) ids.push(`key:${a.fileKey}`);
+        if (a.fileUrl) {
+          ids.push(`url:${a.fileUrl}`);
+          const embedded = /[?&]key=([^&]+)/.exec(a.fileUrl);
+          // 存量地址可能带坏的百分号转义，decode 抛错不该让整个重新提交 500
+          if (embedded) {
+            try {
+              ids.push(`key:${decodeURIComponent(embedded[1])}`);
+            } catch {
+              ids.push(`key:${embedded[1]}`);
+            }
+          }
+        }
+        return ids;
+      };
+      const keptAttachmentKeys = new Set(existing.attachments.flatMap(attachmentIdentities));
+      const newAttachments = (dto.attachments ?? []).filter(
+        (a) => !attachmentIdentities(a).some((id) => keptAttachmentKeys.has(id)),
+      );
       const updated = await this.prisma.procTask.update({
         where: { id: existing.id },
         data: {
@@ -576,8 +600,8 @@ export class ProcurementService {
           buyer: '',
           buyerUserId: null,
           cancelReason: null,
-          ...(dto.attachments?.length
-            ? { attachments: { create: dto.attachments.map((a) => this.attachmentData(a, actor)) } }
+          ...(newAttachments.length
+            ? { attachments: { create: newAttachments.map((a) => this.attachmentData(a, actor)) } }
             : {}),
           logs: {
             create: {

@@ -27,7 +27,7 @@ import {
 import { EditTaskModal, NewRequirementModal } from "./modals";
 import { StatusPill } from "./common";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
-import { useProcTaskAction } from "./taskActions";
+import { removalModeOf, useProcTaskAction } from "./taskActions";
 
 const QUANTITY_FORMATTER = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 3 });
 
@@ -285,7 +285,14 @@ export function ProcurementModuleDetail({
                         <div className="flex items-center justify-end gap-1">
                           <TaskActionButton label={t("查看")} icon={Eye} onClick={() => setOpenTask(task)} />
                           {canEdit && <TaskActionButton label={t("编辑")} icon={Pencil} onClick={() => setEditTask(task)} />}
-                          {canDelete && <TaskActionButton label={t("删除")} icon={Trash2} danger onClick={() => taskAction.remove(task)} />}
+                          {canDelete && removalModeOf(task) !== "review" && (
+                            <TaskActionButton
+                              label={removalModeOf(task) === "cancel" ? t("取消任务") : t("删除")}
+                              icon={Trash2}
+                              danger
+                              onClick={() => taskAction.remove(task)}
+                            />
+                          )}
                         </div>
                       </td>
                     </tr>

@@ -391,6 +391,9 @@ export default function RDTaskDetailPage() {
    */
   const allTaskAuditLogs = useAuditLogs(TASK_AUDIT_FILTER);
   const { task: procTask, setTask: setProcTask } = useProcurementTaskLink(taskId);
+  // 只有仍在流程里的采购任务才顶掉「转采购」入口。已取消的（含审核驳回后落 cancelled 的
+  // 存量数据）后端允许在原记录上重新提交，前端必须把入口放回来，否则研发侧永久卡死。
+  const procTaskBlocksTransfer = Boolean(procTask) && procTask?.status !== "cancelled";
 
   // 采购动态是按任务按需出现的页签；切换到没有采购关联的任务时回退到合并关系，
   // 避免 Tabs 保留一个已不存在的受控 value 而显示空白。
@@ -1820,7 +1823,8 @@ export default function RDTaskDetailPage() {
               </>
             )}
             {/* 研发侧特有：转采购 / 生成问题（非归档任务始终可用，与抽屉口径一致）。
-                已转采购的任务显示跳转芯片而非再次转出 */}
+                在途的采购关联显示跳转芯片而非再次转出；已取消的（含存量「审核驳回」数据）
+                不占位——后端 transferFromRd 支持复用该记录重走审核，芯片与重提入口并存。 */}
             {!task.archived && !taskReadOnly && (
               <>
                 {procTask ? (
@@ -1828,7 +1832,8 @@ export default function RDTaskDetailPage() {
                     task={procTask}
                     onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)}
                   />
-                ) : canTransferProc && (canManage || isParticipant) ? (
+                ) : null}
+                {procTaskBlocksTransfer ? null : canTransferProc && (canManage || isParticipant) ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -1838,7 +1843,7 @@ export default function RDTaskDetailPage() {
                     className="h-8 w-full gap-1.5 text-xs"
                   >
                     <ShoppingCart className="h-3.5 w-3.5" />
-                    {t("转采购")}
+                    {procTask ? t("重新转采购") : t("转采购")}
                   </Button>
                 ) : null}
                 <Button
@@ -2178,6 +2183,7 @@ export default function RDTaskDetailPage() {
           priority={task.final_priority}
           dueDate={task.due_date}
           attachments={transferAttachments}
+          resubmitFrom={procTaskBlocksTransfer ? null : procTask}
           onTransferred={setProcTask}
           onClose={() => setTransferOpen(false)}
         />

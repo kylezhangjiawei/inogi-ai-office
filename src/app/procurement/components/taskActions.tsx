@@ -34,7 +34,7 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router";
 
 import { cn } from "../../components/ui/utils";
-import { useI18n } from "../../lib/i18n";
+import { t as translate, useI18n } from "../../lib/i18n";
 import {
   cancelProcTask,
   confirmQuotationsFromQuoteBook,
@@ -52,7 +52,7 @@ import {
   type TaskQuoteBookOption,
 } from "../../lib/procurementApi";
 import { refreshProcurement } from "../data";
-import { BuyerComboInput, DateInput, fmtMoney, useBuyerDirectory } from "./common";
+import { BuyerComboInput, DateInput, fmtMoney, PROC_STATUS_META, useBuyerDirectory } from "./common";
 
 type FormKind = "quote" | "select" | "order" | "receive" | "reassign" | "confirm" | "test";
 
@@ -77,6 +77,25 @@ interface PendingForm {
  * 从卡片触发时只打开详情，不在卡片上弹决策框。
  */
 export const DECISION_STATUSES = ["inquiring", "testing"];
+
+/** 终态：后端 PROC_TERMINAL_STATUSES 的前端对应，这些任务不能再「取消」，只能删除记录。 */
+const TERMINAL_STATUSES = ["completed", "cancelled"];
+
+/** 尚未开始履约、删除不会丢业务留痕的状态。 */
+const NOT_STARTED_STATUSES = ["pending_confirm", "pending_inquiry", "pending_purchase"];
+
+/**
+ * 采购任务的删除/取消处置档位。与后端保持一致：
+ *   review    待研发审核 → 采购侧无权处置，只能由研发管理员从审核入口打回（DELETE/cancel 都会 400）
+ *   terminal  已完成/已取消 → cancelTask 会报「任务已完结」，只能删记录
+ *   cancel    履约中 → 标记「已取消」保留留痕
+ *   delete    未开始 → 真删
+ */
+export function removalModeOf(task: ProcurementTask): "review" | "terminal" | "cancel" | "delete" {
+  if (task.status === "pending_rd_review") return "review";
+  if (TERMINAL_STATUSES.includes(task.status)) return "terminal";
+  return NOT_STARTED_STATUSES.includes(task.status) ? "delete" : "cancel";
+}
 
 /**
  * 「下一步」按钮所需操作码（与后端各端点 @Permissions 一致），
@@ -199,20 +218,27 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
   const reassign = useCallback((task: ProcurementTask) => setPending({ kind: "reassign", task }), []);
 
   const remove = useCallback((task: ProcurementTask) => {
-    // 已进入履约阶段的任务用「取消」保留留痕，未开始的才真删
-    const started = !["pending_confirm", "pending_inquiry", "pending_purchase"].includes(task.status);
-    const label = started ? "取消" : "删除";
+    const mode = removalModeOf(task);
+    // 待研发审核的申请采购侧动不了：取消和删除后端都会 400，直接提示正确入口而不是弹一个必然失败的框
+    if (mode === "review") {
+      toast.error(translate("该申请尚待研发管理员审核，请由研发管理员从审核入口打回"));
+      return;
+    }
+    const cancelling = mode === "cancel";
+    const label = cancelling ? "取消" : "删除";
     setPending({
       kind: "confirm",
       task,
       confirm: {
         title: `确定${label}任务「${task.materialName}」？`,
-        desc: started
+        desc: cancelling
           ? "任务已进入执行阶段，将标记为「已取消」并保留操作留痕，不会真正删除。"
-          : "该任务尚未开始执行，将被永久删除，此操作不可恢复。",
+          : mode === "terminal"
+            ? `任务已是「${translate(PROC_STATUS_META[task.status].label)}」终态，删除后将连同留痕一并移出驾驶舱，此操作不可恢复。`
+            : "该任务尚未开始执行，将被永久删除，此操作不可恢复。",
         actionLabel: label,
         tone: "danger",
-        run: () => (started ? cancelProcTask(task.id, "手动取消") : deleteProcTask(task.id)),
+        run: () => (cancelling ? cancelProcTask(task.id, "手动取消") : deleteProcTask(task.id)),
         okText: `已${label}任务`,
       },
     });

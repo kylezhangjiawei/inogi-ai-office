@@ -153,6 +153,8 @@ type TransferModalProps = {
   priority?: "high" | "medium" | "low";
   dueDate?: string;
   attachments?: TransferAttachmentInput[];
+  /** 已取消的关联采购任务：重新提交时按它回填，避免把首次填好的规格/数量等清空后覆盖回后端。 */
+  resubmitFrom?: ProcurementTask | null;
   onTransferred?: (task: ProcurementTask) => void;
   onClose: () => void;
 };
@@ -167,6 +169,7 @@ export function TransferToProcurementModal({
   priority = "medium",
   dueDate = "",
   attachments = [],
+  resubmitFrom = null,
   onTransferred,
   onClose,
 }: TransferModalProps) {
@@ -175,15 +178,16 @@ export function TransferToProcurementModal({
   const products = useProcurementProducts();
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
-    productId,
-    materialName: taskTitle.replace(/选型|测试|复核|反馈|核查|调整|完善|沟通/g, "").trim() || taskTitle,
-    spec: "",
-    quantity: "1",
-    needDate: dueDate,
-    deadline: dueDate,
-    link: "",
-    rdContact: owner,
-    note: "",
+    productId: resubmitFrom?.productId ?? productId,
+    materialName: resubmitFrom?.materialName
+      ?? (taskTitle.replace(/选型|测试|复核|反馈|核查|调整|完善|沟通/g, "").trim() || taskTitle),
+    spec: resubmitFrom?.spec ?? "",
+    quantity: resubmitFrom ? String(resubmitFrom.quantity) : "1",
+    needDate: resubmitFrom?.needDate ?? dueDate,
+    deadline: resubmitFrom?.deadline ?? dueDate,
+    link: resubmitFrom?.purchaseLink ?? "",
+    rdContact: resubmitFrom?.rdContact ?? owner,
+    note: resubmitFrom?.consumableNote ?? "",
   });
   const taskRows = useMemo<TransferAttachmentRow[]>(
     () => attachments.map((item) => ({
@@ -322,12 +326,16 @@ export function TransferToProcurementModal({
     <Dialog open onOpenChange={(o) => { if (!o && !submitting) onClose(); }}>
       <DialogContent aria-describedby={undefined} className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
         <DialogHeader className="border-b border-slate-100 px-6 py-4">
-          <DialogTitle className="text-base font-bold text-slate-900">{t("转采购 · 生成采购任务")}</DialogTitle>
+          <DialogTitle className="text-base font-bold text-slate-900">
+            {resubmitFrom ? t("转采购 · 重新提交 {code}", { code: resubmitFrom.code }) : t("转采购 · 生成采购任务")}
+          </DialogTitle>
         </DialogHeader>
         <div className="max-h-[70vh] overflow-y-auto px-6 py-4">
           <div className="mb-3 flex items-start gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs text-indigo-700">
             <ShoppingCart className="mt-0.5 h-4 w-4 shrink-0" />
-            {t("已带入研发任务与附件；提交后先由研发管理员审核，通过后才进入采购驾驶舱并分配采购负责人。")}
+            {resubmitFrom
+              ? t("已沿用上次提交的内容与附件，可直接修改；提交后在原单号上重走研发管理员审核。")
+              : t("已带入研发任务与附件；提交后先由研发管理员审核，通过后才进入采购驾驶舱并分配采购负责人。")}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">

@@ -26,7 +26,7 @@ import { isImagePreviewSource, MobileImagePreviewLink } from "../../components/M
 import { useI18n } from "../../lib/i18n";
 import { isProcurementTaskOverdue, taskMainDate, taskRequester, type Material, type ProcurementTask } from "../data";
 import { BusinessLinePill, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, useProcCan } from "./common";
-import { DECISION_STATUSES, nextPermissionOf } from "./taskActions";
+import { DECISION_STATUSES, nextPermissionOf, removalModeOf } from "./taskActions";
 import { TaskCriticalMaterials, TaskCriticalMaterialsEditor } from "./TaskCriticalMaterials";
 
 const PRIORITY_TONE = {
@@ -58,6 +58,8 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
   const previewAttachments = task.attachmentList.slice(0, 3);
   const canAdvance = Boolean(meta.next && can(nextPermissionOf(task)) && onNext);
   const canConfigureCriticalMaterials = can("proc-task:create");
+  // 菜单项文案跟着实际处置动作走：履约中是「取消任务」，其余是「删除」，待研发审核则不给入口
+  const removalMode = removalModeOf(task);
 
   const runWithoutOpening = (event: React.MouseEvent, action: () => void) => {
     event.stopPropagation();
@@ -124,10 +126,10 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
                     {t("转派")}
                   </DropdownMenuItem>
                 ) : null}
-                {can("proc-task:delete") && onRemove ? (
+                {can("proc-task:delete") && onRemove && removalMode !== "review" ? (
                   <DropdownMenuItem variant="destructive" onSelect={() => onRemove(task)}>
                     <Trash2 className="size-4" />
-                    {t("删除")}
+                    {removalMode === "cancel" ? t("取消任务") : t("删除")}
                   </DropdownMenuItem>
                 ) : null}
               </DropdownMenuContent>
