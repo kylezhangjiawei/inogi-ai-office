@@ -32,8 +32,8 @@ test("POSIX 开发进程使用负 PID 终止整个进程组", () => {
   assert.throws(() => posixProcessGroupId(0), TypeError);
 });
 
-test("组合启动默认使用独立的 3001 端口，避免误连其他项目的 3000 服务", () => {
-  assert.equal(resolveDevApiPort({}), 3001);
+test("组合启动默认使用 INOGI 专属的 3011 端口，避开 Intellifai 的 3000 BFF", () => {
+  assert.equal(resolveDevApiPort({}), 3011);
   assert.equal(devApiTarget(resolveDevApiPort({ INOGI_DEV_API_PORT: "3100" })), "http://127.0.0.1:3100");
   assert.throws(() => resolveDevApiPort({ INOGI_DEV_API_PORT: "70000" }), TypeError);
 });
@@ -88,7 +88,7 @@ test("启动前同时检查 IPv6 通配监听，避免 Windows 遗留 API 锁住
 test("次要地址族不可用时继续启动，同时拒绝空的端口检查候选", async () => {
   const probedHosts = [];
   await assert.doesNotReject(() => assertDevPortAvailable(
-    3001,
+    3011,
     ["127.0.0.1", "::"],
     async (_port, host) => {
       probedHosts.push(host);
@@ -98,7 +98,7 @@ test("次要地址族不可用时继续启动，同时拒绝空的端口检查�
     },
   ));
   assert.deepEqual(probedHosts, ["127.0.0.1", "::"]);
-  await assert.rejects(() => assertDevPortAvailable(3001, []), /at least one host/);
+  await assert.rejects(() => assertDevPortAvailable(3011, []), /at least one host/);
 });
 
 test("任一服务意外退出都会让组合启动以失败状态收口", () => {

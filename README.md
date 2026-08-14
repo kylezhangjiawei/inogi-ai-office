@@ -46,6 +46,9 @@ Prisma schema and migrations live in `apps/api/prisma`.
 
 - OpenAI SDK
 - Qwen / DashScope-compatible provider configuration
+- Built-in AI gateway control plane with priority, round-robin, weighted, and recent-lowest-latency routing
+- Per-scene fallback chains, configurable circuit breaking, manual circuit reset, and request/attempt observability
+- Unified non-streaming text routing for R&D structuring/briefs/reporting/performance/progress workflows, procurement parsing/material intelligence/ERP matching, translation, operations error analysis, external-document comparison, RAG answers, image prompt optimization, resume screening, and other utility completions
 - Tencent OCR integration
 - WeCom approval and callback integration
 - IMAP email ingestion with mailparser
@@ -55,9 +58,34 @@ Prisma schema and migrations live in `apps/api/prisma`.
 
 - `src/app` - frontend application code
 - `apps/api` - NestJS backend API
+- `apps/api/src/modules/ai-gateway` - embedded AI routing, failover, circuit breaking, and observability control plane
 - `apps/api/src/modules/research-development` - research and development task module
 - `apps/api/prisma/schema.prisma` - Prisma database schema
 - `deploy/postgres` - PostgreSQL deployment assets
+
+## AI Gateway
+
+The AI gateway is part of INOGI itself; it does not run as a separate service. Open
+**AI 模型管理** in the application to manage connections, configure business-scene
+routes, inspect request trends and error types, view circuit state, and drill into each
+fallback attempt.
+
+Each scene can choose one of four scheduling strategies:
+
+- `priority` - use the configured connection order and fail over sequentially
+- `round_robin` - rotate the first-choice connection per scene
+- `weighted` - probabilistically choose the first connection by configured weights
+- `lowest_latency` - prefer the connection with the lowest successful average latency during the last 30 days
+
+The route also owns its timeout, consecutive-failure threshold, and circuit cooldown.
+Circuit state is isolated by business scene and connection, while historical requests,
+attempts, latency, Token usage, fallback behavior, and errors are persisted in PostgreSQL.
+Configuration writes and manual circuit resets pass through the application's existing
+audit interceptor.
+
+Streaming chat, multimodal vision, image/video generation, embeddings, and file-upload
+protocols stay on their dedicated paths because their request/response contracts are not
+interchangeable with the gateway's non-streaming text-completion contract.
 
 ## Running the Code
 
@@ -81,6 +109,10 @@ Start the full local development stack:
 ```powershell
 npm run dev
 ```
+
+The local INOGI API uses port `3011` by default, while Vite serves the web app on
+`5173`. This keeps INOGI separate from Intellifai, whose local frontend and BFF use
+`5380` and `3000`. Override the INOGI API port with `INOGI_DEV_API_PORT` when needed.
 
 Start frontend only:
 

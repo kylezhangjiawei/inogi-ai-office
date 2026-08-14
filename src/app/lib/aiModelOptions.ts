@@ -13,7 +13,7 @@ export type AiModelOption = {
   usageDescription: string;
 };
 
-export type AiModelUsageKind = "text" | "multimodal" | "image" | "embedding" | "document" | "video";
+export type AiModelUsageKind = "text" | "multimodal" | "image" | "embedding" | "document" | "video" | "audio";
 
 export type AiModelConfigLike = {
   name?: string | null;
@@ -62,6 +62,14 @@ export function getAiModelUsage(model?: string | null) {
       kind: "document" as const,
       label: "文档解析",
       description: "用于读取解析文档 / 附件内容，不能用于对话或图片任务。",
+    };
+  }
+
+  if (isAudioModelName(normalized)) {
+    return {
+      kind: "audio" as const,
+      label: "音频",
+      description: "用于实时语音合成或语音对话，不能用于普通文本对话任务。",
     };
   }
 
@@ -137,7 +145,13 @@ export function isVideoModelName(model: string) {
   return normalized.includes("happyhorse") || /(^|[-_/])(i2v|t2v|r2v)($|[-_/])/.test(normalized);
 }
 
-const USAGE_KINDS: readonly AiModelUsageKind[] = ["text", "multimodal", "image", "embedding", "document", "video"];
+/** 名称推断：是否为实时语音或音频模型。仅当 usage_kind=auto 未显式标注时兜底使用。 */
+export function isAudioModelName(model: string) {
+  const normalized = model.toLowerCase();
+  return normalized.includes("audio") || /(^|[-_/])(tts|speech|realtime)($|[-_/])/.test(normalized);
+}
+
+const USAGE_KINDS: readonly AiModelUsageKind[] = ["text", "multimodal", "image", "embedding", "document", "video", "audio"];
 
 function isUsageKind(value: string): value is AiModelUsageKind {
   return (USAGE_KINDS as readonly string[]).includes(value);
@@ -196,6 +210,8 @@ export function resolveExplicitUsage(kind: AiModelUsageKind): { kind: AiModelUsa
       return { kind: "document", label: "文档解析", description: "用于读取解析文档 / 附件内容，不能用于对话或图片任务。" };
     case "video":
       return { kind: "video", label: "视频", description: "用于图生视频 / 文生视频，不能用于对话或图片任务。" };
+    case "audio":
+      return { kind: "audio", label: "音频", description: "用于实时语音合成或语音对话，不能用于普通文本对话任务。" };
     default:
       return { kind: "text", label: "文本", description: "适合文本对话、摘要、筛选和结构化提取任务。" };
   }

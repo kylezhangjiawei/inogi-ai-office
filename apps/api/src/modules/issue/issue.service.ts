@@ -705,6 +705,7 @@ export class IssueService {
     let usedModel = 'heuristic';
     try {
       const result = await this.chatService.complete({
+        scene: 'ops.error_analysis',
         modelId,
         system: buildAnalysisSystemPrompt(config.systemPrompt),
         messages: [{ role: 'user', content: userPrompt }],

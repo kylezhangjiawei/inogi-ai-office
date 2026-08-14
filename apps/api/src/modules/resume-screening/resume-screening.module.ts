@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AiGatewayModule } from '../ai-gateway/ai-gateway.module';
 import { MailIngestionService } from './mail-ingestion.service';
 import { OpenAiScreeningService } from './openai-screening.service';
 import { ResumeDocumentService } from './resume-document.service';
@@ -9,6 +10,7 @@ import { ResumeScreeningService } from './resume-screening.service';
 import { SecureConfigService } from '../security/secure-config.service';
 
 @Module({
+  imports: [AiGatewayModule],
   controllers: [ResumeScreeningController],
   providers: [ResumeScreeningService, MailIngestionService, ResumeDocumentService, ResumeParserService, OpenAiScreeningService, SecureConfigService],
   exports: [OpenAiScreeningService],

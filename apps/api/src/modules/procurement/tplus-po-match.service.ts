@@ -236,6 +236,7 @@ export class TplusPoMatchService {
     const taskLines = taskSlice.map((t, i) => `T${i + 1}. ${t.materialName}（需求量 ${t.quantity}）`);
     const rowLines = rows.map((r, i) => `R${i + 1}. ${r.inventoryName}（订购量 ${Number(r.orderedQty)}）`);
     const result = await this.chatService.complete({
+      scene: 'procurement.erp_matching',
       system: [
         '你是采购单据匹配助手。给定 ERP 采购单行（R 列表）与采购任务（T 列表），判断每个 R 对应哪个 T（同一物料的采购）。',
         '语义相同但写法不同（简称/规格后缀/中英混写）视为同一物料；不确定就不要配对。',

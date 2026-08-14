@@ -11,6 +11,8 @@ import OpenAI from 'openai';
 import { Response } from 'express';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { SecureConfigService } from '../security/secure-config.service';
 import { WebSearchService, type WebSearchResult } from './web-search.service';
 import { RagService, type RagUserContext, type RagChatCitation } from '../rag/rag.service';
@@ -202,6 +204,7 @@ export class ChatService {
     private readonly webSearchService: WebSearchService,
     private readonly chatToolsService: ChatToolsService,
     private readonly aiUsageService: AiUsageService,
+    private readonly aiGateway: AiGatewayService,
   ) {
     this.openaiApiKey = this.config.get<string>('OPENAI_API_KEY') ?? null;
     this.openaiBaseUrl =
@@ -431,6 +434,8 @@ export class ChatService {
    * 返回实际使用的 model，便于调用方留痕。
    */
   async complete(opts: {
+    /** AI 网关统计与路由场景；调用方应尽量传业务场景，未传时归入通用文本补全。 */
+    scene?: string;
     modelId?: string;
     system: string;
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -491,6 +496,31 @@ export class ChatService {
           break;
         }
       }
+    }
+
+    // 图片理解仍保留多模态直连；纯文本补全统一进入网关，获得路由、降级、熔断与统计能力。
+    if (!visionUsed) {
+      const fallbackTarget: AiGatewayTarget = {
+        id: config.id,
+        connectionId: config.id,
+        provider: config.provider,
+        model,
+        apiKey,
+        baseUrl: baseURL,
+      };
+      const scene = opts.scene?.trim() || 'chat.utility_completion';
+      const routing = await this.aiGateway.resolveTargets(scene, [fallbackTarget]);
+      const result = await this.aiGateway.complete({
+        scene,
+        targets: routing.targets,
+        messages,
+        ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
+        ...(typeof opts.maxTokens === 'number' ? { maxTokens: opts.maxTokens } : {}),
+        ...(opts.json ? { responseFormat: { type: 'json_object' } as const } : {}),
+        retryWithoutResponseFormat: Boolean(opts.json),
+        timeoutMs: routing.timeoutMs ?? opts.timeoutMs,
+      });
+      return { content: result.content, model: result.model, visionUsed: false };
     }
 
     const completion = await client.chat.completions.create({

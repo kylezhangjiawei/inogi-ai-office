@@ -75,7 +75,7 @@ export class SaveAiModelDto {
   @IsBoolean()
   is_default_enabled!: boolean;
 
-  /** 显式用途类型：text | multimodal | image | embedding | document | auto（空值等同于 auto，走正则推断） */
+  /** 显式用途类型：text | multimodal | image | embedding | document | video | audio | auto */
   @IsOptional()
   @IsString()
   @MaxLength(20)

@@ -13,7 +13,7 @@ const qaPreview = await readFile(
 
 test("R&D integration QA targets the dedicated API port and remains overrideable", () => {
   assert.match(qaSuite, /process\.env\.QA_BASE_URL/);
-  assert.match(qaSuite, /http:\/\/127\.0\.0\.1:3001\/api/);
+  assert.match(qaSuite, /http:\/\/127\.0\.0\.1:3011\/api/);
   assert.doesNotMatch(qaSuite, /const BASE = "http:\/\/localhost:3000\/api"/);
 });
 

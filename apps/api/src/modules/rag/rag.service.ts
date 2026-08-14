@@ -1,9 +1,10 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import OpenAI from 'openai';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
+import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { EmbeddingClient } from './embedding-client';
 import { chunkText } from './chunker';
 
@@ -133,6 +134,7 @@ export class RagService {
     private readonly prisma: PrismaService,
     private readonly secureConfig: SecureConfigService,
     private readonly embedding: EmbeddingClient,
+    private readonly aiGateway: AiGatewayService,
   ) {}
 
   // ─── 同步：单条 / 批量 ─────────────────────────────────────────────────────
@@ -361,13 +363,6 @@ export class RagService {
     }
 
     const llmConfig = await this.loadChatModel();
-    // 60s 超时：防止 LLM 卡死时前端无限等待
-    const client = new OpenAI({
-      apiKey: llmConfig.apiKey,
-      baseURL: llmConfig.baseUrl,
-      timeout: 60_000,
-      maxRetries: 1,
-    });
 
     // 拼 context 块（每条带编号 + 来源信息）
     const contextBlock = searchResp.results
@@ -384,15 +379,16 @@ export class RagService {
 
     let answer = '';
     try {
-      const resp = await client.chat.completions.create({
-        model: llmConfig.model,
+      const resp = await this.aiGateway.complete({
+        scene: 'rag.knowledge_answer',
+        targets: llmConfig.targets,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        ...(llmConfig.provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+        timeoutMs: llmConfig.timeoutMs ?? 60_000,
       });
-      answer = (resp.choices[0]?.message?.content ?? '').trim();
+      answer = resp.content.trim();
     } catch (err) {
       this.logger.error(
         `RAG chat LLM 调用失败: ${err instanceof Error ? err.message : String(err)}`,
@@ -461,10 +457,8 @@ export class RagService {
   // ─── LLM 模型解析（沿用 RD 现有"默认对话模型"） ─────────────────────────
 
   private async loadChatModel(): Promise<{
-    provider: 'openai' | 'qwen';
-    model: string;
-    apiKey: string;
-    baseUrl: string;
+    targets: AiGatewayTarget[];
+    timeoutMs?: number;
   }> {
     const configs = await this.prisma.integrationConfig.findMany({
       where: { kind: 'openai', isActive: true },
@@ -491,16 +485,27 @@ export class RagService {
     const meta = (picked.metadata && typeof picked.metadata === 'object'
       ? picked.metadata
       : {}) as Record<string, unknown>;
-    const provider = ((picked.provider ?? 'openai').toLowerCase() === 'qwen' ? 'qwen' : 'openai') as
-      | 'openai'
-      | 'qwen';
-    const model = picked.model?.trim() || (provider === 'qwen' ? 'qwen-turbo' : 'gpt-4o-mini');
+    const provider = picked.provider?.trim() || 'openai';
+    const isQwen = provider.toLowerCase() === 'qwen';
+    const model = picked.model?.trim() || (isQwen ? 'qwen-turbo' : 'gpt-4o-mini');
     const baseUrl = typeof meta.base_url === 'string' && meta.base_url
       ? meta.base_url
-      : provider === 'qwen'
+      : isQwen
         ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
         : 'https://api.openai.com/v1';
-    return { provider, model, apiKey, baseUrl };
+    const fallback: AiGatewayTarget = {
+      id: picked.id,
+      connectionId: picked.id,
+      provider,
+      model,
+      apiKey,
+      baseUrl,
+    };
+    const routing = await this.aiGateway.resolveTargets('rag.knowledge_answer', [fallback]);
+    if (routing.targets.length === 0) {
+      throw new BadRequestException('未配置任何可用对话模型，无法生成 RAG 回答。');
+    }
+    return { targets: routing.targets, timeoutMs: routing.timeoutMs };
   }
 
   // ─── 工具 ─────────────────────────────────────────────────────────────────

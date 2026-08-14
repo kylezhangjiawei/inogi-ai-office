@@ -7,8 +7,77 @@ import react from '@vitejs/plugin-react'
 
 const packageVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version as string
 // Keep standalone `npm run dev:web` aligned with the dedicated API port used by
-// `npm run dev`; port 3000 may belong to another local project.
-const devApiTarget = process.env.VITE_DEV_API_TARGET || 'http://127.0.0.1:3001'
+// `npm run dev`; the parallel Intellifai project uses frontend 5380 and BFF 3000.
+const devApiTarget = process.env.VITE_DEV_API_TARGET || 'http://127.0.0.1:3011'
+const spaClientDirectivePattern = /^(\uFEFF?[\t ]*)(["'])use client\2;?[\t ]*(\r?\n|$)/
+
+function stripSpaClientDirectives() {
+  return {
+    name: 'strip-spa-client-directives',
+    enforce: 'pre' as const,
+    transform(code: string, id: string) {
+      const moduleId = id.split('?', 1)[0].replace(/\\/g, '/')
+      if (!moduleId.includes('/src/') || !/\.[cm]?[jt]sx?$/.test(moduleId)) return null
+      const match = spaClientDirectivePattern.exec(code)
+      if (!match) return null
+
+      // `use client` only has meaning in React Server Components. This is a Vite SPA,
+      // so blank the directive while preserving every character position for sourcemaps.
+      const blankedDirective = match[0].replace(/[^\r\n]/g, ' ')
+      return { code: `${blankedDirective}${code.slice(match[0].length)}`, map: null }
+    },
+  }
+}
+
+function enforceJavaScriptChunkBudget(maxBytes = 2_000_000) {
+  return {
+    name: 'enforce-javascript-chunk-budget',
+    generateBundle(_options: unknown, bundle: Record<string, { type: string; code?: string; modules?: Record<string, { renderedLength: number }> }>) {
+      const oversized = Object.entries(bundle)
+        .filter(([, output]) => output.type === 'chunk')
+        .map(([fileName, output]) => ({
+          fileName,
+          bytes: Buffer.byteLength(output.code ?? '', 'utf8'),
+          modules: Object.entries(output.modules ?? {})
+            .map(([id, details]) => ({ id: id.replace(/\\/g, '/'), bytes: details.renderedLength }))
+            .sort((left, right) => right.bytes - left.bytes)
+            .slice(0, 8),
+        }))
+        .filter((chunk) => chunk.bytes > maxBytes);
+      if (oversized.length === 0) return
+      const details = oversized.map((chunk) => [
+        `${chunk.fileName}: ${chunk.bytes} bytes`,
+        ...chunk.modules.map((module) => `  ${module.bytes} bytes  ${module.id}`),
+      ].join('\n')).join('\n')
+      throw new Error(`JavaScript chunk budget exceeded (${maxBytes} bytes):\n${details}`)
+    },
+  }
+}
+
+function buildManualChunkName(id: string) {
+  const moduleId = id.replace(/\\/g, '/')
+  const hyphenationModule = moduleId.match(/\/node_modules\/@univerjs\/engine-render\/lib\/es\/([^/]+)\.js$/)?.[1]
+  if (hyphenationModule && hyphenationModule !== 'index') return `univer-hyphenation-${hyphenationModule}`
+
+  const univerPackage = moduleId.match(/\/node_modules\/@univerjs\/([^/]+)\//)?.[1]
+  if (univerPackage) return `univer-${univerPackage}`
+
+  // engine-render imports these large data-heavy libraries directly. Without an
+  // explicit boundary Rollup folds all of them into the engine chunk (~5.8MB).
+  if (moduleId.includes('/node_modules/opentype.js/')) return 'univer-font-parser'
+  if (/\/node_modules\/(franc-min|trigram-utils)\//.test(moduleId)) return 'univer-language-detection'
+  if (/\/node_modules\/(cjk-regex|unicode-regex|regexp-util)\//.test(moduleId)) return 'univer-unicode-text'
+  if (moduleId.includes('/node_modules/rxjs/')) return 'rxjs-vendor'
+  if (moduleId.includes('/node_modules/@floating-ui/')) return 'floating-ui-vendor'
+
+  if (/\/node_modules\/(react|react-dom|react-router|scheduler)\//.test(moduleId)) return 'react-vendor'
+  if (moduleId.includes('/node_modules/@radix-ui/')) return 'radix-vendor'
+  if (/\/node_modules\/(recharts|d3-[^/]+|victory-vendor)\//.test(moduleId)) return 'recharts-vendor'
+  if (/\/node_modules\/(motion|framer-motion)\//.test(moduleId)) return 'motion-vendor'
+  if (moduleId.includes('/node_modules/lucide-react/')) return 'lucide-vendor'
+  if (moduleId.includes('/node_modules/@mui/') || moduleId.includes('/node_modules/@emotion/')) return 'mui-vendor'
+  return undefined
+}
 
 function resolveGitSha() {
   const fromEnvironment = process.env.VITE_GIT_SHA || process.env.APP_GIT_SHA || process.env.GIT_COMMIT || process.env.SOURCE_VERSION
@@ -39,6 +108,8 @@ export default defineConfig({
   },
   plugins: [
     figmaAssetResolver(),
+    stripSpaClientDirectives(),
+    enforceJavaScriptChunkBudget(),
     // The React and Tailwind plugins are both required for Make, even if
     // Tailwind is not being actively used – do not remove them
     react(),
@@ -94,51 +165,16 @@ export default defineConfig({
   assetsInclude: ['**/*.svg', '**/*.csv'],
 
   build: {
-    // 单 chunk 上限 2MB（业务主包目前 ~1.8MB，正常）。
-    // 后续可通过 React.lazy 路由懒加载进一步拆分，把首屏 chunk 控制到 < 1MB。
+    // 2MB 是真实性能预算，不通过调高阈值掩盖超大依赖块。
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
-        manualChunks: {
-          // React 全家桶单独打一个包（占很大体积，但很少变化，浏览器缓存命中率高）
-          'react-vendor': ['react', 'react-dom', 'react/jsx-runtime', 'react-router'],
-          // Radix UI 组件库（大量 UI 原子组件，独立缓存）
-          'radix-vendor': [
-            '@radix-ui/react-accordion',
-            '@radix-ui/react-alert-dialog',
-            '@radix-ui/react-aspect-ratio',
-            '@radix-ui/react-avatar',
-            '@radix-ui/react-checkbox',
-            '@radix-ui/react-collapsible',
-            '@radix-ui/react-context-menu',
-            '@radix-ui/react-dialog',
-            '@radix-ui/react-dropdown-menu',
-            '@radix-ui/react-hover-card',
-            '@radix-ui/react-label',
-            '@radix-ui/react-menubar',
-            '@radix-ui/react-navigation-menu',
-            '@radix-ui/react-popover',
-            '@radix-ui/react-progress',
-            '@radix-ui/react-radio-group',
-            '@radix-ui/react-scroll-area',
-            '@radix-ui/react-select',
-            '@radix-ui/react-separator',
-            '@radix-ui/react-slider',
-            '@radix-ui/react-slot',
-            '@radix-ui/react-switch',
-            '@radix-ui/react-tabs',
-            '@radix-ui/react-toggle',
-            '@radix-ui/react-toggle-group',
-            '@radix-ui/react-tooltip',
-          ],
-          // 大型独立库：图表 / 动画 / 图标 / 表格
-          'recharts-vendor': ['recharts'],
-          'motion-vendor': ['motion'],
-          'lucide-vendor': ['lucide-react'],
-          // MUI（如果有用到，比较大）。@emotion/* 是 @mui/material 的必需 peer 依赖，
-          // 代码里不直接 import，但必须留在同一个 chunk 里。
-          'mui-vendor': ['@mui/material', '@emotion/react', '@emotion/styled'],
-        },
+        // Keep lazy-route dependencies lazy. Otherwise Rollup also absorbs each
+        // manual chunk's dependency graph and may promote Univer into index.html.
+        onlyExplicitManualChunks: true,
+        // RDSheetPage 已按路由懒加载；这里再按 Univer 包边界拆开其内部依赖图，
+        // 避免整个电子表格引擎被合并成一个 6MB 异步文件。
+        manualChunks: buildManualChunkName,
       },
     },
   },

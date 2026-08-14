@@ -469,6 +469,7 @@ export class ProcurementService {
     let usedAI = false;
     try {
       const result = await this.chatService.complete({
+        scene: 'procurement.requirement_parse',
         system: [
           '你是采购需求解析助手。把用户输入的采购需求（可能含电商商品链接）解析为 JSON 对象，字段：',
           'materialName(物料名称,string,必填,尽量简短规范)、spec(规格型号,string)、unit(单位,string,如 件/个/米)、',
