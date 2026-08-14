@@ -470,12 +470,17 @@ function QuoteBookMaterialRows({
             >
               <History className="h-3.5 w-3.5" />{t("历史价格")}
             </button>
-            {canWrite && row.quotes.length > 0 && (
+            {/* 默认常显：按报价数隐藏会让操作列在行与行之间忽宽忽窄，也让人以为这行不能移出。
+                没有报价时置灰——后端只删厂家报价，此时点下去是 0 删除的空操作。 */}
+            {canWrite && (
               <button
                 type="button"
-                title={t("移出报价库：删除其下全部厂家报价")}
+                disabled={row.quotes.length === 0}
+                title={row.quotes.length === 0
+                  ? t("该商品还没有厂家报价，无需移出")
+                  : t("移出报价库：删除其下全部厂家报价")}
                 onClick={(e) => { e.stopPropagation(); onClear(); }}
-                className="rounded-lg border border-slate-200 p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-500"
+                className="rounded-lg border border-slate-200 p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:border-slate-100 disabled:text-slate-300 disabled:hover:bg-transparent disabled:hover:text-slate-300"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>

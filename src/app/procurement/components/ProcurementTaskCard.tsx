@@ -22,10 +22,10 @@ import {
 } from "../../components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
 import { cn } from "../../components/ui/utils";
-import { isImagePreviewSource, MobileImagePreviewLink } from "../../components/MobileZoomableImage";
+import { ProgressAttachmentGrid } from "../../RDProgressEvidence";
 import { useI18n } from "../../lib/i18n";
 import { isProcurementTaskOverdue, taskMainDate, taskRequester, type Material, type ProcurementTask } from "../data";
-import { BusinessLinePill, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, useProcCan } from "./common";
+import { BusinessLinePill, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, toRdAttachment, useProcCan } from "./common";
 import { DECISION_STATUSES, nextPermissionOf, removalModeOf } from "./taskActions";
 import { TaskCriticalMaterials, TaskCriticalMaterialsEditor } from "./TaskCriticalMaterials";
 
@@ -161,33 +161,16 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
           className="line-clamp-2 min-h-10 text-pretty text-xs leading-5 text-slate-500"
         />
 
+        {/* 与研发任务卡片同款三缩略图条，点击进站内画廊而不是新开标签页。
+            整卡可点开详情抽屉，所以要拦住冒泡，否则点图会连带把抽屉也打开。 */}
         {previewAttachments.length > 0 ? (
-          <div className="grid grid-cols-3 gap-1.5">
-            {previewAttachments.map((attachment) => {
-              const isImage = isImagePreviewSource(
-                attachment.mimeType,
-                attachment.fileName,
-                attachment.fileUrl,
-              );
-              return (
-                <div key={attachment.id} className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                  {isImage ? (
-                    <MobileImagePreviewLink
-                      src={attachment.fileUrl}
-                      alt={attachment.fileName}
-                      title={attachment.fileName}
-                      className="block"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <img src={attachment.fileUrl} alt={attachment.fileName} loading="lazy" className="h-16 w-full object-cover" />
-                    </MobileImagePreviewLink>
-                  ) : (
-                    <div className="flex h-16 items-center justify-center text-slate-400"><Paperclip className="size-4" /></div>
-                  )}
-                  <p className="truncate px-1.5 py-1 text-[9px] text-slate-500">{attachment.fileName}</p>
-                </div>
-              );
-            })}
+          <div onClick={(event) => event.stopPropagation()}>
+            <ProgressAttachmentGrid
+              attachments={previewAttachments.map(toRdAttachment)}
+              imageDisplay="thumbnails"
+              maxVisibleImages={3}
+              compact
+            />
           </div>
         ) : null}
 

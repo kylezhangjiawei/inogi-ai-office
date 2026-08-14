@@ -186,3 +186,79 @@ test("采购模块的高频键盘交互统一使用项目 Radix 封装", () => {
   assert.match(quoteBook, /components\/ui\/pagination/);
   assert.match(materialTable, /components\/ui\/pagination/);
 });
+
+// ── 写操作后的刷新必须拿到写入之后的数据 ──────────────────────────────────────
+//
+// 曾经 refreshProcurement() 直接 `return inflight` 复用正在飞的请求。调用方是在自己写入
+// 落库之后才调进来的，而那个请求可能早于写入就发出了，于是界面拿到旧快照、看起来「保存
+// 没生效」。用户反复点，每次都真的推进一个节点，最后任务窜到终态。
+
+const procData = source("src/app/procurement/data.ts");
+
+test("写后刷新不复用可能早于本次写入发出的请求", () => {
+  // 复用正在飞的请求（老写法）必须消失
+  assert.doesNotMatch(
+    procData,
+    /if \(!inflight\) \{\s*inflight = load\(\)[\s\S]{0,80}\}\s*return inflight;\s*\}/,
+    "不能再无条件复用 inflight",
+  );
+  // 有请求在飞时要排一次后续刷新
+  assert.match(procData, /if \(!queued\) \{/);
+  assert.match(procData, /queued = inflight/);
+  // 后续刷新发起前先清空 queued，保证之后进来的调用另排一次
+  assert.match(procData, /queued = null;\s*\n\s*inflight = load\(\)/);
+});
+
+test("刷新失败不会把后续刷新一起卡死", () => {
+  // 排队链上必须吞掉前一次的异常，否则一次网络失败会让后面所有刷新永远 pending
+  assert.match(procData, /inflight\s*\n?\s*\.catch\(\(\) => undefined\)/);
+});
+
+test("列表缩略图用 OSS 缩放地址，不下载原图", () => {
+  // 后端给图片附件额外下发缩放地址
+  assert.match(service, /image\/resize,m_lfit,w_480/);
+  assert.match(api, /thumbUrl\?: string;/);
+  // 前端映射必须把它传给附件网格，否则会回退成 preview_url（原图）
+  const common = source("src/app/procurement/components/common.tsx");
+  assert.match(common, /thumb_url: attachment\.thumbUrl/);
+});
+
+// ── 过期页面的重复推进必须被服务端拒绝 ────────────────────────────────────────
+//
+// 状态转移表和乐观锁只能挡住「非法跳步」和「并发双写」，挡不住一串各自合法的单步流转：
+// 界面没刷新时用户每点一次都真的往前走一格，几下就窜到已完成。客户端把渲染时看到的
+// 状态一并发上来，服务端对不上就拒绝。
+
+const actions = source("src/app/procurement/components/taskActions.tsx");
+
+test("流转请求携带界面当时的状态，服务端不一致即拒绝", () => {
+  assert.match(dto, /from_status\?: string;/);
+  assert.match(service, /dto\.from_status && dto\.from_status !== task\.status/);
+  assert.match(service, /页面数据已过期，请刷新后再操作/);
+  assert.match(api, /from_status: fromStatus/);
+  // 所有流转调用点都要把 task.status 传上去，漏一个就等于留了个后门。
+  // 实参里含 note.trim() 这类嵌套括号，按出现位置取窗口判断而不是匹配到第一个右括号。
+  const marker = "transitionProcTask(";
+  let found = 0;
+  for (let at = actions.indexOf(marker); at !== -1; at = actions.indexOf(marker, at + 1)) {
+    found += 1;
+    const call = actions.slice(at, at + 220);
+    assert.match(call, /task\.status/, `流转调用缺少来源状态：${call.split("\n")[0]}`);
+  }
+  assert.ok(found > 0, "应存在流转调用");
+});
+
+test("保存只等写入，刷新不阻塞界面", () => {
+  // 写入后立即提示并放行，全量刷新放到后台；否则数据量一大弹窗要禁用好几秒
+  assert.match(actions, /toast\.success\(okText\);\s*\n\s*void refreshProcurement\(\);/);
+  assert.doesNotMatch(actions, /await fn\(\);\s*\n\s*await refreshProcurement\(\);/);
+});
+
+test("报价库一级商品行的移出按钮常显，无报价时置灰而不是消失", () => {
+  const quoteBook = source("src/app/procurement/QuoteBookPage.tsx");
+  // 不再按报价数决定渲染与否
+  assert.doesNotMatch(quoteBook, /canWrite && row\.quotes\.length > 0 &&/);
+  // 改为常显 + 无报价置灰（后端只删厂家报价，此时点下去是空操作）
+  assert.match(quoteBook, /disabled=\{row\.quotes\.length === 0\}/);
+  assert.match(quoteBook, /该商品还没有厂家报价，无需移出/);
+});

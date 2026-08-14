@@ -141,7 +141,7 @@ function confirmSpecOf(task: ProcurementTask): ConfirmSpec | null {
         title: "确认样品已到？",
         desc: "确认后任务进入「测试中」，由研发对接人评估样品是否达标。",
         actionLabel: "样品已到",
-        run: () => transitionProcTask(task.id, "testing", "样品已到，进入测试"),
+        run: () => transitionProcTask(task.id, "testing", "样品已到，进入测试", task.status),
         okText: "已标记样品到货",
       };
     default:
@@ -184,8 +184,11 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
     setBusy(true);
     try {
       await fn();
-      await refreshProcurement();
+      // 只等写入，不等刷新。刷新要重拉全部任务和物料，数据量一上来就是好几秒，
+      // 期间弹窗按钮一直禁用、界面像卡住；而写入这一刻结果已经确定，先放行给用户。
+      // 列表由 store 订阅推送，后台刷完自动更新。
       toast.success(okText);
+      void refreshProcurement();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "操作失败");
     } finally {
@@ -626,7 +629,7 @@ function ActionModal({
                   type="button"
                   disabled={busy}
                   onClick={() => void onSubmit(
-                    () => transitionProcTask(task.id, "priced", note.trim() ? `测试通过：${note.trim()}` : "测试通过，已定价"),
+                    () => transitionProcTask(task.id, "priced", note.trim() ? `测试通过：${note.trim()}` : "测试通过，已定价", task.status),
                     t("已记录：测试通过"),
                   )}
                   className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
@@ -637,7 +640,7 @@ function ActionModal({
                   type="button"
                   disabled={busy}
                   onClick={() => void onSubmit(
-                    () => transitionProcTask(task.id, "inquiring", note.trim() ? `测试不通过：${note.trim()}` : "测试不通过，退回询价"),
+                    () => transitionProcTask(task.id, "inquiring", note.trim() ? `测试不通过：${note.trim()}` : "测试不通过，退回询价", task.status),
                     t("已记录：测试不通过，退回询价"),
                   )}
                   className="flex-1 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 disabled:opacity-60"

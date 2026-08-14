@@ -30,6 +30,8 @@ export interface ProcTaskAttachment {
   id: string;
   fileName: string;
   fileUrl: string;
+  /** 图片附件的 OSS 实时缩放地址；列表缩略图用它，避免每张卡都下载原图。 */
+  thumbUrl?: string;
   fileSize: number;
   mimeType?: string;
   kind: string;
@@ -482,10 +484,12 @@ export async function transitionProcTask(
   id: string,
   status: ProcStatus,
   note?: string,
+  /** 发起这次操作时界面上的状态；服务端据此识别过期页面的重复推进并拒绝。 */
+  fromStatus?: ProcStatus,
 ): Promise<ProcurementTask> {
   return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/transition`, {
     method: "POST",
-    body: JSON.stringify({ status, note }),
+    body: JSON.stringify({ status, note, from_status: fromStatus }),
   });
 }
 

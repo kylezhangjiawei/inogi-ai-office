@@ -628,6 +628,62 @@ export class OssService implements OnModuleInit {
     return { exp, sig };
   }
 
+  /**
+   * 从历史地址还原 OSS object key。支持三种形态：预览代理地址把 key 放在 query 里、
+   * CDN / OSS 直链把它放在 path 里、以及本身就是裸 key。
+   *
+   * 存在的意义：有些写入路径（如研发转采购）只存了当时的访问地址、没存 key。那种地址带
+   * 短效令牌，过期后既打不开也无法重签，只能反解出 key 再重新构造。
+   */
+  extractObjectKey(urlOrKey?: string | null): string | null {
+    const raw = urlOrKey?.trim();
+    if (!raw) return null;
+    const embedded = /[?&]key=([^&]+)/.exec(raw);
+    if (embedded?.[1]) {
+      try {
+        return decodeURIComponent(embedded[1]) || null;
+      } catch {
+        // 存量地址可能带坏的百分号转义，原样返回好过整条取不到
+        return embedded[1];
+      }
+    }
+    if (/^https?:\/\//i.test(raw)) {
+      try {
+        return decodeURIComponent(new URL(raw).pathname).replace(/^\/+/, '') || null;
+      } catch {
+        return null;
+      }
+    }
+    // 相对路径是路由不是对象键，不能当 key 用（否则 /api/... 会被当成对象去签名）
+    return raw.startsWith('/') ? null : raw;
+  }
+
+  /**
+   * 内联预览地址：优先 CDN 稳定能力 URL，否则退回同源代理并现签一枚令牌。
+   *
+   * 不能用 getSignedUrl 代替：bucket 设了 x-oss-force-download，直链会强制下载而不是在
+   * 浏览器里预览。代理路径沿用 research-development 的历史路由，它实际上是全站通用的
+   * 预览代理（@Public + HMAC 令牌，因为 img/iframe 带不了 Authorization 头）。
+   */
+  buildInlinePreviewUrl(objectKey: string, process?: string): string | null {
+    if (!objectKey) return null;
+    try {
+      const cdnUrl = this.getCdnReadUrl(objectKey, process, 'inline');
+      if (cdnUrl) return cdnUrl;
+      const tokenSubject = process ? `${objectKey}|process:${process}` : objectKey;
+      const { exp, sig } = this.signPreviewToken(tokenSubject, 24 * 3600);
+      const params = new URLSearchParams({
+        key: objectKey,
+        exp: String(exp),
+        sig,
+        ...(process ? { process } : {}),
+      });
+      return `/api/research-development/oss-preview?${params.toString()}`;
+    } catch {
+      return null;
+    }
+  }
+
   /** Constant-time verify of a preview token. */
   verifyPreviewToken(objectKey: string, exp: number, sig: string): boolean {
     if (!objectKey || !sig || !Number.isFinite(exp)) return false;

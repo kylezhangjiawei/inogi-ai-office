@@ -49,6 +49,8 @@ interface ProcState {
 let state: ProcState = { tasks: [], materials: [], loading: true, error: null };
 let started = false;
 let inflight: Promise<void> | null = null;
+/** 正在飞的请求之后要补发的那一次刷新（见 refreshProcurement 注释）。 */
+let queued: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 /** 研发任务详情用它感知采购侧的创建、审核、打回删除等变更。 */
 export const PROCUREMENT_REFRESH_EVENT = "inogi:procurement-refreshed";
@@ -95,14 +97,37 @@ async function load() {
   }
 }
 
-/** 写操作后调用：重新拉取并广播给所有订阅组件。并发调用会合并成一次请求。 */
+/**
+ * 写操作后调用：重新拉取并广播给所有订阅组件。
+ *
+ * 关键点：**不能**直接复用正在飞的那次请求。调用方是在自己的写入落库之后才调进来的，
+ * 而正在飞的请求可能早于该写入就发出了，它带回来的是写入之前的快照。之前的实现直接
+ * `return inflight`，导致「保存成功但界面不动」——用户以为没生效就反复点，每一次其实
+ * 都真的推进了一个节点，等某次刷新恰好拿到新数据时，任务已经窜到很后面甚至已完成。
+ *
+ * 所以这里只合并「还没开始发出的那一批」：有请求在飞就排一次后续刷新，保证返回的
+ * promise 对应的读取一定发生在本次调用之后。
+ */
 export function refreshProcurement(): Promise<void> {
   if (!inflight) {
     inflight = load().finally(() => {
       inflight = null;
     });
+    return inflight;
   }
-  return inflight;
+  if (!queued) {
+    queued = inflight
+      .catch(() => undefined)
+      .then(() => {
+        // 先清空再发起：此刻之后进来的调用要另排一次，不能搭上这班已经出发的车
+        queued = null;
+        inflight = load().finally(() => {
+          inflight = null;
+        });
+        return inflight;
+      });
+  }
+  return queued;
 }
 
 /**

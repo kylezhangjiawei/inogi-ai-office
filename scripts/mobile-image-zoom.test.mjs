@@ -24,6 +24,12 @@ const linkedPreviewFiles = [
   "src/app/issue-ai/DetailView.tsx",
   "src/app/ManualPage.tsx",
   "src/app/DownloadTutorialPage.tsx",
+];
+
+// 采购附件改用研发的 ProgressAttachmentGrid：图片进站内画廊（TaskImageLightbox），
+// 桌面端不再新开标签页，移动端的捏合缩放由画廊本身提供
+// （见上方 "task detail keeps its scale-aware gallery gestures enabled by real phone width"）。
+const galleryPreviewFiles = [
   "src/app/procurement/components/ProcurementTaskCard.tsx",
   "src/app/procurement/components/TaskDetailDrawer.tsx",
 ];
@@ -69,5 +75,15 @@ for (const file of linkedPreviewFiles) {
   test(`${file} opens linked images in the shared mobile zoom preview`, async () => {
     const fileSource = await source(file);
     assert.match(fileSource, /MobileImagePreviewLink/);
+  });
+}
+
+for (const file of galleryPreviewFiles) {
+  test(`${file} 用站内画廊预览附件，而不是新开标签页`, async () => {
+    const fileSource = await source(file);
+    assert.match(fileSource, /ProgressAttachmentGrid/);
+    assert.doesNotMatch(fileSource, /MobileImagePreviewLink/);
+    // 附件不能再退回成直接打开的外链
+    assert.doesNotMatch(fileSource, /<a[^>]*href=\{attachment\.fileUrl\}/);
   });
 }

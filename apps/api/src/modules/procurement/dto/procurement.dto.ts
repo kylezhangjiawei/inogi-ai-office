@@ -292,6 +292,15 @@ export class TransitionProcTaskDto {
   @IsIn(PROC_STATUSES)
   status!: string;
 
+  /**
+   * 客户端渲染这次操作时看到的状态。带上它，服务端就能识别「界面已经过期、用户是在
+   * 重复推进」并直接拒绝，而不是把一串各自合法的单步流转一路走到已完成。
+   * 可选：老客户端不带时退回原有校验，不阻断发布。
+   */
+  @IsOptional()
+  @IsIn(PROC_STATUSES)
+  from_status?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(500)

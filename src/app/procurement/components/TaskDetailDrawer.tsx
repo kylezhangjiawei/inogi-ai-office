@@ -1,6 +1,6 @@
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
 import { useEffect, useState } from "react";
-import { ChevronDown, ExternalLink, FolderTree, History, Paperclip, Pencil } from "lucide-react";
+import { ChevronDown, ExternalLink, FolderTree, History, Pencil } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import {
   AlertDialog,
@@ -18,7 +18,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../compo
 import { ScrollArea } from "../../components/ui/scroll-area";
 import { Textarea } from "../../components/ui/textarea";
 import { cn } from "../../components/ui/utils";
-import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney, useBuyerDirectory, useProcCan } from "./common";
+import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney, toRdAttachment, useBuyerDirectory, useProcCan } from "./common";
 import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
@@ -29,7 +29,7 @@ import { toast } from "sonner";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 import { TaskCriticalMaterials } from "./TaskCriticalMaterials";
-import { isImagePreviewSource, MobileImagePreviewLink } from "../../components/MobileZoomableImage";
+import { ProgressAttachmentGrid } from "../../RDProgressEvidence";
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {
   const { t } = useI18n();
@@ -240,41 +240,13 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
 
           <TaskCriticalMaterials task={task} materials={materials} />
 
-          {/* 研发转采购时携带的图纸/说明：随采购任务展示，读取地址由后端按 OSS key 动态重签。 */}
+          {/* 研发转采购时携带的图纸/说明：读取地址由后端按 OSS key 动态重建。
+              直接复用研发的附件网格，图片走站内画廊（缩放/翻页），文档走站内预览，
+              与研发任务驾驶舱是同一套交互，不再新开标签页。 */}
           {task.attachmentList.length > 0 && (
             <div className="rounded-xl border border-slate-100 p-4">
               <div className="mb-2 text-sm font-semibold text-slate-700">{t("需求附件（{count}）", { count: task.attachmentList.length })}</div>
-              <ul className="space-y-2">
-                {task.attachmentList.map((attachment) => {
-                  const content = (
-                    <>
-                      <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">{attachment.fileName}</span>
-                      {attachment.fileSize > 0 && <span className="shrink-0 text-[10px] text-slate-400">{attachment.fileSize >= 1024 * 1024 ? `${(attachment.fileSize / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(attachment.fileSize / 1024)} KB`}</span>}
-                      <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                    </>
-                  );
-                  const className = "flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600 hover:border-indigo-200 hover:bg-indigo-50/40 hover:text-indigo-700";
-                  return (
-                    <li key={attachment.id}>
-                      {isImagePreviewSource(attachment.mimeType, attachment.fileName, attachment.fileUrl) ? (
-                        <MobileImagePreviewLink
-                          src={attachment.fileUrl}
-                          alt={attachment.fileName}
-                          title={attachment.fileName}
-                          className={className}
-                        >
-                          {content}
-                        </MobileImagePreviewLink>
-                      ) : (
-                        <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className={className}>
-                          {content}
-                        </a>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+              <ProgressAttachmentGrid attachments={task.attachmentList.map(toRdAttachment)} compact />
             </div>
           )}
 
