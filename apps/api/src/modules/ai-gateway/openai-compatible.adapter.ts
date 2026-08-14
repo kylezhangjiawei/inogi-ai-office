@@ -5,6 +5,8 @@ import OpenAI from 'openai';
 import type {
   AiGatewayAdapterResult,
   AiGatewayChatRequest,
+  AiGatewayStreamChunk,
+  AiGatewayStreamRequest,
   AiGatewayTarget,
 } from './ai-gateway.types';
 import { isAliyunOpenAiEndpoint } from './openai-endpoint-policy';
@@ -13,23 +15,42 @@ import { isAliyunOpenAiEndpoint } from './openai-endpoint-policy';
 export class OpenAiCompatibleAdapter {
   constructor(private readonly config: ConfigService) {}
 
+  /**
+   * 流式补全。与 complete 共用目标判定，但由调用方逐分片消费；usage 通过
+   * stream_options 随最后一个分片回传，替代按字数粗估 token。
+   */
+  async stream(
+    target: AiGatewayTarget,
+    request: Omit<AiGatewayStreamRequest, 'targets' | 'requestId' | 'onTargetSettled'>,
+  ): Promise<AsyncIterable<AiGatewayStreamChunk>> {
+    const isQwenTarget = this.isQwenTarget(target);
+    const client = this.buildClient(target, request.timeoutMs, isQwenTarget);
+    return client.chat.completions.create(
+      {
+        model: target.model,
+        messages: request.messages,
+        stream: true,
+        stream_options: { include_usage: true },
+        ...(request.tools?.length ? { tools: request.tools } : {}),
+        ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {}),
+        ...(typeof request.maxTokens === 'number' ? { max_tokens: request.maxTokens } : {}),
+        ...(isQwenTarget ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+        // enable_search 只有阿里 compatible-mode 认；按目标端点判断，避免降级到其他
+        // 厂商的连接时带着未知参数被 400。
+        ...(request.webSearch && isAliyunOpenAiEndpoint(target.baseUrl)
+          ? ({ enable_search: true, search_options: { forced_search: false } } as Record<string, unknown>)
+          : {}),
+      },
+      { ...(request.signal ? { signal: request.signal } : {}) },
+    );
+  }
+
   async complete(
     target: AiGatewayTarget,
     request: Omit<AiGatewayChatRequest, 'targets'>,
   ): Promise<AiGatewayAdapterResult> {
-    const isQwenTarget = /qwen|tongyi|dashscope|通义|阿里/i.test(`${target.provider} ${target.model}`);
-    const proxyFetch =
-      isQwenTarget || isAliyunOpenAiEndpoint(target.baseUrl)
-        ? undefined
-        : this.buildProxyFetch();
-    const client = new OpenAI({
-      apiKey: target.apiKey,
-      ...(target.baseUrl ? { baseURL: target.baseUrl } : {}),
-      ...(typeof request.timeoutMs === 'number' ? { timeout: request.timeoutMs } : {}),
-      ...(proxyFetch ? { fetch: proxyFetch } : {}),
-      // The gateway owns cross-target retries. SDK retries here would multiply latency and cost.
-      maxRetries: 0,
-    });
+    const isQwenTarget = this.isQwenTarget(target);
+    const client = this.buildClient(target, request.timeoutMs, isQwenTarget);
     const response = await client.chat.completions.create({
       model: target.model,
       messages: request.messages,
@@ -47,6 +68,25 @@ export class OpenAiCompatibleAdapter {
         totalTokens: response.usage?.total_tokens ?? 0,
       },
     };
+  }
+
+  private isQwenTarget(target: AiGatewayTarget): boolean {
+    return /qwen|tongyi|dashscope|通义|阿里/i.test(`${target.provider} ${target.model}`);
+  }
+
+  private buildClient(target: AiGatewayTarget, timeoutMs: number | undefined, isQwenTarget: boolean): OpenAI {
+    const proxyFetch =
+      isQwenTarget || isAliyunOpenAiEndpoint(target.baseUrl)
+        ? undefined
+        : this.buildProxyFetch();
+    return new OpenAI({
+      apiKey: target.apiKey,
+      ...(target.baseUrl ? { baseURL: target.baseUrl } : {}),
+      ...(typeof timeoutMs === 'number' ? { timeout: timeoutMs } : {}),
+      ...(proxyFetch ? { fetch: proxyFetch } : {}),
+      // The gateway owns cross-target retries. SDK retries here would multiply latency and cost.
+      maxRetries: 0,
+    });
   }
 
   private buildProxyFetch(): typeof fetch | undefined {

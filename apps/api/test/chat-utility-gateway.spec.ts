@@ -1,4 +1,6 @@
 import * as assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { test } from 'node:test';
 
 import { ConfigService } from '@nestjs/config';
@@ -79,4 +81,23 @@ test('通用非流式文本补全通过业务场景网关并回传实际命中�
     model: 'deepseek-chat',
     visionUsed: false,
   });
+});
+
+test('主对话流式回答走网关，并把 ReAct 多轮钉在同一个连接上', () => {
+  const source = readFileSync(resolve(__dirname, '../src/modules/chat/chat.service.ts'), 'utf8');
+
+  // 流式主链路必须经过网关，否则成功率/延迟/用量统计会漏掉最大的流量来源
+  assert.match(source, /this\.aiGateway\.stream\(\{/);
+  assert.doesNotMatch(source, /client\.chat\.completions\.create\(\s*\{[^}]*stream:\s*true/s);
+
+  // ReAct 多轮必须复用首轮定下的连接：换模型会让上一轮 tool_call 的上下文对不上
+  assert.match(source, /targets:\s*pinnedTarget\s*\?\s*\[pinnedTarget\]\s*:\s*streamTargets/);
+  assert.match(source, /onTargetSettled:\s*\(target\)\s*=>\s*\{\s*\n\s*pinnedTarget = target;/);
+
+  // 需要视觉能力时不参与跨模型降级，否则图片会退化成文件名
+  assert.match(source, /needsVisionModel\s*\n?\s*\?\s*\{\s*targets:\s*\[chatFallbackTarget\]/);
+
+  // 上游拒绝 tools 由网关在同一连接上摘掉重试，并回调让后续轮次不再挂载
+  assert.match(source, /retryWithoutTools:\s*true/);
+  assert.match(source, /onToolsDropped:\s*\(\)\s*=>/);
 });

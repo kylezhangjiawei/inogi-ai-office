@@ -47,6 +47,10 @@ export interface AiModelItem {
   is_default_enabled: boolean;
   /** 显式用途类型：text | multimodal | image | embedding | document | video | audio | auto */
   usage_kind: string;
+  /** 输入单价（元 / 千 token），0 表示未配置 */
+  input_price_per_1k: number;
+  /** 输出单价（元 / 千 token），0 表示未配置 */
+  output_price_per_1k: number;
   created_at: string;
   updated_at: string;
   operator_name: string;
@@ -71,6 +75,8 @@ export interface SaveAiModelPayload {
   is_default_enabled: boolean;
   /** 显式用途类型：text | multimodal | image | embedding | document | video | audio | auto */
   usage_kind?: string;
+  input_price_per_1k?: number;
+  output_price_per_1k?: number;
 }
 
 export interface TestAiModelConnectionPayload {
@@ -160,12 +166,20 @@ export interface AiGatewayOverview {
     average_latency_ms: number;
     total_tokens: number;
     circuit_skips: number;
+    /** 仅累计已配单价的模型（元） */
+    total_cost: number;
+    /** 未配单价、因而未计入 total_cost 的模型数 */
+    unpriced_models: number;
   };
   by_scene: Array<AiGatewayOverviewGroup & { scene: string }>;
   by_provider: Array<AiGatewayOverviewGroup & {
     provider: string;
     model: string;
     total_tokens: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    /** null = 该模型未配单价 */
+    cost: number | null;
   }>;
   by_error: Array<{ error_code: string; requests: number }>;
   /** 包含所有已配置连接，即使统计区间内尚未被调用。 */
@@ -447,6 +461,8 @@ export const integrationManagementApi = {
         model: payload.model,
         base_url: payload.base_url,
         usage_kind: payload.usage_kind,
+        input_price_per_1k: payload.input_price_per_1k,
+        output_price_per_1k: payload.output_price_per_1k,
         enabled: payload.enabled,
         current_status: payload.current_status,
         last_success_at: payload.last_success_at,

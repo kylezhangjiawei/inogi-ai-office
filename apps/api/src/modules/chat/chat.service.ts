@@ -1282,6 +1282,28 @@ export class ChatService {
       // 本轮生成的待确认动作 id：回答落库后回填 messageId，支撑刷新后确认卡持久化
       const pendingActionIds: string[] = [];
 
+      // ── 网关路由：主对话统一走网关，拿到首字节前降级、熔断和真实用量统计。
+      //    需要视觉能力时不参与跨模型降级——路由里配的多是纯文本连接，换过去图片会
+      //    退化成文件名，模型会回答「看不到图」。这种情况下只把当前连接交给网关，
+      //    仍然享受熔断、限流退避和用量统计 ──
+      const chatScene = 'chat.completion';
+      const chatFallbackTarget: AiGatewayTarget = {
+        id: activeConfig.id,
+        connectionId: activeConfig.id,
+        provider: activeConfig.provider,
+        model,
+        apiKey,
+        ...(baseURL ? { baseUrl: baseURL } : {}),
+      };
+      const needsVisionModel = hasImageAttachment || hasRecentHistoryImage;
+      const chatRouting = needsVisionModel
+        ? { targets: [chatFallbackTarget], timeoutMs: undefined }
+        : await this.aiGateway.resolveTargets(chatScene, [chatFallbackTarget]);
+      const streamTargets = chatRouting.targets;
+      const streamTimeoutMs = chatRouting.timeoutMs;
+      // 首轮定下用哪个连接后钉住：换模型会让上一轮 tool_call 的上下文对不上
+      let pinnedTarget: AiGatewayTarget | undefined;
+
       // ── ReAct 循环：模型返回 tool_calls 就执行工具并带结果再调，直到给出文字回答。
       //    无工具触发时第一轮即 break，与原单次流式调用完全等价（零额外延迟/成本）──
       for (let round = 0; round <= ChatService.MAX_TOOL_ROUNDS; round += 1) {
@@ -1290,32 +1312,27 @@ export class ChatService {
         sendStatus(round === 0 ? statusLabels.thinking : statusLabels.organizing);
         // 最后一轮不再挂工具，强制模型收敛出文字回答
         const toolsThisRound = shouldMountTools(round, ChatService.MAX_TOOL_ROUNDS, agentEnabled);
-        let stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
-        try {
-          stream = await client.chat.completions.create(
-            {
-              model,
-              messages: [...baseMessages, ...loopMessages],
-              stream: true,
-              ...(toolsThisRound ? { tools: agentTools } : {}),
-              // DashScope 扩展参数：模型自行判断是否需要联网（forced_search=false），非 DashScope 端点不传
-              ...(webSearchEnabled ? { enable_search: true, search_options: { forced_search: false } } : {}),
-            },
-            { signal: abortController.signal },
-          );
-        } catch (streamError) {
-          if (clientAborted) break; // 中断触发的 APIUserAbortError：正常收尾，不是失败
-          // 上游不认 tools 参数（部分自定义部署/旧模型返回 400）：降级为无工具重试本轮，不打断对话
-          if (toolsThisRound && fullContent === '') {
-            this.logger.warn(
-              `上游拒绝 tools 参数，降级为无工具模式（${model}）: ${streamError instanceof Error ? streamError.message : streamError}`,
-            );
+        // 走网关拿到路由、首字节前降级、熔断与真实用量统计。ReAct 多轮必须钉在同一个
+        // 连接上：换模型会让上一轮的 tool_call 上下文对不上，所以首轮定下来之后
+        // 后续轮次只把它一个作为目标。
+        const stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk> = this.aiGateway.stream({
+          scene: chatScene,
+          targets: pinnedTarget ? [pinnedTarget] : streamTargets,
+          messages: [...baseMessages, ...loopMessages],
+          ...(toolsThisRound ? { tools: agentTools } : {}),
+          webSearch: webSearchEnabled,
+          timeoutMs: streamTimeoutMs,
+          signal: abortController.signal,
+          retryWithoutTools: true,
+          onTargetSettled: (target) => {
+            pinnedTarget = target;
+          },
+          onToolsDropped: () => {
+            // 该连接不认 tools：后续轮次不再挂载，避免每轮都白跑一次被拒的请求
+            this.logger.warn(`上游拒绝 tools 参数，降级为无工具模式（${pinnedTarget?.model ?? model}）`);
             agentEnabled = false;
-            round -= 1;
-            continue;
-          }
-          throw streamError;
-        }
+          },
+        });
 
         const pendingCalls: Array<{ id: string; name: string; args: string }> = [];
         let roundContent = '';

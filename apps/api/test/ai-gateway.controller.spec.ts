@@ -26,6 +26,7 @@ test('全部重置熔断器时不再要求场景或目标参数', () => {
 
 test('概览错误类型按失败尝试统计，包含最终成功请求中的上游失败', async () => {
   let failedAttemptGroupByCalled = false;
+  let distinctOnSql = '';
   const requestCount = async ({ where }: { where: { status?: string; fallbackUsed?: boolean } }) => {
     if (where.status === 'success') return 8;
     if (where.status === 'failed') return 2;
@@ -52,7 +53,7 @@ test('概览错误类型按失败尝试统计，包含最终成功请求中的�
             model: 'qwen-plus',
             status: 'success',
             _count: { _all: 8 },
-            _sum: { totalTokens: 900 },
+            _sum: { totalTokens: 900, promptTokens: 700, completionTokens: 200 },
             _avg: { latencyMs: 100 },
           },
           {
@@ -60,7 +61,7 @@ test('概览错误类型按失败尝试统计，包含最终成功请求中的�
             model: 'qwen-plus',
             status: 'failed',
             _count: { _all: 2 },
-            _sum: { totalTokens: 0 },
+            _sum: { totalTokens: 0, promptTokens: 0, completionTokens: 0 },
             _avg: { latencyMs: 200 },
           },
         ];
@@ -81,10 +82,6 @@ test('概览错误类型按失败尝试统计，包含最终成功请求中的�
           { errorCode: 'HTTP_503', _count: { _all: 1 } },
         ];
       },
-      findMany: async () => [
-        { connectionId: 'model-qwen', status: 'success', latencyMs: 100, errorCode: null, errorMessage: null, createdAt: new Date('2026-08-13T08:00:00.000Z') },
-        { connectionId: 'model-qwen', status: 'failed', latencyMs: 200, errorCode: 'HTTP_429', errorMessage: 'rate limit', createdAt: new Date('2026-08-13T07:00:00.000Z') },
-      ],
     },
     integrationConfig: {
       findMany: async () => [
@@ -100,6 +97,14 @@ test('概览错误类型按失败尝试统计，包含最终成功请求中的�
     },
     $queryRaw: async (query: { strings?: readonly string[] }) => {
       const sql = query.strings?.join(' ') ?? '';
+      // 每个连接每种状态的最新一条尝试，由数据库 DISTINCT ON 收敛后回传。
+      if (sql.includes('DISTINCT ON')) {
+        distinctOnSql = sql;
+        return [
+          { connectionId: 'model-qwen', status: 'success', latencyMs: 100, errorCode: null, errorMessage: null, createdAt: new Date('2026-08-13T08:00:00.000Z') },
+          { connectionId: 'model-qwen', status: 'failed', latencyMs: 200, errorCode: 'HTTP_429', errorMessage: 'rate limit', createdAt: new Date('2026-08-13T07:00:00.000Z') },
+        ];
+      }
       if (sql.includes('AiGatewayAttempt')) return [{ scene: 'rd.task_brief', skips: 1n }];
       return [{
         bucket: new Date('2026-08-13T00:00:00.000Z'),
@@ -117,6 +122,10 @@ test('概览错误类型按失败尝试统计，包含最终成功请求中的�
   const result = await controller.getOverview('today');
 
   assert.equal(failedAttemptGroupByCalled, true);
+  // 连接状态必须由数据库收敛出「每连接每状态最新一条」，不能把整张尝试表拉回内存去重。
+  assert.match(distinctOnSql, /DISTINCT ON \("connectionId", status\)/);
+  assert.match(distinctOnSql, /ORDER BY "connectionId", status, "createdAt" DESC/);
+  assert.doesNotMatch(distinctOnSql, /SELECT \*/);
   assert.deepEqual(result.totals, {
     requests: 10,
     failed_requests: 2,
@@ -125,6 +134,9 @@ test('概览错误类型按失败尝试统计，包含最终成功请求中的�
     average_latency_ms: 126,
     total_tokens: 900,
     circuit_skips: 1,
+    // 这条连接没配单价，成本合计为 0 且计入「未配价模型数」
+    total_cost: 0,
+    unpriced_models: 1,
   });
   assert.deepEqual(result.by_error, [
     { error_code: 'HTTP_429', requests: 3 },
@@ -323,4 +335,111 @@ test('路由保存按去重后的连接顺序持久化优先级和权重', async
     scene: 'rd.task_brief',
     updated_at: '2026-08-13T08:00:00.000Z',
   });
+});
+
+test('成本按输入/输出分别折算，未配单价的模型不混进合计', async () => {
+  const controller = createController({
+    aiGatewayRequest: {
+      count: async () => 0,
+      aggregate: async (args: { _avg?: unknown }) => (
+        args._avg ? { _avg: { latencyMs: 100 } } : { _sum: { totalTokens: 0 } }
+      ),
+      groupBy: async ({ by }: { by: string[] }) => (by.includes('provider')
+        ? [
+            {
+              provider: 'Qwen',
+              model: 'qwen-plus',
+              status: 'success',
+              _count: { _all: 3 },
+              // 输入 2000 token × 0.002 + 输出 1000 token × 0.006 = 0.004 + 0.006 = 0.01 元
+              _sum: { totalTokens: 3000, promptTokens: 2000, completionTokens: 1000 },
+              _avg: { latencyMs: 100 },
+            },
+            {
+              provider: 'DeepSeek',
+              model: 'deepseek-chat',
+              status: 'success',
+              _count: { _all: 5 },
+              _sum: { totalTokens: 9999, promptTokens: 9000, completionTokens: 999 },
+              _avg: { latencyMs: 100 },
+            },
+          ]
+        : []),
+    },
+    aiGatewayAttempt: { count: async () => 0, groupBy: async () => [], findMany: async () => [] },
+    integrationConfig: {
+      findMany: async () => [
+        {
+          id: 'model-qwen',
+          name: '千问',
+          provider: 'Qwen',
+          model: 'qwen-plus',
+          metadata: { input_price_per_1k: 0.002, output_price_per_1k: 0.006 },
+          isActive: true,
+        },
+        // 未配单价：不能当成 0 元混进合计，否则用户会以为这就是全部花费
+        {
+          id: 'model-deepseek',
+          name: 'DeepSeek',
+          provider: 'DeepSeek',
+          model: 'deepseek-chat',
+          metadata: {},
+          isActive: true,
+        },
+      ],
+    },
+    aiGatewayRoute: { findMany: async () => [] },
+    $queryRaw: async () => [],
+  }, { getCircuitSnapshots: () => [] });
+
+  const result = await controller.getOverview('today');
+
+  const qwen = result.by_provider.find((item) => item.provider === 'Qwen');
+  const deepseek = result.by_provider.find((item) => item.provider === 'DeepSeek');
+  assert.equal(qwen?.cost, 0.01);
+  assert.equal(qwen?.prompt_tokens, 2000);
+  assert.equal(qwen?.completion_tokens, 1000);
+  assert.equal(deepseek?.cost, null, '未配单价应为 null，前端据此显示「未配价」');
+  assert.equal(result.totals.total_cost, 0.01, '合计只累加已配价的模型');
+  assert.equal(result.totals.unpriced_models, 1, '要让用户知道有几个模型没算进来');
+});
+
+test('单价为脏数据时按未配价处理，不把成本算成 NaN', async () => {
+  const controller = createController({
+    aiGatewayRequest: {
+      count: async () => 0,
+      aggregate: async (args: { _avg?: unknown }) => (
+        args._avg ? { _avg: { latencyMs: 100 } } : { _sum: { totalTokens: 0 } }
+      ),
+      groupBy: async ({ by }: { by: string[] }) => (by.includes('provider')
+        ? [{
+            provider: 'Qwen',
+            model: 'qwen-plus',
+            status: 'success',
+            _count: { _all: 1 },
+            _sum: { totalTokens: 100, promptTokens: 60, completionTokens: 40 },
+            _avg: { latencyMs: 100 },
+          }]
+        : []),
+    },
+    aiGatewayAttempt: { count: async () => 0, groupBy: async () => [], findMany: async () => [] },
+    integrationConfig: {
+      findMany: async () => [{
+        id: 'model-qwen',
+        name: '千问',
+        provider: 'Qwen',
+        model: 'qwen-plus',
+        metadata: { input_price_per_1k: 'abc', output_price_per_1k: -5 },
+        isActive: true,
+      }],
+    },
+    aiGatewayRoute: { findMany: async () => [] },
+    $queryRaw: async () => [],
+  }, { getCircuitSnapshots: () => [] });
+
+  const result = await controller.getOverview('today');
+
+  assert.equal(result.by_provider[0]?.cost, null);
+  assert.equal(result.totals.total_cost, 0);
+  assert.ok(Number.isFinite(result.totals.total_cost));
 });

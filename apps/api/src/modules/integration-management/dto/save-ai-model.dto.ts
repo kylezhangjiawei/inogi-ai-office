@@ -3,6 +3,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -80,4 +81,18 @@ export class SaveAiModelDto {
   @IsString()
   @MaxLength(20)
   usage_kind?: string;
+
+  /** 输入单价（元 / 千 token）。留空或 0 表示未配置，该连接不参与成本统计。 */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(10000)
+  input_price_per_1k?: number;
+
+  /** 输出单价（元 / 千 token）。 */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(10000)
+  output_price_per_1k?: number;
 }

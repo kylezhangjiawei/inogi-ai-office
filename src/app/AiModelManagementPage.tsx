@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
+  Coins,
   Download,
   FileSearch,
   Gauge,
@@ -222,6 +223,12 @@ const GATEWAY_SCENES = [
     defaultTimeoutMs: 120000,
   },
   {
+    value: "chat.completion",
+    label: "主对话流式回答",
+    description: "MateChat 对话的流式生成与 ReAct 工具调用（含图片时不参与跨模型降级）",
+    defaultTimeoutMs: 300000,
+  },
+  {
     value: "chat.daily_motivation",
     label: "每日激励文案",
     description: "MateChat 每日主题激励与连续使用反馈",
@@ -246,6 +253,18 @@ type GatewayScene = (typeof GATEWAY_SCENES)[number]["value"];
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("zh-CN").format(value);
+}
+
+/** 空串或非法输入统一归 0，后端把 0 当作「未配单价」，该模型不计入成本合计。 */
+function parsePriceInput(value: string) {
+  const price = Number(value.trim());
+  return Number.isFinite(price) && price > 0 ? price : 0;
+}
+
+/** 成本按元展示；金额很小时多留几位小数，避免全是 ¥0.00 看不出差异。 */
+function formatCost(value: number) {
+  const digits = value > 0 && value < 1 ? 4 : 2;
+  return `¥${value.toFixed(digits)}`;
 }
 
 function formatGatewayScene(scene: string) {
@@ -898,6 +917,17 @@ function GatewayMonitorWorkspace({
             <GatewayMetricCard icon={<Clock3 className="size-4" />} label="平均延迟" value={waitingForFirstLoad ? "—" : `${formatNumber(totals?.average_latency_ms ?? 0)} ms`} hint="从请求到最终结果" tone="sky" />
             <GatewayMetricCard icon={<Zap className="size-4" />} label="Token 消耗" value={waitingForFirstLoad ? "—" : formatNumber(totals?.total_tokens ?? 0)} hint="统计区间内总消耗" />
             <GatewayMetricCard icon={<ShieldCheck className="size-4" />} label="熔断跳过" value={waitingForFirstLoad ? "—" : formatNumber(totals?.circuit_skips ?? 0)} hint={`${openCircuitCount} 条当前开启`} tone="amber" />
+            <GatewayMetricCard
+              icon={<Coins className="size-4" />}
+              label="成本合计"
+              value={waitingForFirstLoad ? "—" : formatCost(totals?.total_cost ?? 0)}
+              hint={
+                (totals?.unpriced_models ?? 0) > 0
+                  ? `${totals?.unpriced_models} 个模型未配单价，未计入`
+                  : "按已配单价实时折算"
+              }
+              tone="emerald"
+            />
           </div>
         </div>
       </section>
@@ -1109,13 +1139,18 @@ function GatewayMonitorWorkspace({
           </div>
         </section>
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-          <div className="border-b border-slate-100 px-4 py-3.5"><div className="text-sm font-semibold text-slate-900">按供应商与模型</div><div className="mt-1 text-xs text-slate-500">对比连接质量与 Token 消耗</div></div>
+          <div className="border-b border-slate-100 px-4 py-3.5"><div className="text-sm font-semibold text-slate-900">按供应商与模型</div><div className="mt-1 text-xs text-slate-500">对比连接质量、Token 消耗与成本</div></div>
           <div className="divide-y divide-slate-100">
             {overview?.by_provider.length ? overview.by_provider.map((item) => (
-              <div key={`${item.provider}:${item.model}`} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-4 px-4 py-3">
+              <div key={`${item.provider}:${item.model}`} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-4 px-4 py-3">
                 <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-800">{item.provider}</div><div className="mt-1 truncate font-mono text-[10px] text-slate-500">{item.model}</div></div>
                 <div className="text-right"><div className="text-sm font-semibold tabular-nums text-emerald-700">{item.success_rate}%</div><div className="text-[10px] text-slate-500">{formatNumber(item.requests)} 次</div></div>
-                <div className="w-20 text-right"><div className="text-sm font-semibold tabular-nums text-violet-700">{formatNumber(item.total_tokens)}</div><div className="text-[10px] text-slate-500">Token</div></div>
+                <div className="w-20 text-right"><div className="text-sm font-semibold tabular-nums text-violet-700">{formatNumber(item.total_tokens)}</div><div className="text-[10px] text-slate-500">入 {formatNumber(item.prompt_tokens)} / 出 {formatNumber(item.completion_tokens)}</div></div>
+                <div className="w-20 text-right">
+                  {item.cost === null
+                    ? <><div className="text-sm font-semibold tabular-nums text-slate-400">—</div><div className="text-[10px] text-slate-400">未配价</div></>
+                    : <><div className="text-sm font-semibold tabular-nums text-indigo-700">{formatCost(item.cost)}</div><div className="text-[10px] text-slate-500">成本</div></>}
+                </div>
               </div>
             )) : <div className="px-6 py-14 text-center text-sm text-slate-400">当前区间暂无模型调用</div>}
           </div>
@@ -1322,6 +1357,9 @@ export function AiModelManagementPage() {
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [usageKind, setUsageKind] = useState("auto");
+  // 单价以字符串保存：允许中途为空，提交时才归一成数字，避免输入过程被强制成 0
+  const [inputPrice, setInputPrice] = useState("");
+  const [outputPrice, setOutputPrice] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [isDefaultEnabled, setIsDefaultEnabled] = useState(true);
   const [dialogError, setDialogError] = useState("");
@@ -1492,6 +1530,8 @@ export function AiModelManagementPage() {
     setBaseUrl("");
     setApiKey("");
     setUsageKind("auto");
+    setInputPrice("");
+    setOutputPrice("");
     setEnabled(true);
     setIsDefaultEnabled(true);
     setDialogError("");
@@ -1535,6 +1575,8 @@ export function AiModelManagementPage() {
     setBaseUrl(row.base_url || "");
     setApiKey("");
     setUsageKind(row.usage_kind || "auto");
+    setInputPrice(row.input_price_per_1k > 0 ? String(row.input_price_per_1k) : "");
+    setOutputPrice(row.output_price_per_1k > 0 ? String(row.output_price_per_1k) : "");
     setEnabled(row.enabled);
     setIsDefaultEnabled(row.is_default_enabled);
     setDialogMode("edit");
@@ -1561,6 +1603,8 @@ export function AiModelManagementPage() {
         model: model.trim(),
         base_url: baseUrl.trim() || undefined,
         usage_kind: usageKind,
+        input_price_per_1k: parsePriceInput(inputPrice),
+        output_price_per_1k: parsePriceInput(outputPrice),
         api_key: apiKey.trim() || undefined,
         enabled,
         current_status: selectedRow?.current_status ?? "未配置",
@@ -2280,6 +2324,39 @@ export function AiModelManagementPage() {
               />
               <p className="mt-1.5 text-xs leading-5 text-slate-400">
                 手动指定后，系统将精准分配此模型到对应场景（对话、图片生成等），避免模型出现在不兼容的选择列表中。
+              </p>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                输入单价（元 / 千 token）
+              </label>
+              <input
+                className="material-input w-full"
+                type="number"
+                min="0"
+                step="0.0001"
+                value={inputPrice}
+                onChange={(event) => setInputPrice(event.target.value)}
+                placeholder="留空表示不统计成本"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                输出单价（元 / 千 token）
+              </label>
+              <input
+                className="material-input w-full"
+                type="number"
+                min="0"
+                step="0.0001"
+                value={outputPrice}
+                onChange={(event) => setOutputPrice(event.target.value)}
+                placeholder="留空表示不统计成本"
+              />
+            </div>
+            <div className="md:col-span-2 -mt-2">
+              <p className="text-xs leading-5 text-slate-400">
+                按服务商计费页填写。成本在查询时按用量实时折算，改价后历史成本会跟着重算；两项都留空的模型不计入成本合计。
               </p>
             </div>
             <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">

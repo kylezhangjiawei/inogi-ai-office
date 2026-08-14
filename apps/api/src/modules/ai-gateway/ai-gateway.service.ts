@@ -1,5 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 
@@ -12,6 +13,8 @@ import type {
   AiGatewayChatResult,
   AiGatewayCircuitSnapshot,
   AiGatewayStrategy,
+  AiGatewayStreamChunk,
+  AiGatewayStreamRequest,
   AiGatewayTarget,
 } from './ai-gateway.types';
 import { OpenAiCompatibleAdapter } from './openai-compatible.adapter';
@@ -29,11 +32,18 @@ type CircuitState = {
 
 @Injectable()
 export class AiGatewayService {
+  /** 单批删除量，避免保留任务一次性锁住整张表。 */
+  private static readonly RETENTION_BATCH_SIZE = 1_000;
+
   private readonly logger = new Logger(AiGatewayService.name);
   private readonly circuits = new Map<string, CircuitState>();
   private readonly roundRobinCursor = new Map<string, number>();
   private readonly failureThreshold: number;
   private readonly cooldownMs: number;
+  private readonly maxRetriesPerTarget: number;
+  private readonly retryBaseDelayMs: number;
+  private readonly maxRetryDelayMs: number;
+  private readonly retentionDays: number;
 
   constructor(
     private readonly adapter: OpenAiCompatibleAdapter,
@@ -43,6 +53,10 @@ export class AiGatewayService {
   ) {
     this.failureThreshold = this.positiveInteger(config.get('AI_GATEWAY_FAILURE_THRESHOLD'), 3);
     this.cooldownMs = this.positiveInteger(config.get('AI_GATEWAY_CIRCUIT_COOLDOWN_MS'), 60_000);
+    this.maxRetriesPerTarget = this.nonNegativeInteger(config.get('AI_GATEWAY_MAX_RETRIES_PER_TARGET'), 1);
+    this.retryBaseDelayMs = this.nonNegativeInteger(config.get('AI_GATEWAY_RETRY_BASE_DELAY_MS'), 500);
+    this.maxRetryDelayMs = this.nonNegativeInteger(config.get('AI_GATEWAY_MAX_RETRY_DELAY_MS'), 10_000);
+    this.retentionDays = this.positiveInteger(config.get('AI_GATEWAY_RETENTION_DAYS'), 90);
   }
 
   async complete(request: AiGatewayChatRequest): Promise<AiGatewayChatResult> {
@@ -74,71 +88,85 @@ export class AiGatewayService {
         continue;
       }
 
-      const attemptStartedAt = Date.now();
-      try {
-        const adapterRequest = {
-          scene,
-          messages: request.messages,
-          responseFormat: request.responseFormat,
-          temperature: request.temperature,
-          maxTokens: request.maxTokens,
-          timeoutMs: request.timeoutMs,
-        };
-        let result: AiGatewayAdapterResult;
+      // 被限流（429）时先原地退避重试，退避不划算才切下一个连接；否则一次限流高峰
+      // 会在几秒内把所有连接依次打成失败。其余错误仍然立即降级，不在坏连接上耗时间。
+      let targetError: unknown;
+      for (let retry = 0; ; retry += 1) {
+        const attemptStartedAt = Date.now();
         try {
-          result = await this.adapter.complete(target, adapterRequest);
-        } catch (error) {
-          if (!request.retryWithoutResponseFormat || !request.responseFormat || !this.shouldRetryWithoutJsonMode(error)) {
-            throw error;
+          const adapterRequest = {
+            scene,
+            messages: request.messages,
+            responseFormat: request.responseFormat,
+            temperature: request.temperature,
+            maxTokens: request.maxTokens,
+            timeoutMs: request.timeoutMs,
+          };
+          let result: AiGatewayAdapterResult;
+          try {
+            result = await this.adapter.complete(target, adapterRequest);
+          } catch (error) {
+            if (!request.retryWithoutResponseFormat || !request.responseFormat || !this.shouldRetryWithoutJsonMode(error)) {
+              throw error;
+            }
+            this.logger.warn(
+              `[${requestId}] ${scene} JSON mode unsupported via ${target.provider}/${target.model}; retrying without response_format`,
+            );
+            result = await this.adapter.complete(target, { ...adapterRequest, responseFormat: undefined });
           }
-          this.logger.warn(
-            `[${requestId}] ${scene} JSON mode unsupported via ${target.provider}/${target.model}; retrying without response_format`,
-          );
-          result = await this.adapter.complete(target, { ...adapterRequest, responseFormat: undefined });
-        }
-        if (!result.content) throw new Error('AI provider returned empty content');
+          if (!result.content) throw new Error('AI provider returned empty content');
 
-        this.circuits.delete(circuitKey);
-        attempts.push({
-          targetKey,
-          connectionId: target.connectionId,
-          provider: target.provider,
-          model: target.model,
-          latencyMs: Date.now() - attemptStartedAt,
-          status: 'success',
-        });
-        const gatewayResult: AiGatewayChatResult = {
-          requestId,
-          scene,
-          content: result.content,
-          provider: target.provider,
-          model: target.model,
-          latencyMs: Date.now() - startedAt,
-          attemptCount: attempts.length,
-          fallbackUsed: attempts.length > 1,
-          usage: result.usage,
-          attempts,
-        };
-        await this.recordResult(gatewayResult);
-        return gatewayResult;
-      } catch (error) {
-        lastError = error;
-        const errorCode = this.errorCode(error);
-        attempts.push({
-          targetKey,
-          connectionId: target.connectionId,
-          provider: target.provider,
-          model: target.model,
-          latencyMs: Date.now() - attemptStartedAt,
-          status: 'failed',
-          errorCode,
-          errorMessage: this.errorMessage(error),
-        });
-        this.recordCircuitFailure(scene, target, targetKey, error);
-        this.logger.warn(
-          `[${requestId}] ${scene} failed via ${target.provider}/${target.model} (${errorCode}); trying fallback`,
-        );
+          this.circuits.delete(circuitKey);
+          attempts.push({
+            targetKey,
+            connectionId: target.connectionId,
+            provider: target.provider,
+            model: target.model,
+            latencyMs: Date.now() - attemptStartedAt,
+            status: 'success',
+          });
+          const gatewayResult: AiGatewayChatResult = {
+            requestId,
+            scene,
+            content: result.content,
+            provider: target.provider,
+            model: target.model,
+            latencyMs: Date.now() - startedAt,
+            attemptCount: attempts.length,
+            fallbackUsed: this.usedFallback(attempts),
+            usage: result.usage,
+            attempts,
+          };
+          await this.recordResult(gatewayResult);
+          return gatewayResult;
+        } catch (error) {
+          targetError = error;
+          lastError = error;
+          attempts.push({
+            targetKey,
+            connectionId: target.connectionId,
+            provider: target.provider,
+            model: target.model,
+            latencyMs: Date.now() - attemptStartedAt,
+            status: 'failed',
+            errorCode: this.errorCode(error),
+            errorMessage: this.errorMessage(error),
+          });
+
+          const retryDelayMs = retry < this.maxRetriesPerTarget ? this.retryDelayMs(error, retry) : null;
+          if (retryDelayMs === null) break;
+          this.logger.warn(
+            `[${requestId}] ${scene} rate limited by ${target.provider}/${target.model}; retrying same target in ${retryDelayMs} ms`,
+          );
+          await this.sleep(retryDelayMs);
+        }
       }
+
+      // 同一连接的多次重试只算一次熔断失败，否则一次限流就会把阈值消耗掉。
+      this.recordCircuitFailure(scene, target, targetKey, targetError);
+      this.logger.warn(
+        `[${requestId}] ${scene} failed via ${target.provider}/${target.model} (${this.errorCode(targetError)}); trying fallback`,
+      );
     }
 
     const finalAttempt = attempts[attempts.length - 1];
@@ -164,6 +192,188 @@ export class AiGatewayService {
       error_code: finalCode,
     });
     throw exception;
+  }
+
+  /**
+   * 流式补全。与 complete 的关键差别：一旦第一个分片已经吐给调用方，就不能再换模型重来
+   * ——用户已经看到半句话了。因此降级和限流重试只在首个分片之前可用，之后任何异常都直接
+   * 上抛。用户主动中断不算目标故障：不熔断、不降级，已产生的用量照常入账。
+   */
+  async *stream(request: AiGatewayStreamRequest): AsyncGenerator<AiGatewayStreamChunk> {
+    const scene = request.scene.trim();
+    const targets = this.deduplicateTargets(request.targets);
+    if (!scene || targets.length === 0) {
+      throw new ServiceUnavailableException('AI 网关没有可用的场景或模型连接');
+    }
+
+    const requestId = request.requestId?.trim() || randomUUID();
+    const startedAt = Date.now();
+    const attempts: AiGatewayAttempt[] = [];
+    let lastError: unknown;
+    let recorded = false;
+    let settledTarget: AiGatewayTarget | undefined;
+    let streamedUsage: AiGatewayChatResult['usage'] | undefined;
+
+    const recordOnce = async (status: 'success' | 'failed', errorCode?: string, errorMessage?: string) => {
+      if (recorded) return;
+      recorded = true;
+      await this.persistRequest({
+        requestId,
+        scene,
+        status,
+        provider: settledTarget?.provider,
+        model: settledTarget?.model,
+        latencyMs: Date.now() - startedAt,
+        attempts,
+        usage: streamedUsage,
+        errorCode,
+        errorMessage,
+      });
+    };
+
+    try {
+      for (const target of targets) {
+        const targetKey = this.targetKey(target);
+        const circuitKey = this.circuitKey(scene, targetKey);
+        const circuit = this.circuits.get(circuitKey);
+        if (circuit && circuit.openUntil > Date.now()) {
+          attempts.push({
+            targetKey,
+            connectionId: target.connectionId,
+            provider: target.provider,
+            model: target.model,
+            latencyMs: 0,
+            status: 'circuit_open',
+            errorCode: 'CIRCUIT_OPEN',
+          });
+          continue;
+        }
+
+        let targetError: unknown;
+        let streamed = false;
+        let toolsDropped = false;
+        let retry = 0;
+        for (;;) {
+          const attemptStartedAt = Date.now();
+          try {
+            const chunks = await this.adapter.stream(target, {
+              scene,
+              messages: request.messages,
+              tools: toolsDropped ? undefined : request.tools,
+              webSearch: request.webSearch,
+              temperature: request.temperature,
+              maxTokens: request.maxTokens,
+              timeoutMs: request.timeoutMs,
+              signal: request.signal,
+            });
+            for await (const chunk of chunks) {
+              if (!streamed) {
+                streamed = true;
+                settledTarget = target;
+                this.circuits.delete(circuitKey);
+                request.onTargetSettled?.(target);
+              }
+              if (chunk.usage) {
+                streamedUsage = {
+                  promptTokens: chunk.usage.prompt_tokens ?? 0,
+                  completionTokens: chunk.usage.completion_tokens ?? 0,
+                  totalTokens: chunk.usage.total_tokens ?? 0,
+                };
+              }
+              yield chunk;
+            }
+
+            attempts.push({
+              targetKey,
+              connectionId: target.connectionId,
+              provider: target.provider,
+              model: target.model,
+              latencyMs: Date.now() - attemptStartedAt,
+              status: 'success',
+            });
+            await recordOnce('success');
+            return;
+          } catch (error) {
+            // 用户中断：上游没有故障，已经吐出的内容也照常保留，不能记成失败或触发熔断。
+            if (request.signal?.aborted) throw error;
+
+            targetError = error;
+            lastError = error;
+            attempts.push({
+              targetKey,
+              connectionId: target.connectionId,
+              provider: target.provider,
+              model: target.model,
+              latencyMs: Date.now() - attemptStartedAt,
+              status: 'failed',
+              errorCode: this.errorCode(error),
+              errorMessage: this.errorMessage(error),
+            });
+
+            // 已经有分片吐出去了，换模型或重发都会让用户看到两段不连贯的回答。
+            if (streamed) {
+              this.recordCircuitFailure(scene, target, targetKey, error);
+              await recordOnce('failed', this.errorCode(error), this.errorMessage(error));
+              throw error;
+            }
+
+            // 换个模型解决不了「这个模型不支持 tools」，先摘掉 tools 原地重来一次。
+            if (request.retryWithoutTools && !toolsDropped && (request.tools?.length ?? 0) > 0) {
+              toolsDropped = true;
+              request.onToolsDropped?.();
+              this.logger.warn(
+                `[${requestId}] ${scene} upstream rejected tools via ${target.provider}/${target.model}; retrying same target without tools`,
+              );
+              continue;
+            }
+
+            const retryDelayMs = retry < this.maxRetriesPerTarget ? this.retryDelayMs(error, retry) : null;
+            if (retryDelayMs === null) break;
+            retry += 1;
+            this.logger.warn(
+              `[${requestId}] ${scene} rate limited by ${target.provider}/${target.model}; retrying same target in ${retryDelayMs} ms`,
+            );
+            await this.sleep(retryDelayMs);
+          }
+        }
+
+        this.recordCircuitFailure(scene, target, targetKey, targetError);
+        this.logger.warn(
+          `[${requestId}] ${scene} stream failed via ${target.provider}/${target.model} (${this.errorCode(targetError)}); trying fallback`,
+        );
+      }
+
+      const finalAttempt = attempts[attempts.length - 1];
+      const finalCode = lastError === undefined
+        ? finalAttempt?.errorCode ?? 'NO_AVAILABLE_TARGET'
+        : this.errorCode(lastError);
+      this.logger.error(`[${requestId}] ${scene} exhausted ${attempts.length} gateway stream attempts (${finalCode})`);
+      await recordOnce(
+        'failed',
+        finalCode,
+        lastError === undefined ? finalAttempt?.errorMessage : this.errorMessage(lastError),
+      );
+      throw new ServiceUnavailableException({
+        message: 'AI 服务暂时不可用，请稍后重试',
+        request_id: requestId,
+        scene,
+        error_code: finalCode,
+      });
+    } finally {
+      // 调用方提前 break（用户中断）时生成器在这里收尾。内容已经交付，按成功入账，
+      // 否则这次调用的 token 用量会整个丢掉。
+      if (!recorded && settledTarget) {
+        attempts.push({
+          targetKey: this.targetKey(settledTarget),
+          connectionId: settledTarget.connectionId,
+          provider: settledTarget.provider,
+          model: settledTarget.model,
+          latencyMs: Date.now() - startedAt,
+          status: 'success',
+        });
+        await recordOnce('success');
+      }
+    }
   }
 
   async resolveTargets(
@@ -382,6 +592,89 @@ export class AiGatewayService {
     return ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN'].some((item) => code.includes(item));
   }
 
+  /** 降级口径按「用过几个不同连接」算，同一连接的限流重试不应计入降级率。 */
+  private usedFallback(attempts: AiGatewayAttempt[]): boolean {
+    return new Set(attempts.map((attempt) => attempt.targetKey)).size > 1;
+  }
+
+  /**
+   * 返回原地重试前应等待的毫秒数；返回 null 表示不该重试（非限流错误，或等待时间
+   * 长到不如直接切下一个连接）。
+   */
+  private retryDelayMs(error: unknown, retryIndex: number): number | null {
+    if (!this.isRateLimited(error)) return null;
+    const retryAfterMs = this.retryAfterMs(error);
+    if (retryAfterMs !== null) {
+      return retryAfterMs <= this.maxRetryDelayMs ? retryAfterMs : null;
+    }
+    // 无 Retry-After 时指数退避，并加 ±25% 抖动，避免并发请求同时重试同一个被限流的连接。
+    const backoffMs = this.retryBaseDelayMs * 2 ** retryIndex;
+    const jittered = Math.round(backoffMs * (0.75 + Math.random() * 0.5));
+    return jittered <= this.maxRetryDelayMs ? jittered : null;
+  }
+
+  private isRateLimited(error: unknown): boolean {
+    const record = error && typeof error === 'object' ? error as Record<string, unknown> : {};
+    if (Number(record.status ?? record.statusCode) === 429) return true;
+    return /RATE[_ -]?LIMIT/i.test(String(record.code ?? record.type ?? ''));
+  }
+
+  private retryAfterMs(error: unknown): number | null {
+    const raw = this.headerValue((error as { headers?: unknown })?.headers, 'retry-after');
+    if (!raw) return null;
+    const seconds = Number(raw);
+    if (Number.isFinite(seconds)) return Math.max(0, Math.round(seconds * 1000));
+    const retryAt = Date.parse(raw);
+    return Number.isFinite(retryAt) ? Math.max(0, retryAt - Date.now()) : null;
+  }
+
+  /** OpenAI SDK 抛出的是 WHATWG Headers；测试与部分上游封装用的是普通对象。 */
+  private headerValue(headers: unknown, name: string): string | null {
+    if (!headers || typeof headers !== 'object') return null;
+    const getter = (headers as Headers).get;
+    if (typeof getter === 'function') return getter.call(headers, name);
+    const record = headers as Record<string, unknown>;
+    const key = Object.keys(record).find((item) => item.toLowerCase() === name);
+    return key === undefined ? null : String(record[key]);
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+  }
+
+  /**
+   * 网关每次调用都会写入一条 AiGatewayRequest 和若干 AiGatewayAttempt，没有保留策略时
+   * 这两张表会无限增长，并拖慢监控页依赖它们的聚合查询。attempts 通过外键级联删除。
+   */
+  @Cron('15 4 * * *', { name: 'ai-gateway-telemetry-retention', timeZone: 'Asia/Shanghai' })
+  async purgeExpiredTelemetry(): Promise<number> {
+    const cutoff = new Date(Date.now() - this.retentionDays * 24 * 60 * 60 * 1000);
+    let deleted = 0;
+    try {
+      for (;;) {
+        const batch = await this.prisma.aiGatewayRequest.findMany({
+          where: { createdAt: { lt: cutoff } },
+          select: { id: true },
+          take: AiGatewayService.RETENTION_BATCH_SIZE,
+        });
+        if (batch.length === 0) break;
+        const { count } = await this.prisma.aiGatewayRequest.deleteMany({
+          where: { id: { in: batch.map((item) => item.id) } },
+        });
+        deleted += count;
+        // count 为 0 说明另一个实例已经删掉了这批，继续循环只会空转。
+        if (count === 0 || batch.length < AiGatewayService.RETENTION_BATCH_SIZE) break;
+      }
+    } catch (error) {
+      this.logger.warn(`AI 网关调用记录清理失败：${this.errorMessage(error)}`);
+      return deleted;
+    }
+    if (deleted > 0) {
+      this.logger.log(`已清理 ${deleted} 条超过 ${this.retentionDays} 天的 AI 网关调用记录`);
+    }
+    return deleted;
+  }
+
   private shouldRetryWithoutJsonMode(error: unknown): boolean {
     const record = error && typeof error === 'object' ? error as Record<string, unknown> : {};
     const status = Number(record.status ?? record.statusCode);
@@ -455,7 +748,7 @@ export class AiGatewayService {
           model: input.model,
           latencyMs: input.latencyMs,
           attemptCount: input.attempts.length,
-          fallbackUsed: input.attempts.length > 1,
+          fallbackUsed: this.usedFallback(input.attempts),
           promptTokens: input.usage?.promptTokens ?? 0,
           completionTokens: input.usage?.completionTokens ?? 0,
           totalTokens: input.usage?.totalTokens ?? 0,
@@ -484,5 +777,12 @@ export class AiGatewayService {
   private positiveInteger(value: unknown, fallback: number): number {
     const number = Number(value);
     return Number.isInteger(number) && number > 0 ? number : fallback;
+  }
+
+  /** 0 是合法配置（关闭重试 / 不等待），因此不能复用 positiveInteger。 */
+  private nonNegativeInteger(value: unknown, fallback: number): number {
+    if (value === undefined || value === null || value === '') return fallback;
+    const number = Number(value);
+    return Number.isInteger(number) && number >= 0 ? number : fallback;
   }
 }

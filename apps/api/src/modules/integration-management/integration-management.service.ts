@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { IntegrationConfig, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -13,6 +13,16 @@ import { TestAiModelConnectionDto } from './dto/test-ai-model-connection.dto';
 
 type MailboxMetadata = {
   operator_name: string;
+};
+
+/** 模型连接列表用到的网关尝试字段，与 DISTINCT ON 原生查询回传的列一一对应。 */
+type LatestGatewayAttemptRow = {
+  connectionId: string | null;
+  status: string;
+  latencyMs: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+  createdAt: Date;
 };
 
 /**
@@ -55,6 +65,10 @@ type AiModelMetadata = {
   last_error_message: string | null;
   /** 显式用途类型；不设置时前端按模型名称自动推断 */
   usage_kind: AiModelUsageKind;
+  /** 输入单价（元 / 千 token）。0 表示未配置，成本统计会跳过这条连接。 */
+  input_price_per_1k: number;
+  /** 输出单价（元 / 千 token）。 */
+  output_price_per_1k: number;
 };
 
 type AiModelDailyTokenUsage = {
@@ -68,6 +82,8 @@ const DEFAULT_PAGE_SIZE = 10;
 
 @Injectable()
 export class IntegrationManagementService {
+  private readonly logger = new Logger(IntegrationManagementService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly secureConfigService: SecureConfigService,
@@ -250,23 +266,7 @@ export class IntegrationManagementService {
     ]);
 
     const connectionIds = items.map((item) => item.id);
-    const [latestGatewayAttempts, todayGatewayAttempts] = connectionIds.length > 0
-      ? await Promise.all([
-          this.prisma.aiGatewayAttempt.findMany({
-            where: { connectionId: { in: connectionIds } },
-            orderBy: { createdAt: 'desc' },
-            distinct: ['connectionId'],
-          }),
-          this.prisma.aiGatewayAttempt.groupBy({
-            by: ['connectionId'],
-            where: {
-              connectionId: { in: connectionIds },
-              createdAt: { gte: this.getShanghaiDayStart() },
-            },
-            _count: { _all: true },
-          }),
-        ])
-      : [[], []];
+    const [latestGatewayAttempts, todayGatewayAttempts] = await this.loadGatewayRuntime(connectionIds);
 
     const latestAttemptByConnection = new Map(
       latestGatewayAttempts
@@ -598,6 +598,8 @@ export class IntegrationManagementService {
         today_usage_date: '',
         last_error_message: null,
         usage_kind: 'auto' as AiModelUsageKind,
+        input_price_per_1k: 0,
+        output_price_per_1k: 0,
       };
     }
 
@@ -625,7 +627,55 @@ export class IntegrationManagementService {
       today_usage_date: typeof parsed.today_usage_date === 'string' ? parsed.today_usage_date : '',
       last_error_message: typeof parsed.last_error_message === 'string' ? parsed.last_error_message : null,
       usage_kind: (VALID_USAGE_KINDS.includes(rawUsageKind) ? rawUsageKind : 'auto') as AiModelUsageKind,
+      input_price_per_1k: this.parsePrice(parsed.input_price_per_1k),
+      output_price_per_1k: this.parsePrice(parsed.output_price_per_1k),
     };
+  }
+
+  /**
+   * 读取网关运行时数据用于增强模型列表（最新状态/延迟/今日调用数）。
+   * 这份数据是「锦上添花」：网关表还没迁移、或统计查询出问题时，模型连接列表必须照常
+   * 打得开——它是配置模型的唯一入口，整页 500 会让人连改配置都做不了。
+   */
+  private async loadGatewayRuntime(
+    connectionIds: string[],
+  ): Promise<[LatestGatewayAttemptRow[], Array<{ connectionId: string | null; _count: { _all: number } }>]> {
+    if (connectionIds.length === 0) return [[], []];
+    try {
+      return await Promise.all([
+        // DISTINCT ON 让数据库只回传「每个连接的最新一条尝试」，并且只取用到的列。
+        // Prisma 的 distinct 在 orderBy 与 distinct 字段不一致时会退化成全表整行回传后在内存去重，
+        // 而本查询没有时间窗，模型连接列表每次翻页都会触发。
+        this.prisma.$queryRaw<LatestGatewayAttemptRow[]>(Prisma.sql`
+          SELECT DISTINCT ON ("connectionId")
+            "connectionId", status, "latencyMs", "errorCode", "errorMessage", "createdAt"
+          FROM "AiGatewayAttempt"
+          WHERE "connectionId" IN (${Prisma.join(connectionIds)})
+          ORDER BY "connectionId", "createdAt" DESC
+        `),
+        this.prisma.aiGatewayAttempt.groupBy({
+          by: ['connectionId'],
+          where: {
+            connectionId: { in: connectionIds },
+            createdAt: { gte: this.getShanghaiDayStart() },
+          },
+          _count: { _all: true },
+        }),
+      ]);
+    } catch (error) {
+      this.logger.warn(
+        `读取 AI 网关运行数据失败，模型列表降级为仅显示配置信息（常见原因：网关相关迁移尚未执行）：${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return [[], []];
+    }
+  }
+
+  /** 单价必须是有限非负数；异常值一律当作未配置，避免脏数据把成本算成 NaN。 */
+  private parsePrice(value: unknown): number {
+    const price = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(price) && price > 0 ? price : 0;
   }
 
   /**
@@ -688,6 +738,12 @@ export class IntegrationManagementService {
           ? payload.usage_kind
           : (base?.usage_kind ?? 'auto')
       ) as AiModelUsageKind,
+      input_price_per_1k: payload.input_price_per_1k === undefined
+        ? base?.input_price_per_1k ?? 0
+        : this.parsePrice(payload.input_price_per_1k),
+      output_price_per_1k: payload.output_price_per_1k === undefined
+        ? base?.output_price_per_1k ?? 0
+        : this.parsePrice(payload.output_price_per_1k),
     };
   }
 
@@ -768,6 +824,8 @@ export class IntegrationManagementService {
       enabled: config.isActive,
       is_default_enabled: metadata.is_default_enabled,
       usage_kind: metadata.usage_kind,
+      input_price_per_1k: metadata.input_price_per_1k,
+      output_price_per_1k: metadata.output_price_per_1k,
       created_at: config.createdAt.toISOString(),
       updated_at: config.updatedAt.toISOString(),
       operator_name: metadata.operator_name,

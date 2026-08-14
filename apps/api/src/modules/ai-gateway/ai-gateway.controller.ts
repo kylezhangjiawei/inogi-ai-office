@@ -200,7 +200,8 @@ export class AiGatewayController {
         by: ['provider', 'model', 'status'],
         where: { createdAt: { gte: since } },
         _count: { _all: true },
-        _sum: { totalTokens: true },
+        // 输入/输出分开汇总：两者单价不同，合并成 totalTokens 就算不出成本了。
+        _sum: { totalTokens: true, promptTokens: true, completionTokens: true },
         _avg: { latencyMs: true },
       }),
       this.prisma.aiGatewayAttempt.groupBy({
@@ -258,20 +259,27 @@ export class AiGatewayController {
         _count: { _all: true },
         _avg: { latencyMs: true },
       }),
-      this.prisma.aiGatewayAttempt.findMany({
-        where: { connectionId: { not: null } },
-        select: {
-          connectionId: true,
-          status: true,
-          latencyMs: true,
-          errorCode: true,
-          errorMessage: true,
-          createdAt: true,
-        },
-        orderBy: { createdAt: 'desc' },
-        distinct: ['connectionId', 'status'],
-      }),
+      // DISTINCT ON 让数据库只回传「每个连接每种状态的最新一条」（每连接最多 3 行）。
+      // Prisma 的 distinct 在 orderBy 与 distinct 字段不一致时会退化成全表回传后在内存去重，
+      // 而本查询没有时间窗，监控页每 30 秒轮询一次，随 AiGatewayAttempt 增长会线性变慢。
+      this.prisma.$queryRaw<Array<{
+        connectionId: string | null;
+        status: string;
+        latencyMs: number;
+        errorCode: string | null;
+        errorMessage: string | null;
+        createdAt: Date;
+      }>>(Prisma.sql`
+        SELECT DISTINCT ON ("connectionId", status)
+          "connectionId", status, "latencyMs", "errorCode", "errorMessage", "createdAt"
+        FROM "AiGatewayAttempt"
+        WHERE "connectionId" IS NOT NULL
+        ORDER BY "connectionId", status, "createdAt" DESC
+      `),
     ]);
+    const priceIndex = this.buildPriceIndex(connections);
+    const providerBreakdown = this.aggregateProviderGroups(byProvider, priceIndex);
+    const pricedBreakdown = providerBreakdown.filter((item) => item.cost !== null);
     return {
       range: range === 'month' || range === 'year' ? range : 'today',
       totals: {
@@ -282,9 +290,12 @@ export class AiGatewayController {
         average_latency_ms: Math.round(latency._avg.latencyMs ?? 0),
         total_tokens: tokenTotals._sum.totalTokens ?? 0,
         circuit_skips: circuitSkips,
+        // 只累计已配单价的模型；未配价的模型数一并回传，否则用户会以为总额就是全部花费。
+        total_cost: Number(pricedBreakdown.reduce((sum, item) => sum + (item.cost ?? 0), 0).toFixed(4)),
+        unpriced_models: providerBreakdown.length - pricedBreakdown.length,
       },
       by_scene: this.aggregateGroups(byScene, 'scene'),
-      by_provider: this.aggregateProviderGroups(byProvider),
+      by_provider: providerBreakdown,
       by_error: byError
         .map((item) => ({ error_code: item.errorCode || 'UNKNOWN', requests: item._count._all }))
         .sort((a, b) => b.requests - a.requests),
@@ -682,20 +693,54 @@ export class AiGatewayController {
     };
   }
 
-  private aggregateProviderGroups(groups: Array<{
+  /**
+   * 单价配在模型连接上，而调用记录只留了 provider/model，所以按 provider+model 建价目。
+   * 同一 provider+model 配了多条连接且单价不同时取先命中的那条——这种配法本身就有歧义。
+   * 未配单价的连接不参与成本统计，避免把 0 当成「免费」混进总额。
+   */
+  private buildPriceIndex(connections: Array<{
     provider: string | null;
     model: string | null;
-    status: string;
-    _count: { _all: number };
-    _sum: { totalTokens: number | null };
-    _avg: { latencyMs: number | null };
+    metadata: Prisma.JsonValue;
   }>) {
+    const prices = new Map<string, { input: number; output: number }>();
+    for (const connection of connections) {
+      const metadata = connection.metadata && typeof connection.metadata === 'object' && !Array.isArray(connection.metadata)
+        ? connection.metadata as Record<string, unknown>
+        : {};
+      const input = this.positivePrice(metadata.input_price_per_1k);
+      const output = this.positivePrice(metadata.output_price_per_1k);
+      if (input === 0 && output === 0) continue;
+      const key = `${(connection.provider ?? '').toLowerCase()}\u0000${(connection.model ?? '').toLowerCase()}`;
+      if (!prices.has(key)) prices.set(key, { input, output });
+    }
+    return prices;
+  }
+
+  private positivePrice(value: unknown): number {
+    const price = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(price) && price > 0 ? price : 0;
+  }
+
+  private aggregateProviderGroups(
+    groups: Array<{
+      provider: string | null;
+      model: string | null;
+      status: string;
+      _count: { _all: number };
+      _sum: { totalTokens: number | null; promptTokens: number | null; completionTokens: number | null };
+      _avg: { latencyMs: number | null };
+    }>,
+    prices: Map<string, { input: number; output: number }>,
+  ) {
     const aggregated = new Map<string, {
       provider: string;
       model: string;
       requests: number;
       successes: number;
       tokens: number;
+      promptTokens: number;
+      completionTokens: number;
       latencyTotal: number;
     }>();
     for (const group of groups) {
@@ -708,24 +753,37 @@ export class AiGatewayController {
         requests: 0,
         successes: 0,
         tokens: 0,
+        promptTokens: 0,
+        completionTokens: 0,
         latencyTotal: 0,
       };
       const calls = group._count._all;
       current.requests += calls;
       if (group.status === 'success') current.successes += calls;
       current.tokens += group._sum.totalTokens ?? 0;
+      current.promptTokens += group._sum.promptTokens ?? 0;
+      current.completionTokens += group._sum.completionTokens ?? 0;
       current.latencyTotal += (group._avg.latencyMs ?? 0) * calls;
       aggregated.set(groupKey, current);
     }
     return [...aggregated.values()]
-      .map((item) => ({
-        provider: item.provider,
-        model: item.model,
-        requests: item.requests,
-        success_rate: item.requests > 0 ? Number(((item.successes / item.requests) * 100).toFixed(2)) : 0,
-        average_latency_ms: item.requests > 0 ? Math.round(item.latencyTotal / item.requests) : 0,
-        total_tokens: item.tokens,
-      }))
+      .map((item) => {
+        const price = prices.get(`${item.provider.toLowerCase()}\u0000${item.model.toLowerCase()}`);
+        return {
+          provider: item.provider,
+          model: item.model,
+          requests: item.requests,
+          success_rate: item.requests > 0 ? Number(((item.successes / item.requests) * 100).toFixed(2)) : 0,
+          average_latency_ms: item.requests > 0 ? Math.round(item.latencyTotal / item.requests) : 0,
+          total_tokens: item.tokens,
+          prompt_tokens: item.promptTokens,
+          completion_tokens: item.completionTokens,
+          // null = 未配单价，前端显示「未配价」而不是 0 元
+          cost: price === undefined
+            ? null
+            : Number(((item.promptTokens / 1000) * price.input + (item.completionTokens / 1000) * price.output).toFixed(4)),
+        };
+      })
       .sort((a, b) => b.requests - a.requests);
   }
 }
