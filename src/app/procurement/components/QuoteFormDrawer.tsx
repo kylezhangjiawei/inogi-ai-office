@@ -5,6 +5,8 @@ import { ImagePlus, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
+import { Button } from "../../components/ui/button";
+import { ScrollArea } from "../../components/ui/scroll-area";
 import { ComboInput, DateInput, ImageLightbox } from "./common";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { useI18n } from "../../lib/i18n";
@@ -146,7 +148,8 @@ export function QuoteFormDrawer({
           <AutoTranslatedText as="p" className="mt-0.5 text-sm text-slate-500" text={material.name} />
         </SheetHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        <ScrollArea className="min-h-0 flex-1">
+        <div className="px-6 py-4">
           <div className="grid grid-cols-2 gap-3">
             <label className="col-span-2 block">
               <span className={LABEL}>{t("厂家名称")}<span className="ml-0.5 text-rose-500">*</span></span>
@@ -189,20 +192,21 @@ export function QuoteFormDrawer({
                     className="h-16 w-16 cursor-zoom-in rounded-lg border border-slate-200 object-cover"
                   />
                 ) : (
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
                     disabled={imageBusy}
                     onClick={() => imageInputRef.current?.click()}
                     className="flex h-16 w-16 flex-col items-center justify-center gap-0.5 rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:border-indigo-300 hover:text-indigo-500 disabled:opacity-60"
                   >
                     {imageBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
                     <span className="text-[10px]">{t("上传")}</span>
-                  </button>
+                  </Button>
                 )}
                 {imagePreview && (
                   <div className="flex flex-col gap-1 text-xs">
-                    <button type="button" disabled={imageBusy} onClick={() => imageInputRef.current?.click()} className="text-left text-indigo-600 hover:underline disabled:opacity-60">{imageBusy ? t("上传中…") : t("更换图片")}</button>
-                    <button type="button" onClick={() => { setImageKeyPatch(""); setImagePreview(null); }} className="text-left text-slate-400 hover:text-rose-500">{t("移除图片")}</button>
+                    <Button type="button" variant="link" disabled={imageBusy} onClick={() => imageInputRef.current?.click()} className="h-auto justify-start p-0 text-xs text-indigo-600">{imageBusy ? t("上传中…") : t("更换图片")}</Button>
+                    <Button type="button" variant="ghost" onClick={() => { setImageKeyPatch(""); setImagePreview(null); }} className="h-auto justify-start p-0 text-xs text-slate-400 hover:bg-transparent hover:text-rose-500">{t("移除图片")}</Button>
                   </div>
                 )}
               </div>
@@ -213,9 +217,9 @@ export function QuoteFormDrawer({
           <div className="mt-5">
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold text-slate-700">{t("阶梯报价")}</span>
-              <button type="button" onClick={() => setTiers((rows) => [...rows, { minQty: "", unitPrice: "" }])} className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-100">
+              <Button type="button" variant="outline" size="sm" onClick={() => setTiers((rows) => [...rows, { minQty: "", unitPrice: "" }])} className="h-7 rounded-lg border-indigo-200 bg-indigo-50 px-2 text-xs text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700">
                 <Plus className="h-3.5 w-3.5" />{t("加一档")}
-              </button>
+              </Button>
             </div>
             <p className="mt-1 text-[11px] text-slate-400">{t("起订量留空表示不限起订量；某档不报价直接删除该行即可。")}</p>
             <div className="mt-2 space-y-2">
@@ -225,20 +229,21 @@ export function QuoteFormDrawer({
                   {material.unit && <span className="text-xs text-slate-400">{material.unit}</span>}
                   <span className="text-slate-300">→</span>
                   <Input value={row.unitPrice} onChange={(e) => setTier(index, "unitPrice", e.target.value)} inputMode="decimal" placeholder={t("单价，如 0.65")} className="h-9 w-36 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300" />
-                  <button type="button" disabled={tiers.length <= 1} onClick={() => setTiers((rows) => rows.filter((_, i) => i !== index))} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-500 disabled:opacity-30">
+                  <Button type="button" variant="ghost" size="icon" aria-label={t("删除该报价档位")} disabled={tiers.length <= 1} onClick={() => setTiers((rows) => rows.filter((_, i) => i !== index))} className="size-8 rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500">
                     <Trash2 className="h-4 w-4" />
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
           </div>
         </div>
+        </ScrollArea>
 
         <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-6 py-4">
-          <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">{t("取消")}</button>
-          <button type="button" disabled={busy} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
+          <Button type="button" variant="outline" onClick={onClose} className="rounded-lg border-slate-200 px-4 py-2 text-sm text-slate-600">{t("取消")}</Button>
+          <Button type="button" disabled={busy} onClick={() => void submit()} className="material-button-primary rounded-lg px-4 py-2 text-sm disabled:opacity-60">
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}{t("保存")}
-          </button>
+          </Button>
         </div>
         {lightboxOpen && imagePreview && <ImageLightbox url={imagePreview} onClose={() => setLightboxOpen(false)} />}
       </SheetContent>

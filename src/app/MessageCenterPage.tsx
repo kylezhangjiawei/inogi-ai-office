@@ -23,6 +23,7 @@ import {
 import { toast } from "sonner";
 import { useNavigate } from "react-router";
 import { useAuth } from "./auth";
+import { Button } from "./components/ui/button";
 import { cn } from "./components/ui/utils";
 import {
   fetchRdMessages,
@@ -42,16 +43,25 @@ import {
 import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
+import { approveRdProcurementTransfer, rejectRdProcurementTransfer } from "./lib/procurementApi";
+import { announceProcurementRefresh } from "./procurement/data";
 
 // ── Parsed message body types ────────────────────────────────────────────────
 
 type ReviewRequestBody = {
   type: "review_request";
-  review_type: "result" | "collaboration" | "proposal" | "due_date" | "abandon";
+  review_type: "result" | "collaboration" | "proposal" | "due_date" | "abandon" | "procurement_transfer";
   task_id: string;
   task_title: string;
   submitter_name: string;
   submitter_user_id?: string;
+  rd_task_id?: string;
+  procurement_code?: string;
+  material_name?: string;
+  specification?: string | null;
+  quantity?: number;
+  unit?: string | null;
+  procurement_method_label?: string;
   note?: string;
   pending_collaborators?: Array<{ name: string; role?: string }>;
   current_progress?: number;
@@ -61,11 +71,19 @@ type ReviewRequestBody = {
 
 type ReviewResultBody = {
   type: "review_result";
+  review_type?: "procurement_transfer";
+  review_stage?: "rd_gate";
   result: "approved" | "rejected";
   task_id: string;
   task_title: string;
   reviewer_name: string;
   reason?: string;
+  note?: string;
+  procurement_code?: string;
+  material_name?: string;
+  quantity?: number;
+  unit?: string;
+  buyer_name?: string;
 };
 
 type PerfSelfAssessmentBody = {
@@ -76,9 +94,59 @@ type PerfSelfAssessmentBody = {
   user_name: string;
 };
 
+type ProcurementReviewResultBody = {
+  type: "procurement_review_result";
+  result: "approved" | "rejected";
+  task_id: string;
+  procurement_task_id: string;
+  procurement_code: string;
+  rd_task_id?: string;
+  rd_task_title?: string;
+  material_name: string;
+  specification?: string | null;
+  quantity: number;
+  unit?: string | null;
+  procurement_method: "direct" | "inquiry";
+  procurement_method_label: string;
+  requester_name?: string | null;
+  requester_department?: string | null;
+  rd_contact?: string | null;
+  reviewer_name: string;
+  reason?: string | null;
+  priority?: string | null;
+  need_date?: string | null;
+  deadline?: string | null;
+  next_status_label?: string | null;
+  task_deleted: boolean;
+  next_action: string;
+  route?: string | null;
+  action_label?: string | null;
+  recipient_reason?: string | null;
+};
+
+type ProcurementAssignmentBody = {
+  type: "procurement_assignment";
+  task_id: string;
+  procurement_task_id: string;
+  procurement_code: string;
+  rd_task_id?: string;
+  rd_task_title?: string;
+  material_name: string;
+  specification?: string | null;
+  quantity: number;
+  unit?: string | null;
+  procurement_method_label: string;
+  assigned_by: string;
+  route?: string;
+  action_label?: string;
+  next_action: string;
+};
+
 type ParsedBody =
   | ReviewRequestBody
   | ReviewResultBody
+  | ProcurementReviewResultBody
+  | ProcurementAssignmentBody
   | PerfSelfAssessmentBody
   | RdDiscussionMentionBody
   | { type: "unknown"; raw: string };
@@ -88,6 +156,8 @@ function parseBody(raw: string): ParsedBody {
     const obj = JSON.parse(raw) as Record<string, unknown>;
     if (obj.type === "review_request") return obj as unknown as ReviewRequestBody;
     if (obj.type === "review_result") return obj as unknown as ReviewResultBody;
+    if (obj.type === "procurement_review_result") return obj as unknown as ProcurementReviewResultBody;
+    if (obj.type === "procurement_assignment") return obj as unknown as ProcurementAssignmentBody;
     if (obj.type === "perf_self_assessment") return obj as unknown as PerfSelfAssessmentBody;
     if (obj.type === "discussion_mention") return parseRdDiscussionMention(raw) ?? { type: "unknown", raw };
     return { type: "unknown", raw };
@@ -190,7 +260,7 @@ function ApproveDialog({
 }: {
   taskTitle: string;
   taskId: string;
-  reviewType: "result" | "collaboration" | "proposal" | "due_date" | "abandon";
+  reviewType: "result" | "collaboration" | "proposal" | "due_date" | "abandon" | "procurement_transfer";
   submitterName: string;
   pendingDueDate?: string;
   currentDueDate?: string;
@@ -200,7 +270,9 @@ function ApproveDialog({
 }) {
   useI18n();
   const reviewTypeLabel =
-    reviewType === "collaboration"
+    reviewType === "procurement_transfer"
+      ? t("转采购审核")
+      : reviewType === "collaboration"
       ? t("协作变更审核")
       : reviewType === "proposal"
       ? t("立项审核")
@@ -250,7 +322,9 @@ function ApproveDialog({
               <div>{t("截止日期：")}{currentDueDate || t("未设置")} → {pendingDueDate}</div>
             )}
             <div>
-              {reviewType === "collaboration"
+              {reviewType === "procurement_transfer"
+                ? t("通过后申请才会进入采购驾驶舱，并按采购部门负载分配采购负责人。")
+                : reviewType === "collaboration"
                 ? t("通过后协作变更会立即生效，并通知申请人员。")
                 : reviewType === "proposal"
                 ? t("通过后任务将正式立项并进入进行中状态，同时通知发起人。")
@@ -396,7 +470,7 @@ function MessageCard({
 
   if (body.type === "review_request") {
     const rb = body;
-    const reviewTypeLabel = rb.review_type === "collaboration" ? t("协作申请") : rb.review_type === "proposal" ? t("立项申请") : rb.review_type === "due_date" ? t("截止日期变更") : rb.review_type === "abandon" ? t("放弃任务") : t("成果提交");
+    const reviewTypeLabel = rb.review_type === "procurement_transfer" ? t("转采购申请") : rb.review_type === "collaboration" ? t("协作申请") : rb.review_type === "proposal" ? t("立项申请") : rb.review_type === "due_date" ? t("截止日期变更") : rb.review_type === "abandon" ? t("放弃任务") : t("成果提交");
     const isHandled = msg.handled === true;
 
     return (
@@ -446,6 +520,15 @@ function MessageCard({
           )}
         </div>
 
+        {rb.review_type === "procurement_transfer" && (
+          <div className="mb-3 grid gap-2 rounded-xl border border-violet-100 bg-white/90 p-3 text-xs text-slate-600 sm:grid-cols-2">
+            <div>{t("采购编号：")}<span className="font-mono font-semibold text-slate-800">{rb.procurement_code}</span></div>
+            <div>{t("采购方式：")}<span className="font-semibold text-slate-800">{rb.procurement_method_label}</span></div>
+            <div>{t("物料：")}<AutoTranslatedText className="font-semibold text-slate-800" text={[rb.material_name, rb.specification].filter(Boolean).join(" · ")} /></div>
+            <div>{t("数量：")}<span className="font-semibold text-slate-800">{rb.quantity} {rb.unit}</span></div>
+          </div>
+        )}
+
         {rb.note && (
           <AutoTranslatedText as="p" className="mb-3 rounded-lg bg-white/80 px-3 py-2 text-sm text-slate-600 ring-1 ring-slate-200" text={rb.note} />
         )}
@@ -488,6 +571,148 @@ function MessageCard({
             </button>
           </div>
         )}
+        {rb.review_type === "procurement_transfer" && rb.rd_task_id && (
+          <button
+            type="button"
+            className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+            onClick={(event) => { event.stopPropagation(); onOpen(msg); navigate(`/rd-task/${encodeURIComponent(rb.rd_task_id!)}`); }}
+          >
+            {t("查看原研发任务")}<ArrowRight className="size-3.5" />
+          </button>
+        )}
+      </article>
+    );
+  }
+
+  if (body.type === "procurement_review_result") {
+    const approved = body.result === "approved";
+    const openRelatedTask = () => {
+      onOpen(msg);
+      if (body.route?.startsWith("/")) navigate(body.route);
+    };
+    const facts = [
+      { label: t("采购编号"), value: body.procurement_code },
+      { label: t("采购方式"), value: body.procurement_method_label },
+      { label: t("数量"), value: `${body.quantity} ${body.unit ?? ""}`.trim() },
+      { label: t("规格"), value: body.specification },
+      { label: t("需求提出人"), value: [body.requester_name, body.requester_department].filter(Boolean).join(" · ") },
+      { label: t("研发对接人"), value: body.rd_contact },
+      { label: t("接收原因"), value: body.recipient_reason },
+      { label: t("审核人"), value: body.reviewer_name },
+      { label: t("需求日期"), value: body.need_date },
+      { label: t("截止日期"), value: body.deadline },
+      { label: t("当前状态"), value: approved ? body.next_status_label : t("采购任务已删除") },
+    ].filter((item) => item.value !== null && item.value !== undefined && item.value !== "");
+
+    return (
+      <article className={cn("rounded-2xl border bg-white p-5", approved ? "border-emerald-200" : "border-red-200")}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
+            {msg.read ? t("已读") : t("未读")}
+          </span>
+          <SourceChip source={msg.source} />
+          <span className={cn("material-chip", approved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700")}>
+            {approved ? t("审核通过") : t("审核打回")}
+          </span>
+          <span className="material-chip bg-slate-100 text-slate-600">{t("转采购审核")}</span>
+          {msg.handled && <span className="material-chip bg-slate-100 text-slate-500">{t("已处理")}</span>}
+          <span className="ml-auto flex items-center gap-1 text-xs text-slate-400">
+            <Clock3 className="size-3.5" />
+            {timeLabel}
+          </span>
+        </div>
+
+        <div className="mt-4 border-b border-slate-100 pb-4">
+          <p className="font-mono text-xs tabular-nums text-slate-400">{body.procurement_code}</p>
+          <AutoTranslatedText as="div" className="mt-1 text-balance text-base font-semibold text-slate-900" text={body.material_name} />
+          {body.rd_task_title && (
+            <p className="mt-1 text-pretty text-xs text-slate-500">
+              {t("来源研发任务：")}<AutoTranslatedText text={body.rd_task_title} />
+            </p>
+          )}
+        </div>
+
+        <dl className="grid gap-x-6 gap-y-3 py-4 sm:grid-cols-2 lg:grid-cols-3">
+          {facts.map((item) => (
+            <div key={item.label} className="min-w-0">
+              <dt className="text-xs text-slate-400">{item.label}</dt>
+              <dd className="mt-0.5 text-pretty text-sm font-medium text-slate-700">
+                <AutoTranslatedText text={String(item.value)} />
+              </dd>
+            </div>
+          ))}
+        </dl>
+
+        {!approved && (
+          <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3">
+            <p className="text-xs font-semibold text-red-700">{t("打回原因")}</p>
+            <AutoTranslatedText as="p" className="mt-1 whitespace-pre-wrap text-pretty text-sm leading-6 text-red-800" text={body.reason || t("未填写打回原因")} />
+          </div>
+        )}
+
+        <div className={cn("mt-3 rounded-xl border px-4 py-3", approved ? "border-emerald-100 bg-emerald-50" : "border-slate-200 bg-slate-50")}>
+          <p className={cn("text-xs font-semibold", approved ? "text-emerald-700" : "text-slate-600")}>{t("下一步")}</p>
+          <AutoTranslatedText as="p" className="mt-1 text-pretty text-sm leading-6 text-slate-700" text={body.next_action} />
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+          {body.route?.startsWith("/") && (
+            <button
+              type="button"
+              onClick={openRelatedTask}
+              className={cn(
+                "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-xs font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+                approved ? "bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-400" : "bg-slate-800 hover:bg-slate-900 focus-visible:ring-slate-400",
+              )}
+            >
+              {t(body.action_label || (approved ? "查看采购任务" : "查看原研发任务"))}
+              <ArrowRight className="size-3.5" />
+            </button>
+          )}
+          {!msg.handled && (
+            <button
+              type="button"
+              onClick={() => onHandle(msg)}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+            >
+              <CheckCircle2 className="size-3.5" />
+              {t("标记已处理")}
+            </button>
+          )}
+        </div>
+      </article>
+    );
+  }
+
+  if (body.type === "procurement_assignment") {
+    const openTask = () => {
+      onOpen(msg);
+      if (body.route?.startsWith("/")) navigate(body.route);
+    };
+    return (
+      <article className="rounded-2xl border border-indigo-200 bg-white p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>{msg.read ? t("已读") : t("未读")}</span>
+          <SourceChip source={msg.source} />
+          <span className="material-chip bg-indigo-100 text-indigo-700">{t("新任务分配")}</span>
+          <span className="ml-auto flex items-center gap-1 text-xs text-slate-400"><Clock3 className="size-3.5" />{timeLabel}</span>
+        </div>
+        <div className="mt-4 border-b border-slate-100 pb-4">
+          <p className="font-mono text-xs text-slate-400">{body.procurement_code}</p>
+          <AutoTranslatedText as="div" className="mt-1 text-base font-semibold text-slate-900" text={body.material_name} />
+          {body.rd_task_title && <p className="mt-1 text-xs text-slate-500">{t("来源研发任务：")}<AutoTranslatedText text={body.rd_task_title} /></p>}
+        </div>
+        <dl className="grid gap-x-6 gap-y-3 py-4 sm:grid-cols-2">
+          <div><dt className="text-xs text-slate-400">{t("采购方式")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700">{body.procurement_method_label}</dd></div>
+          <div><dt className="text-xs text-slate-400">{t("数量")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700">{body.quantity} {body.unit ?? ""}</dd></div>
+          {body.specification && <div><dt className="text-xs text-slate-400">{t("规格")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700"><AutoTranslatedText text={body.specification} /></dd></div>}
+          <div><dt className="text-xs text-slate-400">{t("分配人")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700">{body.assigned_by}</dd></div>
+        </dl>
+        <AutoTranslatedText as="p" className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-800" text={body.next_action} />
+        <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-4">
+          {body.route?.startsWith("/") && <Button type="button" size="sm" onClick={openTask}>{t(body.action_label || "打开采购任务")}<ArrowRight className="size-3.5" /></Button>}
+          {!msg.handled && <Button type="button" size="sm" variant="outline" onClick={() => onHandle(msg)}><CheckCircle2 className="size-3.5" />{t("标记已处理")}</Button>}
+        </div>
       </article>
     );
   }
@@ -518,7 +743,9 @@ function MessageCard({
             <span className={cn("material-chip", approved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700")}>
               {approved ? t("已批准") : t("已打回")}
             </span>
-            <span className="material-chip bg-slate-100 text-slate-600">{t("审核结果")}</span>
+            <span className="material-chip bg-slate-100 text-slate-600">
+              {rb.review_type === "procurement_transfer" ? t("转采购前置审核") : t("审核结果")}
+            </span>
             {!msg.read && (
               <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />
             )}
@@ -534,10 +761,21 @@ function MessageCard({
           <span className="text-slate-500">{t("审核人：")}</span>{rb.reviewer_name}
         </div>
 
+        {rb.review_type === "procurement_transfer" && (
+          <div className="mb-3 grid gap-2 rounded-xl border border-violet-100 bg-white/90 p-3 text-xs text-slate-600 sm:grid-cols-2">
+            <div>{t("采购编号：")}<span className="font-mono font-semibold text-slate-800">{rb.procurement_code}</span></div>
+            <div>{t("数量：")}<span className="font-semibold text-slate-800">{rb.quantity} {rb.unit}</span></div>
+            {rb.buyer_name && <div className="sm:col-span-2">{t("采购负责人：")}<span className="font-semibold text-slate-800">{rb.buyer_name}</span></div>}
+          </div>
+        )}
+
         {rb.reason && (
           <p className={cn("rounded-lg px-3 py-2 text-sm ring-1", approved ? "bg-white/80 text-slate-600 ring-slate-200" : "bg-white/80 text-red-700 ring-red-200")}>
             <span className="font-medium">{approved ? t("备注：") : t("打回原因：")}</span><AutoTranslatedText text={rb.reason} />
           </p>
+        )}
+        {rb.note && (
+          <AutoTranslatedText as="p" className="mt-2 rounded-lg bg-white/80 px-3 py-2 text-sm text-slate-600 ring-1 ring-slate-200" text={rb.note} />
         )}
       </article>
     );
@@ -748,8 +986,20 @@ export function MessageCenterPage() {
   const [selfAssessMsgId, setSelfAssessMsgId] = useState<string | null>(null);
 
   const canReview = user
-    ? user.permissions.includes("*") || user.permissions.includes("rd-task:edit") || user.permissions.includes("rd-task:reassign")
+    ? user.permissions.includes("*")
+      || user.permissions.includes("rd-task:edit")
+      || user.permissions.includes("rd-task:reassign")
+      || user.permissions.includes("rd-procurement:review")
     : false;
+  const canReviewMessage = useCallback((body: ReviewRequestBody) => {
+    if (!user) return false;
+    if (body.review_type === "procurement_transfer") {
+      return user.permissions.includes("*") || user.permissions.includes("rd-procurement:review");
+    }
+    return user.permissions.includes("*")
+      || user.permissions.includes("rd-task:edit")
+      || user.permissions.includes("rd-task:reassign");
+  }, [user]);
 
   // Load messages（首屏 / 刷新：始终回到最新一页，丢弃已翻出的更早内容）
   const loadMessages = useCallback(async () => {
@@ -888,7 +1138,7 @@ export function MessageCenterPage() {
       // Filter tab
       if (filter === "unread" && m.read) return false;
       if (filter === "review_request" && !isPendingReviewMessage(m)) return false;
-      if (filter === "review_result" && parsed.type !== "review_result") return false;
+      if (filter === "review_result" && parsed.type !== "review_result" && parsed.type !== "procurement_review_result") return false;
 
       if (!q) return true;
 
@@ -900,6 +1150,9 @@ export function MessageCenterPage() {
         parsed.type === "review_request" ? (parsed as ReviewRequestBody).submitter_name : "",
         parsed.type === "review_result" ? (parsed as ReviewResultBody).task_title : "",
         parsed.type === "review_result" ? (parsed as ReviewResultBody).reviewer_name : "",
+        parsed.type === "procurement_review_result" ? parsed.material_name : "",
+        parsed.type === "procurement_review_result" ? parsed.procurement_code : "",
+        parsed.type === "procurement_review_result" ? parsed.reviewer_name : "",
         parsed.type === "discussion_mention" ? parsed.task_title : "",
         parsed.type === "discussion_mention" ? parsed.actor_name : "",
         parsed.type === "discussion_mention" ? parsed.excerpt : "",
@@ -936,10 +1189,15 @@ export function MessageCenterPage() {
       const { msg, body } = approveTarget;
       setApproving(msg.id);
       try {
-        await updateRdTask(body.task_id, {
-          _review_action: "approve",
-          _reviewer_name: user?.name,
-        } as Parameters<typeof updateRdTask>[1]);
+        if (body.review_type === "procurement_transfer") {
+          await approveRdProcurementTransfer(body.task_id);
+          announceProcurementRefresh();
+        } else {
+          await updateRdTask(body.task_id, {
+            _review_action: "approve",
+            _reviewer_name: user?.name,
+          } as Parameters<typeof updateRdTask>[1]);
+        }
         await patchRdMessage(msg.id, { handled: true, read: true });
         setMessages((prev) =>
           prev.map((m) => (m.id === msg.id ? { ...m, handled: true, read: true } : m)),
@@ -963,11 +1221,16 @@ export function MessageCenterPage() {
       const { msg, body } = rejectTarget;
       setRejectTarget(null);
       try {
-        await updateRdTask(body.task_id, {
-          _review_action: "reject",
-          _reviewer_name: user?.name,
-          _reject_reason: reason,
-        } as Parameters<typeof updateRdTask>[1]);
+        if (body.review_type === "procurement_transfer") {
+          await rejectRdProcurementTransfer(body.task_id, reason);
+          announceProcurementRefresh();
+        } else {
+          await updateRdTask(body.task_id, {
+            _review_action: "reject",
+            _reviewer_name: user?.name,
+            _reject_reason: reason,
+          } as Parameters<typeof updateRdTask>[1]);
+        }
         await patchRdMessage(msg.id, { handled: true, read: true });
         setMessages((prev) =>
           prev.map((m) => (m.id === msg.id ? { ...m, handled: true, read: true } : m)),
@@ -1089,19 +1352,22 @@ export function MessageCenterPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {pagedMessages.map((msg) => (
-              <MessageCard
-                key={msg.id}
-                msg={msg}
-                canReview={canReview}
-                isApproving={approving === msg.id}
-                onOpen={markMessageRead}
-                onApprove={requestApprove}
-                onReject={(m, b) => setRejectTarget({ msg: m, body: b })}
-                onSelfAssess={openSelfAssess}
-                onHandle={markMessageHandled}
-              />
-            ))}
+            {pagedMessages.map((msg) => {
+              const parsed = parseBody(msg.body);
+              return (
+                <MessageCard
+                  key={msg.id}
+                  msg={msg}
+                  canReview={parsed.type === "review_request" ? canReviewMessage(parsed) : canReview}
+                  isApproving={approving === msg.id}
+                  onOpen={markMessageRead}
+                  onApprove={requestApprove}
+                  onReject={(m, b) => setRejectTarget({ msg: m, body: b })}
+                  onSelfAssess={openSelfAssess}
+                  onHandle={markMessageHandled}
+                />
+              );
+            })}
           </div>
         )}
 
@@ -1175,7 +1441,9 @@ export function MessageCenterPage() {
       {approveTarget && (
         <ApproveDialog
           taskTitle={approveTarget.body.task_title}
-          taskId={approveTarget.body.task_id}
+          taskId={approveTarget.body.review_type === "procurement_transfer"
+            ? approveTarget.body.rd_task_id || approveTarget.body.procurement_code || approveTarget.body.task_id
+            : approveTarget.body.task_id}
           reviewType={approveTarget.body.review_type}
           submitterName={approveTarget.body.submitter_name}
           pendingDueDate={approveTarget.body.pending_due_date}

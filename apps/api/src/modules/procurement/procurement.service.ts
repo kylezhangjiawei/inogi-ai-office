@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -70,6 +70,10 @@ function parseDay(value: string | null | undefined): Date | null {
   if (!value) return null;
   const t = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
   return Number.isNaN(t.getTime()) ? null : t;
+}
+
+function procurementPersonNameKey(value?: string | null): string {
+  return (value ?? '').trim().replace(/[（(].*?[）)]/g, '').toLocaleLowerCase('zh-CN').replace(/\s+/g, '');
 }
 
 /** BOM 树出参节点。 */
@@ -209,6 +213,29 @@ const PROC_TASK_VIEW_INCLUDE = Prisma.validator<Prisma.ProcTaskInclude>()({
 });
 
 type ProcTaskView = Prisma.ProcTaskGetPayload<{ include: typeof PROC_TASK_VIEW_INCLUDE }>;
+type ProcReviewNoticeTask = Pick<
+  Prisma.ProcTaskGetPayload<object>,
+  | 'id'
+  | 'code'
+  | 'source'
+  | 'materialName'
+  | 'spec'
+  | 'unit'
+  | 'quantity'
+  | 'method'
+  | 'needDate'
+  | 'deadline'
+  | 'priority'
+  | 'rdTaskId'
+  | 'rdTaskTitle'
+  | 'rdContact'
+  | 'rdContactUserId'
+  | 'buyer'
+  | 'buyerUserId'
+  | 'requester'
+  | 'requesterUserId'
+  | 'requesterDept'
+>;
 
 @Injectable()
 export class ProcurementService {
@@ -299,9 +326,9 @@ export class ProcurementService {
 
   // ── 任务 ────────────────────────────────────────────────────────────────────
 
-  async listTasks(query: ProcTaskListQuery) {
+  async listTasks(query: ProcTaskListQuery, actor?: ProcActor) {
     const where: Prisma.ProcTaskWhereInput = {};
-    if (query.status) where.status = { in: query.status.split(',').filter(Boolean) };
+    const requestedStatuses = query.status?.split(',').map((status) => status.trim()).filter(Boolean) ?? [];
     if (query.businessLine) where.businessLine = query.businessLine;
     if (query.source) where.source = query.source;
     if (query.method) where.method = query.method;
@@ -309,7 +336,51 @@ export class ProcurementService {
     if (query.buyerUserId) where.buyerUserId = query.buyerUserId;
     if (query.materialId) where.materialId = query.materialId;
     if (query.rdTaskId) where.rdTaskId = query.rdTaskId;
-    if (query.activeOnly === 'true') where.status = { notIn: PROC_TERMINAL_STATUSES };
+    const canReviewRdTransfer = actor?.permissions.includes('*')
+      || actor?.permissions.includes('rd-procurement:review');
+    const canReadAllProcurementTasks = actor?.permissions.includes('*')
+      || actor?.permissions.includes('page:proc-cockpit')
+      || actor?.permissions.includes('page:proc-materials');
+    const canReadOwnProcurementTasks = actor?.permissions.includes('page:proc-my-workspace');
+    if (query.rdLink === 'true') {
+      // 待研发审核仅允许原提交人或研发审核人通过研发任务关联查询读取。
+      if (!canReviewRdTransfer) {
+        const actorId = actor?.id || '__missing_actor__';
+        where.AND = [{ OR: [{ requesterUserId: actorId }, { rdContactUserId: actorId }] }];
+      }
+      if (requestedStatuses.length > 0) where.status = { in: requestedStatuses };
+    } else {
+      if (!canReadAllProcurementTasks && !canReadOwnProcurementTasks) {
+        throw new ForbiddenException('你没有查看采购任务列表的权限');
+      }
+      if (!canReadAllProcurementTasks) {
+        const actorId = actor?.id || '__missing_actor__';
+        const actorName = actor?.name?.trim() || '__missing_actor_name__';
+        where.AND = [
+          ...((Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []) as Prisma.ProcTaskWhereInput[]),
+          {
+            OR: [
+              { buyerUserId: actorId },
+              // 兼容历史数据：早期任务只保存了采购人姓名。新任务始终按账号 ID 归属。
+              { buyerUserId: null, buyer: actorName },
+            ],
+          },
+        ];
+      }
+      // 采购驾驶舱、采购工作台及采购系统树均不得看到尚未通过研发审核的申请。
+      const visibleStatuses = requestedStatuses.filter((status) => status !== 'pending_rd_review');
+      where.status = requestedStatuses.length > 0
+        ? { in: visibleStatuses.length > 0 ? visibleStatuses : ['__hidden_status__'] }
+        : { not: 'pending_rd_review' };
+    }
+    if (query.activeOnly === 'true') {
+      const excluded = new Set<string>(PROC_TERMINAL_STATUSES);
+      if (query.rdLink !== 'true') excluded.add('pending_rd_review');
+      where.AND = [
+        ...((Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []) as Prisma.ProcTaskWhereInput[]),
+        { status: { notIn: [...excluded] } },
+      ];
+    }
     if (query.keyword?.trim()) {
       const kw = query.keyword.trim();
       where.OR = [
@@ -352,7 +423,7 @@ export class ProcurementService {
     };
   }
 
-  async getTask(id: string) {
+  async getTask(id: string, actor?: ProcActor) {
     const task = await this.prisma.procTask.findUnique({
       where: { id },
       include: {
@@ -362,6 +433,19 @@ export class ProcurementService {
       },
     });
     if (!task) throw new NotFoundException('采购任务不存在');
+    const canReadAll = actor?.permissions.includes('*')
+      || actor?.permissions.includes('page:proc-cockpit')
+      || actor?.permissions.includes('page:proc-materials');
+    const canReadOwn = actor?.permissions.includes('page:proc-my-workspace') && (
+      task.buyerUserId === actor?.id
+      || (!task.buyerUserId && Boolean(actor?.name?.trim()) && task.buyer.trim() === actor?.name.trim())
+    );
+    const canReadRdReview = task.status === 'pending_rd_review' && (
+      actor?.permissions.includes('rd-procurement:review')
+      || task.requesterUserId === actor?.id
+      || task.rdContactUserId === actor?.id
+    );
+    if (!canReadAll && !canReadOwn && !canReadRdReview) throw new NotFoundException('采购任务不存在');
     const requesterDepartments = await this.getRequesterDepartmentMap([task]);
     return {
       ...this.serializeTask(
@@ -378,10 +462,86 @@ export class ProcurementService {
     return this.insertTask(dto, actor, { source: 'self', status: 'pending_inquiry' });
   }
 
-  /** 研发侧「转采购」：落到待处理，由采购确认后才进入询价/直购分支。 */
+  private async notifyRdAdminsOfTransferReviewById(id: string): Promise<void> {
+    const task = await this.prisma.procTask.findUnique({ where: { id } });
+    if (task) await this.notifyRdAdminsOfTransferReview(task);
+  }
+
+  /** 提交后只通知具备独立“研发转采购审核”权限的启用账号。 */
+  private async notifyRdAdminsOfTransferReview(task: ProcReviewNoticeTask): Promise<void> {
+    try {
+      const reviewers = await this.prisma.user.findMany({
+        where: { status: 'ACTIVE' },
+        select: { id: true, name: true, role: { select: { permissions: true } } },
+      });
+      const recipients = reviewers.filter((user) => {
+        const permissions = Array.isArray(user.role?.permissions)
+          ? (user.role.permissions as unknown[]).filter((item): item is string => typeof item === 'string')
+          : [];
+        return permissions.includes('*') || permissions.includes('rd-procurement:review');
+      });
+      const body = JSON.stringify({
+        type: 'review_request',
+        review_type: 'procurement_transfer',
+        task_id: task.id,
+        task_title: task.rdTaskTitle || task.materialName,
+        rd_task_id: task.rdTaskId,
+        procurement_code: task.code,
+        material_name: task.materialName,
+        specification: task.spec || null,
+        quantity: num(task.quantity),
+        unit: task.unit || null,
+        procurement_method_label: task.method === 'direct' ? '电商直购' : '询价采购',
+        submitter_name: task.requester || '',
+        submitter_user_id: task.requesterUserId || '',
+        rd_contact: task.rdContact || null,
+        note: task.requesterDept ? `提出部门：${task.requesterDept}` : '',
+      });
+      for (const reviewer of recipients) {
+        try {
+          await this.rdService.createMessage({
+            source: 'procurement',
+            sender: { id: null, name: '系统通知', role: 'system' },
+            recipient_id: reviewer.id,
+            recipient_name: reviewer.name,
+            subject: `[待审核·转采购] 「${task.rdTaskTitle || task.materialName}」申请转采购`,
+            body,
+            meta: { kind: 'rd_procurement_review', task_id: task.id },
+          });
+        } catch (error) {
+          new Logger(ProcurementService.name).warn(
+            `研发转采购待审通知发送失败（${reviewer.name}）: ${(error as Error).message}`,
+          );
+        }
+      }
+    } catch (error) {
+      new Logger(ProcurementService.name).warn(
+        `研发转采购审核通知发送失败（${task.code}）: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /** 研发侧「转采购」：先进入研发管理员审核，通过后才进入采购侧。 */
   async transferFromRd(dto: TransferFromRdDto, actor: ProcActor) {
     const rdTaskId = dto.rdTaskId.trim();
+    const rdTask = await this.rdService.requireProcurementTransferAccess(rdTaskId, {
+      userId: actor.id,
+      userName: actor.name,
+      permissions: actor.permissions,
+    });
     const requesterDept = await this.resolveRequesterDepartment(actor.id, dto.requesterDept);
+    const rdContact = await this.resolveRdContact(dto.rdContactUserId, dto.rdContact);
+    const rdContactUserId = rdContact?.id;
+    const rdContactName = rdContact?.name;
+    if (
+      rdContactUserId
+      && !rdTask.participantUserIds.includes(rdContactUserId)
+      && (!rdContactName || !rdTask.participantNames.some(
+        (name) => procurementPersonNameKey(name) === procurementPersonNameKey(rdContactName),
+      ))
+    ) {
+      throw new BadRequestException('研发对接人必须是该研发任务的主责人或协作人');
+    }
     const existing = await this.prisma.procTask.findUnique({
       where: { rdTaskId },
       include: PROC_TASK_VIEW_INCLUDE,
@@ -405,13 +565,16 @@ export class ProcurementService {
           needSample: dto.needSample ?? false,
           needDate: parseDay(dto.needDate),
           deadline: parseDay(dto.deadline),
-          rdTaskTitle: dto.rdTaskTitle ?? existing.rdTaskTitle,
-          rdContact: dto.rdContact ?? existing.rdContact,
+          rdTaskTitle: rdTask.title,
+          rdContact: rdContactName ?? existing.rdContact,
+          rdContactUserId: rdContactUserId ?? existing.rdContactUserId,
           requester: actor.name,
           requesterUserId: actor.id,
           requesterDept,
           consumableNote: dto.consumableNote ?? existing.consumableNote,
-          status: 'pending_confirm',
+          status: 'pending_rd_review',
+          buyer: '',
+          buyerUserId: null,
           cancelReason: null,
           ...(dto.attachments?.length
             ? { attachments: { create: dto.attachments.map((a) => this.attachmentData(a, actor)) } }
@@ -419,9 +582,9 @@ export class ProcurementService {
           logs: {
             create: {
               kind: 'action',
-              text: '研发修改后重新提交转采购，待采购重新审核',
+              text: '研发修改后重新提交转采购，待研发管理员审核',
               fromStatus: 'cancelled',
-              toStatus: 'pending_confirm',
+              toStatus: 'pending_rd_review',
               actor: actor.name,
               actorUserId: actor.id,
             },
@@ -429,6 +592,7 @@ export class ProcurementService {
         },
         include: PROC_TASK_VIEW_INCLUDE,
       });
+      await this.notifyRdAdminsOfTransferReview(updated);
       return { ...this.serializeTask(updated), alreadyTransferred: false };
     }
     if (!dto.attachments?.length) {
@@ -436,13 +600,16 @@ export class ProcurementService {
       throw new BadRequestException('转采购需至少上传 1 个附件');
     }
     try {
-      return await this.insertTask(dto, actor, {
+      const created = await this.insertTask(dto, actor, {
         source: 'rd',
-        status: 'pending_confirm',
+        status: 'pending_rd_review',
         rdTaskId,
-        rdTaskTitle: dto.rdTaskTitle,
-        rdContact: dto.rdContact,
+        rdTaskTitle: rdTask.title,
+        rdContact: rdContactName,
+        rdContactUserId,
       });
+      await this.notifyRdAdminsOfTransferReviewById(created.id);
+      return created;
     } catch (error) {
       // 数据库唯一约束兜住并发双击/网络重试；若另一请求已成功，返回同一采购任务。
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -580,6 +747,7 @@ export class ProcurementService {
       rdTaskId?: string;
       rdTaskTitle?: string;
       rdContact?: string;
+      rdContactUserId?: string;
     },
   ) {
     for (const attachment of dto.attachments ?? []) {
@@ -594,10 +762,14 @@ export class ProcurementService {
     const code = await this.nextTaskCode();
     const method = dto.method ?? 'inquiry';
     const requesterDept = await this.resolveRequesterDepartment(actor.id, dto.requesterDept);
-    const requestedBuyer = dto.buyer?.trim();
-    const automaticBuyer = requestedBuyer ? null : await this.pickAutomaticBuyer();
-    const buyer = requestedBuyer || automaticBuyer?.name || '';
-    const buyerUserId = dto.buyerUserId ?? automaticBuyer?.id ?? null;
+    const awaitsRdReview = extra.source === 'rd' && extra.status === 'pending_rd_review';
+    const requestedBuyer = awaitsRdReview ? '' : dto.buyer?.trim();
+    const automaticBuyer = awaitsRdReview || requestedBuyer ? null : await this.pickAutomaticBuyer();
+    const resolvedBuyer = requestedBuyer
+      ? await this.resolveAssignableBuyer(dto.buyerUserId, requestedBuyer)
+      : automaticBuyer;
+    const buyer = resolvedBuyer?.name || '';
+    const buyerUserId = resolvedBuyer?.id ?? null;
     const task = await this.prisma.procTask.create({
       data: {
         code,
@@ -621,6 +793,7 @@ export class ProcurementService {
         rdTaskId: extra.rdTaskId ?? null,
         rdTaskTitle: extra.rdTaskTitle ?? null,
         rdContact: extra.rdContact ?? null,
+        rdContactUserId: extra.rdContactUserId ?? null,
         requester: actor.name,
         requesterUserId: actor.id,
         requesterDept,
@@ -632,7 +805,7 @@ export class ProcurementService {
             kind: 'system',
             text:
               extra.source === 'rd'
-                ? `由研发任务「${extra.rdTaskTitle ?? extra.rdTaskId ?? '-'}」流转生成，待采购确认${automaticBuyer ? `；按当前负载自动分配给 ${automaticBuyer.name}` : ''}`
+                ? `由研发任务「${extra.rdTaskTitle ?? extra.rdTaskId ?? '-'}」提交转采购，待研发管理员审核`
                 : `采购自建任务${automaticBuyer ? `；按当前负载自动分配给 ${automaticBuyer.name}` : ''}`,
             toStatus: extra.status,
             actor: actor.name,
@@ -657,6 +830,36 @@ export class ProcurementService {
     };
   }
 
+  /** 客户端只提供提示；账号必须由后端校验，防止伪造 user id 把通知投递给无关人员。 */
+  private async resolveRdContact(
+    userId?: string,
+    contactName?: string,
+  ): Promise<{ id: string; name: string } | undefined> {
+    const cleanId = userId?.trim();
+    const cleanName = contactName?.trim();
+    if (cleanId) {
+      const user = await this.prisma.user.findFirst({
+        where: { id: cleanId, status: 'ACTIVE' },
+        select: { id: true, name: true },
+      });
+      if (!user) throw new BadRequestException('研发对接人账号不存在、未激活或已停用');
+      if (cleanName && procurementPersonNameKey(user.name) !== procurementPersonNameKey(cleanName)) {
+        throw new BadRequestException('研发对接人与账号不匹配，请重新选择');
+      }
+      return user;
+    }
+    if (!cleanName) return undefined;
+    const activeUsers = await this.prisma.user.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, name: true },
+    });
+    const contactKey = procurementPersonNameKey(cleanName);
+    const matches = activeUsers.filter((user) => procurementPersonNameKey(user.name) === contactKey);
+    if (matches.length === 0) throw new BadRequestException('研发对接人账号不存在、未激活或已停用');
+    if (matches.length > 1) throw new BadRequestException('存在同名研发对接人，请从人员列表重新选择');
+    return matches[0];
+  }
+
   /** 任务编号 PR-YYYYMMDD-NNN，按天累计。 */
   private async nextTaskCode() {
     const today = new Date();
@@ -672,7 +875,10 @@ export class ProcurementService {
   }
 
   async updateTask(id: string, dto: UpdateProcTaskDto, actor: ProcActor) {
-    await this.requireTask(id);
+    const current = await this.requireTask(id);
+    if (current.status === 'pending_rd_review') {
+      throw new BadRequestException('该申请尚待研发管理员审核，采购侧不能修改任务');
+    }
     const data: Prisma.ProcTaskUpdateInput = {};
     if (dto.quantity !== undefined) data.quantity = new Prisma.Decimal(dto.quantity);
     if (dto.priority !== undefined) data.priority = dto.priority;
@@ -705,7 +911,10 @@ export class ProcurementService {
     dto: SetProcTaskCriticalMaterialsDto,
     actor: ProcActor,
   ) {
-    await this.requireTask(id);
+    const current = await this.requireTask(id);
+    if (current.status === 'pending_rd_review') {
+      throw new BadRequestException('该申请尚待研发管理员审核，采购侧不能配置重点物料');
+    }
     const items = dto.items.map((item) => ({
       materialId: item.materialId.trim(),
       leadTimeDays: item.leadTimeDays ?? null,
@@ -775,12 +984,187 @@ export class ProcurementService {
       throw new BadRequestException('只有「待处理」的任务需要确认');
     }
     const next: ProcStatus = task.method === 'direct' ? 'pending_purchase' : 'pending_inquiry';
-    return this.applyTransition(id, next, actor, '采购已确认接收');
+    const updated = await this.applyTransition(id, next, actor, '采购已确认接收');
+    if (task.source === 'rd') {
+      await this.notifyProcReviewResult(task, actor, 'approved', next);
+    }
+    return updated;
+  }
+
+  /** 研发管理员通过前置审核：此刻才给采购部门成员分配任务并进入采购待处理。 */
+  async approveRdTransfer(id: string, actor: ProcActor) {
+    const task = await this.requireTask(id);
+    if (task.source !== 'rd' || task.status !== 'pending_rd_review') {
+      throw new BadRequestException('仅「待研发审核」的转采购申请可审核通过');
+    }
+    const buyer = await this.pickAutomaticBuyer();
+    if (!buyer) {
+      throw new BadRequestException('采购部门暂无同时具备采购个人工作台权限的在职人员，请先配置人员与角色权限');
+    }
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.procTask.updateMany({
+        where: { id, source: 'rd', status: 'pending_rd_review' },
+        data: {
+          status: 'pending_confirm',
+          buyer: buyer.name,
+          buyerUserId: buyer.id,
+        },
+      });
+      if (claimed.count !== 1) throw new ConflictException('该转采购申请已被其他审核人处理，请刷新后查看');
+      await tx.procTaskLog.create({
+        data: {
+          taskId: id,
+          kind: 'action',
+          text: `研发管理员审核通过，按当前负载分配给采购负责人 ${buyer.name}`,
+          fromStatus: 'pending_rd_review',
+          toStatus: 'pending_confirm',
+          actor: actor.name,
+          actorUserId: actor.id,
+        },
+      });
+      return tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
+    });
+    await this.markRdTransferReviewMessagesHandled(id).catch((error) =>
+      new Logger(ProcurementService.name).warn(`转采购待审消息置为已处理失败（${task.code}）: ${(error as Error).message}`),
+    );
+    await this.notifyRdTransferReviewResult(task, actor, 'approved', '', buyer.name).catch((error) =>
+      new Logger(ProcurementService.name).warn(`转采购通过结果通知失败（${task.code}）: ${(error as Error).message}`),
+    );
+    await this.notifyBuyerOfRdTransferAssignment(task, buyer, actor).catch((error) =>
+      new Logger(ProcurementService.name).warn(`转采购分配通知失败（${task.code}）: ${(error as Error).message}`),
+    );
+    return this.serializeTask(updated);
+  }
+
+  /** 研发管理员打回前置审核：删除本次流转，原研发任务可修改后再次提交。 */
+  async rejectRdTransfer(id: string, reason: string, actor: ProcActor) {
+    const trimmed = reason.trim();
+    if (!trimmed) throw new BadRequestException('打回必须填写理由');
+    const task = await this.requireTask(id);
+    if (task.source !== 'rd' || task.status !== 'pending_rd_review') {
+      throw new BadRequestException('仅「待研发审核」的转采购申请可打回');
+    }
+    const deleted = await this.prisma.procTask.deleteMany({
+      where: { id, source: 'rd', status: 'pending_rd_review' },
+    });
+    if (deleted.count !== 1) throw new ConflictException('该转采购申请已被其他审核人处理，请刷新后查看');
+    await this.markRdTransferReviewMessagesHandled(id).catch((error) =>
+      new Logger(ProcurementService.name).warn(`转采购待审消息置为已处理失败（${task.code}）: ${(error as Error).message}`),
+    );
+    await this.notifyRdTransferReviewResult(task, actor, 'rejected', trimmed).catch((error) =>
+      new Logger(ProcurementService.name).warn(`转采购打回结果通知失败（${task.code}）: ${(error as Error).message}`),
+    );
+    return { ok: true, deletedId: id };
+  }
+
+  private async markRdTransferReviewMessagesHandled(procTaskId: string) {
+    await this.prisma.rdMessage.updateMany({
+      where: { type: 'review_request', taskId: procTaskId, handled: false },
+      data: { handled: true, read: true },
+    });
+  }
+
+  private async notifyRdTransferReviewResult(
+    task: ProcReviewNoticeTask,
+    actor: ProcActor,
+    outcome: 'approved' | 'rejected',
+    reason = '',
+    buyerName = '',
+  ) {
+    const relatedRecipientIds = new Set(
+      [task.requesterUserId, task.rdContactUserId].filter((id): id is string => Boolean(id)),
+    );
+    const directory = await this.prisma.user.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, name: true, role: { select: { permissions: true } } },
+    });
+    const users = directory.filter((user) => {
+      const permissions = Array.isArray(user.role?.permissions)
+        ? (user.role.permissions as unknown[]).filter((item): item is string => typeof item === 'string')
+        : [];
+      return relatedRecipientIds.has(user.id) || permissions.includes('*');
+    });
+    const approved = outcome === 'approved';
+    for (const recipient of users) {
+      try {
+        await this.rdService.createMessage({
+          source: 'procurement',
+          sender: { id: actor.id, name: actor.name, role: '研发管理员' },
+          recipient_id: recipient.id,
+          recipient_name: recipient.name,
+          subject: approved
+            ? `[审核结果·转采购] 「${task.rdTaskTitle || task.materialName}」已通过研发审核`
+            : `[审核结果·转采购] 「${task.rdTaskTitle || task.materialName}」被打回`,
+          body: JSON.stringify({
+            type: 'review_result',
+            review_type: 'procurement_transfer',
+            review_stage: 'rd_gate',
+            result: outcome,
+            task_id: task.rdTaskId || task.id,
+            rd_task_id: task.rdTaskId,
+            procurement_task_id: task.id,
+            procurement_code: task.code,
+            task_title: task.rdTaskTitle || task.materialName,
+            material_name: task.materialName,
+            specification: task.spec || null,
+            quantity: num(task.quantity),
+            unit: task.unit || null,
+            procurement_method_label: task.method === 'direct' ? '电商直购' : '询价采购',
+            buyer_name: approved ? buyerName : null,
+            reviewer_name: actor.name,
+            reason: reason || null,
+            note: approved
+              ? `已分配给采购负责人 ${buyerName}，等待采购确认接收。`
+              : '请按打回原因修改后重新转采购。',
+          }),
+        });
+      } catch (error) {
+        new Logger(ProcurementService.name).warn(
+          `转采购前置审核结果通知发送失败（${recipient.name}）: ${(error as Error).message}`,
+        );
+      }
+    }
+  }
+
+  /** 研发前置审核通过后，明确通知实际采购负责人，避免任务只进入工作台却无人知晓。 */
+  private async notifyBuyerOfRdTransferAssignment(
+    task: ProcReviewNoticeTask,
+    buyer: { id: string; name: string },
+    actor: ProcActor,
+  ) {
+    await this.rdService.createMessage({
+      source: 'procurement',
+      sender: { id: actor.id, name: actor.name, role: '研发管理员' },
+      recipient_id: buyer.id,
+      recipient_name: buyer.name,
+      subject: `新采购任务已分配 · ${task.materialName}`,
+      body: JSON.stringify({
+        type: 'procurement_assignment',
+        task_id: task.id,
+        procurement_task_id: task.id,
+        procurement_code: task.code,
+        rd_task_id: task.rdTaskId,
+        rd_task_title: task.rdTaskTitle,
+        material_name: task.materialName,
+        specification: task.spec || null,
+        quantity: num(task.quantity),
+        unit: task.unit || null,
+        procurement_method_label: task.method === 'direct' ? '电商直购' : '询价采购',
+        assigned_by: actor.name,
+        route: `/proc-my-workspace?task=${encodeURIComponent(task.id)}`,
+        action_label: '打开采购任务',
+        next_action: '请在采购个人工作台确认接收并继续处理。',
+      }),
+      meta: { kind: 'procurement_assignment', task_id: task.id },
+    });
   }
 
   /** 通用状态流转：受 PROC_STATUS_TRANSITIONS 约束。 */
   async transitionTask(id: string, dto: TransitionProcTaskDto, actor: ProcActor) {
     const task = await this.requireTask(id);
+    if (task.status === 'pending_rd_review') {
+      throw new BadRequestException('该申请尚待研发管理员审核，不能从采购流程直接推进');
+    }
     const target = dto.status as ProcStatus;
     const allowed = PROC_STATUS_TRANSITIONS[task.status as ProcStatus] ?? [];
     if (!allowed.includes(target)) {
@@ -795,30 +1179,35 @@ export class ProcurementService {
 
   private async applyTransition(id: string, next: ProcStatus, actor: ProcActor, note?: string) {
     const task = await this.prisma.procTask.findUniqueOrThrow({ where: { id } });
-    const updated = await this.prisma.procTask.update({
-      where: { id },
-      data: {
-        status: next,
-        businessDone: next === 'completed' ? true : task.businessDone,
-        logs: {
-          create: {
-            kind: 'system',
-            text: note ?? `状态更新为「${PROC_STATUS_LABELS[next] ?? next}」`,
-            fromStatus: task.status,
-            toStatus: next,
-            actor: actor.name,
-            actorUserId: actor.id,
-          },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.procTask.updateMany({
+        where: { id, status: task.status },
+        data: {
+          status: next,
+          businessDone: next === 'completed' ? true : task.businessDone,
         },
-      },
-      include: PROC_TASK_VIEW_INCLUDE,
+      });
+      if (claimed.count !== 1) throw new ConflictException('任务状态已被其他操作更新，请刷新后重试');
+      await tx.procTaskLog.create({
+        data: {
+          taskId: id,
+          kind: 'system',
+          text: note ?? `状态更新为「${PROC_STATUS_LABELS[next] ?? next}」`,
+          fromStatus: task.status,
+          toStatus: next,
+          actor: actor.name,
+          actorUserId: actor.id,
+        },
+      });
+      return tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
     });
     return this.serializeTask(updated);
   }
 
   /**
-   * 审核驳回研发流转任务：仅限「待处理」的研发来源任务。落为 cancelled + 驳回理由留痕，
-   * 站内通知研发对接人；研发侧修改后可重新转采购（transferFromRd 对 cancelled 任务重激活）。
+   * 审核驳回研发流转任务：仅限「待处理」的研发来源任务。
+   * 采购任务及其采购侧关联数据会级联删除，不在驾驶舱保留；研发源文件仍由研发任务持有。
+   * 删除后通知研发相关人员与超级管理员，研发修改后可重新生成一条采购任务。
    */
   async rejectRdTask(id: string, reason: string, actor: ProcActor) {
     const trimmed = reason.trim();
@@ -827,45 +1216,207 @@ export class ProcurementService {
     if (task.source !== 'rd' || task.status !== 'pending_confirm') {
       throw new BadRequestException('仅「待处理」的研发流转任务可审核驳回');
     }
-    const updated = await this.prisma.procTask.update({
-      where: { id },
-      data: {
-        status: 'cancelled',
-        cancelReason: `审核驳回：${trimmed}`,
-        logs: {
-          create: {
-            kind: 'action',
-            text: `采购审核驳回：${trimmed}`,
-            fromStatus: task.status,
-            toStatus: 'cancelled',
-            actor: actor.name,
-            actorUserId: actor.id,
-          },
-        },
-      },
-      include: PROC_TASK_VIEW_INCLUDE,
+    // 外键均配置了级联删除：采购附件记录、报价快照、采购单关联、重点物料配置和日志一并移除。
+    // OSS 文件不在这里物理删除，因为转采购附件可能复用研发任务的原始文件。
+    const deleted = await this.prisma.procTask.deleteMany({
+      where: { id, source: 'rd', status: 'pending_confirm' },
     });
-    // 站内通知研发对接人/需求提出人（通知失败不影响驳回本身）
-    const recipient = task.rdContact || task.requester;
-    if (recipient) {
+    if (deleted.count !== 1) throw new ConflictException('该任务已被其他审核人处理，请刷新后查看');
+    await this.notifyProcReviewResult(task, actor, 'rejected', 'cancelled', trimmed);
+    return { ok: true, deletedId: id };
+  }
+
+  /**
+   * 转采购审核结果同时通知研发相关人员与全部启用的超级管理员。
+   *
+   * 收件人包含研发对接人、实际转采购人及全部超级管理员，同一账号会自动合并。
+   * 所有人员优先按稳定 user id 投递；仅对存量数据做“姓名唯一匹配”，绝不向同名账号猜测投递。
+   * 每位收件人的跳转入口按其权限单独生成，避免“收到了消息但点击后 403”。
+   */
+  private async notifyProcReviewResult(
+    task: ProcReviewNoticeTask,
+    actor: ProcActor,
+    outcome: 'approved' | 'rejected',
+    nextStatus: ProcStatus,
+    reason?: string,
+  ): Promise<void> {
+    let users: Array<{ id: string; name: string; role: { permissions: Prisma.JsonValue } | null }>;
+    try {
+      users = await this.prisma.user.findMany({
+        where: { status: 'ACTIVE' },
+        select: { id: true, name: true, role: { select: { permissions: true } } },
+      });
+    } catch (error) {
+      new Logger(ProcurementService.name).warn(
+        `转采购审核通知收件人查询失败: ${(error as Error).message}`,
+      );
+      return;
+    }
+    type RecipientReason = 'rd_contact' | 'requester' | 'super_admin';
+    type DirectoryUser = (typeof users)[number];
+    type Recipient = {
+      id: string;
+      name: string;
+      permissions: string[];
+      reasons: Set<RecipientReason>;
+    };
+    const permissionsOf = (user: DirectoryUser): string[] =>
+      Array.isArray(user.role?.permissions)
+        ? (user.role.permissions as unknown[]).filter((item): item is string => typeof item === 'string')
+        : [];
+    const recipients = new Map<string, Recipient>();
+    const addUser = (user: DirectoryUser, reason: RecipientReason) => {
+      const existing = recipients.get(user.id);
+      if (existing) {
+        existing.reasons.add(reason);
+        return;
+      }
+      recipients.set(user.id, {
+        id: user.id,
+        name: user.name,
+        permissions: permissionsOf(user),
+        reasons: new Set([reason]),
+      });
+    };
+
+    const contactName = task.rdContact?.trim() || '';
+    const contactById = task.rdContactUserId
+      ? users.find((user) => user.id === task.rdContactUserId)
+      : undefined;
+    const contactByUniqueName = !task.rdContactUserId && contactName
+      ? users.filter((user) => user.name.trim() === contactName)
+      : [];
+    const contact = contactById ?? (contactByUniqueName.length === 1 ? contactByUniqueName[0] : undefined);
+    if (contact) {
+      addUser(contact, 'rd_contact');
+    } else if (contactName || task.rdContactUserId) {
+      new Logger(ProcurementService.name).warn(
+        `转采购审核通知未投递研发对接人：账号不存在或姓名无法唯一匹配（${contactName || task.rdContactUserId}）`,
+      );
+    }
+
+    const requesterName = task.requester?.trim() || '';
+    const requesterById = task.requesterUserId
+      ? users.find((user) => user.id === task.requesterUserId)
+      : undefined;
+    const requesterByUniqueName = !task.requesterUserId && requesterName
+      ? users.filter((user) => user.name.trim() === requesterName)
+      : [];
+    const requester = requesterById ?? (requesterByUniqueName.length === 1 ? requesterByUniqueName[0] : undefined);
+    if (requester) {
+      addUser(requester, 'requester');
+    } else if (requesterName || task.requesterUserId) {
+      new Logger(ProcurementService.name).warn(
+        `转采购审核通知未投递需求提出人：账号不存在或姓名无法唯一匹配（${requesterName || task.requesterUserId}）`,
+      );
+    }
+
+    for (const user of users) {
+      if (permissionsOf(user).includes('*')) addUser(user, 'super_admin');
+    }
+
+    const approved = outcome === 'approved';
+    const subject = approved
+      ? `转采购审核通过 · ${task.materialName}`
+      : `转采购已打回 · ${task.materialName}`;
+    const commonBody = {
+      type: 'procurement_review_result',
+      result: outcome,
+      task_id: task.rdTaskId ?? task.id,
+      procurement_task_id: task.id,
+      procurement_code: task.code,
+      rd_task_id: task.rdTaskId,
+      rd_task_title: task.rdTaskTitle,
+      material_name: task.materialName,
+      specification: task.spec || null,
+      quantity: num(task.quantity),
+      unit: task.unit || null,
+      procurement_method: task.method,
+      procurement_method_label: task.method === 'direct' ? '电商直购' : '询价采购',
+      requester_name: task.requester,
+      requester_department: task.requesterDept,
+      rd_contact: task.rdContact,
+      reviewer_id: actor.id,
+      reviewer_name: actor.name,
+      reason: reason || null,
+      priority: task.priority,
+      need_date: day(task.needDate),
+      deadline: day(task.deadline),
+      next_status: approved ? nextStatus : null,
+      next_status_label: approved ? (PROC_STATUS_LABELS[nextStatus] ?? nextStatus) : null,
+      task_deleted: !approved,
+    };
+    const recipientReasonLabels: Record<RecipientReason, string> = {
+      rd_contact: '研发对接人',
+      requester: '需求提出人',
+      super_admin: '超级管理员',
+    };
+    const rdRouteOf = (permissions: string[]): string | null => {
+      if (!task.rdTaskId) return null;
+      const encodedId = encodeURIComponent(task.rdTaskId);
+      if (permissions.includes('*')) return `/rd-task/${encodedId}`;
+      if (permissions.includes('page:rd-my-workspace')) return `/rd-my-workspace?task=${encodedId}`;
+      if (
+        permissions.includes('page:rd-task-management')
+        || permissions.includes('page:rd-director-dashboard')
+      ) return `/rd-task/${encodedId}`;
+      return null;
+    };
+
+    // 单个收件人投递失败不影响其他人，也不回滚已完成的审核状态。
+    for (const recipient of recipients.values()) {
+      const canOpenProcurement = recipient.permissions.includes('*')
+        || recipient.permissions.includes('page:proc-cockpit');
+      const route = approved && canOpenProcurement
+        ? `/proc-cockpit?task=${encodeURIComponent(task.id)}`
+        : rdRouteOf(recipient.permissions);
+      const actionLabel = route
+        ? approved && canOpenProcurement
+          ? '查看采购任务'
+          : '查看原研发任务'
+        : null;
+      const nextAction = approved
+        ? canOpenProcurement
+          ? task.method === 'direct'
+            ? '采购任务已进入待购买，可前往采购驾驶舱查看并继续下单。'
+            : '采购任务已进入待询价，可前往采购驾驶舱查看并推进询价。'
+          : '采购已接收该需求，后续采购执行由采购人员推进；你可返回原研发任务查看关联信息。'
+        : '请返回原研发任务，根据打回原因修改资料后重新转采购。';
+      const body = JSON.stringify({
+        ...commonBody,
+        next_action: nextAction,
+        route,
+        action_label: actionLabel,
+        recipient_reason: [...recipient.reasons].map((reasonCode) => recipientReasonLabels[reasonCode]).join('、'),
+      });
       try {
         await this.rdService.createMessage({
           source: 'procurement',
           sender: { id: actor.id, name: actor.name, role: '采购' },
-          recipient_name: recipient,
-          subject: '转采购需求被驳回',
-          body: `你转采购的需求「${task.materialName}」（${task.code}${task.rdTaskTitle ? `，来源研发任务：${task.rdTaskTitle}` : ''}）被采购审核驳回。\n驳回理由：${trimmed}\n请在研发任务里修改后重新转采购。`,
+          recipient_id: recipient.id,
+          recipient_name: recipient.name,
+          subject,
+          body,
+          meta: {
+            kind: 'procurement_review_result',
+            task_id: task.id,
+            outcome,
+            route,
+          },
         });
       } catch (error) {
-        // 同名多人等场景通知可能失败，驳回结果不回滚
-        new Logger(ProcurementService.name).warn(`驳回通知发送失败: ${(error as Error).message}`);
+        new Logger(ProcurementService.name).warn(
+          `转采购审核${approved ? '通过' : '驳回'}通知发送失败（${recipient.name}）: ${(error as Error).message}`,
+        );
       }
     }
-    return this.serializeTask(updated);
   }
 
   async cancelTask(id: string, dto: CancelProcTaskDto, actor: ProcActor) {
     const task = await this.requireTask(id);
+    if (task.status === 'pending_rd_review') {
+      throw new BadRequestException('该申请尚待研发管理员审核，请由研发管理员通过或打回');
+    }
     if (PROC_TERMINAL_STATUSES.includes(task.status as ProcStatus)) {
       throw new BadRequestException('任务已完结，无法取消');
     }
@@ -932,16 +1483,20 @@ export class ProcurementService {
   }
 
   async reassignTask(id: string, dto: ReassignProcTaskDto, actor: ProcActor) {
-    await this.requireTask(id);
+    const task = await this.requireTask(id);
+    if (task.status === 'pending_rd_review') {
+      throw new BadRequestException('该申请尚待研发管理员审核，不能分配采购负责人');
+    }
+    const buyer = await this.resolveAssignableBuyer(dto.buyerUserId, dto.buyer);
     const updated = await this.prisma.procTask.update({
       where: { id },
       data: {
-        buyerUserId: dto.buyerUserId ?? null,
-        buyer: dto.buyer,
+        buyerUserId: buyer?.id ?? null,
+        buyer: buyer?.name ?? '',
         logs: {
           create: {
             kind: 'action',
-            text: `转派采购负责人为 ${dto.buyer}`,
+            text: buyer ? `转派采购负责人为 ${buyer.name}` : '取消采购负责人指派',
             actor: actor.name,
             actorUserId: actor.id,
           },
@@ -965,10 +1520,16 @@ export class ProcurementService {
 
     const tasks = await this.prisma.procTask.findMany({
       where: { id: { in: ids } },
-      select: { id: true, code: true, productId: true },
+      select: { id: true, code: true, productId: true, status: true },
     });
     if (tasks.length !== ids.length) {
       throw new NotFoundException('部分任务不存在或已被删除，请刷新后重试');
+    }
+    const awaitingRdReview = tasks.filter((task) => task.status === 'pending_rd_review');
+    if (awaitingRdReview.length > 0) {
+      throw new BadRequestException(
+        `任务 ${awaitingRdReview.map((task) => task.code).join('、')} 尚待研发管理员审核，不能归入采购系统树`,
+      );
     }
 
     // targetNodeId 为空 = 解除显式归属，退回按物料推导
@@ -1021,6 +1582,7 @@ export class ProcurementService {
   async batchReassign(dto: BatchReassignDto, actor: ProcActor) {
     const ids = Array.from(new Set(dto.taskIds));
     if (ids.length === 0) throw new BadRequestException('请至少选择一个任务');
+    const buyer = await this.resolveAssignableBuyer(dto.buyerUserId, dto.buyer);
     const tasks = await this.prisma.procTask.findMany({
       where: { id: { in: ids } },
       select: { id: true, code: true, status: true },
@@ -1034,17 +1596,23 @@ export class ProcurementService {
         `任务 ${terminal.map((t) => t.code).join('、')} 已完结，不能转派`,
       );
     }
+    const awaitingRdReview = tasks.filter((task) => task.status === 'pending_rd_review');
+    if (awaitingRdReview.length > 0) {
+      throw new BadRequestException(
+        `任务 ${awaitingRdReview.map((task) => task.code).join('、')} 尚待研发管理员审核，不能转派`,
+      );
+    }
     await this.prisma.$transaction(
       ids.map((id) =>
         this.prisma.procTask.update({
           where: { id },
           data: {
-            buyerUserId: dto.buyerUserId ?? null,
-            buyer: dto.buyer,
+            buyerUserId: buyer?.id ?? null,
+            buyer: buyer?.name ?? '',
             logs: {
               create: {
                 kind: 'action',
-                text: `批量转派采购负责人为 ${dto.buyer}`,
+                text: buyer ? `批量转派采购负责人为 ${buyer.name}` : '批量取消采购负责人指派',
                 actor: actor.name,
                 actorUserId: actor.id,
               },
@@ -1058,7 +1626,7 @@ export class ProcurementService {
 
   /** 把全部未指派的进行中任务按当前在制负载均衡分给采购成员。 */
   async autoAssignUnassigned(actor: ProcActor) {
-    const candidates = await this.listBuyerCandidates(false);
+    const candidates = await this.listBuyerCandidates();
     if (candidates.length === 0) {
       throw new BadRequestException('没有可用的采购成员，请先在部门管理中配置采购部门人员');
     }
@@ -1066,7 +1634,7 @@ export class ProcurementService {
       this.prisma.procTask.findMany({
         where: {
           buyer: '',
-          status: { notIn: PROC_TERMINAL_STATUSES },
+          status: { notIn: [...PROC_TERMINAL_STATUSES, 'pending_rd_review'] },
         },
         select: { id: true, code: true },
         orderBy: { createdAt: 'asc' },
@@ -1075,7 +1643,7 @@ export class ProcurementService {
         by: ['buyerUserId'],
         where: {
           buyerUserId: { in: candidates.map((candidate) => candidate.id) },
-          status: { notIn: PROC_TERMINAL_STATUSES },
+          status: { notIn: [...PROC_TERMINAL_STATUSES, 'pending_rd_review'] },
         },
         _count: { _all: true },
       }),
@@ -1116,13 +1684,19 @@ export class ProcurementService {
   }
 
   async deleteTask(id: string) {
-    await this.requireTask(id);
+    const task = await this.requireTask(id);
+    if (task.status === 'pending_rd_review') {
+      throw new BadRequestException('该申请尚待研发管理员审核，请通过审核入口打回');
+    }
     await this.prisma.procTask.delete({ where: { id } });
     return { ok: true };
   }
 
   async addAttachments(id: string, items: ProcAttachmentInputDto[], actor: ProcActor) {
-    await this.requireTask(id);
+    const task = await this.requireTask(id);
+    if (task.status === 'pending_rd_review') {
+      throw new BadRequestException('该申请尚待研发管理员审核，采购侧不能修改附件');
+    }
     await this.prisma.procTaskAttachment.createMany({
       data: items.map((a) => ({ taskId: id, ...this.attachmentData(a, actor) })),
     });
@@ -1143,6 +1717,9 @@ export class ProcurementService {
    */
   async listTaskQuoteBookOptions(taskId: string): Promise<TaskQuoteBookOptionsResult> {
     const task = await this.requireTask(taskId);
+    if (task.status === 'pending_rd_review') {
+      throw new BadRequestException('该申请尚待研发管理员审核，采购侧不能读取报价');
+    }
     const quantity = num(task.quantity);
     const materialId = task.materialId ?? (
       await this.prisma.procMaterial.findFirst({
@@ -1956,7 +2533,7 @@ export class ProcurementService {
         orderBy: [{ parentId: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
       }),
       client.procTask.findMany({
-        ...(productId ? { where: { productId } } : {}),
+        where: { ...(productId ? { productId } : {}), status: { not: 'pending_rd_review' } },
         select: { id: true, productId: true, treeNodeId: true, materialId: true, materialName: true },
       }),
     ]);
@@ -2323,25 +2900,36 @@ export class ProcurementService {
   }
 
   /**
-   * 转派/建单的负责人候选：全部启用用户的 id/name/部门。
-   * 排序：采购成员名录 > 部门含「采购」 > 其余按姓名；名录成员带 inRoster 标记。
-   * 开放度与 GET /auth/avatars 一致（登录即可读全员 id/name），不落敏感字段。
+   * 采购负责人候选按稳定部门编码 PURCHASING 和角色权限共同限定：
+   * eligible 仅返回采购部门内、能打开采购个人工作台的在职账号；department 用于人员统计，
+   * 会保留采购部门内缺权限账号并显式标记，避免“任务分到了人但本人打不开”。
    */
-  async listBuyerCandidates(includeAll = false) {
-    const [users, roster] = await Promise.all([
+  async listBuyerCandidates(scope: 'eligible' | 'all' | 'department' = 'eligible') {
+    const [users, roster, purchasingDepartmentName] = await Promise.all([
       this.prisma.user.findMany({
-        where: { status: { not: 'DISABLED' } },
-        select: { id: true, name: true, department: true },
+        where: { status: 'ACTIVE' },
+        select: { id: true, name: true, department: true, role: { select: { permissions: true } } },
         orderBy: { name: 'asc' },
       }),
       this.readBuyerRoster(),
+      this.getPurchasingDepartmentName(),
     ]);
     const rosterSet = new Set(roster);
-    const isProc = (d: string | null) => Boolean(d && d.includes('采购'));
+    const isProc = (department: string | null) => department?.trim() === purchasingDepartmentName;
+    const canReceiveTasks = (user: (typeof users)[number]) => {
+      const permissions = Array.isArray(user.role?.permissions)
+        ? (user.role.permissions as unknown[]).filter((item): item is string => typeof item === 'string')
+        : [];
+      return permissions.includes('*') || permissions.includes('page:proc-my-workspace');
+    };
     return users
-      .filter((user) => includeAll || rosterSet.has(user.id) || isProc(user.department))
+      .filter((user) =>
+        scope === 'all'
+        || (isProc(user.department) && (scope === 'department' || canReceiveTasks(user))),
+      )
       .sort(
         (a, b) =>
+          Number(canReceiveTasks(b)) - Number(canReceiveTasks(a)) ||
           Number(rosterSet.has(b.id)) - Number(rosterSet.has(a.id)) ||
           Number(isProc(b.department)) - Number(isProc(a.department)),
       )
@@ -2350,18 +2938,33 @@ export class ProcurementService {
         name: u.name,
         department: u.department ?? undefined,
         inRoster: rosterSet.has(u.id) || isProc(u.department),
+        canReceiveTasks: canReceiveTasks(u),
       }));
   }
 
+  /** 服务端最终确认负责人，不能依赖前端下拉框或姓名文本。空姓名表示取消指派。 */
+  private async resolveAssignableBuyer(userId?: string, buyerName?: string) {
+    const name = buyerName?.trim() || '';
+    if (!name && !userId) return null;
+    const candidates = await this.listBuyerCandidates('eligible');
+    const byId = userId ? candidates.find((candidate) => candidate.id === userId) : undefined;
+    const byName = !userId ? candidates.filter((candidate) => candidate.name.trim() === name) : [];
+    const buyer = byId ?? (byName.length === 1 ? byName[0] : undefined);
+    if (!buyer || (name && buyer.name.trim() !== name)) {
+      throw new BadRequestException('采购负责人必须是采购部门内、在职且具备采购个人工作台权限的唯一账号');
+    }
+    return buyer;
+  }
+
   /** 新任务默认分配给当前在制任务最少的采购成员。 */
-  private async pickAutomaticBuyer() {
-    const candidates = await this.listBuyerCandidates(false);
+  private async pickAutomaticBuyer(scope: 'eligible' | 'department' = 'eligible') {
+    const candidates = await this.listBuyerCandidates(scope);
     if (candidates.length === 0) return null;
     const grouped = await this.prisma.procTask.groupBy({
       by: ['buyerUserId'],
       where: {
         buyerUserId: { in: candidates.map((candidate) => candidate.id) },
-        status: { notIn: PROC_TERMINAL_STATUSES },
+        status: { notIn: [...PROC_TERMINAL_STATUSES, 'pending_rd_review'] },
       },
       _count: { _all: true },
     });
@@ -2403,6 +3006,14 @@ export class ProcurementService {
     return (await this.readBuyerRosterEntries()).map((e) => e.userId);
   }
 
+  private async getPurchasingDepartmentName(): Promise<string> {
+    const department = await this.prisma.department.findUnique({
+      where: { code: 'PURCHASING' },
+      select: { name: true },
+    });
+    return department?.name.trim() || '采购部';
+  }
+
   private async writeBuyerRosterEntries(entries: Array<{ userId: string; note?: string }>) {
     const seen = new Set<string>();
     const unique = entries.filter((e) => (seen.has(e.userId) ? false : (seen.add(e.userId), true)));
@@ -2415,46 +3026,45 @@ export class ProcurementService {
 
   /** 名录成员（实时回填姓名/部门；已禁用用户标记出来供清理）。 */
   async getBuyerRoster() {
-    const entries = await this.readBuyerRosterEntries();
+    const [entries, purchasingDepartmentName] = await Promise.all([
+      this.readBuyerRosterEntries(),
+      this.getPurchasingDepartmentName(),
+    ]);
     const procurementUsers = await this.prisma.user.findMany({
       where: {
-        status: { not: 'DISABLED' },
-        department: { contains: '采购', mode: 'insensitive' },
+        status: 'ACTIVE',
+        department: purchasingDepartmentName,
       },
-      select: { id: true, name: true, department: true, status: true },
+      select: { id: true, name: true, department: true, status: true, role: { select: { permissions: true } } },
       orderBy: { name: 'asc' },
     });
-    const procurementIds = new Set(procurementUsers.map((user) => user.id));
-    const effectiveEntries = [
-      ...entries,
-      ...procurementUsers
-        .filter((user) => !entries.some((entry) => entry.userId === user.id))
-        .map((user) => ({ userId: user.id })),
-    ];
-    if (effectiveEntries.length === 0) return { members: [] };
-    const users = await this.prisma.user.findMany({
-      where: { id: { in: effectiveEntries.map((e) => e.userId) } },
-      select: { id: true, name: true, department: true, status: true },
-    });
-    const byId = new Map(users.map((u) => [u.id, u]));
+    const notes = new Map(entries.map((entry) => [entry.userId, entry.note]));
     return {
-      members: effectiveEntries
-        .map((e) => ({ entry: e, user: byId.get(e.userId) }))
-        .filter((x): x is { entry: { userId: string; note?: string }; user: NonNullable<ReturnType<typeof byId.get>> } => Boolean(x.user))
-        .map(({ entry, user }) => ({
+      members: procurementUsers.map((user) => {
+        const permissions = Array.isArray(user.role?.permissions)
+          ? (user.role.permissions as unknown[]).filter((item): item is string => typeof item === 'string')
+          : [];
+        return {
           id: user.id,
           name: user.name,
           department: user.department ?? undefined,
-          note: entry.note,
-          disabled: user.status === 'DISABLED',
-          managedByDepartment: procurementIds.has(user.id),
-        })),
+          note: notes.get(user.id),
+          disabled: false,
+          managedByDepartment: true,
+          canReceiveTasks: permissions.includes('*') || permissions.includes('page:proc-my-workspace'),
+        };
+      }),
     };
   }
 
   async addBuyerRosterMember(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
-    if (!user) throw new NotFoundException('用户不存在');
+    const [user, purchasingDepartmentName] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, status: true, department: true } }),
+      this.getPurchasingDepartmentName(),
+    ]);
+    if (!user || user.status !== 'ACTIVE' || user.department?.trim() !== purchasingDepartmentName) {
+      throw new NotFoundException('仅可维护采购部门内的在职人员');
+    }
     const entries = await this.readBuyerRosterEntries();
     if (!entries.some((e) => e.userId === userId)) {
       entries.push({ userId });
@@ -2468,11 +3078,14 @@ export class ProcurementService {
     const entries = await this.readBuyerRosterEntries();
     let entry = entries.find((e) => e.userId === userId);
     if (!entry) {
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { department: true, status: true },
-      });
-      if (user?.status === 'DISABLED' || !user?.department?.includes('采购')) {
+      const [user, purchasingDepartmentName] = await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { department: true, status: true },
+        }),
+        this.getPurchasingDepartmentName(),
+      ]);
+      if (user?.status !== 'ACTIVE' || user.department?.trim() !== purchasingDepartmentName) {
         throw new NotFoundException('该用户不在采购成员名录中');
       }
       entry = { userId };
@@ -2484,11 +3097,14 @@ export class ProcurementService {
   }
 
   async removeBuyerRosterMember(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { department: true, status: true },
-    });
-    if (user?.status !== 'DISABLED' && user?.department?.includes('采购')) {
+    const [user, purchasingDepartmentName] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { department: true, status: true },
+      }),
+      this.getPurchasingDepartmentName(),
+    ]);
+    if (user?.status === 'ACTIVE' && user.department?.trim() === purchasingDepartmentName) {
       throw new BadRequestException('采购部门在职成员由系统自动维护，请先在部门管理中调整该人员所属部门');
     }
     const entries = await this.readBuyerRosterEntries();
@@ -2502,6 +3118,7 @@ export class ProcurementService {
   async summary() {
     const grouped = await this.prisma.procTask.groupBy({
       by: ['status'],
+      where: { status: { not: 'pending_rd_review' } },
       _count: { _all: true },
     });
     const byStatus: Record<string, number> = {};
@@ -2510,7 +3127,7 @@ export class ProcurementService {
     const today = new Date(new Date().toISOString().slice(0, 10));
     const overdue = await this.prisma.procTask.count({
       where: {
-        status: { notIn: PROC_TERMINAL_STATUSES },
+        status: { notIn: [...PROC_TERMINAL_STATUSES, 'pending_rd_review'] },
         OR: [{ deadline: { lt: today } }, { deadline: null, needDate: { lt: today } }],
       },
     });
@@ -2597,6 +3214,7 @@ export class ProcurementService {
       rdTaskId: task.rdTaskId ?? undefined,
       rdTaskTitle: task.rdTaskTitle ?? undefined,
       rdContact: task.rdContact ?? undefined,
+      rdContactUserId: task.rdContactUserId ?? undefined,
       requester: task.requester ?? undefined,
       requesterDept:
         currentRequesterDepartment !== undefined

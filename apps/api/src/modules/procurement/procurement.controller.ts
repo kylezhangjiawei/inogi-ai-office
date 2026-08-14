@@ -41,7 +41,7 @@ type AuthedRequest = {
 
 /**
  * 采购管理接口。
- * 普通读操作只需登录并由前端页面权限控制；操作留痕额外由后端强制校验 page:proc-audit-log，
+ * 读操作也在后端按对应采购页面权限守卫，不能只依赖前端路由隐藏；
  * 写操作按 proc-task:* / material:* 操作码校验（全局 RolesGuard 生效，'*' 直通）。
  */
 @Controller('procurement')
@@ -71,23 +71,28 @@ export class ProcurementController {
   // ── 任务 ────────────────────────────────────────────────────────────────────
 
   @Get('tasks')
-  listTasks(@Query() query: ProcTaskListQuery) {
-    return this.service.listTasks(query);
+  @Permissions('page:proc-cockpit', 'page:proc-my-workspace', 'page:proc-materials', 'proc-task:transfer', 'rd-procurement:review')
+  listTasks(@Query() query: ProcTaskListQuery, @Request() req: AuthedRequest) {
+    return this.service.listTasks(query, this.actor(req));
   }
 
   @Get('summary')
+  @Permissions('page:proc-cockpit', 'page:proc-my-workspace')
   summary() {
     return this.service.summary();
   }
 
   /** 负责人候选目录（转派/建单人员选择），读操作与其他采购读接口一致仅需登录。 */
   @Get('buyers')
+  @Permissions('page:proc-cockpit', 'page:proc-my-workspace', 'page:proc-materials', 'proc-task:transfer')
   listBuyers(@Query('scope') scope?: string) {
-    return this.service.listBuyerCandidates(scope === 'all');
+    const normalizedScope = scope === 'all' || scope === 'department' ? scope : 'eligible';
+    return this.service.listBuyerCandidates(normalizedScope);
   }
 
   /** 采购成员名录（读仅需登录；增删与转派同权限，由采购管理者维护）。 */
   @Get('buyer-roster')
+  @Permissions('page:proc-cockpit')
   getBuyerRoster() {
     return this.service.getBuyerRoster();
   }
@@ -119,8 +124,9 @@ export class ProcurementController {
   }
 
   @Get('tasks/:id')
-  getTask(@Param('id') id: string) {
-    return this.service.getTask(id);
+  @Permissions('page:proc-cockpit', 'page:proc-my-workspace', 'page:proc-materials', 'proc-task:transfer', 'rd-procurement:review')
+  getTask(@Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.service.getTask(id, this.actor(req));
   }
 
   @Post('tasks')
@@ -169,6 +175,24 @@ export class ProcurementController {
     return this.service.confirmTask(id, this.actor(req));
   }
 
+  /** 研发管理员前置审核：通过后任务才进入采购待处理并自动分配负责人。 */
+  @Post('tasks/:id/rd-review/approve')
+  @Permissions('rd-procurement:review')
+  approveRdTransfer(@Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.service.approveRdTransfer(id, this.actor(req));
+  }
+
+  /** 研发管理员打回：删除本次采购流转，研发人员修改后可再次提交。 */
+  @Post('tasks/:id/rd-review/reject')
+  @Permissions('rd-procurement:review')
+  rejectRdTransfer(
+    @Param('id') id: string,
+    @Body() dto: CancelProcTaskDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.rejectRdTransfer(id, dto?.reason ?? '', this.actor(req));
+  }
+
   @Post('tasks/:id/transition')
   @Permissions('proc-task:inquiry')
   transition(
@@ -187,7 +211,7 @@ export class ProcurementController {
 
   /** 审核驳回研发流转任务（与「确认提交」同权限：能审核通过就能驳回）。 */
   @Post('tasks/:id/reject')
-  @Permissions('proc-task:inquiry')
+  @Permissions('proc-task:confirm')
   reject(@Param('id') id: string, @Body() dto: CancelProcTaskDto, @Request() req: AuthedRequest) {
     return this.service.rejectRdTask(id, dto?.reason ?? '', this.actor(req));
   }
@@ -246,6 +270,7 @@ export class ProcurementController {
   // ── 报价 ────────────────────────────────────────────────────────────────────
 
   @Get('quotations')
+  @Permissions('page:proc-cockpit', 'page:proc-my-workspace', 'page:proc-materials')
   listQuotations(
     @Query('materialId') materialId?: string,
     @Query('materialName') materialName?: string,
@@ -324,6 +349,7 @@ export class ProcurementController {
   // ── 物料主数据 ───────────────────────────────────────────────────────────────
 
   @Get('materials')
+  @Permissions('page:proc-materials', 'page:proc-cockpit', 'page:proc-my-workspace')
   listMaterials(@Query() query: ProcMaterialListQuery) {
     return this.service.listMaterials(query);
   }
@@ -362,11 +388,13 @@ export class ProcurementController {
 
   /** 采购任务驾驶舱系统树：分类根节点 → 物料名称子节点。 */
   @Get('task-tree')
+  @Permissions('page:proc-cockpit')
   getTaskTree(@Query('productId') productId?: string) {
     return this.service.getProcTaskTree(productId);
   }
 
   @Get('task-tree/core-materials')
+  @Permissions('page:proc-cockpit')
   getCoreMaterials() {
     return this.service.getCoreMaterialConfig();
   }
@@ -401,6 +429,7 @@ export class ProcurementController {
 
   /** BOM 树查询（机型/部件/组件 → 原料）。 */
   @Get('bom')
+  @Permissions('page:proc-materials', 'page:proc-cockpit')
   getBomTree() {
     return this.service.getBomTree();
   }
@@ -456,6 +485,7 @@ export class ProcurementController {
 
   /** 补货建议清单：缺口 = 安全库存 − 库存 − 在途 − 进行中任务，>0 才列出。 */
   @Get('materials/replenish/suggestions')
+  @Permissions('page:proc-materials')
   replenishSuggestions() {
     return this.replenish.suggestions();
   }

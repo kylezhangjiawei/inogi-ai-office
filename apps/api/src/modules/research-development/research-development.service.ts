@@ -130,7 +130,10 @@ function messageCategoryOf(type: string | null | undefined): MessageCategory {
     case 'perf_self_assessment':
       return 'todo';
     case 'review_result':
+    case 'procurement_review_result':
       return 'result';
+    case 'procurement_assignment':
+      return 'todo';
     case 'discussion_mention':
       return 'mention';
     default:
@@ -219,6 +222,13 @@ const CATEGORY = 'research-development';
  * 管理员在「研发任务驾驶舱」下根本找不到它。
  */
 const RD_REVIEW_NOTIFY_PERMISSION = 'rd-task:review-notify';
+const RD_ANY_TASK_TRANSFER_PERMISSIONS = [
+  'rd-task:reassign',
+  'rd-project:direct',
+  'rd-project:review-l1',
+  'rd-project:review-l2',
+  'rd-people:manage',
+] as const;
 const MAX_AUDIT_LOGS = 1000;
 const DEFAULT_BOM_TASK_TYPE = '研发任务';
 // 主产品（便携式制氧机）：其任务分类树存于 rd.taskCategories；其余产品存于 rd.productTaskCategories[productId]。
@@ -295,8 +305,8 @@ type ProductionTaskSyncRecord = {
 // ─── 审核类型「单一事实源」───────────────────────────────────────────────
 // 四种审核类型的标签、通过后目标状态、审计动作集中在此定义，前后端各处只引用、
 // 不再各写各的，避免不同类型的文案/流程互相污染（立项被记成成果、成果被当协作等）。
-type ReviewType = 'proposal' | 'result' | 'collaboration' | 'due_date' | 'abandon' | 'merge';
-const REVIEW_TYPES: ReviewType[] = ['proposal', 'result', 'collaboration', 'due_date', 'abandon', 'merge'];
+type ReviewType = 'proposal' | 'result' | 'collaboration' | 'due_date' | 'abandon' | 'merge' | 'procurement_transfer';
+const REVIEW_TYPES: ReviewType[] = ['proposal', 'result', 'collaboration', 'due_date', 'abandon', 'merge', 'procurement_transfer'];
 /** 中文标签，用于通知标题、留痕、类型 badge 等所有展示处。 */
 const REVIEW_TYPE_LABEL: Record<ReviewType, string> = {
   proposal: '立项',
@@ -305,6 +315,7 @@ const REVIEW_TYPE_LABEL: Record<ReviewType, string> = {
   due_date: '截止日期变更',
   abandon: '放弃任务',
   merge: '任务合并',
+  procurement_transfer: '转采购',
 };
 /**
  * 审核「通过」后的目标状态：成果通过=已完成；放弃通过=封存（随后硬删除，等同删除任务）；其余=进行中。
@@ -318,6 +329,7 @@ const REVIEW_APPROVE_STATUS: Record<ReviewType, 'in_progress' | 'completed' | 'a
   due_date: 'in_progress',
   abandon: 'archived',
   merge: 'in_progress',
+  procurement_transfer: 'in_progress',
 };
 function isKnownReviewType(value: string): value is ReviewType {
   return (REVIEW_TYPES as string[]).includes(value);
@@ -2744,6 +2756,43 @@ export class ResearchDevelopmentService {
       if (found) break;
     }
     return found;
+  }
+
+  /**
+   * 采购模块发起转采购前的任务级授权与主数据校验。
+   * 普通研发成员即使能查看全量驾驶舱，也只能转自己主责/协作的任务；研发管理员可处理任意任务。
+   * 同时返回服务端任务标题，避免客户端伪造任务名称写入采购记录和审核通知。
+   */
+  async requireProcurementTransferAccess(
+    taskId: string,
+    viewer: { userId: string; userName: string; permissions: string[] },
+  ): Promise<{ taskId: string; title: string; participantUserIds: string[]; participantNames: string[] }> {
+    const id = cleanText(taskId);
+    if (!id) throw new BadRequestException('研发任务编号不能为空');
+    const task = await this.findTaskAcrossStores(id);
+    if (!task) throw new NotFoundException('研发任务不存在');
+    if (task.archived === true) throw new BadRequestException('已归档的研发任务不能转采购');
+    const canAccessAny = viewer.permissions.includes('*')
+      || RD_ANY_TASK_TRANSFER_PERMISSIONS.some((permission) => viewer.permissions.includes(permission));
+    if (!canAccessAny && !isTaskParticipant(task, viewer.userId, viewer.userName)) {
+      throw new ForbiddenException('只能将自己主责或协作的研发任务转采购');
+    }
+    const participants = [
+      {
+        userId: cleanUserId(task.primary_owner_user_id ?? task.owner_user_id),
+        name: cleanText(task.primary_owner ?? task.owner),
+      },
+      ...asArray(task.collaborators).filter(isRecord).map((collaborator) => ({
+        userId: cleanUserId(collaborator.user_id),
+        name: cleanText(collaborator.name),
+      })),
+    ];
+    return {
+      taskId: id,
+      title: cleanText(task.title) || id,
+      participantUserIds: Array.from(new Set(participants.map((person) => person.userId).filter(Boolean))),
+      participantNames: Array.from(new Set(participants.map((person) => person.name).filter(Boolean))),
+    };
   }
 
   /**
@@ -9358,6 +9407,23 @@ export class ResearchDevelopmentService {
         const periodLabel = String(parsedBody!['period_label'] ?? '');
         defaultTitle = `绩效自评：${periodLabel}月度绩效已生成，请完成自评`;
         displayMessage = `你的 ${periodLabel} 月度绩效报表已生成，请完成 5 维自评（交付 / 质量 / 协作 / 主动性 / 规范）。`;
+      } else if (msgType === 'procurement_review_result') {
+        const approved = String(parsedBody!['result'] ?? '') === 'approved';
+        const materialName = String(parsedBody!['material_name'] ?? '未命名采购需求');
+        const code = String(parsedBody!['procurement_code'] ?? '');
+        const reviewerName = String(parsedBody!['reviewer_name'] ?? senderName);
+        const reason = String(parsedBody!['reason'] ?? '');
+        defaultTitle = approved
+          ? `转采购审核通过：${materialName}`
+          : `转采购已打回：${materialName}`;
+        displayMessage = approved
+          ? `${reviewerName} 已通过${code ? `采购需求 ${code}` : '该采购需求'}，请继续采购流程。`
+          : `${reviewerName} 已打回${code ? `采购需求 ${code}` : '该采购需求'}并删除采购任务。${reason ? `原因：${reason}` : ''}`;
+      } else if (msgType === 'procurement_assignment') {
+        const materialName = String(parsedBody!['material_name'] ?? '未命名采购需求');
+        const code = String(parsedBody!['procurement_code'] ?? '');
+        defaultTitle = `新采购任务已分配：${materialName}`;
+        displayMessage = `采购任务${code ? ` ${code}` : ''}已分配给你，请确认接收并继续处理。`;
       } else {
         defaultTitle = subject ? `${senderName}：${subject}` : `${senderName} 给你发来一条消息`;
         displayMessage = body.length > 200 ? `${body.slice(0, 200)}…` : body;

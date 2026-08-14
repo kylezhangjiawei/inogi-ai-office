@@ -16,6 +16,7 @@ export const DEFAULT_ROLES: DefaultRole[] = [
       'page:rd-audit-log',
       'rd-task:edit',
       'rd-project:propose',
+      'proc-task:transfer',
     ],
   },
   {
@@ -38,6 +39,8 @@ export const DEFAULT_ROLES: DefaultRole[] = [
       // 新装默认只给管理员：审核通知就该落在真正负责审核的岗位上。
       // 存量环境由迁移 20260813150000 按旧口径平移，可能比这里更宽，之后在界面上收敛。
       'rd-task:review-notify',
+      'proc-task:transfer',
+      'rd-procurement:review',
       'rd-people:manage',
       'rd-approval-flow:manage',
       'rd-audit:clear',

@@ -15,7 +15,7 @@
 // 所有写操作一律经过弹窗，不存在「点一下就变」的路径。
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Input } from "../../components/ui/input";
-import { AlertTriangle, Check, ExternalLink, Loader2, Search, Store } from "lucide-react";
+import { AlertTriangle, ExternalLink, Loader2, Search, Store } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,6 +28,8 @@ import {
 } from "../../components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Textarea } from "../../components/ui/textarea";
+import { Checkbox } from "../../components/ui/checkbox";
+import { ScrollArea } from "../../components/ui/scroll-area";
 import { toast } from "sonner";
 import { useNavigate } from "react-router";
 
@@ -651,19 +653,16 @@ function ActionModal({
 
               {!quoteBookLoading && !quoteBookError && visibleQuoteBookOptions.length > 0 && (
                 <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-                  <button
-                    type="button"
-                    onClick={toggleAllVisibleQuotes}
-                    className="inline-flex items-center gap-2 text-xs font-medium text-slate-600 hover:text-indigo-700"
-                  >
-                    <span className={cn(
-                      "flex h-[18px] w-[18px] items-center justify-center rounded border",
-                      allVisibleSelected ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-300 bg-white text-transparent",
-                    )}>
-                      <Check className="h-3 w-3" />
-                    </span>
+                  <label htmlFor="quote-book-select-visible" className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600 hover:text-indigo-700">
+                    <Checkbox
+                      id="quote-book-select-visible"
+                      checked={allVisibleSelected}
+                      onCheckedChange={toggleAllVisibleQuotes}
+                      aria-label={t(allVisibleSelected ? "取消全选当前结果" : "全选当前结果")}
+                      className="size-[18px] rounded"
+                    />
                     {t(allVisibleSelected ? "取消全选当前结果" : "全选当前结果")}
-                  </button>
+                  </label>
                   <span className="text-xs text-slate-500">
                     {t("已选 {selected} / 当前 {visible} 条", {
                       selected: selectedQuoteIds.length,
@@ -693,7 +692,8 @@ function ActionModal({
               ) : visibleQuoteBookOptions.length === 0 ? (
                 <div className="py-10 text-center text-sm text-slate-400">{t("未找到匹配的物料、供应商或型号")}</div>
               ) : (
-                <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+                <ScrollArea className="h-[320px] pr-3">
+                <div className="space-y-2">
                   {visibleQuoteBookOptions.map((quote) => {
                     const selected = selectedQuoteIds.includes(quote.id);
                     const line = selectedQuoteLineById.get(quote.id);
@@ -708,18 +708,12 @@ function ActionModal({
                           selected ? "border-indigo-300 bg-indigo-50/60" : "border-slate-200 hover:border-indigo-200 hover:bg-slate-50",
                         )}
                       >
-                        <button
-                          type="button"
+                        <Checkbox
                           aria-label={t(selected ? "取消选择该报价" : "选择该报价")}
-                          aria-pressed={selected}
-                          onClick={() => toggleQuote(quote.id)}
-                          className={cn(
-                            "flex h-[18px] w-[18px] items-center justify-center rounded border",
-                            selected ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-300 bg-white text-transparent",
-                          )}
-                        >
-                          <Check className="h-3 w-3" />
-                        </button>
+                          checked={selected}
+                          onCheckedChange={() => toggleQuote(quote.id)}
+                          className="size-[18px] rounded"
+                        />
                         <button type="button" onClick={() => toggleQuote(quote.id)} className="min-w-0 text-left">
                           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                             <b className="truncate text-sm text-slate-800">{quote.materialName}</b>
@@ -776,6 +770,7 @@ function ActionModal({
                     );
                   })}
                 </div>
+                </ScrollArea>
               )}
 
               {selectedQuoteLines.length > 0 && (
@@ -858,7 +853,8 @@ function ActionModal({
                   <Loader2 className="h-4 w-4 animate-spin" />{t("正在读取已确认报价…")}
                 </div>
               ) : (
-                <div className="max-h-[380px] space-y-3 overflow-y-auto pr-1">
+                <ScrollArea className="h-[380px] pr-3">
+                <div className="space-y-3">
                   {purchaseOrders.map((item, index) => (
                     <div key={item.key} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
                       <div className="mb-2 flex items-center justify-between gap-3">
@@ -902,6 +898,7 @@ function ActionModal({
                     </div>
                   ))}
                 </div>
+                </ScrollArea>
               )}
               <p className="text-xs text-slate-400">{t("采购单在畅捷通 T+ 中创建，本系统只登记关联关系。")}</p>
             </div>

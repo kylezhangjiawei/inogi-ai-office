@@ -1297,6 +1297,8 @@ model ProcTask {
   rdTaskId            String?                @unique
   rdTaskTitle         String?
   rdContact           String?
+  /// 研发对接人账号快照；通知按账号投递，姓名只用于展示与兼容存量数据
+  rdContactUserId     String?
   requester           String?
   requesterUserId     String?
   requesterDept       String?
@@ -1327,6 +1329,7 @@ model ProcTask {
   @@index([materialId])
   @@index([treeNodeId])
   @@index([buyerUserId])
+  @@index([rdContactUserId])
   @@index([needDate])
 }
 

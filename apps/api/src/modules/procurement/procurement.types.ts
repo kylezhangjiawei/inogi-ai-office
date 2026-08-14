@@ -2,6 +2,7 @@
  * 采购模块领域类型与状态机。
  *
  * 三条分支（与前端 src/mock/procurement.ts 的状态取值保持一致，前端类型不变）：
+ *  研发流转前置节点：pending_rd_review → pending_confirm；研发管理员通过后才进入采购侧。
  *  1. 电商直购  pending_confirm? → pending_purchase → in_transit → partial_arrival → completed
  *  2. 询价·需样  pending_inquiry → inquiring → pending_sample → testing → priced → in_transit → ...
  *  3. 询价·免样  pending_inquiry → inquiring → priced → in_transit → ...
@@ -16,6 +17,7 @@ export type ProcPriority = 'high' | 'medium' | 'low';
 export type ProcPaymentStatus = 'unpaid' | 'partial' | 'paid';
 
 export type ProcStatus =
+  | 'pending_rd_review'
   | 'pending_confirm'
   | 'pending_inquiry'
   | 'inquiring'
@@ -29,6 +31,7 @@ export type ProcStatus =
   | 'cancelled';
 
 export const PROC_STATUSES: ProcStatus[] = [
+  'pending_rd_review',
   'pending_confirm',
   'pending_inquiry',
   'inquiring',
@@ -43,6 +46,7 @@ export const PROC_STATUSES: ProcStatus[] = [
 ];
 
 export const PROC_STATUS_LABELS: Record<ProcStatus, string> = {
+  pending_rd_review: '待研发审核',
   pending_confirm: '待处理',
   pending_inquiry: '待询价',
   inquiring: '询价中',
@@ -58,6 +62,7 @@ export const PROC_STATUS_LABELS: Record<ProcStatus, string> = {
 
 /** 允许的状态流转。cancelled 由 cancel 接口单独处理，不列入常规迁移表。 */
 export const PROC_STATUS_TRANSITIONS: Record<ProcStatus, ProcStatus[]> = {
+  pending_rd_review: ['pending_confirm'],
   pending_confirm: ['pending_inquiry', 'pending_purchase'],
   pending_inquiry: ['inquiring'],
   inquiring: ['pending_sample', 'priced'],
@@ -100,6 +105,8 @@ export interface ProcTaskListQuery {
   keyword?: string;
   /** 只看未完结（排除 completed/cancelled） */
   activeOnly?: string;
+  /** 研发任务详情查询关联时启用；普通采购列表永不返回待研发审核任务。 */
+  rdLink?: string;
   page?: string;
   pageSize?: string;
 }

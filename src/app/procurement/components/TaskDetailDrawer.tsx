@@ -1,8 +1,22 @@
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
 import { useEffect, useState } from "react";
-import { Input } from "../../components/ui/input";
 import { ChevronDown, ExternalLink, FolderTree, History, Paperclip, Pencil } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "../../components/ui/alert-dialog";
+import { Button } from "../../components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../components/ui/collapsible";
+import { ScrollArea } from "../../components/ui/scroll-area";
+import { Textarea } from "../../components/ui/textarea";
 import { cn } from "../../components/ui/utils";
 import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney, useBuyerDirectory, useProcCan } from "./common";
 import { nextPermissionOf, useProcTaskAction } from "./taskActions";
@@ -41,7 +55,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const meta = PROC_STATUS_META[task.status];
   const flow = task.method === "direct" ? DIRECT_FLOW : INQUIRY_FLOW;
   const curIdx = flow.indexOf(task.status);
-  // 研发流转的待处理任务走「审核」语义：通过=确认提交，驳回须理由并通知研发
+  // 研发流转的待处理任务走「审核」语义：通过=确认提交，驳回须理由并删除采购任务
   const isRdReview = task.source === "rd" && task.status === "pending_confirm";
   const [rejecting, setRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -53,7 +67,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
     try {
       await rejectProcTask(task.id, reason);
       await refreshProcurement();
-      toast.success(t("已驳回并通知研发对接人，研发修改后可重新提交"));
+      toast.success(t("已驳回并删除采购任务，已通知研发对接人与超级管理员"));
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("驳回失败"));
@@ -104,11 +118,11 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
             <div className="flex shrink-0 items-center gap-1.5">
               {/* 归类是整理动作，终态任务也允许移动——历史任务同样需要能归到正确的子系统下 */}
               {(can("proc-task:create") || can("proc-task:reassign")) && (
-                <button type="button" onClick={() => setMoveOpen(true)} title={t('移动到其他类目')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><FolderTree className="h-3.5 w-3.5" />{t('移动归类')}</button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setMoveOpen(true)} title={t('移动到其他类目')} className="h-7 rounded-lg px-2.5 text-xs text-slate-600"><FolderTree className="h-3.5 w-3.5" />{t('移动归类')}</Button>
               )}
               {/* 终态任务只读；状态流转走「下一步」操作卡，这里只改任务信息 */}
               {!["completed", "cancelled"].includes(task.status) && can("proc-task:create") && (
-                <button type="button" onClick={() => setEditOpen(true)} title={t('编辑任务信息')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setEditOpen(true)} title={t('编辑任务信息')} className="h-7 rounded-lg px-2.5 text-xs text-slate-600"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</Button>
               )}
             </div>
           </div>
@@ -131,42 +145,61 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           </div>
         </SheetHeader>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+        <ScrollArea className="min-h-0 flex-1">
+        <div className="space-y-4 px-6 py-4">
           {/* 下一步操作卡：动作码由系统管理配置到角色，无权限者只读。
-              研发流转的待处理任务是「审核」语义：通过（确认提交）或驳回（理由必填，通知研发）。 */}
+              研发流转的待处理任务是「审核」语义：通过（确认提交）或驳回（理由必填，删除采购任务并通知）。 */}
           {meta.next && can(nextPermissionOf(task)) && (
             <div className="rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-violet-50 p-4">
               <div className="text-xs font-semibold text-indigo-500">{t('下一步 · 责任人：')}{task.status === "testing" ? task.rdContact ?? t("研发对接人") : task.buyer}</div>
               <p className="mt-1 text-sm text-slate-700">
                 {isRdReview
-                  ? t('研发流转需求待审核：通过后进入询价流程；驳回将通知研发对接人修改后重新提交。')
+                  ? t('研发流转需求待审核：通过后进入询价流程；驳回将删除采购任务，并通知研发对接人与超级管理员。')
                   : t('当前状态「{status}」，下一步：{next}。', { status: t(meta.label), next: t(meta.next) })}
               </p>
               <div className="mt-3 flex items-center gap-2">
-                <button type="button" disabled={taskAction.busy || rejectBusy} onClick={() => taskAction.runNext(task)} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
+                <Button type="button" disabled={taskAction.busy || rejectBusy} onClick={() => taskAction.runNext(task)} className="material-button-primary rounded-lg px-4 py-2 text-sm disabled:opacity-60">
                   {t(isRdReview ? '审核通过' : meta.next)}{task.method === "direct" && task.status === "pending_purchase" && <ExternalLink className="h-4 w-4" />}
-                </button>
+                </Button>
                 {isRdReview && (
-                  <button type="button" disabled={taskAction.busy || rejectBusy} onClick={() => setRejecting((v) => !v)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-60">
-                    {t('驳回')}
-                  </button>
+                  <AlertDialog open={rejecting} onOpenChange={setRejecting}>
+                    <AlertDialogTrigger asChild>
+                      <Button type="button" variant="outline" disabled={taskAction.busy || rejectBusy} className="rounded-lg border-rose-200 bg-white px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 hover:text-rose-700">
+                        {t('驳回')}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="rounded-2xl border-rose-100 sm:max-w-md">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="text-slate-900">{t('驳回并删除采购任务')}</AlertDialogTitle>
+                        <AlertDialogDescription className="leading-relaxed">
+                          {t('驳回后，该任务会立即从采购驾驶舱移除，并通知研发对接人与超级管理员。研发任务仍可修改后再次转采购。')}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <div>
+                        <label htmlFor="proc-task-reject-reason" className="mb-1.5 block text-sm font-medium text-slate-700">{t('驳回理由（必填）')}</label>
+                        <Textarea
+                          id="proc-task-reject-reason"
+                          autoFocus
+                          value={rejectReason}
+                          onChange={(e) => setRejectReason(e.target.value)}
+                          placeholder={t('请说明需要研发调整的内容')}
+                          className="min-h-24 resize-none rounded-xl border-rose-200 focus-visible:ring-rose-200"
+                        />
+                      </div>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={rejectBusy} className="rounded-lg">{t('取消')}</AlertDialogCancel>
+                        <AlertDialogAction
+                          disabled={rejectBusy || !rejectReason.trim()}
+                          onClick={(event) => { event.preventDefault(); void submitReject(); }}
+                          className="rounded-lg bg-rose-600 text-white hover:bg-rose-700"
+                        >
+                          {rejectBusy ? t('提交中…') : t('确认驳回并删除')}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 )}
               </div>
-              {isRdReview && rejecting && (
-                <div className="mt-2 flex items-center gap-2">
-                  <Input
-                    autoFocus
-                    value={rejectReason}
-                    onChange={(e) => setRejectReason(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") void submitReject(); if (e.key === "Escape") setRejecting(false); }}
-                    placeholder={t('驳回理由（必填，将通知研发对接人）')}
-                    className="h-9 flex-1 rounded-lg border border-rose-200 bg-white px-3 text-sm outline-none focus:border-rose-400"
-                  />
-                  <button type="button" disabled={rejectBusy || !rejectReason.trim()} onClick={() => void submitReject()} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-60">
-                    {rejectBusy ? t('提交中…') : t('确认驳回')}
-                  </button>
-                </div>
-              )}
             </div>
           )}
 
@@ -342,11 +375,12 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           )}
 
           {/* 操作日志 */}
-          <div className="rounded-xl border border-slate-100">
-            <button type="button" onClick={() => setLogsOpen((v) => !v)} className="flex w-full items-center justify-between px-4 py-2.5 text-sm font-semibold text-slate-700">{t('操作日志（{count}）', { count: task.logs.length })}<ChevronDown className={cn("h-4 w-4 text-slate-400 transition-transform", logsOpen && "rotate-180")} /></button>
-            {logsOpen && <ul className="space-y-2 border-t border-slate-100 px-4 py-3">{task.logs.map((l, i) => <li key={i} className="flex gap-3 text-sm"><span className="w-24 shrink-0 text-xs text-slate-400">{l.at}</span><AutoTranslatedText className="text-slate-600" text={l.text} /></li>)}</ul>}
-          </div>
+          <Collapsible open={logsOpen} onOpenChange={setLogsOpen} className="rounded-xl border border-slate-100">
+            <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-2.5 text-sm font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400">{t('操作日志（{count}）', { count: task.logs.length })}<ChevronDown className={cn("size-4 text-slate-400 transition-transform", logsOpen && "rotate-180")} /></CollapsibleTrigger>
+            <CollapsibleContent><ul className="space-y-2 border-t border-slate-100 px-4 py-3">{task.logs.map((l, i) => <li key={i} className="flex gap-3 text-sm"><span className="w-24 shrink-0 text-xs text-slate-400">{l.at}</span><AutoTranslatedText className="text-slate-600" text={l.text} /></li>)}</ul></CollapsibleContent>
+          </Collapsible>
         </div>
+        </ScrollArea>
         <PriceHistoryModal materialName={task.materialName} open={historyOpen} onClose={() => setHistoryOpen(false)} />
         {taskAction.modal}
         {moveOpen && (

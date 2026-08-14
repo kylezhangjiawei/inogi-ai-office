@@ -34,6 +34,11 @@ function getMsgSummary(msg: RdMessage): string {
     if (b.type === "discussion_mention") {
       return `${String(b.actor_name ?? "任务成员")} 在「${String(b.task_title ?? "任务讨论")}」中提到了你`;
     }
+    if (b.type === "procurement_review_result") {
+      const resultLabel = b.result === "approved" ? "✅ 转采购已通过" : "❌ 转采购已打回";
+      const code = b.procurement_code ? ` · ${String(b.procurement_code)}` : "";
+      return `${resultLabel}${code}「${String(b.material_name ?? "采购需求")}」`;
+    }
   } catch {
     // fallthrough
   }

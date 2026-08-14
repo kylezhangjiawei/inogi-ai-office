@@ -7,6 +7,7 @@ export type PaymentStatus = "unpaid" | "partial" | "paid";
 export type ProcSource = "rd" | "self";
 export type BusinessLine = "rd" | "production";
 export type ProcStatus =
+  | "pending_rd_review"
   | "pending_confirm"
   | "pending_inquiry"
   | "inquiring"
@@ -80,6 +81,7 @@ export interface ProcurementTask {
   buyer: string;
   buyerUserId?: string;
   rdContact?: string;
+  rdContactUserId?: string;
   requester?: string;
   requesterDept?: string;
   priority: "high" | "medium" | "low";
@@ -275,8 +277,8 @@ export async function getProcTaskByRdTask(
   signal?: AbortSignal,
 ): Promise<ProcurementTask | null> {
   const data = await request<Paged<ProcurementTask>>(
-    `/tasks?rdTaskId=${encodeURIComponent(rdTaskId)}&pageSize=1`,
-    { signal },
+    `/tasks?rdTaskId=${encodeURIComponent(rdTaskId)}&rdLink=true&pageSize=1`,
+    { signal, cache: "no-store" },
   );
   return data.items[0] ?? null;
 }
@@ -289,6 +291,7 @@ export async function getProcSummary(signal?: AbortSignal): Promise<ProcSummary>
   return request<ProcSummary>("/summary", { signal });
 }
 
+/** 负责人候选：eligible=采购名录及采购部，department=仅采购部，all=全部启用人员。 */
 export async function listProcAuditLogs(
   query: ProcAuditLogQuery,
   signal?: AbortSignal,
@@ -313,13 +316,15 @@ export interface BuyerCandidate {
   department?: string;
   /** 是否在采购成员名录内 */
   inRoster?: boolean;
+  /** 是否具备接收采购任务并打开个人工作台的权限。 */
+  canReceiveTasks?: boolean;
 }
 
 export async function listBuyerCandidates(
   signal?: AbortSignal,
-  includeAll = false,
+  scope: "eligible" | "department" | "all" = "eligible",
 ): Promise<BuyerCandidate[]> {
-  return request<BuyerCandidate[]>(`/buyers${includeAll ? "?scope=all" : ""}`, { signal });
+  return request<BuyerCandidate[]>(`/buyers${scope === "eligible" ? "" : `?scope=${scope}`}`, { signal });
 }
 
 /** 采购成员名录（人员管理里维护；分配任务候选优先显示名录成员）。 */
@@ -332,6 +337,8 @@ export interface BuyerRosterMember {
   disabled?: boolean;
   /** true 表示由采购部门成员关系自动维护，不能在名录里单独移除。 */
   managedByDepartment?: boolean;
+  /** false 时仍在采购人员统计中展示，但系统不会把任务分配给该账号。 */
+  canReceiveTasks?: boolean;
 }
 
 export async function getBuyerRoster(): Promise<{ members: BuyerRosterMember[] }> {
@@ -411,7 +418,7 @@ export async function aiParseProcTask(
 
 /** 研发侧转采购：必须带附件，后端会校验。 */
 export async function transferProcTask(
-  input: CreateProcTaskInput & { rdTaskId: string; rdTaskTitle?: string; rdContact?: string },
+  input: CreateProcTaskInput & { rdTaskId: string; rdTaskTitle?: string; rdContact?: string; rdContactUserId?: string },
 ): Promise<ProcurementTask> {
   return request<ProcurementTask>("/tasks/transfer", {
     method: "POST",
@@ -482,9 +489,22 @@ export async function transitionProcTask(
   });
 }
 
-/** 审核驳回研发流转任务（须填理由；研发对接人会收到站内通知，修改后可重新转采购）。 */
-export async function rejectProcTask(id: string, reason: string): Promise<ProcurementTask> {
+/** 审核驳回研发流转任务：删除采购任务，并通知研发相关人员与超级管理员。 */
+export async function rejectProcTask(id: string, reason: string): Promise<{ ok: true; deletedId: string }> {
   return request(`/tasks/${encodeURIComponent(id)}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+/** 研发管理员通过转采购前置审核；通过后才进入采购待处理并自动分配负责人。 */
+export async function approveRdProcurementTransfer(id: string): Promise<ProcurementTask> {
+  return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/rd-review/approve`, { method: "POST" });
+}
+
+/** 研发管理员打回转采购前置审核；删除本次流转，研发任务可修改后再次提交。 */
+export async function rejectRdProcurementTransfer(id: string, reason: string): Promise<{ ok: true; deletedId: string }> {
+  return request(`/tasks/${encodeURIComponent(id)}/rd-review/reject`, {
     method: "POST",
     body: JSON.stringify({ reason }),
   });
