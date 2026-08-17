@@ -7,6 +7,7 @@ import {
   Coins,
   Download,
   Eye,
+  FolderTree,
   Heart,
   Loader2,
   MessageSquare,
@@ -55,6 +56,7 @@ export type GeneratedImage = {
   thumbnailUrl?: string | null;
   model: string;
   isFavorite: boolean;
+  categoryId?: string | null;
   createdAt: string;
   requestId?: string | null;
   parentImageId?: string | null;
@@ -145,6 +147,58 @@ export type ListResponse = {
   totalPages: number;
   items: GeneratedImage[];
 };
+
+export type ImageCategory = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  description: string;
+  color: string;
+  sortOrder: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  /** 当前用户直接挂在该节点上的作品数（分类目录全局共享，作品按人隔离） */
+  imageCount: number;
+  /** 含所有子孙分类的作品数，与「选中父分类看到的列表」同口径 */
+  totalImageCount: number;
+  /** 层号，根为 1 */
+  depth: number;
+  /** 从根到本节点的名称路径，如「产品图 / 详情页」 */
+  path: string;
+  children: ImageCategory[];
+};
+
+/** 创建 / 更新接口返回的原始记录：不含 listCategories 才会算的树形字段与计数。 */
+export type ImageCategoryRecord = Omit<
+  ImageCategory,
+  "children" | "depth" | "path" | "imageCount" | "totalImageCount"
+>;
+
+export type ImageCategoryListResponse = {
+  /** 嵌套树；根节点在最外层 */
+  items: ImageCategory[];
+  uncategorizedCount: number;
+  totalCount: number;
+};
+
+/** 作品库「未分类」筛选值，与后端 buildCategoryFilter 约定一致。 */
+export const UNCATEGORIZED_FILTER = "uncategorized";
+/** 分类树最大层数，与后端 MAX_CATEGORY_DEPTH 一致。 */
+export const MAX_CATEGORY_DEPTH = 3;
+
+/** 把嵌套树按前序展开成平铺数组，便于渲染缩进列表与做 id 索引。 */
+export function flattenCategoryTree(categories: ImageCategory[]): ImageCategory[] {
+  const flat: ImageCategory[] = [];
+  const walk = (nodes: ImageCategory[]) => {
+    for (const node of nodes) {
+      flat.push(node);
+      walk(node.children ?? []);
+    }
+  };
+  walk(categories);
+  return flat;
+}
 
 export type ImageUsageEntry = {
   id: string;
@@ -370,7 +424,7 @@ export async function apiPromptChat(body: {
 export async function apiList(
   page: number,
   pageSize: number,
-  options: { favorite?: boolean; dateFrom?: string; dateTo?: string; query?: string } = {},
+  options: { favorite?: boolean; dateFrom?: string; dateTo?: string; query?: string; categoryId?: string } = {},
 ): Promise<ListResponse> {
   const search = new URLSearchParams({
     page: String(page),
@@ -381,12 +435,88 @@ export async function apiList(
   if (options.dateTo) search.set("dateTo", options.dateTo);
   const query = options.query?.trim();
   if (query) search.set("query", query);
+  if (options.categoryId) search.set("categoryId", options.categoryId);
 
   const response = await authFetch(`/api/image-generation/images?${search.toString()}`);
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, "图片列表加载失败"));
   }
   return response.json() as Promise<ListResponse>;
+}
+
+// ─── 作品库分类 ─────────────────────────────────────────────────────────────
+
+export async function apiListCategories(): Promise<ImageCategoryListResponse> {
+  const response = await authFetch("/api/image-generation/categories");
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "分类加载失败"));
+  }
+  return response.json() as Promise<ImageCategoryListResponse>;
+}
+
+export async function apiCreateCategory(body: {
+  name: string;
+  parentId?: string | null;
+  description?: string;
+  color?: string;
+}): Promise<ImageCategoryRecord> {
+  const response = await authFetch("/api/image-generation/categories", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "分类创建失败"));
+  }
+  return response.json() as Promise<ImageCategoryRecord>;
+}
+
+export async function apiUpdateCategory(
+  id: string,
+  body: { name?: string; parentId?: string | null; description?: string; color?: string },
+): Promise<ImageCategoryRecord> {
+  const response = await authFetch(`/api/image-generation/categories/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "分类更新失败"));
+  }
+  return response.json() as Promise<ImageCategoryRecord>;
+}
+
+export async function apiDeleteCategory(id: string): Promise<{
+  ok: boolean;
+  detachedImageCount: number;
+  deletedCategoryCount: number;
+  deletedCategoryIds: string[];
+}> {
+  const response = await authFetch(`/api/image-generation/categories/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "分类删除失败"));
+  }
+  return response.json() as Promise<{
+    ok: boolean;
+    detachedImageCount: number;
+    deletedCategoryCount: number;
+    deletedCategoryIds: string[];
+  }>;
+}
+
+export async function apiAssignImageCategory(
+  imageId: string,
+  categoryId: string | null,
+): Promise<{ id: string; categoryId: string | null }> {
+  const response = await authFetch(`/api/image-generation/images/${imageId}/category`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ categoryId }),
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "分类归属更新失败"));
+  }
+  return response.json() as Promise<{ id: string; categoryId: string | null }>;
 }
 
 export async function apiUsage(): Promise<ImageUsageResponse> {
@@ -644,22 +774,49 @@ export function MiniPreview({ imageData, imageUrl }: { imageData?: string; image
   );
 }
 
+/** 作品所属分类的彩色小标签；未归类时显示灰色「未分类」。 */
+export function CategoryChip({ category }: { category?: ImageCategory | null }) {
+  if (!category) {
+    return (
+      <span className="shrink-0 rounded-[6px] border border-border bg-surface-container-low px-2 py-0.5 text-[11px] font-semibold text-slate-400">
+        未分类
+      </span>
+    );
+  }
+  return (
+    <span
+      className="shrink-0 max-w-[9rem] truncate rounded-[6px] border px-2 py-0.5 text-[11px] font-semibold"
+      style={{ borderColor: `${category.color}40`, backgroundColor: `${category.color}14`, color: category.color }}
+      // 徽标只显示末级名称，完整路径放 title，避免深层分类把卡片撑开
+      title={category.path || category.name}
+    >
+      {category.name}
+    </span>
+  );
+}
+
 export function ArtworkCard({
   item,
   index,
   busy,
+  category,
   onPreview,
   onDownload,
   onEdit,
   onFavorite,
+  onAssignCategory,
 }: {
   item: GeneratedImage;
   index: number;
   busy?: boolean;
+  /** 作品所属分类；未传或为 null 时展示「未分类」 */
+  category?: ImageCategory | null;
   onPreview: (item: GeneratedImage) => void;
   onDownload: (item: GeneratedImage) => void;
   onEdit: (item: GeneratedImage) => void;
   onFavorite: (item: GeneratedImage) => void;
+  /** 传入后卡片出现「分类」入口；生成器等无需归类的场景可不传 */
+  onAssignCategory?: (item: GeneratedImage) => void;
 }) {
   const title = item.revisedPrompt || item.prompt;
   const description = `${item.model} · ${formatTime(item.createdAt)}`;
@@ -687,28 +844,42 @@ export function ArtworkCard({
             缓存命中
           </div>
         ) : null}
-        <div className="absolute inset-x-4 bottom-4 grid grid-cols-4 overflow-hidden rounded-[8px] border border-white/60 bg-white/88 text-[11px] font-semibold text-slate-700 opacity-95 shadow-[0_16px_32px_rgba(15,23,42,0.2)] backdrop-blur-xl transition md:translate-y-1 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100 md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100">
-          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onPreview(item)}>
+        <div
+          className={cn(
+            "absolute inset-x-4 bottom-4 grid overflow-hidden rounded-[8px] border border-white/60 bg-white/88 text-[11px] font-semibold text-slate-700 opacity-95 shadow-[0_16px_32px_rgba(15,23,42,0.2)] backdrop-blur-xl transition md:translate-y-1 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100 md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100",
+            onAssignCategory ? "grid-cols-5" : "grid-cols-4",
+          )}
+        >
+          <button className="flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap px-1 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onPreview(item)}>
             <Eye className="h-3.5 w-3.5" />
             预览
           </button>
-          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onDownload(item)}>
+          <button className="flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap px-1 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onDownload(item)}>
             <Download className="h-3.5 w-3.5" />
             下载
           </button>
-          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onEdit(item)}>
+          <button className="flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap px-1 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onEdit(item)}>
             <PencilLine className="h-3.5 w-3.5" />
             修改
           </button>
-          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => onFavorite(item)} disabled={busy}>
+          <button className="flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap px-1 py-2 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => onFavorite(item)} disabled={busy}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Heart className={cn("h-3.5 w-3.5", item.isFavorite ? "fill-rose-500 text-rose-500" : "")} />}
             收藏
           </button>
+          {onAssignCategory ? (
+            <button className="flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap px-1 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onAssignCategory(item)}>
+              <FolderTree className="h-3.5 w-3.5" />
+              分类
+            </button>
+          ) : null}
         </div>
       </div>
       <div className="px-5 py-4">
         <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-5 tracking-tight text-slate-950">{title}</h3>
-        <p className="mt-2 truncate text-xs leading-5 text-slate-500">{description}</p>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <p className="truncate text-xs leading-5 text-slate-500">{description}</p>
+          {onAssignCategory ? <CategoryChip category={category} /> : null}
+        </div>
         <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-[8px] border border-border bg-surface-container-low px-3 py-2 text-[11px] text-slate-500">
           <span className="font-mono font-semibold tabular-nums text-slate-900">{formatImageCost(item)}</span>
           <span className="truncate text-right font-mono tabular-nums">

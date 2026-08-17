@@ -13,8 +13,14 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 
+import { Permissions } from '../auth/decorators/permissions.decorator';
 import { GenerateImageDto } from './dto/generate-image.dto';
 import { EditImageDto } from './dto/edit-image.dto';
+import {
+  AssignImageCategoryDto,
+  CreateImageCategoryDto,
+  UpdateImageCategoryDto,
+} from './dto/image-category.dto';
 import { CreatePromptChatSessionDto, PromptChatDto } from './dto/prompt-chat.dto';
 import { ImageGenerationService } from './image-generation.service';
 
@@ -85,6 +91,7 @@ export class ImageGenerationController {
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
     @Query('query') query?: string,
+    @Query('categoryId') categoryId?: string,
   ) {
     const userId = this.getUserId(req);
     return this.service.listImages(
@@ -95,7 +102,44 @@ export class ImageGenerationController {
       dateFrom,
       dateTo,
       query,
+      categoryId,
     );
+  }
+
+  // ── 作品库分类 ──────────────────────────────────────────────────────────────
+  // 「查」跟随页面权限 page:image-library；增删改各自独立动作码。
+
+  @Get('categories')
+  @Permissions('page:image-library')
+  listCategories(@Req() req: Request) {
+    const userId = this.getUserId(req);
+    return this.service.listCategories(userId);
+  }
+
+  @Post('categories')
+  @Permissions('image-category:create')
+  createCategory(@Req() req: Request, @Body() dto: CreateImageCategoryDto) {
+    const userId = this.getUserId(req);
+    return this.service.createCategory(userId, dto);
+  }
+
+  @Patch('categories/:id')
+  @Permissions('image-category:edit')
+  updateCategory(@Param('id') id: string, @Body() dto: UpdateImageCategoryDto) {
+    return this.service.updateCategory(id, dto);
+  }
+
+  @Delete('categories/:id')
+  @Permissions('image-category:delete')
+  deleteCategory(@Param('id') id: string) {
+    return this.service.deleteCategory(id);
+  }
+
+  /** 归类自己的作品：不额外要求分类管理权限，能看到作品库即可整理自己的图。 */
+  @Patch('images/:id/category')
+  assignImageCategory(@Req() req: Request, @Param('id') id: string, @Body() dto: AssignImageCategoryDto) {
+    const userId = this.getUserId(req);
+    return this.service.assignImageCategory(userId, id, dto.categoryId);
   }
 
   @Get('images/:id/conversation')

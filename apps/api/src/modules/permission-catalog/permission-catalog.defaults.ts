@@ -124,6 +124,11 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:image-library', label: '图像作品库', description: '历史创作、收藏作品与上游用量统计', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/image-library', sortOrder: 305 },
   { code: 'page:video-library', label: '视频作品库', description: '对话式生成的视频任务、状态与成本闸门配置', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/video-library', sortOrder: 306 },
 
+  // 图像作品库分类：目录全局共享，「查」跟随 page:image-library，写操作按下面三个码细分
+  { code: 'image-category:create', label: '新增图像分类', description: '在图像作品库中新建分类', groupLabel: '操作权限 · AI 创作', type: 'action', sortOrder: 307 },
+  { code: 'image-category:edit', label: '编辑图像分类', description: '修改图像分类的名称、说明、颜色与排序', groupLabel: '操作权限 · AI 创作', type: 'action', sortOrder: 308 },
+  { code: 'image-category:delete', label: '删除图像分类', description: '删除图像分类，分类下的作品保留并转为未分类', groupLabel: '操作权限 · AI 创作', type: 'action', sortOrder: 309 },
+
   { code: 'page:inquiry', label: '多渠道询盘', groupLabel: '页面访问 · 沟通协同', type: 'page', routePath: '/inquiry', sortOrder: 400 },
   { code: 'page:meeting', label: '会议纪要', groupLabel: '页面访问 · 沟通协同', type: 'page', routePath: '/meeting', sortOrder: 410 },
   { code: 'page:email-ai', label: '邮件 AI 写作', groupLabel: '页面访问 · 沟通协同', type: 'page', routePath: '/email-ai', sortOrder: 420 },

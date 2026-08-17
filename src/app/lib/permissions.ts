@@ -98,6 +98,12 @@ export const PERMISSIONS = {
   /** @deprecated 旧的笼统权限，保留向后兼容；新接口请用上面细分的 entry/category 权限 */
   RD_KB_MANAGE: 'rd-kb:manage',
 
+  // ─── Image library categories ───────────────────────────────────
+  PAGE_IMAGE_LIBRARY: 'page:image-library',
+  IMAGE_CATEGORY_CREATE: 'image-category:create',
+  IMAGE_CATEGORY_EDIT: 'image-category:edit',
+  IMAGE_CATEGORY_DELETE: 'image-category:delete',
+
   // ─── User management ────────────────────────────────────────────
   USER_CREATE: 'user:create',
   USER_EDIT: 'user:edit',

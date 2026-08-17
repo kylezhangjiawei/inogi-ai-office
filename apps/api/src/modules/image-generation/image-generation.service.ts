@@ -25,6 +25,11 @@ const IMAGE_GENERATION_TASK_TTL_MS = 60 * 60 * 1000;
 // 取 2min——下载一张已生成的图片本应秒级完成，且远小于上游生成 20min 预算，
 // 这样「下载卡死」会在前端 20min 兜底超时之前就以明确错误暴露出来。
 const IMAGE_DOWNLOAD_TIMEOUT_MS = 120_000;
+/** 作品库「未分类」筛选值：与真实分类 id 区分开（cuid 不会等于该字面量）。 */
+const UNCATEGORIZED_FILTER = 'uncategorized';
+/** 分类树最大层数（根为第 1 层）。 */
+const MAX_CATEGORY_DEPTH = 3;
+const DEFAULT_CATEGORY_COLOR = '#3b82f6';
 
 type ImageGenerationTaskStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
@@ -582,12 +587,14 @@ export class ImageGenerationService {
     dateFrom?: string,
     dateTo?: string,
     query?: string,
+    categoryId?: string,
   ) {
     const normalizedPage = Number.isFinite(page) && page > 0 ? page : 1;
     const normalizedPageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(pageSize, 48) : 12;
     const where: Prisma.GeneratedImageWhereInput = {
       userId,
       ...(onlyFavorite ? { isFavorite: true } : {}),
+      ...(await this.buildCategoryFilter(categoryId)),
       ...this.buildCreatedAtFilter(dateFrom, dateTo),
       ...this.buildImageSearchFilter(query),
     };
@@ -610,6 +617,7 @@ export class ImageGenerationService {
           imageUrl: true,
           model: true,
           isFavorite: true,
+          categoryId: true,
           requestId: true,
           parentImageId: true,
           rootImageId: true,
@@ -1010,6 +1018,238 @@ export class ImageGenerationService {
     return { ok: true };
   }
 
+  // ── 作品库分类（全局共享目录）────────────────────────────────────────────────
+
+  /**
+   * 分类树。imageCount 是「当前用户」直接挂在该节点上的作品数，totalImageCount 含子孙节点——
+   * 分类目录全局共享但作品按 userId 隔离，计数必须同口径，否则前端筛选出的数量对不上。
+   */
+  async listCategories(userId: string) {
+    const [categories, grouped, uncategorizedCount, totalCount] = await Promise.all([
+      this.prisma.imageCategory.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
+      this.prisma.generatedImage.groupBy({
+        by: ['categoryId'],
+        where: { userId, categoryId: { not: null } },
+        _count: { _all: true },
+      }),
+      this.prisma.generatedImage.count({ where: { userId, categoryId: null } }),
+      this.prisma.generatedImage.count({ where: { userId } }),
+    ]);
+
+    const counts = new Map(grouped.map((row) => [row.categoryId, row._count._all]));
+    return {
+      items: this.buildCategoryTree(categories, counts),
+      uncategorizedCount,
+      totalCount,
+    };
+  }
+
+  async createCategory(
+    userId: string,
+    dto: { name: string; parentId?: string | null; description?: string; color?: string; sortOrder?: number },
+  ) {
+    const name = dto.name?.trim();
+    if (!name) throw new BadRequestException('分类名称不能为空');
+
+    const parentId = dto.parentId?.trim() || null;
+    if (parentId) {
+      const categories = await this.prisma.imageCategory.findMany({ select: { id: true, parentId: true } });
+      const parent = categories.find((item) => item.id === parentId);
+      if (!parent) throw new NotFoundException('父分类不存在');
+      // 父节点已经在第 MAX 层时，新建的子节点就会越界
+      if (this.categoryDepth(parentId, categories) >= MAX_CATEGORY_DEPTH) {
+        throw new BadRequestException(`分类最多 ${MAX_CATEGORY_DEPTH} 层`);
+      }
+    }
+    await this.assertCategoryNameAvailable(name, parentId);
+
+    // 排序号在同级内递增，避免新建的子分类窜到别的父节点下面去排
+    const maxSortOrder = await this.prisma.imageCategory.aggregate({
+      where: { parentId },
+      _max: { sortOrder: true },
+    });
+    return this.prisma.imageCategory.create({
+      data: {
+        name,
+        parentId,
+        description: dto.description?.trim() ?? '',
+        color: dto.color?.trim() || DEFAULT_CATEGORY_COLOR,
+        sortOrder: dto.sortOrder ?? (maxSortOrder._max.sortOrder ?? 0) + 10,
+        createdBy: userId,
+      },
+    });
+  }
+
+  async updateCategory(
+    id: string,
+    dto: {
+      name?: string;
+      parentId?: string | null;
+      description?: string;
+      color?: string;
+      sortOrder?: number;
+    },
+  ) {
+    const current = await this.assertCategoryExists(id);
+    const data: Prisma.ImageCategoryUncheckedUpdateInput = {};
+    // 改名要按「改完之后的父节点」查同级重名，否则同一次请求里既移动又改名会漏判
+    let targetParentId = current.parentId;
+
+    if (dto.parentId !== undefined) {
+      targetParentId = dto.parentId?.trim() || null;
+      if (targetParentId !== current.parentId) {
+        await this.assertCategoryMoveAllowed(id, targetParentId);
+        data.parentId = targetParentId;
+      }
+    }
+
+    if (dto.name !== undefined) {
+      const name = dto.name.trim();
+      if (!name) throw new BadRequestException('分类名称不能为空');
+      await this.assertCategoryNameAvailable(name, targetParentId, id);
+      data.name = name;
+    }
+    if (dto.description !== undefined) data.description = dto.description.trim();
+    if (dto.color !== undefined) data.color = dto.color.trim() || DEFAULT_CATEGORY_COLOR;
+    if (dto.sortOrder !== undefined) data.sortOrder = dto.sortOrder;
+
+    return this.prisma.imageCategory.update({ where: { id }, data });
+  }
+
+  /**
+   * 删除分类及其整棵子树（DB 侧 onDelete: Cascade）。分类是全局目录、作品按人隔离，
+   * 所以不能只看当前用户的作品数就判空：作品一律保留，只是被 SetNull 解绑成未分类。
+   */
+  async deleteCategory(id: string) {
+    await this.assertCategoryExists(id);
+    const categories = await this.prisma.imageCategory.findMany({ select: { id: true, parentId: true } });
+    const affectedIds = this.collectSubtreeIds(id, categories);
+    const detached = await this.prisma.generatedImage.count({ where: { categoryId: { in: affectedIds } } });
+    await this.prisma.imageCategory.delete({ where: { id } });
+    return {
+      ok: true,
+      detachedImageCount: detached,
+      deletedCategoryCount: affectedIds.length,
+      deletedCategoryIds: affectedIds,
+    };
+  }
+
+  /** 设置 / 清除单张图片的分类归属；仅图片所有者可操作。 */
+  async assignImageCategory(userId: string, imageId: string, categoryId?: string | null) {
+    await this.assertOwner(imageId, userId);
+    const target = categoryId?.trim() || null;
+    if (target) await this.assertCategoryExists(target);
+
+    return this.prisma.generatedImage.update({
+      where: { id: imageId },
+      data: { categoryId: target },
+      select: { id: true, categoryId: true },
+    });
+  }
+
+  private async assertCategoryExists(id: string) {
+    const category = await this.prisma.imageCategory.findUnique({ where: { id } });
+    if (!category) throw new NotFoundException('分类不存在');
+    return category;
+  }
+
+  private async assertCategoryNameAvailable(name: string, parentId: string | null, excludeId?: string) {
+    const existing = await this.prisma.imageCategory.findFirst({
+      where: { name, parentId, ...(excludeId ? { id: { not: excludeId } } : {}) },
+      select: { id: true },
+    });
+    if (existing) throw new BadRequestException('同级下已有同名分类');
+  }
+
+  /** 移动分类：父节点必须存在、不能落到自己的子树里、移动后整棵子树不能超过层数上限。 */
+  private async assertCategoryMoveAllowed(id: string, targetParentId: string | null) {
+    if (!targetParentId) return;
+    if (targetParentId === id) throw new BadRequestException('不能把分类移动到自己下面');
+
+    const categories = await this.prisma.imageCategory.findMany({ select: { id: true, parentId: true } });
+    if (!categories.some((item) => item.id === targetParentId)) {
+      throw new NotFoundException('父分类不存在');
+    }
+    if (this.collectSubtreeIds(id, categories).includes(targetParentId)) {
+      throw new BadRequestException('不能把分类移动到自己的子分类下面');
+    }
+
+    const parentDepth = this.categoryDepth(targetParentId, categories);
+    const subtreeHeight = this.subtreeHeight(id, categories);
+    if (parentDepth + subtreeHeight > MAX_CATEGORY_DEPTH) {
+      throw new BadRequestException(`分类最多 ${MAX_CATEGORY_DEPTH} 层`);
+    }
+  }
+
+  /** 节点自身的层号，根为 1。 */
+  private categoryDepth(id: string, categories: Array<{ id: string; parentId: string | null }>): number {
+    const byId = new Map(categories.map((item) => [item.id, item]));
+    let depth = 1;
+    let cursor = byId.get(id)?.parentId ?? null;
+    // 上限兜底：数据异常成环时不至于死循环
+    while (cursor && depth <= MAX_CATEGORY_DEPTH + 1) {
+      depth += 1;
+      cursor = byId.get(cursor)?.parentId ?? null;
+    }
+    return depth;
+  }
+
+  /** 子树自身的高度（只有自己 = 1）。 */
+  private subtreeHeight(id: string, categories: Array<{ id: string; parentId: string | null }>): number {
+    const children = categories.filter((item) => item.parentId === id);
+    if (children.length === 0) return 1;
+    return 1 + Math.max(...children.map((child) => this.subtreeHeight(child.id, categories)));
+  }
+
+  /** 自己 + 所有子孙的 id。 */
+  private collectSubtreeIds(id: string, categories: Array<{ id: string; parentId: string | null }>): string[] {
+    const ids = [id];
+    for (let cursor = 0; cursor < ids.length; cursor += 1) {
+      for (const item of categories) {
+        if (item.parentId === ids[cursor] && !ids.includes(item.id)) ids.push(item.id);
+      }
+    }
+    return ids;
+  }
+
+  /** 平铺记录 → 嵌套树，同时把直接计数汇总成含子孙的 totalImageCount。 */
+  private buildCategoryTree(
+    categories: Array<Prisma.ImageCategoryGetPayload<Record<string, never>>>,
+    counts: Map<string | null, number>,
+  ) {
+    type CategoryNode = (typeof categories)[number] & {
+      imageCount: number;
+      totalImageCount: number;
+      depth: number;
+      path: string;
+      children: CategoryNode[];
+    };
+
+    const byParent = new Map<string | null, typeof categories>();
+    for (const category of categories) {
+      const siblings = byParent.get(category.parentId) ?? [];
+      siblings.push(category);
+      byParent.set(category.parentId, siblings);
+    }
+
+    const build = (parentId: string | null, depth: number, parentPath: string): CategoryNode[] =>
+      (byParent.get(parentId) ?? []).map((category) => {
+        const path = parentPath ? `${parentPath} / ${category.name}` : category.name;
+        const children = build(category.id, depth + 1, path);
+        const imageCount = counts.get(category.id) ?? 0;
+        return {
+          ...category,
+          imageCount,
+          totalImageCount: children.reduce((sum, child) => sum + child.totalImageCount, imageCount),
+          depth,
+          path,
+          children,
+        };
+      });
+
+    return build(null, 1, '');
+  }
+
   // ── 私有方法 ─────────────────────────────────────────────────────────────────
 
   private async assertOwner(id: string, userId: string) {
@@ -1316,6 +1556,20 @@ export class ImageGenerationService {
   private isGenericBadRequestMessage(message: string) {
     const normalized = message.toLowerCase();
     return normalized === 'bad request' || normalized === '400 bad request';
+  }
+
+  /**
+   * 分类筛选：空 = 不限；'uncategorized' = 仅未归类；其余选中节点连同其子孙分类一起查
+   * （父分类要能看到子分类下的作品，与侧边树上「含子分类」的计数口径保持一致）。
+   */
+  private async buildCategoryFilter(categoryId?: string): Promise<Prisma.GeneratedImageWhereInput> {
+    const value = categoryId?.trim();
+    if (!value) return {};
+    if (value === UNCATEGORIZED_FILTER) return { categoryId: null };
+
+    const categories = await this.prisma.imageCategory.findMany({ select: { id: true, parentId: true } });
+    const ids = this.collectSubtreeIds(value, categories);
+    return ids.length > 1 ? { categoryId: { in: ids } } : { categoryId: value };
   }
 
   private buildCreatedAtFilter(dateFrom?: string, dateTo?: string) {

@@ -713,6 +713,9 @@ model GeneratedImage {
   imageUrl                   String   @default("") // OSS 公网 URL，列表接口优先使用此字段
   model                      String   @default("dall-e-3")
   isFavorite                 Boolean  @default(false)
+  /// 作品库分类（全局共享目录）；分类被删除时置空，图片本身保留
+  categoryId                 String?
+  category                   ImageCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   requestId                  String?
   parentImageId              String?
   rootImageId                String?
@@ -733,6 +736,33 @@ model GeneratedImage {
 
   @@index([userId, rootImageId, createdAt])
   @@index([parentImageId])
+  @@index([userId, categoryId, createdAt])
+}
+
+/// 图像作品库分类：全局共享目录，增删改由 image-category:* 权限控制，
+/// 查看跟随 page:image-library。图片与分类是多对一（单分类），分类之间是最多 3 层的树。
+model ImageCategory {
+  id          String           @id @default(cuid())
+  name        String
+  /// 父分类；根分类为 null。删除父分类时子分类一并删除（作品由 GeneratedImage 侧 SetNull 保留）
+  parentId    String?
+  parent      ImageCategory?   @relation("ImageCategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    ImageCategory[]  @relation("ImageCategoryTree")
+  description String           @default("")
+  /// 前端徽标颜色（十六进制，如 #3b82f6）
+  color       String           @default("#3b82f6")
+  sortOrder   Int              @default(0)
+  /// 创建人 userId，仅留痕；用户被删除时不影响分类
+  createdBy   String           @default("")
+  images      GeneratedImage[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  /// 同级不许重名。注意 Postgres 里 NULL 互不相等，所以根分类（parentId = null）的
+  /// 重名由服务层 assertCategoryNameAvailable 兜住，DB 只能保证子分类那一层。
+  @@unique([parentId, name])
+  @@index([parentId, sortOrder])
+  @@index([sortOrder, createdAt])
 }
 
 /// 对话式 / 独立视频生成任务（HappyHorse i2v/t2v/r2v）。
