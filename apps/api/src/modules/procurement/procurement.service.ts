@@ -246,6 +246,53 @@ export class ProcurementService {
     private readonly rdService: ResearchDevelopmentService,
   ) {}
 
+  /**
+   * 采购附件与研发驾驶舱共用同一套 OSS 内联预览能力。
+   * bucket 默认强制下载，直接签名 URL 放进 iframe 会触发下载，因此优先返回 CDN inline URL，
+   * 未配置 CDN 时退回带 HMAC capability token 的同源预览代理。
+   */
+  private isAllowedAttachmentFileKey(fileKey: string): boolean {
+    return [
+      OSS_BUSINESS_TYPES.RD_PROGRESS_NOTES,
+      OSS_BUSINESS_TYPES.ASSETS,
+      OSS_BUSINESS_TYPES.UPLOADS_TEMP,
+    ].some((businessType) => this.ossService.isKeyUnderBusinessType(fileKey, businessType));
+  }
+
+  /**
+   * 兼容历史采购附件：旧记录只有短效 oss_url，没有单独保存 fileKey。
+   * 从旧同源预览 URL 的 key 参数或 OSS 路径中恢复 object key，并再次校验业务前缀，
+   * 避免把数据库中的任意 URL 变成可签名的 OSS 读取能力。
+   */
+  private resolveAttachmentFileKey(storedFileKey: string | null, fallbackUrl: string): string | null {
+    const directKey = storedFileKey?.trim().replace(/^\/+/, '') ?? '';
+    if (directKey && this.isAllowedAttachmentFileKey(directKey)) return directKey;
+    if (!fallbackUrl) return null;
+    try {
+      const parsed = new URL(fallbackUrl, 'http://inogi.local');
+      const queryKey = parsed.searchParams.get('key')?.trim().replace(/^\/+/, '') ?? '';
+      if (queryKey && this.isAllowedAttachmentFileKey(queryKey)) return queryKey;
+      const pathKey = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
+      return pathKey && this.isAllowedAttachmentFileKey(pathKey) ? pathKey : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private buildAttachmentPreviewUrl(storedFileKey: string | null, fallbackUrl: string): string {
+    const fileKey = this.resolveAttachmentFileKey(storedFileKey, fallbackUrl);
+    if (!fileKey) return fallbackUrl;
+    const cdnUrl = this.ossService.getCdnReadUrl(fileKey, undefined, 'inline');
+    if (cdnUrl) return cdnUrl;
+    try {
+      const { exp, sig } = this.ossService.signPreviewToken(fileKey, 24 * 3600);
+      const params = new URLSearchParams({ key: fileKey, exp: String(exp), sig });
+      return `/api/research-development/oss-preview?${params.toString()}`;
+    } catch {
+      return this.ossService.getSignedUrl(fileKey, SIGNED_URL_TTL_SECONDS.DOCUMENT) ?? fallbackUrl;
+    }
+  }
+
   async listAuditLogs(query: ProcAuditLogQuery) {
     const requestedPage = boundedAuditPageValue(query.page, 1, 1, Number.MAX_SAFE_INTEGER);
     const pageSize = boundedAuditPageValue(query.pageSize, 20, 10, 100);
@@ -3258,9 +3305,7 @@ export class ProcurementService {
         id: a.id,
         fileName: a.fileName,
         // 采购任务保存 OSS object key，读取时重签，避免转采购时保存的短效链接过期。
-        fileUrl: a.fileKey
-          ? this.ossService.getSignedUrl(a.fileKey, SIGNED_URL_TTL_SECONDS.DOCUMENT) ?? a.fileUrl
-          : a.fileUrl,
+        fileUrl: this.buildAttachmentPreviewUrl(a.fileKey, a.fileUrl),
         fileSize: a.fileSize,
         mimeType: a.mimeType ?? undefined,
         kind: a.kind,
