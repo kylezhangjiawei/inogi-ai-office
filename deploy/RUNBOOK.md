@@ -25,6 +25,7 @@
 - 前端发布目录（nginx root）：`/usr/share/nginx/html/weoxy-test`
 - nginx 站点配置：`/etc/nginx/conf.d/office.conf`
 - 数据库备份：`/opt/inogi-backups/db-<版本>.sql.gz`（自动保留最近 10 份）
+- 发布基线：`/var/log/inogi-deploy/<版本>-<进程号>.json`
 - 后端配置：`/opt/inogi-ai-office-system/apps/api/.env`
 
 ## 一次性前置环境（重装服务器时需要）
@@ -48,15 +49,25 @@ EOF
 
 开发者本地 `git push origin main` 即可，全自动。无需上服务器。
 
+每次发布都会额外写一份结构化基线记录，不改变原有发布结果。查看最近一次：
+
+```bash
+latest="$(find /var/log/inogi-deploy -maxdepth 1 -type f -name '*.json' -printf '%T@ %p\n' \
+  | sort -nr | head -n1 | cut -d' ' -f2-)"
+[ -n "$latest" ] && python3 -m json.tool "$latest"
+```
+
+记录包含完整 Git SHA、触发方式、Node 版本、毫秒级总耗时、12 个固定阶段的状态/耗时/阶段内系统 CPU 与内存峰值，以及整次部署期间的系统峰值。记录采用字段白名单，不包含命令行、环境变量、原始错误文本或 `DATABASE_URL`。目录不可写或 `/proc` 指标不可用时只告警，部署继续执行。
+
 ## 手动部署（绕过钩子）
 
 ```bash
 cd /opt/inogi-ai-office-system
-SHA=$(git --git-dir=/opt/git/inogi-ai-office.git rev-parse --short main)
+SHA=$(git --git-dir=/opt/git/inogi-ai-office.git rev-parse main)
 DEPLOY_SKIP_GIT=1 DEPLOY_GIT_SHA="$SHA" bash scripts/deploy.sh
 ```
 
-可用环境变量：`DEPLOY_DB_BACKUP=0`（关备份）、`WEB_ROOT`（前端发布目录）、`PM2_APP_NAME`、`DEPLOY_BACKUP_KEEP`。
+可用环境变量：`DEPLOY_DB_BACKUP=0`（关备份）、`WEB_ROOT`（前端发布目录）、`PM2_APP_NAME`、`DEPLOY_BACKUP_KEEP`、`DEPLOY_METRICS_ENABLED=0`（关闭基线记录）、`DEPLOY_METRICS_DIR`（默认 `/var/log/inogi-deploy`）。
 
 ## 数据库：备份与恢复
 

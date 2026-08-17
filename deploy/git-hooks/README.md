@@ -79,6 +79,8 @@ bash /opt/inogi-ai-office-system/deploy/db/restore.sh /opt/inogi-backups/db-xxxx
 | `DEPLOY_BACKUP_DIR` | `/opt/inogi-backups` | 备份目录 |
 | `DEPLOY_BACKUP_KEEP` | `10` | 保留最近几份 |
 | `POSTGRES_CONTAINER` | `inogi-postgres` | 数据库在 docker 时的容器名 |
+| `DEPLOY_METRICS_ENABLED` | `1` | 设 `0` 关闭发布基线记录；采集失败不会影响部署 |
+| `DEPLOY_METRICS_DIR` | `/var/log/inogi-deploy` | JSON 发布基线目录 |
 
 ---
 
