@@ -47,6 +47,8 @@ const BUILTIN_EN_FALLBACKS: Record<string, string> = {
   "（AI 未配置，基础事实版）": " (Basic summary — AI not configured)",
   "刷新": "Refresh",
   "搜索任务": "Search tasks",
+  "退出大屏": "Exit fullscreen",
+  "退出任务大屏并展开顶部概览": "Exit task fullscreen and expand the overview",
   "搜索任务、编号、负责人、路径": "Search task, ID, owner, or category",
   "搜索任务全部内容": "Search all task content",
   "搜索任务全部内容（描述、人员、进度、工作项等）": "Search all task content (description, people, progress, work items, etc.)",

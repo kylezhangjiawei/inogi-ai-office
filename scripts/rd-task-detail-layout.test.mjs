@@ -138,6 +138,18 @@ test("the all-tasks lane is labeled as admin view and keeps the unscoped detail 
   assert.match(managementSource, /const scopeLabel = activeTab === "all"\s*\? t\("管理员视角"\)/);
 });
 
+test("task fullscreen stays active at the first row and explicit exit keeps auto-collapse available", () => {
+  assert.match(managementSource, /if \(delta > 6 && top > 80 && !headerCollapsed\) \{\s*onHeaderCollapseChange\(true\)/);
+  assert.doesNotMatch(managementSource, /delta < -6 && headerCollapsed/);
+  assert.doesNotMatch(managementSource, /top <= 8\)[\s\S]{0,180}onHeaderCollapseChange\(false\)/);
+  assert.match(managementSource, /onClick=\{\(\) => setHeaderCollapsed\(false\)\}/);
+  assert.doesNotMatch(managementSource, /onClick=\{\(\) => \{ setHeaderPinned\(true\); setHeaderCollapsed\(false\); \}\}/);
+  assert.match(managementSource, /createPortal\([\s\S]*document\.body/);
+  assert.match(managementSource, /className="fixed right-4 top-4 z-40 inline-flex h-10/);
+  assert.doesNotMatch(managementSource, /t\("顶部概览已收起"\)/);
+  assert.match(managementSource, /\{t\("退出大屏"\)\}/);
+});
+
 test("merged child tasks are visible filters for progress notes and audit records", () => {
   assert.match(detailSource, /function ActivityTaskFilterBar\(/);
   assert.match(detailSource, /relatedTasks\.map\(\(item\) => \(/);

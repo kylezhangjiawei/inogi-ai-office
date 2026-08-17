@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useLocation, useNavigate } from "react-router";
 import {
@@ -29,6 +30,7 @@ import {
   ListChecks,
   Loader2,
   Lock,
+  Minimize2,
   MoreVertical,
   Paperclip,
   FileText,
@@ -6963,7 +6965,7 @@ function PersonTaskCockpit({
   onClearKpiFilter?: () => void;
   /** 顶部模块当前是否收起：收起时把任务 feed 增高到 ~84vh 以最大化可视区 */
   headerCollapsed?: boolean;
-  /** 任务 feed 滚动方向回调：下滑→true(请求收起)，上滑/回顶→false(请求展开)。父级「钉住」时忽略 */
+  /** 任务 feed 下滑时请求收起顶部；进入沉浸模式后由顶部控制条显式退出，避免上滑时丢失整屏视野 */
   onHeaderCollapseChange?: (collapsed: boolean) => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
@@ -7164,10 +7166,10 @@ function PersonTaskCockpit({
     height: spaciousCards && collabFlowHeight ? collabFlowHeight : collapsed ? "84vh" : "65vh",
   });
   const setScrollRef = useCallback((node: HTMLDivElement | null) => setScrollEl(node), []);
-  // 上一次滚动位置：用于判滚动方向(下滑收起/上滑展开)，带滞回阈值防抖动
+  // 上一次滚动位置：用于识别下滑并自动进入沉浸模式，带滞回阈值防抖动
   const lastScrollTopRef = useRef(0);
-  // 收起/展开切换后的短暂冷却：feed 高度变化会让浏览器把超出新范围的 scrollTop 夹紧、回弹出一串
-  // 反向滚动事件；锁定窗口内只同步基准、不改变状态，避免「收起↔展开」来回横跳。
+  // 自动收起后的短暂冷却：feed 高度变化会让浏览器把超出新范围的 scrollTop 夹紧、回弹出一串
+  // 滚动事件；锁定窗口内只同步基准，避免高度动画干扰后续方向判断。
   const collapseLockUntilRef = useRef(0);
   const loadNextTaskPage = useCallback((tabKey: string, totalTasks: number) => {
     setVisibleCounts((prev) => {
@@ -7185,8 +7187,9 @@ function PersonTaskCockpit({
       if (nearBottom) {
         loadNextTaskPage(tabKey, totalTasks);
       }
-      // 顶部模块「下滑收起 / 上滑或回顶展开」：滞回阈值(累计>6px 才响应、下滑须越过 80px)避免抖动；
-      // 只在状态需要真正翻转时触发，并设冷却锁吸收高度变化引发的回弹。父级在「钉住」时忽略该信号。
+      // 顶部模块「下滑收起」：滞回阈值（累计 > 6px、且越过 80px）避免抖动。
+      // 进入沉浸模式后不再因上滑自动展开，让用户能在整屏状态回到第一排；退出交给顶部控制条。
+      // 冷却锁继续吸收高度变化引发的滚动回弹。父级在「钉住」时忽略该信号。
       if (onHeaderCollapseChange) {
         const top = el.scrollTop;
         if (Date.now() < collapseLockUntilRef.current) {
@@ -7198,21 +7201,14 @@ function PersonTaskCockpit({
           lastScrollTopRef.current = top;
         };
         if (top <= 8) {
-          if (headerCollapsed) {
-            onHeaderCollapseChange(false);
-            lock();
-          }
           lastScrollTopRef.current = top;
         } else {
           const delta = top - lastScrollTopRef.current;
           if (delta > 6 && top > 80 && !headerCollapsed) {
             onHeaderCollapseChange(true);
             lock();
-          } else if (delta < -6 && headerCollapsed) {
-            onHeaderCollapseChange(false);
-            lock();
           } else if (Math.abs(delta) > 6) {
-            // 方向明确但状态无需变化：仅推进基准，保持滞回灵敏度
+            // 状态无需变化：仅推进基准，保持滞回灵敏度
             lastScrollTopRef.current = top;
           }
         }
@@ -9395,7 +9391,7 @@ function ExecutiveOverview({
   // 顶部模块（研发执行提示 + 日报/月报）随任务流滚动自动收起；「钉住」后常显、忽略滚动信号。
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [headerPinned, setHeaderPinned] = useState(false);
-  // 来自 PersonTaskCockpit 的滚动方向信号：钉住时丢弃，否则同步收起/展开。
+  // 来自 PersonTaskCockpit 的下滑收起信号：钉住时丢弃；展开由沉浸模式控制条显式触发。
   const handleHeaderCollapseChange = useCallback(
     (collapsed: boolean) => {
       if (headerPinned) return;
@@ -9424,34 +9420,27 @@ function ExecutiveOverview({
       <div className="mx-auto  space-y-6 rd-stagger-children">
         {/* 顶部并排区：研发执行提示（占 3）+ 今日日报速览（占 2）。窄屏（< xl）自动上下堆叠，
             宽屏并排可省下一整块纵向高度，留给下方的人员任务驾驶舱。
-            随任务流下滑自动收起（上滑/回顶展开）以最大化任务可视区；可「钉住」常显。 */}
+            随任务流下滑自动收起以最大化任务可视区；进入沉浸模式后由控制条显式展开。 */}
         <div className="relative">
-        {/* 收起/钉住控制条：仅研发侧（协同页头两行矮条无需收起，控制条整体隐藏） */}
-        {!usCollabLayout && (
-        <div className="mb-2">
-          {headerCollapsed ? (
-            <button
+        {/* 仅研发侧提供沉浸模式控制：收起后通过 portal 固定到视口右上角，不占布局且不受面板层级遮挡。 */}
+        {!usCollabLayout && headerCollapsed && typeof document !== "undefined" && createPortal(
+            <motion.button
               type="button"
-              onClick={() => { setHeaderPinned(true); setHeaderCollapsed(false); }}
-              aria-label={t("展开研发执行提示与日报/月报并钉住常显")}
-              title={t("点击展开研发执行提示与日报/月报，并钉住常显")}
-              className="group flex w-full items-center gap-2 rounded-xl border border-slate-200/80 bg-white/70 px-3 py-1.5 text-[11px] text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur transition-colors hover:border-indigo-200 hover:bg-indigo-50/60"
+              onClick={() => setHeaderCollapsed(false)}
+              aria-label={t("退出任务大屏并展开顶部概览")}
+              title={t("退出任务大屏并展开顶部概览")}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: -6, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={RD_FAST_TRANSITION}
+              className="fixed right-4 top-4 z-40 inline-flex h-10 items-center gap-2 rounded-full border border-indigo-200/80 bg-white/90 px-3.5 text-xs font-semibold text-indigo-700 shadow-[0_10px_30px_-12px_rgba(79,70,229,0.45)] backdrop-blur-md transition-[border-color,background-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-white hover:shadow-[0_14px_34px_-12px_rgba(79,70,229,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none sm:right-6"
             >
-              <Sparkles className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
-              <span className="shrink-0 font-semibold text-slate-600 group-hover:text-indigo-700">{t("顶部概览已收起")}</span>
-              {risks.length > 0 && (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">
-                  <AlertTriangle className="h-3 w-3" />
-                  {t("{count} 风险", { count: risks.length })}
-                </span>
-              )}
-              <span className="ml-auto inline-flex shrink-0 items-center gap-1 font-semibold text-indigo-600">
-                {t("展开")}
-                <ChevronDown className="h-3.5 w-3.5 transition-transform group-hover:translate-y-0.5" />
-              </span>
-            </button>
-          ) : (
-            <div className="flex items-center justify-end">
+              <Minimize2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{t("退出大屏")}</span>
+            </motion.button>,
+            document.body,
+        )}
+        {!usCollabLayout && !headerCollapsed && (
+          <div className="mb-2 flex items-center justify-end">
               <button
                 type="button"
                 onClick={() => { const next = !headerPinned; setHeaderPinned(next); if (next) setHeaderCollapsed(false); }}
@@ -9468,9 +9457,7 @@ function ExecutiveOverview({
                 {headerPinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
                 {headerPinned ? t("已钉住") : t("自动收起")}
               </button>
-            </div>
-          )}
-        </div>
+          </div>
         )}
         <motion.div
           initial={false}

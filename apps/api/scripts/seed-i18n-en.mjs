@@ -2050,6 +2050,8 @@ const DICT = {
   "采纳方案": "Adopted Solution",
   "里程碑预报": "Milestone Forecast",
   "重新读取": "Reload",
+  "退出大屏": "Exit fullscreen",
+  "退出任务大屏并展开顶部概览": "Exit task fullscreen and expand the overview",
   "问题总数": "Total Issues",
   "问题描述": "Issue Description",
   "问题记录与 AI 定位": "Issue Tracking & AI Diagnosis",
