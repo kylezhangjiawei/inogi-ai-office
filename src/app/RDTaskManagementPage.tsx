@@ -5082,15 +5082,18 @@ function SystemHealthCard({
         )}
       />
 
-      <div className="flex items-center gap-2">
+      {/* 徽章必须 shrink-0：只有标题带 flex-1 min-w-0，不锁住徽章的话挤压会全压到标题上，
+          实测 1024 下标题被压到 34px，同时挂「预留」+ 健康度两个徽章时直接压成 0（名字完全看不见）。
+          标题再给一个最小宽度保底，宁可徽章换行也不让名字消失。 */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <theme.Icon className={cn("h-4 w-4 shrink-0 transition-colors", theme.iconColor)} />
         <AutoTranslatedText
           as="span"
-          className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900"
+          className="min-w-[4.5rem] flex-1 truncate text-sm font-semibold text-slate-900"
           text={t(stat.cat.label.trim())}
         />
         {reserved && (
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+          <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
             {t("预留")}
           </span>
         )}
@@ -5098,7 +5101,7 @@ function SystemHealthCard({
           <TooltipTrigger asChild>
             <span
               className={cn(
-                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors",
+                "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors",
                 health === "alert" && "bg-red-50 text-red-700",
                 health === "watch" && "bg-amber-50 text-amber-700",
                 health === "healthy" && "bg-emerald-50 text-emerald-700",
@@ -5368,7 +5371,7 @@ function SystemPanorama({
               {t("加载中…")}
             </div>
           ) : activeProd ? (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {activeCatStats.map((stat) => (
                 <SystemHealthCard
                   key={stat.cat.id}
@@ -6912,33 +6915,46 @@ function distributeIntoColumns<T>(items: T[], columnCount: number): T[][] {
 //     排序乱了。移动端单列可保证任务从上到下严格「最新优先」，所见即排序。
 //     （注意：此页是桌面驾驶舱、非 /m 移动路由，受全局 min-width 影响手机上常被测成 ≥640 而误判多列，
 //      故这里用 pointer: coarse 这一「是否触摸设备」的语义信号兜底，而非单纯依赖宽度断点。）
-//   - 桌面(鼠标)：≥1024 → 3 列、≥640 → 2 列、否则 1 列（断点与原 grid 一致），保持不变。
+//   - 桌面(鼠标)：按可用宽度分档，让单卡稳定落在约 300–420px 的可读区间。
+//     此前 ≥1024 一律 3 列，两端都不可用：实测 1024 时单卡只有 199px（标签、更新时间全被
+//     压断），2560 时单卡宽达 703px（描述被拉成长条、空间大量浪费）。
+//     注意 <1024 的档位保持原样不动——那是平板与触控设备的区间，手机走的是独立的
+//     MobileRDCockpit，本组件根本不渲染。
+// 阈值由实测反推：可用内容宽 ≈ 视口 - 412px，取每档换列时单卡仍 ≥300px。
+// 1024→2 列(300px)、1280→3 列(281px)、1730→4 列(320px)、2050→5 列(318px)、2400→6 列(321px)。
+const MASONRY_BREAKPOINTS: Array<{ query: string; columns: number }> = [
+  { query: "(min-width: 2400px)", columns: 6 },
+  { query: "(min-width: 2050px)", columns: 5 },
+  { query: "(min-width: 1730px)", columns: 4 },
+  { query: "(min-width: 1280px)", columns: 3 },
+  { query: "(min-width: 640px)", columns: 2 },
+];
+const MASONRY_LG_QUERY = "(min-width: 1024px)";
+const MASONRY_COARSE_QUERY = "(pointer: coarse)";
+
 function useMasonryColumns(): number {
-  const resolve = (coarse: boolean, lg: boolean, sm: boolean) =>
-    coarse && !lg ? 1 : lg ? 3 : sm ? 2 : 1;
-  const compute = () => {
+  const resolve = () => {
     if (typeof window === "undefined") return 3;
-    return resolve(
-      window.matchMedia("(pointer: coarse)").matches,
-      window.matchMedia("(min-width: 1024px)").matches,
-      window.matchMedia("(min-width: 640px)").matches,
-    );
+    // 触控且未达 lg 一律单列：见上方说明，宽度断点在手机上不可靠，用触摸语义兜底
+    if (
+      window.matchMedia(MASONRY_COARSE_QUERY).matches
+      && !window.matchMedia(MASONRY_LG_QUERY).matches
+    ) {
+      return 1;
+    }
+    return MASONRY_BREAKPOINTS.find((step) => window.matchMedia(step.query).matches)?.columns ?? 1;
   };
-  const [columns, setColumns] = useState(compute);
+  const [columns, setColumns] = useState(resolve);
   useEffect(() => {
-    const lg = window.matchMedia("(min-width: 1024px)");
-    const sm = window.matchMedia("(min-width: 640px)");
-    const coarse = window.matchMedia("(pointer: coarse)");
-    const update = () => setColumns(resolve(coarse.matches, lg.matches, sm.matches));
+    const queries = [
+      ...MASONRY_BREAKPOINTS.map((step) => step.query),
+      MASONRY_LG_QUERY,
+      MASONRY_COARSE_QUERY,
+    ].map((query) => window.matchMedia(query));
+    const update = () => setColumns(resolve());
     update();
-    lg.addEventListener("change", update);
-    sm.addEventListener("change", update);
-    coarse.addEventListener("change", update);
-    return () => {
-      lg.removeEventListener("change", update);
-      sm.removeEventListener("change", update);
-      coarse.removeEventListener("change", update);
-    };
+    queries.forEach((query) => query.addEventListener("change", update));
+    return () => queries.forEach((query) => query.removeEventListener("change", update));
   }, []);
   return columns;
 }
@@ -7915,7 +7931,9 @@ function PersonTaskCockpit({
             )}
             <span className="ml-auto inline-flex min-w-0 items-center gap-1.5 text-slate-400">
               {relativeUpdate && (
-                <span className={RELATIVE_UPDATE_TONE_CLASS[relativeUpdate.tone]}>
+                // shrink-0 + nowrap：这行与头像、姓名共享空间，不锁住就会被挤成
+                // 「更新：19 天 / 前」这样的折行。空间不足时让姓名去截断（它有 truncate）。
+                <span className={cn("shrink-0 whitespace-nowrap", RELATIVE_UPDATE_TONE_CLASS[relativeUpdate.tone])}>
                   {t("更新：")}{relativeUpdate.label}
                 </span>
               )}
@@ -7926,7 +7944,10 @@ function PersonTaskCockpit({
                   : task.primary_owner_user_id}
                 size="xs"
               />
-              <span className="max-w-[72px] truncate font-medium text-slate-600">
+              <span
+                className="min-w-0 max-w-[72px] truncate font-medium text-slate-600 xl:max-w-[8rem]"
+                title={displayPersonName(task.latest_progress_summary?.actor_name || task.primary_owner)}
+              >
                 {displayPersonName(task.latest_progress_summary?.actor_name || task.primary_owner)}
               </span>
             </span>
@@ -9604,7 +9625,7 @@ function ExecutiveOverview({
               </div>
             </div>
 
-            <div className="order-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2 lg:grid-cols-6">
+            <div className="order-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2 lg:grid-cols-3 min-[1800px]:grid-cols-6">
               {kpiItems.map((item) => {
                 const clickable = item.filterKey !== null;
                 const active = clickable && kpiFilter === item.filterKey;

@@ -330,8 +330,11 @@ function MobileFeedCard({
         isRisk ? "border-red-200" : "border-slate-200/70",
       )}
     >
-      {/* 顶部：状态胶囊 + 话题标签 + 评分 + 风险 */}
-      <div className="flex items-center gap-1.5 px-3 pt-3">
+      {/* 顶部：状态胶囊 + 话题标签 + 评分 + 风险。
+          话题标签是这行唯一可伸缩的元素（flex-1 基准宽为 0），两侧胶囊都是 shrink-0，
+          卡片仅约 140px 内宽时它会被压到 25px、只剩一个「#」。给它一个最小宽度，
+          配合 flex-wrap：放得下就同排，放不下让右侧胶囊换到第二行，而不是把标签压没。 */}
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 px-3 pt-3">
         <span
           className={cn(
             "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
@@ -341,7 +344,7 @@ function MobileFeedCard({
           <span className={cn("h-1.5 w-1.5 rounded-full", status.dot)} />
           {t(status.label)}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-400">
+        <span className="min-w-[3.5rem] flex-1 truncate text-[11px] font-medium text-slate-400">
           {cat ? `# ${cat}` : ""}
         </span>
         {unreadCount > 0 && (
