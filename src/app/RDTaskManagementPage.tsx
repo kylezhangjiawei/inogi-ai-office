@@ -388,16 +388,32 @@ function daysUntil(dateStr?: string): number | null {
   return daysUntilDue(dateStr);
 }
 
+/** 「最近更新」的时效档位：越新越亮，越旧越淡。 */
+type RelativeUpdateTone = "fresh" | "recent" | "aging" | "stale" | "cold";
+
+/**
+ * 时效档位 → 字色与字重。大屏上一眼扫过去，靠颜色深浅和字重区分"刚动过"和"很久没动"。
+ * 最淡的一档停在 slate-400（= 改造前所有条目的统一颜色），保证没有任何条目比原来更难读。
+ */
+const RELATIVE_UPDATE_TONE_CLASS: Record<RelativeUpdateTone, string> = {
+  fresh: "font-semibold text-emerald-600",
+  recent: "font-medium text-sky-600",
+  aging: "text-slate-600",
+  stale: "text-slate-500",
+  cold: "text-slate-400",
+};
+
 /**
  * 把 ISO 时间戳格式化成"最近更新"的相对短语 + 配色 tone：
- *   今天 HH:MM (绿，新鲜)
+ *   今天 HH:MM / N 分钟前 (绿 + 加粗，最新)
  *   昨天      (蓝)
- *   N 天前    (1-7 → 琥珀色；7+ → 灰色)
- *   N 个月前 / N 年前 (灰色，过期）
+ *   2-7 天前  (深灰)
+ *   8-30 天前 (中灰)
+ *   N 个月前 / N 年前 (浅灰，最淡)
  */
 function formatRelativeUpdate(iso?: string | null): {
   label: string;
-  tone: "fresh" | "recent" | "aging" | "stale";
+  tone: RelativeUpdateTone;
 } | null {
   if (!iso) return null;
   const timestamp = new Date(iso).getTime();
@@ -423,8 +439,8 @@ function formatRelativeUpdate(iso?: string | null): {
   if (dayDiff === 0) return { label: t("今天 {time}", { time: hhmm }), tone: "fresh" };
   if (dayDiff === 1) return { label: t("昨天 {time}", { time: hhmm }), tone: "recent" };
   if (dayDiff <= 30) return { label: t("{n} 天前", { n: dayDiff }), tone: dayDiff <= 7 ? "aging" : "stale" };
-  if (dayDiff <= 365) return { label: t("{n} 个月前", { n: Math.floor(dayDiff / 30) }), tone: "stale" };
-  return { label: t("{n} 年前", { n: Math.floor(dayDiff / 365) }), tone: "stale" };
+  if (dayDiff <= 365) return { label: t("{n} 个月前", { n: Math.floor(dayDiff / 30) }), tone: "cold" };
+  return { label: t("{n} 年前", { n: Math.floor(dayDiff / 365) }), tone: "cold" };
 }
 
 function collectTaskIds(tasks: Task[]): Set<string> {
@@ -7898,7 +7914,11 @@ function PersonTaskCockpit({
               </span>
             )}
             <span className="ml-auto inline-flex min-w-0 items-center gap-1.5 text-slate-400">
-              {relativeUpdate && <span>{t("更新：")}{relativeUpdate.label}</span>}
+              {relativeUpdate && (
+                <span className={RELATIVE_UPDATE_TONE_CLASS[relativeUpdate.tone]}>
+                  {t("更新：")}{relativeUpdate.label}
+                </span>
+              )}
               <OwnerAvatar
                 name={task.latest_progress_summary?.actor_name || task.primary_owner}
                 userId={task.latest_progress_summary
