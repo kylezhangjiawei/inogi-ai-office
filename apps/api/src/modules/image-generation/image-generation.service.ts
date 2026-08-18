@@ -1052,33 +1052,42 @@ export class ImageGenerationService {
   ) {
     const name = dto.name?.trim();
     if (!name) throw new BadRequestException('分类名称不能为空');
-
     const parentId = dto.parentId?.trim() || null;
-    if (parentId) {
-      const categories = await this.prisma.imageCategory.findMany({ select: { id: true, parentId: true } });
-      const parent = categories.find((item) => item.id === parentId);
-      if (!parent) throw new NotFoundException('父分类不存在');
-      // 父节点已经在第 MAX 层时，新建的子节点就会越界
-      if (this.categoryDepth(parentId, categories) >= MAX_CATEGORY_DEPTH) {
-        throw new BadRequestException(`分类最多 ${MAX_CATEGORY_DEPTH} 层`);
-      }
-    }
-    await this.assertCategoryNameAvailable(name, parentId);
 
-    // 排序号在同级内递增，避免新建的子分类窜到别的父节点下面去排
-    const maxSortOrder = await this.prisma.imageCategory.aggregate({
-      where: { parentId },
-      _max: { sortOrder: true },
-    });
-    return this.prisma.imageCategory.create({
-      data: {
-        name,
-        parentId,
-        description: dto.description?.trim() ?? '',
-        color: dto.color?.trim() || DEFAULT_CATEGORY_COLOR,
-        sortOrder: dto.sortOrder ?? (maxSortOrder._max.sortOrder ?? 0) + 10,
-        createdBy: userId,
-      },
+    // 与 updateCategory 同样锁表后再校验写入，堵住两处并发缺口：
+    // 1) 「在 X 下建子分类」与「把 X 往下移」并发时，各自读到的都是移动前的层号，
+    //    双双通过 3 层校验，写完就超层；
+    // 2) 根分类重名——Postgres 里 NULL 互不相等，@@unique([parentId, name]) 管不到
+    //    parentId 为 null 的那一层，只能靠这里的串行化 + 查重兜住。
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "ImageCategory" FOR UPDATE`;
+
+      if (parentId) {
+        const categories = await tx.imageCategory.findMany({ select: { id: true, parentId: true } });
+        const parent = categories.find((item) => item.id === parentId);
+        if (!parent) throw new NotFoundException('父分类不存在');
+        // 父节点已经在第 MAX 层时，新建的子节点就会越界
+        if (this.categoryDepth(parentId, categories) >= MAX_CATEGORY_DEPTH) {
+          throw new BadRequestException(`分类最多 ${MAX_CATEGORY_DEPTH} 层`);
+        }
+      }
+      await this.assertCategoryNameAvailable(name, parentId, undefined, tx);
+
+      // 排序号在同级内递增，避免新建的子分类窜到别的父节点下面去排
+      const maxSortOrder = await tx.imageCategory.aggregate({
+        where: { parentId },
+        _max: { sortOrder: true },
+      });
+      return tx.imageCategory.create({
+        data: {
+          name,
+          parentId,
+          description: dto.description?.trim() ?? '',
+          color: dto.color?.trim() || DEFAULT_CATEGORY_COLOR,
+          sortOrder: dto.sortOrder ?? (maxSortOrder._max.sortOrder ?? 0) + 10,
+          createdBy: userId,
+        },
+      });
     });
   }
 
