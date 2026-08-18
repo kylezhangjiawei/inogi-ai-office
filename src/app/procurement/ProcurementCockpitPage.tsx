@@ -382,9 +382,21 @@ export function ProcurementCockpitPage() {
           aria-label={t("按采购负责人筛选")}
           className="flex flex-wrap gap-1.5"
         >
-          <ToggleGroupItem value="all" variant="outline" size="sm" className="h-7 flex-none rounded-full border px-2.5 text-xs data-[state=on]:border-indigo-300 data-[state=on]:bg-indigo-50 data-[state=on]:text-indigo-600">{t('全部')}</ToggleGroupItem>
+          {/*
+            这一排是彼此独立的圆形筛选芯片，不是 ToggleGroupItem 默认的连体分段控件，
+            所以要把分段控件的三处默认样式让开：
+            1. 不传 variant="outline"：否则 data-[variant=outline]:border-l-0 会把除首项外
+               所有芯片的左边框吃掉（该规则带属性选择器，优先级高于 border，改类名没用）；
+               边框颜色改为显式 slate-200——outline 变体用的 border-input 在浅色主题下是
+               transparent，等于没有描边。
+            2. rounded-full!：first:rounded-l-md / last:rounded-r-md 在样式表里排在
+               rounded-full 之后，会把首项左侧、末项右侧压成 12px 直角，一排芯片左右不对称。
+            3. 去掉 py-0.5：h-7 减去 1px 边框和 2px 内边距只剩 22px，装不下 h-6（24px）的
+               头像，头像会顶出芯片上下沿。
+          */}
+          <ToggleGroupItem value="all" size="sm" className="h-7 flex-none rounded-full! border border-slate-200 px-2.5 text-xs hover:bg-slate-50 data-[state=on]:border-indigo-300 data-[state=on]:bg-indigo-50 data-[state=on]:text-indigo-600">{t('全部')}</ToggleGroupItem>
           {people.map((buyer) => (
-          <ToggleGroupItem key={buyer.id} value={buyer.id} variant="outline" size="sm" className="h-7 flex-none gap-1.5 rounded-full border py-0.5 pl-0.5 pr-2 text-xs data-[state=on]:border-indigo-300 data-[state=on]:bg-indigo-50 data-[state=on]:text-indigo-600">
+          <ToggleGroupItem key={buyer.id} value={buyer.id} size="sm" className="h-7 flex-none gap-1.5 rounded-full! border border-slate-200 pl-0.5 pr-2 text-xs hover:bg-slate-50 data-[state=on]:border-indigo-300 data-[state=on]:bg-indigo-50 data-[state=on]:text-indigo-600">
             <PersonAvatar name={buyer.name} size="xs" />
             {buyer.name}
             <span className="rounded-full bg-slate-100 px-1.5 text-[11px] text-slate-500">{buyer.taskCount}</span>
