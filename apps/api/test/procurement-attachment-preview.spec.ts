@@ -11,6 +11,15 @@ import { ProcurementService } from '../src/modules/procurement/procurement.servi
 const LEGACY_KEY = 'prod/rd/progress-notes/2026/05/29/abc-q7-detail-02.png';
 const LEGACY_URL = `/api/research-development/oss-preview?key=${encodeURIComponent(LEGACY_KEY)}&exp=1784851200&sig=deadbeef`;
 
+// 读取路径先用业务前缀白名单校验 key（fileUrl 是客户端可传字段，不校验就能把任意 OSS key
+// 换成一条带签名的预览能力地址），桩里按真实实现的 `${basePrefix}/${businessType}/` 前缀判断。
+function ossStub(oss: Record<string, unknown>) {
+  return {
+    isKeyUnderBusinessType: (key: string, businessType: string) => key.startsWith(`prod/${businessType}/`),
+    ...oss,
+  };
+}
+
 function createService(attachments: Array<Record<string, unknown>>, oss: Record<string, unknown>) {
   const task = {
     id: 'task-1',
@@ -30,7 +39,7 @@ function createService(attachments: Array<Record<string, unknown>>, oss: Record<
     updatedAt: new Date(),
   };
   const prisma = { procTask: { findUnique: async () => task } };
-  return new ProcurementService(prisma as never, oss as never, {} as never, {} as never);
+  return new ProcurementService(prisma as never, ossStub(oss) as never, {} as never, {} as never);
 }
 
 test('存量附件没落 fileKey 时，从旧地址反解 key 并重新构造预览地址', async () => {
@@ -65,7 +74,7 @@ test('存量附件没落 fileKey 时，从旧地址反解 key 并重新构造预
 
 test('已落 fileKey 的附件直接按 key 构造，不依赖旧地址', async () => {
   const service = createService(
-    [{ id: 'a1', fileName: 'q7.png', fileUrl: LEGACY_URL, fileKey: 'prod/proc/new.png', fileSize: 100, mimeType: 'image/png', kind: 'drawing' }],
+    [{ id: 'a1', fileName: 'q7.png', fileUrl: LEGACY_URL, fileKey: 'prod/assets/new.png', fileSize: 100, mimeType: 'image/png', kind: 'drawing' }],
     {
       extractObjectKey: () => { throw new Error('已有 fileKey 时不该再去解析地址'); },
       buildInlinePreviewUrl: (key: string) => `/preview?key=${key}`,
@@ -74,7 +83,7 @@ test('已落 fileKey 的附件直接按 key 构造，不依赖旧地址', async 
 
   const result = await service.getTask('task-1', { id: 'u1', name: '张三', permissions: ['*'] } as never);
 
-  assert.equal(result.attachmentList[0].fileUrl, '/preview?key=prod/proc/new.png');
+  assert.equal(result.attachmentList[0].fileUrl, '/preview?key=prod/assets/new.png');
 });
 
 test('key 反解不出来时保留原地址，不至于把附件整条丢掉', async () => {
@@ -89,4 +98,29 @@ test('key 反解不出来时保留原地址，不至于把附件整条丢掉', a
   const result = await service.getTask('task-1', { id: 'u1', name: '张三', permissions: ['*'] } as never);
 
   assert.equal(result.attachmentList[0].fileUrl, 'https://legacy.example.com/x.bin');
+});
+
+// 这条守的是合并事故：fileUrl 是客户端可传字段，两次改动里「按 key 重建地址」和
+// 「业务前缀白名单」互相覆盖过。少了白名单，任何人加个附件就能拿到任意 OSS 对象的签名预览地址。
+test('fileUrl 指向白名单外的 key 时不构造预览地址，避免签出任意对象的读取能力', async () => {
+  const service = createService(
+    [{
+      id: 'a1',
+      fileName: 'salary.xlsx',
+      fileUrl: '/api/research-development/oss-preview?key=prod/expense/vouchers/2026-salary.xlsx&exp=1&sig=x',
+      fileKey: 'prod/expense/vouchers/2026-salary.xlsx',
+      fileSize: 1,
+      mimeType: 'application/vnd.ms-excel',
+      kind: 'other',
+    }],
+    {
+      buildInlinePreviewUrl: () => { throw new Error('白名单外的 key 不该被签名'); },
+      extractObjectKey: () => { throw new Error('不该绕过白名单去反解'); },
+    },
+  );
+
+  const result = await service.getTask('task-1', { id: 'u1', name: '张三', permissions: ['*'] } as never);
+
+  assert.equal(result.attachmentList[0].fileUrl, '/api/research-development/oss-preview?key=prod/expense/vouchers/2026-salary.xlsx&exp=1&sig=x', '原样返回旧地址，不重新签名');
+  assert.equal(result.attachmentList[0].thumbUrl, undefined);
 });

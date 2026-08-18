@@ -279,20 +279,6 @@ export class ProcurementService {
     }
   }
 
-  private buildAttachmentPreviewUrl(storedFileKey: string | null, fallbackUrl: string): string {
-    const fileKey = this.resolveAttachmentFileKey(storedFileKey, fallbackUrl);
-    if (!fileKey) return fallbackUrl;
-    const cdnUrl = this.ossService.getCdnReadUrl(fileKey, undefined, 'inline');
-    if (cdnUrl) return cdnUrl;
-    try {
-      const { exp, sig } = this.ossService.signPreviewToken(fileKey, 24 * 3600);
-      const params = new URLSearchParams({ key: fileKey, exp: String(exp), sig });
-      return `/api/research-development/oss-preview?${params.toString()}`;
-    } catch {
-      return this.ossService.getSignedUrl(fileKey, SIGNED_URL_TTL_SECONDS.DOCUMENT) ?? fallbackUrl;
-    }
-  }
-
   async listAuditLogs(query: ProcAuditLogQuery) {
     const requestedPage = boundedAuditPageValue(query.page, 1, 1, Number.MAX_SAFE_INTEGER);
     const pageSize = boundedAuditPageValue(query.pageSize, 20, 10, 100);
@@ -893,7 +879,12 @@ export class ProcurementService {
     return {
       fileName: a.fileName,
       fileUrl: a.fileUrl,
-      fileKey: a.fileKey ?? null,
+      // 客户端没带 key 时从地址反解：只存一条会过期的短效地址、又没有 key 可重签，
+      // 正是存量附件打不开的原因，新数据不要再走进同一个坑。
+      // 必须走 resolveAttachmentFileKey 而不是裸的 extractObjectKey：insertTask 的业务前缀
+      // 白名单只在客户端显式传了 fileKey 时才生效，这里若不校验，把 key 藏进 fileUrl 就能
+      // 绕过它、往库里写一个越权路径。写入侧与读取侧必须同口径。
+      fileKey: this.resolveAttachmentFileKey(a.fileKey ?? null, a.fileUrl),
       fileSize: a.fileSize ?? 0,
       mimeType: a.mimeType ?? null,
       kind: a.kind ?? 'drawing',
@@ -1235,6 +1226,13 @@ export class ProcurementService {
     const task = await this.requireTask(id);
     if (task.status === 'pending_rd_review') {
       throw new BadRequestException('该申请尚待研发管理员审核，不能从采购流程直接推进');
+    }
+    // 客户端声明的来源状态与实际不符：说明它拿的是过期数据（例如上一次保存后界面没刷新，
+    // 用户又点了一次）。此时每一步单看都合法，放行就会一路推到终态，所以直接拒绝。
+    if (dto.from_status && dto.from_status !== task.status) {
+      throw new ConflictException(
+        `任务已是「${PROC_STATUS_LABELS[task.status as ProcStatus] ?? task.status}」，页面数据已过期，请刷新后再操作`,
+      );
     }
     const target = dto.status as ProcStatus;
     const allowed = PROC_STATUS_TRANSITIONS[task.status as ProcStatus] ?? [];
@@ -3301,15 +3299,29 @@ export class ProcurementService {
       cancelReason: task.cancelReason ?? undefined,
       // 前端 ProcurementTask.attachments 是数量占位，这里同时给出数量与明细
       attachments: task.attachments.length,
-      attachmentList: task.attachments.map((a) => ({
-        id: a.id,
-        fileName: a.fileName,
-        // 采购任务保存 OSS object key，读取时重签，避免转采购时保存的短效链接过期。
-        fileUrl: this.buildAttachmentPreviewUrl(a.fileKey, a.fileUrl),
-        fileSize: a.fileSize,
-        mimeType: a.mimeType ?? undefined,
-        kind: a.kind,
-      })),
+      attachmentList: task.attachments.map((a) => {
+        // 转采购时存下来的是研发模块的短效能力地址（24h 令牌），过期后必然 404。
+        // 这里一律按 object key 在读取时重新构造：存量数据没落 fileKey，就从旧地址的
+        // key 参数里反解。用内联预览地址而不是 OSS 直链——bucket 设了 x-oss-force-download，
+        // 直链会把图片变成强制下载，等于预览不了。
+        // 键解析走 resolveAttachmentFileKey：fileUrl 是客户端可传字段，不校验业务前缀就能
+        // 把任意 OSS key 换成一条带签名的预览能力地址。
+        const objectKey = this.resolveAttachmentFileKey(a.fileKey, a.fileUrl);
+        // 卡片上是 64px 高的缩略图，直接挂原图会让每张卡都下载整张大图（列表几十条时
+        // 足以把接口压满）。图片类附件额外给一条 OSS 实时缩放地址，前端优先用它。
+        const thumbUrl = objectKey && (a.mimeType ?? '').startsWith('image/')
+          ? this.ossService.buildInlinePreviewUrl(objectKey, 'image/resize,m_lfit,w_480/format,webp/quality,q_72')
+          : null;
+        return {
+          id: a.id,
+          fileName: a.fileName,
+          fileUrl: (objectKey ? this.ossService.buildInlinePreviewUrl(objectKey) : null) ?? a.fileUrl,
+          ...(thumbUrl ? { thumbUrl } : {}),
+          fileSize: a.fileSize,
+          mimeType: a.mimeType ?? undefined,
+          kind: a.kind,
+        };
+      }),
       purchaseOrders: task.purchaseOrderRefs.map((r) => ({
         id: r.id,
         tpOrderNo: r.tpOrderNo,
