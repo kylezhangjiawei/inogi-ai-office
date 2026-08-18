@@ -25,9 +25,8 @@ import { MobileZoomableImage } from "../../components/MobileZoomableImage";
 import { useAvatarDirectory } from "../../lib/userAvatar";
 import { subscribeDepartmentChanges } from "../../lib/departmentDirectory";
 import { hasPermission } from "../../lib/permissions";
-import type { RdTaskProgressAttachment } from "../../lib/rdApi";
 import { i18nLocale, t as translate, useI18n } from "../../lib/i18n";
-import { listBuyerCandidates, type BuyerCandidate, type ProcTaskAttachment } from "../../lib/procurementApi";
+import { listBuyerCandidates, type BuyerCandidate } from "../../lib/procurementApi";
 import { taskMainDate, useProcurementData, type BusinessLine, type ProcMethod, type ProcSource, type ProcStatus, type ProcurementTask } from "../data";
 
 /** 数据变更类动作统一轻提示（本阶段不接逻辑）。 */
@@ -506,21 +505,4 @@ export function useConfirmDialog() {
     </AlertDialog>
   ) : null;
   return { confirm, confirmDialog };
-}
-
-/**
- * 采购附件 → 研发附件网格（ProgressAttachmentGrid）的入参。
- * 后端给的 fileUrl 已经是同源内联预览地址；getAttachmentUrl / DownloadUrl / ThumbUrl
- * 在 download_url / thumb_url 缺省时都会回退到 preview_url，所以只需映射这一个地址字段。
- */
-export function toRdAttachment(attachment: ProcTaskAttachment): RdTaskProgressAttachment {
-  return {
-    id: attachment.id,
-    name: attachment.fileName,
-    mime: attachment.mimeType ?? "",
-    size: attachment.fileSize,
-    preview_url: attachment.fileUrl,
-    // 缺省时 getAttachmentThumbUrl 会回退到 preview_url（原图），所以图片一定要给缩略图
-    ...(attachment.thumbUrl ? { thumb_url: attachment.thumbUrl } : {}),
-  };
 }

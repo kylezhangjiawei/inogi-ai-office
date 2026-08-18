@@ -196,7 +196,9 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
                   }}
                 >
                   {isImage ? (
-                    <img src={attachment.fileUrl} alt={attachment.fileName} loading="lazy" decoding="async" className="h-16 w-full object-cover transition-transform duration-200 group-hover/attachment:scale-[1.03]" />
+                    // 缩略图优先用后端给的 OSS 实时缩放地址（同一对象 375KB → 13.5KB）：
+                    // 这里只有 64px 高，挂原图会让每张卡都下载整张大图。点开预览时才用原图。
+                    <img src={attachment.thumbUrl ?? attachment.fileUrl} alt={attachment.fileName} loading="lazy" decoding="async" className="h-16 w-full object-cover transition-transform duration-200 group-hover/attachment:scale-[1.03]" />
                   ) : (
                     <div className="flex h-16 items-center justify-center text-slate-400"><Paperclip className="size-4" /></div>
                   )}

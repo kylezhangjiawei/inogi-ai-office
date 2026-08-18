@@ -28,8 +28,8 @@ const linkedPreviewFiles = [
   "src/app/issue-ai/DetailView.tsx",
   "src/app/ManualPage.tsx",
   "src/app/DownloadTutorialPage.tsx",
-  "src/app/procurement/components/ProcurementTaskCard.tsx",
-  "src/app/procurement/components/TaskDetailDrawer.tsx",
+  // 采购卡片与详情抽屉改用共享的 AttachmentPreviewDialog（见下方 "shared full attachment
+  // preview"），不再走 MobileImagePreviewLink，所以不在这份清单里
 ];
 
 test("shared mobile image zoom supports pinch, pan, double-tap and visible controls", () => {
@@ -77,12 +77,15 @@ for (const file of linkedPreviewFiles) {
 }
 
 test("procurement cards and details use the shared full attachment preview", () => {
-  assert.match(procurementServiceSource, /buildAttachmentPreviewUrl/);
+  // 存量附件只存了会过期的短效地址，读取时必须按 object key 重建
   assert.match(procurementServiceSource, /searchParams\.get\(['"]key['"]\)/);
+  // fileUrl 是客户端可传字段，反解出的 key 必须过业务前缀白名单，否则等于把任意
+  // OSS 对象换成一条带签名的预览能力地址
   assert.match(procurementServiceSource, /isKeyUnderBusinessType/);
-  assert.match(procurementServiceSource, /buildAttachmentPreviewUrl\(a\.fileKey, a\.fileUrl\)/);
-  assert.match(procurementServiceSource, /getCdnReadUrl\(fileKey, undefined, 'inline'\)/);
-  assert.match(procurementServiceSource, /signPreviewToken\(fileKey/);
+  assert.match(procurementServiceSource, /resolveAttachmentFileKey\(a\.fileKey, a\.fileUrl\)/);
+  assert.match(procurementServiceSource, /resolveAttachmentFileKey\(a\.fileKey \?\? null, a\.fileUrl\)/);
+  // 用内联预览地址而不是 OSS 直链：bucket 设了 x-oss-force-download，直链会变成强制下载
+  assert.match(procurementServiceSource, /buildInlinePreviewUrl\(objectKey\)/);
   assert.match(attachmentPreviewSource, /export type PreviewableAttachment/);
   assert.match(attachmentPreviewSource, /MobileZoomableImage/);
   assert.match(attachmentPreviewSource, /parseXlsxForPreview/);

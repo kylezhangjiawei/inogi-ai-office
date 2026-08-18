@@ -218,9 +218,10 @@ test("列表缩略图用 OSS 缩放地址，不下载原图", () => {
   // 后端给图片附件额外下发缩放地址
   assert.match(service, /image\/resize,m_lfit,w_480/);
   assert.match(api, /thumbUrl\?: string;/);
-  // 前端映射必须把它传给附件网格，否则会回退成 preview_url（原图）
-  const common = source("src/app/procurement/components/common.tsx");
-  assert.match(common, /thumb_url: attachment\.thumbUrl/);
+  // 关键是卡片上那张 64px 缩略图真的用了它。此前这里断言的是 common.tsx 里的一个
+  // 映射函数，而那个函数早已没有任何调用者——测试一直在"通过"，页面却仍在拉原图。
+  const card = source("src/app/procurement/components/ProcurementTaskCard.tsx");
+  assert.match(card, /src=\{attachment\.thumbUrl \?\? attachment\.fileUrl\}/);
 });
 
 // ── 过期页面的重复推进必须被服务端拒绝 ────────────────────────────────────────
