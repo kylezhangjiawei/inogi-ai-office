@@ -1,4 +1,5 @@
 // 采购任务共享卡：驾驶舱与个人工作台共用，视觉结构对齐研发任务驾驶舱。
+import { useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -22,10 +23,11 @@ import {
 } from "../../components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
 import { cn } from "../../components/ui/utils";
-import { ProgressAttachmentGrid } from "../../RDProgressEvidence";
+import { isImagePreviewSource } from "../../components/MobileZoomableImage";
+import { AttachmentPreviewDialog, type PreviewableAttachment } from "../../components/AttachmentPreviewDialog";
 import { useI18n } from "../../lib/i18n";
 import { isProcurementTaskOverdue, taskMainDate, taskRequester, type Material, type ProcurementTask } from "../data";
-import { BusinessLinePill, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, toRdAttachment, useProcCan } from "./common";
+import { BusinessLinePill, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, useProcCan } from "./common";
 import { DECISION_STATUSES, nextPermissionOf, removalModeOf } from "./taskActions";
 import { TaskCriticalMaterials, TaskCriticalMaterialsEditor } from "./TaskCriticalMaterials";
 
@@ -34,6 +36,16 @@ const PRIORITY_TONE = {
   medium: { label: "中优先", className: "bg-amber-50 text-amber-700" },
   low: { label: "低优先", className: "bg-slate-100 text-slate-600" },
 } as const;
+
+function previewModel(attachment: ProcurementTask["attachmentList"][number]): PreviewableAttachment {
+  return {
+    id: attachment.id,
+    name: attachment.fileName,
+    mime: attachment.mimeType,
+    size: attachment.fileSize,
+    url: attachment.fileUrl,
+  };
+}
 
 export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassign, onRemove }: {
   task: ProcurementTask;
@@ -60,6 +72,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
   const canConfigureCriticalMaterials = can("proc-task:create");
   // 菜单项文案跟着实际处置动作走：履约中是「取消任务」，其余是「删除」，待研发审核则不给入口
   const removalMode = removalModeOf(task);
+  const [previewAttachment, setPreviewAttachment] = useState<PreviewableAttachment | null>(null);
 
   const runWithoutOpening = (event: React.MouseEvent, action: () => void) => {
     event.stopPropagation();
@@ -69,7 +82,8 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
   return (
     <TaskCriticalMaterialsEditor task={task} materials={materials}>
       {({ openEditor }) => (
-        <article
+        <>
+          <article
       onClick={() => onOpen(task)}
       className={cn(
         "group relative w-full cursor-pointer overflow-hidden rounded-2xl border border-slate-200/80 bg-white text-left shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_12px_28px_-12px_rgba(79,70,229,0.28)]",
@@ -161,16 +175,35 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
           className="line-clamp-2 min-h-10 text-pretty text-xs leading-5 text-slate-500"
         />
 
-        {/* 与研发任务卡片同款三缩略图条，点击进站内画廊而不是新开标签页。
-            整卡可点开详情抽屉，所以要拦住冒泡，否则点图会连带把抽屉也打开。 */}
         {previewAttachments.length > 0 ? (
-          <div onClick={(event) => event.stopPropagation()}>
-            <ProgressAttachmentGrid
-              attachments={previewAttachments.map(toRdAttachment)}
-              imageDisplay="thumbnails"
-              maxVisibleImages={3}
-              compact
-            />
+          <div className="grid grid-cols-3 gap-1.5">
+            {previewAttachments.map((attachment) => {
+              const isImage = isImagePreviewSource(
+                attachment.mimeType,
+                attachment.fileName,
+                attachment.fileUrl,
+              );
+              return (
+                <button
+                  key={attachment.id}
+                  type="button"
+                  className="group/attachment min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-left transition hover:border-indigo-300 hover:bg-indigo-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                  aria-label={t("预览附件：{name}", { name: attachment.fileName })}
+                  title={attachment.fileName}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setPreviewAttachment(previewModel(attachment));
+                  }}
+                >
+                  {isImage ? (
+                    <img src={attachment.fileUrl} alt={attachment.fileName} loading="lazy" decoding="async" className="h-16 w-full object-cover transition-transform duration-200 group-hover/attachment:scale-[1.03]" />
+                  ) : (
+                    <div className="flex h-16 items-center justify-center text-slate-400"><Paperclip className="size-4" /></div>
+                  )}
+                  <p className="truncate px-1.5 py-1 text-[9px] text-slate-500 group-hover/attachment:text-indigo-700">{attachment.fileName}</p>
+                </button>
+              );
+            })}
           </div>
         ) : null}
 
@@ -253,7 +286,11 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
           <AutoTranslatedText as="p" text={task.consumableNote} className="truncate text-[10px] text-slate-400" />
         ) : null}
       </div>
-        </article>
+          </article>
+          {previewAttachment ? (
+            <AttachmentPreviewDialog attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
+          ) : null}
+        </>
       )}
     </TaskCriticalMaterialsEditor>
   );

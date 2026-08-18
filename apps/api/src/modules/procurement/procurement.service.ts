@@ -246,6 +246,53 @@ export class ProcurementService {
     private readonly rdService: ResearchDevelopmentService,
   ) {}
 
+  /**
+   * 采购附件与研发驾驶舱共用同一套 OSS 内联预览能力。
+   * bucket 默认强制下载，直接签名 URL 放进 iframe 会触发下载，因此优先返回 CDN inline URL，
+   * 未配置 CDN 时退回带 HMAC capability token 的同源预览代理。
+   */
+  private isAllowedAttachmentFileKey(fileKey: string): boolean {
+    return [
+      OSS_BUSINESS_TYPES.RD_PROGRESS_NOTES,
+      OSS_BUSINESS_TYPES.ASSETS,
+      OSS_BUSINESS_TYPES.UPLOADS_TEMP,
+    ].some((businessType) => this.ossService.isKeyUnderBusinessType(fileKey, businessType));
+  }
+
+  /**
+   * 兼容历史采购附件：旧记录只有短效 oss_url，没有单独保存 fileKey。
+   * 从旧同源预览 URL 的 key 参数或 OSS 路径中恢复 object key，并再次校验业务前缀，
+   * 避免把数据库中的任意 URL 变成可签名的 OSS 读取能力。
+   */
+  private resolveAttachmentFileKey(storedFileKey: string | null, fallbackUrl: string): string | null {
+    const directKey = storedFileKey?.trim().replace(/^\/+/, '') ?? '';
+    if (directKey && this.isAllowedAttachmentFileKey(directKey)) return directKey;
+    if (!fallbackUrl) return null;
+    try {
+      const parsed = new URL(fallbackUrl, 'http://inogi.local');
+      const queryKey = parsed.searchParams.get('key')?.trim().replace(/^\/+/, '') ?? '';
+      if (queryKey && this.isAllowedAttachmentFileKey(queryKey)) return queryKey;
+      const pathKey = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
+      return pathKey && this.isAllowedAttachmentFileKey(pathKey) ? pathKey : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private buildAttachmentPreviewUrl(storedFileKey: string | null, fallbackUrl: string): string {
+    const fileKey = this.resolveAttachmentFileKey(storedFileKey, fallbackUrl);
+    if (!fileKey) return fallbackUrl;
+    const cdnUrl = this.ossService.getCdnReadUrl(fileKey, undefined, 'inline');
+    if (cdnUrl) return cdnUrl;
+    try {
+      const { exp, sig } = this.ossService.signPreviewToken(fileKey, 24 * 3600);
+      const params = new URLSearchParams({ key: fileKey, exp: String(exp), sig });
+      return `/api/research-development/oss-preview?${params.toString()}`;
+    } catch {
+      return this.ossService.getSignedUrl(fileKey, SIGNED_URL_TTL_SECONDS.DOCUMENT) ?? fallbackUrl;
+    }
+  }
+
   async listAuditLogs(query: ProcAuditLogQuery) {
     const requestedPage = boundedAuditPageValue(query.page, 1, 1, Number.MAX_SAFE_INTEGER);
     const pageSize = boundedAuditPageValue(query.pageSize, 20, 10, 100);
@@ -660,7 +707,6 @@ export class ProcurementService {
     let usedAI = false;
     try {
       const result = await this.chatService.complete({
-        scene: 'procurement.requirement_parse',
         system: [
           '你是采购需求解析助手。把用户输入的采购需求（可能含电商商品链接）解析为 JSON 对象，字段：',
           'materialName(物料名称,string,必填,尽量简短规范)、spec(规格型号,string)、unit(单位,string,如 件/个/米)、',
@@ -847,9 +893,7 @@ export class ProcurementService {
     return {
       fileName: a.fileName,
       fileUrl: a.fileUrl,
-      // 客户端没带 key 时从地址反解：只存一条会过期的短效地址、又没有 key 可重签，
-      // 正是存量附件打不开的原因，新数据不要再走进同一个坑。
-      fileKey: a.fileKey ?? this.ossService.extractObjectKey(a.fileUrl),
+      fileKey: a.fileKey ?? null,
       fileSize: a.fileSize ?? 0,
       mimeType: a.mimeType ?? null,
       kind: a.kind ?? 'drawing',
@@ -1191,13 +1235,6 @@ export class ProcurementService {
     const task = await this.requireTask(id);
     if (task.status === 'pending_rd_review') {
       throw new BadRequestException('该申请尚待研发管理员审核，不能从采购流程直接推进');
-    }
-    // 客户端声明的来源状态与实际不符：说明它拿的是过期数据（例如上一次保存后界面没刷新，
-    // 用户又点了一次）。此时每一步单看都合法，放行就会一路推到终态，所以直接拒绝。
-    if (dto.from_status && dto.from_status !== task.status) {
-      throw new ConflictException(
-        `任务已是「${PROC_STATUS_LABELS[task.status as ProcStatus] ?? task.status}」，页面数据已过期，请刷新后再操作`,
-      );
     }
     const target = dto.status as ProcStatus;
     const allowed = PROC_STATUS_TRANSITIONS[task.status as ProcStatus] ?? [];
@@ -3264,27 +3301,15 @@ export class ProcurementService {
       cancelReason: task.cancelReason ?? undefined,
       // 前端 ProcurementTask.attachments 是数量占位，这里同时给出数量与明细
       attachments: task.attachments.length,
-      attachmentList: task.attachments.map((a) => {
-        // 转采购时存下来的是研发模块的短效能力地址（24h 令牌），过期后必然 404。
-        // 这里一律按 object key 在读取时重新构造：存量数据没落 fileKey，就从旧地址的
-        // key 参数里反解。用内联预览地址而不是 OSS 直链——bucket 设了 x-oss-force-download，
-        // 直链会把图片变成强制下载，等于预览不了。
-        const objectKey = a.fileKey ?? this.ossService.extractObjectKey(a.fileUrl);
-        // 卡片上是 64px 高的缩略图，直接挂原图会让每张卡都下载整张大图（列表几十条时
-        // 足以把接口压满）。图片类附件额外给一条 OSS 实时缩放地址，前端优先用它。
-        const thumbUrl = objectKey && (a.mimeType ?? '').startsWith('image/')
-          ? this.ossService.buildInlinePreviewUrl(objectKey, 'image/resize,m_lfit,w_480/format,webp/quality,q_72')
-          : null;
-        return {
-          id: a.id,
-          fileName: a.fileName,
-          fileUrl: (objectKey ? this.ossService.buildInlinePreviewUrl(objectKey) : null) ?? a.fileUrl,
-          ...(thumbUrl ? { thumbUrl } : {}),
-          fileSize: a.fileSize,
-          mimeType: a.mimeType ?? undefined,
-          kind: a.kind,
-        };
-      }),
+      attachmentList: task.attachments.map((a) => ({
+        id: a.id,
+        fileName: a.fileName,
+        // 采购任务保存 OSS object key，读取时重签，避免转采购时保存的短效链接过期。
+        fileUrl: this.buildAttachmentPreviewUrl(a.fileKey, a.fileUrl),
+        fileSize: a.fileSize,
+        mimeType: a.mimeType ?? undefined,
+        kind: a.kind,
+      })),
       purchaseOrders: task.purchaseOrderRefs.map((r) => ({
         id: r.id,
         tpOrderNo: r.tpOrderNo,
