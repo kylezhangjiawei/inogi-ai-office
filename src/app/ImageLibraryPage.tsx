@@ -372,8 +372,11 @@ export function ImageLibraryPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+    // 作品库页签下让页面吃满外壳高度、自身不滚动，把滚动条交给下面的作品列表；
+    // lg 以下不启用（外壳固定 min-w-[1024px]，窄视口本来就是整体横向平移 + 页面滚动）。
+    // 用量监控是长表格，仍走 <main> 的常规滚动。
+    <div className={cn("flex flex-col gap-4", isGalleryTab && "lg:h-full lg:overflow-hidden")}>
+      <div className="flex shrink-0 items-center justify-between gap-3">
         <div className="inline-flex items-center gap-1 rounded-[14px] border border-border bg-surface-container-lowest p-1">
           {TABS.map((tab) => {
             const active = tab === activeTab;
@@ -402,9 +405,9 @@ export function ImageLibraryPage() {
       </div>
 
       {isGalleryTab ? (
-        <section className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <section className="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:flex-row">
           {/* ── 分类侧边栏（同研发知识库：白卡片 + 行内悬停操作 + 子级左边线缩进）── */}
-          <aside className={cn("flex w-full flex-col gap-1 p-2.5 lg:w-72 lg:shrink-0", SURFACE_CARD)}>
+          <aside className={cn("flex w-full flex-col gap-1 p-2.5 lg:w-72 lg:min-h-0 lg:shrink-0 lg:overflow-y-auto", SURFACE_CARD)}>
             <div className="flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold uppercase text-slate-400">
               <span>分类</span>
               {canCreateCategory ? (
@@ -480,8 +483,8 @@ export function ImageLibraryPage() {
           </aside>
 
           {/* ── 内容区 ────────────────────────────────────────────────────── */}
-          <div className="min-w-0 flex-1 space-y-4">
-            <div className={cn("flex flex-col gap-3 rounded-[16px] px-4 py-3.5", glassCard)}>
+          <div className="flex min-w-0 flex-1 flex-col gap-4 lg:min-h-0">
+            <div className={cn("flex shrink-0 flex-col gap-3 rounded-[16px] px-4 py-3.5", glassCard)}>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="relative w-full lg:max-w-xs">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -598,41 +601,36 @@ export function ImageLibraryPage() {
               </div>
             </div>
 
-            {items.length > 0 ? (
-              <>
-                {viewMode === "grid" ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-                    {items.map((item) => (
-                      <ArtworkGridCard
-                        key={item.id}
-                        item={item}
-                        busy={favoriteBusyId === item.id}
-                        category={item.categoryId ? categoryById.get(item.categoryId) ?? null : null}
-                        {...cardHandlers}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {items.map((item) => (
-                      <ArtworkListRow
-                        key={item.id}
-                        item={item}
-                        busy={favoriteBusyId === item.id}
-                        category={item.categoryId ? categoryById.get(item.categoryId) ?? null : null}
-                        {...cardHandlers}
-                      />
-                    ))}
-                  </div>
-                )}
-                <Pager
-                  page={page}
-                  totalPages={totalPages}
-                  onChange={(target) => void loadGallery(target)}
-                  disabled={galleryLoading}
-                />
-              </>
-            ) : galleryLoading ? (
+            {/* 作品列表吃掉剩余高度并自带滚动条，分页条固定在底部不随之滚走 */}
+            <div className="flex flex-col gap-4 lg:min-h-0 lg:flex-1">
+              <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+                {items.length > 0 ? (
+                  viewMode === "grid" ? (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                      {items.map((item) => (
+                        <ArtworkGridCard
+                          key={item.id}
+                          item={item}
+                          busy={favoriteBusyId === item.id}
+                          category={item.categoryId ? categoryById.get(item.categoryId) ?? null : null}
+                          {...cardHandlers}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {items.map((item) => (
+                        <ArtworkListRow
+                          key={item.id}
+                          item={item}
+                          busy={favoriteBusyId === item.id}
+                          category={item.categoryId ? categoryById.get(item.categoryId) ?? null : null}
+                          {...cardHandlers}
+                        />
+                      ))}
+                    </div>
+                  )
+                ) : galleryLoading ? (
               <div className="flex min-h-[40vh] items-center justify-center text-xs font-semibold text-slate-500">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
                 正在加载...
@@ -657,7 +655,16 @@ export function ImageLibraryPage() {
                   去生成图像
                 </Link>
               </div>
-            )}
+                )}
+              </div>
+
+              <Pager
+                page={page}
+                totalPages={totalPages}
+                onChange={(target) => void loadGallery(target)}
+                disabled={galleryLoading}
+              />
+            </div>
           </div>
         </section>
       ) : (
