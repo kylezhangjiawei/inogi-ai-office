@@ -7,7 +7,6 @@ import {
   Coins,
   Download,
   Eye,
-  FolderTree,
   Heart,
   Loader2,
   MessageSquare,
@@ -774,49 +773,22 @@ export function MiniPreview({ imageData, imageUrl }: { imageData?: string; image
   );
 }
 
-/** 作品所属分类的彩色小标签；未归类时显示灰色「未分类」。 */
-export function CategoryChip({ category }: { category?: ImageCategory | null }) {
-  if (!category) {
-    return (
-      <span className="shrink-0 rounded-[6px] border border-border bg-surface-container-low px-2 py-0.5 text-[11px] font-semibold text-slate-400">
-        未分类
-      </span>
-    );
-  }
-  return (
-    <span
-      className="shrink-0 max-w-[9rem] truncate rounded-[6px] border px-2 py-0.5 text-[11px] font-semibold"
-      style={{ borderColor: `${category.color}40`, backgroundColor: `${category.color}14`, color: category.color }}
-      // 徽标只显示末级名称，完整路径放 title，避免深层分类把卡片撑开
-      title={category.path || category.name}
-    >
-      {category.name}
-    </span>
-  );
-}
-
 export function ArtworkCard({
   item,
   index,
   busy,
-  category,
   onPreview,
   onDownload,
   onEdit,
   onFavorite,
-  onAssignCategory,
 }: {
   item: GeneratedImage;
   index: number;
   busy?: boolean;
-  /** 作品所属分类；未传或为 null 时展示「未分类」 */
-  category?: ImageCategory | null;
   onPreview: (item: GeneratedImage) => void;
   onDownload: (item: GeneratedImage) => void;
   onEdit: (item: GeneratedImage) => void;
   onFavorite: (item: GeneratedImage) => void;
-  /** 传入后卡片出现「分类」入口；生成器等无需归类的场景可不传 */
-  onAssignCategory?: (item: GeneratedImage) => void;
 }) {
   const title = item.revisedPrompt || item.prompt;
   const description = `${item.model} · ${formatTime(item.createdAt)}`;
@@ -844,42 +816,28 @@ export function ArtworkCard({
             缓存命中
           </div>
         ) : null}
-        <div
-          className={cn(
-            "absolute inset-x-4 bottom-4 grid overflow-hidden rounded-[8px] border border-white/60 bg-white/88 text-[11px] font-semibold text-slate-700 opacity-95 shadow-[0_16px_32px_rgba(15,23,42,0.2)] backdrop-blur-xl transition md:translate-y-1 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100 md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100",
-            onAssignCategory ? "grid-cols-5" : "grid-cols-4",
-          )}
-        >
-          <button className="flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap px-1 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onPreview(item)}>
+        <div className="absolute inset-x-4 bottom-4 grid grid-cols-4 overflow-hidden rounded-[8px] border border-white/60 bg-white/88 text-[11px] font-semibold text-slate-700 opacity-95 shadow-[0_16px_32px_rgba(15,23,42,0.2)] backdrop-blur-xl transition md:translate-y-1 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100 md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100">
+          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onPreview(item)}>
             <Eye className="h-3.5 w-3.5" />
             预览
           </button>
-          <button className="flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap px-1 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onDownload(item)}>
+          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onDownload(item)}>
             <Download className="h-3.5 w-3.5" />
             下载
           </button>
-          <button className="flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap px-1 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onEdit(item)}>
+          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onEdit(item)}>
             <PencilLine className="h-3.5 w-3.5" />
             修改
           </button>
-          <button className="flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap px-1 py-2 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => onFavorite(item)} disabled={busy}>
+          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => onFavorite(item)} disabled={busy}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Heart className={cn("h-3.5 w-3.5", item.isFavorite ? "fill-rose-500 text-rose-500" : "")} />}
             收藏
           </button>
-          {onAssignCategory ? (
-            <button className="flex cursor-pointer items-center justify-center gap-1 whitespace-nowrap px-1 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onAssignCategory(item)}>
-              <FolderTree className="h-3.5 w-3.5" />
-              分类
-            </button>
-          ) : null}
         </div>
       </div>
       <div className="px-5 py-4">
         <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-5 tracking-tight text-slate-950">{title}</h3>
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <p className="truncate text-xs leading-5 text-slate-500">{description}</p>
-          {onAssignCategory ? <CategoryChip category={category} /> : null}
-        </div>
+        <p className="mt-2 truncate text-xs leading-5 text-slate-500">{description}</p>
         <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-[8px] border border-border bg-surface-container-low px-3 py-2 text-[11px] text-slate-500">
           <span className="font-mono font-semibold tabular-nums text-slate-900">{formatImageCost(item)}</span>
           <span className="truncate text-right font-mono tabular-nums">
