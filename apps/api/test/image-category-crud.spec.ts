@@ -5,10 +5,23 @@ import { ImageGenerationService } from '../src/modules/image-generation/image-ge
 
 type PrismaStub = Record<string, unknown>;
 
-/** 只喂分类相关的 prisma 桩，其余依赖分类逻辑用不到。 */
+/**
+ * 只喂分类相关的 prisma 桩，其余依赖分类逻辑用不到。
+ * updateCategory 会在事务里先 `SELECT ... FOR UPDATE` 锁住分类表，再用事务客户端做校验和写入，
+ * 所以桩要同时提供 $transaction 与 $queryRaw，并把同一个桩当事务客户端回传。
+ */
+function withTransaction(prisma: PrismaStub): PrismaStub {
+  const client: PrismaStub = {
+    ...prisma,
+    $queryRaw: async () => [],
+  };
+  client.$transaction = async (fn: (tx: PrismaStub) => Promise<unknown>) => fn(client);
+  return client;
+}
+
 function makeService(prisma: PrismaStub) {
   return new ImageGenerationService(
-    prisma as never,
+    withTransaction(prisma) as never,
     {} as never,
     {} as never,
     { getSignedUrl: () => null, isEnabled: false } as never,
@@ -308,4 +321,30 @@ test('列表筛选：选中父分类含子孙，叶子精确匹配，uncategoriz
   assert.equal(wheres[1].categoryId, 'leaf-a');
   assert.equal(wheres[2].categoryId, null);
   assert.equal('categoryId' in wheres[3], false);
+});
+
+// 防的是并发移动留下的成环数据：没有 visited 保护时 subtreeHeight 会 A→B→A 无限互递归爆栈，
+// 让此后每一次移动校验都 500。updateCategory 已改为锁行事务，这里守住"万一还是成了环"的兜底。
+test('父子关系成环时校验不爆栈，仍能给出正常业务报错', async () => {
+  const cyclic = [
+    category({ id: 'a', name: 'A', parentId: 'b' }),
+    category({ id: 'b', name: 'B', parentId: 'a' }),
+    category({ id: 'root-c', name: 'C', parentId: null }),
+  ];
+  const service = makeService({
+    imageCategory: {
+      findUnique: async () => category({ id: 'a', parentId: 'b' }),
+      findMany: async () => cyclic,
+    },
+  });
+
+  // 不抛 RangeError，而是走正常的业务校验分支
+  await assert.rejects(
+    () => service.updateCategory('a', { parentId: 'b' }),
+    (error: Error) => error.name !== 'RangeError',
+  );
+  await assert.rejects(
+    () => service.updateCategory('a', { parentId: 'root-c' }),
+    (error: Error) => error.name !== 'RangeError',
+  );
 });

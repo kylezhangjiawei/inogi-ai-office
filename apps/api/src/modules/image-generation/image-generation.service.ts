@@ -29,6 +29,8 @@ const IMAGE_DOWNLOAD_TIMEOUT_MS = 120_000;
 const UNCATEGORIZED_FILTER = 'uncategorized';
 /** 分类树最大层数（根为第 1 层）。 */
 const MAX_CATEGORY_DEPTH = 3;
+/** 分类校验既可能跑在普通连接上，也可能跑在事务里。 */
+type CategoryDbClient = Pick<PrismaService, 'imageCategory'> | Prisma.TransactionClient;
 const DEFAULT_CATEGORY_COLOR = '#3b82f6';
 
 type ImageGenerationTaskStatus = 'pending' | 'processing' | 'completed' | 'failed';
@@ -1090,30 +1092,38 @@ export class ImageGenerationService {
       sortOrder?: number;
     },
   ) {
-    const current = await this.assertCategoryExists(id);
-    const data: Prisma.ImageCategoryUncheckedUpdateInput = {};
-    // 改名要按「改完之后的父节点」查同级重名，否则同一次请求里既移动又改名会漏判
-    let targetParentId = current.parentId;
+    // 整段放进事务并先锁住分类表：移动校验要读全量父子关系，不加锁时两个并发移动
+    // （A 移到 B 下、B 移到 A 下）会各自读到"移动前"快照、双双通过环检测，写出一个
+    // 谁也修不了的环——成环节点在 buildCategoryTree 里从根不可达，会直接从界面上消失。
+    // 分类目录只有寥寥数行，锁全表的代价可以忽略。
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "ImageCategory" FOR UPDATE`;
 
-    if (dto.parentId !== undefined) {
-      targetParentId = dto.parentId?.trim() || null;
-      if (targetParentId !== current.parentId) {
-        await this.assertCategoryMoveAllowed(id, targetParentId);
-        data.parentId = targetParentId;
+      const current = await this.assertCategoryExists(id, tx);
+      const data: Prisma.ImageCategoryUncheckedUpdateInput = {};
+      // 改名要按「改完之后的父节点」查同级重名，否则同一次请求里既移动又改名会漏判
+      let targetParentId = current.parentId;
+
+      if (dto.parentId !== undefined) {
+        targetParentId = dto.parentId?.trim() || null;
+        if (targetParentId !== current.parentId) {
+          await this.assertCategoryMoveAllowed(id, targetParentId, tx);
+          data.parentId = targetParentId;
+        }
       }
-    }
 
-    if (dto.name !== undefined) {
-      const name = dto.name.trim();
-      if (!name) throw new BadRequestException('分类名称不能为空');
-      await this.assertCategoryNameAvailable(name, targetParentId, id);
-      data.name = name;
-    }
-    if (dto.description !== undefined) data.description = dto.description.trim();
-    if (dto.color !== undefined) data.color = dto.color.trim() || DEFAULT_CATEGORY_COLOR;
-    if (dto.sortOrder !== undefined) data.sortOrder = dto.sortOrder;
+      if (dto.name !== undefined) {
+        const name = dto.name.trim();
+        if (!name) throw new BadRequestException('分类名称不能为空');
+        await this.assertCategoryNameAvailable(name, targetParentId, id, tx);
+        data.name = name;
+      }
+      if (dto.description !== undefined) data.description = dto.description.trim();
+      if (dto.color !== undefined) data.color = dto.color.trim() || DEFAULT_CATEGORY_COLOR;
+      if (dto.sortOrder !== undefined) data.sortOrder = dto.sortOrder;
 
-    return this.prisma.imageCategory.update({ where: { id }, data });
+      return tx.imageCategory.update({ where: { id }, data });
+    });
   }
 
   /**
@@ -1147,14 +1157,19 @@ export class ImageGenerationService {
     });
   }
 
-  private async assertCategoryExists(id: string) {
-    const category = await this.prisma.imageCategory.findUnique({ where: { id } });
+  private async assertCategoryExists(id: string, client: CategoryDbClient = this.prisma) {
+    const category = await client.imageCategory.findUnique({ where: { id } });
     if (!category) throw new NotFoundException('分类不存在');
     return category;
   }
 
-  private async assertCategoryNameAvailable(name: string, parentId: string | null, excludeId?: string) {
-    const existing = await this.prisma.imageCategory.findFirst({
+  private async assertCategoryNameAvailable(
+    name: string,
+    parentId: string | null,
+    excludeId?: string,
+    client: CategoryDbClient = this.prisma,
+  ) {
+    const existing = await client.imageCategory.findFirst({
       where: { name, parentId, ...(excludeId ? { id: { not: excludeId } } : {}) },
       select: { id: true },
     });
@@ -1162,11 +1177,15 @@ export class ImageGenerationService {
   }
 
   /** 移动分类：父节点必须存在、不能落到自己的子树里、移动后整棵子树不能超过层数上限。 */
-  private async assertCategoryMoveAllowed(id: string, targetParentId: string | null) {
+  private async assertCategoryMoveAllowed(
+    id: string,
+    targetParentId: string | null,
+    client: CategoryDbClient = this.prisma,
+  ) {
     if (!targetParentId) return;
     if (targetParentId === id) throw new BadRequestException('不能把分类移动到自己下面');
 
-    const categories = await this.prisma.imageCategory.findMany({ select: { id: true, parentId: true } });
+    const categories = await client.imageCategory.findMany({ select: { id: true, parentId: true } });
     if (!categories.some((item) => item.id === targetParentId)) {
       throw new NotFoundException('父分类不存在');
     }
@@ -1194,11 +1213,21 @@ export class ImageGenerationService {
     return depth;
   }
 
-  /** 子树自身的高度（只有自己 = 1）。 */
-  private subtreeHeight(id: string, categories: Array<{ id: string; parentId: string | null }>): number {
+  /**
+   * 子树自身的高度（只有自己 = 1）。
+   * visited 是防环保护：父子关系一旦成环（并发移动的历史遗留数据），没有它这里会无限
+   * 互递归到爆栈，把接口打成 500。同文件的 categoryDepth / collectSubtreeIds 同样做了防护。
+   */
+  private subtreeHeight(
+    id: string,
+    categories: Array<{ id: string; parentId: string | null }>,
+    visited: Set<string> = new Set(),
+  ): number {
+    if (visited.has(id)) return 1;
+    visited.add(id);
     const children = categories.filter((item) => item.parentId === id);
     if (children.length === 0) return 1;
-    return 1 + Math.max(...children.map((child) => this.subtreeHeight(child.id, categories)));
+    return 1 + Math.max(...children.map((child) => this.subtreeHeight(child.id, categories, visited)));
   }
 
   /** 自己 + 所有子孙的 id。 */
