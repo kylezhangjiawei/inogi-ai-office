@@ -129,6 +129,15 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'image-category:edit', label: '编辑图像分类', description: '修改图像分类的名称、说明、颜色与排序', groupLabel: '操作权限 · AI 创作', type: 'action', sortOrder: 308 },
   { code: 'image-category:delete', label: '删除图像分类', description: '删除图像分类，分类下的作品保留并转为未分类', groupLabel: '操作权限 · AI 创作', type: 'action', sortOrder: 309 },
 
+  // 视频作品库分类：与图像分类同构，「查」跟随 page:video-library
+  { code: 'video-category:create', label: '新增视频分类', description: '在视频作品库中新建分类', groupLabel: '操作权限 · AI 创作', type: 'action', sortOrder: 310 },
+  { code: 'video-category:edit', label: '编辑视频分类', description: '修改视频分类的名称、说明、颜色与排序', groupLabel: '操作权限 · AI 创作', type: 'action', sortOrder: 311 },
+  { code: 'video-category:delete', label: '删除视频分类', description: '删除视频分类，分类下的视频保留并转为未分类', groupLabel: '操作权限 · AI 创作', type: 'action', sortOrder: 312 },
+
+  // 上传本地素材进作品库：与生成作品同库同分类，权限单独收口
+  { code: 'image-library:upload', label: '上传图片到作品库', description: '把本地图片上传进图像作品库', groupLabel: '操作权限 · AI 创作', type: 'action', sortOrder: 313 },
+  { code: 'video-library:upload', label: '上传视频到作品库', description: '把本地视频上传进视频作品库', groupLabel: '操作权限 · AI 创作', type: 'action', sortOrder: 314 },
+
   { code: 'page:inquiry', label: '多渠道询盘', groupLabel: '页面访问 · 沟通协同', type: 'page', routePath: '/inquiry', sortOrder: 400 },
   { code: 'page:meeting', label: '会议纪要', groupLabel: '页面访问 · 沟通协同', type: 'page', routePath: '/meeting', sortOrder: 410 },
   { code: 'page:email-ai', label: '邮件 AI 写作', groupLabel: '页面访问 · 沟通协同', type: 'page', routePath: '/email-ai', sortOrder: 420 },

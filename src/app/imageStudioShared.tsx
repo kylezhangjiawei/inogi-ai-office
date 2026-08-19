@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Coins,
   Download,
   Eye,
@@ -35,6 +33,11 @@ import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { MobileZoomableImage } from "./components/MobileZoomableImage";
 import { authFetch, readErrorMessage } from "./lib/authSession";
+import { flattenCategories } from "./lib/mediaCategory";
+import { Pager } from "./components/Pager";
+
+// 分页器由两个作品库共用，实现搬到 components/Pager，这里转出让原有引用不受影响。
+export { Pager };
 import type { AiModelOption } from "./lib/aiModelOptions";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -181,22 +184,13 @@ export type ImageCategoryListResponse = {
   totalCount: number;
 };
 
-/** 作品库「未分类」筛选值，与后端 buildCategoryFilter 约定一致。 */
-export const UNCATEGORIZED_FILTER = "uncategorized";
-/** 分类树最大层数，与后端 MAX_CATEGORY_DEPTH 一致。 */
-export const MAX_CATEGORY_DEPTH = 3;
+// 分类目录的约定（未分类筛选值、层数上限）图像与视频作品库共用，统一放在 lib/mediaCategory，
+// 这里转出去让原有引用处不用改。
+export { MAX_CATEGORY_DEPTH, UNCATEGORIZED_FILTER } from "./lib/mediaCategory";
 
 /** 把嵌套树按前序展开成平铺数组，便于渲染缩进列表与做 id 索引。 */
 export function flattenCategoryTree(categories: ImageCategory[]): ImageCategory[] {
-  const flat: ImageCategory[] = [];
-  const walk = (nodes: ImageCategory[]) => {
-    for (const node of nodes) {
-      flat.push(node);
-      walk(node.children ?? []);
-    }
-  };
-  walk(categories);
-  return flat;
+  return flattenCategories(categories);
 }
 
 export type ImageUsageEntry = {
@@ -501,6 +495,24 @@ export async function apiDeleteCategory(id: string): Promise<{
     deletedCategoryCount: number;
     deletedCategoryIds: string[];
   }>;
+}
+
+/** 本地图片入库：fileId 来自 uploadResourceFile（businessType=library/images）。 */
+export async function apiUploadImage(body: {
+  fileId: string;
+  categoryId?: string | null;
+  title?: string;
+  size?: string;
+}): Promise<GeneratedImage> {
+  const response = await authFetch("/api/image-generation/images/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "图片入库失败"));
+  }
+  return response.json() as Promise<GeneratedImage>;
 }
 
 export async function apiAssignImageCategory(
@@ -1128,78 +1140,6 @@ export function ImageEditModal({
         </div>
       </div>
     </div>
-  );
-}
-
-function buildPageList(page: number, totalPages: number): Array<number | "ellipsis"> {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, index) => index + 1);
-  }
-  const pages: Array<number | "ellipsis"> = [1];
-  const start = Math.max(2, page - 1);
-  const end = Math.min(totalPages - 1, page + 1);
-  if (start > 2) pages.push("ellipsis");
-  for (let i = start; i <= end; i += 1) pages.push(i);
-  if (end < totalPages - 1) pages.push("ellipsis");
-  pages.push(totalPages);
-  return pages;
-}
-
-/** Numbered pager in the glass visual language; renders nothing for a single page. */
-export function Pager({
-  page,
-  totalPages,
-  onChange,
-  disabled,
-}: {
-  page: number;
-  totalPages: number;
-  onChange: (page: number) => void;
-  disabled?: boolean;
-}) {
-  if (totalPages <= 1) return null;
-  const base =
-    "flex h-9 min-w-9 cursor-pointer items-center justify-center rounded-[12px] border px-2.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50";
-  const inactive = "border-border bg-surface-container-lowest text-slate-600 hover:border-primary/30 hover:text-primary";
-  return (
-    <nav className="flex flex-wrap items-center justify-center gap-1.5" aria-label="分页">
-      <button
-        type="button"
-        className={cn(base, inactive)}
-        disabled={disabled || page <= 1}
-        onClick={() => onChange(page - 1)}
-        aria-label="上一页"
-      >
-        <ChevronLeft className="h-4 w-4" />
-      </button>
-      {buildPageList(page, totalPages).map((entry, index) =>
-        entry === "ellipsis" ? (
-          <span key={`ellipsis-${index}`} className="flex h-9 min-w-9 items-center justify-center text-xs text-slate-400">
-            …
-          </span>
-        ) : (
-          <button
-            key={entry}
-            type="button"
-            aria-current={entry === page ? "page" : undefined}
-            className={cn(base, entry === page ? "border-transparent bg-primary text-primary-foreground shadow-sm" : inactive)}
-            disabled={disabled}
-            onClick={() => onChange(entry)}
-          >
-            {entry}
-          </button>
-        ),
-      )}
-      <button
-        type="button"
-        className={cn(base, inactive)}
-        disabled={disabled || page >= totalPages}
-        onClick={() => onChange(page + 1)}
-        aria-label="下一页"
-      >
-        <ChevronRight className="h-4 w-4" />
-      </button>
-    </nav>
   );
 }
 

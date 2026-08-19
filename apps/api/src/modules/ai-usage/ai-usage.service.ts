@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { UPLOADED_MEDIA_MARKER } from '../../common/media-upload.constants';
 
 export type UsageRange = 'today' | 'month' | 'year';
 
@@ -376,8 +377,9 @@ export class AiUsageService {
       });
     }
 
+    // 上传入库的作品不是 AI 调用，成本与 token 都是 0，回填进用量表会凭空多出一堆零成本记录
     const images = await this.prisma.generatedImage.findMany({
-      where: { createdAt: { lt: cutoff } },
+      where: { createdAt: { lt: cutoff }, model: { not: UPLOADED_MEDIA_MARKER } },
       select: { userId: true, model: true, totalTokens: true, estimatedCostUsd: true, createdAt: true },
     });
     if (images.length) {
@@ -395,7 +397,11 @@ export class AiUsageService {
     }
 
     const videos = await this.prisma.videoGeneration.findMany({
-      where: { status: { not: 'failed' }, createdAt: { lt: cutoff } },
+      where: {
+        status: { not: 'failed' },
+        mode: { not: UPLOADED_MEDIA_MARKER },
+        createdAt: { lt: cutoff },
+      },
       select: { userId: true, model: true, costYuan: true, billedSeconds: true, createdAt: true },
     });
     if (videos.length) {

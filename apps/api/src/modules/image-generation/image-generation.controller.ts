@@ -22,6 +22,7 @@ import {
   UpdateImageCategoryDto,
 } from './dto/image-category.dto';
 import { CreatePromptChatSessionDto, PromptChatDto } from './dto/prompt-chat.dto';
+import { UploadImageDto } from './dto/upload-image.dto';
 import { ImageGenerationService } from './image-generation.service';
 
 type RequestUser = {
@@ -104,6 +105,14 @@ export class ImageGenerationController {
       query,
       categoryId,
     );
+  }
+
+  /** 本地图片入库：文件已经由 /api/files 直传 OSS，这里只登记成作品库记录。 */
+  @Post('images/upload')
+  @Permissions('image-library:upload')
+  uploadImage(@Req() req: Request, @Body() dto: UploadImageDto) {
+    const userId = this.getUserId(req);
+    return this.service.uploadImage(userId, dto);
   }
 
   // ── 作品库分类 ──────────────────────────────────────────────────────────────

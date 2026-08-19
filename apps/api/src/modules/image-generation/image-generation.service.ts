@@ -14,6 +14,17 @@ import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { EditImageDto } from './dto/edit-image.dto';
 import { GenerateImageDto } from './dto/generate-image.dto';
 import { CreatePromptChatSessionDto, PromptChatDto } from './dto/prompt-chat.dto';
+import { UploadImageDto } from './dto/upload-image.dto';
+import { OSS_BUSINESS_TYPES } from '../oss/oss.constants';
+import { UPLOADED_MEDIA_MARKER } from '../../common/media-upload.constants';
+import {
+  categoryDepth,
+  collectSubtreeIds,
+  subtreeHeight,
+  DEFAULT_CATEGORY_COLOR,
+  MAX_CATEGORY_DEPTH,
+  UNCATEGORIZED_FILTER,
+} from '../../common/category-tree.util';
 
 const CACHE_SIMILARITY_THRESHOLD = 0.65;
 const DEFAULT_IMAGE_TO_IMAGE_MODEL = 'gpt-image-1';
@@ -25,13 +36,8 @@ const IMAGE_GENERATION_TASK_TTL_MS = 60 * 60 * 1000;
 // 取 2min——下载一张已生成的图片本应秒级完成，且远小于上游生成 20min 预算，
 // 这样「下载卡死」会在前端 20min 兜底超时之前就以明确错误暴露出来。
 const IMAGE_DOWNLOAD_TIMEOUT_MS = 120_000;
-/** 作品库「未分类」筛选值：与真实分类 id 区分开（cuid 不会等于该字面量）。 */
-const UNCATEGORIZED_FILTER = 'uncategorized';
-/** 分类树最大层数（根为第 1 层）。 */
-const MAX_CATEGORY_DEPTH = 3;
 /** 分类校验既可能跑在普通连接上，也可能跑在事务里。 */
 type CategoryDbClient = Pick<PrismaService, 'imageCategory'> | Prisma.TransactionClient;
-const DEFAULT_CATEGORY_COLOR = '#3b82f6';
 
 type ImageGenerationTaskStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
@@ -827,7 +833,9 @@ export class ImageGenerationService {
     const requestId = randomUUID();
     const style = dto.style ?? this.normalizeStoredStyle(source.style);
     const size = dto.size ?? this.normalizeStoredSize(source.size);
-    const requestedModel = dto.model?.trim() || source.model || DEFAULT_IMAGE_TO_IMAGE_MODEL;
+    // 上传件的 model 存的是 'upload' 标记，不是真模型名，兜底时要跳过
+    const storedModel = source.model === UPLOADED_MEDIA_MARKER ? '' : source.model;
+    const requestedModel = dto.model?.trim() || storedModel || DEFAULT_IMAGE_TO_IMAGE_MODEL;
     const recentMessagesDesc = await this.prisma.imageEditMessage.findMany({
       where: { userId, rootImageId },
       orderBy: { createdAt: 'desc' },
@@ -859,7 +867,7 @@ export class ImageGenerationService {
       this.assertPromptLength(composedPrompt, effectiveModel);
       const referenceImageDataList = this.getReferenceImageDataList(dto.reference_image_data, undefined);
       if (referenceImageDataList.length === 0) {
-        referenceImageDataList.push(source.imageData);
+        referenceImageDataList.push(await this.resolveSourceImageData(source));
       }
       const referenceImageInfo = this.getReferenceImagesInfo(referenceImageDataList);
       const client = new OpenAI({
@@ -1015,9 +1023,68 @@ export class ImageGenerationService {
   // ── 删除 ─────────────────────────────────────────────────────────────────────
 
   async deleteImage(id: string, userId: string) {
-    await this.assertOwner(id, userId);
+    const img = await this.assertOwner(id, userId);
+    // 上传入库的原图只有这一份引用，删记录就得连 OSS 对象一起清，否则永远没人回收；
+    // 生成件维持原有行为（记录删、对象留），编辑链路上的历史版本还可能引用同一张图。
+    const objectKey =
+      img.model === UPLOADED_MEDIA_MARKER && img.imageUrl && !img.imageUrl.startsWith('http')
+        ? img.imageUrl
+        : null;
+    if (objectKey) {
+      await this.ossService.deleteObject(objectKey).catch((err) => {
+        this.logger.warn(`删除 OSS 图片对象失败 ${objectKey}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+      await this.prisma.fileAsset.updateMany({
+        where: { objectKey, status: 'active' },
+        data: { status: 'deleted', deletedAt: new Date() },
+      });
+    }
     await this.prisma.generatedImage.delete({ where: { id } });
     return { ok: true };
+  }
+
+  // ── 本地上传入库 ─────────────────────────────────────────────────────────────
+
+  /**
+   * 把用户上传到 OSS 的本地图片登记成作品库记录：与生成作品同表同列表，
+   * 仅靠 model='upload' 与零成本区分，这样收藏、分类、筛选、编辑全都直接复用。
+   */
+  async uploadImage(userId: string, dto: UploadImageDto) {
+    const asset = await this.prisma.fileAsset.findFirst({
+      where: { id: dto.fileId?.trim(), status: 'active' },
+      select: { objectKey: true, mimeType: true, fileName: true, uploadedBy: true },
+    });
+    if (!asset || !/^image\//i.test(asset.mimeType)) {
+      throw new BadRequestException('上传文件不存在或不是图片');
+    }
+    if (asset.uploadedBy && asset.uploadedBy !== userId) {
+      throw new ForbiddenException('只能把自己上传的文件加入作品库');
+    }
+    // 只认 library/images 前缀：否则拿别处（简历、报销单）的 fileId 就能把私有文件搬进作品库
+    if (!this.ossService.isKeyUnderBusinessType(asset.objectKey, OSS_BUSINESS_TYPES.LIBRARY_IMAGES)) {
+      throw new BadRequestException('该文件不是上传到图像作品库的');
+    }
+
+    const categoryId = dto.categoryId?.trim() || null;
+    if (categoryId) await this.assertCategoryExists(categoryId);
+
+    const saved = await this.prisma.generatedImage.create({
+      data: {
+        userId,
+        prompt: dto.title?.trim() || asset.fileName,
+        revisedPrompt: '',
+        style: '',
+        size: dto.size?.trim() || '',
+        quality: '',
+        // 上传件不留 base64：原图在 OSS，imageUrl 存 objectKey，与生成件落库后的形态一致
+        imageData: '',
+        imageUrl: asset.objectKey,
+        model: UPLOADED_MEDIA_MARKER,
+        categoryId,
+      },
+    });
+
+    return { ...this.toResponse(saved), categoryId: saved.categoryId };
   }
 
   // ── 作品库分类（全局共享目录）────────────────────────────────────────────────
@@ -1067,7 +1134,7 @@ export class ImageGenerationService {
         const parent = categories.find((item) => item.id === parentId);
         if (!parent) throw new NotFoundException('父分类不存在');
         // 父节点已经在第 MAX 层时，新建的子节点就会越界
-        if (this.categoryDepth(parentId, categories) >= MAX_CATEGORY_DEPTH) {
+        if (categoryDepth(parentId, categories) >= MAX_CATEGORY_DEPTH) {
           throw new BadRequestException(`分类最多 ${MAX_CATEGORY_DEPTH} 层`);
         }
       }
@@ -1142,7 +1209,7 @@ export class ImageGenerationService {
   async deleteCategory(id: string) {
     await this.assertCategoryExists(id);
     const categories = await this.prisma.imageCategory.findMany({ select: { id: true, parentId: true } });
-    const affectedIds = this.collectSubtreeIds(id, categories);
+    const affectedIds = collectSubtreeIds(id, categories);
     const detached = await this.prisma.generatedImage.count({ where: { categoryId: { in: affectedIds } } });
     await this.prisma.imageCategory.delete({ where: { id } });
     return {
@@ -1198,56 +1265,15 @@ export class ImageGenerationService {
     if (!categories.some((item) => item.id === targetParentId)) {
       throw new NotFoundException('父分类不存在');
     }
-    if (this.collectSubtreeIds(id, categories).includes(targetParentId)) {
+    if (collectSubtreeIds(id, categories).includes(targetParentId)) {
       throw new BadRequestException('不能把分类移动到自己的子分类下面');
     }
 
-    const parentDepth = this.categoryDepth(targetParentId, categories);
-    const subtreeHeight = this.subtreeHeight(id, categories);
-    if (parentDepth + subtreeHeight > MAX_CATEGORY_DEPTH) {
+    const parentDepth = categoryDepth(targetParentId, categories);
+    const height = subtreeHeight(id, categories);
+    if (parentDepth + height > MAX_CATEGORY_DEPTH) {
       throw new BadRequestException(`分类最多 ${MAX_CATEGORY_DEPTH} 层`);
     }
-  }
-
-  /** 节点自身的层号，根为 1。 */
-  private categoryDepth(id: string, categories: Array<{ id: string; parentId: string | null }>): number {
-    const byId = new Map(categories.map((item) => [item.id, item]));
-    let depth = 1;
-    let cursor = byId.get(id)?.parentId ?? null;
-    // 上限兜底：数据异常成环时不至于死循环
-    while (cursor && depth <= MAX_CATEGORY_DEPTH + 1) {
-      depth += 1;
-      cursor = byId.get(cursor)?.parentId ?? null;
-    }
-    return depth;
-  }
-
-  /**
-   * 子树自身的高度（只有自己 = 1）。
-   * visited 是防环保护：父子关系一旦成环（并发移动的历史遗留数据），没有它这里会无限
-   * 互递归到爆栈，把接口打成 500。同文件的 categoryDepth / collectSubtreeIds 同样做了防护。
-   */
-  private subtreeHeight(
-    id: string,
-    categories: Array<{ id: string; parentId: string | null }>,
-    visited: Set<string> = new Set(),
-  ): number {
-    if (visited.has(id)) return 1;
-    visited.add(id);
-    const children = categories.filter((item) => item.parentId === id);
-    if (children.length === 0) return 1;
-    return 1 + Math.max(...children.map((child) => this.subtreeHeight(child.id, categories, visited)));
-  }
-
-  /** 自己 + 所有子孙的 id。 */
-  private collectSubtreeIds(id: string, categories: Array<{ id: string; parentId: string | null }>): string[] {
-    const ids = [id];
-    for (let cursor = 0; cursor < ids.length; cursor += 1) {
-      for (const item of categories) {
-        if (item.parentId === ids[cursor] && !ids.includes(item.id)) ids.push(item.id);
-      }
-    }
-    return ids;
   }
 
   /** 平铺记录 → 嵌套树，同时把直接计数汇总成含子孙的 totalImageCount。 */
@@ -1606,7 +1632,7 @@ export class ImageGenerationService {
     if (value === UNCATEGORIZED_FILTER) return { categoryId: null };
 
     const categories = await this.prisma.imageCategory.findMany({ select: { id: true, parentId: true } });
-    const ids = this.collectSubtreeIds(value, categories);
+    const ids = collectSubtreeIds(value, categories);
     return ids.length > 1 ? { categoryId: { in: ids } } : { categoryId: value };
   }
 
@@ -2188,6 +2214,22 @@ export class ImageGenerationService {
   private supportsImageEdit(model: string) {
     const normalized = model.toLowerCase();
     return normalized.includes('gpt-image') || normalized === 'dall-e-2';
+  }
+
+  /**
+   * 取源图的 base64 data URL 作为编辑参考图。生成件落库时就带着 base64；
+   * 上传入库的作品只存 OSS objectKey（不存 base64），这里按需回源下载一次，
+   * 否则编辑上传件会拿着空字符串去调上游。
+   */
+  private async resolveSourceImageData(source: { imageData: string; imageUrl?: string | null }): Promise<string> {
+    if (source.imageData) return source.imageData;
+    const url = source.imageUrl
+      ? (source.imageUrl.startsWith('http')
+          ? source.imageUrl
+          : this.ossService.getSignedUrl(source.imageUrl, 600))
+      : null;
+    if (!url) throw new BadRequestException('源图不可用，无法编辑');
+    return this.downloadToBase64(url);
   }
 
   private async downloadToBase64(url: string): Promise<string> {
