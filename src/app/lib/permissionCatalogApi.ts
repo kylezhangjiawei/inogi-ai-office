@@ -1,4 +1,7 @@
+import { useEffect, useState } from "react";
+
 import { authFetch, readErrorMessage } from "./authSession";
+import { cacheRoutePaths } from "./routePaths";
 
 export type PermissionCatalogPermission = {
   code: string;
@@ -93,3 +96,49 @@ export const permissionCatalogApi = {
     });
   },
 };
+
+type NavMetaItem = { code: string; routePath: string; navHidden: boolean };
+
+/**
+ * 同一用户内共享一次 nav-meta 请求：侧栏与知识库统一入口都要按 navHidden 过滤，
+ * 各发各的既多一次往返，也可能拿到两份不同快照（侧栏藏了、下拉里还列着）。
+ */
+let navMetaCache: { userId: string; promise: Promise<NavMetaItem[]> } | null = null;
+
+function loadNavMeta(userId: string) {
+  if (navMetaCache?.userId !== userId) {
+    navMetaCache = { userId, promise: permissionCatalogApi.getNavMeta() };
+  }
+  return navMetaCache.promise;
+}
+
+const EMPTY_CODES: ReadonlySet<string> = new Set<string>();
+
+/**
+ * 「导航隐藏」的权限码集合。传 undefined（未登录）时返回空集。
+ * 接口失败一律当作「没有隐藏项」，不能因为目录接口挂了把导航锁死。
+ */
+export function useNavHiddenCodes(userId: string | undefined): ReadonlySet<string> {
+  const [codes, setCodes] = useState<ReadonlySet<string>>(EMPTY_CODES);
+
+  useEffect(() => {
+    if (!userId) {
+      setCodes(EMPTY_CODES);
+      return;
+    }
+    let cancelled = false;
+    loadNavMeta(userId)
+      .then((items) => {
+        if (cancelled) return;
+        setCodes(new Set(items.filter((item) => item.navHidden).map((item) => item.code)));
+        // 顺带把自定义路径写入缓存，供**下次加载**建路由时使用（本次会话的路由表已定型）
+        cacheRoutePaths(items);
+      })
+      .catch(() => { /* silently ignore — show all items on error */ });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  return codes;
+}
