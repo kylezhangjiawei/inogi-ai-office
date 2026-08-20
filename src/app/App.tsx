@@ -104,13 +104,9 @@ const VideoLibraryPage = lazyNamed(() => import("./VideoLibraryPage"), "VideoLib
 const DictionaryList = lazyNamed(() => import("./DictionaryList"), "DictionaryList");
 const UserManagement = lazyNamed(() => import("./UserManagement"), "UserManagement");
 
-type RuntimeHealthResponse = {
-  ok: boolean;
-  service?: string;
-  timestamp?: string;
+type RuntimeFrontendVersion = {
   release?: string;
   git_sha?: string;
-  started_at?: string;
 };
 
 const FRONTEND_RELEASE = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? "dev";
@@ -129,9 +125,8 @@ function RuntimeVersionGuard() {
 
     async function checkRuntimeVersion() {
       try {
-        const response = await fetch("/api/health", {
+        const response = await fetch("/version.json", {
           method: "GET",
-          credentials: "include",
           cache: "no-store",
         });
 
@@ -139,25 +134,25 @@ function RuntimeVersionGuard() {
           return;
         }
 
-        const payload = (await response.json()) as RuntimeHealthResponse;
+        const payload = (await response.json()) as RuntimeFrontendVersion;
         if (cancelled) {
           return;
         }
 
-        const backendRelease = payload.release ?? "unknown";
-        const backendGitSha = payload.git_sha ?? "unknown";
+        const deployedFrontendRelease = payload.release ?? "unknown";
+        const deployedFrontendGitSha = payload.git_sha ?? "unknown";
         const hasComparableVersion =
-          backendGitSha !== "unknown" &&
+          deployedFrontendGitSha !== "unknown" &&
           FRONTEND_GIT_SHA !== "unknown" &&
-          backendRelease !== "unknown" &&
+          deployedFrontendRelease !== "unknown" &&
           FRONTEND_RELEASE !== "dev";
 
         if (!hasComparableVersion) {
           return;
         }
 
-        const sameRelease = backendRelease === FRONTEND_RELEASE;
-        const sameCommit = backendGitSha === FRONTEND_GIT_SHA;
+        const sameRelease = deployedFrontendRelease === FRONTEND_RELEASE;
+        const sameCommit = deployedFrontendGitSha === FRONTEND_GIT_SHA;
         if (sameRelease && sameCommit) {
           // 已是最新：清掉残留的提示与去重标记。
           sessionStorage.removeItem(RUNTIME_VERSION_NOTICE_KEY);
@@ -167,7 +162,7 @@ function RuntimeVersionGuard() {
 
         // 当前页面加载的前端版本与服务端已部署版本不一致 —— 原子部署下即「有新版本」。
         // 同一个目标版本只提示一次，避免轮询反复打扰。
-        const noticeKey = `${backendRelease}:${backendGitSha}`;
+        const noticeKey = `${deployedFrontendRelease}:${deployedFrontendGitSha}`;
         if (sessionStorage.getItem(RUNTIME_VERSION_NOTICE_KEY) === noticeKey) {
           return;
         }

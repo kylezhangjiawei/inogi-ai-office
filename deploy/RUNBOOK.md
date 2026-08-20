@@ -12,8 +12,8 @@
         │  检出代码到工作目录，触发 scripts/deploy.sh
         ▼
 工作目录 /opt/inogi-ai-office-system
-        │  装依赖(镜像) → 构建前端 → argon2自愈 → 构建后端
-        │  → 备份数据库 → prisma migrate → 发布前端 → 重启 → reload nginx
+        │  计算变更范围 → 只构建/检查受影响的一端
+        │  → 仅有 migration 时备份并迁移 → 按需发布前端或重启 API
         ▼
   后端 pm2「inogi-api」(:3000)   前端 dist → /usr/share/nginx/html/weoxy-test
   数据库 原生 PostgreSQL「inogi」(localhost:5432)   nginx 站点 weoxymedical.com
@@ -49,6 +49,16 @@ EOF
 
 开发者本地 `git push origin main` 即可，全自动。无需上服务器。
 
+发布脚本会把成功版本的输入指纹保存到 `.deploy-cache/deploy-inputs.json`。下一次发布按内容变化选择阶段：
+
+- 纯前端改动：前端构建、前端类型检查、静态文件同步；
+- 纯 API 改动：API 构建、API 测试、PM2 重启；
+- Prisma schema 改动：重新生成 Client，并构建/测试 API；
+- migration 改动：先备份数据库，再执行 `prisma migrate deploy`；
+- 文档等非运行文件改动：跳过构建与重启。
+
+首次启用、缓存丢失或发布逻辑自身变化时会保守执行一次全量发布。变更快照只在全部阶段成功后更新，失败重试不会误跳过阶段。
+
 每次发布都会额外写一份结构化基线记录，不改变原有发布结果。查看最近一次：
 
 ```bash
@@ -67,12 +77,14 @@ SHA=$(git --git-dir=/opt/git/inogi-ai-office.git rev-parse main)
 DEPLOY_SKIP_GIT=1 DEPLOY_GIT_SHA="$SHA" bash scripts/deploy.sh
 ```
 
-可用环境变量：`DEPLOY_DB_BACKUP=0`（关备份）、`WEB_ROOT`（前端发布目录）、`PM2_APP_NAME`、`DEPLOY_BACKUP_KEEP`、`DEPLOY_METRICS_ENABLED=0`（关闭基线记录）、`DEPLOY_METRICS_DIR`（默认 `/var/log/inogi-deploy`）。
+可用环境变量：`DEPLOY_CHANGE_PLAN=0`（强制全量发布）、`DEPLOY_DB_BACKUP=0`（有 migration 时关闭备份）、`DEPLOY_RELOAD_NGINX=1`（显式重载 Nginx）、`WEB_ROOT`（前端发布目录）、`PM2_APP_NAME`、`DEPLOY_BACKUP_KEEP`、`DEPLOY_METRICS_ENABLED=0`（关闭基线记录）、`DEPLOY_METRICS_DIR`（默认 `/var/log/inogi-deploy`）。
+
+服务器上的 `.env` 不属于 Git 输入。手动修改 `apps/api/.env` 后，请执行 `pm2 restart inogi-api --update-env`；如果还需要重新验证完整构建和测试，执行 `DEPLOY_CHANGE_PLAN=0 bash scripts/deploy.sh`。
 
 ## 数据库：备份与恢复
 
-- **自动备份**：每次部署在迁移前自动 `pg_dump` 到 `/opt/inogi-backups/`，失败则中止部署。
-- **手动备份**：`bash scripts/deploy.sh` 会做；或单独 `DEPLOY_DB_BACKUP=1` 跑。
+- **自动备份**：只有 migration 输入发生变化时，才在迁移前自动 `pg_dump` 到 `/opt/inogi-backups/`；失败则中止部署。
+- **强制全量**：需要重新验证全部阶段时使用 `DEPLOY_CHANGE_PLAN=0 bash scripts/deploy.sh`。
 - **恢复**（会覆盖现有数据，需输 yes 确认）：
   ```bash
   bash deploy/db/restore.sh                       # 不带参数会列出可用备份

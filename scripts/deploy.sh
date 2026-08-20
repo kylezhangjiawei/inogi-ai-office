@@ -28,6 +28,9 @@ PRISMA_MIRROR="${PRISMA_ENGINES_MIRROR:-https://registry.npmmirror.com/-/binary/
 DEPLOY_METRICS_ENABLED="${DEPLOY_METRICS_ENABLED:-1}"
 DEPLOY_METRICS_DIR="${DEPLOY_METRICS_DIR:-/var/log/inogi-deploy}"
 
+# 变更感知默认开启。它只读取工作区内容并写入 .deploy-cache；任何异常都会保守退回全量发布。
+DEPLOY_CHANGE_PLAN="${DEPLOY_CHANGE_PLAN:-1}"
+
 # ------------------------- 国内镜像（防超时）-------------------------
 # npm / pnpm 包源
 export npm_config_registry="$NPM_REGISTRY"
@@ -85,6 +88,15 @@ DEPLOY_METRICS_STAGE_FILE=""
 DEPLOY_METRICS_RESOURCE_FILE=""
 DEPLOY_METRICS_STOP_FILE=""
 DEPLOY_METRICS_SAMPLER_PID=""
+DEPLOY_PLAN_STATE_FILE=""
+DEPLOY_PLAN_CANDIDATE_FILE=""
+DEPLOY_PLAN_REASON="disabled"
+DEPLOY_PLAN_DEPENDENCIES=1
+DEPLOY_PLAN_FRONTEND=1
+DEPLOY_PLAN_API=1
+DEPLOY_PLAN_PRISMA=1
+DEPLOY_PLAN_MIGRATIONS=1
+DEPLOY_PLAN_QUALITY=1
 DEPLOY_STAGE_NAMES=(
   checkout
   dependency_install
@@ -384,6 +396,9 @@ on_deploy_exit() {
     finish_stage "$deploy_status"
   fi
   finalize_deploy_metrics "$deploy_status" "$exit_code"
+  if [ -n "$DEPLOY_PLAN_CANDIDATE_FILE" ]; then
+    rm -f -- "$DEPLOY_PLAN_CANDIDATE_FILE" 2>/dev/null || true
+  fi
   exit "$exit_code"
 }
 
@@ -395,6 +410,63 @@ retry() {
     log "命令失败，第 $n/$((max-1)) 次重试：$*"
     n=$((n + 1)); sleep 3
   done
+}
+
+init_change_plan() {
+  local planner_output key value
+  [ "$DEPLOY_CHANGE_PLAN" = "1" ] || {
+    log "变更感知已禁用（DEPLOY_CHANGE_PLAN=$DEPLOY_CHANGE_PLAN），执行全量发布。"
+    return 0
+  }
+
+  [ -f scripts/deploy-change-plan.mjs ] || {
+    log "⚠️  缺少 scripts/deploy-change-plan.mjs，保守执行全量发布。"
+    DEPLOY_PLAN_REASON="planner-missing"
+    return 0
+  }
+
+  DEPLOY_PLAN_STATE_FILE="$CACHE_DIR/deploy-inputs.json"
+  DEPLOY_PLAN_CANDIDATE_FILE="$(mktemp "$CACHE_DIR/.deploy-inputs.XXXXXX" 2>/dev/null || true)"
+  [ -n "$DEPLOY_PLAN_CANDIDATE_FILE" ] || {
+    log "⚠️  无法创建变更快照，保守执行全量发布。"
+    DEPLOY_PLAN_REASON="snapshot-unavailable"
+    return 0
+  }
+
+  if ! planner_output="$(node scripts/deploy-change-plan.mjs "$DEPLOY_PLAN_STATE_FILE" "$DEPLOY_PLAN_CANDIDATE_FILE")"; then
+    log "⚠️  变更分类失败，保守执行全量发布。"
+    DEPLOY_PLAN_REASON="planner-failed"
+    rm -f -- "$DEPLOY_PLAN_CANDIDATE_FILE" 2>/dev/null || true
+    DEPLOY_PLAN_CANDIDATE_FILE=""
+    return 0
+  fi
+
+  while IFS='=' read -r key value; do
+    case "$key" in
+      DEPLOY_PLAN_REASON)
+        case "$value" in first-release|deploy-logic-changed|incremental) DEPLOY_PLAN_REASON="$value" ;; esac
+        ;;
+      DEPLOY_PLAN_DEPENDENCIES|DEPLOY_PLAN_FRONTEND|DEPLOY_PLAN_API|DEPLOY_PLAN_PRISMA|DEPLOY_PLAN_MIGRATIONS|DEPLOY_PLAN_QUALITY)
+        case "$value" in
+          0|1) printf -v "$key" '%s' "$value" ;;
+        esac
+        ;;
+    esac
+  done <<EOF
+$planner_output
+EOF
+
+  log "发布计划[$DEPLOY_PLAN_REASON]：dependencies=$DEPLOY_PLAN_DEPENDENCIES frontend=$DEPLOY_PLAN_FRONTEND api=$DEPLOY_PLAN_API prisma=$DEPLOY_PLAN_PRISMA migrations=$DEPLOY_PLAN_MIGRATIONS quality=$DEPLOY_PLAN_QUALITY"
+}
+
+commit_change_plan() {
+  [ -n "$DEPLOY_PLAN_CANDIDATE_FILE" ] || return 0
+  if mv -f -- "$DEPLOY_PLAN_CANDIDATE_FILE" "$DEPLOY_PLAN_STATE_FILE" 2>/dev/null; then
+    DEPLOY_PLAN_CANDIDATE_FILE=""
+    log "发布变更快照已更新。"
+  else
+    log "⚠️  发布已完成，但变更快照保存失败；下次将保守执行全量发布。"
+  fi
 }
 
 # 从 apps/api/.env 读取 DATABASE_URL（不污染当前环境变量）
@@ -495,6 +567,7 @@ fi
 # 增量安装：lockfile 内容没变就跳过安装
 CACHE_DIR="$REPO_DIR/.deploy-cache"
 mkdir -p "$CACHE_DIR"
+init_change_plan
 lock_hash() {
   # 含 pnpm-workspace.yaml：onlyBuiltDependencies 等改动也应触发重新安装
   # `|| true`：pipefail 下，纯 pnpm 仓库缺 package-lock.json 会让 cat 返回非零而中断部署，这里容忍缺失文件
@@ -550,30 +623,43 @@ fi
 ensure_native_argon2
 finish_stage success || true
 
-# ----------------- 3. 构建前端（注入版本，痛点3关键）-----------------
+# ----------------- 3. 构建前端（仅前端输入变化时）-----------------
 # 统一用 npm run 而不是 pnpm：pnpm v11 在执行任何脚本前会先做一遍 lockfile
 # 供应链校验（本仓库 1000+ 条目，实测约 90 秒且全程联网），依赖没变时纯属浪费，
 # 还把部署成败绑到 registry 可用性上。npm run 只是执行脚本，没有这层开销。
 # 依赖安装仍按第 2 步的 USE_PNPM 分支走 pnpm，此处只影响「怎么调用构建脚本」。
-start_stage frontend_build || true
-log "构建前端 ..."
-VITE_APP_VERSION="$RELEASE" VITE_GIT_SHA="$GIT_SHA" retry npm run build
-finish_stage success || true
+if [ "$DEPLOY_PLAN_FRONTEND" = "1" ]; then
+  start_stage frontend_build || true
+  log "构建前端 ..."
+  VITE_APP_VERSION="$RELEASE" VITE_GIT_SHA="$GIT_SHA" retry npm run build
+  finish_stage success || true
+else
+  log "前端输入未变化，跳过前端构建。"
+  skip_stage frontend_build || true
+fi
 
 # ------------- 4. 生成 Prisma Client（必须在后端构建之前）-------------
-# 关键：schema 变更不会改动 lockfile，第 2 步的增量安装会跳过 @prisma/client
-# 的 postinstall，导致已生成的 client 过期、后端 tsc 编译大量报错。所以这里
-# 每次都显式 generate，确保类型与当前 schema 一致。
-start_stage prisma_generate || true
-log "生成 Prisma Client ..."
-( cd apps/api && retry npx --no-install prisma generate )
-finish_stage success || true
+# schema 或依赖变化时显式 generate；其余发布复用上次成功生成的 Client。
+if [ "$DEPLOY_PLAN_PRISMA" = "1" ]; then
+  start_stage prisma_generate || true
+  log "Prisma schema 或依赖发生变化，生成 Prisma Client ..."
+  ( cd apps/api && retry npx --no-install prisma generate )
+  finish_stage success || true
+else
+  log "Prisma 输入未变化，跳过 Client 生成。"
+  skip_stage prisma_generate || true
+fi
 
 # ---------------------------- 5. 构建后端 ----------------------------
-start_stage api_build || true
-log "构建后端 ..."
-retry npm --prefix apps/api run build
-finish_stage success || true
+if [ "$DEPLOY_PLAN_API" = "1" ]; then
+  start_stage api_build || true
+  log "构建后端 ..."
+  retry npm --prefix apps/api run build
+  finish_stage success || true
+else
+  log "API 输入未变化，跳过后端构建。"
+  skip_stage api_build || true
+fi
 
 # --------------- 5.5 质量闸门（迁移与重启前的最后一道）---------------
 # 位置很关键：此刻两端都已构建成功，但数据库还没备份/迁移、pm2 也还没重启，
@@ -585,42 +671,51 @@ if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then
   # 一律用 npx --no-install 直接调本地 tsc，不走 `pnpm typecheck`：
   # pnpm v11 在执行脚本前会先跑一遍 lockfile 供应链校验（1000+ 条目、要联网），
   # 依赖没变时这纯属浪费，还把部署绑到 registry 可用性上。
-  start_stage typecheck || true
-  log "类型检查（前端 + 后端）..."
-  npx --no-install tsc --noEmit -p tsconfig.json \
-    || die "前端类型检查未通过，已中止部署（线上仍是旧版本）。"
-  ( cd apps/api && npx --no-install tsc --noEmit -p tsconfig.json ) \
-    || die "后端类型检查未通过，已中止部署（线上仍是旧版本）。"
-  finish_stage success || true
-
-  start_stage tests || true
-  log "运行测试 ..."
-  npm run test:dev-scripts || die "开发脚本测试未通过，已中止部署（线上仍是旧版本）。"
-
-  # test/*.spec.mts 用裸 node 直接 import 带 .ts 扩展名的源码，依赖 Node 的原生类型剥离
-  # （22.18 / 23.6 起默认开启）。本机 Node 更低时它会以 ERR_UNKNOWN_FILE_EXTENSION 失败，
-  # 那是环境能力不足、不是代码有问题，不能因此判定构建不合格 —— 所以这里显式分流，
-  # 并把「少跑了哪些」打进部署日志，而不是悄悄跳过。
-  if node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit((a>23||(a===23&&b>=6)||(a===22&&b>=18))?0:1)'; then
-    npm --prefix apps/api run test || die "测试未通过，已中止部署（线上仍是旧版本）。"
-    log "质量闸门通过（全量测试）。"
+  if [ "$DEPLOY_PLAN_FRONTEND" = "1" ]; then
+    start_stage typecheck || true
+    log "前端类型检查 ..."
+    npx --no-install tsc --noEmit -p tsconfig.json \
+      || die "前端类型检查未通过，已中止部署（线上仍是旧版本）。"
+    finish_stage success || true
   else
-    npm --prefix apps/api run test:ts || die "测试未通过，已中止部署（线上仍是旧版本）。"
-    log "⚠️  当前 Node $(node --version) 无原生 TS 加载能力，test/*.spec.mts 未运行（本次少跑 9 个测试）。"
-    log "⚠️  升级到 Node 22 LTS（≥22.18）即可全量运行；Node 20 已于 2026-04 结束维护。"
-    log "质量闸门通过（ts-node 套件，.mts 套件已跳过）。"
+    log "前端未变化，跳过前端类型检查；API build 已包含 TypeScript 编译检查。"
+    skip_stage typecheck || true
   fi
-  finish_stage success || true
+
+  if [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then
+    start_stage tests || true
+    log "运行受影响的测试 ..."
+    if [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then
+      npm run test:dev-scripts || die "开发脚本测试未通过，已中止部署（线上仍是旧版本）。"
+    fi
+
+    # test/*.spec.mts 用裸 node 直接 import 带 .ts 扩展名的源码，依赖 Node 的原生类型剥离。
+    if node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit((a>23||(a===23&&b>=6)||(a===22&&b>=18))?0:1)'; then
+      npm --prefix apps/api run test || die "测试未通过，已中止部署（线上仍是旧版本）。"
+      log "质量闸门通过（API 全量测试）。"
+    else
+      npm --prefix apps/api run test:ts || die "测试未通过，已中止部署（线上仍是旧版本）。"
+      log "⚠️  当前 Node $(node --version) 无原生 TS 加载能力，test/*.spec.mts 未运行。"
+      log "质量闸门通过（API ts-node 套件）。"
+    fi
+    finish_stage success || true
+  else
+    log "API 与测试输入未变化，跳过测试。"
+    skip_stage tests || true
+  fi
 else
   log "⚠️  已跳过类型检查与测试（DEPLOY_RUN_TESTS=0）。"
   skip_stage typecheck || true
   skip_stage tests || true
 fi
 
-# ----------------- 6. 数据库备份（迁移前的安全闸门）-----------------
+# ----------------- 6. 数据库备份（仅 migration 变化时）-----------------
 # 此刻构建已成功、数据库还没动 —— 自动备份整库；备份失败则中止、不迁移。
 # 关掉自动备份：设 DEPLOY_DB_BACKUP=0（不推荐）。
-if [ "${DEPLOY_DB_BACKUP:-1}" = "1" ]; then
+if [ "$DEPLOY_PLAN_MIGRATIONS" != "1" ]; then
+  log "数据库 migration 未变化，跳过备份。"
+  skip_stage database_backup || true
+elif [ "${DEPLOY_DB_BACKUP:-1}" = "1" ]; then
   start_stage database_backup || true
   backup_database
   finish_stage success || true
@@ -632,17 +727,26 @@ fi
 # ------------------- 7. 数据库迁移（自动更新 DB）-------------------
 # 放在备份之后、重启之前：让「新代码 + 新表结构」尽量同时生效，
 # 缩短旧代码碰到新表结构的时间窗口。
-start_stage database_migration || true
-log "数据库迁移 prisma migrate deploy ..."
-( cd apps/api && retry npx --no-install prisma migrate deploy )
-finish_stage success || true
+if [ "$DEPLOY_PLAN_MIGRATIONS" = "1" ]; then
+  start_stage database_migration || true
+  log "数据库 migration 发生变化，执行 prisma migrate deploy ..."
+  ( cd apps/api && retry npx --no-install prisma migrate deploy )
+  finish_stage success || true
+else
+  log "数据库 migration 未变化，跳过迁移命令。"
+  skip_stage database_migration || true
+fi
 
 # ----------------- 8. 发布前端到 nginx 目录 -----------------
 # nginx 的 root 指向 WEB_ROOT，构建产物却在 dist/；这里把 dist 同步过去，
 # 前端改动才真正上线。放在重启前，使前后端版本尽量同时生效（减少版本提示误弹）。
-if [ -d "$WEB_ROOT" ]; then
+if [ "$DEPLOY_PLAN_FRONTEND" != "1" ]; then
+  log "前端未变化，跳过静态文件发布。"
+  skip_stage frontend_activate || true
+elif [ -d "$WEB_ROOT" ]; then
   start_stage frontend_activate || true
   log "发布前端 dist → $WEB_ROOT ..."
+  printf '{"release":"%s","git_sha":"%s"}\n' "$RELEASE" "$GIT_SHA" > "$REPO_DIR/dist/version.json"
   if command -v rsync >/dev/null 2>&1; then
     rsync -a --delete-after "$REPO_DIR/dist/" "$WEB_ROOT/"
   else
@@ -650,31 +754,38 @@ if [ -d "$WEB_ROOT" ]; then
   fi
   finish_stage success || true
 else
-  log "⚠️  前端发布目录不存在：$WEB_ROOT，跳过发布（请确认 nginx root 或设 WEB_ROOT）"
-  skip_stage frontend_activate || true
+  die "前端发布目录不存在：$WEB_ROOT（请确认 nginx root 或设置 WEB_ROOT）"
 fi
 
 # ----------------- 9. 重启后端（注入运行期版本号）-----------------
-start_stage api_restart || true
-log "重启后端 pm2: $PM2_APP_NAME ..."
-if command -v pm2 >/dev/null 2>&1; then
-  if pm2 describe "$PM2_APP_NAME" >/dev/null 2>&1; then
-    # 复用已存在的进程定义（保留其 cwd / .env 加载方式），只更新环境变量与代码
-    APP_VERSION="$RELEASE" APP_GIT_SHA="$GIT_SHA" \
-      pm2 restart "$PM2_APP_NAME" --update-env
+if [ "$DEPLOY_PLAN_API" = "1" ]; then
+  start_stage api_restart || true
+  log "重启后端 pm2: $PM2_APP_NAME ..."
+  if command -v pm2 >/dev/null 2>&1; then
+    if pm2 describe "$PM2_APP_NAME" >/dev/null 2>&1; then
+      # 复用已存在的进程定义（保留其 cwd / .env 加载方式），只更新环境变量与代码
+      APP_VERSION="$RELEASE" APP_GIT_SHA="$GIT_SHA" \
+        pm2 restart "$PM2_APP_NAME" --update-env
+    else
+      log "pm2 进程 $PM2_APP_NAME 不存在，用 ecosystem 首次启动 ..."
+      APP_VERSION="$RELEASE" APP_GIT_SHA="$GIT_SHA" \
+        pm2 start deploy/pm2/ecosystem.config.cjs --update-env
+    fi
+    pm2 save >/dev/null 2>&1 || true
   else
-    log "pm2 进程 $PM2_APP_NAME 不存在，用 ecosystem 首次启动 ..."
-    APP_VERSION="$RELEASE" APP_GIT_SHA="$GIT_SHA" \
-      pm2 start deploy/pm2/ecosystem.config.cjs --update-env
+    die "未找到 pm2，请先安装：npm i -g pm2"
   fi
-  pm2 save >/dev/null 2>&1 || true
+  finish_stage success || true
 else
-  die "未找到 pm2，请先安装：npm i -g pm2"
+  log "API 未变化，跳过 PM2 重启。"
+  skip_stage api_restart || true
 fi
-finish_stage success || true
 
 # ---------------------------- 10. nginx ----------------------------
-if command -v nginx >/dev/null 2>&1; then
+if [ "${DEPLOY_RELOAD_NGINX:-0}" != "1" ]; then
+  log "Nginx 配置未由本次发布变更，跳过 reload。"
+  skip_stage nginx_reload || true
+elif command -v nginx >/dev/null 2>&1; then
   start_stage nginx_reload || true
   log "重载 nginx ..."
   if nginx -t >/dev/null 2>&1; then
@@ -689,5 +800,6 @@ else
   skip_stage nginx_reload || true
 fi
 
+commit_change_plan
 DEPLOY_COMPLETED=1
 log "✅ 部署完成  RELEASE=$RELEASE"

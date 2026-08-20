@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const deploySource = await readFile(new URL("./deploy.sh", import.meta.url), "utf8");
 const deployPath = fileURLToPath(new URL("./deploy.sh", import.meta.url));
+const plannerSource = await readFile(new URL("./deploy-change-plan.mjs", import.meta.url), "utf8");
 
 const expectedStages = [
   "checkout",
@@ -86,6 +87,29 @@ async function createFakeDeployment() {
   return { root, repoDir, binDir, webRoot, metricsDir };
 }
 
+async function enableChangePlanner(fixture) {
+  await Promise.all([
+    mkdir(join(fixture.repoDir, "scripts"), { recursive: true }),
+    mkdir(join(fixture.repoDir, "src"), { recursive: true }),
+    mkdir(join(fixture.repoDir, "apps", "api", "src"), { recursive: true }),
+    mkdir(join(fixture.repoDir, "apps", "api", "prisma", "migrations"), { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(join(fixture.repoDir, "scripts", "deploy-change-plan.mjs"), plannerSource, "utf8"),
+    writeFile(join(fixture.repoDir, "scripts", "deploy.sh"), deploySource, "utf8"),
+    writeFile(join(fixture.repoDir, "src", "App.tsx"), "export const App = 1;\n", "utf8"),
+    writeFile(join(fixture.repoDir, "apps", "api", "src", "main.ts"), "export const api = 1;\n", "utf8"),
+    writeFile(join(fixture.repoDir, "apps", "api", "prisma", "schema.prisma"), "generator client { provider = \"prisma-client-js\" }\n", "utf8"),
+  ]);
+  const realNode = bashPath(process.execPath).replaceAll('"', '\\"');
+  await writeStub(fixture.binDir, "node", `
+case "\${1:-}" in
+  *deploy-change-plan.mjs) exec "${realNode}" "$@" ;;
+  --version) echo v22.22.1 ;;
+esac
+exit 0`);
+}
+
 function runFakeDeployment(bash, fixture, overrides = {}) {
   const env = {
     ...process.env,
@@ -96,6 +120,7 @@ function runFakeDeployment(bash, fixture, overrides = {}) {
     DEPLOY_SKIP_GIT: "1",
     DEPLOY_GIT_SHA: "0123456789abcdef0123456789abcdef01234567",
     DEPLOY_DB_BACKUP: "0",
+    DEPLOY_CHANGE_PLAN: "0",
     DEPLOY_RUN_TESTS: "1",
     DEPLOY_OPERATOR: 'qa"\n\u0001operator',
     DATABASE_URL: "postgresql://secret-user:secret-password@secret-host/secret-db",
@@ -273,6 +298,49 @@ test("failure inside a deployment subshell still produces one final record", { s
     assert.equal(record.failed_stage, "prisma_generate");
     assert.equal(record.stages.find((stage) => stage.name === "prisma_generate")?.status, "failed");
     assert.equal(record.stages.find((stage) => stage.name === "api_build")?.status, "skipped");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("a second unchanged deployment skips every runtime stage", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    await enableChangePlanner(fixture);
+    const overrides = {
+      DEPLOY_CHANGE_PLAN: "1",
+      DEPLOY_METRICS_ENABLED: "0",
+    };
+    const first = runFakeDeployment(bash, fixture, overrides);
+    assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
+    assert.match(first.stdout, /发布计划\[first-release\]/);
+
+    const second = runFakeDeployment(bash, fixture, overrides);
+    assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
+    assert.match(second.stdout, /发布计划\[incremental\].*frontend=0 api=0 prisma=0 migrations=0 quality=0/);
+    assert.match(second.stdout, /前端输入未变化，跳过前端构建/);
+    assert.match(second.stdout, /API 输入未变化，跳过后端构建/);
+    assert.match(second.stdout, /数据库 migration 未变化，跳过备份/);
+    assert.match(second.stdout, /API 未变化，跳过 PM2 重启/);
+    assert.doesNotMatch(second.stdout, /构建前端 \.\.\.|重启后端 pm2/);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("a frontend deployment cannot succeed or save its snapshot without WEB_ROOT", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    await enableChangePlanner(fixture);
+    const result = runFakeDeployment(bash, fixture, {
+      DEPLOY_CHANGE_PLAN: "1",
+      DEPLOY_METRICS_ENABLED: "0",
+      WEB_ROOT: bashPath(join(fixture.root, "missing-web-root")),
+    });
+
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+    assert.match(`${result.stdout}\n${result.stderr}`, /前端发布目录不存在/);
+    await assert.rejects(readFile(join(fixture.repoDir, ".deploy-cache", "deploy-inputs.json")));
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
