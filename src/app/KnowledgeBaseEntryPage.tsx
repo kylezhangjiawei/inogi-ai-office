@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useAuth } from "./auth";
 import { hasPermission } from "./lib/permissions";
 import { useDepartmentDirectory } from "./lib/departmentDirectory";
+import { t, useI18n } from "./lib/i18n";
 import { useNavHiddenCodes } from "./lib/permissionCatalogApi";
 import { routePath } from "./lib/routePaths";
 import { DEPT_KBS } from "./routesConfig";
@@ -47,6 +48,9 @@ export function KnowledgeBaseEntryPage({ scope }: { scope?: "rd" } = {}) {
   const { user } = useAuth();
   const { nameByCode } = useDepartmentDirectory();
   const navHiddenCodes = useNavHiddenCodes(user?.id);
+  // 订阅语言与词典就绪：库名在渲染处走 t()，与侧栏、面包屑用同一本词典
+  // （英文态下「人事行政部知识库」→「HR & Admin KB」）
+  useI18n();
 
   const permissions = user?.permissions ?? [];
   const permissionKey = permissions.join("|");
@@ -87,6 +91,8 @@ export function KnowledgeBaseEntryPage({ scope }: { scope?: "rd" } = {}) {
         ? [{ value: RD_KB_VALUE, label: "研发知识库", hidden: navHiddenCodes.has("page:rd-knowledge-base") }]
         : []),
     ],
+    // 这里存中文原文，翻译放到渲染处：词典是异步拉的，就绪时只 bump dictVersion 不改 lang，
+    // 把 t() 的结果 memo 进来会永远停在首屏那次的语言（i18n.ts 里记着这个坑）。
     [accessibleDepts, canUseRdKb, labelOf, navHiddenCodes],
   );
 
@@ -121,7 +127,7 @@ export function KnowledgeBaseEntryPage({ scope }: { scope?: "rd" } = {}) {
     if (activeValue || !fallbackValue) return;
     if (id) {
       const target = options.find((option) => option.value === fallbackValue);
-      if (target) toast.info(`没有该知识库的权限，已切到「${target.label}」`);
+      if (target) toast.info(t("没有该知识库的权限，已切到「{name}」", { name: t(target.label) }));
     }
     goTo(fallbackValue, true);
   }, [activeValue, fallbackValue, goTo, id, options]);
@@ -135,8 +141,8 @@ export function KnowledgeBaseEntryPage({ scope }: { scope?: "rd" } = {}) {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
         <div className="text-4xl">🔒</div>
-        <p className="text-base font-medium">你还没有任何知识库的访问权限</p>
-        <p className="text-sm text-slate-400">如需开通，请联系系统管理员</p>
+        <p className="text-base font-medium">{t("你还没有任何知识库的访问权限")}</p>
+        <p className="text-sm text-slate-400">{t("如需开通，请联系系统管理员")}</p>
       </div>
     );
   }
@@ -155,11 +161,11 @@ export function KnowledgeBaseEntryPage({ scope }: { scope?: "rd" } = {}) {
     <NativeSelect
       value={activeValue}
       onValueChange={(value) => goTo(value)}
-      aria-label="切换知识库"
+      aria-label={t("切换知识库")}
       className="h-9 w-auto min-w-[10rem] rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
     >
       {options.map((option) => (
-        <option key={option.value} value={option.value}>{option.label}</option>
+        <option key={option.value} value={option.value}>{t(option.label)}</option>
       ))}
     </NativeSelect>
   ) : null;
