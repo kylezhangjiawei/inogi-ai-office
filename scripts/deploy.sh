@@ -28,6 +28,14 @@ PRISMA_MIRROR="${PRISMA_ENGINES_MIRROR:-https://registry.npmmirror.com/-/binary/
 DEPLOY_METRICS_ENABLED="${DEPLOY_METRICS_ENABLED:-1}"
 DEPLOY_METRICS_DIR="${DEPLOY_METRICS_DIR:-/var/log/inogi-deploy}"
 
+# 迁移前的保命快照默认不导出接口请求日志的行数据：这一张表占了整库 97.5%
+# （7467MB / 7658MB），让备份要跑 485 秒，而快照的用途只是「迁移出事能回滚业务数据」。
+# --exclude-table-data 只跳过行，表结构照常导出 —— 恢复后这张表存在但为空，
+# restore.sh 无需改动。大小写敏感的表名必须带双引号，否则 pg_dump 会折成小写而匹配不上。
+# 想连日志一起备份：把这个变量置空（DEPLOY_BACKUP_EXCLUDE_TABLE_DATA=）。
+# 多张表用空格分隔。
+DEPLOY_BACKUP_EXCLUDE_TABLE_DATA="${DEPLOY_BACKUP_EXCLUDE_TABLE_DATA-public.\"ApiRequestLog\"}"
+
 # 变更感知默认开启。它只读取工作区内容并写入 .deploy-cache；任何异常都会保守退回全量发布。
 DEPLOY_CHANGE_PLAN="${DEPLOY_CHANGE_PLAN:-1}"
 
@@ -500,7 +508,8 @@ backup_file_path() {
 # 自动探测：宿主机有 pg_dump 就直连导出（原生安装 / 云数据库均可）；
 #           否则若数据库跑在 docker 容器里，则进容器导出；都没有则报错。
 backup_database() {
-  local url clean dir keep file partial container
+  local url clean dir keep file partial container pattern
+  local -a dump_args
   url="${DATABASE_URL:-$(read_database_url)}"
   [ -n "$url" ] || die "数据库备份失败：找不到 DATABASE_URL（apps/api/.env）。确实无需备份可设 DEPLOY_DB_BACKUP=0。"
   # 去掉 Prisma 特有的 ?schema=public 等查询参数，pg_dump(libpq) 不认识它们
@@ -515,12 +524,19 @@ backup_database() {
   # 的 .sql.gz，避免它日后被当成可用备份恢复。
   partial="$file.partial"
 
+  dump_args=(--no-owner --no-acl --clean --if-exists)
+  # 故意不加引号：按空格拆成多个排除模式。表名不含空格。
+  for pattern in ${DEPLOY_BACKUP_EXCLUDE_TABLE_DATA-}; do
+    dump_args+=(--exclude-table-data="$pattern")
+    log "备份将跳过该表的行数据：$pattern"
+  done
+
   log "备份数据库 → $file"
   if command -v pg_dump >/dev/null 2>&1; then
-    pg_dump --no-owner --no-acl --clean --if-exists "$clean" | compress_backup_stream > "$partial" \
+    pg_dump "${dump_args[@]}" "$clean" | compress_backup_stream > "$partial" \
       || { rm -f "$partial"; die "pg_dump 备份失败；已中止，不执行迁移。"; }
   elif command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -qx "$container"; then
-    docker exec -i "$container" pg_dump --no-owner --no-acl --clean --if-exists "$clean" | compress_backup_stream > "$partial" \
+    docker exec -i "$container" pg_dump "${dump_args[@]}" "$clean" | compress_backup_stream > "$partial" \
       || { rm -f "$partial"; die "docker pg_dump 备份失败；已中止，不执行迁移。"; }
   else
     die "数据库备份失败：宿主机没有 pg_dump，也没有运行中的 postgres 容器（$container）。请安装 postgresql-client，或设 DEPLOY_DB_BACKUP=0 跳过（不推荐）。"

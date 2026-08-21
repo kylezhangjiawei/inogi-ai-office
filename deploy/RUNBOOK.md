@@ -79,16 +79,17 @@ SHA=$(git --git-dir=/opt/git/inogi-ai-office.git rev-parse main)
 DEPLOY_SKIP_GIT=1 DEPLOY_GIT_SHA="$SHA" bash scripts/deploy.sh
 ```
 
-可用环境变量：`DEPLOY_CHANGE_PLAN=0`（强制全量发布）、`DEPLOY_DB_BACKUP=0`（有 migration 时关闭备份）、`DEPLOY_RELOAD_NGINX=1`（显式重载 Nginx）、`WEB_ROOT`（前端发布目录）、`PM2_APP_NAME`、`DEPLOY_BACKUP_KEEP`、`DEPLOY_METRICS_ENABLED=0`（关闭基线记录）、`DEPLOY_METRICS_DIR`（默认 `/var/log/inogi-deploy`）。
+可用环境变量：`DEPLOY_CHANGE_PLAN=0`（强制全量发布）、`DEPLOY_DB_BACKUP=0`（有 migration 时关闭备份）、`DEPLOY_RELOAD_NGINX=1`（显式重载 Nginx）、`WEB_ROOT`（前端发布目录）、`PM2_APP_NAME`、`DEPLOY_BACKUP_KEEP`、`DEPLOY_BACKUP_EXCLUDE_TABLE_DATA`（跳过行数据的表，空格分隔；置空则全量备份）、`DEPLOY_METRICS_ENABLED=0`（关闭基线记录）、`DEPLOY_METRICS_DIR`（默认 `/var/log/inogi-deploy`）。
 
 服务器上的 `.env` 不属于 Git 输入。手动修改 `apps/api/.env` 后，请执行 `pm2 restart inogi-api --update-env`；如果还需要重新验证完整构建和测试，执行 `DEPLOY_CHANGE_PLAN=0 bash scripts/deploy.sh`。
 
 ## 数据库：备份与恢复
 
 - **自动备份**：只有 migration 输入发生变化时才做。发布一开始就后台启动 `pg_dump` → `/opt/inogi-backups/`，与构建、测试并行；迁移前收口，失败则中止部署、不迁移。发布中途失败时后台 dump 会被终止，未完成的文件以 `.partial` 结尾并自动删除，不会留下能被误恢复的截断备份。
+- **备份范围**：默认不导出 `ApiRequestLog` 的行数据 —— 这一张接口请求日志表占了整库 97.5%（7467MB / 7658MB），全量导出要 485 秒，而这份快照的用途只是「迁移出事能回滚业务数据」。表结构照常导出，恢复后该表存在但为空。要连日志一起备份就把 `DEPLOY_BACKUP_EXCLUDE_TABLE_DATA` 置空。
 - **备份压缩**：装了 `pigz` 就按核数并行压（`dnf install -y pigz`，推荐：又快又比现在压得小），没装则退回 `gzip -1`。两者输出都是标准 `.gz`，恢复方式不变。`gzip -1` 的文件比过去的 `gzip -6` 大一两成，注意 `/opt` 余量与 `DEPLOY_BACKUP_KEEP`（默认保留 10 份）。
 - **强制全量**：需要重新验证全部阶段时使用 `DEPLOY_CHANGE_PLAN=0 bash scripts/deploy.sh`。
-- **恢复**（会覆盖现有数据，需输 yes 确认）：
+- **恢复**（会覆盖现有数据，需输 yes 确认；注意 `ApiRequestLog` 会被恢复成空表）：
   ```bash
   bash deploy/db/restore.sh                       # 不带参数会列出可用备份
   bash deploy/db/restore.sh /opt/inogi-backups/db-xxxx.sql.gz
