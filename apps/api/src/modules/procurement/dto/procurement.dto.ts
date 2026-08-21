@@ -403,9 +403,16 @@ export class ConfirmQuoteBookQuotesDto {
 
 /** 关联 T+ 采购单：本系统不创建采购单，只登记接缝。 */
 export class LinkPurchaseOrderDto {
+  /** 免费样品来货时 T+ 里没有采购单，单号允许留空，由 isFreeSample 兜底。 */
+  @IsOptional()
   @IsString()
   @MaxLength(64)
-  tpOrderNo!: string;
+  tpOrderNo?: string;
+
+  /** 免费样品（无采购单号）：只登记供应商/数量/预计到货，不参与 T+ 采购单同步。 */
+  @IsOptional()
+  @IsBoolean()
+  isFreeSample?: boolean;
 
   @IsOptional()
   @IsString()
@@ -446,6 +453,11 @@ export class BatchLinkPurchaseOrdersDto {
   @ValidateNested({ each: true })
   @Type(() => LinkPurchaseOrderDto)
   items!: LinkPurchaseOrderDto[];
+
+  /** 批量下单数量与任务需求数量不一致时，把任务采购数量同步成本次登记总量。 */
+  @IsOptional()
+  @IsBoolean()
+  syncTaskQuantity?: boolean;
 }
 
 export class UpsertMaterialDto {

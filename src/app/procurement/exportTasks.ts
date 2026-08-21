@@ -29,7 +29,10 @@ export async function exportProcTasksXlsx(tasks: ProcurementTask[]): Promise<num
     主日期口径: taskMainDate(t).label,
     已到数量: t.arrivedQty,
     付款状态: PAYMENT_LABEL[t.paymentStatus] ?? t.paymentStatus,
-    关联采购单: t.purchaseOrders.map((po) => po.tpOrderNo).join("、"),
+    // 免费样品来货没有 T+ 单号，导出空串会让整列看不出这行到底是漏登还是免费样品
+    关联采购单: t.purchaseOrders
+      .map((po) => (po.freeSample ? `免费样品${po.supplierName ? `·${po.supplierName}` : ""}` : po.tpOrderNo))
+      .join("、"),
     创建时间: t.createdAt.slice(0, 10),
   }));
 

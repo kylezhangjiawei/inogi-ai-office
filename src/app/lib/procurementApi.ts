@@ -49,6 +49,8 @@ export interface ProcTaskPurchaseOrder {
   etaDate?: string;
   approvalStatus?: string;
   status?: string;
+  /** 免费样品来货：T+ 里没有采购单，tpOrderNo 为空。 */
+  freeSample?: boolean;
 }
 
 export interface ProcTaskCriticalMaterialSetting {
@@ -643,22 +645,36 @@ export async function linkPurchaseOrder(
 }
 
 export interface PurchaseOrderLinkInput {
-  tpOrderNo: string;
+  /** 免费样品来货时留空，须同时置 isFreeSample。 */
+  tpOrderNo?: string;
+  isFreeSample?: boolean;
   supplierName?: string;
   orderedQty?: number;
   orderDate?: string;
   etaDate?: string;
 }
 
-/** 将按供应商拆分的采购单关联一次性保存。 */
+/**
+ * 将按供应商拆分的采购单关联一次性保存。
+ * syncTaskQuantity：批量下单数量与任务需求数量不一致时，把任务采购数量同步成登记总量。
+ */
 export async function linkPurchaseOrders(
   taskId: string,
   items: PurchaseOrderLinkInput[],
+  options?: { syncTaskQuantity?: boolean },
 ): Promise<ProcurementTask> {
   return request<ProcurementTask>(`/tasks/${encodeURIComponent(taskId)}/purchase-orders/batch`, {
     method: "POST",
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, syncTaskQuantity: options?.syncTaskQuantity }),
   });
+}
+
+/** 撤销一条采购单关联（登记错了的出样单/采购单）。 */
+export async function unlinkPurchaseOrder(taskId: string, refId: string): Promise<ProcurementTask> {
+  return request<ProcurementTask>(
+    `/tasks/${encodeURIComponent(taskId)}/purchase-orders/${encodeURIComponent(refId)}`,
+    { method: "DELETE" },
+  );
 }
 
 // ── 物料 ──────────────────────────────────────────────────────────────────────

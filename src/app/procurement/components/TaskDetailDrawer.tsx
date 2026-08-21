@@ -1,6 +1,6 @@
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
 import { useEffect, useState } from "react";
-import { ChevronDown, Eye, ExternalLink, FolderTree, History, Paperclip, Pencil } from "lucide-react";
+import { ChevronDown, Eye, ExternalLink, FolderTree, History, Paperclip, Pencil, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import {
   AlertDialog,
@@ -25,7 +25,7 @@ import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
 import { MoveTaskDialog } from "./MoveTaskDialog";
 import { refreshProcurement, taskRequester, useProcurementData, type ProcurementTask } from "../data";
-import { listQuotations, rejectProcTask, type Quotation } from "../../lib/procurementApi";
+import { listQuotations, rejectProcTask, unlinkPurchaseOrder, type Quotation } from "../../lib/procurementApi";
 import { toast } from "sonner";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
@@ -71,6 +71,23 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const [rejecting, setRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [rejectBusy, setRejectBusy] = useState(false);
+  // 登记错的采购单/出样单要能撤回，否则打样多轮之后列表里全是废关联
+  const [unlinking, setUnlinking] = useState<ProcurementTask["purchaseOrders"][number] | null>(null);
+  const [unlinkBusy, setUnlinkBusy] = useState(false);
+  const submitUnlink = async () => {
+    if (!unlinking) return;
+    setUnlinkBusy(true);
+    try {
+      await unlinkPurchaseOrder(task.id, unlinking.id);
+      await refreshProcurement();
+      toast.success(t("已撤销该采购单关联"));
+      setUnlinking(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("撤销失败"));
+    } finally {
+      setUnlinkBusy(false);
+    }
+  };
   const submitReject = async () => {
     const reason = rejectReason.trim();
     if (!reason) { toast.error(t("请填写驳回理由")); return; }
@@ -109,6 +126,10 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   }, [task.id, task.materialId, task.materialName, task.updatedAt]);
   const histLow = historyQuotes.length ? historyQuotes.reduce((a, b) => (a.unitPrice <= b.unitPrice ? a : b)) : null;
   const selectedQuotes = quotes.filter((q) => q.isSelected);
+  // 报价金额是「确认那一刻」的快照，不随后来改动的下单数量重算（例如出样 1 件确认、批量 500 件下单）。
+  // 两个数字并排显示很容易被读成总价，这里点破口径。
+  const quotedQuantity = selectedQuotes.reduce((sum, q) => sum + (q.quantity ?? 0), 0);
+  const quoteQuantityMismatch = quotedQuantity > 0 && quotedQuantity !== task.quantity;
   const pct = task.quantity > 0 ? Math.round((task.arrivedQty / task.quantity) * 100) : 0;
   // 是否已进入下单阶段（此前「下单与付款」「到货记录」还没有内容，不展示）
   const orderStage = ["pending_purchase", "priced", "in_transit", "partial_arrival", "completed"].includes(task.status);
@@ -172,6 +193,12 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                 <Button type="button" disabled={taskAction.busy || rejectBusy} onClick={() => taskAction.runNext(task)} className="material-button-primary rounded-lg px-4 py-2 text-sm disabled:opacity-60">
                   {t(isRdReview ? '审核通过' : meta.next)}{task.method === "direct" && task.status === "pending_purchase" && <ExternalLink className="h-4 w-4" />}
                 </Button>
+                {/* 出样单不是状态流转：打样这一轮的采购单（含免费来样）在等样期间就要登记，任务仍停在「待到样」 */}
+                {task.status === "pending_sample" && can("proc-task:order") && (
+                  <Button type="button" variant="outline" disabled={taskAction.busy} onClick={() => taskAction.linkSampleOrder(task)} className="rounded-lg border-indigo-200 bg-white px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700">
+                    {t('登记出样单')}
+                  </Button>
+                )}
                 {isRdReview && (
                   <AlertDialog open={rejecting} onOpenChange={setRejecting}>
                     <AlertDialogTrigger asChild>
@@ -325,6 +352,15 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                       <b>{t('最终总价')}</b>
                       <b>{task.quotationCurrency === "CNY" ? fmtMoney(task.quotationTotal) : `${task.quotationCurrency ?? ""} ${task.quotationTotal}`}</b>
                     </div>
+                    {quoteQuantityMismatch && (
+                      <p className="border-t border-slate-200 pt-1.5 text-[11px] leading-relaxed text-amber-600">
+                        {t('报价按 {quoted} {unit} 确认，本任务当前采购数量为 {actual} {unit}；金额不随数量重算，实际以畅捷通 T+ 采购单为准。', {
+                          quoted: quotedQuantity.toLocaleString(),
+                          actual: task.quantity.toLocaleString(),
+                          unit: t(task.unit),
+                        })}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -366,6 +402,47 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
             </div>
           )}
 
+          {/* 采购单关联：出样单（含免费来样）在「待到样」就登记，所以不跟 orderStage 走，有就显示 */}
+          {task.purchaseOrders.length > 0 && (
+            <div className="rounded-xl border border-slate-100">
+              <div className="border-b border-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
+                {t('采购单关联（{count}）', { count: task.purchaseOrders.length })}
+              </div>
+              <ul className="divide-y divide-slate-100">
+                {task.purchaseOrders.map((po) => (
+                  <li key={po.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {po.freeSample ? (
+                          <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] text-violet-600">{t('免费样品')}</span>
+                        ) : (
+                          <b className="text-sm font-medium tabular-nums text-slate-800">{po.tpOrderNo}</b>
+                        )}
+                        <AutoTranslatedText className="truncate text-sm text-slate-600" text={po.supplierName || t('未指定供应商')} />
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-400">
+                        <span>{t('采购数量')} {po.orderedQty.toLocaleString()} {t(task.unit)}</span>
+                        <span>{t('已到')} {po.receivedQty.toLocaleString()}</span>
+                        {po.etaDate && <span>{t(po.freeSample ? '预计到样' : '预计到货')} {po.etaDate}</span>}
+                        {po.orderDate && <span>{t('下单')} {po.orderDate}</span>}
+                      </div>
+                    </div>
+                    {can("proc-task:order") && (
+                      <button
+                        type="button"
+                        onClick={() => setUnlinking(po)}
+                        title={t('撤销该关联')}
+                        className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {(orderStage || task.arrivedQty > 0) && (
             <div className="rounded-xl border border-slate-100 p-4">
               <div className="mb-2 text-sm font-semibold text-slate-700">{t('到货记录')}</div>
@@ -392,6 +469,28 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           onMoved={() => { void refreshProcurement(); }}
         />
       )}
+      <AlertDialog open={Boolean(unlinking)} onOpenChange={(o) => { if (!o && !unlinkBusy) setUnlinking(null); }}>
+        <AlertDialogContent className="rounded-2xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-900">{t('撤销采购单关联？')}</AlertDialogTitle>
+            <AlertDialogDescription className="leading-relaxed">
+              {unlinking?.freeSample
+                ? t('将移除这条免费样品登记（{supplier}），任务状态和已登记的到货数量不受影响。', { supplier: unlinking?.supplierName || t('未指定供应商') })
+                : t('将移除采购单 {no} 的关联，T+ 里的单据不受影响；该单已同步的到货量会一并从本任务移除。', { no: unlinking?.tpOrderNo ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unlinkBusy} className="rounded-lg">{t('取消')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={unlinkBusy}
+              onClick={(event) => { event.preventDefault(); void submitUnlink(); }}
+              className="rounded-lg bg-rose-600 hover:bg-rose-700"
+            >
+              {unlinkBusy ? t('处理中…') : t('撤销关联')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {editOpen && <EditTaskModal task={task} onClose={() => setEditOpen(false)} />}
       {previewAttachment ? (
         <AttachmentPreviewDialog attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />

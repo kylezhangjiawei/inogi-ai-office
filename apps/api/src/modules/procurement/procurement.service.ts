@@ -35,6 +35,7 @@ import {
 import {
   PROC_ARRIVAL_STATUSES,
   PROC_STATUS_LABELS,
+  PROC_PO_LINKABLE_STATUSES,
   PROC_STATUS_TRANSITIONS,
   PROC_TERMINAL_STATUSES,
   type ProcActor,
@@ -1769,7 +1770,8 @@ export class ProcurementService {
     await this.prisma.procTaskAttachment.createMany({
       data: items.map((a) => ({ taskId: id, ...this.attachmentData(a, actor) })),
     });
-    return this.getTask(id);
+    // getTask 不带 actor 会一律判无权限抛 404：写入已提交、接口却报错，前端弹红条还不刷新
+    return this.getTask(id, actor);
   }
 
   private async requireTask(id: string) {
@@ -2060,7 +2062,7 @@ export class ProcurementService {
       });
     });
 
-    return this.getTask(taskId);
+    return this.getTask(taskId, actor);
   }
 
   /** 选定报价：需样 → 待到样，免样 → 已定价；同时回写物料最新价。 */
@@ -2161,21 +2163,68 @@ export class ProcurementService {
     return this.linkPurchaseOrders(taskId, [dto], actor);
   }
 
-  /** 多供应商采购单一次性关联；任意一条失败则全部回滚。 */
-  async linkPurchaseOrders(taskId: string, items: LinkPurchaseOrderDto[], actor: ProcActor) {
+  /**
+   * 多供应商采购单一次性关联；任意一条失败则全部回滚。
+   *
+   * 「待到样」是出样单登记：打样迭代要下出样单（可能是模具单，也可能免费来样），
+   * 但样品没到之前任务不能算「已下单/在途」，所以这一档只登记关联，不动状态。
+   */
+  async linkPurchaseOrders(
+    taskId: string,
+    items: LinkPurchaseOrderDto[],
+    actor: ProcActor,
+    options?: { syncTaskQuantity?: boolean },
+  ) {
     const task = await this.requireTask(taskId);
-    if (!['priced', 'pending_purchase', 'in_transit', 'partial_arrival'].includes(task.status)) {
+    if (!PROC_PO_LINKABLE_STATUSES.includes(task.status as ProcStatus)) {
       throw new BadRequestException('当前状态不允许关联采购单');
     }
-    const normalized = items.map((item) => ({ ...item, tpOrderNo: item.tpOrderNo.trim() }));
-    if (normalized.some((item) => !item.tpOrderNo)) {
+    const normalized = items.map((item) => ({
+      ...item,
+      tpOrderNo: (item.tpOrderNo ?? '').trim(),
+      isFreeSample: Boolean(item.isFreeSample),
+    }));
+    // 免费样品来货 T+ 里没有采购单，单号必然为空；其余情况仍必须给号，否则后续同步无从对账。
+    if (normalized.some((item) => !item.isFreeSample && !item.tpOrderNo)) {
       throw new BadRequestException('采购单号不能为空');
     }
-    const keys = normalized.map((item) => `${item.tpOrderNo}\u0000${item.tpLineNo ?? ''}`);
+    // 免费样品行单号都是空串，天然互相「重复」，去重只校验有号的行。
+    const keys = normalized
+      .filter((item) => !item.isFreeSample)
+      .map((item) => `${item.tpOrderNo}\u0000${item.tpLineNo ?? ''}`);
     if (new Set(keys).size !== keys.length) {
       throw new BadRequestException('同一采购单及行号不能重复关联');
     }
     const nextStatus = task.status === 'priced' || task.status === 'pending_purchase' ? 'in_transit' : task.status;
+    const isSampleOrder = task.status === 'pending_sample';
+    // 预计到货只有 T+ 同步会回填到任务上，免费样品和出样单没有同步可依，这里按最早的一条落回去。
+    const earliestEta = normalized
+      .map((item) => parseDay(item.etaDate))
+      .filter((date): date is Date => Boolean(date))
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+    // 出样 1 件的任务改下 500 件批量单时，任务数量不跟着改，到货 1 件就会判完成。
+    // 免费样品不是需求量的一部分（样品 1 件 + 批量 500 件 ≠ 需要 501 件），不计入。
+    const orderedTotal = normalized
+      .filter((item) => !item.isFreeSample)
+      .reduce((sum, item) => sum + (item.orderedQty ?? 0), 0);
+    const syncQuantity = Boolean(options?.syncTaskQuantity)
+      && !isSampleOrder
+      && orderedTotal > 0
+      && orderedTotal !== num(task.quantity);
+    // 免费样品行没有单号可写进留痕，退而记供应商，否则日志里只剩一串顿号。
+    const supplierOf = (item: (typeof normalized)[number]) => item.supplierName?.trim() || '未指定供应商';
+    const freeSampleOnly = normalized.every((item) => item.isFreeSample);
+    const detail = freeSampleOnly
+      ? normalized.map(supplierOf).join('、')
+      : normalized
+          .map((item) => (item.isFreeSample ? `免费样品·${supplierOf(item)}` : item.tpOrderNo))
+          .join('、');
+    const head = isSampleOrder
+      ? (freeSampleOnly ? `登记 ${normalized.length} 条免费出样（T+ 无采购单）` : `登记 ${normalized.length} 张出样单`)
+      : (freeSampleOnly ? `登记 ${normalized.length} 条免费样品来货（T+ 无采购单）` : `一次关联 ${normalized.length} 张采购单`);
+    const logText = `${head}：${detail}${
+      syncQuantity ? `；任务采购数量由 ${num(task.quantity)} 更新为 ${orderedTotal}` : ''
+    }`;
     await this.prisma.$transaction(async (tx) => {
       await tx.procPurchaseOrderRef.createMany({
         data: normalized.map((item) => ({
@@ -2188,16 +2237,19 @@ export class ProcurementService {
           orderDate: parseDay(item.orderDate),
           etaDate: parseDay(item.etaDate),
           linkedBy: actor.id,
+          metadata: item.isFreeSample ? { freeSample: true } : {},
         })),
       });
       await tx.procTask.update({
         where: { id: taskId },
         data: {
           status: nextStatus,
+          ...(syncQuantity ? { quantity: new Prisma.Decimal(orderedTotal) } : {}),
+          ...(earliestEta ? { expectedArrivalDate: earliestEta } : {}),
           logs: {
             create: {
               kind: 'system',
-              text: `一次关联 ${normalized.length} 张采购单：${normalized.map((item) => item.tpOrderNo).join('、')}`,
+              text: logText,
               fromStatus: task.status,
               toStatus: nextStatus,
               actor: actor.name,
@@ -2207,13 +2259,13 @@ export class ProcurementService {
         },
       });
     });
-    return this.getTask(taskId);
+    return this.getTask(taskId, actor);
   }
 
-  async unlinkPurchaseOrder(taskId: string, refId: string) {
+  async unlinkPurchaseOrder(taskId: string, refId: string, actor: ProcActor) {
     await this.requireTask(taskId);
     await this.prisma.procPurchaseOrderRef.deleteMany({ where: { id: refId, taskId } });
-    return this.getTask(taskId);
+    return this.getTask(taskId, actor);
   }
 
   /**
@@ -3334,6 +3386,7 @@ export class ProcurementService {
         etaDate: day(r.etaDate),
         approvalStatus: r.approvalStatus ?? undefined,
         status: r.status ?? undefined,
+        freeSample: (r.metadata as { freeSample?: boolean } | null)?.freeSample === true,
       })),
       criticalMaterials: task.criticalMaterials.map((item) => ({
         materialId: item.materialId,
