@@ -58,6 +58,8 @@ export type GeneratedImage = {
   thumbnailUrl?: string | null;
   model: string;
   isFavorite: boolean;
+  /** true = 疑似缓存串图：同一张图被多条不同描述的记录共用，画面与描述不符 */
+  mismatched?: boolean;
   categoryId?: string | null;
   createdAt: string;
   requestId?: string | null;
@@ -825,7 +827,14 @@ export function ArtworkCard({
         <div className="absolute left-4 top-4 rounded-[8px] border border-white/25 bg-slate-950/68 px-3 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md">
           {String(index + 1).padStart(2, "0")}
         </div>
-        {item.fromCache ? (
+        {item.mismatched ? (
+          <div
+            title="这张图与描述不符：早期的相似度缓存把同模板的不同请求复用成了同一张图。建议删除后重新生成。"
+            className="absolute right-4 top-4 rounded-[8px] border border-amber-200 bg-amber-50/90 px-3 py-1 text-[11px] font-semibold text-amber-700 shadow-sm backdrop-blur-md"
+          >
+            图文不符
+          </div>
+        ) : item.fromCache ? (
           <div className="absolute right-4 top-4 rounded-[8px] border border-emerald-100 bg-emerald-50/88 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm backdrop-blur-md">
             缓存命中
           </div>

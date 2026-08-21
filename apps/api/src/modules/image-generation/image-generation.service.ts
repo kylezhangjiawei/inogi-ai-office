@@ -663,7 +663,12 @@ export class ImageGenerationService {
       },
     });
 
-    const items = rawItems.map((item) => this.toLibraryItem(item));
+    const mismatchedIds = await this.findMismatchedImageIds(rawItems.map((item) => item.imageUrl));
+    const items = rawItems.map((item) => ({
+      ...this.toLibraryItem(item),
+      /** true = 疑似缓存串图：这条记录的描述与画面不符（同一张图被多条不同描述共用） */
+      mismatched: mismatchedIds.has(item.id),
+    }));
 
     return {
       total,
@@ -702,6 +707,49 @@ export class ImageGenerationService {
   }
 
   /**
+   * 疑似「缓存串图」的作品 id 集合。
+   *
+   * 旧的相似度缓存（Jaccard≥0.65，中文按标点切短句）会让同模板只差主体名的 prompt 互相命中，
+   * 于是同一个 OSS 对象被一批描述完全不同的记录共用——库里 56 条里有 37 条都指向同一张柯基图。
+   * 判定：同一个 objectKey 下以最早那条为准（它的描述才是这张图真正的来源），
+   * 之后描述不同的都算串图。只做标记，不动用户数据。
+   */
+  private async findMismatchedImageIds(objectKeys: string[]): Promise<Set<string>> {
+    const keys = [...new Set(objectKeys.map((k) => (k ?? '').trim()).filter(Boolean))];
+    if (keys.length === 0) return new Set();
+    // 缓存不分用户（findCachedImage 不带 userId），所以判定也必须跨用户看同一个对象
+    const rows = await this.prisma.generatedImage.findMany({
+      where: { imageUrl: { in: keys } },
+      select: { id: true, imageUrl: true, prompt: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const canonicalPrompt = new Map<string, string>();
+    const mismatched = new Set<string>();
+    for (const row of rows) {
+      const key = row.imageUrl;
+      const first = canonicalPrompt.get(key);
+      if (first === undefined) {
+        canonicalPrompt.set(key, row.prompt);
+        continue;
+      }
+      if (row.prompt !== first) mismatched.add(row.id);
+    }
+    return mismatched;
+  }
+
+  /** 单张判定：给索引路径用，避免为一张图拉全表。 */
+  private async isMismatchedImage(image: { id: string; imageUrl: string; prompt: string }): Promise<boolean> {
+    const key = image.imageUrl?.trim();
+    if (!key) return false;
+    const earliest = await this.prisma.generatedImage.findFirst({
+      where: { imageUrl: key },
+      select: { id: true, prompt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return Boolean(earliest && earliest.id !== image.id && earliest.prompt !== image.prompt);
+  }
+
+  /**
    * 供 MateChat 把作品库命中的图挂成聊天附件：只返回本人作品的 OSS objectKey。
    * 历史数据里 imageUrl 可能是 http 直链（非 objectKey），那种返回 null 由调用方走下载路径。
    */
@@ -736,7 +784,8 @@ export class ImageGenerationService {
         category: { select: { id: true, name: true } },
       },
     });
-    return rows.map((row) => this.toLibraryItem(row));
+    const mismatchedIds = await this.findMismatchedImageIds(rows.map((row) => row.imageUrl));
+    return rows.map((row) => ({ ...this.toLibraryItem(row), mismatched: mismatchedIds.has(row.id) }));
   }
 
   async getUsage(userId: string, date?: string) {
@@ -1332,11 +1381,17 @@ export class ImageGenerationService {
           editInstruction: true,
           size: true,
           model: true,
+          imageUrl: true,
           createdAt: true,
           category: { select: { id: true, name: true } },
         },
       });
       if (!img) return;
+      // 串图记录的描述与画面不符，索引进去 = 让 AI 拿着「仓鼠」的描述推荐柯基的图
+      if (await this.isMismatchedImage({ id: img.id, imageUrl: img.imageUrl ?? '', prompt: img.prompt })) {
+        await this.ragService.removeChunksForSource('image', img.id).catch(() => undefined);
+        return;
+      }
       const title = (img.prompt || '未命名作品').trim().slice(0, 60);
       const text = [
         img.prompt,
@@ -1386,11 +1441,26 @@ export class ImageGenerationService {
    * 存量回填：把已有作品全部重新 embedding 写入向量库。
    * 适用于首次开启图库检索、切换 embedding 模型，或接入索引前创建的老作品。
    */
-  async backfillImagesToRag(): Promise<{ total: number; succeeded: number; failed: number }> {
-    const rows = await this.prisma.generatedImage.findMany({ select: { id: true } });
+  async backfillImagesToRag(): Promise<{
+    total: number;
+    succeeded: number;
+    failed: number;
+    skippedMismatched: number;
+  }> {
+    const rows = await this.prisma.generatedImage.findMany({
+      select: { id: true, imageUrl: true, prompt: true },
+    });
+    // 串图记录不进索引，已有的残留也一并清掉（老数据可能在修复前被索引过）
+    const mismatched = await this.findMismatchedImageIds(rows.map((row) => row.imageUrl));
     let succeeded = 0;
     let failed = 0;
+    let skippedMismatched = 0;
     for (const row of rows) {
+      if (mismatched.has(row.id)) {
+        await this.ragService.removeChunksForSource('image', row.id).catch(() => undefined);
+        skippedMismatched += 1;
+        continue;
+      }
       try {
         await this.indexImageToRag(row.id);
         succeeded += 1;
@@ -1398,7 +1468,7 @@ export class ImageGenerationService {
         failed += 1;
       }
     }
-    return { total: rows.length, succeeded, failed };
+    return { total: rows.length, succeeded, failed, skippedMismatched };
   }
 
   private async assertCategoryExists(id: string, client: CategoryDbClient = this.prisma) {

@@ -452,3 +452,80 @@ test('生成缓存忽略首尾空白与多余空格差异', async () => {
   await findCached('  a  cute   corgi  ', 'vivid', '1024x1024', 'low', 'gpt-image-1');
   assert.deepEqual(seen, ['a cute corgi']);
 });
+
+/**
+ * 存量串图记录：同一个 OSS 对象被一批不同描述的记录共用（旧相似度缓存的产物）。
+ * 代码修好之后不再产生新的，但库里已有的 37 条还在——不能删用户数据，
+ * 只能标记出来，并且挡在 AI 检索之外，否则 MateChat 会拿着「仓鼠」的描述推荐柯基的图。
+ */
+test('同一对象下描述与最早那条不同的记录被判为串图', async () => {
+  const rows = [
+    { id: 'a', imageUrl: 'k1', prompt: '柯基', createdAt: new Date('2026-07-01') },
+    { id: 'b', imageUrl: 'k1', prompt: '仓鼠', createdAt: new Date('2026-07-02') },
+    { id: 'c', imageUrl: 'k1', prompt: '柯基', createdAt: new Date('2026-07-03') },
+    { id: 'd', imageUrl: 'k2', prompt: '机箱', createdAt: new Date('2026-07-04') },
+  ];
+  const prisma = { generatedImage: { findMany: async () => rows } };
+  const ctor = ImageGenerationService as unknown as new (...args: unknown[]) => ImageGenerationService;
+  const service = new ctor(prisma, undefined, undefined, undefined, undefined, undefined, undefined);
+  const find = (
+    service as unknown as { findMismatchedImageIds: (keys: string[]) => Promise<Set<string>> }
+  ).findMismatchedImageIds.bind(service);
+
+  const mismatched = await find(['k1', 'k2']);
+  assert.deepEqual([...mismatched], ['b'], '只有描述与最早那条不同的才算串图');
+  assert.ok(!mismatched.has('a'), '最早那条是这张图真正的来源');
+  assert.ok(!mismatched.has('c'), '同描述的重复命中是正常的缓存复用');
+  assert.ok(!mismatched.has('d'), '独占一个对象的记录不受影响');
+});
+
+test('串图记录不进向量库，并清掉修复前留下的残留索引', async () => {
+  const removed: string[] = [];
+  const synced: string[] = [];
+  const prisma = {
+    generatedImage: {
+      findUnique: async () => ({
+        id: 'b',
+        userId: 'u1',
+        prompt: '仓鼠',
+        revisedPrompt: '',
+        editInstruction: '',
+        size: '1024x1024',
+        model: 'gpt-image-1',
+        imageUrl: 'k1',
+        createdAt: new Date('2026-07-02'),
+        category: null,
+      }),
+      findFirst: async () => ({ id: 'a', prompt: '柯基' }),
+    },
+  };
+  const ragService = {
+    syncDocument: async (doc: { sourceId: string }) => { synced.push(doc.sourceId); return { inserted: 1 }; },
+    removeChunksForSource: async (_t: string, id: string) => { removed.push(id); return { deleted: 1 }; },
+  };
+  const ctor = ImageGenerationService as unknown as new (...args: unknown[]) => ImageGenerationService;
+  const service = new ctor(prisma, undefined, undefined, undefined, undefined, undefined, ragService);
+
+  await service.indexImageToRag('b');
+
+  assert.deepEqual(synced, [], '描述与画面不符的记录不能进检索');
+  assert.deepEqual(removed, ['b'], '修复前可能已经索引过，要顺手清掉');
+});
+
+test('作品库检索结果里过滤掉串图记录', async () => {
+  const { service } = makeService({
+    semanticIds: ['img-a'],
+    ownedByIds: [image('img-a', { mismatched: true })],
+    keywordItems: [image('img-b', { mismatched: true }), image('img-c')],
+  });
+
+  const result = await service.execute(
+    'search_image_library',
+    JSON.stringify({ query: '小狗' }),
+    USER,
+    'conv-1',
+  );
+
+  const ids = [...result.content.matchAll(/id=([\w-]+)/g)].map((m) => m[1]);
+  assert.deepEqual(ids, ['img-c'], '串图记录不能当成「库里有这张图」推给用户');
+});

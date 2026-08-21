@@ -1714,9 +1714,12 @@ export class ChatToolsService {
       imageData?: string;
       category?: { name: string } | null;
       categoryId?: string | null;
+      /** 疑似缓存串图：描述与画面不符，不能拿去当"库里有这张图"推给用户 */
+      mismatched?: boolean;
     };
     const semanticOrder = new Map(semanticIds.map((id, index) => [id, index] as const));
     const semanticHits = (semanticRows as LibraryHit[])
+      .filter((row) => !row.mismatched)
       .filter((row) => !onlyFavorite || row.isFavorite)
       .filter((row) => !categoryId || row.categoryId === categoryId || row.category != null)
       .sort((a, b) => (semanticOrder.get(a.id) ?? 999) - (semanticOrder.get(b.id) ?? 999));
@@ -1736,7 +1739,9 @@ export class ChatToolsService {
       }
       return [...set].filter((w) => text.includes(w)).length;
     };
-    const keywordHits = (keywordPage.items ?? []) as LibraryHit[];
+    // 串图记录（同一张图被多条不同描述共用）向量库里已经排除了，
+    // 但关键词召回是直接查库的，这里必须再挡一次，否则又把柯基当成仓鼠推出去
+    const keywordHits = ((keywordPage.items ?? []) as LibraryHit[]).filter((row) => !row.mismatched);
     const rankedKeywordHits = keywordPage.relaxed
       ? [...keywordHits].sort((a, b) => windowsOf(textOf(b)) - windowsOf(textOf(a)))
       : keywordHits;
