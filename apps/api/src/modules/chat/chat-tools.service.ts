@@ -7,6 +7,7 @@ import { ImageGenerationService } from '../image-generation/image-generation.ser
 import { VideoGenerationService } from '../video-generation/video-generation.service';
 import { computeReplenishRows } from '../procurement/replenish-core';
 import { PROC_STATUS_LABELS, PROC_TERMINAL_STATUSES, type ProcStatus } from '../procurement/procurement.types';
+import { UPLOADED_MEDIA_MARKER } from '../../common/media-upload.constants';
 import { RagService, type RagUserContext } from '../rag/rag.service';
 import { isWorkspaceAllowed } from '../research-development/rd-workspace.context';
 import {
@@ -89,6 +90,25 @@ const TOOL_TIMEOUT_MS = 10_000;
 const IMAGE_TOOL_TIMEOUT_MS = 5 * 60 * 1000;
 /** 生视频工具超时：仅出确认卡或提交异步任务（不等生成），但自动提交路径含一次上游 POST（30s），留 45s */
 const VIDEO_TOOL_TIMEOUT_MS = 45_000;
+/**
+ * 作品库检索超时：一次 embedding 上游调用（秒级）+ 命中图从 OSS 下载再落成聊天附件（秒级），
+ * 默认 10s 不够用——实测会整轮超时，模型只好回退去生成新图，正好是这功能要治的病。
+ */
+const LIBRARY_TOOL_TIMEOUT_MS = 30_000;
+/** 语义召回预算：超了就只用关键词召回，总比整轮超时强 */
+const SEMANTIC_BUDGET_MS = 10_000;
+/** 命中图落成聊天附件的预算：超了就只给文字清单 */
+const ATTACHMENT_BUDGET_MS = 12_000;
+/** 单步预算：某一路慢了就降级，别把整个工具拖到超时（超时=整轮白跑） */
+function withBudget<T>(task: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const guard = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([task, guard]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 /** 快捷建议兜底池的运营配置 KV 键（由「运营素材管理」页读写；本服务只读，缺省用内置默认） */
 export const CONTENT_SLOT_QUICK_SUGGESTIONS_KEY = 'content_slot.matechat_quick_suggestions';
@@ -514,6 +534,33 @@ export class ChatToolsService {
         },
       },
       execute: (args, user) => this.queryProcurement(args, user),
+    },
+    search_image_library: {
+      label: '检索作品库',
+      timeoutMs: LIBRARY_TOOL_TIMEOUT_MS,
+      definition: {
+        type: 'function',
+        function: {
+          name: 'search_image_library',
+          description:
+            '在用户自己的图片作品库里找现成的图（图像工场生成的 + 本地上传的）。**任何需要图片的场景都先调它**：用户问「库里有没有 XX 图」「有没有现成的 XX」「找一张 XX」，或者要配图/素材时，先搜库，命中就直接用现成的，确认没有合适的再 generate_image。query 写成空格分隔的关键词（「卡通 柯基 插画」），不要整句照抄用户的话。命中结果里最相关的一张会作为附件展示，其余以列表给出；库里的图可以直接把 id 传给 edit_image 修改。只能搜到当前用户自己的作品。',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: {
+                type: 'string',
+                description:
+                  '检索词，**用空格分隔的关键词**而不是整句：如「卡通 柯基 插画」「蓝色 机箱 渲染」。关键词之间是「且」的关系，写得越长越难命中，2~4 个词最好',
+              },
+              category: { type: 'string', description: '限定作品库分类名（可选，如「产品渲染」）' },
+              only_favorite: { type: 'boolean', description: '只找收藏的作品（可选）' },
+              limit: { type: 'number', description: '返回条数，默认 6，最多 12' },
+            },
+            required: ['query'],
+          },
+        },
+      },
+      execute: (args, user, conversationId) => this.searchImageLibrary(args, user, conversationId),
     },
     generate_image: {
       label: '生成图片',
@@ -1594,6 +1641,186 @@ export class ChatToolsService {
         content: `图片修改失败：${message}。兜底方案：改用 generate_image，把原图的完整画面描述加上本次修改要求重新生成一张（效果等价）；若提示图片不存在，说明 image_id 有误或图片归属其他用户，如实告知用户。`,
       };
     }
+  }
+
+  /**
+   * 作品库检索：语义召回（向量库 sourceType='image'）+ 关键词召回（prompt 文本）两路合并。
+   *
+   * 两路都要：向量库能命中「同义不同词」（库里写"蓝色机箱渲染图"、用户问"设备外观图"），
+   * 关键词能兜住刚生成还没索引、或没配 embedding 模型的情况。
+   * 归属一律以 SQL 的 userId 为准——向量库那层超管直通 visible_user_ids，不能拿来当权限闸。
+   */
+  private async searchImageLibrary(
+    args: Record<string, unknown>,
+    user: RagUserContext,
+    conversationId: string,
+  ): Promise<ChatToolResult> {
+    const query = String(args.query ?? '').trim();
+    if (!query) {
+      return { ok: false, summary: '缺少检索词', content: '未提供检索词 query。' };
+    }
+    const limitRaw = Number(args.limit);
+    const limit = Number.isFinite(limitRaw) ? Math.min(12, Math.max(1, Math.round(limitRaw))) : 6;
+    const onlyFavorite = args.only_favorite === true;
+    const categoryName = String(args.category ?? '').trim();
+
+    // 分类名 → id：模型只知道名字，库里按 id 过滤。作品库分类是全局共享目录，不按人过滤。
+    let categoryId: string | undefined;
+    if (categoryName) {
+      const category = await this.prisma.imageCategory.findFirst({
+        where: { name: { contains: categoryName, mode: 'insensitive' } },
+        orderBy: { name: 'asc' },
+        select: { id: true },
+      });
+      categoryId = category?.id;
+    }
+
+    // 1) 语义召回：没配 embedding 模型或上游抽风时静默降级为「只走关键词」
+    let semanticIds: string[] = [];
+    try {
+      const response = await withBudget(
+        this.ragService.search(query, user, { topK: limit * 3, sourceTypes: ['image'] }),
+        SEMANTIC_BUDGET_MS,
+        { results: [], filteredByPermission: 0 },
+      );
+      semanticIds = response.results.map((r) => r.sourceId);
+    } catch (error) {
+      this.logger.warn(`作品库语义检索失败，降级为关键词检索：${error instanceof Error ? error.message : error}`);
+    }
+
+    // 2) 关键词召回 + 3) 语义命中按 id 回填（都带 userId 过滤）
+    const [keywordPage, semanticRows] = await Promise.all([
+      this.imageGenerationService.listImages(
+        user.userId,
+        1,
+        limit * 2,
+        onlyFavorite,
+        undefined,
+        undefined,
+        query,
+        categoryId,
+      ),
+      this.imageGenerationService.findOwnedImagesByIds(user.userId, semanticIds),
+    ]);
+
+    type LibraryHit = {
+      id: string;
+      prompt?: string;
+      size?: string;
+      model?: string;
+      isFavorite?: boolean;
+      createdAt?: Date | string;
+      imageUrl?: string | null;
+      imageData?: string;
+      category?: { name: string } | null;
+      categoryId?: string | null;
+    };
+    const semanticOrder = new Map(semanticIds.map((id, index) => [id, index] as const));
+    const semanticHits = (semanticRows as LibraryHit[])
+      .filter((row) => !onlyFavorite || row.isFavorite)
+      .filter((row) => !categoryId || row.categoryId === categoryId || row.category != null)
+      .sort((a, b) => (semanticOrder.get(a.id) ?? 999) - (semanticOrder.get(b.id) ?? 999));
+
+    // 字面命中全部关键词的是「严格匹配」，只有向量相近的是「相关」。
+    // 不区分的话，问「小狗」会先列一串语义相近的兔子老虎，模型照单全收就成了误导。
+    const terms = query.split(/[\s,，。;；、]+/).map((t) => t.trim()).filter(Boolean);
+    const textOf = (row: LibraryHit) => `${row.prompt ?? ''} ${row.category?.name ?? ''}`.toLowerCase();
+    const isStrict = (row: LibraryHit) =>
+      terms.length > 0 && terms.every((t) => textOf(row).includes(t.toLowerCase()));
+    // 放宽匹配时按命中的 2 字滑窗数量重排：SQL 只能按时间排，命中最多的那张才该排第一
+    const windowsOf = (text: string) => {
+      const set = new Set<string>();
+      for (const term of terms) {
+        if (term.length <= 2) set.add(term.toLowerCase());
+        else for (let i = 0; i + 2 <= term.length; i += 1) set.add(term.slice(i, i + 2).toLowerCase());
+      }
+      return [...set].filter((w) => text.includes(w)).length;
+    };
+    const keywordHits = (keywordPage.items ?? []) as LibraryHit[];
+    const rankedKeywordHits = keywordPage.relaxed
+      ? [...keywordHits].sort((a, b) => windowsOf(textOf(b)) - windowsOf(textOf(a)))
+      : keywordHits;
+
+    const merged: LibraryHit[] = [];
+    // 严格匹配优先，其次放宽/关键词命中，最后才是纯语义相近
+    const ordered = [
+      ...rankedKeywordHits.filter(isStrict),
+      ...semanticHits.filter(isStrict),
+      ...rankedKeywordHits,
+      ...semanticHits,
+    ];
+    for (const row of ordered) {
+      if (merged.length >= limit) break;
+      if (merged.some((item) => item.id === row.id)) continue;
+      merged.push(row);
+    }
+    const strictCount = merged.filter(isStrict).length;
+
+    if (merged.length === 0) {
+      return {
+        ok: true,
+        summary: '作品库无匹配',
+        content: `作品库里没有找到与「${query}」相关的现成图片${categoryName ? `（分类：${categoryName}）` : ''}。可以据此告诉用户库里没有，并在用户需要时用 generate_image 生成一张新的。`,
+      };
+    }
+
+    // 最相关的一张作为附件直接展示；其余以列表给出（ChatToolResult 只支持一个附件）
+    let attachment: StoredChatAttachment | undefined;
+    try {
+      const top = merged[0];
+      // 原图已经在 OSS 里：直接引用同一个对象，不再下载+回传（实测十几秒，会把工具拖超时）
+      const objectKey = await this.imageGenerationService.getOwnedImageObjectKey(user.userId, top.id);
+      const filename = `作品库-${(top.prompt ?? '图片').trim().slice(0, 16) || '图片'}`;
+      attachment = await withBudget(
+        objectKey
+          ? this.fileExportService.persistExistingObject(
+              user.userId,
+              { objectKey, filename: `${filename}.png` },
+              conversationId,
+            )
+          : this.persistGeneratedImage(
+              { id: top.id, imageData: top.imageData, imageUrl: top.imageUrl ?? undefined },
+              user.userId,
+              conversationId,
+            ),
+        ATTACHMENT_BUDGET_MS,
+        undefined,
+      );
+    } catch (error) {
+      this.logger.warn(`作品库图片附件生成失败（降级为纯文本）：${error instanceof Error ? error.message : error}`);
+    }
+
+    const lines = merged.map((row, index) => {
+      const desc = (row.prompt ?? '').trim().replace(/\s+/g, ' ').slice(0, 60) || '（无描述）';
+      const parts = [
+        `${index + 1}. [${isStrict(row) ? '严格匹配' : '语义相近'}] id=${row.id}`,
+        desc,
+        row.category?.name ? `分类：${row.category.name}` : '未归类',
+        row.size || '尺寸未知',
+        row.model === UPLOADED_MEDIA_MARKER ? '本地上传' : 'AI 生成',
+        row.isFavorite ? '已收藏' : '',
+        row.createdAt ? new Date(row.createdAt).toISOString().slice(0, 10) : '',
+      ].filter(Boolean);
+      return `- ${parts.join(' · ')}`;
+    });
+
+    return {
+      ok: true,
+      summary: strictCount > 0 ? `作品库命中 ${merged.length} 张` : `作品库仅有 ${merged.length} 张相近作品`,
+      content: [
+        `作品库里找到 ${merged.length} 张作品（严格匹配 ${strictCount} 张，其余仅语义相近）：`,
+        ...lines,
+        '',
+        attachment
+          ? '第 1 张已作为附件展示在你的回答下方。'
+          : '（图片附件加载失败，可让用户到「图像作品库」页按描述查看。）',
+        strictCount === 0
+          ? '注意：这些都只是语义相近，没有一张字面命中用户要的东西。先看描述判断是不是用户想要的：不是就直接说「作品库里没有 XX 的图」，可以顺带提一句库里有哪些相近的，别把不相干的图当成命中推给用户。'
+          : '请先把严格匹配的作品介绍给用户，说明可以直接用。',
+        '用户想在其中某张上改，就把它的 id 传给 edit_image；只有在库里没有、或用户明确表示都不合适要新的时，才调用 generate_image。不要输出图片链接或 markdown 图片语法。',
+      ].join('\n'),
+      attachment,
+    };
   }
 
   /** 把生成/编辑结果落成聊天附件：base64 data URL 直接解码，仅有签名 URL（缓存命中）时下载 */

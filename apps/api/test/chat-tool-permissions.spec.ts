@@ -31,6 +31,7 @@ const ALWAYS_MOUNTED = [
   'search_knowledge',
   'query_members',
   'get_dashboard_summary',
+  'search_image_library',
   'generate_image',
   'edit_image',
   'generate_video',
@@ -116,6 +117,10 @@ test('当日生图达到上限后，生图与改图工具不再下发', async ()
 
   assert.ok(!names.includes('generate_image'), '超额后不得再下发生图工具');
   assert.ok(!names.includes('edit_image'), '改图同样触发上游生成，一并停发');
+  assert.ok(
+    names.includes('search_image_library'),
+    '查库是只读的，额度用尽时更需要它把库里现成的图给用户',
+  );
 });
 
 test('生图配额用尽不影响其他工具，对话能力不受牵连', async () => {

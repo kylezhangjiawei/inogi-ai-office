@@ -33,6 +33,7 @@ function imageService(prisma: Stub, oss: Stub = ossStub()) {
     oss as never,
     {} as never,
     {} as never,
+    { syncDocument: async () => ({ inserted: 0 }), removeChunksForSource: async () => ({ deleted: 0 }) } as never,
   );
 }
 
@@ -225,6 +226,8 @@ test('删除图片：上传件连 OSS 对象一起清，生成件只删记录', 
       {
         generatedImage: { findUnique: async () => img, delete: async () => img },
         fileAsset: { updateMany: async () => ({ count: 1 }) },
+        // 删对象前会先查有没有聊天附件引用同一个 objectKey（这里都没有）
+        chatMessage: { findFirst: async () => null },
       },
       ossStub({ deleteObject: async (key: string) => { deleted.push(key); } }),
     );

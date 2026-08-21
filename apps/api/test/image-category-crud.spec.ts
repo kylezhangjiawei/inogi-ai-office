@@ -27,6 +27,8 @@ function makeService(prisma: PrismaStub) {
     { getSignedUrl: () => null, isEnabled: false } as never,
     {} as never,
     {} as never,
+    // RagService：作品索引是 best-effort 旁路，分类用例不关心，给个空实现即可
+    { syncDocument: async () => ({ inserted: 0 }), removeChunksForSource: async () => ({ deleted: 0 }) } as never,
   );
 }
 

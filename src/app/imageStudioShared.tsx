@@ -147,6 +147,8 @@ export type ListResponse = {
   page: number;
   pageSize: number;
   totalPages: number;
+  /** true = 严格匹配为空，结果来自放宽后的模糊匹配（中文长词按 2 字滑窗），前端要提示 */
+  relaxed?: boolean;
   items: GeneratedImage[];
 };
 

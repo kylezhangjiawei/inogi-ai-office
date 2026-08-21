@@ -3746,6 +3746,29 @@ const DICT = {
   "将移除这条免费样品登记（{supplier}），任务状态和已登记的到货数量不受影响。": "This removes the free sample record ({supplier}). The task status and recorded arrivals are unaffected.",
   "将移除采购单 {no} 的关联，T+ 里的单据不受影响；该单已同步的到货量会一并从本任务移除。": "This unlinks PO {no}. The document in T+ is unaffected, but any arrivals synchronized from it are removed from this task.",
   "报价按 {quoted} {unit} 确认，本任务当前采购数量为 {actual} {unit}；金额不随数量重算，实际以畅捷通 T+ 采购单为准。": "The quote was confirmed for {quoted} {unit} while the task quantity is now {actual} {unit}. Amounts are not recalculated; the Chanjet T+ PO is authoritative.",
+
+  // MateChat ReAct 步骤条动作名（后端工具注册表 label，前端按中文 key 查字典）
+  "查询研发任务": "Query R&D Tasks",
+  "检索公司知识库": "Search Knowledge Base",
+  "查询人员信息": "Look Up People",
+  "发起立项（待确认）": "Create Task (needs confirmation)",
+  "发送催办通知（待确认）": "Send Reminder (needs confirmation)",
+  "更新任务进展（待确认）": "Update Progress (needs confirmation)",
+  "任务审批（待确认）": "Approve Task (needs confirmation)",
+  "汇总研发数据": "Summarize R&D Data",
+  "查询采购数据": "Query Procurement Data",
+  "检索作品库": "Search Image Library",
+  "生成图片": "Generate Image",
+  "修改图片": "Edit Image",
+  "生成视频（待确认）": "Generate Video (needs confirmation)",
+  "修改任务描述": "Edit Task Description",
+  "改派任务负责人（待确认）": "Reassign Owner (needs confirmation)",
+  "修改任务截止日期（待确认）": "Change Due Date (needs confirmation)",
+  "申请任务合并（待确认）": "Request Task Merge (needs confirmation)",
+  "移动任务归类（待确认）": "Move Task Category (needs confirmation)",
+  "并入父任务（待确认）": "Attach to Parent Task (needs confirmation)",
+  "申请放弃任务（待确认）": "Request Task Abandon (needs confirmation)",
+  "没有完全匹配的作品，以下是相近结果": "No exact match; showing similar results",
 };
 
 let entriesToWrite = DICT;

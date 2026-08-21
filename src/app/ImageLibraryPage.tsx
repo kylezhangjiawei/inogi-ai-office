@@ -22,6 +22,7 @@ import { AssignCategoryModal, MediaCategorySidebar } from "./components/MediaCat
 import { MediaUploadButton, MediaUploadDialog } from "./components/MediaUploadDialog";
 import { useAuth } from "./auth";
 import { DEFAULT_IMAGE_MODEL_OPTION } from "./lib/aiModelOptions";
+import { t, useI18n } from "./lib/i18n";
 import { hasPermission, PERMISSIONS } from "./lib/permissions";
 import { flattenCategories, subtreeIds, type CategoryFormPayload, type MediaCategoryNode } from "./lib/mediaCategory";
 import { useAiModelOptions } from "./lib/useAiModelOptions";
@@ -102,10 +103,13 @@ export function ImageLibraryPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const normalizedSearchKeyword = searchKeyword.trim();
 
+  useI18n(); // 订阅语言切换，下方 t() 文案随之重渲染
   const [items, setItems] = useState<GeneratedImage[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  // 中文长词严格搜不到时后端会放宽匹配，得让用户知道这批不是精确结果
+  const [relaxedMatch, setRelaxedMatch] = useState(false);
   const [galleryLoading, setGalleryLoading] = useState(false);
 
   const [categories, setCategories] = useState<ImageCategory[]>([]);
@@ -157,6 +161,7 @@ export function ImageLibraryPage() {
         setTotalPages(response.totalPages);
         setPage(response.page);
         setItems(response.items);
+        setRelaxedMatch(Boolean(response.relaxed));
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "图片列表加载失败");
       } finally {
@@ -480,6 +485,11 @@ export function ImageLibraryPage() {
                   {normalizedSearchKeyword ? (
                     <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">
                       搜索“{normalizedSearchKeyword}”
+                    </span>
+                  ) : null}
+                  {relaxedMatch ? (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                      {t("没有完全匹配的作品，以下是相近结果")}
                     </span>
                   ) : null}
                   {activeCategory || categoryFilter === UNCATEGORIZED_FILTER ? (

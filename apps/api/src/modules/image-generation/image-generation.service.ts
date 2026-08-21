@@ -10,6 +10,7 @@ import { SecureConfigService } from '../security/secure-config.service';
 import { OssService } from '../oss/oss.service';
 import { AiUsageService } from '../ai-usage/ai-usage.service';
 import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+import { RagService } from '../rag/rag.service';
 import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { EditImageDto } from './dto/edit-image.dto';
 import { GenerateImageDto } from './dto/generate-image.dto';
@@ -26,7 +27,6 @@ import {
   UNCATEGORIZED_FILTER,
 } from '../../common/category-tree.util';
 
-const CACHE_SIMILARITY_THRESHOLD = 0.65;
 const DEFAULT_IMAGE_TO_IMAGE_MODEL = 'gpt-image-1';
 const DEFAULT_PROMPT_CHAT_MODEL = 'gpt-4.1-mini';
 // 异步生成任务在内存中保留的最长时间（超过则清理，避免内存无界增长）
@@ -150,6 +150,7 @@ export class ImageGenerationService {
     private readonly ossService: OssService,
     private readonly aiUsageService: AiUsageService,
     private readonly aiGateway: AiGatewayService,
+    private readonly ragService: RagService,
   ) {}
 
   // ── 生成图片（优先命中缓存）────────────────────────────────────────────────
@@ -208,6 +209,7 @@ export class ImageGenerationService {
       if (!savedFromCache.imageUrl) {
         void this.uploadAndSaveImageUrl(savedFromCache.id, savedFromCache.imageData);
       }
+      void this.indexImageToRag(savedFromCache.id);
       // 埋点：缓存命中也计一次（成本 0），与 backfill 口径一致（backfill 会计入所有 GeneratedImage）
       this.aiUsageService.record({
         userId,
@@ -286,6 +288,7 @@ export class ImageGenerationService {
     //    会把整个异步任务卡在 processing，直到前端轮询超时报「图片处理超时」——即便图片此时早已存库并出现在列表里。
     //    这里先用 base64 返回（toResponse 在 imageUrl 为空时回退到 imageData），OSS URL 由后台写回 DB，与命中缓存路径一致。
     void this.uploadAndSaveImageUrl(saved.id, imageData);
+    void this.indexImageToRag(saved.id);
     this.aiUsageService.record({
       userId,
       modality: 'image',
@@ -599,17 +602,31 @@ export class ImageGenerationService {
   ) {
     const normalizedPage = Number.isFinite(page) && page > 0 ? page : 1;
     const normalizedPageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(pageSize, 48) : 12;
-    const where: Prisma.GeneratedImageWhereInput = {
+    const baseWhere: Prisma.GeneratedImageWhereInput = {
       userId,
       ...(onlyFavorite ? { isFavorite: true } : {}),
       ...(await this.buildCategoryFilter(categoryId)),
       ...this.buildCreatedAtFilter(dateFrom, dateTo),
-      ...this.buildImageSearchFilter(query),
     };
-    const [total, rawItems] = await Promise.all([
-      this.prisma.generatedImage.count({ where }),
-      this.prisma.generatedImage.findMany({
-        where,
+    let where: Prisma.GeneratedImageWhereInput = { ...baseWhere, ...this.buildImageSearchFilter(query) };
+    let total = await this.prisma.generatedImage.count({ where });
+    // 中文没有空格，「卡通柯基犬插画」整串当一个词去 contains 一条都搜不到。
+    // 严格匹配为 0 时用 2 字滑窗 OR 兜底：至少能把「卡通/柯基/基犬/插画」这类子串捞回来。
+    let relaxed = false;
+    if (total === 0) {
+      const fuzzy = this.buildFuzzyImageSearchFilter(query);
+      if (fuzzy) {
+        const fuzzyWhere = { ...baseWhere, ...fuzzy };
+        const fuzzyTotal = await this.prisma.generatedImage.count({ where: fuzzyWhere });
+        if (fuzzyTotal > 0) {
+          where = fuzzyWhere;
+          total = fuzzyTotal;
+          relaxed = true;
+        }
+      }
+    }
+    const rawItems = await this.prisma.generatedImage.findMany({
+      where,
         orderBy: { createdAt: 'desc' },
         skip: (normalizedPage - 1) * normalizedPageSize,
         take: normalizedPageSize,
@@ -643,40 +660,83 @@ export class ImageGenerationService {
           cumulativeEstimatedCostUsd: true,
           usageDetails: true,
           createdAt: true,
-        },
-      }),
-    ]);
-
-    // imageUrl 字段存的是 objectKey（私有 Bucket）；响应时转为 10 分钟签名 URL。
-    // 旧数据 imageUrl 为 http(s) URL 时原样返回（兼容历史记录）。
-    const items = rawItems.map((item) => {
-      const objectKey = item.imageUrl && !item.imageUrl.startsWith('http') ? item.imageUrl : null;
-      const resolvedUrl = item.imageUrl
-        ? (item.imageUrl.startsWith('http')
-            ? item.imageUrl
-            : this.ossService.getSignedUrl(item.imageUrl, 24 * 3600))
-        : null;
-      return {
-        ...item,
-        imageUrl: resolvedUrl,
-        thumbnailUrl: objectKey
-          ? this.ossService.getSignedUrl(
-              objectKey,
-              24 * 3600,
-              'image/resize,m_lfit,w_640/format,webp/quality,q_82',
-            )
-          : resolvedUrl,
-        imageData: resolvedUrl ? undefined : item.imageData,
-      };
+      },
     });
+
+    const items = rawItems.map((item) => this.toLibraryItem(item));
 
     return {
       total,
       page: normalizedPage,
       pageSize: normalizedPageSize,
       totalPages: Math.ceil(total / normalizedPageSize),
+      /** true = 严格匹配为空，本次结果来自放宽后的模糊匹配（前端提示用） */
+      relaxed,
       items,
     };
+  }
+
+  /**
+   * 列表项统一映射：imageUrl 字段存的是 objectKey（私有 Bucket），响应时转为签名 URL；
+   * 旧数据 imageUrl 为 http(s) URL 时原样返回（兼容历史记录）。
+   */
+  private toLibraryItem<T extends { imageUrl: string; imageData?: string }>(item: T) {
+    const objectKey = item.imageUrl && !item.imageUrl.startsWith('http') ? item.imageUrl : null;
+    const resolvedUrl = item.imageUrl
+      ? (item.imageUrl.startsWith('http')
+          ? item.imageUrl
+          : this.ossService.getSignedUrl(item.imageUrl, 24 * 3600))
+      : null;
+    return {
+      ...item,
+      imageUrl: resolvedUrl,
+      thumbnailUrl: objectKey
+        ? this.ossService.getSignedUrl(
+            objectKey,
+            24 * 3600,
+            'image/resize,m_lfit,w_640/format,webp/quality,q_82',
+          )
+        : resolvedUrl,
+      imageData: resolvedUrl ? undefined : item.imageData,
+    };
+  }
+
+  /**
+   * 供 MateChat 把作品库命中的图挂成聊天附件：只返回本人作品的 OSS objectKey。
+   * 历史数据里 imageUrl 可能是 http 直链（非 objectKey），那种返回 null 由调用方走下载路径。
+   */
+  async getOwnedImageObjectKey(userId: string, imageId: string): Promise<string | null> {
+    const img = await this.prisma.generatedImage.findFirst({
+      where: { id: imageId, userId },
+      select: { imageUrl: true },
+    });
+    const key = img?.imageUrl?.trim();
+    return key && !key.startsWith('http') ? key : null;
+  }
+
+  /**
+   * 按 id 批量取「当前用户的」作品。供 MateChat 图库检索回填向量命中的结果——
+   * 归属过滤放在 SQL 里，不依赖向量库元数据（那层超管直通，会看到别人的图）。
+   */
+  async findOwnedImagesByIds(userId: string, ids: string[]) {
+    const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))].slice(0, 50);
+    if (unique.length === 0) return [];
+    const rows = await this.prisma.generatedImage.findMany({
+      where: { id: { in: unique }, userId },
+      select: {
+        id: true,
+        prompt: true,
+        revisedPrompt: true,
+        size: true,
+        model: true,
+        isFavorite: true,
+        imageData: true,
+        imageUrl: true,
+        createdAt: true,
+        category: { select: { id: true, name: true } },
+      },
+    });
+    return rows.map((row) => this.toLibraryItem(row));
   }
 
   async getUsage(userId: string, date?: string) {
@@ -934,6 +994,7 @@ export class ImageGenerationService {
       });
       // 上传编辑结果到 OSS：异步进行，不阻塞任务完成（同 generate，避免 OSS 挂起把轮询任务卡死）
       void this.uploadAndSaveImageUrl(saved.id, imageData);
+      void this.indexImageToRag(saved.id);
 
       await this.prisma.imageEditMessage.create({
         data: {
@@ -1030,7 +1091,16 @@ export class ImageGenerationService {
       img.model === UPLOADED_MEDIA_MARKER && img.imageUrl && !img.imageUrl.startsWith('http')
         ? img.imageUrl
         : null;
-    if (objectKey) {
+    // MateChat 检索作品库时会把命中的图按 objectKey 引用成聊天附件（不复制字节）。
+    // 这时把对象删掉，历史对话里的那张图就变 404 了——被引用就只删作品库记录，留着对象。
+    const referencedByChat = objectKey
+      ? Boolean(
+          await this.prisma.chatMessage
+            .findFirst({ where: { attachments: { string_contains: objectKey } }, select: { id: true } })
+            .catch(() => null),
+        )
+      : false;
+    if (objectKey && !referencedByChat) {
       await this.ossService.deleteObject(objectKey).catch((err) => {
         this.logger.warn(`删除 OSS 图片对象失败 ${objectKey}: ${err instanceof Error ? err.message : String(err)}`);
       });
@@ -1038,8 +1108,11 @@ export class ImageGenerationService {
         where: { objectKey, status: 'active' },
         data: { status: 'deleted', deletedAt: new Date() },
       });
+    } else if (objectKey) {
+      this.logger.log(`作品 ${id} 的 OSS 对象被聊天附件引用，仅删除作品库记录：${objectKey}`);
     }
     await this.prisma.generatedImage.delete({ where: { id } });
+    void this.removeImageFromRag(id);
     return { ok: true };
   }
 
@@ -1084,6 +1157,7 @@ export class ImageGenerationService {
       },
     });
 
+    void this.indexImageToRag(saved.id);
     return { ...this.toResponse(saved), categoryId: saved.categoryId };
   }
 
@@ -1226,11 +1300,105 @@ export class ImageGenerationService {
     const target = categoryId?.trim() || null;
     if (target) await this.assertCategoryExists(target);
 
-    return this.prisma.generatedImage.update({
+    const updated = await this.prisma.generatedImage.update({
       where: { id: imageId },
       data: { categoryId: target },
       select: { id: true, categoryId: true },
     });
+    // 分类名也是检索文本的一部分，改归属后要重新索引
+    void this.indexImageToRag(imageId);
+    return updated;
+  }
+
+  // ── 作品库向量索引（供 MateChat 的 search_image_library 语义召回）────────────
+
+  /**
+   * 把一张作品的文字信息写入向量库（sourceType='image'）。
+   * 索引的是描述文本而不是画面内容：prompt / 模型改写后的 prompt / 修改指令 / 分类名。
+   * best-effort：没配 embedding 模型或上游失败只告警，绝不影响出图与上传主流程。
+   *
+   * 权限：作品按人隔离，写 visible_user_ids 只让本人召回。注意超管在 RagService 里直通该字段，
+   * 所以 'image' 在通用检索中是 opt-in 的（见 RagService.search），只有点名图库时才会被搜到。
+   */
+  async indexImageToRag(imageId: string): Promise<void> {
+    try {
+      const img = await this.prisma.generatedImage.findUnique({
+        where: { id: imageId },
+        select: {
+          id: true,
+          userId: true,
+          prompt: true,
+          revisedPrompt: true,
+          editInstruction: true,
+          size: true,
+          model: true,
+          createdAt: true,
+          category: { select: { id: true, name: true } },
+        },
+      });
+      if (!img) return;
+      const title = (img.prompt || '未命名作品').trim().slice(0, 60);
+      const text = [
+        img.prompt,
+        img.revisedPrompt,
+        img.editInstruction,
+        img.category?.name ? `分类：${img.category.name}` : '',
+      ]
+        .map((part) => (part ?? '').trim())
+        .filter(Boolean)
+        .join('\n');
+      if (!text) return;
+      await this.ragService.syncDocument({
+        sourceType: 'image',
+        sourceId: img.id,
+        title,
+        text,
+        metadata: {
+          title,
+          image_id: img.id,
+          size: img.size,
+          is_upload: img.model === UPLOADED_MEDIA_MARKER,
+          created_at: img.createdAt.toISOString(),
+          ...(img.category ? { category_id: img.category.id, category_label: img.category.name } : {}),
+          author_id: img.userId,
+          visible_user_ids: [img.userId],
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `作品 ${imageId} 向量索引失败（不影响业务）：${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+
+  /** 作品删除后同步清掉向量库残留，避免检索命中已不存在的图。 */
+  async removeImageFromRag(imageId: string): Promise<void> {
+    try {
+      await this.ragService.removeChunksForSource('image', imageId);
+    } catch (error) {
+      this.logger.warn(
+        `作品 ${imageId} 向量索引清理失败：${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+
+  /**
+   * 存量回填：把已有作品全部重新 embedding 写入向量库。
+   * 适用于首次开启图库检索、切换 embedding 模型，或接入索引前创建的老作品。
+   */
+  async backfillImagesToRag(): Promise<{ total: number; succeeded: number; failed: number }> {
+    const rows = await this.prisma.generatedImage.findMany({ select: { id: true } });
+    let succeeded = 0;
+    let failed = 0;
+    for (const row of rows) {
+      try {
+        await this.indexImageToRag(row.id);
+        succeeded += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    return { total: rows.length, succeeded, failed };
   }
 
   private async assertCategoryExists(id: string, client: CategoryDbClient = this.prisma) {
@@ -1645,6 +1813,38 @@ export class ImageGenerationService {
     return Object.keys(createdAt).length > 0 ? { createdAt } : {};
   }
 
+  /**
+   * 中文模糊兜底：把没有空格的长中文词切成 2 字滑窗，任一命中即返回（OR）。
+   * 「卡通柯基犬插画」→ 卡通/通柯/柯基/基犬/犬插/插画，能把「一只可爱的卡通柯基犬…插画」捞出来。
+   * 只在严格 AND 匹配为 0 时使用，返回 null 表示这条 query 没什么可放宽的。
+   */
+  private buildFuzzyImageSearchFilter(query?: string): Prisma.GeneratedImageWhereInput | null {
+    const keyword = query?.trim().replace(/\s+/g, ' ').slice(0, 120);
+    if (!keyword) return null;
+    const terms = [...new Set(keyword.split(/[\s,，。;；、]+/).map((item) => item.trim()).filter(Boolean))].slice(0, 6);
+    const windows = new Set<string>();
+    for (const term of terms) {
+      // 已经是 2 字以内的词没什么可切的，原样参与 OR
+      if (term.length <= 2) {
+        windows.add(term);
+        continue;
+      }
+      for (let i = 0; i + 2 <= term.length; i += 1) windows.add(term.slice(i, i + 2));
+    }
+    const list = [...windows].filter((w) => w.length >= 2).slice(0, 24);
+    if (list.length === 0) return null;
+    return {
+      OR: list.flatMap((w) => {
+        const contains = { contains: w, mode: 'insensitive' as const };
+        return [
+          { prompt: contains },
+          { revisedPrompt: contains },
+          { editInstruction: contains },
+        ] as Prisma.GeneratedImageWhereInput[];
+      }),
+    };
+  }
+
   private buildImageSearchFilter(query?: string): Prisma.GeneratedImageWhereInput {
     const keyword = query?.trim().replace(/\s+/g, ' ').slice(0, 120);
     if (!keyword) return {};
@@ -1675,41 +1875,22 @@ export class ImageGenerationService {
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
+  /**
+   * 生成缓存：**只在请求完全一致时复用**（同 prompt + 同 style/size/quality/model）。
+   *
+   * 原来按 Jaccard 相似度 ≥0.65 复用，但中文没有分词——tokenize 是按标点切短句的，
+   * 同一套模板「一只可爱的卡通{动物}，作为卡片背景…」有 9 个短句只差 1 句，相似度 0.80，
+   * 于是「仓鼠」的请求命中「柯基」的缓存，库里存下一堆标题写仓鼠、图却是柯基的记录。
+   * 调阈值治不了（8/9 相同就 0.89，模板越长越高）：相似 ≠ 相同，用户要仓鼠就是要仓鼠。
+   */
   private async findCachedImage(prompt: string, style: string, size: string, quality: string, model: string) {
-    const candidates = await this.prisma.generatedImage.findMany({
-      where: { style, size, quality, model },
+    const normalized = prompt.trim().replace(/\s+/g, ' ');
+    if (!normalized) return null;
+    const hit = await this.prisma.generatedImage.findFirst({
+      where: { style, size, quality, model, prompt: normalized },
       orderBy: [{ isFavorite: 'desc' }, { createdAt: 'desc' }],
-      take: 200,
     });
-
-    let best: (typeof candidates[0] & { _similarity: number }) | null = null;
-    for (const img of candidates) {
-      const sim = this.jaccardSimilarity(prompt, img.prompt);
-      if (sim >= CACHE_SIMILARITY_THRESHOLD) {
-        if (!best || sim > best._similarity) {
-          best = { ...img, _similarity: sim };
-        }
-      }
-    }
-    return best;
-  }
-
-  private jaccardSimilarity(a: string, b: string): number {
-    const tokenize = (s: string) =>
-      new Set(
-        s
-          .toLowerCase()
-          .replace(/[^\w一-龥]/g, ' ')
-          .split(/\s+/)
-          .filter((t) => t.length >= 2),
-      );
-    const s1 = tokenize(a);
-    const s2 = tokenize(b);
-    if (s1.size === 0 && s2.size === 0) return 1;
-    if (s1.size === 0 || s2.size === 0) return 0;
-    let intersection = 0;
-    s1.forEach((t) => { if (s2.has(t)) intersection++; });
-    return intersection / (s1.size + s2.size - intersection);
+    return hit ? { ...hit, _similarity: 1 } : null;
   }
 
   private async generateWithOpenAi(
