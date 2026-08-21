@@ -26,6 +26,9 @@ export type RagSourceType =
   /** 联网检索兜底来源（不入向量库，仅作为 citation 类型） */
   | 'web';
 
+/** 只在调用方显式点名 sourceTypes 时才参与检索的来源类型（素材资产，非知识文本）。 */
+const OPT_IN_SOURCE_TYPES: RagSourceType[] = ['image'];
+
 export type RagPermissionMetadata = {
   /** KB 分值制：用户 kb_level >= 此值方可访问 */
   permission_level?: number;
@@ -275,7 +278,11 @@ export class RagService {
         archived: false,
         ...(opts.sourceTypes && opts.sourceTypes.length > 0
           ? { sourceType: { in: opts.sourceTypes } }
-          : {}),
+          // 图片是素材资产不是知识文本：不显式点名就不返回。两个原因——
+          // ① 图片 prompt 混进知识问答上下文纯属噪声；
+          // ② 图片按人隔离，而本类权限判定里超管直通 visible_user_ids，
+          //    通用检索会让超管看到别人的私人图片，与作品库页面口径不一致。
+          : { sourceType: { notIn: OPT_IN_SOURCE_TYPES } }),
       },
       select: {
         id: true,

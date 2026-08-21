@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Header,
   Param,
@@ -22,12 +23,16 @@ import {
   UpdateImageCategoryDto,
 } from './dto/image-category.dto';
 import { CreatePromptChatSessionDto, PromptChatDto } from './dto/prompt-chat.dto';
+import { UploadImageDto } from './dto/upload-image.dto';
 import { ImageGenerationService } from './image-generation.service';
 
 type RequestUser = {
   id?: string;
   sub?: string;
+  permissions?: string[];
 };
+
+const SUPER_ADMIN_PERMISSION = '*';
 
 @Controller('image-generation')
 export class ImageGenerationController {
@@ -106,6 +111,14 @@ export class ImageGenerationController {
     );
   }
 
+  /** 本地图片入库：文件已经由 /api/files 直传 OSS，这里只登记成作品库记录。 */
+  @Post('images/upload')
+  @Permissions('image-library:upload')
+  uploadImage(@Req() req: Request, @Body() dto: UploadImageDto) {
+    const userId = this.getUserId(req);
+    return this.service.uploadImage(userId, dto);
+  }
+
   // ── 作品库分类 ──────────────────────────────────────────────────────────────
   // 「查」跟随页面权限 page:image-library；增删改各自独立动作码。
 
@@ -170,6 +183,20 @@ export class ImageGenerationController {
   deleteImage(@Req() req: Request, @Param('id') id: string) {
     const userId = this.getUserId(req);
     return this.service.deleteImage(id, userId);
+  }
+
+  /**
+   * 全量重建作品库向量索引（接入索引前生成/上传的存量作品用）。仅超管。
+   * 与问题库的 rag-backfill 同口径，避免为存量数据写一次性脚本。
+   */
+  @Post('rag-backfill')
+  ragBackfill(@Req() req: Request) {
+    this.getUserId(req);
+    const perms = (req.user as RequestUser | undefined)?.permissions ?? [];
+    if (!perms.includes(SUPER_ADMIN_PERMISSION)) {
+      throw new ForbiddenException('仅超级管理员可重建索引');
+    }
+    return this.service.backfillImagesToRag();
   }
 
   private getUserId(req: Request) {

@@ -2537,7 +2537,14 @@ function MemberLevelsDialog({ kbId, onClose }: { kbId: string; onClose: () => vo
   );
 }
 
-export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
+export function RDKnowledgeBasePage({
+  kbScope,
+  toolbarLeading,
+}: {
+  kbScope?: KbScope;
+  /** 插在工具条最前面的额外控件（知识库统一入口用它放「切换库」下拉）。 */
+  toolbarLeading?: React.ReactNode;
+} = {}) {
   useI18n(); // 订阅语言切换（工具栏/上传按钮等文案已 t() 化）
   const { user } = useAuth();
 
@@ -3049,6 +3056,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
       )}
       {/* Toolbar —— 单排：左 筛选/类型/权限；右 计数 + 视图切换 + 同步 + 更多 + 上传 */}
       <div className="mx-4 mt-5 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3 py-2.5 shadow-[0_10px_24px_rgba(15,23,42,0.05)] sm:mx-6">
+        {toolbarLeading}
         {/* 筛选输入 */}
         <div className="relative min-w-[180px] flex-1 sm:max-w-xs">
           <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />

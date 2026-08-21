@@ -13,6 +13,10 @@ export const OSS_BUSINESS_TYPES = {
   EXTERNAL_DOCS: 'external-docs',
   CONTENT_SLOTS_STATIC: 'content-slots-static',
   ASSETS: 'assets',
+  /** 用户上传进图像作品库的本地图片（与 images/generated 的机器生成图分开存） */
+  LIBRARY_IMAGES: 'library/images',
+  /** 用户上传进视频作品库的本地视频 */
+  LIBRARY_VIDEOS: 'library/videos',
 } as const;
 
 export type OssBusinessType = (typeof OSS_BUSINESS_TYPES)[keyof typeof OSS_BUSINESS_TYPES];
@@ -32,6 +36,9 @@ export const OSS_MAX_FILE_SIZE: Record<OssBusinessType, number> = {
   'external-docs': 25 * 1024 * 1024,
   'content-slots-static': 10 * 1024 * 1024,
   'assets': 50 * 1024 * 1024,
+  'library/images': 20 * 1024 * 1024,
+  // 200MB：走 presign 单次 PUT（无断点续传），再大的片源建议先压缩
+  'library/videos': 200 * 1024 * 1024,
 };
 
 export const OSS_ALLOWED_MIME_TYPES: Record<OssBusinessType, string[]> = {
@@ -66,6 +73,8 @@ export const OSS_ALLOWED_MIME_TYPES: Record<OssBusinessType, string[]> = {
   'external-docs': ['*/*'],
   'content-slots-static': ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
   'assets': ['*/*'],
+  'library/images': ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+  'library/videos': ['video/mp4', 'video/quicktime', 'video/webm'],
 };
 
 export const SIGNED_URL_TTL_SECONDS = {

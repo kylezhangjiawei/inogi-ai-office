@@ -2882,8 +2882,25 @@ export function saveKbCategories(categories: KbCategory[], kbId?: string): Promi
 
 // ── 部门库成员分值（按人分级可见，仅下列库启用）──────────────────────────────────
 
-/** 启用「按人分值过滤」的部门库（与后端 LEVEL_FILTERED_DEPT_KB_IDS 保持一致）。 */
-export const LEVEL_FILTERED_DEPT_KB_IDS: ReadonlySet<string> = new Set(['us-collab', 'purchasing']);
+/**
+ * 启用「按人分值过滤」的部门库。**事实源在后端 dept-knowledge.constants.ts 的
+ * LEVEL_FILTERED_DEPT_KB_IDS**，这里是它的前端镜像，仅用于决定要不要显示「成员权限」按钮。
+ *
+ * ⚠️ 两边必须逐条一致：后端据此按成员分值表过滤条目（未登记按 0），前端据此给库管理员
+ * 维护分值表的入口。前端漏一个 id，该库就变成「后端在过滤、管理员却没有入口去登记分值」，
+ * 普通成员只看得到完全公开的文件且无人能修——2026-08 新增的 6 个库正是这么漏的。
+ * 漂移由 scripts/dept-kb-constants-parity.test.mjs 拦截，改这里必须同步改后端。
+ */
+export const LEVEL_FILTERED_DEPT_KB_IDS: ReadonlySet<string> = new Set([
+  'us-collab',
+  'purchasing',
+  'after-sales',
+  'rd-registration',
+  'customs',
+  'legal',
+  'it',
+  'rd-production',
+]);
 
 export type DeptKbMemberLevel = { user_id: string; name: string; level: number };
 export type DeptKbMemberCandidate = { id: string; name: string; username: string; department: string };

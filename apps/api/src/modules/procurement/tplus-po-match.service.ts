@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
 import { ProcurementService } from './procurement.service';
+import { PROC_PO_LINKABLE_STATUSES } from './procurement.types';
 import type { ProcActor } from './procurement.types';
 
 /**
@@ -18,7 +19,6 @@ import type { ProcActor } from './procurement.types';
  * ≥0.7 才建议。AI 名称匹配置信 ≥0.75 才建议，且在 matchReason 标明来源便于人工甄别。
  */
 
-const LINKABLE_STATUSES = ['priced', 'pending_purchase', 'in_transit', 'partial_arrival'];
 const RULE_SUGGEST_THRESHOLD = 0.7;
 const AI_SUGGEST_THRESHOLD = 0.75;
 const AI_MAX_ROWS = 50;
@@ -96,7 +96,7 @@ export class TplusPoMatchService {
 
   private async loadOpenTasks(): Promise<OpenTask[]> {
     const tasks = await this.prisma.procTask.findMany({
-      where: { status: { in: LINKABLE_STATUSES } },
+      where: { status: { in: PROC_PO_LINKABLE_STATUSES } },
       select: {
         id: true,
         code: true,
@@ -273,7 +273,7 @@ export class TplusPoMatchService {
     return applied;
   }
 
-  /** 确认建议：复用 linkPurchaseOrder 建关联（任务自动流转在途），回填到货量并重算。 */
+  /** 确认建议：复用 linkPurchaseOrder 建关联（已定价/待购买自动流转在途，待到样是出样单只登记不流转），回填到货量并重算。 */
   async confirm(mirrorId: string, actor: ProcActor, taskId?: string) {
     const row = await this.prisma.procPurchaseOrderMirror.findUnique({ where: { id: mirrorId } });
     if (!row) throw new NotFoundException('镜像单据不存在');

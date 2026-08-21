@@ -103,6 +103,14 @@ export const PERMISSIONS = {
   IMAGE_CATEGORY_CREATE: 'image-category:create',
   IMAGE_CATEGORY_EDIT: 'image-category:edit',
   IMAGE_CATEGORY_DELETE: 'image-category:delete',
+  IMAGE_LIBRARY_UPLOAD: 'image-library:upload',
+
+  // ─── Video library categories ───────────────────────────────────
+  PAGE_VIDEO_LIBRARY: 'page:video-library',
+  VIDEO_CATEGORY_CREATE: 'video-category:create',
+  VIDEO_CATEGORY_EDIT: 'video-category:edit',
+  VIDEO_CATEGORY_DELETE: 'video-category:delete',
+  VIDEO_LIBRARY_UPLOAD: 'video-library:upload',
 
   // ─── User management ────────────────────────────────────────────
   USER_CREATE: 'user:create',

@@ -88,6 +88,38 @@ export class ChatFileExportService {
   }
 
   /** 上传 OSS + 建 FileAsset，返回可存入 ChatMessage.attachments 的结构。 */
+  /**
+   * 把「已经在 OSS 里的对象」登记成聊天附件——不搬字节。
+   * 作品库命中的图走这条路：原图本来就在 OSS，再下载一遍又传回去实测要十几秒（超工具预算，
+   * 附件就没了），而且每搜一次都多存一份副本。objectKey 是唯一键，重复引用复用同一条资产登记。
+   */
+  async persistExistingObject(
+    userId: string,
+    file: { objectKey: string; filename: string; mime?: string; size?: number },
+    conversationId?: string,
+  ): Promise<StoredChatAttachment> {
+    const existing = await this.prisma.fileAsset.findUnique({ where: { objectKey: file.objectKey } });
+    const head = existing ? null : await this.oss.headObject(file.objectKey).catch(() => null);
+    const mime = file.mime ?? existing?.mimeType ?? head?.contentType ?? 'image/png';
+    const size = file.size ?? existing?.fileSize ?? head?.size ?? 0;
+    const asset =
+      existing
+      ?? (await this.prisma.fileAsset.create({
+        data: {
+          bucket: 'default',
+          objectKey: file.objectKey,
+          fileName: file.filename,
+          mimeType: mime,
+          fileSize: size,
+          businessType: 'chat-referenced',
+          businessId: conversationId ?? null,
+          uploadedBy: userId,
+          status: 'active',
+        },
+      }));
+    return { fileId: asset.id, name: file.filename, mime, size, objectKey: file.objectKey };
+  }
+
   async persist(
     userId: string,
     file: { buffer: Buffer; filename: string; mime: string },

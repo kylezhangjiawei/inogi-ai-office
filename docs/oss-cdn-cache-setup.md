@@ -36,6 +36,11 @@ OSS Bucket 的 CORS 用于直传，建议：
 - Expose Headers：`ETag`、`Content-Length`、`Content-Range`、`Accept-Ranges`。
 - Max Age：`86400`。
 
+没配 CORS 时的表现：浏览器直传会在预检阶段被拦，前端自动退回 `/api/files/upload` 服务端中转
+（见 `src/app/lib/resourceUpload.ts`），控制台会打印一条提示。中转只兜底 ≤25MB 的文件——
+再大就会直接失败，因为中转要把整个文件读进 API 进程内存。上线新域名时优先补 CORS，
+不要长期靠中转扛上传流量。
+
 ## 3. 服务端环境变量
 
 ```env

@@ -882,7 +882,8 @@ export class TplusSyncService {
 
   /** 采购单同步：按任务已关联的单号逐单精确查（GetVoucherDTO），回推任务到货量/状态。 */
   async syncPurchaseOrders() {
-    const refs = await this.prisma.procPurchaseOrderRef.findMany();
+    // 免费样品来货登记的关联没有 T+ 单号，拿空号去查 GetVoucherDTO 必然失败，直接排除。
+    const refs = await this.prisma.procPurchaseOrderRef.findMany({ where: { NOT: { tpOrderNo: '' } } });
     const orderNos = [...new Set(refs.map((r) => r.tpOrderNo))];
     const touchedTasks = new Set<string>();
     let updatedRefs = 0;

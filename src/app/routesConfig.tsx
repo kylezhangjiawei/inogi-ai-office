@@ -53,10 +53,15 @@ export type NavItem = {
   label: string;
   path: string;
   icon: React.ComponentType<{ className?: string }>;
-  /** 绑定部门主数据时使用稳定 code 动态解析当前名称。 */
-  departmentCode?: string;
   /** Permission code required to see this item. Omit for always-visible items. */
   requiredPermission?: string;
+  /** 任一权限即可见（部门知识库这类「一个入口聚合多个页面码」的场景）。 */
+  requiredPermissionAny?: string[];
+  /**
+   * 除 path 外还应算作「当前项」的路径。聚合入口会把用户送到别的地址（知识库入口点进去
+   * 可能落在 /rd-knowledge-base），只按 path 判定的话侧栏高亮、分组展开、滚动定位会集体失灵。
+   */
+  matchPaths?: string[];
 };
 
 export type NavGroup = {
@@ -138,18 +143,22 @@ const BASE_NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "部门知识库",
+    label: "知识库",
     items: [
-      ...DEPT_KBS.map((d) => ({
-        label: `${d.label}知识库`,
-        path: `/dept-kb/${d.id}`,
+      // 部门库与研发库合成一个入口：进页面后默认落在自己部门的库，顶部下拉可切到其它
+      // 有权限的库（含研发库）。权限码仍是每库一个，只是不再各占一个导航位；
+      // 研发库点进去仍是原路由 /rd-knowledge-base，RAG/密级/任务入库等专属能力不变。
+      {
+        label: "知识库",
+        path: "/dept-kb",
         icon: BookOpen,
-        departmentCode: d.departmentCode,
-        requiredPermission: `page:dept-kb-${d.id}`,
-      })),
-      // 「研发知识库」并入本组展示：点击仍跳转到原全功能页 /rd-knowledge-base（RAG/密级/任务入库等不变）。
-      // 技术研发部不再单设部门库，统一用研发知识库。
-      { label: "研发知识库", path: "/rd-knowledge-base", icon: BookOpen, requiredPermission: "page:rd-knowledge-base" },
+        requiredPermissionAny: [
+          ...DEPT_KBS.map((d) => `page:dept-kb-${d.id}`),
+          "page:rd-knowledge-base",
+        ],
+        // 选中研发库时 URL 是 /rd-knowledge-base，不带上它侧栏就不认自己是当前项
+        matchPaths: [routePath("page:rd-knowledge-base", "/rd-knowledge-base")],
+      },
     ],
   },
   {
@@ -268,6 +277,18 @@ export const navGroups: NavGroup[] = BASE_NAV_GROUPS.map((group) => ({
   ),
 }));
 
+/**
+ * 当前页是否属于该导航项。侧栏的高亮、分组自动展开、激活项滚动定位三处都用它，
+ * 各写各的判定迟早跑偏——聚合入口就是这么漏掉 /rd-knowledge-base 的。
+ *
+ * 首页与运维中心走精确匹配（否则所有子路径都会把它们点亮），其余按前缀匹配子路由。
+ */
+export function isNavItemActive(item: NavItem, pathname: string): boolean {
+  const exactOnly = item.path === "/" || item.path === "/ops-center";
+  const matches = (target: string) =>
+    pathname === target || (!exactOnly && target !== "/" && pathname.startsWith(`${target}/`));
+  return matches(item.path) || (item.matchPaths?.some(matches) ?? false);
+}
 
 export const routeTitleMap = navGroups
   .flatMap((group) => group.items)
@@ -275,6 +296,10 @@ export const routeTitleMap = navGroups
     acc[item.path] = item.label;
     return acc;
   }, {
+    // 下面这些不进侧栏，但需要面包屑标题。
+    // 研发知识库并入统一入口后不再有自己的导航项，这里必须同样走 routePath 解析——
+    // 写死默认路径的话，「页面路由管理」改掉它的访问路径，面包屑就退回「系统首页」。
+    [routePath("page:rd-knowledge-base", "/rd-knowledge-base")]: "研发知识库",
     "/profile": "个人中心",
     "/message-center": "消息中心",
     "/us-collab-task": "协同任务详情",

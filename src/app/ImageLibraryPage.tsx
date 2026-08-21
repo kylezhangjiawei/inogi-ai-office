@@ -3,12 +3,7 @@ import { Link } from "react-router";
 import {
   ArrowDownToLine,
   ArrowLeft,
-  Check,
-  ChevronRight,
-  Edit3,
   Eye,
-  FolderOpen,
-  FolderPlus,
   FolderTree,
   Heart,
   Images,
@@ -16,18 +11,20 @@ import {
   List,
   Loader2,
   PencilLine,
-  Plus,
   RefreshCw,
   Search,
-  Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "./components/ui/utils";
+import { AssignCategoryModal, MediaCategorySidebar } from "./components/MediaCategorySidebar";
+import { MediaUploadButton, MediaUploadDialog } from "./components/MediaUploadDialog";
 import { useAuth } from "./auth";
 import { DEFAULT_IMAGE_MODEL_OPTION } from "./lib/aiModelOptions";
+import { t, useI18n } from "./lib/i18n";
 import { hasPermission, PERMISSIONS } from "./lib/permissions";
+import { flattenCategories, subtreeIds, type CategoryFormPayload, type MediaCategoryNode } from "./lib/mediaCategory";
 import { useAiModelOptions } from "./lib/useAiModelOptions";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
@@ -39,6 +36,7 @@ import {
   apiListCategories,
   apiToggleFavorite,
   apiUpdateCategory,
+  apiUploadImage,
   apiUsage,
   downloadGeneratedImage,
   flattenCategoryTree,
@@ -49,7 +47,6 @@ import {
   ImageEditModal,
   ImagePreviewModal,
   ImageUsagePanel,
-  MAX_CATEGORY_DEPTH,
   Pager,
   UNCATEGORIZED_FILTER,
   type DateRangeKey,
@@ -69,13 +66,6 @@ const DATE_RANGES: Array<{ key: DateRangeKey; label: string }> = [
   { key: "30d", label: "近30天" },
 ];
 const PAGE_SIZE = 18;
-const DEFAULT_CATEGORY_COLOR = "#3b82f6";
-const CATEGORY_COLORS = ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#6366f1", "#0ea5e9", "#64748b"];
-
-/** 侧边栏选中态：与研发知识库同款主色块 */
-const SELECTED_ROW = "bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(79,70,229,0.16)]";
-const UNSELECTED_ROW = "text-slate-600 hover:bg-slate-50";
-const SURFACE_CARD = "rounded-lg border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
 const ICON_BTN = "flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700";
 /**
  * 悬停浮出层。基线保持可见，只有在真正支持 hover 的设备上才隐藏并靠 hover/focus 唤出。
@@ -85,21 +75,14 @@ const ICON_BTN = "flex h-7 w-7 items-center justify-center rounded-md text-slate
 const HOVER_REVEAL =
   "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100";
 
-type CategoryDialogState =
-  | { mode: "create"; parentId: string | null }
-  | { mode: "edit"; category: ImageCategory };
-
-/** 节点自己 + 所有子孙的 id：判断作品改归属后是否还落在当前筛选下。 */
-function subtreeIds(category?: ImageCategory | null): string[] {
-  if (!category) return [];
-  return flattenCategoryTree([category]).map((item) => item.id);
-}
-
-/** 子树自身高度（叶子 = 1），用于判断移动后会不会超层。 */
-function subtreeHeight(category: ImageCategory): number {
-  const children = category.children ?? [];
-  if (children.length === 0) return 1;
-  return 1 + Math.max(...children.map(subtreeHeight));
+/** 图像库的分类树 → 侧栏通用形状：把 imageCount / totalImageCount 对齐成通用字段名。 */
+function toMediaCategoryNodes(categories: ImageCategory[]): MediaCategoryNode[] {
+  return categories.map((category) => ({
+    ...category,
+    itemCount: category.imageCount,
+    totalItemCount: category.totalImageCount,
+    children: toMediaCategoryNodes(category.children ?? []),
+  }));
 }
 
 export function ImageLibraryPage() {
@@ -111,6 +94,7 @@ export function ImageLibraryPage() {
   const canCreateCategory = hasPermission(userPermissions, PERMISSIONS.IMAGE_CATEGORY_CREATE);
   const canEditCategory = hasPermission(userPermissions, PERMISSIONS.IMAGE_CATEGORY_EDIT);
   const canDeleteCategory = hasPermission(userPermissions, PERMISSIONS.IMAGE_CATEGORY_DELETE);
+  const canUpload = hasPermission(userPermissions, PERMISSIONS.IMAGE_LIBRARY_UPLOAD);
 
   const [searchKeyword, setSearchKeyword] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -119,22 +103,21 @@ export function ImageLibraryPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const normalizedSearchKeyword = searchKeyword.trim();
 
+  useI18n(); // 订阅语言切换，下方 t() 文案随之重渲染
   const [items, setItems] = useState<GeneratedImage[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  // 中文长词严格搜不到时后端会放宽匹配，得让用户知道这批不是精确结果
+  const [relaxedMatch, setRelaxedMatch] = useState(false);
   const [galleryLoading, setGalleryLoading] = useState(false);
 
   const [categories, setCategories] = useState<ImageCategory[]>([]);
   const [uncategorizedCount, setUncategorizedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
-  // 默认全展开，只记录被主动折叠的节点：分类树刷新后不用重新播种展开状态
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
-  const [categoryDialog, setCategoryDialog] = useState<CategoryDialogState | null>(null);
-  const [categorySaving, setCategorySaving] = useState(false);
-  const [categoryBusyId, setCategoryBusyId] = useState<string | null>(null);
   const [assigningItem, setAssigningItem] = useState<GeneratedImage | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   const [usage, setUsage] = useState<ImageUsageResponse | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
@@ -144,6 +127,9 @@ export function ImageLibraryPage() {
   const [editingItem, setEditingItem] = useState<GeneratedImage | null>(null);
 
   const flatCategories = useMemo(() => flattenCategoryTree(categories), [categories]);
+  /** 侧栏 / 归类弹窗用的通用分类树：作品数字段名与视频库对齐。 */
+  const sidebarCategories = useMemo(() => toMediaCategoryNodes(categories), [categories]);
+  const flatSidebarCategories = useMemo(() => flattenCategories(sidebarCategories), [sidebarCategories]);
   const categoryById = useMemo(
     () => new Map(flatCategories.map((category) => [category.id, category])),
     [flatCategories],
@@ -175,6 +161,7 @@ export function ImageLibraryPage() {
         setTotalPages(response.totalPages);
         setPage(response.page);
         setItems(response.items);
+        setRelaxedMatch(Boolean(response.relaxed));
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "图片列表加载失败");
       } finally {
@@ -235,15 +222,6 @@ export function ImageLibraryPage() {
     }
   }, [activeTab, usage, loadUsage]);
 
-  function toggleCollapsed(id: string) {
-    setCollapsedIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
   async function handleFavorite(item: GeneratedImage) {
     setFavoriteBusyId(item.id);
     try {
@@ -287,50 +265,37 @@ export function ImageLibraryPage() {
     }
   }
 
-  async function handleSubmitCategory(payload: { name: string; color: string; parentId: string | null }) {
-    if (!categoryDialog) return;
-    setCategorySaving(true);
+  async function handleCreateCategory(payload: CategoryFormPayload) {
     try {
-      let movedParent = false;
-      if (categoryDialog.mode === "create") {
-        await apiCreateCategory({ name: payload.name, color: payload.color, parentId: payload.parentId });
-        toast.success("分类已创建");
-      } else {
-        movedParent = (categoryDialog.category.parentId ?? null) !== payload.parentId;
-        await apiUpdateCategory(categoryDialog.category.id, {
-          name: payload.name,
-          color: payload.color,
-          parentId: payload.parentId,
-        });
-        toast.success("分类已更新");
-      }
-      setCategoryDialog(null);
+      await apiCreateCategory({ name: payload.name, color: payload.color, parentId: payload.parentId });
+      await loadCategories();
+      toast.success("分类已创建");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "分类保存失败");
+      throw error;
+    }
+  }
+
+  async function handleUpdateCategory(category: MediaCategoryNode, payload: CategoryFormPayload) {
+    try {
+      const movedParent = (category.parentId ?? null) !== payload.parentId;
+      await apiUpdateCategory(category.id, {
+        name: payload.name,
+        color: payload.color,
+        parentId: payload.parentId,
+      });
       await loadCategories();
       // 移动分类会改变「父分类含子孙」的筛选集合：光刷新分类树的话，侧边栏计数变了、
       // 列表里却还留着已经移走的作品，直到用户手动改筛选才纠正。
       if (movedParent && categoryFilter) await loadGallery(page);
+      toast.success("分类已更新");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "分类保存失败");
-    } finally {
-      setCategorySaving(false);
+      throw error;
     }
   }
 
-  async function handleDeleteCategory(category: ImageCategory) {
-    const subtree = flattenCategoryTree([category]);
-    const childCount = subtree.length - 1;
-    const imageCount = subtree.reduce((sum, node) => sum + node.imageCount, 0);
-    const detail = [
-      childCount > 0 ? `连同 ${childCount} 个子分类` : "",
-      imageCount > 0 ? `${imageCount} 件作品将转为未分类` : "",
-    ]
-      .filter(Boolean)
-      .join("，");
-    if (!window.confirm(`确定删除分类「${category.name}」？${detail ? `${detail}。` : ""}作品本身不会被删除。`)) {
-      return;
-    }
-
-    setCategoryBusyId(category.id);
+  async function handleDeleteCategory(category: MediaCategoryNode) {
     try {
       const result = await apiDeleteCategory(category.id);
       const deletedIds = result.deletedCategoryIds ?? [category.id];
@@ -348,8 +313,6 @@ export function ImageLibraryPage() {
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "分类删除失败");
-    } finally {
-      setCategoryBusyId(null);
     }
   }
 
@@ -406,81 +369,22 @@ export function ImageLibraryPage() {
 
       {isGalleryTab ? (
         <section className="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:flex-row">
-          {/* ── 分类侧边栏（同研发知识库：白卡片 + 行内悬停操作 + 子级左边线缩进）── */}
-          <aside className={cn("flex w-full flex-col gap-1 p-2.5 lg:w-72 lg:min-h-0 lg:shrink-0 lg:overflow-y-auto", SURFACE_CARD)}>
-            <div className="flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold uppercase text-slate-400">
-              <span>分类</span>
-              {canCreateCategory ? (
-                <button
-                  type="button"
-                  onClick={() => setCategoryDialog({ mode: "create", parentId: null })}
-                  title="新增一级分类"
-                  aria-label="新增一级分类"
-                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setCategoryFilter("")}
-              className={cn(
-                "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
-                categoryFilter === "" ? SELECTED_ROW : UNSELECTED_ROW,
-              )}
-            >
-              <span className="flex items-center gap-2">
-                <Images className="h-4 w-4" />
-                全部
-              </span>
-              <span className="text-[11px] tabular-nums opacity-70">{totalCount}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setCategoryFilter(UNCATEGORIZED_FILTER)}
-              className={cn(
-                "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
-                categoryFilter === UNCATEGORIZED_FILTER ? SELECTED_ROW : UNSELECTED_ROW,
-              )}
-            >
-              <span className="flex items-center gap-2">
-                <FolderOpen className="h-4 w-4" />
-                未分类
-              </span>
-              <span className="text-[11px] tabular-nums opacity-70">{uncategorizedCount}</span>
-            </button>
-
-            {categories.map((category) => (
-              <CategoryTreeNode
-                key={category.id}
-                category={category}
-                selectedId={categoryFilter}
-                collapsedIds={collapsedIds}
-                busyId={categoryBusyId}
-                canCreate={canCreateCategory}
-                canEdit={canEditCategory}
-                canDelete={canDeleteCategory}
-                onSelect={setCategoryFilter}
-                onToggle={toggleCollapsed}
-                onCreateChild={(parentId) => setCategoryDialog({ mode: "create", parentId })}
-                onEdit={(target) => setCategoryDialog({ mode: "edit", category: target })}
-                onDelete={(target) => void handleDeleteCategory(target)}
-              />
-            ))}
-
-            {categories.length === 0 ? (
-              <p className="px-3 py-3 text-xs leading-5 text-slate-400">
-                {categoriesLoading
-                  ? "分类加载中…"
-                  : canCreateCategory
-                    ? "还没有分类，点右上角 + 新建。"
-                    : "还没有分类。"}
-              </p>
-            ) : null}
-          </aside>
+          <MediaCategorySidebar
+            categories={sidebarCategories}
+            loading={categoriesLoading}
+            selectedId={categoryFilter}
+            onSelect={setCategoryFilter}
+            totalCount={totalCount}
+            uncategorizedCount={uncategorizedCount}
+            canCreate={canCreateCategory}
+            canEdit={canEditCategory}
+            canDelete={canDeleteCategory}
+            itemNoun="作品"
+            allIcon={Images}
+            onCreate={handleCreateCategory}
+            onUpdate={handleUpdateCategory}
+            onDelete={handleDeleteCategory}
+          />
 
           {/* ── 内容区 ────────────────────────────────────────────────────── */}
           <div className="flex min-w-0 flex-1 flex-col gap-4 lg:min-h-0">
@@ -559,6 +463,8 @@ export function ImageLibraryPage() {
                     </button>
                   </div>
 
+                  {canUpload ? <MediaUploadButton kind="image" onClick={() => setUploadOpen(true)} /> : null}
+
                   <button
                     type="button"
                     onClick={() => void loadGallery(page)}
@@ -579,6 +485,11 @@ export function ImageLibraryPage() {
                   {normalizedSearchKeyword ? (
                     <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">
                       搜索“{normalizedSearchKeyword}”
+                    </span>
+                  ) : null}
+                  {relaxedMatch ? (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                      {t("没有完全匹配的作品，以下是相近结果")}
                     </span>
                   ) : null}
                   {activeCategory || categoryFilter === UNCATEGORIZED_FILTER ? (
@@ -689,165 +600,28 @@ export function ImageLibraryPage() {
 
       {assigningItem ? (
         <AssignCategoryModal
-          item={assigningItem}
-          categories={flatCategories}
+          subtitle={assigningItem.revisedPrompt || assigningItem.prompt}
+          currentId={assigningItem.categoryId ?? null}
+          categories={flatSidebarCategories}
           onClose={() => setAssigningItem(null)}
           onSelect={(categoryId) => void handleAssignCategory(assigningItem, categoryId)}
         />
       ) : null}
 
-      {categoryDialog ? (
-        <CategoryFormDialog
-          state={categoryDialog}
-          categories={flatCategories}
-          saving={categorySaving}
-          onSubmit={(payload) => void handleSubmitCategory(payload)}
-          onClose={() => setCategoryDialog(null)}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-// ── 分类树节点 ────────────────────────────────────────────────────────────────
-
-function CategoryTreeNode({
-  category,
-  selectedId,
-  collapsedIds,
-  busyId,
-  canCreate,
-  canEdit,
-  canDelete,
-  onSelect,
-  onToggle,
-  onCreateChild,
-  onEdit,
-  onDelete,
-}: {
-  category: ImageCategory;
-  selectedId: string;
-  collapsedIds: Set<string>;
-  busyId: string | null;
-  canCreate: boolean;
-  canEdit: boolean;
-  canDelete: boolean;
-  onSelect: (id: string) => void;
-  onToggle: (id: string) => void;
-  onCreateChild: (parentId: string) => void;
-  onEdit: (category: ImageCategory) => void;
-  onDelete: (category: ImageCategory) => void;
-}) {
-  const children = category.children ?? [];
-  const hasChildren = children.length > 0;
-  const expanded = !collapsedIds.has(category.id);
-  const selected = selectedId === category.id;
-  const busy = busyId === category.id;
-  const canAddChild = canCreate && category.depth < MAX_CATEGORY_DEPTH;
-  const hasActions = canAddChild || canEdit || canDelete;
-
-  const actionClass = cn(
-    "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
-    selected ? "text-white/80 hover:bg-white/15 hover:text-white" : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
-  );
-
-  return (
-    <div className="group/category w-full">
-      <div className={cn("flex items-center rounded-md transition-colors duration-200", selected ? SELECTED_ROW : UNSELECTED_ROW)}>
-        <button
-          type="button"
-          onClick={() => {
-            onSelect(category.id);
-            if (hasChildren) onToggle(category.id);
+      {uploadOpen ? (
+        <MediaUploadDialog
+          kind="image"
+          categories={sidebarCategories}
+          defaultCategoryId={categoryFilter && categoryFilter !== UNCATEGORIZED_FILTER ? categoryFilter : null}
+          onClose={() => setUploadOpen(false)}
+          onUploaded={() => {
+            void loadCategories();
+            void loadGallery(1);
           }}
-          title={category.path}
-          className={cn(
-            "flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 py-2 pl-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
-            hasActions ? "rounded-l-md pr-1" : "rounded-md pr-3",
-          )}
-        >
-          <span className="flex min-w-0 items-center gap-2">
-            <FolderTree
-              className="h-4 w-4 shrink-0"
-              style={selected ? undefined : { color: category.color || undefined }}
-            />
-            <span className="truncate">{category.name}</span>
-          </span>
-          <span className="flex shrink-0 items-center gap-1">
-            <span className="text-[11px] tabular-nums opacity-70">{category.totalImageCount}</span>
-            <span className="flex h-4 w-3.5 items-center justify-center">
-              {hasChildren ? (
-                <ChevronRight className={cn("h-3.5 w-3.5 opacity-45 transition-transform", expanded && "rotate-90")} />
-              ) : null}
-            </span>
-          </span>
-        </button>
-
-        {hasActions ? (
-          <div
-            className={cn(
-              "flex shrink-0 items-center gap-0.5 pr-1 transition-opacity",
-              !selected && "lg:opacity-55 lg:group-hover/category:opacity-100",
-            )}
-          >
-            {canAddChild ? (
-              <button
-                type="button"
-                onClick={() => onCreateChild(category.id)}
-                title="新增子分类"
-                aria-label={`在 ${category.name} 下新增子分类`}
-                className={actionClass}
-              >
-                <FolderPlus className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-            {canEdit ? (
-              <button
-                type="button"
-                onClick={() => onEdit(category)}
-                title="编辑分类"
-                aria-label={`编辑分类 ${category.name}`}
-                className={actionClass}
-              >
-                <Edit3 className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-            {canDelete ? (
-              <button
-                type="button"
-                onClick={() => onDelete(category)}
-                disabled={busy}
-                title="删除分类"
-                aria-label={`删除分类 ${category.name}`}
-                className={cn(actionClass, selected ? "hover:text-white" : "hover:bg-red-50 hover:text-red-600", "disabled:cursor-not-allowed disabled:opacity-40")}
-              >
-                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-
-      {hasChildren && expanded ? (
-        <div className="ml-3 mt-1 flex flex-col gap-0.5 border-l border-slate-200 pl-2">
-          {children.map((child) => (
-            <CategoryTreeNode
-              key={child.id}
-              category={child}
-              selectedId={selectedId}
-              collapsedIds={collapsedIds}
-              busyId={busyId}
-              canCreate={canCreate}
-              canEdit={canEdit}
-              canDelete={canDelete}
-              onSelect={onSelect}
-              onToggle={onToggle}
-              onCreateChild={onCreateChild}
-              onEdit={onEdit}
-              onDelete={onDelete}
-            />
-          ))}
-        </div>
+          register={async ({ fileId, title, categoryId, probe }) => {
+            await apiUploadImage({ fileId, title, categoryId, size: probe.size });
+          }}
+        />
       ) : null}
     </div>
   );
@@ -1063,238 +837,5 @@ function ArtworkListRow({ item, busy, category, onPreview, onDownload, onEdit, o
         </span>
       </div>
     </div>
-  );
-}
-
-// ── 弹窗 ──────────────────────────────────────────────────────────────────────
-
-function ModalShell({
-  title,
-  description,
-  onClose,
-  children,
-  widthClass = "max-w-md",
-}: {
-  title: string;
-  description?: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  widthClass?: string;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/48 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-    >
-      <div
-        className={cn("flex max-h-[82vh] w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.32)]", widthClass)}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-            {description ? <p className="mt-0.5 text-[11px] text-slate-400">{description}</p> : null}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="关闭"
-            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function AssignCategoryModal({
-  item,
-  categories,
-  onClose,
-  onSelect,
-}: {
-  item: GeneratedImage;
-  /** 已按前序平铺的分类，depth 决定缩进 */
-  categories: ImageCategory[];
-  onClose: () => void;
-  onSelect: (categoryId: string | null) => void;
-}) {
-  const currentId = item.categoryId ?? null;
-  const rowClass = (active: boolean) =>
-    cn(
-      "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border px-3 py-2.5 text-left text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
-      active ? "border-indigo-200 bg-indigo-50 text-indigo-700" : "border-slate-200/70 bg-white text-slate-600 hover:border-indigo-200 hover:bg-slate-50",
-    );
-
-  return (
-    <ModalShell title="设置分类" onClose={onClose}>
-      <div className="flex-1 space-y-1 overflow-y-auto px-5 py-4">
-        <p className="line-clamp-2 pb-2 text-xs leading-5 text-slate-500">{item.revisedPrompt || item.prompt}</p>
-
-        <button type="button" onClick={() => onSelect(null)} className={rowClass(currentId === null)}>
-          <span className="flex items-center gap-2">
-            <FolderOpen className="h-3.5 w-3.5" />
-            未分类
-          </span>
-          {currentId === null ? <Check className="h-4 w-4" /> : null}
-        </button>
-
-        {categories.map((category) => (
-          <button
-            key={category.id}
-            type="button"
-            onClick={() => onSelect(category.id)}
-            title={category.path}
-            // 缩进走 padding：按钮是 w-full，用 margin 会把行推出容器右边缘
-            style={{ paddingLeft: `${0.75 + (category.depth - 1) * 0.875}rem` }}
-            className={rowClass(currentId === category.id)}
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <FolderTree className="h-3.5 w-3.5 shrink-0" style={{ color: category.color || undefined }} />
-              <span className="truncate">{category.name}</span>
-            </span>
-            {currentId === category.id ? <Check className="h-4 w-4 shrink-0" /> : null}
-          </button>
-        ))}
-
-        {categories.length === 0 ? (
-          <p className="py-6 text-center text-xs text-slate-400">还没有分类，请先在左侧新建。</p>
-        ) : null}
-      </div>
-    </ModalShell>
-  );
-}
-
-function CategoryFormDialog({
-  state,
-  categories,
-  saving,
-  onSubmit,
-  onClose,
-}: {
-  state: CategoryDialogState;
-  /** 已按前序平铺的分类 */
-  categories: ImageCategory[];
-  saving: boolean;
-  onSubmit: (payload: { name: string; color: string; parentId: string | null }) => void;
-  onClose: () => void;
-}) {
-  const isEdit = state.mode === "edit";
-  const [name, setName] = useState(isEdit ? state.category.name : "");
-  const [color, setColor] = useState(isEdit ? state.category.color || DEFAULT_CATEGORY_COLOR : DEFAULT_CATEGORY_COLOR);
-  const [parentId, setParentId] = useState(
-    isEdit ? state.category.parentId ?? "" : state.parentId ?? "",
-  );
-
-  const parentCategory = categories.find((item) => item.id === (isEdit ? state.category.parentId : state.parentId));
-
-  /** 移动目标：排除自己和自己的子孙，并保证移动后整棵子树不超过层数上限。 */
-  const parentOptions = useMemo(() => {
-    if (!isEdit) return [];
-    const blocked = new Set(subtreeIds(state.category));
-    const height = subtreeHeight(state.category);
-    return categories.filter((option) => !blocked.has(option.id) && option.depth + height <= MAX_CATEGORY_DEPTH);
-  }, [categories, isEdit, state]);
-
-  function submit() {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      toast.error("请输入分类名称");
-      return;
-    }
-    onSubmit({ name: trimmed, color, parentId: parentId || null });
-  }
-
-  return (
-    <ModalShell
-      title={isEdit ? "编辑分类" : parentCategory ? `在「${parentCategory.name}」下新增子分类` : "新增一级分类"}
-      description={`分类最多 ${MAX_CATEGORY_DEPTH} 层，同级不能重名`}
-      onClose={onClose}
-    >
-      <div className="space-y-4 px-5 py-4">
-        <div className="space-y-1.5">
-          <label htmlFor="image-category-name" className="text-xs font-semibold text-slate-600">
-            分类名称 <span className="text-red-500">*</span>
-          </label>
-          <input
-            id="image-category-name"
-            autoFocus
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") submit();
-            }}
-            maxLength={40}
-            placeholder="如：产品图"
-            className="material-input h-10 w-full rounded-md px-3 text-xs"
-          />
-        </div>
-
-        {isEdit ? (
-          <div className="space-y-1.5">
-            <label htmlFor="image-category-parent" className="text-xs font-semibold text-slate-600">
-              父分类
-            </label>
-            <select
-              id="image-category-parent"
-              value={parentId}
-              onChange={(event) => setParentId(event.target.value)}
-              className="material-input h-10 w-full rounded-md px-2 text-xs"
-            >
-              <option value="">根分类</option>
-              {parentOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.path}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-
-        <div className="space-y-1.5">
-          <span className="text-xs font-semibold text-slate-600">颜色</span>
-          <div className="flex items-center gap-1.5">
-            {CATEGORY_COLORS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setColor(option)}
-                aria-label={`选择颜色 ${option}`}
-                aria-pressed={color === option}
-                className={cn(
-                  "h-6 w-6 cursor-pointer rounded-full border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
-                  color === option ? "border-slate-900" : "border-transparent hover:border-slate-300",
-                )}
-                style={{ backgroundColor: option }}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex h-9 cursor-pointer items-center rounded-md border border-slate-200 px-3.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
-        >
-          取消
-        </button>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={saving}
-          className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3.5 text-xs font-semibold text-primary-foreground transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-          保存
-        </button>
-      </div>
-    </ModalShell>
   );
 }

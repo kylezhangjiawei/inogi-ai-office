@@ -801,12 +801,42 @@ model VideoGeneration {
   /// 本次预估 / 实际成本（人民币元）
   costYuan         Float    @default(0)
   errorMessage     String?
+  /// 视频作品库分类（全局共享目录）；分类被删除时置空，视频本身保留
+  categoryId       String?
+  category         VideoCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   @@index([userId, createdAt])
+  @@index([userId, categoryId, createdAt])
   @@index([upstreamTaskId])
   @@index([status])
+}
+
+/// 视频作品库分类：全局共享目录，增删改由 video-category:* 权限控制，
+/// 查看跟随 page:video-library。视频与分类是多对一（单分类），分类之间是最多 3 层的树。
+model VideoCategory {
+  id          String            @id @default(cuid())
+  name        String
+  /// 父分类；根分类为 null。删除父分类时子分类一并删除（视频由 VideoGeneration 侧 SetNull 保留）
+  parentId    String?
+  parent      VideoCategory?    @relation("VideoCategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    VideoCategory[]   @relation("VideoCategoryTree")
+  description String            @default("")
+  /// 前端徽标颜色（十六进制，如 #3b82f6）
+  color       String            @default("#3b82f6")
+  sortOrder   Int               @default(0)
+  /// 创建人 userId，仅留痕；用户被删除时不影响分类
+  createdBy   String            @default("")
+  videos      VideoGeneration[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  /// 同级不许重名。与 ImageCategory 同理：Postgres 里 NULL 互不相等，根分类那一层的
+  /// 重名由服务层 assertCategoryNameAvailable 兜住，DB 只能保证子分类那一层。
+  @@unique([parentId, name])
+  @@index([parentId, sortOrder])
+  @@index([sortOrder, createdAt])
 }
 
 /// 统一 AI 用量日志：每次 AI 调用（对话/图片/视频/…）落一条，用于用量与成本看板。

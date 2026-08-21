@@ -4,8 +4,7 @@ import { createBrowserRouter, Navigate, RouterProvider, useLocation, useParams }
 import { toast } from "sonner";
 import { materialTheme } from "../styles/materialTheme";
 import { AuthProvider, useAuth } from "./auth";
-import { useDepartmentDirectory } from "./lib/departmentDirectory";
-import { hasPermission } from "./lib/permissions";
+import { hasAnyPermission, hasPermission } from "./lib/permissions";
 import { isMobileViewport } from "./lib/mobileRouting";
 import { DEPT_KBS, routePermissionMap } from "./routesConfig";
 // 路径解析：页面挂载路径以「页面路由管理」的配置为准，目录不可用时回退内置默认值
@@ -92,6 +91,12 @@ const UsCollabTaskDetailPage = React.lazy(() => import("./UsCollabTaskDetailPage
 const RDTaskDetailPage = React.lazy(() => import("./RDTaskDetailPage"));
 const RDDiscussionInvitePage = React.lazy(() => import("./RDDiscussionInvitePage"));
 const RDKnowledgeBasePage = lazyNamed(() => import("./RDKnowledgeBasePage"), "RDKnowledgeBasePage");
+const KnowledgeBaseEntryPage = lazyNamed(() => import("./KnowledgeBaseEntryPage"), "KnowledgeBaseEntryPage");
+/** 有任意一个知识库页面码就能进统一入口，页面内部再按权限决定能切哪些库。 */
+const KB_PAGE_PERMISSIONS = [
+  ...DEPT_KBS.map((item) => `page:dept-kb-${item.id}`),
+  "page:rd-knowledge-base",
+];
 const RDPeopleManagementPage = lazyNamed(() => import("./RDPeopleManagementPage"), "RDPeopleManagementPage");
 const RDApprovalFlowPage = lazyNamed(() => import("./RDApprovalFlowPage"), "RDApprovalFlowPage");
 const RDAuditLogPage = lazyNamed(() => import("./RDAuditLogPage"), "RDAuditLogPage");
@@ -334,16 +339,22 @@ function ProtectedLayout() {
   return <Root />;
 }
 
-/** Guards a route by permission. Redirects to "/" when access is denied. */
+/** Guards a route by permission. Redirects to "/" when access is denied.
+ *  permission 传数组表示「任一即可」——部门知识库合成单入口后，十几个 page:dept-kb-* 里
+ *  有任意一个就该放行，具体能看哪个库由页面内部按权限筛选。 */
 function PermissionRoute({
   permission,
   children,
 }: {
-  permission: string;
+  permission: string | string[];
   children: React.ReactNode;
 }) {
   const { user } = useAuth();
-  if (user && !hasPermission(user.permissions, permission)) {
+  const permissions = user?.permissions ?? [];
+  const allowed = Array.isArray(permission)
+    ? hasAnyPermission(permissions, permission)
+    : hasPermission(permissions, permission);
+  if (user && !allowed) {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
         <div className="text-4xl">🔒</div>
@@ -355,7 +366,7 @@ function PermissionRoute({
   return <>{children}</>;
 }
 
-function makeProtected(component: React.ReactNode, permission: string) {
+function makeProtected(component: React.ReactNode, permission: string | string[]) {
   return <PermissionRoute permission={permission}>{component}</PermissionRoute>;
 }
 
@@ -369,7 +380,7 @@ function PageLoadingFallback() {
 }
 
 /** Like makeProtected, but wraps the (lazy) element in Suspense. */
-function makeLazyProtected(component: React.ReactNode, permission: string) {
+function makeLazyProtected(component: React.ReactNode, permission: string | string[]) {
   return makeProtected(
     <Suspense fallback={<PageLoadingFallback />}>{component}</Suspense>,
     permission,
@@ -379,18 +390,6 @@ function makeLazyProtected(component: React.ReactNode, permission: string) {
 /** 仅包 Suspense（无权限门）的懒加载包装：用于 profile / message-center 这类任意登录用户可访问的页面。 */
 function lazyWrap(node: React.ReactNode) {
   return <Suspense fallback={<PageLoadingFallback />}>{node}</Suspense>;
-}
-
-function DepartmentKnowledgeBaseRoute({
-  definition,
-}: {
-  definition: (typeof DEPT_KBS)[number];
-}) {
-  const { nameByCode } = useDepartmentDirectory();
-  const label = definition.departmentCode
-    ? nameByCode(definition.departmentCode, definition.label)
-    : definition.label;
-  return <RDKnowledgeBasePage kbScope={{ kbId: definition.id, label }} />;
 }
 
 const router = createBrowserRouter([
@@ -415,15 +414,12 @@ const router = createBrowserRouter([
       { path: "rd-my-workspace", element: makeLazyProtected(<RDMyWorkspacePage key="ws-rd" />, "page:rd-my-workspace") },
       { path: "rd-discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       { path: asChildPath(routePath("page:rd-sheet", "/rd-sheet")), element: makeLazyProtected(<RDSheetPage />, "page:rd-sheet") },
-      { path: asChildPath(routePath("page:rd-knowledge-base", "/rd-knowledge-base")), element: makeLazyProtected(<RDKnowledgeBasePage key="kb-rd" />, "page:rd-knowledge-base") },
-      // 部门知识库：8 个部门各一条路由，复用 RDKnowledgeBasePage（kbScope 切到部门库）
-      ...DEPT_KBS.map((d) => ({
-        path: `dept-kb/${d.id}`,
-        element: makeLazyProtected(
-          <DepartmentKnowledgeBaseRoute key={`kb-${d.id}`} definition={d} />,
-          `page:dept-kb-${d.id}`,
-        ),
-      })),
+      // 研发知识库：页面与部门库共用统一入口（顶部下拉可互切），底层仍是 /knowledge/* + rd-kb:* 那一套
+      { path: asChildPath(routePath("page:rd-knowledge-base", "/rd-knowledge-base")), element: makeLazyProtected(<KnowledgeBaseEntryPage scope="rd" />, "page:rd-knowledge-base") },
+      // 部门知识库：各部门库合成一个入口，库在页内切换（存储与权限仍按库隔离）。
+      // /dept-kb/:id 保留为深链与刷新用的稳定地址，顶部面包屑也按它解析部门名。
+      { path: "dept-kb", element: makeLazyProtected(<KnowledgeBaseEntryPage />, KB_PAGE_PERMISSIONS) },
+      { path: "dept-kb/:id", element: makeLazyProtected(<KnowledgeBaseEntryPage />, KB_PAGE_PERMISSIONS) },
       // 中美协同：复用研发驾驶舱（隐藏子系统全景）/ 个人工作台 / 知识库（独立 us-collab 库），独立权限码
       { path: asChildPath(routePath("page:us-collab-cockpit", "/us-collab-cockpit")), element: makeLazyProtected(<RDTaskManagementPage key="ws-us" hideSystemPanorama />, "page:us-collab-cockpit") },
       { path: asChildPath(routePath("page:us-collab-workspace", "/us-collab-workspace")), element: makeLazyProtected(<RDMyWorkspacePage key="ws-us" />, "page:us-collab-workspace") },

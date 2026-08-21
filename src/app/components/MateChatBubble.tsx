@@ -1970,7 +1970,8 @@ export function MateChatBubble() {
                                           )}
                                         >
                                           {StepIcon}
-                                          <span className="shrink-0">{step.label}</span>
+                                          {/* 步骤名是后端下发的中文常量（工具注册表的 label），英文态要走字典 */}
+                                          <span className="shrink-0">{t(step.label)}</span>
                                           {step.detail && (
                                             <span className="truncate text-slate-400">· {step.detail}</span>
                                           )}

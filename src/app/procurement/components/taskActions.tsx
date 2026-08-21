@@ -4,8 +4,8 @@
 //   待处理   → 确认接收（二次确认）
 //   待询价   → 从供应商报价库多选报价，一次确认并自动生成任务快照
 //   询价中   → 选定报价（仅兼容历史任务；新流程不再停留于此节点）
-//   待到样   → 样品已到（二次确认）
-//   测试中   → 录入测试结论（决策类：通过 → 已定价 / 不通过 → 退回询价，带结论备注）
+//   待到样   → 样品已到（二次确认）；另可登记出样单（T+ 单号或免费样品，只登记不改状态）
+//   测试中   → 录入测试结论（决策类：通过 → 已定价 / 不通过 → 改图重新出样回「待到样」，或退回询价换供应商）
 //   已定价 / 待购买 → 标记已下单（填 T+ 采购单号；直购会先打开购买链接）
 //   已下单 / 部分到货 → 登记到货（过渡期手工，T+ 接通后改由同步驱动）
 //
@@ -220,6 +220,9 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
 
   const reassign = useCallback((task: ProcurementTask) => setPending({ kind: "reassign", task }), []);
 
+  /** 「待到样」登记出样单：不是状态流转，所以不走 runNext，由详情单独触发。 */
+  const linkSampleOrder = useCallback((task: ProcurementTask) => setPending({ kind: "order", task }), []);
+
   const remove = useCallback((task: ProcurementTask) => {
     const mode = removalModeOf(task);
     // 待研发审核的申请采购侧动不了：取消和删除后端都会 400，直接提示正确入口而不是弹一个必然失败的框
@@ -263,7 +266,7 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
     />
   ) : null;
 
-  return { runNext, reassign, remove, modal, busy };
+  return { runNext, reassign, remove, linkSampleOrder, modal, busy };
 }
 
 // ── 表单弹窗 ──────────────────────────────────────────────────────────────────
@@ -294,9 +297,12 @@ function matchQuoteTier(
 interface PurchaseOrderDraft {
   key: string;
   supplierName: string;
-  orderedQty: number;
+  /** 文本态：下单数量允许现场改（出样 1 件 → 批量 500 件），提交时才解析。 */
+  orderedQty: string;
   tpOrderNo: string;
   etaDate: string;
+  /** 免费样品来货：T+ 里不会有采购单，本行不填单号。 */
+  freeSample: boolean;
 }
 
 function formatQuoteAmount(value: number, currency: string): string {
@@ -323,6 +329,9 @@ function ActionModal({
 
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderDraft[]>([]);
   const [purchaseOrdersLoading, setPurchaseOrdersLoading] = useState(false);
+  // 只有本次在弹窗里手动改过数量才动任务需求量。存量任务里报价数量之和本就与需求量不等，
+  // 不加这道闸，老任务点一次「标记已下单」就会被顺手改写需求数量。
+  const [orderedQtyEdited, setOrderedQtyEdited] = useState(false);
   const [qty, setQty] = useState("");
   const [note, setNote] = useState("");
   const [buyer, setBuyer] = useState(task.buyer);
@@ -416,16 +425,18 @@ function ActionModal({
         const drafts = [...grouped.entries()].map(([key, value]) => ({
           key,
           supplierName: value.supplierName,
-          orderedQty: value.orderedQty,
+          orderedQty: String(value.orderedQty),
           tpOrderNo: "",
           etaDate: "",
+          freeSample: false,
         }));
         setPurchaseOrders(drafts.length > 0 ? drafts : [{
           key: "__direct__",
           supplierName: "",
-          orderedQty: task.quantity,
+          orderedQty: String(task.quantity),
           tpOrderNo: "",
           etaDate: "",
+          freeSample: false,
         }]);
       })
       .catch(() => {
@@ -433,9 +444,10 @@ function ActionModal({
         setPurchaseOrders([{
           key: "__direct__",
           supplierName: "",
-          orderedQty: task.quantity,
+          orderedQty: String(task.quantity),
           tpOrderNo: "",
           etaDate: "",
+          freeSample: false,
         }]);
       })
       .finally(() => {
@@ -473,6 +485,14 @@ function ActionModal({
   }, [kind, task.id]);
 
   const remaining = Math.max(0, task.quantity - task.arrivedQty);
+  // 「待到样」借用下单弹窗登记出样单：只落关联和预计到样，任务状态不动。
+  const isSampleOrder = task.status === "pending_sample";
+  // 免费样品不是需求量的一部分（样品 1 件 + 批量 500 件 ≠ 需要 501 件），不计入登记总量。
+  const orderedTotal = purchaseOrders
+    .filter((item) => !item.freeSample)
+    .reduce((sum, item) => sum + (Number(item.orderedQty) || 0), 0);
+  // 出样 1 件的任务改下批量单时，任务数量不跟着改，到货判定还按 1 件封顶，到 1 件就判完成。
+  const quantityChanged = !isSampleOrder && orderedQtyEdited && orderedTotal > 0 && orderedTotal !== task.quantity;
   const toggleQuote = (quoteId: string) => {
     const selecting = !selectedQuoteIds.includes(quoteId);
     setSelectedQuoteIds((current) =>
@@ -546,18 +566,36 @@ function ActionModal({
       return;
     }
     if (kind === "order") {
-      if (purchaseOrders.length === 0 || purchaseOrders.some((item) => !item.tpOrderNo.trim())) {
-        toast.error(t("请填写每家供应商的畅捷通 T+ 采购单号"));
+      // 免费样品来货 T+ 里没有采购单，勾了就不校验单号；其余行仍必须给号。
+      if (purchaseOrders.length === 0 || purchaseOrders.some((item) => !item.freeSample && !item.tpOrderNo.trim())) {
+        toast.error(t("请填写每家供应商的畅捷通 T+ 采购单号；免费样品请勾选「免费样品」"));
         return;
       }
+      if (purchaseOrders.some((item) => !(Number(item.orderedQty) > 0))) {
+        toast.error(t("请填写大于 0 的采购数量"));
+        return;
+      }
+      const freeSampleCount = purchaseOrders.filter((item) => item.freeSample).length;
+      const allFreeSample = freeSampleCount === purchaseOrders.length;
       void onSubmit(
-        () => linkPurchaseOrders(task.id, purchaseOrders.map((item) => ({
-          tpOrderNo: item.tpOrderNo.trim(),
-          supplierName: item.supplierName.trim() || undefined,
-          orderedQty: item.orderedQty,
-          etaDate: item.etaDate || undefined,
-        }))),
-        t("已关联 {count} 张采购单，任务转为已下单", { count: purchaseOrders.length }),
+        () => linkPurchaseOrders(
+          task.id,
+          purchaseOrders.map((item) => ({
+            tpOrderNo: item.freeSample ? undefined : item.tpOrderNo.trim(),
+            isFreeSample: item.freeSample || undefined,
+            supplierName: item.supplierName.trim() || undefined,
+            orderedQty: Number(item.orderedQty),
+            etaDate: item.etaDate || undefined,
+          })),
+          { syncTaskQuantity: quantityChanged },
+        ),
+        isSampleOrder
+          ? allFreeSample
+            ? t("已登记 {count} 条免费出样，任务仍在「待到样」", { count: freeSampleCount })
+            : t("已登记 {count} 张出样单，任务仍在「待到样」", { count: purchaseOrders.length })
+          : allFreeSample
+            ? t("已登记 {count} 条免费样品来货，任务转为已下单", { count: freeSampleCount })
+            : t("已关联 {count} 张采购单，任务转为已下单", { count: purchaseOrders.length }),
       );
       return;
     }
@@ -592,7 +630,9 @@ function ActionModal({
         <DialogContent className={cn("gap-0 overflow-hidden rounded-2xl p-0", kind === "quote" ? "sm:max-w-2xl" : kind === "order" ? "sm:max-w-xl" : "sm:max-w-md")}>
         <DialogHeader className="border-b border-slate-100 px-5 py-4">
           <DialogTitle className="text-base font-bold text-slate-900">
-            {kind === "confirm" ? t(confirm?.title ?? "请确认") : t(TITLES[kind])}
+            {kind === "confirm"
+              ? t(confirm?.title ?? "请确认")
+              : t(kind === "order" && isSampleOrder ? "登记出样单" : TITLES[kind])}
           </DialogTitle>
           <DialogDescription className="mt-0.5 text-xs text-slate-400">{task.code} · {task.materialName}</DialogDescription>
         </DialogHeader>
@@ -613,7 +653,7 @@ function ActionModal({
           {kind === "test" && (
             <>
               <p className="text-sm text-slate-600">
-                {t("样品测试是否通过？不通过将退回「询价中」，可重新选择供应商。")}
+                {t("样品测试是否通过？通过后进入「已定价」下批量单；不通过分两种走法：同一家供应商改图再出一次样，回「待到样」；换供应商则退回「询价中」重新选报价。")}
               </p>
               <div><span className={label}>{t("测试结论（写入操作留痕）")}</span>
                 <Textarea
@@ -624,7 +664,7 @@ function ActionModal({
                   placeholder={t("如：尺寸公差 ±0.05 合格，硬度达标")}
                 />
               </div>
-              <div className="flex gap-2 pt-1">
+              <div className="space-y-2 pt-1">
                 <button
                   type="button"
                   disabled={busy}
@@ -632,21 +672,34 @@ function ActionModal({
                     () => transitionProcTask(task.id, "priced", note.trim() ? `测试通过：${note.trim()}` : "测试通过，已定价", task.status),
                     t("已记录：测试通过"),
                   )}
-                  className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+                  className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
                 >
-                  {t("测试通过")}
+                  {t("测试通过 · 下批量")}
                 </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void onSubmit(
-                    () => transitionProcTask(task.id, "inquiring", note.trim() ? `测试不通过：${note.trim()}` : "测试不通过，退回询价", task.status),
-                    t("已记录：测试不通过，退回询价"),
-                  )}
-                  className="flex-1 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 disabled:opacity-60"
-                >
-                  {t("测试不通过")}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void onSubmit(
+                      () => transitionProcTask(task.id, "pending_sample", note.trim() ? `测试不通过，改图后重新出样：${note.trim()}` : "测试不通过，改图后重新出样", task.status),
+                      t("已记录：测试不通过，等待重新出样"),
+                    )}
+                    className="flex-1 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100 disabled:opacity-60"
+                  >
+                    {t("不通过 · 改图重新出样")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void onSubmit(
+                      () => transitionProcTask(task.id, "inquiring", note.trim() ? `测试不通过，退回询价：${note.trim()}` : "测试不通过，退回询价", task.status),
+                      t("已记录：测试不通过，退回询价"),
+                    )}
+                    className="flex-1 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 disabled:opacity-60"
+                  >
+                    {t("不通过 · 换供应商询价")}
+                  </button>
+                </div>
               </div>
             </>
           )}
@@ -876,6 +929,11 @@ function ActionModal({
 
           {kind === "order" && (
             <div className="space-y-3">
+              {isSampleOrder && (
+                <div className="rounded-lg border border-violet-100 bg-violet-50/60 px-3 py-2 text-xs leading-relaxed text-violet-700">
+                  {t("登记本轮出样单：只保存采购单关联和预计到样日期，任务仍停在「待到样」，样品到了再点「样品已到」。")}
+                </div>
+              )}
               {purchaseOrders.length > 1 && (
                 <div className="rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs leading-relaxed text-indigo-700">
                   {t("已按确认报价识别出 {count} 家供应商。请分别填写采购单号，确认后将一次性保存全部关联。", { count: purchaseOrders.length })}
@@ -894,20 +952,46 @@ function ActionModal({
                         <b className="truncate text-sm text-slate-800">
                           {item.supplierName || t("未指定供应商")}
                         </b>
-                        <span className="shrink-0 text-xs text-slate-500">
-                          {t("采购数量")} {item.orderedQty.toLocaleString()} {t(task.unit)}
+                        <span className="flex shrink-0 items-center gap-1.5 text-xs text-slate-500">
+                          {t("采购数量")}
+                          <Input
+                            value={item.orderedQty}
+                            onChange={(event) => {
+                              setOrderedQtyEdited(true);
+                              updatePurchaseOrder(item.key, { orderedQty: event.target.value });
+                            }}
+                            inputMode="decimal"
+                            aria-label={t("采购数量")}
+                            className="h-7 w-24 rounded-lg border-slate-200 px-2 py-1 text-right text-xs"
+                          />
+                          {t(task.unit)}
                         </span>
                       </div>
                       <div>
-                        <span className={label}>
-                          {t("畅捷通 T+ 采购单号")}
-                          {purchaseOrders.length > 1 ? ` ${index + 1}` : ""}
-                        </span>
+                        <div className="mb-1 flex items-center justify-between gap-3">
+                          <span className={cn(label, "mb-0")}>
+                            {t("畅捷通 T+ 采购单号")}
+                            {purchaseOrders.length > 1 ? ` ${index + 1}` : ""}
+                          </span>
+                          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-slate-500">
+                            <Checkbox
+                              checked={item.freeSample}
+                              onCheckedChange={(checked) => updatePurchaseOrder(item.key, {
+                                freeSample: checked === true,
+                                // 勾上就把已填的单号清掉，避免留一个不会提交的脏值
+                                ...(checked === true ? { tpOrderNo: "" } : {}),
+                              })}
+                              className="size-[16px] rounded"
+                            />
+                            {t("免费样品 · 无采购单号")}
+                          </label>
+                        </div>
                         <Input
                           value={item.tpOrderNo}
                           onChange={(event) => updatePurchaseOrder(item.key, { tpOrderNo: event.target.value })}
-                          className={field}
-                          placeholder={`CGDD-2026-${String(index + 1).padStart(4, "0")}`}
+                          className={cn(field, item.freeSample && "bg-slate-100 text-slate-400")}
+                          disabled={item.freeSample}
+                          placeholder={item.freeSample ? t("免费样品来货，不登记采购单号") : `CGDD-2026-${String(index + 1).padStart(4, "0")}`}
                         />
                       </div>
                       <div className="mt-2 grid grid-cols-2 gap-3">
@@ -920,7 +1004,7 @@ function ActionModal({
                           />
                         </div>
                         <div>
-                          <span className={label}>{t("预计到货")}</span>
+                          <span className={label}>{t(isSampleOrder ? "预计到样" : "预计到货")}</span>
                           <DateInput
                             value={item.etaDate}
                             onChange={(value) => updatePurchaseOrder(item.key, { etaDate: value })}
@@ -933,7 +1017,19 @@ function ActionModal({
                 </div>
                 </ScrollArea>
               )}
-              <p className="text-xs text-slate-400">{t("采购单在畅捷通 T+ 中创建，本系统只登记关联关系。")}</p>
+              {quantityChanged && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-700">
+                  {t("登记总量 {total} {unit} · 任务需求 {quantity} {unit}，确认后任务采购数量将同步更新为 {total} {unit}（到货完成按此数量判定）。", {
+                    total: orderedTotal.toLocaleString(),
+                    quantity: task.quantity.toLocaleString(),
+                    unit: t(task.unit),
+                  })}
+                </div>
+              )}
+              <p className="text-xs text-slate-400">
+                {t("采购单在畅捷通 T+ 中创建，本系统只登记关联关系。")}
+                {t("免费样品来货 T+ 里没有采购单，勾选后只登记供应商与预计到货，不参与采购单同步。")}
+              </p>
             </div>
           )}
 

@@ -337,13 +337,19 @@ export class ProcurementController {
     @Body() dto: BatchLinkPurchaseOrdersDto,
     @Request() req: AuthedRequest,
   ) {
-    return this.service.linkPurchaseOrders(id, dto.items, this.actor(req));
+    return this.service.linkPurchaseOrders(id, dto.items, this.actor(req), {
+      syncTaskQuantity: dto.syncTaskQuantity,
+    });
   }
 
   @Delete('tasks/:id/purchase-orders/:refId')
   @Permissions('proc-task:order')
-  unlinkPurchaseOrder(@Param('id') id: string, @Param('refId') refId: string) {
-    return this.service.unlinkPurchaseOrder(id, refId);
+  unlinkPurchaseOrder(
+    @Param('id') id: string,
+    @Param('refId') refId: string,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.unlinkPurchaseOrder(id, refId, this.actor(req));
   }
 
   // ── 物料主数据 ───────────────────────────────────────────────────────────────

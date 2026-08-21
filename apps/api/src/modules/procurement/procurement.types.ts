@@ -67,7 +67,8 @@ export const PROC_STATUS_TRANSITIONS: Record<ProcStatus, ProcStatus[]> = {
   pending_inquiry: ['inquiring'],
   inquiring: ['pending_sample', 'priced'],
   pending_sample: ['testing'],
-  testing: ['priced', 'inquiring'], // 测试不通过可退回重新询价
+  // 测试不通过有两条路：同一家供应商改图再出一次样（回「待到样」），或换供应商重新询价
+  testing: ['priced', 'inquiring', 'pending_sample'],
   priced: ['in_transit'],
   pending_purchase: ['in_transit'],
   in_transit: ['partial_arrival', 'completed'],
@@ -75,6 +76,19 @@ export const PROC_STATUS_TRANSITIONS: Record<ProcStatus, ProcStatus[]> = {
   completed: [],
   cancelled: [],
 };
+
+/**
+ * 允许登记 T+ 采购单关联的状态。
+ * 「待到样」是打样轮次的出样单，只登记不流转；其余是正式采购单。
+ * 单据匹配的候选任务也用这一份，两处各写一份必然漂移。
+ */
+export const PROC_PO_LINKABLE_STATUSES: ProcStatus[] = [
+  'pending_sample',
+  'priced',
+  'pending_purchase',
+  'in_transit',
+  'partial_arrival',
+];
 
 /** 已下单及之后：到货数据由 T+ 采购单驱动。 */
 export const PROC_ARRIVAL_STATUSES: ProcStatus[] = ['in_transit', 'partial_arrival', 'completed'];
