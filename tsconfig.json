@@ -5,6 +5,10 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "allowJs": false,
     "skipLibCheck": true,
+    // 增量类型检查：tsbuildinfo 落在 .deploy-cache/（已 gitignore，且跨发布保留），
+    // tsc --noEmit 只重查变更文件与其依赖方。实测冷 11.4s → 改一个文件后 1.5s。
+    "incremental": true,
+    "tsBuildInfoFile": "./.deploy-cache/tsbuildinfo-web",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     // 全量 strict 目前还差 strictNullChecks(39 处) 和 noImplicitAny(49 处) 没修完。

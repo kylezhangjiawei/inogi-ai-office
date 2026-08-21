@@ -52,10 +52,12 @@ EOF
 发布脚本会把成功版本的输入指纹保存到 `.deploy-cache/deploy-inputs.json`。下一次发布按内容变化选择阶段：
 
 - 纯前端改动：前端构建、前端类型检查、静态文件同步；
-- 纯 API 改动：API 构建、API 测试、PM2 重启；
+- 纯 API 改动：API 构建、API 类型检查（含 `test/*.spec.ts`）、API 测试、PM2 重启；
 - Prisma schema 改动：重新生成 Client，并构建/测试 API；
 - migration 改动：先备份数据库，再执行 `prisma migrate deploy`；
 - 文档等非运行文件改动：跳过构建与重启。
+
+后端 `dist/` 不再每次构建前清空（靠 tsconfig 的 `incremental` 复用上次编译结果），前端类型检查同样增量、状态存在 `.deploy-cache/tsbuildinfo-web`。怀疑后端 dist 里有重命名/删除留下的陈旧产物时，执行 `rm -rf /opt/inogi-ai-office-system/apps/api/dist` 后重新发布即可。
 
 首次启用、缓存丢失或发布逻辑自身变化时会保守执行一次全量发布。变更快照只在全部阶段成功后更新，失败重试不会误跳过阶段。
 
@@ -67,7 +69,7 @@ latest="$(find /var/log/inogi-deploy -maxdepth 1 -type f -name '*.json' -printf 
 [ -n "$latest" ] && python3 -m json.tool "$latest"
 ```
 
-记录包含完整 Git SHA、触发方式、Node 版本、毫秒级总耗时、12 个固定阶段的状态/耗时/阶段内系统 CPU 与内存峰值，以及整次部署期间的系统峰值。记录采用字段白名单，不包含命令行、环境变量、原始错误文本或 `DATABASE_URL`。目录不可写或 `/proc` 指标不可用时只告警，部署继续执行。
+记录包含完整 Git SHA、触发方式、Node 版本、毫秒级总耗时、12 个固定阶段的状态/耗时/阶段内系统 CPU 与内存峰值，以及整次部署期间的系统峰值。其中 `database_backup` 记的是「还需要等待后台备份多久」，不是备份总耗时（总耗时见同次发布的文本日志）。记录采用字段白名单，不包含命令行、环境变量、原始错误文本或 `DATABASE_URL`。目录不可写或 `/proc` 指标不可用时只告警，部署继续执行。
 
 ## 手动部署（绕过钩子）
 
@@ -83,7 +85,8 @@ DEPLOY_SKIP_GIT=1 DEPLOY_GIT_SHA="$SHA" bash scripts/deploy.sh
 
 ## 数据库：备份与恢复
 
-- **自动备份**：只有 migration 输入发生变化时，才在迁移前自动 `pg_dump` 到 `/opt/inogi-backups/`；失败则中止部署。
+- **自动备份**：只有 migration 输入发生变化时才做。发布一开始就后台启动 `pg_dump` → `/opt/inogi-backups/`，与构建、测试并行；迁移前收口，失败则中止部署、不迁移。发布中途失败时后台 dump 会被终止，未完成的文件以 `.partial` 结尾并自动删除，不会留下能被误恢复的截断备份。
+- **备份压缩**：装了 `pigz` 就按核数并行压（`dnf install -y pigz`，推荐：又快又比现在压得小），没装则退回 `gzip -1`。两者输出都是标准 `.gz`，恢复方式不变。`gzip -1` 的文件比过去的 `gzip -6` 大一两成，注意 `/opt` 余量与 `DEPLOY_BACKUP_KEEP`（默认保留 10 份）。
 - **强制全量**：需要重新验证全部阶段时使用 `DEPLOY_CHANGE_PLAN=0 bash scripts/deploy.sh`。
 - **恢复**（会覆盖现有数据，需输 yes 确认）：
   ```bash

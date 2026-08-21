@@ -97,6 +97,9 @@ DEPLOY_PLAN_API=1
 DEPLOY_PLAN_PRISMA=1
 DEPLOY_PLAN_MIGRATIONS=1
 DEPLOY_PLAN_QUALITY=1
+DEPLOY_BACKUP_PID=""
+DEPLOY_BACKUP_LOG=""
+DEPLOY_BACKUP_STARTED_MONOTONIC_MS=0
 DEPLOY_STAGE_NAMES=(
   checkout
   dependency_install
@@ -386,6 +389,7 @@ on_deploy_exit() {
   local exit_code="$1" deploy_status="failed"
   trap - ERR EXIT
   set +e
+  cleanup_background_backup
   if [ "$exit_code" -eq 0 ] && [ "$DEPLOY_COMPLETED" = "1" ]; then
     deploy_status="success"
   fi
@@ -476,11 +480,27 @@ read_database_url() {
     | sed -E "s/^[[:space:]]*DATABASE_URL=//; s/^[\"']//; s/[\"']$//" || true
 }
 
+# 压缩是这条管道真正的瓶颈：实测 pg_dump 读完 7.5GB 只要 241s（user+sys 合计才 24s，
+# 全程在等 I/O），而 gzip -6 单线程跟不上，把总时长拖到 467s。
+# 有 pigz 就按核数并行压（输出仍是标准 .gz，restore.sh 的解压路径不用动）；
+# 没有就退回 gzip -1 —— 文件大一两成，但压缩不再是瓶颈，总时长回落到读库速度。
+compress_backup_stream() {
+  if command -v pigz >/dev/null 2>&1; then
+    pigz -p "$(nproc 2>/dev/null || echo 2)"
+  else
+    gzip -1
+  fi
+}
+
+backup_file_path() {
+  printf '%s/db-%s.sql.gz' "${DEPLOY_BACKUP_DIR:-/opt/inogi-backups}" "${RELEASE:-unknown}"
+}
+
 # 数据库备份：在「构建成功后、迁移前」调用。失败即中止，绝不在没有备份的情况下迁移。
 # 自动探测：宿主机有 pg_dump 就直连导出（原生安装 / 云数据库均可）；
 #           否则若数据库跑在 docker 容器里，则进容器导出；都没有则报错。
 backup_database() {
-  local url clean dir keep file container
+  local url clean dir keep file partial container
   url="${DATABASE_URL:-$(read_database_url)}"
   [ -n "$url" ] || die "数据库备份失败：找不到 DATABASE_URL（apps/api/.env）。确实无需备份可设 DEPLOY_DB_BACKUP=0。"
   # 去掉 Prisma 特有的 ?schema=public 等查询参数，pg_dump(libpq) 不认识它们
@@ -490,20 +510,24 @@ backup_database() {
   keep="${DEPLOY_BACKUP_KEEP:-10}"
   container="${POSTGRES_CONTAINER:-inogi-postgres}"
   mkdir -p "$dir"
-  file="$dir/db-$RELEASE.sql.gz"
+  file="$(backup_file_path)"
+  # 先写 .partial、成功后才改名：备份进程被中断时不会留下一个「看着正常、实际截断」
+  # 的 .sql.gz，避免它日后被当成可用备份恢复。
+  partial="$file.partial"
 
   log "备份数据库 → $file"
   if command -v pg_dump >/dev/null 2>&1; then
-    pg_dump --no-owner --no-acl --clean --if-exists "$clean" | gzip > "$file" \
-      || { rm -f "$file"; die "pg_dump 备份失败；已中止，不执行迁移。"; }
+    pg_dump --no-owner --no-acl --clean --if-exists "$clean" | compress_backup_stream > "$partial" \
+      || { rm -f "$partial"; die "pg_dump 备份失败；已中止，不执行迁移。"; }
   elif command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -qx "$container"; then
-    docker exec -i "$container" pg_dump --no-owner --no-acl --clean --if-exists "$clean" | gzip > "$file" \
-      || { rm -f "$file"; die "docker pg_dump 备份失败；已中止，不执行迁移。"; }
+    docker exec -i "$container" pg_dump --no-owner --no-acl --clean --if-exists "$clean" | compress_backup_stream > "$partial" \
+      || { rm -f "$partial"; die "docker pg_dump 备份失败；已中止，不执行迁移。"; }
   else
     die "数据库备份失败：宿主机没有 pg_dump，也没有运行中的 postgres 容器（$container）。请安装 postgresql-client，或设 DEPLOY_DB_BACKUP=0 跳过（不推荐）。"
   fi
 
-  [ -s "$file" ] || { rm -f "$file"; die "数据库备份文件为空；已中止。"; }
+  [ -s "$partial" ] || { rm -f "$partial"; die "数据库备份文件为空；已中止。"; }
+  mv -f "$partial" "$file" || { rm -f "$partial"; die "备份文件改名失败；已中止。"; }
   log "备份完成：$(du -h "$file" 2>/dev/null | awk '{print $1}')  $file"
 
   # 轮转：只保留最近 keep 份，更早的删除（无匹配时安全跳过，避免触发 set -e）
@@ -513,6 +537,56 @@ backup_database() {
     ls -1t "$dir"/db-*.sql.gz | tail -n +"$((keep + 1))" | while read -r old; do
       log "清理旧备份：$old"; rm -f "$old"
     done
+  fi
+}
+
+# 备份只读数据库，与构建、测试互不依赖：发布计划一确定就后台启动，迁移前再收口。
+# 这样它的耗时被构建/测试掩盖，而「没有备份绝不迁移」的保证一点没变。
+# 代价：快照时间点比串行时提前几分钟 —— 数据库本来就在持续写入，这个差别没有实际意义。
+start_background_backup() {
+  [ "$DEPLOY_PLAN_MIGRATIONS" = "1" ] || return 0
+  [ "${DEPLOY_DB_BACKUP:-1}" = "1" ] || return 0
+  DEPLOY_BACKUP_LOG="$(mktemp "$CACHE_DIR/.db-backup.XXXXXX" 2>/dev/null || true)"
+  [ -n "$DEPLOY_BACKUP_LOG" ] || {
+    log "⚠️  无法创建备份日志文件；备份改为迁移前串行执行。"
+    return 0
+  }
+  DEPLOY_BACKUP_STARTED_MONOTONIC_MS="$(now_monotonic_ms)"
+  (
+    # 子进程绝不能继承发布级 trap：否则它退出时会再写一份基线记录、并停掉采样器。
+    trap - ERR EXIT
+    backup_database
+  ) > "$DEPLOY_BACKUP_LOG" 2>&1 &
+  DEPLOY_BACKUP_PID=$!
+  log "数据库备份已后台启动（PID $DEPLOY_BACKUP_PID），与构建、测试并行。"
+}
+
+wait_background_backup() {
+  local status=0 background_ms=0
+  wait "$DEPLOY_BACKUP_PID" || status=$?
+  background_ms=$(( $(now_monotonic_ms) - DEPLOY_BACKUP_STARTED_MONOTONIC_MS ))
+  [ "$background_ms" -ge 0 ] || background_ms=0
+  DEPLOY_BACKUP_PID=""
+  cat "$DEPLOY_BACKUP_LOG" 2>/dev/null || true
+  rm -f -- "$DEPLOY_BACKUP_LOG" 2>/dev/null || true
+  DEPLOY_BACKUP_LOG=""
+  [ "$status" -eq 0 ] || die "数据库备份失败（后台任务退出码 $status）；已中止，不执行迁移。"
+  log "后台备份合计耗时 ${background_ms}ms，其中绝大部分与构建、测试并行。"
+}
+
+# 发布在收口之前就失败时调用：正在跑的 dump 直接终止，半截的 .partial 一并清掉。
+cleanup_background_backup() {
+  if [ -n "$DEPLOY_BACKUP_PID" ]; then
+    log "发布已中止，终止后台数据库备份（PID $DEPLOY_BACKUP_PID）。"
+    kill "$DEPLOY_BACKUP_PID" 2>/dev/null || true
+    wait "$DEPLOY_BACKUP_PID" 2>/dev/null || true
+    DEPLOY_BACKUP_PID=""
+    rm -f -- "$(backup_file_path).partial" 2>/dev/null || true
+  fi
+  if [ -n "$DEPLOY_BACKUP_LOG" ]; then
+    cat "$DEPLOY_BACKUP_LOG" 2>/dev/null || true
+    rm -f -- "$DEPLOY_BACKUP_LOG" 2>/dev/null || true
+    DEPLOY_BACKUP_LOG=""
   fi
 }
 
@@ -568,6 +642,8 @@ fi
 CACHE_DIR="$REPO_DIR/.deploy-cache"
 mkdir -p "$CACHE_DIR"
 init_change_plan
+# 越早起越好：后面的依赖安装、构建、测试都在给它让出并行窗口。
+start_background_backup
 lock_hash() {
   # 含 pnpm-workspace.yaml：onlyBuiltDependencies 等改动也应触发重新安装
   # `|| true`：pipefail 下，纯 pnpm 仓库缺 package-lock.json 会让 cat 返回非零而中断部署，这里容忍缺失文件
@@ -671,14 +747,32 @@ if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then
   # 一律用 npx --no-install 直接调本地 tsc，不走 `pnpm typecheck`：
   # pnpm v11 在执行脚本前会先跑一遍 lockfile 供应链校验（1000+ 条目、要联网），
   # 依赖没变时这纯属浪费，还把部署绑到 registry 可用性上。
-  if [ "$DEPLOY_PLAN_FRONTEND" = "1" ]; then
+  # 两端共用一个 typecheck 阶段：前端按前端输入决定，后端按 API/测试输入决定。
+  # 后端这一遍是必要的：测试改用 transpile-only 之后，test/*.spec.ts 自身不再随测试
+  # 被类型检查，改由这里一次 tsc 统一覆盖（比 50 个测试进程各查一遍便宜得多）。
+  typecheck_frontend=0
+  typecheck_api=0
+  if [ "$DEPLOY_PLAN_FRONTEND" = "1" ]; then typecheck_frontend=1; fi
+  if [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_QUALITY" = "1" ]; then typecheck_api=1; fi
+
+  if [ "$typecheck_frontend" = "1" ] || [ "$typecheck_api" = "1" ]; then
     start_stage typecheck || true
-    log "前端类型检查 ..."
-    npx --no-install tsc --noEmit -p tsconfig.json \
-      || die "前端类型检查未通过，已中止部署（线上仍是旧版本）。"
+    if [ "$typecheck_frontend" = "1" ]; then
+      log "前端类型检查 ..."
+      npx --no-install tsc --noEmit -p tsconfig.json \
+        || die "前端类型检查未通过，已中止部署（线上仍是旧版本）。"
+    else
+      log "前端未变化，跳过前端类型检查。"
+    fi
+    if [ "$typecheck_api" = "1" ]; then
+      log "后端类型检查（含 test/*.spec.ts）..."
+      npx --no-install tsc --noEmit -p apps/api/tsconfig.json \
+        --tsBuildInfoFile "$CACHE_DIR/tsbuildinfo-api" \
+        || die "后端类型检查未通过，已中止部署（线上仍是旧版本）。"
+    fi
     finish_stage success || true
   else
-    log "前端未变化，跳过前端类型检查；API build 已包含 TypeScript 编译检查。"
+    log "前端与 API 输入均未变化，跳过类型检查。"
     skip_stage typecheck || true
   fi
 
@@ -709,13 +803,21 @@ else
   skip_stage tests || true
 fi
 
-# ----------------- 6. 数据库备份（仅 migration 变化时）-----------------
-# 此刻构建已成功、数据库还没动 —— 自动备份整库；备份失败则中止、不迁移。
+# ----------------- 6. 数据库备份收口（仅 migration 变化时）-----------------
+# 备份在第 2 步就已后台启动，这里只等它跑完：此刻构建已成功、数据库还没动，
+# 备份失败则中止、不迁移。位置和保证与串行版本完全一致，只是耗时被前面的阶段掩盖了。
+# 本阶段记录的耗时 = 还需要等待的时间，不是备份总耗时（总耗时另有一行文本日志）。
 # 关掉自动备份：设 DEPLOY_DB_BACKUP=0（不推荐）。
 if [ "$DEPLOY_PLAN_MIGRATIONS" != "1" ]; then
   log "数据库 migration 未变化，跳过备份。"
   skip_stage database_backup || true
+elif [ -n "$DEPLOY_BACKUP_PID" ]; then
+  start_stage database_backup || true
+  log "等待后台数据库备份收口 ..."
+  wait_background_backup
+  finish_stage success || true
 elif [ "${DEPLOY_DB_BACKUP:-1}" = "1" ]; then
+  # 后台启动失败时的兜底：仍然串行备份，绝不静默跳过。
   start_stage database_backup || true
   backup_database
   finish_stage success || true
