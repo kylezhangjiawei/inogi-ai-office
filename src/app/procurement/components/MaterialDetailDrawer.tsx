@@ -45,6 +45,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
     }
   };
   const { inTransit, taskCount } = materialAggregates(tasks, material.name);
+  const warehouses = material.warehouses ?? [];
   const related = tasks.filter((t) => t.materialName === material.name);
   // 到货时间线（从关联任务的到货聚合，V1 单边只增）
   const arrivals = related.filter((t) => t.arrivedQty > 0).map((t) => ({ code: t.code, qty: t.arrivedQty, date: t.expectedArrivalDate ?? t.needDate }));
@@ -133,6 +134,28 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
               <div><div className="text-lg font-bold tabular-nums text-indigo-600">{inTransit.toLocaleString()}</div><div className="text-[10px] text-slate-400">{t('在途')}</div></div>
               <div><div className="text-lg font-bold tabular-nums text-slate-900">{taskCount}</div><div className="text-[10px] text-slate-400">{t('关联任务')}</div></div>
             </div>
+            {warehouses.length > 0 && (
+              <div className="mt-3 overflow-hidden rounded-lg border border-slate-100">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 text-slate-500">
+                    <tr>
+                      <th className="px-3 py-1.5 text-left font-medium">{t('仓库')}</th>
+                      <th className="px-3 py-1.5 text-right font-medium">{t('现存量')}</th>
+                      <th className="px-3 py-1.5 text-right font-medium">{t('可用量')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {warehouses.map((w) => (
+                      <tr key={w.name}>
+                        <td className="px-3 py-1.5 text-slate-800"><AutoTranslatedText text={w.name} /></td>
+                        <td className="px-3 py-1.5 text-right font-medium tabular-nums text-slate-900">{w.stock.toLocaleString()}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{w.available.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             <ul className="mt-3 space-y-1.5">
               {arrivals.length === 0 ? <li className="text-xs text-slate-400">{t('暂无到货记录')}</li> : arrivals.map((a, i) => (
                 <li key={i} className="flex items-center gap-3 text-xs text-slate-600"><span className="h-2 w-2 rounded-full bg-emerald-500" /><span className="tabular-nums">{a.date}</span><span>{a.code}</span><span className="tabular-nums font-medium">+{a.qty.toLocaleString()}</span></li>

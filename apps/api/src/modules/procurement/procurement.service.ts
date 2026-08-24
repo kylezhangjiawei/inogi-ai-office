@@ -3427,6 +3427,7 @@ export class ProcurementService {
   private serializeMaterial(
     m: Prisma.ProcMaterialGetPayload<object> & {
       balances: {
+        warehouse: string;
         stockQty: Prisma.Decimal | number;
         availableQty: Prisma.Decimal | number;
         inTransitQty: Prisma.Decimal | number;
@@ -3437,6 +3438,14 @@ export class ProcurementService {
     const stockQty = m.balances.reduce((sum, b) => sum + num(b.stockQty), 0);
     const availableQty = m.balances.reduce((sum, b) => sum + num(b.availableQty), 0);
     const inTransitQty = m.balances.reduce((sum, b) => sum + num(b.inTransitQty), 0);
+    // stockQty 是各仓存量的累加值，详情页要能看清它由哪几个仓库、各多少构成。
+    const warehouses = m.balances
+      .map((b) => ({
+        name: b.warehouse || '未指定仓库',
+        stock: num(b.stockQty),
+        available: num(b.availableQty),
+      }))
+      .sort((a, b) => b.stock - a.stock);
     const inventorySyncedAt = m.balances.reduce<string | undefined>((latest, balance) => {
       const current = balance.syncedAt?.toISOString();
       return current && (!latest || current > latest) ? current : latest;
@@ -3456,6 +3465,7 @@ export class ProcurementService {
       stockQty,
       availableQty,
       inTransitQty,
+      warehouses,
       inventorySyncedAt,
       reviewStatus: m.reviewStatus,
       reviewSource: m.reviewSource ?? undefined,

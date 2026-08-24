@@ -129,6 +129,8 @@ export interface Material {
   stockQty: number;
   availableQty: number;
   inTransitQty: number;
+  /** stockQty 的分仓构成（无库存记录的物料为空数组 / 缺省）。 */
+  warehouses?: Array<{ name: string; stock: number; available: number }>;
   inventorySyncedAt?: string;
   reviewStatus: MaterialReviewStatus;
   reviewSource?: MaterialReviewSource;
