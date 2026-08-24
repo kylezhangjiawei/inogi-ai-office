@@ -122,7 +122,10 @@ DEPLOY_STAGE_NAMES=(
   api_restart
   nginx_reload
 )
-declare -A DEPLOY_RECORDED_STAGES=()
+# 已记录阶段的集合。macOS 自带的 bash 3.2 没有关联数组（declare -A 会直接报错，
+# 连带 deploy-baseline 的用例在开发机上全部失败），这里改用空格分隔的字符串：
+# 阶段名取自上面的固定清单，不含空格或通配符，前后留空格即可精确匹配。
+DEPLOY_RECORDED_STAGES=" "
 
 json_escape() {
   local value="${1-}"
@@ -238,7 +241,10 @@ EOF
     log "⚠️  阶段指标写入失败；部署继续执行。"
     return 0
   fi
-  DEPLOY_RECORDED_STAGES["$stage_name"]=1
+  case "$DEPLOY_RECORDED_STAGES" in
+    *" $stage_name "*) ;;
+    *) DEPLOY_RECORDED_STAGES="${DEPLOY_RECORDED_STAGES}${stage_name} " ;;
+  esac
 }
 
 record_missing_stages() {
@@ -246,9 +252,10 @@ record_missing_stages() {
   [ "$DEPLOY_METRICS_ACTIVE" = "1" ] || return 0
   now_ms="$(now_epoch_ms)"
   for stage_name in "${DEPLOY_STAGE_NAMES[@]}"; do
-    if [ -z "${DEPLOY_RECORDED_STAGES[$stage_name]:-}" ]; then
-      record_stage "$stage_name" skipped "$now_ms" "$now_ms" 0
-    fi
+    case "$DEPLOY_RECORDED_STAGES" in
+      *" $stage_name "*) ;;
+      *) record_stage "$stage_name" skipped "$now_ms" "$now_ms" 0 ;;
+    esac
   done
 }
 
@@ -660,11 +667,21 @@ mkdir -p "$CACHE_DIR"
 init_change_plan
 # 越早起越好：后面的依赖安装、构建、测试都在给它让出并行窗口。
 start_background_backup
+# 服务器（Linux）有 sha256sum，macOS 只有 shasum；两者算的是同一个 SHA-256，
+# 输出格式也都是「哈希 + 空格 + 文件名」，所以回退不会改变服务器上已缓存的哈希值。
+sha256_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum
+  else
+    shasum -a 256
+  fi
+}
+
 lock_hash() {
   # 含 pnpm-workspace.yaml：onlyBuiltDependencies 等改动也应触发重新安装
   # `|| true`：pipefail 下，纯 pnpm 仓库缺 package-lock.json 会让 cat 返回非零而中断部署，这里容忍缺失文件
   { cat pnpm-workspace.yaml pnpm-lock.yaml package-lock.json apps/api/package-lock.json 2>/dev/null || true; } \
-    | sha256sum | awk '{print $1}'
+    | sha256_stdin | awk '{print $1}'
 }
 NEW_HASH="$(lock_hash)"
 OLD_HASH="$(cat "$CACHE_DIR/lock.sha" 2>/dev/null || echo none)"
