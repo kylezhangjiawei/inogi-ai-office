@@ -7959,16 +7959,25 @@ function PersonTaskCockpit({
 
   return (
     <>
-      {/* ── Gallery Lightbox (portal-style, rendered at root) ── */}
-      <AnimatePresence>
-        {galleryState && (
-          <ImageGallery
-            images={galleryState.images}
-            startIndex={galleryState.startIndex}
-            onClose={() => setGalleryState(null)}
-          />
-        )}
-      </AnimatePresence>
+      {/* ── Gallery Lightbox ──
+          必须真的 portal 到 body：就地渲染时 z-[90] 会被祖先的 motion 动画
+          （transform / opacity 都会新建层叠上下文）关在里面，于是同样 portal 到
+          body 的「退出大屏」按钮（z-40）反而画在上层，盖住右上角的关闭按钮 ——
+          大屏模式下看图就关不掉。层级数值维持本文件既有阶梯（弹窗 60/70/80 →
+          附件集合 85 → 看图 90），无需抬高。
+          AnimatePresence 连同子组件整体搬进 portal，退场动画的父子关系不变。 */}
+      {typeof document !== "undefined" && createPortal(
+        <AnimatePresence>
+          {galleryState && (
+            <ImageGallery
+              images={galleryState.images}
+              startIndex={galleryState.startIndex}
+              onClose={() => setGalleryState(null)}
+            />
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
       {attachmentCollectionState && (
         <TaskAttachmentCollectionDialog
           taskTitle={attachmentCollectionState.taskTitle}
