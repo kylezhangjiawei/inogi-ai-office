@@ -140,3 +140,19 @@ test("研发人员目录未加载时导出失败关闭，不能回退为全量�
     /研发人员目录尚未加载/,
   );
 });
+
+test("个人工作台能并入/取消子任务：两个单任务接口都带工作台页面权限，越权由服务层兜底", () => {
+  // 工作台确实调这两个接口；漏了页面权限普通研发点「确认并入」会吃 403
+  assert.match(workspacePage, /attachRdTaskToParent\(task\.task_id, attachTargetId\)/);
+  assert.match(workspacePage, /detachRdSubtask\(task\.task_id\)/);
+  for (const route of ["tasks/:taskId/attach-parent", "tasks/:taskId/detach-parent"]) {
+    const at = controller.indexOf(`@Post('task-categories/${route}')`);
+    assert.ok(at > 0, `找不到路由：${route}`);
+    const decorators = controller.slice(at, at + 600);
+    assert.match(decorators, /@Permissions\([^)]*'page:rd-my-workspace'/, `${route} 缺少个人工作台权限`);
+    assert.match(decorators, /@Permissions\([^)]*'page:us-collab-workspace'/, `${route} 缺少协同工作台权限`);
+  }
+  // 放宽守卫的前提：服务层对非管理员仍逐个校验参与关系，父任务与每个子任务都要过
+  assert.match(service, /if \(!actor\.canEditAny\) \{[\s\S]{0,400}只能并入自己负责的任务/);
+  assert.match(service, /if \(!actor\.canEditAny\) \{[\s\S]{0,400}只能操作自己负责的任务/);
+});

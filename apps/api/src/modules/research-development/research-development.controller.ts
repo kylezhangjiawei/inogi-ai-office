@@ -308,7 +308,10 @@ export class ResearchDevelopmentController {
 
   /** 把一个已有顶层任务树挂到任意层级目标下；兼容原单任务调用。 */
   @Post('task-categories/tasks/:taskId/attach-parent')
-  @Permissions('rd-task:edit')
+  // 与 updateTask / moveTasks 同口径带上工作台页面权限：个人工作台的「并入其他任务成为
+  // 子任务」就走这个接口，只放 rd-task:edit 会让普通研发在确认时吃 403，而下面注释描述的
+  // owner 兜底根本没机会执行。越权仍由服务层拦：非管理员时父任务与每个子任务都必须本人参与。
+  @Permissions('rd-task:edit', 'page:rd-my-workspace', 'page:us-collab-workspace')
   attachTaskAsSubtask(
     @Param('taskId') taskId: string,
     @Body() payload: { parent_task_id?: unknown },
@@ -340,7 +343,9 @@ export class ResearchDevelopmentController {
 
   /** 取消子任务关系：提升为顶层任务（落在原父任务所在子项目，与父任务同级）。 */
   @Post('task-categories/tasks/:taskId/detach-parent')
-  @Permissions('rd-task:edit')
+  // 同上：工作台的「取消关系、提升回独立任务」是并入的逆操作，两者权限必须成对放开，
+  // 否则并得进去却取消不了。服务层同样按 isTaskParticipant 兜底。
+  @Permissions('rd-task:edit', 'page:rd-my-workspace', 'page:us-collab-workspace')
   detachSubtask(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
     return this.rdService.detachSubtask(taskId, {
       userId: req.user?.id,
