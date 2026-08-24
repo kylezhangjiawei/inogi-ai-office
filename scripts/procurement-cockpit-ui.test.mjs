@@ -263,3 +263,21 @@ test("报价库一级商品行的移出按钮常显，无报价时置灰而不�
   assert.match(quoteBook, /disabled=\{row\.quotes\.length === 0\}/);
   assert.match(quoteBook, /该商品还没有厂家报价，无需移出/);
 });
+
+test("物料关联任务按 materialId 匹配，同名不同 ID 的物料不互相串数据", () => {
+  const procData = source("src/app/procurement/data.ts");
+  const drawer = source("src/app/procurement/components/MaterialDetailDrawer.tsx");
+  const table = source("src/app/procurement/components/MaterialTable.tsx");
+  // 物料主档存在同名不同 ID 的记录（T+ 同步而来），只按名称匹配会把它们的任务混在一起
+  assert.match(procData, /export function isTaskOfMaterial\(/);
+  assert.match(procData, /task\.materialId \? task\.materialId === material\.id : task\.materialName === material\.name/);
+  // materialAggregates 收物料对象而不是名字，调用方无法只传名称
+  assert.doesNotMatch(procData, /materialName: string,\n\): \{ inTransit/);
+  assert.match(procData, /material: Pick<Material, "id" \| "name">,\n\): \{ inTransit/);
+  // 两个调用点都改为传物料对象
+  assert.match(drawer, /materialAggregates\(tasks, material\)/);
+  assert.match(table, /materialAggregates\(tasks, m\)/);
+  // 抽屉的关联任务列表走同一条判定，不再自己比名字
+  assert.match(drawer, /tasks\.filter\(\(t\) => isTaskOfMaterial\(t, material\)\)/);
+  assert.doesNotMatch(drawer, /t\.materialName === material\.name/);
+});

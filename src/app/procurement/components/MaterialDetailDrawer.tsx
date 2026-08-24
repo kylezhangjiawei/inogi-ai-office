@@ -8,7 +8,7 @@ import { Button } from "../../components/ui/button";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
 import { cn } from "../../components/ui/utils";
-import { materialAggregates, refreshProcurement, useProcurementData, type Material } from "../data";
+import { isTaskOfMaterial, materialAggregates, refreshProcurement, useProcurementData, type Material } from "../data";
 import { reviewMaterial } from "../../lib/procurementApi";
 import { MaterialFormModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
@@ -44,9 +44,9 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
       setReviewBusy(false);
     }
   };
-  const { inTransit, taskCount } = materialAggregates(tasks, material.name);
+  const { inTransit, taskCount } = materialAggregates(tasks, material);
   const warehouses = material.warehouses ?? [];
-  const related = tasks.filter((t) => t.materialName === material.name);
+  const related = tasks.filter((t) => isTaskOfMaterial(t, material));
   // 到货时间线（从关联任务的到货聚合，V1 单边只增）
   const arrivals = related.filter((t) => t.arrivedQty > 0).map((t) => ({ code: t.code, qty: t.arrivedQty, date: t.expectedArrivalDate ?? t.needDate }));
 

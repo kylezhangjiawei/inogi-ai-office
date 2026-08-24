@@ -240,15 +240,29 @@ export function taskRequester(task: ProcurementTask): { name: string; dept: stri
   };
 }
 
+/**
+ * 任务是否属于该物料。物料主档里存在同名不同 ID 的记录（T+ 同步而来，例如
+ * 「【研发样品】丁腈密封圈」有 22 条），只按名称匹配会把它们的任务混在一起，
+ * 在途量和任务数都会串。有 materialId 就按 ID 比；存量任务的 materialId 可能
+ * 为空，这时才回落到名称 —— 与 ProcTask.materialId 上「为空时按物料名推导」的
+ * 既有约定一致，不会让老任务掉出列表。
+ */
+export function isTaskOfMaterial(
+  task: Pick<ProcurementTask, "materialId" | "materialName">,
+  material: Pick<Material, "id" | "name">,
+): boolean {
+  return task.materialId ? task.materialId === material.id : task.materialName === material.name;
+}
+
 /** 物料汇总：在途量 / 关联任务数由任务实时计算，保证物料页与任务页自洽。 */
 export function materialAggregates(
   tasks: ProcurementTask[],
-  materialName: string,
+  material: Pick<Material, "id" | "name">,
 ): { inTransit: number; taskCount: number } {
   let inTransit = 0;
   let taskCount = 0;
   for (const t of tasks) {
-    if (t.materialName !== materialName) continue;
+    if (!isTaskOfMaterial(t, material)) continue;
     taskCount += 1;
     if (t.status === "in_transit" || t.status === "partial_arrival") {
       inTransit += Math.max(0, t.quantity - t.arrivedQty);
