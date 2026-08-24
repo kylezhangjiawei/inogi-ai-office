@@ -249,6 +249,51 @@ export type RdSubProject = {
 /** 与后端 RD_DEFAULT_SUBPROJECT_LABEL 保持一致 */
 export const RD_DEFAULT_SUBPROJECT_LABEL = '默认';
 
+/**
+ * category_path 第三段「任务类型」的规范取值，与后端 RD_TASK_TYPE_PRESETS
+ * 保持一致（rd-ai-full-classification 用例会比对两份清单）。
+ * 只是选择器的候选项，不是白名单 —— 详情页允许填清单外的自定义值。
+ */
+export const RD_TASK_TYPE_PRESETS = [
+  '需求澄清',
+  '方案设计',
+  '结构设计',
+  '电气设计',
+  '软件开发',
+  '工艺准备',
+  '采购跟进',
+  '样件制作',
+  '测试验证',
+  '问题整改',
+  '文档交付',
+  '评审确认',
+] as const;
+
+/** 取 category_path 的第三段（任务类型），也就是驾驶舱卡片上那个 tag。 */
+export function taskTypeOf(categoryPath: string | undefined): string {
+  return (
+    String(categoryPath ?? '')
+      .split(/\s*\/\s*/)
+      .map((seg) => seg.trim())
+      .filter(Boolean)
+      .at(-1) ?? ''
+  );
+}
+
+/** 把 category_path 的第三段替换成新的任务类型；前两段（分类归属）保持不动。 */
+export function withTaskType(categoryPath: string | undefined, taskType: string): string {
+  const segments = String(categoryPath ?? '')
+    .split(/\s*\/\s*/)
+    .map((seg) => seg.trim())
+    .filter(Boolean);
+  const next = taskType.trim();
+  if (!next) return String(categoryPath ?? '');
+  // 存储格式固定三段（系统 / 子项 / 类型），缺段时补占位，避免消费方按位置解析时错位。
+  while (segments.length < 2) segments.push(RD_DEFAULT_SUBPROJECT_LABEL);
+  segments[2] = next;
+  return segments.slice(0, 3).join(' / ');
+}
+
 /** 是否为服务端自动补出的默认子项（用户没建过、不该看见的那一层） */
 export function isDefaultSubProject(sub: Pick<RdSubProject, 'is_default'> | undefined | null): boolean {
   return sub?.is_default === true;

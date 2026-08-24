@@ -97,6 +97,9 @@ import {
   getAttachmentUrl,
   markRdTaskNotesRead,
   moveRdTasks,
+  RD_TASK_TYPE_PRESETS,
+  taskTypeOf,
+  withTaskType,
   revokeRdTaskProductionSync,
   syncRdTaskToProduction,
   updateRdTask,
@@ -285,6 +288,9 @@ function ActivityTaskFilterBar({
  * 独立文件 + 独立路由（/rd-task/:taskId，无 /us-collab 前缀 → rdApi 自动落研发池），
  * 与协同详情页互不干扰。
  */
+/** 任务类型下拉里「自定义…」那一项的哨兵值。带下划线前缀，不会与真实类型撞名。 */
+const CUSTOM_TASK_TYPE_OPTION = "__custom_task_type__";
+
 export default function RDTaskDetailPage() {
   const { taskId = "" } = useParams();
   const navigate = useNavigate();
@@ -381,6 +387,9 @@ export default function RDTaskDetailPage() {
   const [showApproval, setShowApproval] = useState<"approve" | "reject" | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [savingPriority, setSavingPriority] = useState(false);
+  const [savingTaskType, setSavingTaskType] = useState(false);
+  // 非 null 表示正在填自定义任务类型（预设清单外的值）
+  const [customTaskType, setCustomTaskType] = useState<string | null>(null);
   /** 点击人员后展示其名下任务的弹层（点任务跳转到该任务的详情页） */
   const [personTasksFor, setPersonTasksFor] = useState<string | null>(null);
   /**
@@ -764,6 +773,44 @@ export default function RDTaskDetailPage() {
       toast.error(error instanceof Error ? error.message : "更新优先级失败");
     } finally {
       setSavingPriority(false);
+    }
+  };
+
+  /**
+   * 任务类型 = category_path 第三段，也就是驾驶舱卡片上那个 tag。
+   * AI 抽取时判断，判错了由人工在这里纠正；前两段（分类归属）不动 —— 改归属是「移动归类」的事。
+   */
+  const saveTaskType = async (next: string) => {
+    if (!task || savingTaskType) return;
+    const value = next.trim();
+    const current = taskTypeOf(task.category_path);
+    if (!value || value === current) {
+      setCustomTaskType(null);
+      return;
+    }
+    const nextPath = withTaskType(task.category_path, value);
+    setSavingTaskType(true);
+    try {
+      await updateRdTask(task.task_id, { category_path: nextPath });
+      recordAudit({
+        actor: AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [{ field: "category_path", before: task.category_path, after: nextPath }],
+        comment: `更新任务类型 → ${value}`,
+        source: "web",
+      });
+      // task 与 allTasks 双源须一起更新，否则人员任务弹层等派生视图仍显示旧 tag
+      setTask((prevTask) => (prevTask ? { ...prevTask, category_path: nextPath } : prevTask));
+      setAllTasks((prevAll) =>
+        prevAll.map((t) => (t.task_id === task.task_id ? { ...t, category_path: nextPath } : t)),
+      );
+      setCustomTaskType(null);
+      toast.success(t("任务类型已更新"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("保存失败，请重试"));
+    } finally {
+      setSavingTaskType(false);
     }
   };
 
@@ -1265,6 +1312,8 @@ export default function RDTaskDetailPage() {
     .map((part) => part.trim())
     .filter(Boolean);
   const topicLabel = topicPathParts.at(-1) ?? t("待归类任务");
+  // topicLabel 在无分类时是占位文案，不能当成真实类型塞进选择器；这里取实际存储值（可能为空）。
+  const currentTaskType = taskTypeOf(task.category_path);
   const componentLabel = topicPathParts.length > 1 ? topicPathParts.at(-2)! : topicLabel;
   const overdue = isTaskOverdue(task);
   const riskLabel = task.status === "paused_blocked" ? t("阻塞中") : overdue ? t("已逾期") : t("正常");
@@ -1546,13 +1595,56 @@ export default function RDTaskDetailPage() {
                 </span>
               ) },
               { label: t("组件"), value: componentLabel },
-              { label: t("主题"), value: topicLabel },
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
                 <span className="shrink-0 text-xs text-slate-400">{row.label}</span>
                 <span className="min-w-0 flex-1 truncate text-right font-medium text-slate-700">{row.value}</span>
               </div>
             ))}
+            {/* 任务类型 = category_path 第三段，即驾驶舱卡片上那个 tag。AI 判断不准时在这里纠正。
+                原先这里是只读的「主题」行，值完全相同，故改造为可编辑而不是另加一行。 */}
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="shrink-0 text-xs text-slate-400">{t("任务类型")}</span>
+              {canManage && !task.archived ? (
+                customTaskType !== null ? (
+                  <Input
+                    autoFocus
+                    value={customTaskType}
+                    disabled={savingTaskType}
+                    placeholder={t("输入任务类型")}
+                    onChange={(e) => setCustomTaskType(e.target.value)}
+                    onBlur={() => void saveTaskType(customTaskType)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); void saveTaskType(customTaskType); }
+                      else if (e.key === "Escape") { e.preventDefault(); setCustomTaskType(null); }
+                    }}
+                    className="h-7 min-w-0 flex-1 text-right text-sm"
+                  />
+                ) : (
+                  <Select
+                    value={currentTaskType || undefined}
+                    disabled={savingTaskType}
+                    onValueChange={(value) => {
+                      if (value === CUSTOM_TASK_TYPE_OPTION) setCustomTaskType(currentTaskType);
+                      else void saveTaskType(value);
+                    }}
+                  >
+                    <SelectTrigger className="h-7 w-auto max-w-full gap-1 border-slate-200 px-2 text-sm font-medium text-slate-700">
+                      <SelectValue placeholder={t("待归类任务")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {/* 当前值可能是清单外的自定义值或历史默认值（如「研发任务」），必须并入选项，否则 Select 显示为空 */}
+                      {Array.from(new Set([currentTaskType, ...RD_TASK_TYPE_PRESETS])).filter(Boolean).map((option) => (
+                        <SelectItem key={option} value={option}>{t(option)}</SelectItem>
+                      ))}
+                      <SelectItem value={CUSTOM_TASK_TYPE_OPTION}>{t("自定义…")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )
+              ) : (
+                <span className="min-w-0 flex-1 truncate text-right font-medium text-slate-700">{topicLabel}</span>
+              )}
+            </div>
           </div>
 
           {/* 阻塞提示节 */}

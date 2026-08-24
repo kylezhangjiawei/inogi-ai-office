@@ -9,6 +9,27 @@ import { OcrService } from '../ocr/ocr.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { resolveRdStoreKey } from './rd-workspace.context';
 
+/**
+ * category_path 第三段「任务类型」的规范取值。AI 抽取时按这批词判断，
+ * 详情页的任务类型选择器也用同一批词，靠 rd-ai-full-classification 的
+ * 一致性用例锁住两边不漂移（前端镜像在 src/app/lib/rdApi.ts）。
+ * 这不是白名单：人工可以填清单外的值，AI 也允许在确实不匹配时另拟。
+ */
+export const RD_TASK_TYPE_PRESETS = [
+  '需求澄清',
+  '方案设计',
+  '结构设计',
+  '电气设计',
+  '软件开发',
+  '工艺准备',
+  '采购跟进',
+  '样件制作',
+  '测试验证',
+  '问题整改',
+  '文档交付',
+  '评审确认',
+] as const;
+
 const TASK_EXTRACTION_SCHEMA_DESC =
   '{"tasks": [{"title": string, "description"?: string, "owner": string, "due_date": string YYYY-MM-DD, ' +
   '"due_date_original"?: string（原文时间节点的原始短语，例如"今明完成"、"周三"、"会后同步"、"到货当日"；如果原文没写时间则省略）, ' +
@@ -1691,7 +1712,7 @@ export class RdAiService {
       '另外：如果原文给了明确的 due_date（如"今天完成/周三/明天交付"），estimated_days 必须与"今天到 due_date 的天数"协调（不超过该跨度，最小为 1）。',
       '6) category_path 用「一级分类 / 二级分类 / 任务类型」格式（例如 "310阀系统 / 310电磁阀 / 测试验证"）。一级分类必须优先从下方"研发分类预设"中选择；二级分类优先选择该大项下最接近的部件。',
       '7) 不要把立项标题、客户名称或临时项目名当作一级分类；只有完全无法匹配预设大项时，才允许创建新的一级分类。',
-      '8) 任务类型要从任务内容中判断，例如：需求澄清、方案设计、结构设计、电气设计、软件开发、工艺准备、采购跟进、样件制作、测试验证、问题整改、文档交付、评审确认。',
+      `8) 任务类型要从任务内容中判断，例如：${RD_TASK_TYPE_PRESETS.join('、')}。`,
       '9) 分配负责人时综合：原文负责人、任务分类、任务类型、任务内容关键词、人员岗位/部门、当前任务数、容量上限、阻塞数、请假状态；避免分给请假、明显超载或阻塞过多的人。',
       '10) 若多人都可承担，优先选择当前负载更低且岗位/部门更匹配的人；高优先级任务优先给容量充足的人。',
       '11) owner_reason 必须简短说明分配依据（如"原文指定"、"结构设计任务且当前负载较低"、"测试验证任务匹配测试岗位"）。',
