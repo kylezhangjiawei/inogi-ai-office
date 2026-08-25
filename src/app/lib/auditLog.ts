@@ -794,8 +794,12 @@ export type UnifiedAuditQuery = {
   page?: number;
   pageSize?: number;
   snapshotAt?: string;
-  /** 是否一并计算概览统计。翻页时置 false，省掉服务端 4 条重复的聚合查询。 */
-  withStats?: boolean;
+  /**
+   * 手上这份统计是基于哪个筛选指纹算出来的，原样回带即可。
+   * 指纹由服务端按实际生效的筛选（含可见范围）生成，一致就跳过重算——
+   * 前端不必自己判断「筛选条件变了没有」，将来加筛选维度也不会漏。
+   */
+  statsSignature?: string;
 };
 
 export type AuditStats = {
@@ -814,6 +818,8 @@ export type UnifiedAuditPage = {
   pageSize: number;
   snapshotAt: string;
   canViewAll: boolean;
+  /** 本次筛选条件的服务端指纹；下次请求原样回带即可跳过统计重算。 */
+  filterSignature: string;
   /** 只在请求了统计时返回；翻页时为 null，调用方沿用上一次的结果。 */
   stats: AuditStats | null;
   items: UnifiedAuditLog[];
@@ -888,7 +894,7 @@ function buildAuditQuery(query: UnifiedAuditQuery): string {
   put("page", query.page);
   put("pageSize", query.pageSize);
   put("snapshotAt", query.snapshotAt);
-  if (query.withStats !== undefined) params.set("withStats", query.withStats ? "1" : "0");
+  put("statsSignature", query.statsSignature);
   if (query.actions && query.actions.length > 0) params.set("actions", query.actions.join(","));
   return params.toString();
 }

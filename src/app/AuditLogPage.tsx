@@ -55,6 +55,7 @@ const EMPTY_PAGE: UnifiedAuditPage = {
   pageSize: 25,
   snapshotAt: "",
   canViewAll: false,
+  filterSignature: "",
   stats: null,
   items: [],
 };
@@ -252,24 +253,19 @@ export function AuditLogPage() {
     [action, actorId, category, debouncedKeyword, moduleFilter, page, pageSize, resourceType, since, sortOrder, source, until],
   );
 
-  // 筛选条件的指纹：变了才需要重算统计，仅翻页不算
-  const filterSignature = useMemo(() => {
-    const { page: _page, ...rest } = query;
-    return JSON.stringify(rest);
-  }, [query]);
-  const statsSignature = useRef<string | null>(null);
+  // 手上这份统计对应的服务端指纹。回带给服务端，它自己判断要不要重算。
+  const statsSignature = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    const needStats = statsSignature.current !== filterSignature;
-    fetchAuditLogPage({ ...query, withStats: needStats })
+    fetchAuditLogPage({ ...query, statsSignature: statsSignature.current })
       .then((result) => {
         if (cancelled) return;
         setData(result);
         if (result.stats) {
           setStats(result.stats);
-          statsSignature.current = filterSignature;
+          statsSignature.current = result.filterSignature;
         }
         setError(null);
         // 服务端会把越界页码收回最后一页；本地页码跟随，否则翻页按钮与实际内容对不上
@@ -279,7 +275,7 @@ export function AuditLogPage() {
         if (cancelled) return;
         setData(EMPTY_PAGE);
         setStats(null);
-        statsSignature.current = null;
+        statsSignature.current = undefined;
         setError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => {
@@ -288,7 +284,7 @@ export function AuditLogPage() {
     return () => {
       cancelled = true;
     };
-  }, [filterSignature, query]);
+  }, [query]);
 
   // 筛选选项只跟「可见范围 + 模块」走：跟着其他条件收窄会让选项互相抹掉，越筛越选不动
   useEffect(() => {

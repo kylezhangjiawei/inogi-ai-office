@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -28,10 +29,10 @@ const VIEW_ALL_RULES: ReadonlyArray<{ permissions: readonly string[]; modules: r
 const MAX_ACTION_FILTERS = 200;
 const MAX_ACTOR_OPTIONS = 200;
 /**
- * 「涉及对象 / 操作人数」这类去重统计的取数上限。
+ * 操作人去重的取数上限。这个维度的基数就是账号数（几十到几百），正常永远到不了顶；
+ * 上限只是防脏数据（actorName 千奇百怪）把整批结果拉进内存。到顶时显示 “N+”。
  *
- * distinct 查询不封顶的话，留痕攒到几十万行时会把整批去重结果拉进内存，只为求一个长度。
- * 概览数字超过这个量级已经没有阅读价值，到顶就显示 “N+”。
+ * 对象去重不走这条路 —— 它的基数与行数同量级，见 buildStats 里的 count 子查询。
  */
 const DISTINCT_STAT_CAP = 2000;
 const DEFAULT_PAGE_SIZE = 25;
@@ -77,6 +78,11 @@ export class AuditService {
     const snapshotAt = this.resolveSnapshot(query.snapshotAt);
     const where = this.buildWhere(query, viewer, snapshotAt);
 
+    // 统计只跟筛选条件走，翻页不必重算。指纹由服务端按「实际生效的筛选」算：
+    // 交给前端自己维护的话，将来新增一个筛选维度却忘了并进指纹，统计就会静默不刷新。
+    const filterSignature = this.filterSignature(query, viewer);
+    const needStats = query.statsSignature !== filterSignature;
+
     const { total, page, rows } = await this.prisma.$transaction(
       async (tx) => {
         const snapshotTotal = await tx.auditLog.count({ where });
@@ -102,8 +108,9 @@ export class AuditService {
       pageSize,
       snapshotAt: snapshotAt.toISOString(),
       canViewAll: canViewAllAuditLogs(viewer.permissions),
+      filterSignature,
       // 不要时返回 null，让调用方明确知道「这次没算」而不是「算出来是 0」
-      stats: query.withStats === false ? null : await this.buildStats(where),
+      stats: needStats ? await this.buildStats(where, this.buildSqlWhere(query, viewer, snapshotAt)) : null,
       items: rows.map((row) => this.toItem(row)),
     };
   }
@@ -112,20 +119,20 @@ export class AuditService {
    * 概览数字。必须在服务端按当前筛选条件整体统计——合并前是前端拿全量日志自己算的，
    * 改成分页拉取后若沿用前端统计，卡片只会反映当前这一页，等于给了个错数。
    */
-  private async buildStats(where: Prisma.AuditLogWhereInput) {
+  private async buildStats(where: Prisma.AuditLogWhereInput, sqlWhere: Prisma.Sql) {
     const [actors, resources, aiCount, riskCount] = await Promise.all([
+      // 操作人去重上限就是账号数（几十到几百），Prisma 的 distinct 足够，不值得再写一份 SQL
       this.prisma.auditLog.findMany({
         where,
         distinct: ['userId', 'actorName'],
         select: { userId: true },
         take: DISTINCT_STAT_CAP,
       }),
-      this.prisma.auditLog.findMany({
-        where,
-        distinct: ['resource', 'resourceId'],
-        select: { resource: true },
-        take: DISTINCT_STAT_CAP,
-      }),
+      // 对象去重与行数同量级（研发池实测 412 行 / 254 个对象），必须在库里数完只回传一个数
+      this.prisma.$queryRaw<Array<{ count: bigint }>>`
+        SELECT count(*)::bigint AS count
+        FROM (SELECT DISTINCT "resource", "resourceId" FROM "AuditLog" WHERE ${sqlWhere}) AS t
+      `,
       this.prisma.auditLog.count({
         // 与前端 AUDIT_ACTION_META 的 ai 类目同口径：ai.* 动作码 + source=ai 的代执行
         where: { AND: [where, { OR: [{ source: 'ai' }, { action: { startsWith: 'ai.' } }] }] },
@@ -136,10 +143,9 @@ export class AuditService {
     ]);
     return {
       uniqueActors: actors.length,
-      uniqueResources: resources.length,
-      // 到顶说明真实值还更大，前端据此显示 “N+”，不谎报成确切数字
+      uniqueResources: Number(resources[0]?.count ?? 0),
+      // 操作人到顶说明真实值还更大，前端据此显示 “N+”；对象数是精确值，永不封顶
       actorsCapped: actors.length >= DISTINCT_STAT_CAP,
-      resourcesCapped: resources.length >= DISTINCT_STAT_CAP,
       aiCount,
       riskCount,
     };
@@ -185,6 +191,31 @@ export class AuditService {
 
   // ── 内部 ──────────────────────────────────────────────────────────────────
 
+  /**
+   * 当前筛选条件的指纹。snapshotAt 与 page/pageSize/sort 不参与 —— 它们不影响统计口径。
+   * 可见范围也要进指纹：同一组筛选条件在不同人眼里命中的记录集不同。
+   *
+   * 取哈希而不是原文：指纹要由调用方回带，会出现在 URL 上，而 URL 会被 ApiRequestLog 记下来。
+   * 原文里含操作人 id 与姓名，不该进查询串。
+   */
+  private filterSignature(query: AuditLogQueryDto, viewer: AuditViewer): string {
+    const raw = JSON.stringify([
+      query.module ?? '',
+      query.source ?? '',
+      query.resource ?? '',
+      query.resourceId ?? '',
+      query.actorUserId ?? '',
+      this.parseActions(query.actions),
+      query.dateFrom ?? '',
+      query.dateTo ?? '',
+      query.keyword ?? '',
+      auditViewAllModules(viewer.permissions),
+      viewer.userId ?? '',
+      viewer.userName ?? '',
+    ]);
+    return createHash('sha256').update(raw).digest('hex').slice(0, 16);
+  }
+
   private resolveSnapshot(raw?: string) {
     const now = new Date();
     if (!raw) return now;
@@ -221,11 +252,7 @@ export class AuditService {
     if (query.resourceId) filters.push({ resourceId: query.resourceId });
     if (query.actorUserId) filters.push({ userId: query.actorUserId });
 
-    const actions = (query.actions ?? '')
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .slice(0, MAX_ACTION_FILTERS);
+    const actions = this.parseActions(query.actions);
     if (actions.length > 0) filters.push({ action: { in: actions } });
 
     const createdAt: Prisma.DateTimeFilter = { lte: snapshotAt };
@@ -257,6 +284,73 @@ export class AuditService {
     }
 
     return { AND: filters };
+  }
+
+  /**
+   * buildWhere 的 SQL 版本，只服务于「涉及对象」的去重计数。
+   *
+   * 为什么要有第二份实现：去重对象数在真实分布下与行数同量级（研发池实测 412 行 / 254 个对象），
+   * Prisma 拿不到 count(distinct)，只能 findMany + distinct 把整批结果拉进 Node 再数长度。
+   * 换成 `count(*) FROM (SELECT DISTINCT …)` 只回传一个数，30 万行实测 36ms
+   * （对比：materialize 78ms、count(DISTINCT (a,b)) 走排序要 1346ms）。
+   *
+   * ⚠️ 这里包含可见范围规则，与 buildWhere 必须逐条对齐 —— 两份实现挨在一起写、
+   * 并由 audit-where-parity.spec.ts 用同一批 fixture 跑两条路径断言结果一致，防止改一处漏一处。
+   */
+  private buildSqlWhere(query: AuditLogQueryDto, viewer: AuditViewer, snapshotAt: Date): Prisma.Sql {
+    const parts: Prisma.Sql[] = [this.scopeSqlWhere(viewer)];
+
+    if (query.module) parts.push(Prisma.sql`"module" = ${query.module}`);
+    if (query.source) parts.push(Prisma.sql`"source" = ${query.source}`);
+    if (query.resource) parts.push(Prisma.sql`"resource" = ${query.resource}`);
+    if (query.resourceId) parts.push(Prisma.sql`"resourceId" = ${query.resourceId}`);
+    if (query.actorUserId) parts.push(Prisma.sql`"userId" = ${query.actorUserId}`);
+
+    const actions = this.parseActions(query.actions);
+    if (actions.length > 0) parts.push(Prisma.sql`"action" IN (${Prisma.join(actions)})`);
+
+    parts.push(Prisma.sql`"createdAt" <= ${snapshotAt}`);
+    const from = query.dateFrom ? new Date(query.dateFrom) : null;
+    const to = query.dateTo ? new Date(query.dateTo) : null;
+    if (from && !Number.isNaN(from.getTime())) parts.push(Prisma.sql`"createdAt" >= ${from}`);
+    if (to && !Number.isNaN(to.getTime())) parts.push(Prisma.sql`"createdAt" < ${to}`);
+
+    if (query.keyword) {
+      // ILIKE 与 Prisma 的 mode:'insensitive' 同义；% 由参数携带，不做字符串拼接
+      const like = `%${query.keyword}%`;
+      parts.push(Prisma.sql`(
+        "summary" ILIKE ${like} OR "action" ILIKE ${like} OR "resourceName" ILIKE ${like}
+        OR "resourceId" ILIKE ${like} OR "actorName" ILIKE ${like}
+        OR "userId" IN (
+          SELECT "id" FROM "User"
+          WHERE "name" ILIKE ${like} OR "englishName" ILIKE ${like} OR "username" ILIKE ${like}
+        )
+      )`);
+    }
+
+    return Prisma.join(parts, ' AND ');
+  }
+
+  /** scopeWhere 的 SQL 版本，逐条对应上面那份。 */
+  private scopeSqlWhere(viewer: AuditViewer): Prisma.Sql {
+    const fullModules = auditViewAllModules(viewer.permissions);
+    if (fullModules === '*') return Prisma.sql`TRUE`;
+
+    const conditions: Prisma.Sql[] = [];
+    if (fullModules.length > 0) conditions.push(Prisma.sql`"module" IN (${Prisma.join(fullModules)})`);
+    if (viewer.userId) conditions.push(Prisma.sql`"userId" = ${viewer.userId}`);
+    if (viewer.userName) conditions.push(Prisma.sql`("userId" IS NULL AND "actorName" = ${viewer.userName})`);
+    if (conditions.length === 0) return Prisma.sql`"id" = '__no_audit_visibility__'`;
+    return Prisma.sql`(${Prisma.join(conditions, ' OR ')})`;
+  }
+
+  /** 动作码逗号列表 → 去空白去空项的数组。两份 where 实现共用，避免解析口径分叉。 */
+  private parseActions(raw?: string): string[] {
+    return (raw ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, MAX_ACTION_FILTERS);
   }
 
   /** 输出结构与前端既有的 AuditLog 类型一一对应，页面渲染逻辑不用为合并改写。 */

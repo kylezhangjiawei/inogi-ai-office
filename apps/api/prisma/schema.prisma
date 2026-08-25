@@ -1,10 +1,16 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // postgresqlExtensions：允许在 datasource 里声明 pg_trgm，让扩展也纳入迁移管理，
+  // 否则扩展与依赖它的 GIN 索引会被后续 migrate 当作库上的「意外物」处理。
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // 留痕的关键字搜索是中文子串匹配（ILIKE %kw%），只有 trigram 索引救得了；
+  // 内置全文检索对中文不分词，帮不上忙。
+  extensions = [pg_trgm]
 }
 
 enum UserStatus {
@@ -186,6 +192,13 @@ model AuditLog {
 
   /// 默认视图不带模块筛选，按时间倒序翻页；上面几条复合索引的首列都对不上，
   /// 没有这条会退化成全表排序。
+  /// 关键字搜索是多列 ILIKE '%kw%'，B-tree 用不上。实测 30 万行：搜不到时全表扫 213ms，
+  /// 建 trigram GIN 后 0.05ms；代价是写入 +0.055ms/行、索引约 150 字节/行。
+  /// 只给真正会被子串搜索的列建：action 是枚举式的动作码，由「动作」下拉精确筛，不建。
+  @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([resourceName(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([actorName(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([resourceId(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([createdAt, id])
   @@index([resource, createdAt, id])
   @@index([module, createdAt, id])

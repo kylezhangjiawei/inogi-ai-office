@@ -28,6 +28,8 @@ function createService(distinctRows = 0) {
   };
   service.prisma = {
     auditLog: table,
+    // 「涉及对象」改走裸 SQL 的 count 子查询；桩里回一个固定数即可
+    $queryRaw: async () => [{ count: BigInt(distinctRows) }],
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({ auditLog: table }),
   };
   const original = AuditService.prototype['buildWhere' as keyof AuditService] as unknown as (
@@ -135,34 +137,67 @@ test('模块、来源与动作码列表逐项落到查询条件上', async () =>
   assert.ok(filters.some((item) => JSON.stringify(item) === JSON.stringify({ action: { in: ['task.created', 'task.updated'] } })));
 });
 
-test('概览统计的去重查询必须封顶，且到顶时如实标记', async () => {
+test('操作人去重封顶并如实标记，对象去重走精确计数', async () => {
   // 去重结果远超上限：不封顶就会把整批拉进内存只为求个长度
   const big = createService(999999);
-  const page = (await big.service.listLogs({ withStats: true }, { userId: 'admin', permissions: ['*'] })) as {
-    stats: { uniqueActors: number; uniqueResources: number; actorsCapped: boolean; resourcesCapped: boolean } | null;
+  const page = (await big.service.listLogs({}, { userId: 'admin', permissions: ['*'] })) as {
+    stats: { uniqueActors: number; uniqueResources: number; actorsCapped: boolean } | null;
   };
   const distinctQueries = big.captured.findMany.filter((q) => q.distinct);
-  assert.equal(distinctQueries.length, 2);
+  assert.equal(distinctQueries.length, 1, '只剩操作人一条 distinct 查询');
   assert.ok(distinctQueries.every((q) => typeof q.take === 'number' && (q.take as number) <= 2000));
   assert.equal(page.stats?.uniqueActors, 2000);
   assert.equal(page.stats?.actorsCapped, true);
-  assert.equal(page.stats?.resourcesCapped, true);
+  // 对象数走 SQL 精确计数，不受上限影响
+  assert.equal(page.stats?.uniqueResources, 999999);
 
   const small = createService(3);
-  const smallPage = (await small.service.listLogs({ withStats: true }, { userId: 'admin', permissions: ['*'] })) as {
+  const smallPage = (await small.service.listLogs({}, { userId: 'admin', permissions: ['*'] })) as {
     stats: { uniqueActors: number; actorsCapped: boolean } | null;
   };
   assert.equal(smallPage.stats?.uniqueActors, 3);
   assert.equal(smallPage.stats?.actorsCapped, false);
 });
 
-test('withStats=false 时不跑聚合查询，返回 null 而不是 0', async () => {
+test('指纹一致时跳过统计，返回 null 而不是 0', async () => {
+  const viewer = { userId: 'admin', permissions: ['*'] };
+  // 先取一次拿到服务端算出的指纹
+  const first = (await createService(10).service.listLogs({}, viewer)) as {
+    stats: unknown;
+    filterSignature: string;
+  };
+  assert.ok(first.stats, '首次必须带统计');
+
+  // 原样回带指纹 = 翻页场景：不该再跑任何聚合查询
   const skipped = createService(10);
-  const page = (await skipped.service.listLogs({ withStats: false }, { userId: 'admin', permissions: ['*'] })) as {
+  const page = (await skipped.service.listLogs({ statsSignature: first.filterSignature }, viewer)) as {
     stats: unknown;
   };
   assert.equal(page.stats, null);
-  // 统计的 4 条查询一条都不该发出：翻页时重复算纯属白花
   assert.equal(skipped.captured.findMany.filter((q) => q.distinct).length, 0);
   assert.equal(skipped.captured.count.length, 1, '只剩列表自己的总数统计');
+});
+
+test('筛选条件变化会让指纹变化，统计随之重算', async () => {
+  const viewer = { userId: 'admin', permissions: ['*'] };
+  const base = (await createService(10).service.listLogs({}, viewer)) as { filterSignature: string };
+
+  const changed = createService(10);
+  const page = (await changed.service.listLogs(
+    { module: 'rd', statsSignature: base.filterSignature },
+    viewer,
+  )) as { stats: unknown; filterSignature: string };
+  assert.notEqual(page.filterSignature, base.filterSignature);
+  assert.ok(page.stats, '指纹变了就必须重算统计');
+});
+
+test('可见范围进指纹：同一组筛选条件换个人看，统计必须重算', async () => {
+  const admin = (await createService(10).service.listLogs({}, { userId: 'a', permissions: ['*'] })) as {
+    filterSignature: string;
+  };
+  const member = (await createService(10).service.listLogs(
+    { statsSignature: admin.filterSignature },
+    { userId: 'b', userName: '成员', permissions: ['page:audit-log'] },
+  )) as { stats: unknown };
+  assert.ok(member.stats, '换人后命中的记录集不同，不能沿用别人的统计');
 });
