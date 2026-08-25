@@ -1868,6 +1868,7 @@ function CategorySidebar({
                       onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "add-sub", category: cat }); }}
                       className="rounded p-1 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
                       title={t("新增子项")}
+                      aria-label={t("为 {name} 新增子项", { name: cat.label })}
                     >
                       <FolderPlus className="h-3.5 w-3.5" />
                     </button>
@@ -1876,6 +1877,7 @@ function CategorySidebar({
                       onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "edit-system", category: cat }); }}
                       className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                       title={t("重命名")}
+                      aria-label={t("重命名 {name}", { name: cat.label })}
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
@@ -1974,6 +1976,7 @@ function CategorySidebar({
                                   onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "edit-sub", category: cat, sub }); }}
                                   className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
                                   title={t("重命名")}
+                                  aria-label={t("重命名 {name}", { name: sub.label })}
                                 >
                                   <Pencil className="h-3 w-3" />
                                 </button>
@@ -1984,6 +1987,7 @@ function CategorySidebar({
                                   onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "move-tasks", fromCategory: cat, fromSub: sub }); }}
                                   className="rounded p-1 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
                                   title={t("移动任务")}
+                                  aria-label={t("移动 {name} 中的任务", { name: sub.label })}
                                 >
                                   <ArrowRight className="h-3 w-3" />
                                 </button>
@@ -4957,6 +4961,9 @@ function PersonDetailDrawer({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("人员任务详情")}
     >
       {/* 点击面板外空白处关闭（人员详情为只读，无需脏检查） */}
       <div className="absolute inset-0" aria-hidden onClick={onClose} />
@@ -4975,7 +4982,7 @@ function PersonDetailDrawer({
               <p className="mt-0.5 text-xs text-slate-500">{profile?.position ?? t("研发成员")} · {profile?.department ?? t("未设置部门")}</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+          <button type="button" onClick={onClose} aria-label={t("关闭人员任务详情")} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
             <X className="h-4 w-4" />
           </button>
         </header>
@@ -6710,12 +6717,16 @@ function ImageGallery({
       transition={{ duration: 0.18 }}
       className="fixed inset-0 z-[90] flex flex-col items-center justify-center bg-black/92 backdrop-blur-sm"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("任务附件预览")}
     >
       {/* Close */}
       <button
         type="button"
         onClick={onClose}
         className="absolute right-5 top-5 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:bg-white/20"
+        aria-label={t("关闭附件预览")}
       >
         <X className="h-5 w-5" />
       </button>
@@ -6754,6 +6765,7 @@ function ImageGallery({
             type="button"
             onClick={(e) => { e.stopPropagation(); prev(); }}
             className="absolute left-4 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:bg-white/25 active:scale-95"
+            aria-label={t("上一张附件")}
           >
             <ChevronLeft className="h-6 w-6" />
           </button>
@@ -6761,6 +6773,7 @@ function ImageGallery({
             type="button"
             onClick={(e) => { e.stopPropagation(); next(); }}
             className="absolute right-4 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:bg-white/25 active:scale-95"
+            aria-label={t("下一张附件")}
           >
             <ChevronRight className="h-6 w-6" />
           </button>
@@ -6884,8 +6897,8 @@ function TaskAttachmentCollectionDialog({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/72 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true">
-      <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label={t("关闭附件列表")} />
+    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/72 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={t("全部附件")}>
+      <div className="absolute inset-0" onClick={onClose} aria-hidden="true" />
       <div className="relative flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-white/10 bg-white shadow-2xl">
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div className="min-w-0">

@@ -1301,6 +1301,7 @@ export default function RDTaskDetailPage() {
               onClick={() => gotoSeq(-1)}
               disabled={seqIndex <= 0}
               title={t("上一条任务（k）")}
+              aria-label={t("上一条任务（k）")}
               className="rd-horizon-detail-nav-control h-8 w-8 p-0"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -1313,6 +1314,7 @@ export default function RDTaskDetailPage() {
               onClick={() => gotoSeq(1)}
               disabled={seqIndex >= taskSeq.length - 1}
               title={t("下一条任务（j）")}
+              aria-label={t("下一条任务（j）")}
               className="rd-horizon-detail-nav-control h-8 w-8 p-0"
             >
               <ChevronRight className="h-4 w-4" />
@@ -1326,19 +1328,22 @@ export default function RDTaskDetailPage() {
             {t("研发同步 · 完全只读")}
           </span>
         )}
-        <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-slate-900">
-          <AutoTranslatedText text={task.title} />
+        <div className="rd-horizon-detail-heading flex min-w-0 flex-1 items-center gap-1.5">
+          <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-slate-900">
+            <AutoTranslatedText text={task.title} />
+          </h1>
           {canManage && !task.archived && (
             <button
               type="button"
               onClick={() => setShowEditInfo(true)}
               title={t("编辑标题与描述")}
-              className="ml-2 inline-flex cursor-pointer items-center rounded p-1 align-middle text-slate-300 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              aria-label={t("编辑标题与描述")}
+              className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
           )}
-        </h1>
+        </div>
         <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>
           <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
           {t(sCfg.label)}

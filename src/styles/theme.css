@@ -2708,10 +2708,16 @@
   color: var(--rd-ink) !important;
   font-size: 1.375rem !important;
   font-weight: 700 !important;
-  letter-spacing: -0.022em;
+  letter-spacing: 0;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-heading {
+  min-width: min(100%, 18rem);
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-nav-control {
+  min-width: 2.5rem;
+  min-height: 2.5rem;
   border-color: var(--rd-line-strong) !important;
   border-radius: 10px !important;
   color: var(--rd-body) !important;
@@ -2772,7 +2778,7 @@
 .rd-horizon-task-detail .rd-horizon-detail-aside {
   order: 1 !important;
   overflow: visible !important;
-  padding: 0.25rem 0.75rem 1rem 0.25rem;
+  padding: 0;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-main {
@@ -2931,9 +2937,8 @@
     align-items: flex-start;
   }
 
-  .rd-horizon-task-detail .rd-horizon-detail-toolbar h1 {
+  .rd-horizon-task-detail .rd-horizon-detail-heading {
     flex-basis: 100%;
-    order: -1;
   }
 }
 
