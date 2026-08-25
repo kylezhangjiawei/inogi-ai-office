@@ -1363,7 +1363,6 @@
   background: rgba(255, 255, 255, 0.84) !important;
   color: var(--rd-muted) !important;
   box-shadow: 0 7px 18px -14px rgba(27, 37, 89, 0.45) !important;
-  backdrop-filter: blur(12px);
 }
 
 .rd-horizon-cockpit .rd-horizon-pin-toggle:hover {
@@ -1429,7 +1428,7 @@
   color: var(--rd-ink) !important;
   font-size: 1.05rem;
   font-weight: 700;
-  letter-spacing: -0.018em;
+  letter-spacing: 0;
 }
 
 .rd-horizon-cockpit .rd-horizon-kpi-grid {
@@ -1509,6 +1508,7 @@
   font-size: 1.25rem !important;
   font-weight: 700 !important;
   letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
 }
 
 .rd-horizon-cockpit .rd-horizon-kpi-value:is(.text-indigo-600, .text-indigo-700) {
@@ -1518,7 +1518,7 @@
 .rd-horizon-cockpit .rd-horizon-kpi-label {
   margin-top: 0.25rem !important;
   color: var(--rd-muted) !important;
-  font-size: 0.6875rem !important;
+  font-size: 0.75rem !important;
   font-weight: 600 !important;
   letter-spacing: 0;
 }
@@ -1535,10 +1535,10 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-actions > button {
-  min-height: 2.35rem;
+  min-height: 2.5rem;
   border: 1px solid var(--rd-line) !important;
   border-radius: 11px !important;
-  padding: 0.3rem 0.68rem !important;
+  padding: 0.5rem 0.75rem !important;
   color: var(--rd-body) !important;
   background: rgba(255, 255, 255, 0.88) !important;
   box-shadow: 0 7px 18px -16px rgba(27, 37, 89, 0.55) !important;
@@ -1765,7 +1765,7 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-person-tab[data-state="active"] .rd-horizon-admin-ring {
-  background: linear-gradient(135deg, var(--rd-primary), var(--rd-primary-bright)) !important;
+  background: var(--rd-primary) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-avatar-core {
@@ -1776,7 +1776,7 @@
 .rd-horizon-cockpit .rd-horizon-person-name {
   max-width: 4rem !important;
   color: var(--rd-muted) !important;
-  font-size: 0.6875rem !important;
+  font-size: 0.75rem !important;
   font-weight: 600 !important;
   line-height: 1.1 !important;
 }
@@ -1799,6 +1799,7 @@
   box-shadow: 0 3px 8px rgba(27, 37, 89, 0.1) !important;
   font-size: 0.625rem !important;
   font-weight: 700 !important;
+  font-variant-numeric: tabular-nums;
 }
 
 .rd-horizon-cockpit .rd-horizon-search input,
@@ -1837,10 +1838,10 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-task-card {
-  border-color: transparent !important;
-  border-radius: 20px !important;
+  border-color: var(--rd-line) !important;
+  border-radius: 16px !important;
   background: var(--rd-surface) !important;
-  box-shadow: var(--rd-shadow-card) !important;
+  box-shadow: 0 6px 20px rgba(112, 144, 176, 0.055) !important;
   transform: none !important;
   transition: box-shadow 190ms ease !important;
 }
@@ -1850,15 +1851,15 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-task-card:hover {
-  border-color: transparent !important;
-  box-shadow: 0 12px 30px rgba(112, 144, 176, 0.1) !important;
+  border-color: rgba(0, 47, 167, 0.08) !important;
+  box-shadow: 0 10px 26px rgba(112, 144, 176, 0.09) !important;
   transform: none !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-task-card h3 {
   color: var(--rd-ink) !important;
   font-weight: 700 !important;
-  letter-spacing: -0.012em;
+  letter-spacing: 0;
 }
 
 .rd-horizon-cockpit .rd-horizon-task-path {
@@ -1897,7 +1898,8 @@
 .rd-horizon-cockpit .rd-horizon-task-footer {
   border-top-color: var(--rd-canvas) !important;
   color: var(--rd-muted) !important;
-  font-size: 0.6875rem !important;
+  font-size: 0.75rem !important;
+  font-variant-numeric: tabular-nums;
 }
 
 .rd-horizon-cockpit .rd-horizon-priority[data-priority="high"] {
@@ -1971,15 +1973,15 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-system-card {
-  border-color: transparent !important;
-  border-radius: 20px !important;
+  border-color: var(--rd-line) !important;
+  border-radius: 16px !important;
   background: var(--rd-surface) !important;
-  box-shadow: var(--rd-shadow-card) !important;
+  box-shadow: 0 6px 20px rgba(112, 144, 176, 0.055) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-system-card:hover {
-  border-color: transparent !important;
-  box-shadow: 0 12px 30px rgba(112, 144, 176, 0.1) !important;
+  border-color: rgba(0, 47, 167, 0.08) !important;
+  box-shadow: 0 10px 26px rgba(112, 144, 176, 0.09) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-system-accent {
@@ -2098,9 +2100,9 @@
   min-height: 3.25rem;
   flex-wrap: wrap;
   border: 1px solid transparent !important;
-  border-radius: 20px !important;
+  border-radius: 16px !important;
   margin-bottom: 1rem;
-  padding: 0.7rem 1rem !important;
+  padding: 0.75rem 1rem !important;
   color: var(--rd-muted);
   background: var(--rd-surface) !important;
   box-shadow: var(--rd-shadow-card) !important;
@@ -2133,11 +2135,11 @@
 .rd-horizon-board .rd-board-sidebar {
   width: 17.5rem !important;
   overflow: hidden;
-  border: 1px solid transparent !important;
+  border: 1px solid var(--rd-line) !important;
   border-radius: 20px !important;
   color: var(--rd-body);
   background: var(--rd-surface) !important;
-  box-shadow: var(--rd-shadow-card) !important;
+  box-shadow: none !important;
 }
 
 .rd-horizon-board .rd-board-sidebar-head {
@@ -2148,8 +2150,8 @@
 
 .rd-horizon-board .rd-board-sidebar-head > div:first-child {
   color: var(--rd-muted) !important;
-  font-size: 0.625rem !important;
-  letter-spacing: 0.16em !important;
+  font-size: 0.75rem !important;
+  letter-spacing: 0.08em !important;
 }
 
 .rd-horizon-board .rd-board-sidebar-head h2 {
@@ -2176,7 +2178,7 @@
 }
 
 .rd-horizon-board .rd-board-tree {
-  gap: 0.35rem !important;
+  gap: 0.25rem !important;
   padding: 0.75rem !important;
   scrollbar-color: rgba(112, 126, 174, 0.28) transparent;
 }
@@ -2244,7 +2246,7 @@
 }
 
 .rd-horizon-board .rd-board-canvas {
-  padding: 0 1rem 1rem !important;
+  padding: 1rem !important;
   scrollbar-color: rgba(112, 126, 174, 0.3) transparent;
 }
 
@@ -2259,8 +2261,8 @@
 .rd-horizon-board .rd-board-command-bar {
   flex: none;
   border: 1px solid var(--rd-line) !important;
-  border-radius: 20px !important;
-  padding: 0.7rem 1rem !important;
+  border-radius: 16px !important;
+  padding: 0.75rem 1rem !important;
   background: var(--rd-surface) !important;
   box-shadow: none !important;
 }
@@ -2273,7 +2275,7 @@
   min-width: 9rem;
   border: 0 !important;
   border-radius: 0 !important;
-  padding: 0.45rem 1rem !important;
+  padding: 0.5rem 1rem !important;
   color: var(--rd-ink) !important;
   background: transparent !important;
   box-shadow: none !important;
@@ -2333,7 +2335,7 @@
 .rd-horizon-board .rd-board-surface h3 {
   color: var(--rd-ink) !important;
   font-weight: 700 !important;
-  letter-spacing: -0.012em;
+  letter-spacing: 0;
 }
 
 .rd-horizon-board [data-surface="risk"] .rd-board-panel-head > div:last-child,
@@ -2350,7 +2352,7 @@
 
 .rd-horizon-board .rd-board-kpi-strip > div {
   gap: 1rem !important;
-  padding: 0.8rem !important;
+  padding: 0.75rem !important;
 }
 
 .rd-horizon-board .rd-board-kpi-strip > div > div:first-child > span:first-child {
@@ -2365,10 +2367,10 @@
 }
 
 .rd-horizon-board .rd-board-kpi {
-  min-height: 3.65rem;
+  min-height: 3.75rem;
   border: 0 !important;
   border-radius: 12px !important;
-  padding: 0.6rem 0.7rem !important;
+  padding: 0.5rem 0.75rem !important;
   background: transparent !important;
   box-shadow: none !important;
   transform: none !important;
@@ -2401,7 +2403,7 @@
 
 .rd-horizon-board .rd-board-kpi .text-\[10px\] {
   color: var(--rd-muted) !important;
-  font-size: 0.6875rem !important;
+  font-size: 0.75rem !important;
 }
 
 .rd-horizon-board .rd-board-filter-strip {
@@ -2515,7 +2517,7 @@
 }
 
 .rd-horizon-board .rd-board-task-filters {
-  gap: 0.65rem !important;
+  gap: 0.75rem !important;
   border-color: transparent !important;
   border-radius: 16px !important;
   padding: 0.75rem !important;
@@ -2545,7 +2547,7 @@
 
 .rd-horizon-board .rd-board-subproject {
   border: 1px solid transparent !important;
-  border-radius: 20px !important;
+  border-radius: 16px !important;
   padding: 1rem !important;
   background: var(--rd-surface) !important;
   box-shadow: var(--rd-shadow-card) !important;
@@ -2555,7 +2557,7 @@
 .rd-horizon-board .rd-board-task-row h4 {
   color: var(--rd-ink) !important;
   font-weight: 700 !important;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .rd-horizon-board .rd-board-subproject-body {
@@ -2570,7 +2572,7 @@
 
 .rd-horizon-board .rd-board-task-row {
   border-radius: 12px !important;
-  padding: 0.8rem 0.75rem !important;
+  padding: 0.75rem !important;
   background: transparent !important;
   transform: none !important;
 }
