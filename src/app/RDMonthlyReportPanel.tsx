@@ -268,19 +268,19 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
   const totalPages = Math.max(1, Math.ceil(reportsByMonth.length / REPORT_PAGE_SIZE));
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    <div className="rd-horizon-monthly-report flex h-full flex-col gap-3">
       {/* ── 月报速览（始终可见；flex-1 让它在宽屏并排时撑满到与左侧 KPI 卡等高） ──── */}
-      <div className={cn("flex-1 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50/40 shadow-sm", spacious ? "p-6" : "p-4")}>
+      <div className={cn("rd-horizon-monthly-surface flex-1 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50/40 shadow-sm", spacious ? "p-6" : "p-4")}>
         {tabSlot}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white shadow-sm">
+            <span className="rd-horizon-monthly-primary flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white shadow-sm">
               <CalendarRange className="h-4 w-4" />
             </span>
             <div>
               <h3 className="flex items-center gap-2 text-sm font-bold text-slate-800">
                 {t("月报速览")}
-                {monthLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />}
+                {monthLoading && <Loader2 className="rd-horizon-monthly-accent h-3.5 w-3.5 animate-spin text-amber-400" />}
               </h3>
               <p className="mt-0.5 text-[11px] text-slate-400">{t("{month} · {count} 位成员已生成", { month: monthStr, count: monthMembers.length })}</p>
             </div>
@@ -291,13 +291,13 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
               value={monthStr}
               max={currentMonthStr()}
               onChange={(e) => { setMonthStr(e.target.value || currentMonthStr()); setExpandedMonthKey(null); }}
-              className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+              className="rd-horizon-monthly-control h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
             />
             <button
               type="button"
               onClick={loadMonth}
               disabled={monthLoading}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all hover:border-amber-200 hover:text-amber-600 disabled:opacity-50"
+              className="rd-horizon-monthly-control inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all hover:border-amber-200 hover:text-amber-600 disabled:opacity-50"
             >
               <RefreshCw className={cn("h-3 w-3", monthLoading && "animate-spin")} />
               {t("刷新")}
@@ -307,7 +307,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
                 type="button"
                 disabled={regenerating}
                 onClick={regenerate}
-                className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-all hover:bg-amber-600 disabled:opacity-60"
+                className="rd-horizon-monthly-primary inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-all hover:bg-amber-600 disabled:opacity-60"
               >
                 {regenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                 {t("立即汇总")}
@@ -316,7 +316,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
             <button
               type="button"
               onClick={() => setShowHistory((v) => !v)}
-              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-white px-2.5 py-1 text-xs font-medium text-amber-700 transition-all hover:bg-amber-50"
+              className="rd-horizon-monthly-control inline-flex items-center gap-1 rounded-md border border-amber-200 bg-white px-2.5 py-1 text-xs font-medium text-amber-700 transition-all hover:bg-amber-50"
             >
               {t("查看全部")}
               <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showHistory && "rotate-180")} />
@@ -366,7 +366,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
             })}
           </div>
         ) : (
-          <p className="mt-3 rounded-lg border border-dashed border-amber-200 bg-white/60 px-3 py-3 text-center text-[11px] text-slate-400">
+          <p className="rd-horizon-monthly-surface rd-horizon-monthly-inset mt-3 rounded-lg border border-dashed border-amber-200 bg-white/60 px-3 py-3 text-center text-[11px] text-slate-400">
             {monthLoading ? t("正在读取月报…") : canRegenerate ? t("该月暂无月报，点击「立即汇总」生成。") : t("该月暂无月报，每月 1 号自动汇总上月后展示。")}
           </p>
         )}
@@ -390,7 +390,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
                       month: monthStr,
                     })
                   }
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition-all hover:bg-amber-600"
+                  className="rd-horizon-monthly-primary inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition-all hover:bg-amber-600"
                 >
                   <Award className="h-3.5 w-3.5" />
                   {t("月绩效报表")}
@@ -408,18 +408,18 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
 
       {/* ── 历史详情层（默认收起，带高度过渡） ─────────────────────────── */}
       <CollapseTransition open={showHistory}>
-        <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-5 shadow-sm">
+        <div className="rd-horizon-monthly-surface rounded-2xl border border-amber-100 bg-amber-50/40 p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between gap-2">
             <div>
               <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
-                <CalendarRange className="h-4 w-4 text-amber-500" />
+                <CalendarRange className="rd-horizon-monthly-accent h-4 w-4 text-amber-500" />
                 {t("研发月报 · 历史")}
-                <span className="rounded-full bg-amber-100 px-1.5 text-xs text-amber-700">{historyReports.length}</span>
+                <span className="rd-horizon-monthly-accent-surface rounded-full bg-amber-100 px-1.5 text-xs text-amber-700">{historyReports.length}</span>
                 {(reportMonthFilter || reportUserFilter) && (
                   <button
                     type="button"
                     onClick={() => { setReportMonthFilter(""); setReportUserFilter(""); setReportPage(1); }}
-                    className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-200"
+                    className="rd-horizon-monthly-accent-surface ml-1 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-200"
                   >
                     {t("清除筛选")}
                     <X className="h-3 w-3" />
@@ -434,7 +434,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
               type="button"
               onClick={loadHistory}
               disabled={historyLoading}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all hover:border-amber-200 hover:text-amber-600 disabled:opacity-50"
+              className="rd-horizon-monthly-control inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all hover:border-amber-200 hover:text-amber-600 disabled:opacity-50"
             >
               <RefreshCw className={cn("h-3 w-3", historyLoading && "animate-spin")} />
               {t("刷新")}
@@ -442,7 +442,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
           </div>
 
           {/* History filters */}
-          <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-100 bg-white/60 px-3 py-2">
+          <div className="rd-horizon-monthly-surface rd-horizon-monthly-inset mb-3 flex items-center gap-2 rounded-lg border border-amber-100 bg-white/60 px-3 py-2">
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
               <div className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-slate-500">
                 <CalendarRange className="h-3 w-3" />
@@ -453,13 +453,13 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
                 value={reportMonthFilter}
                 max={currentMonthStr()}
                 onChange={(e) => { setReportMonthFilter(e.target.value); setReportPage(1); }}
-                className="h-7 w-36 shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+                className="rd-horizon-monthly-control h-7 w-36 shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
               />
               {reportMonthFilter && (
                 <button
                   type="button"
                   onClick={() => { setReportMonthFilter(""); setReportPage(1); }}
-                  className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 transition-colors hover:bg-amber-100 hover:text-amber-700"
+                  className="rd-horizon-monthly-accent-surface shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 transition-colors hover:bg-amber-100 hover:text-amber-700"
                 >
                   {t("全部月份")}
                 </button>
@@ -469,7 +469,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
               <NativeSelect
                 value={reportUserFilter}
                 onChange={(e) => { setReportUserFilter(e.target.value); setReportPage(1); }}
-                className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+                className="rd-horizon-monthly-control h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
               >
                 <option value="">{t("全部成员")}</option>
                 {reportUserOptions.map((opt) => (
@@ -495,7 +495,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
               {reportsByMonth.slice((reportPage - 1) * REPORT_PAGE_SIZE, reportPage * REPORT_PAGE_SIZE).map(([month, reportsInMonth]) => (
                 <div key={month}>
                   <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-500">
-                    <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-amber-700">{month}</span>
+                    <span className="rd-horizon-monthly-accent-surface rounded-md bg-amber-100 px-1.5 py-0.5 text-amber-700">{month}</span>
                     <span className="text-slate-400">{t("{count} 份月报", { count: reportsInMonth.length })}</span>
                   </div>
                   <ul className="space-y-2">
@@ -505,14 +505,14 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
                       return (
                         <li
                           key={report.id}
-                          className="overflow-hidden rounded-xl border border-amber-100 bg-white transition-colors"
+                          className="rd-horizon-monthly-history-item overflow-hidden rounded-xl border border-amber-100 bg-white transition-colors"
                         >
                           <button
                             type="button"
                             onClick={() => setExpandedReportId(expanded ? null : report.id)}
-                            className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-amber-50/40"
+                            className="rd-horizon-monthly-history-trigger flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-amber-50/40"
                           >
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-xs font-bold text-amber-700">
+                            <div className="rd-horizon-monthly-accent-surface flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-xs font-bold text-amber-700">
                               {report.user_name.slice(0, 1)}
                             </div>
                             <div className="min-w-0 flex-1">
@@ -556,7 +556,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
                                   <button
                                     type="button"
                                     onClick={() => setPerfTarget({ userId: report.user_id, userName: report.user_name, month: report.month })}
-                                    className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition-all hover:bg-amber-600"
+                                    className="rd-horizon-monthly-primary inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition-all hover:bg-amber-600"
                                   >
                                     <Award className="h-3.5 w-3.5" />
                                     {t("月绩效报表")}
@@ -587,7 +587,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
                       type="button"
                       disabled={reportPage === 1}
                       onClick={() => setReportPage((p) => p - 1)}
-                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="rd-horizon-monthly-control flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
                     </button>
@@ -597,9 +597,9 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
                         type="button"
                         onClick={() => setReportPage(pg)}
                         className={cn(
-                          "flex h-7 min-w-[28px] items-center justify-center rounded-md border px-1.5 text-xs font-semibold transition",
+                          "rd-horizon-monthly-control flex h-7 min-w-[28px] items-center justify-center rounded-md border px-1.5 text-xs font-semibold transition",
                           pg === reportPage
-                            ? "border-amber-400 bg-amber-500 text-white"
+                            ? "rd-horizon-monthly-primary border-amber-400 bg-amber-500 text-white"
                             : "border-slate-200 bg-white text-slate-600 hover:border-amber-300 hover:text-amber-700",
                         )}
                       >
@@ -610,7 +610,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
                       type="button"
                       disabled={reportPage === totalPages}
                       onClick={() => setReportPage((p) => p + 1)}
-                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="rd-horizon-monthly-control flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <ChevronRight className="h-3.5 w-3.5" />
                     </button>

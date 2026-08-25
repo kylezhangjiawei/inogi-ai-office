@@ -1288,15 +1288,15 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
   return (
     <article
       className={cn(
-        "group relative rounded-md px-3 py-2.5 transition-colors hover:bg-white/85",
+        "rd-board-task-row group relative rounded-md px-3 py-2.5 transition-colors hover:bg-white/85",
         attention ? "bg-white/70" : "bg-white/45",
         task.archived && "opacity-60",
       )}
     >
       <div className="flex min-w-0 items-start gap-2.5">
-        <span className={cn("mt-1 h-9 w-1 shrink-0 rounded-full", getPriorityBarClass(task))} />
+        <span className={cn("rd-board-task-priority-rail mt-1 h-9 w-1 shrink-0 rounded-full", getPriorityBarClass(task))} />
 
-        <button type="button" onClick={() => onOpen(task)} className="min-w-0 flex-1 cursor-pointer text-left">
+        <button type="button" onClick={() => onOpen(task)} className="rd-board-task-open min-w-0 flex-1 cursor-pointer text-left">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-mono text-xs font-semibold text-slate-500">{task.task_id}</span>
             <h4
@@ -1323,7 +1323,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
           {receipt && (
             <div
               className={cn(
-                "mt-1 flex items-center gap-1.5 rounded-md border-l-[3px] px-2 py-1 text-[11px] font-medium",
+                "rd-board-task-note mt-1 flex items-center gap-1.5 rounded-md border-l-[3px] px-2 py-1 text-[11px] font-medium",
                 receipt.state === "unread" ? "border-red-400 bg-red-50 text-red-700" : "border-amber-400 bg-amber-50 text-amber-700",
               )}
               title={`${receipt.author_name}${t("的备注")}：${receipt.excerpt}`}
@@ -1424,7 +1424,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
               e.stopPropagation();
               setExpanded(true);
             }}
-            className="ml-3 mt-1.5 flex w-[calc(100%-0.75rem)] flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-2.5 py-1 text-xs text-slate-500 transition-colors hover:bg-white/75"
+            className="rd-board-subtask-summary ml-3 mt-1.5 flex w-[calc(100%-0.75rem)] flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-2.5 py-1 text-xs text-slate-500 transition-colors hover:bg-white/75"
           >
             <ChevronRight className="h-3 w-3 shrink-0 text-slate-500" />
             <span className="font-semibold text-slate-700">{t("{n} 个子任务", { n: task.subtasks!.length })}</span>
@@ -1506,7 +1506,7 @@ function SubProjectSection({
   const activeCount = filteredTasks.filter((task) => !task.archived).length;
 
   return (
-    <section className="rounded-[8px] bg-slate-100/55 px-3 py-3">
+    <section className="rd-board-subproject rounded-[8px] bg-slate-100/55 px-3 py-3">
       <div className="flex flex-wrap items-center gap-3 px-1">
         <button
           type="button"
@@ -1559,7 +1559,7 @@ function SubProjectSection({
         <div className="overflow-hidden">
           <div
             className={cn(
-              "overflow-hidden rounded-[8px] bg-white/35 transition-all duration-300 ease-out",
+              "rd-board-subproject-body overflow-hidden rounded-[8px] bg-white/35 transition-all duration-300 ease-out",
               open ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1",
             )}
           >
@@ -1751,9 +1751,9 @@ function CategorySidebar({
       initial={shouldReduceMotion ? false : { opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
       transition={RD_PANEL_TRANSITION}
-      className="flex w-[292px] shrink-0 flex-col border-r border-slate-200/70 bg-[#edf3f8] shadow-[8px_0_24px_rgba(15,23,42,0.025)]"
+      className="rd-board-sidebar flex w-[292px] shrink-0 flex-col border-r border-slate-200/70 bg-[#edf3f8] shadow-[8px_0_24px_rgba(15,23,42,0.025)]"
     >
-      <div className="border-b border-slate-200/70 px-4 py-3">
+      <div className="rd-board-sidebar-head border-b border-slate-200/70 px-4 py-3">
         <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Navigation</div>
         <div className="mt-1 flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-slate-950">{t("研发系统树")}</h2>
@@ -1765,7 +1765,7 @@ function CategorySidebar({
               <button
                 type="button"
                 onClick={() => onRequestEditor({ mode: "add-system" })}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
+                className="rd-board-brand-control inline-flex h-7 items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
                 title={t("新增一级系统")}
               >
                 <Plus className="h-3 w-3" />
@@ -1776,7 +1776,7 @@ function CategorySidebar({
         </div>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1.5 overflow-y-auto px-3 py-3">
+      <nav className="rd-board-tree flex flex-1 flex-col gap-1.5 overflow-y-auto px-3 py-3">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -1785,7 +1785,9 @@ function CategorySidebar({
                 setExpandedId(null);
                 onSelect(null);
               }}
+              data-active={selectedId === null}
               className={cn(
+                "rd-board-tree-root",
                 "flex h-10 w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.99]",
                 selectedId === null ? "bg-white text-indigo-700 shadow-[0_8px_20px_rgba(79,70,229,0.08)] ring-1 ring-indigo-100" : "text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:shadow-[0_8px_18px_rgba(15,23,42,0.04)]",
               )}
@@ -1818,7 +1820,9 @@ function CategorySidebar({
               key={cat.id}
               layout
               transition={RD_LIST_TRANSITION}
+              data-active={activeWithin}
               className={cn(
+                "rd-board-tree-group",
                 "group/cat rounded-[8px] transition-all",
                 activeWithin ? "bg-white shadow-[0_10px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/80" : "hover:bg-white/65 hover:shadow-[0_8px_18px_rgba(15,23,42,0.035)]",
               )}
@@ -1845,11 +1849,11 @@ function CategorySidebar({
                     setExpandedId(cat.id);
                     onSelect(cat.id);
                   }}
-                  className="flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 text-left transition-all duration-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]"
+                  className="rd-board-tree-node flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 text-left transition-all duration-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]"
                 >
                   <span
                     className={cn(
-                      "h-5 w-1 shrink-0 rounded-full bg-indigo-600 transition-all duration-300 ease-out",
+                      "rd-board-tree-indicator h-5 w-1 shrink-0 rounded-full bg-indigo-600 transition-all duration-300 ease-out",
                       activeWithin ? "scale-y-100 opacity-100" : "scale-y-0 opacity-0",
                     )}
                   />
@@ -1934,7 +1938,9 @@ function CategorySidebar({
                       return (
                         <div
                           key={sub.id}
+                          data-active={selected}
                           className={cn(
+                            "rd-board-tree-sub",
                             "group/sub flex h-8 w-full items-center gap-1 rounded-md pr-1 transition-all duration-200",
                             selected
                               ? "bg-indigo-50 shadow-[0_6px_14px_rgba(79,70,229,0.08)]"
@@ -2079,14 +2085,14 @@ function SystemTreeEditorDialog({
       initial={shouldReduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={RD_FAST_TRANSITION}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="rd-task-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}
     >
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={RD_PANEL_TRANSITION}
-        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        className="rd-task-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className={cn(
@@ -2693,8 +2699,8 @@ function AiCreatePanel({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl rounded-[8px] border border-white bg-white shadow-2xl">
+    <div className="rd-task-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm">
+      <div className="rd-task-overlay-surface w-full max-w-2xl rounded-[8px] border border-white bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-indigo-500" />
@@ -3090,7 +3096,7 @@ export function SubmitConfirmDialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="rd-task-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={onCancel}
     >
       <motion.div
@@ -3098,7 +3104,7 @@ export function SubmitConfirmDialog({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 14, scale: 0.98 }}
         transition={RD_PANEL_TRANSITION}
-        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        className="rd-task-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
@@ -3157,7 +3163,7 @@ export function CompleteConfirmDialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="rd-task-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={onCancel}
     >
       <motion.div
@@ -3165,7 +3171,7 @@ export function CompleteConfirmDialog({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 14, scale: 0.98 }}
         transition={RD_PANEL_TRANSITION}
-        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        className="rd-task-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-emerald-100 bg-emerald-50/60 px-6 py-4">
@@ -3210,6 +3216,7 @@ export function HandoverDialog({
   people,
   onConfirm,
   onCancel,
+  horizonVariant = false,
 }: {
   taskId: string;
   taskTitle: string;
@@ -3217,6 +3224,7 @@ export function HandoverDialog({
   people: { name: string }[];
   onConfirm: (newOwner: string) => Promise<void>;
   onCancel: () => void;
+  horizonVariant?: boolean;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const [newOwner, setNewOwner] = useState("");
@@ -3241,7 +3249,7 @@ export function HandoverDialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="rd-task-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={onCancel}
     >
       <motion.div
@@ -3249,7 +3257,7 @@ export function HandoverDialog({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 14, scale: 0.98 }}
         transition={RD_PANEL_TRANSITION}
-        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        className="rd-task-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
@@ -3272,7 +3280,7 @@ export function HandoverDialog({
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t("请选择新责任人")} />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className={cn(horizonVariant && "rd-horizon-detail-select")}>
                 {options.length === 0 ? (
                   <div className="px-3 py-4 text-center text-xs text-slate-400">{t("暂无可选人员")}</div>
                 ) : (
@@ -3372,7 +3380,7 @@ export function AddCollaboratorsDialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="rd-task-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={onCancel}
     >
       <motion.div
@@ -3380,7 +3388,7 @@ export function AddCollaboratorsDialog({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 14, scale: 0.98 }}
         transition={RD_PANEL_TRANSITION}
-        className="flex w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        className="rd-task-overlay-surface flex w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-indigo-100 bg-indigo-50/60 px-6 py-4">
@@ -3488,7 +3496,7 @@ export function ApprovalActionDialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="rd-task-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={onCancel}
     >
       <motion.div
@@ -3496,7 +3504,7 @@ export function ApprovalActionDialog({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 14, scale: 0.98 }}
         transition={RD_PANEL_TRANSITION}
-        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        className="rd-task-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className={cn(
@@ -4354,7 +4362,7 @@ type CommandMetricProps = {
 
 function CommandMetric({ label, value, helper, tone, Icon }: CommandMetricProps) {
   return (
-    <div className="flex min-w-[128px] items-center gap-2 rounded-[8px] bg-slate-50 px-2.5 py-2 text-slate-900 ring-1 ring-slate-200/80">
+    <div className="rd-board-command-metric flex min-w-[128px] items-center gap-2 rounded-[8px] bg-slate-50 px-2.5 py-2 text-slate-900 ring-1 ring-slate-200/80">
       <Icon className={cn("h-4 w-4 shrink-0", tone)} />
       <div className="min-w-0">
         <div className="flex items-baseline gap-1.5">
@@ -4383,7 +4391,7 @@ function CommandCenter({
   const criticalRisks = risks.filter((risk) => risk.severity === "critical").length;
 
   return (
-    <section className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-5 py-3">
+    <section className="rd-board-command-bar flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-5 py-3">
       <div className="flex flex-1 flex-wrap gap-2">
         <CommandMetric
           label={t("活跃任务")}
@@ -4400,7 +4408,7 @@ function CommandCenter({
         <button
           type="button"
           onClick={onCreate}
-          className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+          className="rd-board-primary-control inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
         >
           <Plus className="h-3.5 w-3.5" />
           {t("新建任务")}
@@ -4462,7 +4470,7 @@ function KpiStrip({
       initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={RD_PANEL_TRANSITION}
-      className="overflow-hidden rounded-xl border border-indigo-100/80 bg-[linear-gradient(135deg,#ffffff_0%,#f8fbff_58%,#eff6ff_100%)] shadow-[0_12px_30px_rgba(79,70,229,0.06)]"
+      className="rd-board-surface rd-board-kpi-strip overflow-hidden rounded-xl border border-indigo-100/80 bg-[linear-gradient(135deg,#ffffff_0%,#f8fbff_58%,#eff6ff_100%)] shadow-[0_12px_30px_rgba(79,70,229,0.06)]"
     >
       <div className="grid items-center gap-3 px-4 py-3 lg:grid-cols-[auto_minmax(0,1fr)]">
         <div className="flex min-w-[150px] items-center gap-3">
@@ -4490,7 +4498,7 @@ function KpiStrip({
               transition={shouldReduceMotion ? { duration: 0 } : { ...RD_LIST_TRANSITION, delay: idx * 0.025 }}
               whileHover={shouldReduceMotion ? undefined : { y: -1 }}
               whileTap={shouldReduceMotion ? undefined : { scale: 0.99 }}
-              className="group flex min-w-0 items-center gap-2 rounded-lg border border-slate-100 bg-white/82 px-3 py-2 shadow-[0_6px_16px_rgba(79,70,229,0.045)] transition-all duration-200 hover:border-indigo-200 hover:bg-white hover:shadow-[0_10px_20px_rgba(79,70,229,0.08)]"
+              className="rd-board-kpi group flex min-w-0 items-center gap-2 rounded-lg border border-slate-100 bg-white/82 px-3 py-2 shadow-[0_6px_16px_rgba(79,70,229,0.045)] transition-all duration-200 hover:border-indigo-200 hover:bg-white hover:shadow-[0_10px_20px_rgba(79,70,229,0.08)]"
             >
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-slate-50 to-indigo-50 ring-1 ring-slate-100 transition-all duration-200 group-hover:ring-indigo-100">
                 <it.Icon
@@ -4568,11 +4576,12 @@ function RiskHotspot({
       animate={{ opacity: 1, y: 0 }}
       transition={RD_PANEL_TRANSITION}
       className={cn(
-        "flex h-full min-h-[410px] flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)]",
+        "rd-board-surface flex h-full min-h-[410px] flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)]",
         className,
       )}
+      data-surface="risk"
     >
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-white via-white to-slate-50/70 px-5 py-4 sm:px-6">
+      <header className="rd-board-panel-head flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-white via-white to-slate-50/70 px-5 py-4 sm:px-6">
         <div className="flex min-w-0 items-start gap-3">
           <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600 ring-1 ring-red-100">
             <AlertTriangle className="h-[18px] w-[18px]" />
@@ -4594,7 +4603,7 @@ function RiskHotspot({
         </div>
       </header>
 
-      <div className="flex gap-2 overflow-x-auto border-b border-slate-100 px-5 py-3 sm:px-6">
+      <div className="rd-board-filter-strip flex gap-2 overflow-x-auto border-b border-slate-100 px-5 py-3 sm:px-6">
         {filterOptions.map((b) => {
           const active = riskFilter === b.type;
           const disabled = b.count === 0;
@@ -4604,10 +4613,11 @@ function RiskHotspot({
               type="button"
               onClick={() => changeFilter(b.type)}
               disabled={disabled}
+              data-active={active}
               whileHover={!disabled && !shouldReduceMotion ? { y: -1 } : undefined}
               whileTap={!disabled && !shouldReduceMotion ? { scale: 0.97 } : undefined}
               className={cn(
-                "flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300",
+                "rd-board-filter-chip flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300",
                 active
                   ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_8px_18px_rgba(79,70,229,0.10)] ring-1 ring-indigo-100"
                   : disabled
@@ -4644,7 +4654,7 @@ function RiskHotspot({
               }}
               role="button"
               tabIndex={0}
-              className="group grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-5 py-3 transition-all hover:bg-slate-50/80 focus-visible:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-300 sm:px-6 lg:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
+              className="rd-board-data-row group grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-5 py-3 transition-all hover:bg-slate-50/80 focus-visible:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-300 sm:px-6 lg:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
             >
               <span className={cn("h-2 w-2 shrink-0 rounded-full", RISK_DOT_COLOR[r.type])} />
               <div className="min-w-0 flex-1">
@@ -4754,11 +4764,12 @@ function PersonLoadPanel({
       animate={{ opacity: 1, y: 0 }}
       transition={RD_PANEL_TRANSITION}
       className={cn(
-        "flex h-full min-h-[410px] flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)]",
+        "rd-board-surface flex h-full min-h-[410px] flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)]",
         className,
       )}
+      data-surface="people"
     >
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-white via-white to-slate-50/70 px-5 py-4 sm:px-6">
+      <header className="rd-board-panel-head flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-white via-white to-slate-50/70 px-5 py-4 sm:px-6">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-900">{t("人员负载")}</h3>
           <p className="mt-0.5 text-xs text-slate-500">{t("活跃任务分布")}</p>
@@ -4780,7 +4791,7 @@ function PersonLoadPanel({
             <button
               type="button"
               onClick={onManage}
-              className="group inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 hover:shadow-[0_6px_14px_rgba(15,23,42,0.06)] active:translate-y-0 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+              className="rd-board-secondary-control group inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 hover:shadow-[0_6px_14px_rgba(15,23,42,0.06)] active:translate-y-0 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
               title={t("进入人员管理")}
             >
               <UserPlus className="h-3.5 w-3.5 text-slate-500 transition-colors group-hover:text-slate-700" />
@@ -4817,7 +4828,7 @@ function PersonLoadPanel({
                 }}
                 role="button"
                 tabIndex={0}
-                className="flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2 py-2 transition-all hover:border-slate-100 hover:bg-slate-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                className="rd-board-data-row flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2 py-2 transition-all hover:border-slate-100 hover:bg-slate-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
               >
                 <OwnerAvatar name={p.name} userId={p.user_id} size="xs" />
                 <div className="min-w-0 flex-1">
@@ -4941,7 +4952,7 @@ function PersonDetailDrawer({
   }, [onClose]);
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex justify-end bg-slate-900/25 backdrop-blur-sm"
+      className="rd-task-overlay rd-task-overlay-drawer fixed inset-0 z-50 flex justify-end bg-slate-900/25 backdrop-blur-sm"
       initial={shouldReduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -4950,7 +4961,7 @@ function PersonDetailDrawer({
       {/* 点击面板外空白处关闭（人员详情为只读，无需脏检查） */}
       <div className="absolute inset-0" aria-hidden onClick={onClose} />
       <motion.div
-        className="relative z-10 flex h-full w-full max-w-[620px] flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl sm:w-[min(620px,92vw)]"
+        className="rd-task-overlay-surface relative z-10 flex h-full w-full max-w-[620px] flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl sm:w-[min(620px,92vw)]"
         initial={shouldReduceMotion ? false : { opacity: 0, x: 36 }}
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 28 }}
@@ -5066,10 +5077,10 @@ function SystemHealthCard({
       initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={RD_PANEL_TRANSITION}
-      whileHover={shouldReduceMotion ? undefined : { y: -3, scale: 1.01 }}
+      whileHover={shouldReduceMotion ? undefined : { y: -1 }}
       whileTap={shouldReduceMotion ? undefined : { scale: 0.99 }}
       className={cn(
-        "group relative flex flex-col gap-3 overflow-hidden rounded-xl border bg-white p-4 text-left transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(15,23,42,0.08)] active:translate-y-0 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2",
+        "rd-horizon-system-card group relative flex flex-col gap-3 overflow-hidden rounded-xl border bg-white p-4 text-left transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(15,23,42,0.08)] active:translate-y-0 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2",
         hConfig.border,
         isIdle && "opacity-55 hover:opacity-100",
       )}
@@ -5077,7 +5088,7 @@ function SystemHealthCard({
       {/* Top accent stripe — colored by health */}
       <span
         className={cn(
-          "absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 transition-transform duration-300 group-hover:scale-x-100",
+          "rd-horizon-system-accent absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 transition-transform duration-300 group-hover:scale-x-100",
           hConfig.dot,
         )}
       />
@@ -5180,7 +5191,7 @@ function SystemHealthCard({
         </span>
         {stat.inProgress > 0 && (
           <span className="text-slate-500">
-            <span className="font-semibold tabular-nums text-indigo-600">{stat.inProgress}</span> {t("进行中")}
+            <span className="rd-horizon-brand-text font-semibold tabular-nums text-indigo-600">{stat.inProgress}</span> {t("进行中")}
           </span>
         )}
         {stat.total === 0 && <span className="text-slate-400">{t("无活跃")}</span>}
@@ -5285,7 +5296,7 @@ function SystemPanorama({
       initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={RD_PANEL_TRANSITION}
-      className="rounded-xl border border-slate-200/70 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]"
+      className="rd-horizon-panorama rounded-xl border border-slate-200/70 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]"
     >
       {/* Header */}
       <header className="mb-4 flex flex-wrap items-center justify-between gap-4">
@@ -5321,7 +5332,7 @@ function SystemPanorama({
             <button
               type="button"
               onClick={onManageProducts}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:scale-[0.97]"
+              className="rd-horizon-secondary-control flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:scale-[0.97]"
             >
               <Settings2 className="h-3.5 w-3.5" />
               {t("管理产品")}
@@ -5350,14 +5361,15 @@ function SystemPanorama({
                   key={prod.id}
                   type="button"
                   onClick={() => setActiveProdId(prod.id)}
+                  data-active={isActive}
                   className={cn(
-                    "flex shrink-0 items-center gap-2 rounded-t-lg px-3 py-2 text-xs font-semibold transition-all",
+                    "rd-horizon-product-tab flex shrink-0 items-center gap-2 rounded-t-lg px-3 py-2 text-xs font-semibold transition-all",
                     isActive
                       ? "border-b-2 border-indigo-500 text-indigo-700"
                       : "text-slate-500 hover:bg-slate-50 hover:text-slate-700",
                   )}
                 >
-                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />
+                  <span className={cn("rd-horizon-product-status-dot h-1.5 w-1.5 shrink-0 rounded-full", dot)} />
                   <AutoTranslatedText text={t(prod.name.trim())} />
                 </button>
               );
@@ -5463,14 +5475,14 @@ function SystemDetailHero({
   ];
 
   return (
-    <section className="rounded-xl border border-slate-100 bg-white px-6 py-5">
+    <section className="rd-board-surface rd-board-system-hero rounded-xl border border-slate-100 bg-white px-6 py-5" data-surface="hero">
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div className="min-w-0">
           {breadcrumbAbove && (
             <div className="mb-1 text-xs font-medium text-slate-400">{breadcrumbAbove}</div>
           )}
           <div className="flex items-center gap-2.5">
-            <theme.Icon className={cn("h-5 w-5", theme.iconColor)} />
+            <theme.Icon className={cn("rd-board-system-icon h-5 w-5", theme.iconColor)} />
             <h2 className="text-xl font-semibold tracking-tight text-slate-900">{label}</h2>
           </div>
           <p className="mt-1.5 text-xs text-slate-500">
@@ -5591,8 +5603,8 @@ function UpcomingMilestonesSection({
   const activeWindowLabel = windowFilter === "all" ? t("全部窗口") : t(activeBucket?.label ?? "全部窗口");
 
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+    <section className="rd-board-surface rd-board-milestones overflow-hidden rounded-xl border border-slate-100 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]" data-surface="milestone">
+      <header className="rd-board-panel-head flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">{t("里程碑预报")}</h3>
           <p className="mt-0.5 text-xs text-slate-500">
@@ -5621,8 +5633,9 @@ function UpcomingMilestonesSection({
             <button
               type="button"
               onClick={() => setWindowFilter("all")}
+              data-active={windowFilter === "all"}
               className={cn(
-                "flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.99]",
+                "rd-board-filter-chip flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.99]",
                 windowFilter === "all"
                   ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_8px_18px_rgba(79,70,229,0.10)]"
                   : "border-slate-200 bg-white hover:border-indigo-100 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.035)]",
@@ -5645,8 +5658,9 @@ function UpcomingMilestonesSection({
                     if (active) setWindowFilter(b.key);
                   }}
                   disabled={!active}
+                  data-active={selected}
                   className={cn(
-                    "flex items-center justify-between rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.99]",
+                    "rd-board-filter-chip flex items-center justify-between rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.99]",
                     selected
                       ? "border-indigo-200 bg-indigo-50 shadow-[0_8px_18px_rgba(79,70,229,0.10)]"
                       : active
@@ -5692,7 +5706,7 @@ function UpcomingMilestonesSection({
                   key={task.task_id}
                   type="button"
                   onClick={() => onOpen(task)}
-                  className="group flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5 text-left transition-all hover:border-indigo-100 hover:bg-indigo-50/30 hover:shadow-[0_8px_18px_rgba(15,23,42,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.995]"
+                  className="rd-board-milestone-row group flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5 text-left transition-all hover:border-indigo-100 hover:bg-indigo-50/30 hover:shadow-[0_8px_18px_rgba(15,23,42,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.995]"
                 >
                   <span className={cn("mt-0.5 w-14 shrink-0 text-xs font-semibold tabular-nums", bucket?.tone ?? "text-slate-500")}>
                     {dayLabel}
@@ -5807,7 +5821,7 @@ function TasksByPartSection({
   );
 
   return (
-    <section className="space-y-3">
+    <section className="rd-board-task-list space-y-3">
       <header className="flex flex-wrap items-start justify-between gap-3 px-1">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">{t("全部任务清单")}</h3>
@@ -5819,7 +5833,7 @@ function TasksByPartSection({
         <span className="text-xs text-slate-400">{t("点击展开部件 / 卡片查看子任务")}</span>
       </header>
 
-      <div className="grid gap-2 rounded-[8px] border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(150px,1fr)_auto_auto_auto_auto]">
+      <div className="rd-board-task-filters grid gap-2 rounded-[8px] border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(150px,1fr)_auto_auto_auto_auto]">
         <label className="relative block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <Input
@@ -5932,7 +5946,7 @@ function PartHealthGrid({
   });
 
   return (
-    <section className="rounded-xl border border-slate-100 bg-white p-5">
+    <section className="rd-board-surface rd-board-part-health rounded-xl border border-slate-100 bg-white p-5" data-surface="health">
       <header className="mb-4 flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">{t("部件健康")}</h3>
@@ -5962,8 +5976,9 @@ function PartHealthGrid({
                 key={sub.id}
                 type="button"
                 onClick={() => onSelectSub(sub.id)}
+                data-active={isSelected}
                 className={cn(
-                  "group flex flex-col gap-2 rounded-lg border bg-white p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_20px_rgba(15,23,42,0.06)]",
+                  "rd-board-part-card group flex flex-col gap-2 rounded-lg border bg-white p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_20px_rgba(15,23,42,0.06)]",
                   config.border,
                   isSelected && "ring-2 ring-slate-900 ring-offset-1",
                 )}
@@ -5984,7 +5999,10 @@ function PartHealthGrid({
                     <span className="text-sm font-medium text-slate-400">%</span>
                   </span>
                   {risks > 0 && (
-                    <span className="text-xs font-semibold tabular-nums text-red-600">⚠ {risks}</span>
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold tabular-nums text-red-600">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      {risks}
+                    </span>
                   )}
                 </div>
 
@@ -6964,6 +6982,8 @@ function PersonTaskCockpit({
   personLoads,
   allTasks,
   initialActivityActor,
+  keyword,
+  onKeywordChange,
   onSelectTask,
   onSelectPerson,
   canReassign,
@@ -6983,6 +7003,8 @@ function PersonTaskCockpit({
   personLoads: PersonLoad[];
   allTasks: Task[];
   initialActivityActor?: TaskActivityActor | null;
+  keyword?: string;
+  onKeywordChange?: (value: string) => void;
   onSelectTask: (t: Task, activityActor?: TaskActivityActor) => void;
   onSelectPerson: (person: PersonLoad) => void;
   canReassign?: boolean;
@@ -7037,7 +7059,9 @@ function PersonTaskCockpit({
   // ── 任务搜索（头像行右端图标态收纳，展开为小输入框）──
   // 关键字与 KPI 筛选走同一管线（直接揉进 allActiveTasks / personTasksMap 两个 memo），
   // 懒加载留痕/AI 评分、无限滚动、批量导出等所有下游自动同口径。
-  const [cockpitKeyword, setCockpitKeyword] = useState("");
+  const [localCockpitKeyword, setLocalCockpitKeyword] = useState("");
+  const cockpitKeyword = keyword ?? localCockpitKeyword;
+  const setCockpitKeyword = onKeywordChange ?? setLocalCockpitKeyword;
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const cockpitSearch = cockpitKeyword.trim();
@@ -7701,30 +7725,30 @@ function PersonTaskCockpit({
           }
         }}
         className={cn(
-          "group relative cursor-pointer overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_12px_28px_-12px_rgba(79,70,229,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
+          "rd-horizon-task-card group relative cursor-pointer overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_12px_28px_-12px_rgba(79,70,229,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
         )}
       >
-        <div className={cn("flex min-h-[220px] min-w-0 flex-col", spaciousCards ? "gap-3 px-5 py-4" : "gap-2.5 px-4 py-3.5")}>
+        <div className={cn("rd-horizon-task-card-body flex min-h-[220px] min-w-0 flex-col", spaciousCards ? "gap-3 px-5 py-4" : "gap-2.5 px-4 py-3.5")}>
           {/* 参考卡片第一行：分类标签在左，附件数量与操作菜单在右。 */}
           <div className="flex items-start gap-3">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-hidden">
               {hierarchySegments.map((segment) => (
                 <span
                   key={segment}
-                  className="max-w-[138px] truncate rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700"
+                  className="rd-horizon-task-path max-w-[138px] truncate rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700"
                   title={segment}
                 >
                   {segment}
                 </span>
               ))}
               {hierarchyRoleLabel && (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">
+                <span className="rd-horizon-structure-tag inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">
                   <GitBranch className="h-3 w-3" />
                   {hierarchyRoleLabel}
                 </span>
               )}
               {isSelectedPersonCollaborator && (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-700">
+                <span className="rd-horizon-structure-tag inline-flex shrink-0 items-center gap-1 rounded-md bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-700">
                   <Users className="h-3 w-3" />
                   {t("协助")}
                 </span>
@@ -7772,7 +7796,7 @@ function PersonTaskCockpit({
                     event.stopPropagation();
                     void openCompleteAttachmentCollection(task, taskAttachmentCount);
                   }}
-                  className="inline-flex h-7 items-center gap-1 rounded-lg bg-indigo-50 px-2 text-[10px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-60"
+                  className="rd-horizon-attachment-action inline-flex h-7 items-center gap-1 rounded-lg bg-indigo-50 px-2 text-[10px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-60"
                   aria-label={t("查看全部附件")}
                 >
                   {attachmentLoadingTaskId === task.task_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Paperclip className="h-3 w-3" />}
@@ -7784,7 +7808,7 @@ function PersonTaskCockpit({
                   <button
                     type="button"
                     onClick={(event) => event.stopPropagation()}
-                    className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+                    className="rd-horizon-more-action flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
                     aria-label={t("更多操作")}
                   >
                     <MoreVertical className="h-4 w-4" />
@@ -7837,7 +7861,7 @@ function PersonTaskCockpit({
             return (
               <div
                 className={cn(
-                  "flex items-center gap-1.5 rounded-md border-l-[3px] px-2.5 py-1.5 text-xs font-medium",
+                  "rd-horizon-note-receipt flex items-center gap-1.5 rounded-md border-l-[3px] px-2.5 py-1.5 text-xs font-medium",
                   unread ? "border-red-400 bg-red-50 text-red-700" : "border-amber-400 bg-amber-50 text-amber-700",
                 )}
                 title={`${receipt.author_name}${t("的备注")}：${receipt.excerpt}`}
@@ -7854,7 +7878,7 @@ function PersonTaskCockpit({
           <AutoTranslatedText
             as="p"
             text={cardSummary}
-            className="line-clamp-2 min-h-10 text-xs leading-5 text-slate-500"
+            className="rd-horizon-task-summary line-clamp-2 min-h-10 text-xs leading-5 text-slate-500"
           />
 
           {hasLoadedAttachments && (
@@ -7882,9 +7906,9 @@ function PersonTaskCockpit({
 
           {/* ─── 进度条：与参考卡片一致，放在执行信息之前 ─── */}
           <div className="mt-auto flex items-center gap-2 pt-0.5">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+            <div className="rd-horizon-progress-track h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
               <motion.div
-                className="h-full rounded-full"
+                className={cn("rd-horizon-task-progress h-full rounded-full", task.progress === 100 && "rd-horizon-task-progress--complete")}
                 initial={{ width: 0 }}
                 animate={{ width: `${task.progress}%` }}
                 transition={{ duration: 0.45, ease: RD_MOTION_EASE, delay: taskIdx * 0.03 }}
@@ -7897,8 +7921,11 @@ function PersonTaskCockpit({
           </div>
 
           {/* 参考卡片尾部：优先级 / 截止 / 风险在左，更新人与头像在右。 */}
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-slate-100 pt-2 text-[10px] text-slate-500">
-            <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold", pCfg.bg, pCfg.text)}>
+          <div className="rd-horizon-task-footer flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-slate-100 pt-2 text-[10px] text-slate-500">
+            <span
+              data-priority={priorityKey}
+              className={cn("rd-horizon-priority inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold", pCfg.bg, pCfg.text)}
+            >
               <Flame className="h-3 w-3" />
               {t(`${pCfg.label}优先`)}
             </span>
@@ -7981,26 +8008,26 @@ function PersonTaskCockpit({
         initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={RD_PANEL_TRANSITION}
-        className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]"
+        className="rd-horizon-task-stream overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]"
       >
         <Tabs value={activeTab} onValueChange={handleTabChange} className="gap-0">
 
           {/* ── INS Stories-style 人员导航栏 (with visible horizontal scrollbar) ──
               外层 flex 承载底边框/底色：头像区可横向滚动，右端搜索控件钉死不随之滚走。 */}
-          <div className="flex w-full items-center border-b border-indigo-100 bg-slate-50/50 pr-4">
-          <TabsList className="flex h-auto min-w-0 flex-1 snap-x snap-proximity justify-start gap-0 overflow-x-auto overscroll-x-contain rounded-none border-none bg-transparent px-4 pt-4 pb-2 touch-pan-x [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
+          <div className="rd-horizon-people-nav flex w-full items-center border-b border-indigo-100 bg-slate-50/50 pr-4">
+          <TabsList className="rd-horizon-people-list flex h-auto min-w-0 flex-1 snap-x snap-proximity justify-start gap-0 overflow-x-auto overscroll-x-contain rounded-none border-none bg-transparent px-4 pt-4 pb-2 touch-pan-x [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
 
             {/* 管理员视角 — 所有活跃任务入口；详情沿用原权限规则，不附加成员筛选 */}
             <TabsTrigger
               value="all"
-              className="flex min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0"
+              className="rd-horizon-person-tab flex min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0 data-[state=active]:bg-transparent"
             >
               <div className="relative">
                 <div
-                  className="flex h-[54px] w-[54px] items-center justify-center rounded-full p-[2.5px] transition-all duration-200"
+                  className="rd-horizon-admin-ring rd-horizon-avatar-ring flex h-[54px] w-[54px] items-center justify-center rounded-full p-[2.5px] transition-all duration-200"
                   style={{
                     background: activeTab === "all"
-                      ? "linear-gradient(135deg,#4f46e5,#6366f1)"
+                      ? "linear-gradient(135deg,#002FA7,#165DFF)"
                       : risks.length > 0
                         ? "linear-gradient(135deg,#a5b4fc,#f87171)"
                         : "linear-gradient(135deg,#cbd5e1,#94a3b8)",
@@ -8010,14 +8037,14 @@ function PersonTaskCockpit({
                     "flex h-full w-full items-center justify-center rounded-full bg-white transition-all",
                     activeTab === "all" ? "p-[2px]" : "p-0",
                   )}>
-                    <div className="flex h-full w-full items-center justify-center rounded-full bg-indigo-50">
+                    <div className="rd-horizon-avatar-core flex h-full w-full items-center justify-center rounded-full bg-indigo-50">
                       <ListChecks className={cn("h-5 w-5 transition-colors", activeTab === "all" ? "text-indigo-600" : "text-slate-500")} />
                     </div>
                   </div>
                 </div>
                 {/* Total tasks badge */}
                 {allActiveTasks.length > 0 && (
-                  <span className="absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-500 px-0.5 text-[9px] font-black text-white">
+                  <span className="rd-horizon-total-count absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-500 px-0.5 text-[9px] font-black text-white">
                     {allActiveTasks.length > 99 ? "99+" : allActiveTasks.length}
                   </span>
                 )}
@@ -8031,7 +8058,7 @@ function PersonTaskCockpit({
                   </span>
                 )}
               </div>
-              <span className={cn("text-[10px] font-semibold leading-none", activeTab === "all" ? "text-indigo-800" : "text-slate-500")}>
+              <span className={cn("rd-horizon-person-name text-[10px] font-semibold leading-none", activeTab === "all" ? "text-indigo-800" : "text-slate-500")}>
                 {t("管理员视角")}
               </span>
             </TabsTrigger>
@@ -8047,11 +8074,11 @@ function PersonTaskCockpit({
                 <TabsTrigger
                   key={p.key}
                   value={p.key}
-                  className="flex min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0"
+                  className="rd-horizon-person-tab flex min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0 data-[state=active]:bg-transparent"
                 >
                   <div className="relative">
                     <div
-                      className="flex h-[54px] w-[54px] items-center justify-center rounded-full transition-all duration-200"
+                      className="rd-horizon-avatar-ring flex h-[54px] w-[54px] items-center justify-center rounded-full transition-all duration-200"
                       style={{
                         background: p.onLeave
                           ? "#e2e8f0"
@@ -8076,7 +8103,7 @@ function PersonTaskCockpit({
                     </div>
                     {p.count > 0 && (
                       <span
-                        className="absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-0.5 text-[9px] font-black text-white"
+                        className="rd-horizon-load-count absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-0.5 text-[9px] font-black text-white"
                         style={{ background: `linear-gradient(135deg, ${grad.from}, ${grad.to})` }}
                       >
                         {p.count}
@@ -8088,13 +8115,13 @@ function PersonTaskCockpit({
                       </span>
                     )}
                   </div>
-                  <span className={cn("max-w-[56px] truncate text-[10px] font-semibold leading-none", isActive ? "text-indigo-800" : "text-slate-500")}>
+                  <span className={cn("rd-horizon-person-name max-w-[56px] truncate text-[10px] font-semibold leading-none", isActive ? "text-indigo-800" : "text-slate-500")}>
                     {p.name}
                   </span>
                   {isActive && (
                     <motion.span
                       layoutId="cockpit-tab-dot"
-                      className="mt-0 h-1 w-4 rounded-full"
+                      className="rd-horizon-person-indicator mt-0 h-1 w-4 rounded-full"
                       style={{ background: `linear-gradient(135deg, ${grad.from}, ${grad.to})` }}
                       transition={{ duration: 0.22, ease: RD_MOTION_EASE }}
                     />
@@ -8105,7 +8132,7 @@ function PersonTaskCockpit({
           </TabsList>
 
           {/* 任务搜索：默认仅一枚圆形图标，点击展开为小输入框；为空失焦自动缩回 */}
-          <div className="ml-2 flex shrink-0 items-center">
+          <div className="rd-horizon-search ml-2 flex shrink-0 items-center">
             {searchOpen || cockpitSearch ? (
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -8125,7 +8152,7 @@ function PersonTaskCockpit({
                   className="h-9 w-40 rounded-full border border-slate-200 bg-white pl-8 pr-14 text-xs text-slate-700 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50 sm:w-52"
                 />
                 {cockpitSearch ? (
-                  <span className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-[10px] font-semibold tabular-nums text-indigo-500">
+                  <span className="rd-horizon-search-count pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-[10px] font-semibold tabular-nums text-indigo-500">
                     {t("{n} 条", { n: cockpitHitCount })}
                   </span>
                 ) : null}
@@ -8160,9 +8187,9 @@ function PersonTaskCockpit({
 
           {/* ── 当前 KPI 筛选条 ── */}
           {kpiFilter !== "all" && (
-            <div className="flex items-center justify-between gap-3 border-b border-indigo-100 bg-indigo-50/40 px-4 py-2 text-xs">
+            <div className="rd-horizon-filter-bar flex items-center justify-between gap-3 border-b border-indigo-100 bg-indigo-50/40 px-4 py-2 text-xs">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-200 shadow-[0_4px_10px_rgba(79,70,229,0.06)]">
+                <span className="rd-horizon-filter-label inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-200 shadow-[0_4px_10px_rgba(79,70,229,0.06)]">
                   <ListChecks className="h-3 w-3" />
                   {t("当前筛选：")}
                   <span className="ml-0.5">{t(KPI_FILTER_LABEL[kpiFilter])}</span>
@@ -8178,7 +8205,7 @@ function PersonTaskCockpit({
                       type="button"
                       onClick={() => handleBackfillScores(false)}
                       disabled={backfillBusy}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-1 text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rd-horizon-brand-control inline-flex shrink-0 items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-1 text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
                       title={t("一键执行：① 自动抽取附件文本（OCR/文档/视觉） → ② 调 AI 评分。已抽取/已评分的会跳过（幂等）。")}
                     >
                       {backfillBusy ? (
@@ -8210,7 +8237,7 @@ function PersonTaskCockpit({
                       type="button"
                       onClick={handleBatchExportReports}
                       disabled={batchExportBusy}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-violet-200 bg-white px-2 py-1 text-[11px] font-semibold text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rd-horizon-brand-control inline-flex shrink-0 items-center gap-1 rounded-md border border-violet-200 bg-white px-2 py-1 text-[11px] font-semibold text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-60"
                       title={t("把当前范围（管理员视角 / 选中成员）已完成且已评分的任务，汇总成一份多页正式报告，可在打印对话框中选择「另存为 PDF」下载。")}
                     >
                       {batchExportBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
@@ -8223,7 +8250,7 @@ function PersonTaskCockpit({
                     type="button"
                     onClick={handleBackfillExtraction}
                     disabled={extractionBackfillBusy}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rd-horizon-brand-control inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
                     title={t("仅抽取附件文本（不触发评分）。用于进行中/暂停任务的附件抽取，便于知识库 RAG 检索；已完成任务请直接用 AI 复盘评分（已包含抽取）。")}
                   >
                     {extractionBackfillBusy ? (
@@ -8238,7 +8265,7 @@ function PersonTaskCockpit({
                   <button
                     type="button"
                     onClick={onClearKpiFilter}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                    className="rd-horizon-brand-control inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     <X className="h-3 w-3" />
                     {t("清除筛选")}
@@ -8249,7 +8276,7 @@ function PersonTaskCockpit({
           )}
 
           {/* ── Animated tab content area ── */}
-          <div className="relative overflow-hidden bg-slate-50/40">
+          <div className="rd-horizon-task-feed relative overflow-hidden bg-slate-50/40">
             <AnimatePresence mode="wait" custom={direction}>
               <motion.div
                 key={activeTab}
@@ -8277,7 +8304,7 @@ function PersonTaskCockpit({
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
                             transition={RD_FAST_TRANSITION}
-                            className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-[11px] text-indigo-600"
+                            className="rd-horizon-loading-strip flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-[11px] text-indigo-600"
                           >
                             <Loader2 className="h-3 w-3 animate-spin shrink-0" />
                             {t("正在加载任务附件图片…")}
@@ -8322,9 +8349,9 @@ function PersonTaskCockpit({
                           style={flowHeightStyle(headerCollapsed)}
                           onScroll={(e) => handleTaskScroll(e, "all", allActiveTasks.length)}
                         >
-                          <div className={cn("flex items-start", spaciousCards ? "gap-4 px-4 py-4" : "gap-2.5 px-4 py-3")}>
+                          <div className={cn("rd-horizon-masonry flex items-start", spaciousCards ? "gap-4 px-4 py-4" : "gap-2.5 px-4 py-3")}>
                             {distributeIntoColumns(shownTasks, masonryColumns).map((column, colIdx) => (
-                              <div key={colIdx} className={cn("flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
+                              <div key={colIdx} className={cn("rd-horizon-masonry-column flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
                                 <AnimatePresence>
                                   {column.map((task, rowIdx) =>
                                     renderTaskCard(task, colIdx + rowIdx * masonryColumns, allGrad),
@@ -8386,7 +8413,7 @@ function PersonTaskCockpit({
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
                             transition={RD_FAST_TRANSITION}
-                            className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-[11px] text-indigo-600"
+                            className="rd-horizon-loading-strip flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-[11px] text-indigo-600"
                           >
                             <Loader2 className="h-3 w-3 animate-spin shrink-0" />
                             {t("正在加载任务附件图片…")}
@@ -8439,9 +8466,9 @@ function PersonTaskCockpit({
                           {primaryTasks.length === 0 ? (
                             <div className="px-4 py-6 text-center text-[12px] text-slate-400">{t("该成员当前没有主责任务")}</div>
                           ) : (
-                            <div className={cn("flex items-start", spaciousCards ? "gap-4 px-4 py-4" : "gap-2.5 px-4 py-3")}>
+                            <div className={cn("rd-horizon-masonry flex items-start", spaciousCards ? "gap-4 px-4 py-4" : "gap-2.5 px-4 py-3")}>
                               {distributeIntoColumns(shownTasks, masonryColumns).map((column, colIdx) => (
-                                <div key={colIdx} className={cn("flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
+                                <div key={colIdx} className={cn("rd-horizon-masonry-column flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
                                   <AnimatePresence>
                                     {column.map((task, rowIdx) =>
                                       renderTaskCard(task, colIdx + rowIdx * masonryColumns, grad),
@@ -8467,9 +8494,9 @@ function PersonTaskCockpit({
                                 <ChevronDown className={cn("ml-auto h-3.5 w-3.5 transition-transform", collabExpanded && "rotate-180")} />
                               </button>
                               {collabExpanded && (
-                                <div className={cn("flex items-start", spaciousCards ? "gap-4 px-4 pb-4" : "gap-2.5 px-4 pb-3")}>
+                                <div className={cn("rd-horizon-masonry flex items-start", spaciousCards ? "gap-4 px-4 pb-4" : "gap-2.5 px-4 pb-3")}>
                                   {distributeIntoColumns(collabTasks, masonryColumns).map((column, colIdx) => (
-                                    <div key={colIdx} className={cn("flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
+                                    <div key={colIdx} className={cn("rd-horizon-masonry-column flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
                                       <AnimatePresence>
                                         {column.map((task, rowIdx) =>
                                           renderTaskCard(task, colIdx + rowIdx * masonryColumns, grad),
@@ -8549,11 +8576,13 @@ function TaskReassignModal({
   initialTaskId,
   allTasks,
   onUpdated,
+  horizonVariant = false,
 }: {
   onClose: () => void;
   initialTaskId?: string | null;
   allTasks: Task[];
   onUpdated?: () => void;
+  horizonVariant?: boolean;
 }) {
   const AUDIT_ACTOR = useAuditActor("研发管理员");
   const shouldReduceMotion = useReducedMotion();
@@ -8654,7 +8683,7 @@ function TaskReassignModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm"
+      className="rd-task-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <motion.div
@@ -8662,7 +8691,7 @@ function TaskReassignModal({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 14, scale: 0.98 }}
         transition={RD_PANEL_TRANSITION}
-        className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
+        className="rd-task-overlay-surface w-full max-w-lg rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
@@ -8698,7 +8727,7 @@ function TaskReassignModal({
                         <SelectTrigger size="sm" className="h-8 w-auto max-w-[160px] shrink-0 rounded-lg text-sm text-slate-600">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                        <SelectContent className={cn("rounded-xl border border-slate-200 bg-white p-1 shadow-lg", horizonVariant && "rd-horizon-detail-select")}>
                           <SelectItem value="all">{t("全部负责人")}</SelectItem>
                           {taskOwners.map((name) => (
                             <SelectItem key={name} value={name}>{name}</SelectItem>
@@ -8888,7 +8917,7 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="rd-task-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <motion.div
@@ -8896,7 +8925,7 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 14, scale: 0.98 }}
         transition={RD_PANEL_TRANSITION}
-        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        className="rd-task-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -8966,11 +8995,13 @@ function ProductManageDialog({
   products,
   onClose,
   onSave,
+  horizonVariant = false,
 }: {
   open: boolean;
   products: ProductDef[];
   onClose: () => void;
   onSave: (products: ProductDef[]) => Promise<void>;
+  horizonVariant?: boolean;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const [view, setView] = useState<"list" | "form">("list");
@@ -9055,7 +9086,7 @@ function ProductManageDialog({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={RD_FAST_TRANSITION}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="rd-task-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
           <motion.div
@@ -9064,7 +9095,7 @@ function ProductManageDialog({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 8 }}
             transition={RD_PANEL_TRANSITION}
-            className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.18)]"
+            className="rd-task-overlay-surface w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.18)]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
@@ -9172,7 +9203,7 @@ function ProductManageDialog({
                     <SelectTrigger className="text-sm">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className={cn(horizonVariant && "rd-horizon-detail-select")}>
                       <SelectItem value="active">{t("活跃")}</SelectItem>
                       <SelectItem value="developing">{t("研发中")}</SelectItem>
                       <SelectItem value="paused">{t("暂停")}</SelectItem>
@@ -9329,6 +9360,8 @@ function ExecutiveOverview({
   peopleDirectory,
   allTasks,
   initialActivityActor,
+  searchKeyword,
+  onSearchKeywordChange,
   onSelectSystem,
   onSelectTask,
   onSelectPerson,
@@ -9356,6 +9389,7 @@ function ExecutiveOverview({
   onAiClassifyTasks,
   panoramaReloadToken,
   hideSystemPanorama,
+  horizonVariant = false,
 }: {
   catStats: CatStat[];
   /** KPI 数字专用统计（概览模式跨全部产品库）。只求和，不可用于渲染分类卡或跳转。 */
@@ -9367,6 +9401,8 @@ function ExecutiveOverview({
   peopleDirectory: readonly PersonProfile[];
   allTasks: Task[];
   initialActivityActor?: TaskActivityActor | null;
+  searchKeyword?: string;
+  onSearchKeywordChange?: (value: string) => void;
   onSelectSystem: (catId: string, productId: string) => void;
   onSelectTask: (t: Task, activityActor?: TaskActivityActor) => void;
   onSelectPerson: (person: PersonLoad) => void;
@@ -9396,6 +9432,8 @@ function ExecutiveOverview({
   panoramaReloadToken?: number;
   /** 中美协同驾驶舱：隐藏「子系统全景」模块 */
   hideSystemPanorama?: boolean;
+  /** 原生研发驾驶舱专用的 Horizon / Klein Blue 视觉变体。 */
+  horizonVariant?: boolean;
 }) {
   const shouldReduceMotion = useReducedMotion();
   // i18n 试点（P0 验证链路）：订阅语言切换；t() 中文态原样返回，研发侧零影响
@@ -9455,14 +9493,14 @@ function ExecutiveOverview({
       initial={shouldReduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={RD_FAST_TRANSITION}
-      className="min-h-full bg-slate-50/30  "
+      className={cn("min-h-full bg-slate-50/30", horizonVariant && "rd-horizon-cockpit")}
       style={{ background: "transparent" }}
     >
-      <div className="mx-auto  space-y-6 rd-stagger-children">
+      <div className="rd-horizon-layout mx-auto space-y-6 rd-stagger-children">
         {/* 顶部并排区：研发执行提示（占 3）+ 今日日报速览（占 2）。窄屏（< xl）自动上下堆叠，
             宽屏并排可省下一整块纵向高度，留给下方的人员任务驾驶舱。
             随任务流下滑自动收起以最大化任务可视区；进入沉浸模式后由控制条显式展开。 */}
-        <div className="relative">
+        <div className="rd-horizon-overview-top relative">
         {/* 仅研发侧提供沉浸模式控制：收起后通过 portal 固定到视口右上角，不占布局且不受面板层级遮挡。 */}
         {!usCollabLayout && headerCollapsed && typeof document !== "undefined" && createPortal(
             <motion.button
@@ -9473,7 +9511,10 @@ function ExecutiveOverview({
               initial={shouldReduceMotion ? false : { opacity: 0, y: -6, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={RD_FAST_TRANSITION}
-              className="fixed right-4 top-4 z-40 inline-flex h-10 items-center gap-2 rounded-full border border-indigo-200/80 bg-white/90 px-3.5 text-xs font-semibold text-indigo-700 shadow-[0_10px_30px_-12px_rgba(79,70,229,0.45)] backdrop-blur-md transition-[border-color,background-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-white hover:shadow-[0_14px_34px_-12px_rgba(79,70,229,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none sm:right-6"
+              className={cn(
+                "fixed right-4 top-4 z-40 inline-flex h-10 items-center gap-2 rounded-full border border-indigo-200/80 bg-white/90 px-3.5 text-xs font-semibold text-indigo-700 shadow-[0_10px_30px_-12px_rgba(79,70,229,0.45)] backdrop-blur-md transition-[border-color,background-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-white hover:shadow-[0_14px_34px_-12px_rgba(79,70,229,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none sm:right-6",
+                horizonVariant && "rd-horizon-immersive-control",
+              )}
             >
               <Minimize2 className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span>{t("退出大屏")}</span>
@@ -9489,7 +9530,7 @@ function ExecutiveOverview({
                 aria-label={headerPinned ? t("已钉住顶部模块，点击恢复滚动自动收起") : t("顶部模块随任务滚动自动收起，点击钉住常显")}
                 title={headerPinned ? t("已钉住：滚动时保持展开 · 点击恢复自动收起") : t("滚动任务时自动收起 · 点击钉住常显")}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm transition-colors",
+                  "rd-horizon-pin-toggle inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm transition-colors",
                   headerPinned
                     ? "border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700"
                     : "border-slate-200 bg-white/70 text-slate-400 hover:border-indigo-200 hover:bg-white hover:text-indigo-600",
@@ -9610,14 +9651,14 @@ function ExecutiveOverview({
             )}
           </div>
         ) : (
-        <div className={catStats.length > 0 ? "grid items-stretch gap-6 xl:grid-cols-5" : undefined}>
-        <section className={cn("rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && "min-w-0 xl:col-span-3")}>
-          <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto]">
-            <div className="order-1 flex min-w-0 items-center gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_6px_16px_-4px_rgba(79,70,229,0.45)]">
+        <div className={cn("rd-horizon-overview-grid", catStats.length > 0 && "grid items-stretch gap-6 xl:grid-cols-5")}>
+        <section className={cn("rd-horizon-command rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && "min-w-0 xl:col-span-3")}>
+          <div className="rd-horizon-command-layout grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto]">
+            <div className="rd-horizon-command-heading order-1 flex min-w-0 items-center gap-3">
+              <span className="rd-horizon-command-mark flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_6px_16px_-4px_rgba(79,70,229,0.45)]">
                 <Sparkles className="h-5 w-5" />
               </span>
-              <div className="min-w-0">
+              <div className="rd-horizon-command-copy min-w-0">
                 <h2 className="truncate text-base font-bold text-slate-900">{t("研发执行提示")}</h2>
                 {/*<p className="mt-0.5 truncate text-xs font-medium text-slate-500">*/}
                 {/*  优先处理阻塞、逾期和待指派任务；新增需求建议先走 AI 立项拆解。*/}
@@ -9625,14 +9666,16 @@ function ExecutiveOverview({
               </div>
             </div>
 
-            <div className="order-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2 lg:grid-cols-3 min-[1800px]:grid-cols-6">
-              {kpiItems.map((item) => {
+            <div className="rd-horizon-kpi-grid order-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2 lg:grid-cols-3 min-[1800px]:grid-cols-6">
+              {kpiItems.map((item, index) => {
                 const clickable = item.filterKey !== null;
                 const active = clickable && kpiFilter === item.filterKey;
                 const Wrapper: React.ElementType = clickable ? "button" : "div";
                 return (
                   <Wrapper
                     key={item.label}
+                    data-active={active}
+                    data-kpi-index={index}
                     {...(clickable
                       ? {
                           type: "button" as const,
@@ -9645,7 +9688,7 @@ function ExecutiveOverview({
                         ? { title: item.hint }
                         : {})}
                     className={cn(
-                      "flex min-w-0 items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 transition-all",
+                      "rd-horizon-kpi flex min-w-0 items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 transition-all",
                       active
                         ? cn("border-transparent ring-2 ring-offset-1 shadow-[0_10px_24px_-10px_rgba(79,70,229,0.30)]", item.activeRing)
                         : "border-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
@@ -9653,14 +9696,14 @@ function ExecutiveOverview({
                       clickable && "text-left",
                     )}
                   >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-50 ring-1 ring-slate-100">
+                    <span className="rd-horizon-kpi-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-50 ring-1 ring-slate-100">
                       <item.Icon className={cn("h-3.5 w-3.5", item.tone)} />
                     </span>
                     <div className="min-w-0">
-                      <div className={cn("text-base font-bold leading-none tabular-nums", item.tone)}>{item.value}</div>
-                      <div className="mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold text-slate-500">
+                      <div className={cn("rd-horizon-kpi-value text-base font-bold leading-none tabular-nums", item.tone)}>{item.value}</div>
+                      <div className="rd-horizon-kpi-label mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold text-slate-500">
                         <span className="truncate">{item.label}</span>
-                        {active && <span className="shrink-0 rounded-sm bg-indigo-100 px-1 py-px text-[9px] font-bold leading-none text-indigo-700">{t("筛选中")}</span>}
+                        {active && <span className="rd-horizon-kpi-filter-badge shrink-0 rounded-sm bg-indigo-100 px-1 py-px text-[9px] font-bold leading-none text-indigo-700">{t("筛选中")}</span>}
                       </div>
                     </div>
                   </Wrapper>
@@ -9669,7 +9712,7 @@ function ExecutiveOverview({
             </div>
 
             {(
-              <div className="order-2 flex flex-wrap justify-start gap-2 lg:justify-end">
+              <div className="rd-horizon-actions order-2 flex flex-wrap justify-start gap-2 lg:justify-end">
                 {/* 导出：按时间段导出当前研发驾驶舱配置人员的任务完成情况。 */}
                 <RdTaskExportButton allTasks={allTasks} peopleDirectory={peopleDirectory} />
                 {onAiClassifyTasks && (
@@ -9688,7 +9731,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onAiProject}
-                    className="group flex flex-none items-center gap-2 rounded-xl bg-indigo-600 px-2.5 py-2 text-left text-xs font-semibold text-white shadow-[0_8px_18px_-6px_rgba(79,70,229,0.45)] transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_22px_-6px_rgba(79,70,229,0.50)] active:translate-y-0 active:scale-[0.98]"
+                    className="rd-horizon-primary-action group flex flex-none items-center gap-2 rounded-xl bg-indigo-600 px-2.5 py-2 text-left text-xs font-semibold text-white shadow-[0_8px_18px_-6px_rgba(79,70,229,0.45)] transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_22px_-6px_rgba(79,70,229,0.50)] active:translate-y-0 active:scale-[0.98]"
                   >
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/18">
                       <Sparkles className="h-4 w-4 transition-transform group-hover:rotate-12" />
@@ -9736,7 +9779,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onClearData}
-                    className="group flex flex-none items-center gap-2 rounded-xl border border-red-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-red-600 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-red-200 hover:bg-red-50 active:translate-y-0 active:scale-[0.98]"
+                    className="rd-horizon-danger-action group flex flex-none items-center gap-2 rounded-xl border border-red-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-red-600 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-red-200 hover:bg-red-50 active:translate-y-0 active:scale-[0.98]"
                   >
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600 ring-1 ring-red-100">
                       <Trash2 className="h-4 w-4" />
@@ -9749,7 +9792,7 @@ function ExecutiveOverview({
           </div>
         </section>
         {catStats.length > 0 && (
-          <div className="min-w-0 xl:col-span-2">
+          <div className="rd-horizon-reports min-w-0 xl:col-span-2">
             <RDReportsPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} />
           </div>
         )}
@@ -9797,6 +9840,8 @@ function ExecutiveOverview({
               personLoads={personLoads}
               allTasks={allTasks}
               initialActivityActor={initialActivityActor}
+              keyword={searchKeyword}
+              onKeywordChange={onSearchKeywordChange}
               onSelectTask={onSelectTask}
               onSelectPerson={onSelectPerson}
               canReassign={canReassign}
@@ -9936,7 +9981,7 @@ export function MoveTaskDialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="rd-task-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <motion.div
@@ -9944,7 +9989,7 @@ export function MoveTaskDialog({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 14, scale: 0.98 }}
         transition={RD_PANEL_TRANSITION}
-        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        className="rd-task-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
@@ -10128,7 +10173,7 @@ function MoveTasksDialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="rd-task-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <motion.div
@@ -10136,7 +10181,7 @@ function MoveTasksDialog({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 14, scale: 0.98 }}
         transition={RD_PANEL_TRANSITION}
-        className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
+        className="rd-task-overlay-surface w-full max-w-lg rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
@@ -11161,6 +11206,31 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const { lang } = useI18n();
   const usCollab = location.pathname.startsWith("/us-collab");
   const productionWorkspace = isProductionWorkspace();
+  const nativeRdCockpit = !usCollab && !productionWorkspace;
+  const cockpitSearchKeyword = useMemo(
+    () => (nativeRdCockpit ? new URLSearchParams(location.search).get("q") ?? "" : undefined),
+    [location.search, nativeRdCockpit],
+  );
+  const handleCockpitSearchKeywordChange = useCallback((value: string) => {
+    if (!nativeRdCockpit) return;
+    const params = new URLSearchParams(location.search);
+    if (value.trim()) {
+      params.set("q", value);
+      params.delete("view");
+      params.delete("category");
+    } else {
+      params.delete("q");
+    }
+    const nextSearch = params.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : "",
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [location.hash, location.pathname, location.search, nativeRdCockpit, navigate]);
   // 协同路由下人员管理跳协同入口（rdApi 按 /us-collab 前缀路由到独立人员池）
   const peopleManagementPath = usCollab
     ? "/us-collab-people-management"
@@ -11577,8 +11647,18 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+    const query = params.get("q")?.trim();
     const view = params.get("view");
     const categoryId = params.get("category");
+    if (nativeRdCockpit && query) {
+      setMode("overview");
+      setSelectedCatId(null);
+      if (boardProductId !== MAIN_PRODUCT_ID) {
+        setBoardProductId(MAIN_PRODUCT_ID);
+        loadCategoriesFor(MAIN_PRODUCT_ID);
+      }
+      return;
+    }
     if (view === "board" || categoryId) {
       setMode("board");
       setSelectedCatId(categoryId);
@@ -11629,6 +11709,19 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   );
 
   const enterBoard = (catId: string, productId: string = MAIN_PRODUCT_ID) => {
+    const params = new URLSearchParams(location.search);
+    if (nativeRdCockpit && params.has("q")) {
+      params.delete("q");
+      const nextSearch = params.toString();
+      navigate(
+        {
+          pathname: location.pathname,
+          search: nextSearch ? `?${nextSearch}` : "",
+          hash: location.hash,
+        },
+        { replace: true },
+      );
+    }
     // 切换产品时把该产品的独立任务树装载进 `categories`；同产品（含主产品）无需重载。
     if (productId !== boardProductId) {
       setBoardProductId(productId);
@@ -11757,7 +11850,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       <NoteReceiptContext.Provider value={noteReceipts}>
       <TooltipProvider delayDuration={150}>
         {/* 协同驾驶舱：任务量小，内容列约束最大宽度居中、两侧留白（欧美工具风），小屏自适应收窄；研发驾驶舱维持全宽 */}
-        <div className={cn(isUsCollabWorkspace() && "mx-auto w-full max-w-[1200px] px-1 sm:px-3 2xl:px-0")}>
+        <div className={cn(nativeRdCockpit && "rd-horizon-module", isUsCollabWorkspace() && "mx-auto w-full max-w-[1200px] px-1 sm:px-3 2xl:px-0")}>
         <ExecutiveOverview
           catStats={catStats}
           // KPI 数字跨产品库（概览），分类卡与跳转仍按当前库的 catStats
@@ -11771,6 +11864,8 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           // 概览「人员任务」用跨所有产品库的任务全集（与 personLoads 角标同范围）
           allTasks={peopleAllTasks}
           initialActivityActor={initialActivityActor}
+          searchKeyword={cockpitSearchKeyword}
+          onSearchKeywordChange={nativeRdCockpit ? handleCockpitSearchKeywordChange : undefined}
           onSelectSystem={enterBoard}
           onSelectTask={openTaskDetail}
           onSelectPerson={openPersonDetail}
@@ -11800,9 +11895,10 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
             : undefined}
           panoramaReloadToken={panoramaReloadToken}
           hideSystemPanorama={hideSystemPanorama}
+          horizonVariant={!usCollab && !productionWorkspace}
         />
         <AlertDialog open={!!deleteTaskTarget} onOpenChange={(open) => { if (!open) setDeleteTaskTarget(null); }}>
-          <AlertDialogContent>
+          <AlertDialogContent className={cn(nativeRdCockpit && "rd-horizon-module-dialog")}>
             <AlertDialogHeader>
               <AlertDialogTitle>{t("删除任务？")}</AlertDialogTitle>
               <AlertDialogDescription>
@@ -11869,6 +11965,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
             <TaskReassignModal
               initialTaskId={reassignTaskId}
               allTasks={allTasks}
+              horizonVariant={nativeRdCockpit}
               onClose={() => { setShowReassign(false); setReassignTaskId(null); }}
               onUpdated={loadCategories}
             />
@@ -11927,6 +12024,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         <ProductManageDialog
           open={showProductManage}
           products={products}
+          horizonVariant={nativeRdCockpit}
           onClose={() => setShowProductManage(false)}
           onSave={handleSaveProducts}
         />
@@ -11940,7 +12038,9 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   if (mode === "people" && canManagePeople) {
     return (
       <TooltipProvider delayDuration={150}>
-        <PeopleManagementPage onBack={() => setMode("overview")} />
+        <div className={cn(nativeRdCockpit && "rd-horizon-module rd-horizon-people-page")}>
+          <PeopleManagementPage onBack={() => setMode("overview")} />
+        </div>
       </TooltipProvider>
     );
   }
@@ -11948,9 +12048,12 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   // ───── Board mode (detailed work view) ───────────────────────────────────
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex min-h-full flex-col overflow-hidden rounded-[8px] border border-slate-200/80 bg-[#f4f7fb] shadow-[0_24px_60px_rgba(15,23,42,0.08)]">
+      <div className={cn(
+        "flex min-h-full flex-col overflow-hidden rounded-[8px] border border-slate-200/80 bg-[#f4f7fb] shadow-[0_24px_60px_rgba(15,23,42,0.08)]",
+        nativeRdCockpit && "rd-horizon-module rd-horizon-board",
+      )}>
         {/* Breadcrumb / back to overview */}
-        <div className="flex min-w-0 items-center gap-3 border-b border-slate-200/80 bg-white px-5 py-2.5 animate-rd-fade-in">
+        <div className="rd-board-breadcrumb flex min-w-0 items-center gap-3 border-b border-slate-200/80 bg-white px-5 py-2.5 animate-rd-fade-in">
           <button
             type="button"
             onClick={() => {
@@ -11969,7 +12072,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           <span className="text-xs text-slate-300">·</span>
           {boardProductName && (
             <>
-              <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 ring-1 ring-inset ring-indigo-100">
+              <span className="rd-board-brand-chip rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 ring-1 ring-inset ring-indigo-100">
                 {boardProductName}
               </span>
               <span className="text-xs text-slate-300">›</span>
@@ -11984,7 +12087,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           )}
         </div>
 
-        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="rd-board-body flex min-h-0 flex-1 overflow-hidden">
         <CategorySidebar
           catStats={catStats}
           selectedId={selectedCatId}
@@ -11996,7 +12099,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           onRequestEditor={handleTreeEditorRequest}
         />
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="rd-board-main flex min-h-0 flex-1 flex-col overflow-hidden">
           <CommandCenter
             totalActive={totalActive}
             risks={risks}
@@ -12005,13 +12108,13 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
             onCreate={undefined}
           />
 
-          <div className="flex-1 overflow-auto bg-slate-50/40 px-5 py-5">
+          <div className="rd-board-canvas flex-1 overflow-auto bg-slate-50/40 px-5 py-5">
             <motion.div
               key={selectedCatId ?? "all"}
               initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={RD_PANEL_TRANSITION}
-              className="mx-auto max-w-7xl space-y-5 rd-stagger-children"
+              className="rd-board-content mx-auto max-w-7xl space-y-5 rd-stagger-children"
             >
               {selectedCatId === null ? (
                 <>
@@ -12030,7 +12133,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                     onOpen={openTaskDetail}
                   />
 
-                  <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.75fr)]">
+                  <div className="rd-board-decision-grid grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.75fr)]">
                     <RiskHotspot
                       risks={risks}
                       totalTasks={totalActive}
@@ -12071,7 +12174,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                   )}
 
                   {/* Decision focus: risks + scoped people */}
-                  <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.75fr)]">
+                  <div className="rd-board-decision-grid grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.75fr)]">
                     <RiskHotspot
                       risks={scopedRisks}
                       totalTasks={detailActiveTasks.length}

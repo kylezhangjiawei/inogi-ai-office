@@ -151,8 +151,9 @@ function TaskRelationNode({ task, currentTaskId, isRoot = false, onOpen }: TaskR
         type="button"
         aria-current={current ? "page" : undefined}
         onClick={() => onOpen(task)}
+        data-active={current}
         className={cn(
-          "flex w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+          "rd-horizon-detail-relation-node flex w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
           current
             ? "border-indigo-200 bg-indigo-50 text-indigo-900"
             : "border-slate-200 bg-white text-slate-700 hover:border-indigo-200 hover:bg-slate-50",
@@ -244,7 +245,7 @@ function ActivityTaskFilterBar({
   const relatedTasks = tasks.filter((item) => item.task_id !== currentTaskId);
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-slate-200/80 bg-slate-50/70 px-3 py-2 sm:px-4">
+    <div className="rd-horizon-detail-filter flex shrink-0 items-center gap-2 border-b border-slate-200/80 bg-slate-50/70 px-3 py-2 sm:px-4">
       <div className="cockpit-scroll flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overscroll-x-contain pb-1.5 [scrollbar-gutter:stable] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
         {tasks.length > 1 ? (
           <div role="group" aria-label={t("任务范围")} className="flex shrink-0 items-center gap-2">
@@ -1278,12 +1279,15 @@ export default function RDTaskDetailPage() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       style={viewportHeight ? { minHeight: viewportHeight } : undefined}
-      className="mx-auto flex max-w-[1440px] flex-col gap-4 px-2 pt-4 sm:px-4"
+      className={cn(
+        "mx-auto flex max-w-[1440px] flex-col gap-4 px-2 pt-4 sm:px-4",
+        !productionWorkspace && "rd-horizon-module rd-horizon-task-detail",
+      )}
     >
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3">
+      <div className="rd-horizon-detail-toolbar flex shrink-0 flex-wrap items-center gap-3">
         {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
-        <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)} className="gap-1">
+        <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)} className="rd-horizon-detail-nav-control gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
           {t("返回")}
         </Button>
@@ -1297,7 +1301,7 @@ export default function RDTaskDetailPage() {
               onClick={() => gotoSeq(-1)}
               disabled={seqIndex <= 0}
               title={t("上一条任务（k）")}
-              className="h-8 w-8 p-0"
+              className="rd-horizon-detail-nav-control h-8 w-8 p-0"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -1309,7 +1313,7 @@ export default function RDTaskDetailPage() {
               onClick={() => gotoSeq(1)}
               disabled={seqIndex >= taskSeq.length - 1}
               title={t("下一条任务（j）")}
-              className="h-8 w-8 p-0"
+              className="rd-horizon-detail-nav-control h-8 w-8 p-0"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
@@ -1375,7 +1379,7 @@ export default function RDTaskDetailPage() {
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+            <SelectContent className={cn("rounded-xl border border-slate-200 bg-white p-1 shadow-lg", !productionWorkspace && "rd-horizon-detail-select")}>
               <SelectItem value="high">{t("高优先")}</SelectItem>
               <SelectItem value="medium">{t("中优先")}</SelectItem>
               <SelectItem value="low">{t("低优先")}</SelectItem>
@@ -1389,9 +1393,9 @@ export default function RDTaskDetailPage() {
       </div>
 
       {/* 详情总览：保留当前项目的材料卡样式，只重排信息层级。 */}
-      <section className="material-card overflow-hidden">
+      <section className="rd-horizon-detail-overview material-card overflow-hidden">
         <div className="grid lg:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="min-w-0 px-5 py-4">
+          <div className="rd-horizon-detail-description min-w-0 px-5 py-4">
             <div className="mb-2 flex items-center justify-between gap-3">
               <span className="flex items-center gap-2 text-xs font-semibold text-slate-500">
                 <FileText className="h-3.5 w-3.5 text-indigo-500" />
@@ -1466,7 +1470,7 @@ export default function RDTaskDetailPage() {
               <p className="text-sm text-slate-400">{t("暂未填写任务描述")}</p>
             )}
           </div>
-          <div className="border-t border-slate-100 bg-slate-50/55 px-5 py-4 lg:border-l lg:border-t-0">
+          <div className="rd-horizon-detail-topic border-t border-slate-100 bg-slate-50/55 px-5 py-4 lg:border-l lg:border-t-0">
             <div className="mb-3 flex items-center justify-between gap-3">
               <span className="flex items-center gap-2 text-xs font-semibold text-slate-500">
                 <Layers3 className="h-3.5 w-3.5 text-indigo-500" />
@@ -1502,10 +1506,10 @@ export default function RDTaskDetailPage() {
       </section>
 
       {/* 美式 content-first 布局：主内容（描述/工作项/时间线）居左，Properties 侧栏居右（GitHub issue / Linear 范式） */}
-      <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="rd-horizon-detail-grid grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔；超高自身内滚）══ */}
-        <div className="cockpit-scroll min-h-0 xl:order-2 xl:overflow-y-auto">
-        <div className="material-card divide-y divide-slate-100">
+        <div className="rd-horizon-detail-aside cockpit-scroll min-h-0 xl:order-2 xl:overflow-y-auto">
+        <div className="rd-horizon-detail-properties material-card divide-y divide-slate-100">
           {/* 字段节 */}
           <div className="space-y-2.5 px-4 py-3.5">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-600">
@@ -1864,9 +1868,9 @@ export default function RDTaskDetailPage() {
         </div>
 
         {/* ══ 主内容列（左）：纵向过程叙事——Tab 卡吃掉剩余高度，内容内滚 ══ */}
-        <div className="flex min-h-0 min-w-0 flex-col gap-4 xl:order-1">
+        <div className="rd-horizon-detail-main flex min-h-0 min-w-0 flex-col gap-4 xl:order-1">
           {/* 工作项（只读展示）：创建/勾选/删除入口在个人工作台，成员按需自建 */}
-          <div className="shrink-0">
+          <div className="rd-horizon-detail-work-items shrink-0">
             <WorkItemsSection
               task={task}
               canEdit={false}
@@ -1881,7 +1885,7 @@ export default function RDTaskDetailPage() {
           {task.status === "completed" && (
             <div
               className={cn(
-                "flex min-h-0 flex-col overflow-hidden rounded-[10px] border border-slate-200 bg-white",
+                "rd-horizon-detail-score flex min-h-0 flex-col overflow-hidden rounded-[10px] border border-slate-200 bg-white",
                 scoreOpen ? "max-h-[260px]" : "shrink-0",
               )}
             >
@@ -1913,9 +1917,9 @@ export default function RDTaskDetailPage() {
           )}
 
           {/* Tab：筛选条、留痕列表和卡片内留言共存时仍为列表保留可视区域；内容区各自内滚。 */}
-          <div className="material-card flex min-h-0 flex-1 flex-col overflow-hidden p-0 lg:min-h-[440px]">
+          <div className="rd-horizon-detail-activity material-card flex min-h-0 flex-1 flex-col overflow-hidden p-0 lg:min-h-[440px]">
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col gap-0">
-              <TabsList className="cockpit-scroll h-auto w-full shrink-0 justify-start gap-3 overflow-x-auto rounded-none border-b border-slate-200/80 bg-transparent p-0 px-3 sm:gap-5 sm:px-4">
+              <TabsList className="rd-horizon-detail-tabs cockpit-scroll h-auto w-full shrink-0 justify-start gap-3 overflow-x-auto rounded-none border-b border-slate-200/80 bg-transparent p-0 px-3 sm:gap-5 sm:px-4">
                 {([
                   { key: "notes", label: t("进展留痕"), count: activityGroupNotes.length },
                   { key: "conversation", label: t("任务讨论"), count: discussionUnread },
@@ -2134,6 +2138,7 @@ export default function RDTaskDetailPage() {
           taskTitle={task.title}
           currentOwner={task.primary_owner}
           people={people}
+          horizonVariant={!productionWorkspace}
           onConfirm={handleHandover}
           onCancel={() => setShowHandover(false)}
         />
@@ -2201,6 +2206,7 @@ export default function RDTaskDetailPage() {
         <CreateSubtaskDialog
           parentTask={task}
           people={people}
+          horizonVariant={!productionWorkspace}
           onConfirm={handleCreateSubtask}
           onCancel={() => setShowCreateSubtask(false)}
         />
@@ -2224,7 +2230,7 @@ export default function RDTaskDetailPage() {
 
       {/* 人员名下任务弹层（Radix Dialog）：点任务跳转到该任务的详情页 */}
       <Dialog open={Boolean(personTasksFor)} onOpenChange={(open) => { if (!open) setPersonTasksFor(null); }}>
-        <DialogContent className="max-w-md rounded-2xl border-slate-200 bg-white p-5 shadow-2xl">
+        <DialogContent className={cn("max-w-md rounded-2xl border-slate-200 bg-white p-5 shadow-2xl", !productionWorkspace && "rd-horizon-detail-dialog")}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-slate-800">
               {personTasksFor && <OwnerAvatar name={personTasksFor} size="sm" />}
@@ -2295,8 +2301,8 @@ function EditTaskInfoDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={saving ? undefined : onCancel}>
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="rd-task-detail-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={saving ? undefined : onCancel}>
+      <div className="rd-task-detail-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
             <Pencil className="h-4 w-4" />
@@ -2356,11 +2362,13 @@ function EditTaskInfoDialog({
 function CreateSubtaskDialog({
   parentTask,
   people,
+  horizonVariant = false,
   onConfirm,
   onCancel,
 }: {
   parentTask: RdTask;
   people: PersonProfile[];
+  horizonVariant?: boolean;
   onConfirm: (input: {
     title: string;
     primary_owner: string;
@@ -2406,10 +2414,10 @@ function CreateSubtaskDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="rd-task-detail-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={saving ? undefined : onCancel}
     >
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="rd-task-detail-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600">
             <FileText className="h-4 w-4" />
@@ -2442,7 +2450,7 @@ function CreateSubtaskDialog({
                 <SelectTrigger className="h-9 rounded-lg border-slate-200 text-sm">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={cn(horizonVariant && "rd-horizon-detail-select")}>
                   <SelectItem value="待指派">{t("待指派")}</SelectItem>
                   {activePeople.map((p) => (
                     <SelectItem key={p.id} value={p.name}>
@@ -2458,7 +2466,7 @@ function CreateSubtaskDialog({
                 <SelectTrigger className="h-9 rounded-lg border-slate-200 text-sm">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={cn(horizonVariant && "rd-horizon-detail-select")}>
                   <SelectItem value="high">{t("高")}</SelectItem>
                   <SelectItem value="medium">{t("中")}</SelectItem>
                   <SelectItem value="low">{t("低")}</SelectItem>
@@ -2567,10 +2575,10 @@ function AttachSubtasksDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="rd-task-detail-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={saving ? undefined : onCancel}
     >
-      <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="rd-task-detail-overlay-surface flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600">
             <ChevronRight className="h-4 w-4" />
@@ -2727,11 +2735,11 @@ function DetachSubtasksDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="rd-task-detail-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
       onClick={saving ? undefined : onCancel}
     >
       <div
-        className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl"
+        className="rd-task-detail-overlay-surface flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">

@@ -861,6 +861,2148 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+ * 全局 Horizon-inspired Header
+ * Header 位于页面 Outlet 之外，全站共享同一视觉与交互；页面专属搜索能力仍由组件内路由条件控制。
+ * 右侧工具合并为单一控制面板，并按 Header 实际宽度而非视口宽度响应侧栏变化。
+ * ──────────────────────────────────────────────────────────────────────────── */
+.rd-horizon-global-header,
+.rd-horizon-header-menu,
+.rd-horizon-header-notifications--horizon {
+  --rdh-primary: #002fa7;
+  --rdh-primary-hover: #002581;
+  --rdh-ink: #1b2559;
+  --rdh-body: #42526f;
+  --rdh-muted: #707eae;
+  --rdh-subtle: #8f9bba;
+  --rdh-canvas: #f4f7fe;
+  --rdh-soft-blue: #eef3ff;
+  --rdh-line: #e9edf7;
+  --rdh-line-strong: #e0e5f2;
+}
+
+.rd-horizon-global-header {
+  container-name: rd-global-header;
+  container-type: inline-size;
+  flex-shrink: 0;
+  border-bottom-color: transparent !important;
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-row {
+  display: flex;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  min-height: 5.25rem;
+  gap: 0.875rem !important;
+  padding: 1rem 1.5rem 0.75rem;
+}
+
+.rd-horizon-global-header .rd-horizon-header-heading {
+  flex: 1 1 auto;
+  align-items: center !important;
+  gap: 0 !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-rail {
+  display: none !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-heading-copy {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.rd-horizon-global-header .rd-horizon-header-heading-copy > * {
+  margin: 0 !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-breadcrumb {
+  gap: 0.45rem !important;
+  color: var(--rdh-muted) !important;
+  font-size: 0.875rem !important;
+  font-weight: 500;
+  line-height: 1.25rem;
+}
+
+.rd-horizon-global-header .rd-horizon-header-breadcrumb-current {
+  color: var(--rdh-body) !important;
+  font-weight: 600 !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-breadcrumb > span:nth-child(2) {
+  color: var(--rdh-subtle) !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-title {
+  color: var(--rdh-ink) !important;
+  font-size: 2.125rem !important;
+  font-weight: 700 !important;
+  line-height: 2.5rem !important;
+  letter-spacing: -0.025em !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-right {
+  display: flex;
+  flex: 0 1 auto !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  align-self: flex-end;
+  justify-content: flex-end !important;
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 3.75rem;
+  gap: 0.625rem !important;
+  border: 1px solid transparent;
+  border-radius: 30px;
+  padding: 0.625rem;
+  background: #ffffff;
+  box-shadow: 14px 17px 40px 4px rgba(112, 144, 176, 0.14);
+}
+
+.rd-horizon-global-header .rd-horizon-header-search {
+  flex: 0 1 15rem !important;
+  width: 15rem;
+  min-width: 9rem;
+  max-width: 15rem !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-search-icon {
+  left: 0.75rem !important;
+  color: var(--rdh-muted) !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-input.material-input {
+  height: 2.5rem;
+  border: 1px solid transparent !important;
+  border-radius: 30px !important;
+  padding: 0 0.75rem 0 2.25rem !important;
+  color: var(--rdh-body) !important;
+  background: var(--rdh-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-input.material-input::placeholder {
+  color: var(--rdh-muted) !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-input.material-input:hover {
+  border-color: var(--rdh-line-strong) !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-input.material-input:focus,
+.rd-horizon-global-header .rd-horizon-header-input.material-input:focus-visible {
+  outline: none !important;
+  border-color: rgba(0, 47, 167, 0.3) !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.09) !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-tools {
+  flex: 0 0 auto !important;
+  flex-wrap: nowrap !important;
+  gap: 0.375rem !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-date {
+  display: flex;
+  position: relative;
+  min-width: 5.5rem;
+  height: 2.5rem;
+  flex-direction: column;
+  justify-content: center;
+  border-left: 0;
+  border-radius: 0 !important;
+  padding: 0.25rem 0.5rem 0.25rem 0.75rem !important;
+  background: transparent !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-date::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 1.25rem;
+  background: var(--rdh-line);
+  transform: translateY(-50%);
+}
+
+.rd-horizon-global-header .rd-horizon-header-date-label {
+  color: var(--rdh-subtle) !important;
+  font-size: 0.5625rem !important;
+  line-height: 0.75rem;
+  letter-spacing: 0.18em !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-date-value {
+  color: var(--rdh-ink) !important;
+  font-size: 0.75rem !important;
+  line-height: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.rd-horizon-global-header .rd-horizon-header-control,
+.rd-horizon-global-header .rd-horizon-header-user {
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  color: var(--rdh-body) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-control {
+  height: 2.5rem !important;
+  min-width: 2.5rem;
+  padding-inline: 0.625rem !important;
+  color: var(--rdh-muted) !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-language {
+  min-width: 3rem;
+}
+
+.rd-horizon-global-header .rd-horizon-header-notification-trigger {
+  width: 2.5rem !important;
+  padding: 0 !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-control:hover,
+.rd-horizon-global-header .rd-horizon-header-control[aria-expanded="true"],
+.rd-horizon-global-header .rd-horizon-header-user:hover,
+.rd-horizon-global-header .rd-horizon-header-user[data-state="open"] {
+  border-color: rgba(0, 47, 167, 0.08) !important;
+  color: var(--rdh-primary) !important;
+  background: var(--rdh-soft-blue) !important;
+  transform: none !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-unread {
+  right: 0.0625rem !important;
+  top: 0.0625rem !important;
+  height: 1rem !important;
+  min-width: 1rem !important;
+  font-size: 0.5625rem !important;
+  box-shadow: 0 0 0 2px #ffffff;
+}
+
+.rd-horizon-global-header .rd-horizon-header-user {
+  height: 2.5rem;
+  max-width: 9rem;
+  gap: 0.5rem !important;
+  border-color: transparent !important;
+  padding: 0 0.5rem 0 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-user:hover,
+.rd-horizon-global-header .rd-horizon-header-user[data-state="open"] {
+  background: var(--rdh-soft-blue) !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-avatar {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  flex: 0 0 2.5rem;
+  border-radius: 999px !important;
+  overflow: hidden;
+  box-shadow: none !important;
+}
+
+.rd-horizon-global-header .rd-horizon-header-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rd-horizon-global-header .rd-horizon-header-user-copy {
+  display: grid;
+  align-content: center;
+  gap: 0.0625rem;
+  max-width: 6.5rem;
+}
+
+.rd-horizon-global-header .rd-horizon-header-user-name {
+  color: var(--rdh-ink) !important;
+  font-size: 0.75rem !important;
+  line-height: 0.9375rem;
+}
+
+.rd-horizon-global-header .rd-horizon-header-user-role {
+  color: var(--rdh-muted) !important;
+  font-size: 0.6875rem !important;
+  line-height: 0.875rem;
+}
+
+.rd-horizon-global-header .rd-horizon-header-user-chevron {
+  flex: 0 0 auto;
+  color: var(--rdh-subtle) !important;
+  transition: transform 160ms ease;
+}
+
+.rd-horizon-global-header .rd-horizon-header-user[data-state="open"] .rd-horizon-header-user-chevron {
+  transform: rotate(180deg);
+}
+
+.rd-horizon-global-header :where(button, [role="button"]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-header-notifications--horizon {
+  z-index: 90 !important;
+  max-height: min(30rem, 72vh);
+  overflow-y: auto;
+  border-color: var(--rdh-line) !important;
+  border-radius: 20px !important;
+  padding: 1.25rem !important;
+  background: #ffffff !important;
+  box-shadow: 14px 17px 40px 4px rgba(112, 144, 176, 0.18) !important;
+  backdrop-filter: none !important;
+  animation: none !important;
+}
+
+.rd-horizon-header-notifications--horizon > div:first-child > span:first-child {
+  color: var(--rdh-ink) !important;
+}
+
+.rd-horizon-header-notifications--horizon .rd-horizon-header-notification-item {
+  border: 1px solid transparent;
+  border-radius: 12px !important;
+  background: transparent !important;
+}
+
+.rd-horizon-header-notifications--horizon .rd-horizon-header-notification-item:hover,
+.rd-horizon-header-notifications--horizon .rd-horizon-header-notification-item:focus-visible {
+  border-color: rgba(0, 47, 167, 0.08);
+  background: var(--rdh-soft-blue) !important;
+}
+
+.rd-horizon-header-notifications--horizon .rd-horizon-header-view-all {
+  border-color: var(--rdh-primary) !important;
+  border-radius: 12px !important;
+  color: #ffffff !important;
+  background: var(--rdh-primary) !important;
+}
+
+.rd-horizon-header-notifications--horizon .rd-horizon-header-view-all:hover {
+  border-color: var(--rdh-primary-hover) !important;
+  background: var(--rdh-primary-hover) !important;
+}
+
+.rd-horizon-header-notifications--horizon :where(button, [role="button"]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-header-menu {
+  z-index: 100 !important;
+  width: min(18rem, var(--radix-dropdown-menu-content-available-width)) !important;
+  border-color: var(--rdh-line) !important;
+  border-radius: 20px !important;
+  background: #ffffff !important;
+  box-shadow: 14px 17px 40px 4px rgba(112, 144, 176, 0.18) !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-header-menu [data-slot="dropdown-menu-item"] {
+  border-radius: 12px !important;
+  color: var(--rdh-body);
+}
+
+.rd-horizon-header-menu .rd-horizon-header-menu-item:is(:focus, [data-highlighted]) {
+  color: var(--rdh-primary) !important;
+  background: var(--rdh-soft-blue) !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.06);
+}
+
+.rd-horizon-header-menu .rd-horizon-header-menu-danger {
+  color: #dc2626 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-header-menu .rd-horizon-header-menu-danger:is(:focus, [data-highlighted]) {
+  color: #dc2626 !important;
+  background: #fff7f7 !important;
+}
+
+.rd-horizon-header-menu [data-slot="dropdown-menu-item"] svg {
+  color: currentColor !important;
+}
+
+.rd-horizon-header-menu [data-slot="dropdown-menu-separator"] {
+  background: var(--rdh-line) !important;
+}
+
+@container rd-global-header (min-width: 58rem) {
+  .rd-horizon-global-header .rd-horizon-header-row {
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 1.25rem !important;
+  }
+
+  .rd-horizon-global-header .rd-horizon-header-right {
+    flex: 0 1 auto !important;
+    width: fit-content;
+    max-width: calc(100% - 16rem);
+  }
+
+  .rd-horizon-global-header .rd-horizon-header-search {
+    max-width: 15rem !important;
+  }
+}
+
+@container rd-global-header (max-width: 46rem) {
+  .rd-horizon-global-header .rd-horizon-header-search {
+    width: 10.5rem;
+    min-width: 8.5rem;
+    max-width: 10.5rem !important;
+  }
+
+  .rd-horizon-global-header .rd-horizon-header-date {
+    min-width: 5.25rem;
+    padding-inline: 0.375rem !important;
+  }
+
+  .rd-horizon-global-header .rd-horizon-header-user {
+    max-width: 8.75rem;
+  }
+
+  .rd-horizon-global-header .rd-horizon-header-user-copy {
+    max-width: 5.5rem;
+  }
+}
+
+@container rd-global-header (max-width: 36rem) {
+  .rd-horizon-global-header .rd-horizon-header-right {
+    width: 100%;
+    flex-wrap: wrap;
+    border-radius: 20px;
+  }
+
+  .rd-horizon-global-header .rd-horizon-header-search {
+    width: 100%;
+    max-width: none !important;
+    flex-basis: 100% !important;
+  }
+
+  .rd-horizon-global-header .rd-horizon-header-tools {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .rd-horizon-global-header .rd-horizon-header-date {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-horizon-global-header *,
+  .rd-horizon-global-header *::before,
+  .rd-horizon-global-header *::after,
+  .rd-horizon-header-menu,
+  .rd-horizon-header-notifications--horizon {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 原生研发任务驾驶舱：Horizon-inspired / Klein Blue 页面级视觉语言
+ * 仅由原生研发任务模块的语义根类开启，不改动协同、生产或全局侧边栏。
+ * 业务状态色（风险/警告/完成）继续保留原有语义。
+ * ──────────────────────────────────────────────────────────────────────────── */
+.rd-horizon-cockpit,
+.rd-horizon-module {
+  --rd-primary: #002fa7;
+  --rd-primary-hover: #002581;
+  --rd-primary-bright: #165dff;
+  --rd-ink: #1b2559;
+  --rd-body: #42526f;
+  --rd-muted: #64748b;
+  --rd-subtle: #8f9bba;
+  --rd-canvas: #f4f7fe;
+  --rd-surface: #ffffff;
+  --rd-soft-blue: #eef3ff;
+  --rd-line: #e9edf7;
+  --rd-line-strong: #e0e5f2;
+  --rd-shadow-card: 0 8px 24px rgba(112, 144, 176, 0.065);
+  --rd-shadow-focal: 0 14px 36px rgba(112, 144, 176, 0.1);
+  color: var(--rd-body);
+  background: transparent !important;
+}
+
+.rd-horizon-cockpit {
+  position: relative;
+}
+
+.rd-horizon-cockpit .rd-horizon-layout {
+  position: relative;
+}
+
+.rd-horizon-cockpit .rd-horizon-layout > * + * {
+  margin-top: 1.25rem !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-overview-grid {
+  gap: 1.25rem !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-pin-toggle {
+  border-color: var(--rd-line) !important;
+  background: rgba(255, 255, 255, 0.84) !important;
+  color: var(--rd-muted) !important;
+  box-shadow: 0 7px 18px -14px rgba(27, 37, 89, 0.45) !important;
+  backdrop-filter: blur(12px);
+}
+
+.rd-horizon-cockpit .rd-horizon-pin-toggle:hover {
+  border-color: rgba(0, 47, 167, 0.24) !important;
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-pin-toggle[aria-pressed="true"] {
+  border-color: var(--rd-primary) !important;
+  background: var(--rd-primary) !important;
+  color: #ffffff !important;
+}
+
+.rd-horizon-immersive-control {
+  border-color: rgba(0, 47, 167, 0.18) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  color: #002fa7 !important;
+  box-shadow: 0 18px 38px -20px rgba(0, 47, 167, 0.48) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-command {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  padding: 1.25rem !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-focal) !important;
+  container-name: rd-command;
+  container-type: inline-size;
+}
+
+.rd-horizon-cockpit .rd-horizon-command::before {
+  content: none;
+}
+
+.rd-horizon-cockpit .rd-horizon-command::after {
+  content: none;
+}
+
+.rd-horizon-cockpit .rd-horizon-command > * {
+  position: relative;
+  z-index: 1;
+}
+
+.rd-horizon-cockpit .rd-horizon-command-layout {
+  gap: 1rem !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-command-heading {
+  min-height: 3.25rem;
+}
+
+.rd-horizon-cockpit .rd-horizon-command-mark {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  border-radius: 12px !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 9px 18px -12px rgba(0, 47, 167, 0.66) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-command-copy h2 {
+  color: var(--rd-ink) !important;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.018em;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0 !important;
+  border: 0;
+  border-top: 1px solid var(--rd-line);
+  border-radius: 0;
+  padding: 0.5rem 0 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi {
+  min-height: 3.75rem;
+  border: 1px solid transparent !important;
+  border-radius: 12px !important;
+  padding: 0.5rem 0.75rem !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi[data-kpi-index="0"] {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi[data-active="true"] {
+  border-color: rgba(0, 47, 167, 0.1) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit button.rd-horizon-kpi:not([data-active="true"]):hover {
+  border-color: rgba(0, 47, 167, 0.08) !important;
+  background: rgba(238, 243, 255, 0.72) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi-icon {
+  width: 1.75rem !important;
+  height: 1.75rem !important;
+  border-radius: 9px !important;
+  background: rgba(255, 255, 255, 0.86) !important;
+  box-shadow: inset 0 0 0 1px rgba(213, 222, 239, 0.76) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi[data-kpi-index="0"] .rd-horizon-kpi-icon {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.1) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi[data-active="true"] .rd-horizon-kpi-icon {
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 9px 17px -10px rgba(0, 47, 167, 0.75) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi[data-active="true"] .rd-horizon-kpi-value {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi[data-kpi-index="0"] .rd-horizon-kpi-icon svg {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi[data-active="true"] .rd-horizon-kpi-icon svg {
+  color: #ffffff !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi-value {
+  color: var(--rd-ink) !important;
+  font-size: 1.25rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.025em;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi-label {
+  margin-top: 0.25rem !important;
+  color: var(--rd-muted) !important;
+  font-size: 0.6875rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0;
+}
+
+.rd-horizon-cockpit .rd-horizon-kpi-filter-badge {
+  color: var(--rd-primary) !important;
+  font-size: 0.625rem !important;
+  background: #e6edff !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-actions {
+  align-items: center;
+  gap: 0.5rem !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-actions > button {
+  min-height: 2.35rem;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 11px !important;
+  padding: 0.3rem 0.68rem !important;
+  color: var(--rd-body) !important;
+  background: rgba(255, 255, 255, 0.88) !important;
+  box-shadow: 0 7px 18px -16px rgba(27, 37, 89, 0.55) !important;
+  transform: none !important;
+  transition: color 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease, transform 180ms ease !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-actions > button:hover {
+  border-color: rgba(0, 47, 167, 0.2) !important;
+  color: var(--rd-primary) !important;
+  background: #ffffff !important;
+  box-shadow: 0 11px 24px -19px rgba(0, 47, 167, 0.62) !important;
+  transform: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-actions > button > span:first-child {
+  width: 1.65rem !important;
+  height: 1.65rem !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  color: var(--rd-primary) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-actions > .rd-horizon-primary-action {
+  border-color: var(--rd-primary) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 13px 26px -15px rgba(0, 47, 167, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.24) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-actions > .rd-horizon-primary-action:hover {
+  border-color: var(--rd-primary-hover) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary-hover) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-actions > .rd-horizon-primary-action > span:first-child {
+  color: #ffffff !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-actions > .rd-horizon-danger-action,
+.rd-horizon-cockpit .rd-horizon-actions > .rd-horizon-danger-action:hover {
+  color: #dc2626 !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-actions > .rd-horizon-danger-action:hover {
+  border-color: rgba(220, 38, 38, 0.2) !important;
+  background: #fff7f7 !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-actions > .rd-horizon-danger-action > span:first-child {
+  color: #dc2626 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports {
+  height: 100%;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports > div {
+  height: 100%;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports > div > div:first-child {
+  position: relative;
+  overflow: hidden;
+  border-color: transparent !important;
+  border-radius: 20px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-focal) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports > div > div:first-child::after {
+  content: none;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports > div > div:first-child > div:first-child {
+  position: relative;
+  z-index: 1;
+  border-radius: 11px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-report-tab[data-active="true"] {
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 8px 18px -12px rgba(0, 47, 167, 0.68) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-report-tab:not([data-active="true"]):hover {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .text-violet-600,
+.rd-horizon-cockpit .rd-horizon-reports .text-violet-700,
+.rd-horizon-cockpit .rd-horizon-reports .text-violet-400 {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .bg-violet-600 {
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .hover\:bg-violet-700:hover {
+  background: var(--rd-primary-hover) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-surface {
+  border-color: var(--rd-line) !important;
+  background: var(--rd-surface) !important;
+  background-image: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-inset {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-accent {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-accent-surface {
+  border-color: rgba(0, 47, 167, 0.1) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-control {
+  border-color: var(--rd-line-strong) !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-control:not(.rd-horizon-monthly-primary):hover,
+.rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-control:not(.rd-horizon-monthly-primary):focus {
+  border-color: rgba(0, 47, 167, 0.2) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-primary {
+  border-color: var(--rd-primary) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 8px 18px -12px rgba(0, 47, 167, 0.68) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-primary:hover {
+  border-color: var(--rd-primary-hover) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary-hover) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-history-item {
+  border-color: var(--rd-line) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-history-trigger:hover {
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-task-stream {
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-people-nav {
+  min-height: 4.75rem;
+  border: 1px solid transparent !important;
+  border-radius: 20px;
+  margin-bottom: 1rem;
+  padding-right: 0.75rem !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-people-list {
+  gap: 0.25rem !important;
+  padding: 0.5rem 0.75rem 0.375rem !important;
+  scrollbar-color: rgba(112, 126, 174, 0.34) transparent;
+}
+
+.rd-horizon-cockpit .rd-horizon-person-tab {
+  min-width: 4.75rem !important;
+  gap: 0.25rem !important;
+  border-radius: 14px !important;
+  padding: 0.375rem 0.5rem 0.25rem !important;
+  background: transparent !important;
+  transition: color 180ms ease, background-color 180ms ease, box-shadow 180ms ease !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-person-tab:hover {
+  background: rgba(238, 243, 255, 0.7) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-person-tab[data-state="active"] {
+  background: rgba(238, 243, 255, 0.96) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-avatar-ring {
+  width: 2.75rem !important;
+  height: 2.75rem !important;
+  padding: 2px !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-person-tab[data-state="active"] .rd-horizon-avatar-ring {
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-admin-ring {
+  background: #e0e5f2 !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-person-tab[data-state="active"] .rd-horizon-admin-ring {
+  background: linear-gradient(135deg, var(--rd-primary), var(--rd-primary-bright)) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-avatar-core {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-person-name {
+  max-width: 4rem !important;
+  color: var(--rd-muted) !important;
+  font-size: 0.6875rem !important;
+  font-weight: 600 !important;
+  line-height: 1.1 !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-person-tab[data-state="active"] .rd-horizon-person-name {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-person-indicator {
+  width: 1.25rem !important;
+  height: 2px !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-total-count,
+.rd-horizon-cockpit .rd-horizon-load-count {
+  border: 1px solid var(--rd-line-strong) !important;
+  color: var(--rd-ink) !important;
+  background: #ffffff !important;
+  box-shadow: 0 3px 8px rgba(27, 37, 89, 0.1) !important;
+  font-size: 0.625rem !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-search input,
+.rd-horizon-cockpit .rd-horizon-search > button {
+  border-color: var(--rd-line-strong) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-search input {
+  width: clamp(8.5rem, 18vw, 13rem) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-search input:focus,
+.rd-horizon-cockpit .rd-horizon-search > button:hover {
+  border-color: rgba(0, 47, 167, 0.28) !important;
+  color: var(--rd-primary) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.06) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-search-count {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-task-feed {
+  background: transparent !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-masonry,
+.rd-horizon-cockpit .rd-horizon-masonry-column {
+  gap: 1rem !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-task-card-body {
+  min-height: 12.5rem !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-task-card {
+  border-color: transparent !important;
+  border-radius: 20px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+  transform: none !important;
+  transition: box-shadow 190ms ease !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-task-card::before {
+  content: none;
+}
+
+.rd-horizon-cockpit .rd-horizon-task-card:hover {
+  border-color: transparent !important;
+  box-shadow: 0 12px 30px rgba(112, 144, 176, 0.1) !important;
+  transform: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-task-card h3 {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.012em;
+}
+
+.rd-horizon-cockpit .rd-horizon-task-path {
+  border: 1px solid transparent !important;
+  color: var(--rd-muted) !important;
+  background: var(--rd-canvas) !important;
+  font-weight: 600 !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-structure-tag {
+  border-color: transparent !important;
+  color: var(--rd-muted) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-task-summary {
+  color: var(--rd-muted) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-note-receipt {
+  border-left-width: 0 !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-progress-track {
+  background: var(--rd-line) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-task-progress {
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-task-progress--complete {
+  background: #01b574 !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-task-footer {
+  border-top-color: var(--rd-canvas) !important;
+  color: var(--rd-muted) !important;
+  font-size: 0.6875rem !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-priority[data-priority="high"] {
+  border-color: transparent !important;
+  color: #e31a1a !important;
+  background: #feefee !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-priority[data-priority="medium"] {
+  border-color: transparent !important;
+  color: #a66300 !important;
+  background: #fff6da !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-priority[data-priority="low"] {
+  border-color: transparent !important;
+  color: var(--rd-muted) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-attachment-action,
+.rd-horizon-cockpit .rd-horizon-more-action {
+  border-color: transparent !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-attachment-action:hover,
+.rd-horizon-cockpit .rd-horizon-more-action:hover {
+  border-color: rgba(0, 47, 167, 0.12) !important;
+  color: var(--rd-primary-hover) !important;
+  background: #e6edff !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-filter-bar,
+.rd-horizon-cockpit .rd-horizon-loading-strip {
+  border-color: var(--rd-line) !important;
+  color: var(--rd-muted) !important;
+  background: rgba(244, 247, 254, 0.8) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-filter-label {
+  color: var(--rd-primary) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.12) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-brand-control {
+  border-color: var(--rd-line-strong) !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-brand-control:hover {
+  border-color: rgba(0, 47, 167, 0.18) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-panorama {
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-panorama h3 {
+  color: var(--rd-ink) !important;
+  font-weight: 700;
+}
+
+.rd-horizon-cockpit .rd-horizon-system-card {
+  border-color: transparent !important;
+  border-radius: 20px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-system-card:hover {
+  border-color: transparent !important;
+  box-shadow: 0 12px 30px rgba(112, 144, 176, 0.1) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-system-accent {
+  display: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-brand-text {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-secondary-control {
+  border-color: var(--rd-line-strong) !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+  transform: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-secondary-control:hover {
+  border-color: rgba(0, 47, 167, 0.18) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-product-status-dot.bg-indigo-500 {
+  background: var(--rd-primary-bright) !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-product-tab[data-active="true"] {
+  border-bottom-color: var(--rd-primary) !important;
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-cockpit .cockpit-scroll {
+  scrollbar-color: rgba(112, 126, 174, 0.3) transparent;
+}
+
+.rd-horizon-cockpit .cockpit-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(112, 126, 174, 0.28);
+}
+
+.rd-horizon-cockpit .cockpit-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(112, 126, 174, 0.46);
+}
+
+.rd-horizon-cockpit :where(button, input, [role="button"], [tabindex]):focus-visible,
+.rd-horizon-immersive-control:focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+}
+
+@container rd-command (min-width: 42rem) {
+  .rd-horizon-cockpit .rd-horizon-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@container rd-command (min-width: 56rem) {
+  .rd-horizon-cockpit .rd-horizon-kpi-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  }
+}
+
+@container rd-command (max-width: 54rem) {
+  .rd-horizon-cockpit .rd-horizon-command-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rd-horizon-cockpit .rd-horizon-actions {
+    justify-content: flex-start !important;
+  }
+}
+
+@media (max-width: 1180px) {
+  .rd-horizon-cockpit .rd-horizon-command {
+    padding: 1rem !important;
+  }
+
+  .rd-horizon-cockpit .rd-horizon-command-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rd-horizon-cockpit .rd-horizon-actions {
+    justify-content: flex-start !important;
+  }
+
+  .rd-horizon-cockpit .rd-horizon-kpi {
+    padding-inline: 0.55rem !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-horizon-cockpit *,
+  .rd-horizon-cockpit *::before,
+  .rd-horizon-cockpit *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 研发任务管理详情看板：与总览共用 Horizon / Klein Blue 语言。
+ * 根画布保持透明，白色只落在独立的导航、数据面板与任务组上，避免卡套卡。
+ * ──────────────────────────────────────────────────────────────────────────── */
+.rd-horizon-board {
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  color: var(--rd-body);
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-board .rd-board-breadcrumb {
+  min-height: 3.25rem;
+  flex-wrap: wrap;
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  margin-bottom: 1rem;
+  padding: 0.7rem 1rem !important;
+  color: var(--rd-muted);
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-board .rd-board-breadcrumb > button {
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-breadcrumb > button:hover {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-board .rd-board-brand-chip {
+  border: 0 !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-board .rd-board-body {
+  min-height: 0;
+  gap: 1rem;
+  overflow: hidden;
+}
+
+.rd-horizon-board .rd-board-sidebar {
+  width: 17.5rem !important;
+  overflow: hidden;
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  color: var(--rd-body);
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-board .rd-board-sidebar-head {
+  border-bottom-color: var(--rd-line) !important;
+  padding: 1rem !important;
+  background: transparent !important;
+}
+
+.rd-horizon-board .rd-board-sidebar-head > div:first-child {
+  color: var(--rd-muted) !important;
+  font-size: 0.625rem !important;
+  letter-spacing: 0.16em !important;
+}
+
+.rd-horizon-board .rd-board-sidebar-head h2 {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-board .rd-board-brand-control,
+.rd-horizon-board .rd-board-secondary-control {
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-brand-control:hover,
+.rd-horizon-board .rd-board-secondary-control:hover {
+  border-color: rgba(0, 47, 167, 0.18) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-tree {
+  gap: 0.35rem !important;
+  padding: 0.75rem !important;
+  scrollbar-color: rgba(112, 126, 174, 0.28) transparent;
+}
+
+.rd-horizon-board .rd-board-tree-root,
+.rd-horizon-board .rd-board-tree-group,
+.rd-horizon-board .rd-board-tree-sub,
+.rd-horizon-board .rd-board-tree-node {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-tree-root {
+  border-radius: 12px !important;
+  color: var(--rd-body) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-board .rd-board-tree-root[data-active="true"] {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-board .rd-board-tree-group {
+  border-radius: 14px !important;
+  background: transparent !important;
+}
+
+.rd-horizon-board .rd-board-tree-group[data-active="true"] {
+  background: rgba(238, 243, 255, 0.78) !important;
+}
+
+.rd-horizon-board .rd-board-tree-group:hover,
+.rd-horizon-board .rd-board-tree-node:hover,
+.rd-horizon-board .rd-board-tree-sub:hover {
+  background: rgba(244, 247, 254, 0.86) !important;
+}
+
+.rd-horizon-board .rd-board-tree-indicator {
+  display: none !important;
+}
+
+.rd-horizon-board .rd-board-tree-node svg:not(.text-red-500),
+.rd-horizon-board .rd-board-tree-root > svg {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-board .rd-board-tree-sub {
+  border-radius: 10px !important;
+}
+
+.rd-horizon-board .rd-board-tree-sub[data-active="true"] {
+  color: var(--rd-primary) !important;
+  background: #e6edff !important;
+}
+
+.rd-horizon-board .rd-board-main,
+.rd-horizon-board .rd-board-canvas {
+  background: transparent !important;
+}
+
+.rd-horizon-board .rd-board-main {
+  gap: 1rem;
+}
+
+.rd-horizon-board .rd-board-canvas {
+  padding: 0 1rem 1rem !important;
+  scrollbar-color: rgba(112, 126, 174, 0.3) transparent;
+}
+
+.rd-horizon-board .rd-board-content {
+  max-width: 100% !important;
+}
+
+.rd-horizon-board .rd-board-content > * + * {
+  margin-top: 1.25rem !important;
+}
+
+.rd-horizon-board .rd-board-command-bar {
+  flex: none;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 20px !important;
+  padding: 0.7rem 1rem !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-board .rd-board-command-bar > div:first-child {
+  gap: 0 !important;
+}
+
+.rd-horizon-board .rd-board-command-metric {
+  min-width: 9rem;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0.45rem 1rem !important;
+  color: var(--rd-ink) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-board .rd-board-command-metric + .rd-board-command-metric {
+  border-left: 1px solid var(--rd-line) !important;
+}
+
+.rd-horizon-board .rd-board-command-metric > svg.text-indigo-500,
+.rd-horizon-board .rd-board-command-metric > svg.text-violet-500 {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-board .rd-board-command-metric span.text-lg {
+  color: var(--rd-ink) !important;
+  font-size: 1.25rem !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-board .rd-board-command-metric .text-\[10px\],
+.rd-horizon-board .rd-board-command-metric .text-\[11px\] {
+  color: var(--rd-muted) !important;
+  font-size: 0.6875rem !important;
+}
+
+.rd-horizon-board .rd-board-primary-control {
+  border-radius: 10px !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 10px 20px -14px rgba(0, 47, 167, 0.72) !important;
+}
+
+.rd-horizon-board .rd-board-primary-control:hover {
+  background: var(--rd-primary-hover) !important;
+}
+
+.rd-horizon-board .rd-board-surface {
+  overflow: hidden;
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  color: var(--rd-body);
+  background: var(--rd-surface) !important;
+  background-image: none !important;
+  box-shadow: var(--rd-shadow-card) !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-panel-head {
+  border-bottom-color: var(--rd-line) !important;
+  background: transparent !important;
+  background-image: none !important;
+}
+
+.rd-horizon-board .rd-board-panel-head h3,
+.rd-horizon-board .rd-board-surface h2,
+.rd-horizon-board .rd-board-surface h3 {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.012em;
+}
+
+.rd-horizon-board [data-surface="risk"] .rd-board-panel-head > div:last-child,
+.rd-horizon-board [data-surface="people"] .rd-board-panel-head > div:last-child > div:first-child {
+  border: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-board .rd-board-kpi-strip {
+  padding: 0.25rem !important;
+}
+
+.rd-horizon-board .rd-board-kpi-strip > div {
+  gap: 1rem !important;
+  padding: 0.8rem !important;
+}
+
+.rd-horizon-board .rd-board-kpi-strip > div > div:first-child > span:first-child {
+  border-radius: 11px !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-board .rd-board-kpi-strip .animate-ping {
+  display: none !important;
+}
+
+.rd-horizon-board .rd-board-kpi {
+  min-height: 3.65rem;
+  border: 0 !important;
+  border-radius: 12px !important;
+  padding: 0.6rem 0.7rem !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-kpi:hover {
+  background: var(--rd-soft-blue) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-kpi > span:first-child {
+  color: var(--rd-primary) !important;
+  background: rgba(255, 255, 255, 0.88) !important;
+  background-image: none !important;
+  box-shadow: inset 0 0 0 1px var(--rd-line) !important;
+}
+
+.rd-horizon-board .rd-board-kpi > span:first-child svg {
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-kpi .text-lg {
+  font-size: 1.25rem !important;
+}
+
+.rd-horizon-board .rd-board-kpi .text-indigo-600 {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-board .rd-board-kpi .text-\[10px\] {
+  color: var(--rd-muted) !important;
+  font-size: 0.6875rem !important;
+}
+
+.rd-horizon-board .rd-board-filter-strip {
+  border-bottom-color: var(--rd-line) !important;
+  scrollbar-color: rgba(112, 126, 174, 0.28) transparent;
+}
+
+.rd-horizon-board .rd-board-filter-chip {
+  border-color: var(--rd-line) !important;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-filter-chip:not(:disabled):hover {
+  border-color: rgba(0, 47, 167, 0.14) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-filter-chip[data-active="true"] {
+  border-color: rgba(0, 47, 167, 0.12) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-board .rd-board-filter-chip[data-active="true"] :where(span) {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-board .rd-board-data-row {
+  border-color: transparent !important;
+  color: var(--rd-body);
+  background: transparent !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-data-row:hover,
+.rd-horizon-board .rd-board-data-row:focus-visible {
+  border-color: transparent !important;
+  background: var(--rd-canvas) !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-system-hero {
+  padding: 1.25rem !important;
+}
+
+.rd-horizon-board .rd-board-system-icon {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-board .rd-board-system-hero .bg-indigo-400,
+.rd-horizon-board .rd-board-milestone-row .bg-indigo-500 {
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-board .rd-board-milestones > div > aside {
+  border-color: var(--rd-line) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-board .rd-board-milestone-row {
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-milestone-row:hover {
+  border-color: transparent !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-part-health {
+  padding: 1.25rem !important;
+}
+
+.rd-horizon-board .rd-board-part-card {
+  border-color: transparent !important;
+  border-radius: 14px !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-part-card:hover {
+  border-color: rgba(0, 47, 167, 0.1) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-part-card[data-active="true"] {
+  border-color: rgba(0, 47, 167, 0.16) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: inset 0 -2px 0 var(--rd-primary) !important;
+}
+
+.rd-horizon-board .rd-board-task-list > header h3 {
+  color: var(--rd-ink) !important;
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-board .rd-board-task-filters {
+  gap: 0.65rem !important;
+  border-color: transparent !important;
+  border-radius: 16px !important;
+  padding: 0.75rem !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-board .rd-board-task-filters :where(input, select, button) {
+  min-height: 2.5rem;
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-board .rd-board-task-filters :where(input, select, button):hover,
+.rd-horizon-board .rd-board-task-filters :where(input, select, button):focus-visible {
+  border-color: rgba(0, 47, 167, 0.22) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-board .rd-board-subproject {
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  padding: 1rem !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-board .rd-board-subproject h3,
+.rd-horizon-board .rd-board-task-row h4 {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.01em;
+}
+
+.rd-horizon-board .rd-board-subproject-body {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-board .rd-board-subproject-body > div {
+  border-color: var(--rd-line) !important;
+}
+
+.rd-horizon-board .rd-board-task-row {
+  border-radius: 12px !important;
+  padding: 0.8rem 0.75rem !important;
+  background: transparent !important;
+  transform: none !important;
+}
+
+.rd-horizon-board .rd-board-task-row:hover {
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-board .rd-board-task-priority-rail {
+  display: none !important;
+}
+
+.rd-horizon-board .rd-board-task-open:focus-visible {
+  border-radius: 10px;
+  outline: 2px solid rgba(0, 47, 167, 0.7) !important;
+  outline-offset: 3px !important;
+}
+
+.rd-horizon-board .rd-board-task-note {
+  border-left-width: 0 !important;
+}
+
+.rd-horizon-board .rd-board-subtask-summary {
+  margin-left: 0 !important;
+  width: 100% !important;
+  border-radius: 10px !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-board :where(button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 1500px) {
+  .rd-horizon-board .rd-board-decision-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rd-horizon-board .rd-board-task-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .rd-horizon-board .rd-board-task-filters > label:first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 1200px) {
+  .rd-horizon-board .rd-board-body {
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .rd-horizon-board .rd-board-sidebar {
+    width: 100% !important;
+    max-height: 19rem;
+    flex: none;
+  }
+
+  .rd-horizon-board .rd-board-main,
+  .rd-horizon-board .rd-board-canvas {
+    overflow: visible;
+  }
+
+  .rd-horizon-board .rd-board-command-bar > div:first-child {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .rd-horizon-board .rd-board-command-metric + .rd-board-command-metric {
+    border-left: 0 !important;
+  }
+}
+
+@media (max-width: 1100px) {
+  .rd-horizon-board .rd-board-breadcrumb {
+    align-items: flex-start;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  .rd-horizon-board .rd-board-task-filters {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rd-horizon-board .rd-board-task-filters > label:first-child {
+    grid-column: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-horizon-module *,
+  .rd-horizon-module *::before,
+  .rd-horizon-module *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* 原生研发任务详情页：独立路由仍延续同一套信息层级；生产详情不挂此作用域。 */
+.rd-horizon-task-detail {
+  --primary: #002fa7;
+  --ring: rgba(0, 47, 167, 0.24);
+  width: 100%;
+  max-width: 92rem !important;
+  gap: 1.25rem !important;
+  padding: 0.25rem 0.25rem 1.25rem !important;
+  color: var(--rd-body);
+  background: transparent !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-toolbar {
+  min-height: 4.25rem;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  padding: 0.75rem 1rem;
+  background: var(--rd-surface);
+  box-shadow: var(--rd-shadow-card);
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-toolbar h1 {
+  color: var(--rd-ink) !important;
+  font-size: 1.375rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.022em;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-nav-control {
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-nav-control:hover {
+  border-color: rgba(0, 47, 167, 0.18) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-overview,
+.rd-horizon-task-detail .rd-horizon-detail-properties,
+.rd-horizon-task-detail .rd-horizon-detail-activity,
+.rd-horizon-task-detail .rd-horizon-detail-score,
+.rd-horizon-task-detail .rd-horizon-detail-work-items > * {
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  color: var(--rd-body);
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-overview {
+  padding: 0 !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-description,
+.rd-horizon-task-detail .rd-horizon-detail-topic {
+  padding: 1.25rem !important;
+  background: transparent !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-topic {
+  border-color: var(--rd-line) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-overview :where(.text-indigo-500, .text-indigo-600, .text-indigo-700),
+.rd-horizon-task-detail .rd-horizon-detail-properties :where(.text-indigo-500, .text-indigo-600, .text-indigo-700),
+.rd-horizon-task-detail .rd-horizon-detail-activity :where(.text-indigo-500, .text-indigo-600, .text-indigo-700) {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-topic .bg-indigo-50 {
+  border-color: rgba(0, 47, 167, 0.1) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 1.25rem !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-aside {
+  order: 1 !important;
+  overflow: visible !important;
+  padding: 0.25rem 0.75rem 1rem 0.25rem;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-main {
+  order: 2 !important;
+  gap: 1.25rem !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-properties {
+  overflow: hidden;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-properties > div {
+  border-color: var(--rd-line) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-properties h2,
+.rd-horizon-task-detail .rd-horizon-detail-properties h3,
+.rd-horizon-task-detail .rd-horizon-detail-activity h2,
+.rd-horizon-task-detail .rd-horizon-detail-activity h3 {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-score {
+  border-radius: 16px !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-score > button:hover {
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-activity {
+  min-height: 30rem;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-tabs {
+  gap: 1.25rem !important;
+  border-bottom-color: var(--rd-line) !important;
+  padding-inline: 1.25rem !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-tabs [role="tab"] {
+  color: var(--rd-muted) !important;
+  transform: none !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-tabs [role="tab"]:hover {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-tabs [role="tab"][data-state="active"] {
+  border-bottom-color: var(--rd-primary) !important;
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-filter {
+  border-bottom-color: var(--rd-line) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-filter button {
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-filter button[aria-pressed="true"] {
+  border-color: rgba(0, 47, 167, 0.12) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-relation-node {
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-relation-node:hover {
+  border-color: rgba(0, 47, 167, 0.1) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-relation-node[data-active="true"] {
+  border-color: rgba(0, 47, 167, 0.14) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: inset 0 -2px 0 var(--rd-primary) !important;
+}
+
+.rd-horizon-task-detail :where(button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-task-detail-overlay {
+  background: rgba(27, 37, 89, 0.3) !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-task-detail .rd-task-detail-overlay-surface {
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 20px !important;
+  color: var(--rd-body);
+  background: var(--rd-surface) !important;
+  box-shadow: 0 20px 52px rgba(27, 37, 89, 0.18) !important;
+}
+
+.rd-horizon-detail-select,
+.rd-horizon-detail-dialog {
+  --rd-primary: #002fa7;
+  --rd-primary-hover: #002581;
+  --rd-ink: #1b2559;
+  --rd-body: #42526f;
+  --rd-soft-blue: #eef3ff;
+  --rd-line: #e9edf7;
+  --rd-line-strong: #e0e5f2;
+  z-index: 80 !important;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 16px !important;
+  color: var(--rd-body) !important;
+  background: #ffffff !important;
+  box-shadow: 0 18px 44px rgba(112, 144, 176, 0.18) !important;
+}
+
+.rd-horizon-detail-select [role="option"]:is(:focus, [data-highlighted]) {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+@media (min-width: 1500px) {
+  .rd-horizon-task-detail .rd-horizon-detail-grid {
+    grid-template-columns: minmax(0, 1fr) 21.25rem !important;
+  }
+
+  .rd-horizon-task-detail .rd-horizon-detail-aside {
+    order: 2 !important;
+    overflow-y: auto !important;
+  }
+
+  .rd-horizon-task-detail .rd-horizon-detail-main {
+    order: 1 !important;
+  }
+}
+
+@media (max-width: 1200px) {
+  .rd-horizon-task-detail .rd-horizon-detail-toolbar {
+    align-items: flex-start;
+  }
+
+  .rd-horizon-task-detail .rd-horizon-detail-toolbar h1 {
+    flex-basis: 100%;
+    order: -1;
+  }
+}
+
+/* 研发模块内的管理弹层：统一骨架，不触碰协同/生产复用实例。 */
+.rd-horizon-module .rd-task-overlay {
+  background: rgba(27, 37, 89, 0.3) !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-module .rd-task-overlay-surface {
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 20px !important;
+  color: var(--rd-body);
+  background: var(--rd-surface) !important;
+  box-shadow: 0 20px 52px rgba(27, 37, 89, 0.18) !important;
+}
+
+.rd-horizon-module .rd-task-overlay-surface > :where(header, div):first-child {
+  border-bottom-color: var(--rd-line) !important;
+}
+
+.rd-horizon-module .rd-task-overlay-surface :where(h2, h3) {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-module .rd-task-overlay-surface :where(.text-indigo-500, .text-indigo-600, .text-indigo-700) {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-module .rd-task-overlay-surface :where(.bg-indigo-50, .bg-indigo-100) {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-module .rd-task-overlay-surface .bg-indigo-600 {
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-module .rd-task-overlay-surface .hover\:bg-indigo-700:hover {
+  background: var(--rd-primary-hover) !important;
+}
+
+.rd-horizon-module .rd-task-overlay-surface :where(input, textarea, select) {
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-module .rd-task-overlay-surface :where(input, textarea, select):focus {
+  border-color: rgba(0, 47, 167, 0.26) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.07) !important;
+}
+
+.rd-horizon-module .rd-task-overlay-drawer .rd-task-overlay-surface {
+  width: min(37.5rem, 92vw) !important;
+  max-width: 37.5rem !important;
+  max-height: 100dvh;
+  overflow: hidden;
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  border-right: 0 !important;
+}
+
+.rd-horizon-module-dialog {
+  --rd-primary: #002fa7;
+  --rd-ink: #1b2559;
+  --rd-body: #42526f;
+  --rd-line: #e9edf7;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 20px !important;
+  color: var(--rd-body) !important;
+  background: #ffffff !important;
+  box-shadow: 0 20px 52px rgba(27, 37, 89, 0.18) !important;
+}
+
+.rd-horizon-module-dialog h2 {
+  color: var(--rd-ink) !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
  * 移动端路由（/m）专用覆盖
  * 桌面外壳在 @layer base 里给 html/body/#root 强加了 min-width:1024px、body 锁竖向滚动、
  * #root 固定 100vh —— 这是为「最小 1024 的桌面应用」设计的，会把移动页强行撑到 1024 宽，

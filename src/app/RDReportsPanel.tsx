@@ -31,8 +31,9 @@ export function RDReportsPanel({ canRegenerate, spacious = false }: { canRegener
             key={key}
             type="button"
             onClick={() => setTab(key)}
+            data-active={active}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all",
+              "rd-horizon-report-tab inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all",
               active
                 ? key === "monthly"
                   ? "bg-amber-500 text-white shadow-sm"
