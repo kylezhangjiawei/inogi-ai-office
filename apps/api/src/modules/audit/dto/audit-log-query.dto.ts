@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 const trimmed = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 
@@ -79,6 +79,15 @@ export class AuditLogQueryDto {
   @IsOptional()
   @IsIn(['newest', 'oldest'])
   sort?: 'newest' | 'oldest';
+
+  /**
+   * 是否随本次列表一并计算概览统计。
+   * 统计只跟筛选条件走，翻页时重复计算纯属白花——前端只在筛选条件变化时置 1。
+   */
+  @IsOptional()
+  @Transform(({ value }) => value === '1' || value === 'true' || value === true)
+  @IsBoolean()
+  withStats?: boolean;
 
   /** 翻页快照时刻：分页期间新写入的留痕不挤动页码，与采购留痕页原有行为一致。 */
   @IsOptional()

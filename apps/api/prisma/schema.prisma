@@ -184,6 +184,9 @@ model AuditLog {
   /// 事后补充的备注，元素形如 { id, text, actor, created_at }
   notes        Json     @default("[]")
 
+  /// 默认视图不带模块筛选，按时间倒序翻页；上面几条复合索引的首列都对不上，
+  /// 没有这条会退化成全表排序。
+  @@index([createdAt, id])
   @@index([resource, createdAt, id])
   @@index([module, createdAt, id])
   @@index([userId, createdAt])

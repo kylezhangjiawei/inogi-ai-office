@@ -27,6 +27,13 @@ const VIEW_ALL_RULES: ReadonlyArray<{ permissions: readonly string[]; modules: r
 
 const MAX_ACTION_FILTERS = 200;
 const MAX_ACTOR_OPTIONS = 200;
+/**
+ * 「涉及对象 / 操作人数」这类去重统计的取数上限。
+ *
+ * distinct 查询不封顶的话，留痕攒到几十万行时会把整批去重结果拉进内存，只为求一个长度。
+ * 概览数字超过这个量级已经没有阅读价值，到顶就显示 “N+”。
+ */
+const DISTINCT_STAT_CAP = 2000;
 const DEFAULT_PAGE_SIZE = 25;
 
 /** 「高风险」概览口径，与合并前研发留痕页顶部卡片保持一致。 */
@@ -95,7 +102,8 @@ export class AuditService {
       pageSize,
       snapshotAt: snapshotAt.toISOString(),
       canViewAll: canViewAllAuditLogs(viewer.permissions),
-      stats: await this.buildStats(where),
+      // 不要时返回 null，让调用方明确知道「这次没算」而不是「算出来是 0」
+      stats: query.withStats === false ? null : await this.buildStats(where),
       items: rows.map((row) => this.toItem(row)),
     };
   }
@@ -106,8 +114,18 @@ export class AuditService {
    */
   private async buildStats(where: Prisma.AuditLogWhereInput) {
     const [actors, resources, aiCount, riskCount] = await Promise.all([
-      this.prisma.auditLog.findMany({ where, distinct: ['userId', 'actorName'], select: { userId: true, actorName: true } }),
-      this.prisma.auditLog.findMany({ where, distinct: ['resource', 'resourceId'], select: { resource: true } }),
+      this.prisma.auditLog.findMany({
+        where,
+        distinct: ['userId', 'actorName'],
+        select: { userId: true },
+        take: DISTINCT_STAT_CAP,
+      }),
+      this.prisma.auditLog.findMany({
+        where,
+        distinct: ['resource', 'resourceId'],
+        select: { resource: true },
+        take: DISTINCT_STAT_CAP,
+      }),
       this.prisma.auditLog.count({
         // 与前端 AUDIT_ACTION_META 的 ai 类目同口径：ai.* 动作码 + source=ai 的代执行
         where: { AND: [where, { OR: [{ source: 'ai' }, { action: { startsWith: 'ai.' } }] }] },
@@ -119,6 +137,9 @@ export class AuditService {
     return {
       uniqueActors: actors.length,
       uniqueResources: resources.length,
+      // 到顶说明真实值还更大，前端据此显示 “N+”，不谎报成确切数字
+      actorsCapped: actors.length >= DISTINCT_STAT_CAP,
+      resourcesCapped: resources.length >= DISTINCT_STAT_CAP,
       aiCount,
       riskCount,
     };

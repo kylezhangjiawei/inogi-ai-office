@@ -10819,11 +10819,9 @@ export class ResearchDevelopmentService {
 
       const notesMap = await this.getProgressNoteMap();
       const notes = notesMap[taskId] ?? [];
-      const allLogs = await this.getAuditLogs();
-      const taskLogs = allLogs.filter((log) => {
-        const resource = isRecord(log.resource) ? log.resource : null;
-        return resource && resource.id === taskId;
-      });
+      // 按任务下推过滤，不再拉最新一批再本地筛：留痕由服务端随每次变更写入后条数远多于从前，
+      // 老任务的记录会整段落到条数上限之外，评分拿到的就是空留痕。
+      const taskLogs = await this.getAuditLogs(undefined, { resourceId: taskId });
 
       const aiResult = await this.rdAiService.scoreTaskCompletion({
         task: {
@@ -10972,31 +10970,38 @@ export class ResearchDevelopmentService {
     const actor = isRecord(payload.actor) ? payload.actor : {};
     const resource = isRecord(payload.resource) ? payload.resource : {};
     const actorId = cleanUserId(actor.id);
-    // userId 是外键：指向已删除账号会让整条写入失败。宁可丢关联也不能丢留痕，
-    // 姓名快照 actorName 保证这类记录仍追溯得到人。
-    const actorExists = actorId
-      ? await this.prisma.user.findUnique({ where: { id: actorId }, select: { id: true } })
-      : null;
     const source = cleanText(payload.source);
 
-    const row = await this.prisma.auditLog.create({
-      data: {
-        userId: actorExists ? actorId : null,
-        actorName: cleanText(actor.name) || null,
-        module: currentRdWorkspace(),
-        source: source === 'ai' || source === 'system' || source === 'api' ? source : 'web',
-        action: cleanText(payload.action) || 'unknown',
-        resource: cleanText(resource.type) || 'system',
-        resourceId: cleanText(resource.id) || null,
-        resourceName: cleanText(resource.name) || null,
-        summary: cleanText(payload.comment) || cleanText(payload.summary) || null,
-        meta: {
-          ...(Array.isArray(payload.changes) ? { changes: payload.changes } : {}),
-          ...(isRecord(payload.metadata) ? { metadata: payload.metadata } : {}),
-          ...(cleanText(actor.role) ? { actorRole: cleanText(actor.role) } : {}),
-        } as Prisma.InputJsonValue,
-        notes: [],
-      },
+    const data: Prisma.AuditLogUncheckedCreateInput = {
+      userId: actorId || null,
+      actorName: cleanText(actor.name) || null,
+      module: currentRdWorkspace(),
+      source: source === 'ai' || source === 'system' || source === 'api' ? source : 'web',
+      action: cleanText(payload.action) || 'unknown',
+      resource: cleanText(resource.type) || 'system',
+      resourceId: cleanText(resource.id) || null,
+      resourceName: cleanText(resource.name) || null,
+      summary: cleanText(payload.comment) || cleanText(payload.summary) || null,
+      meta: {
+        ...(Array.isArray(payload.changes) ? { changes: payload.changes } : {}),
+        ...(isRecord(payload.metadata) ? { metadata: payload.metadata } : {}),
+        ...(cleanText(actor.role) ? { actorRole: cleanText(actor.role) } : {}),
+      } as Prisma.InputJsonValue,
+      notes: [],
+    };
+
+    // userId 是外键：指向已删除账号会让整条写入失败。留痕宁可丢关联也不能整条丢，
+    // 姓名快照 actorName 保证这类记录仍追溯得到人。
+    //
+    // 这里不预先查一次用户是否存在：操作人来自 JWT，绝大多数情况必然存在，
+    // 那一次查询是每条留痕都要付的固定成本。改成先插、只有真撞上外键（P2003）才降级重试，
+    // 把开销挪到极少发生的异常路径上。
+    const row = await this.prisma.auditLog.create({ data }).catch(async (err: unknown) => {
+      const isForeignKeyViolation =
+        err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003';
+      if (!isForeignKeyViolation || !actorId) throw err;
+      this.logger.warn(`[服务端审计] 操作人 ${actorId} 已不存在，留痕改为仅记姓名快照`);
+      return this.prisma.auditLog.create({ data: { ...data, userId: null } });
     });
     return this.auditRowToJson(row);
   }

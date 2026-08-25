@@ -9,15 +9,21 @@ type RecordValue = Record<string, unknown>;
  * 统一操作留痕的可见范围。三个留痕页合并成一个页面码后，「谁能看到谁的记录」
  * 全靠服务层这一处判定——判错就是越权，所以单独钉住。
  */
-function createService() {
-  const captured: { where?: RecordValue; count: RecordValue[] } = { count: [] };
+function createService(distinctRows = 0) {
+  const captured: { where?: RecordValue; count: RecordValue[]; findMany: RecordValue[] } = { count: [], findMany: [] };
   const service = Object.create(AuditService.prototype) as any;
   const table = {
     count: async (args: RecordValue) => {
       captured.count.push(args);
       return 0;
     },
-    findMany: async () => [],
+    findMany: async (args: RecordValue) => {
+      captured.findMany.push(args);
+      // 模拟去重统计：返回 take 允许的最大行数，用来验证封顶行为
+      if (!args.distinct) return [];
+      const take = (args.take as number) ?? distinctRows;
+      return Array.from({ length: Math.min(distinctRows, take) }, () => ({}));
+    },
     groupBy: async () => [],
   };
   service.prisma = {
@@ -127,4 +133,36 @@ test('模块、来源与动作码列表逐项落到查询条件上', async () =>
   assert.ok(flat.includes('"resource":"task"'));
   // 逗号列表去空白去空项后做 IN 过滤
   assert.ok(filters.some((item) => JSON.stringify(item) === JSON.stringify({ action: { in: ['task.created', 'task.updated'] } })));
+});
+
+test('概览统计的去重查询必须封顶，且到顶时如实标记', async () => {
+  // 去重结果远超上限：不封顶就会把整批拉进内存只为求个长度
+  const big = createService(999999);
+  const page = (await big.service.listLogs({ withStats: true }, { userId: 'admin', permissions: ['*'] })) as {
+    stats: { uniqueActors: number; uniqueResources: number; actorsCapped: boolean; resourcesCapped: boolean } | null;
+  };
+  const distinctQueries = big.captured.findMany.filter((q) => q.distinct);
+  assert.equal(distinctQueries.length, 2);
+  assert.ok(distinctQueries.every((q) => typeof q.take === 'number' && (q.take as number) <= 2000));
+  assert.equal(page.stats?.uniqueActors, 2000);
+  assert.equal(page.stats?.actorsCapped, true);
+  assert.equal(page.stats?.resourcesCapped, true);
+
+  const small = createService(3);
+  const smallPage = (await small.service.listLogs({ withStats: true }, { userId: 'admin', permissions: ['*'] })) as {
+    stats: { uniqueActors: number; actorsCapped: boolean } | null;
+  };
+  assert.equal(smallPage.stats?.uniqueActors, 3);
+  assert.equal(smallPage.stats?.actorsCapped, false);
+});
+
+test('withStats=false 时不跑聚合查询，返回 null 而不是 0', async () => {
+  const skipped = createService(10);
+  const page = (await skipped.service.listLogs({ withStats: false }, { userId: 'admin', permissions: ['*'] })) as {
+    stats: unknown;
+  };
+  assert.equal(page.stats, null);
+  // 统计的 4 条查询一条都不该发出：翻页时重复算纯属白花
+  assert.equal(skipped.captured.findMany.filter((q) => q.distinct).length, 0);
+  assert.equal(skipped.captured.count.length, 1, '只剩列表自己的总数统计');
 });

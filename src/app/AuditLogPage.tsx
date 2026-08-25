@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
@@ -28,6 +28,7 @@ import {
   actionsForCategory,
   AuditCategory,
   AuditFacets,
+  AuditStats,
   auditModuleLabel,
   CATEGORY_LABELS,
   fetchAuditFacets,
@@ -54,7 +55,7 @@ const EMPTY_PAGE: UnifiedAuditPage = {
   pageSize: 25,
   snapshotAt: "",
   canViewAll: false,
-  stats: { uniqueActors: 0, uniqueResources: 0, aiCount: 0, riskCount: 0 },
+  stats: null,
   items: [],
 };
 const EMPTY_FACETS: AuditFacets = { modules: [], actions: [], resources: [], actors: [] };
@@ -219,6 +220,8 @@ export function AuditLogPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [data, setData] = useState<UnifiedAuditPage>(EMPTY_PAGE);
+  // 统计只跟筛选条件走。翻页时不再让服务端重算，沿用上一次的结果。
+  const [stats, setStats] = useState<AuditStats | null>(null);
   const [facets, setFacets] = useState<AuditFacets>(EMPTY_FACETS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -249,13 +252,25 @@ export function AuditLogPage() {
     [action, actorId, category, debouncedKeyword, moduleFilter, page, pageSize, resourceType, since, sortOrder, source, until],
   );
 
+  // 筛选条件的指纹：变了才需要重算统计，仅翻页不算
+  const filterSignature = useMemo(() => {
+    const { page: _page, ...rest } = query;
+    return JSON.stringify(rest);
+  }, [query]);
+  const statsSignature = useRef<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchAuditLogPage(query)
+    const needStats = statsSignature.current !== filterSignature;
+    fetchAuditLogPage({ ...query, withStats: needStats })
       .then((result) => {
         if (cancelled) return;
         setData(result);
+        if (result.stats) {
+          setStats(result.stats);
+          statsSignature.current = filterSignature;
+        }
         setError(null);
         // 服务端会把越界页码收回最后一页；本地页码跟随，否则翻页按钮与实际内容对不上
         if (result.page !== query.page) setPage(result.page);
@@ -263,6 +278,8 @@ export function AuditLogPage() {
       .catch((err: unknown) => {
         if (cancelled) return;
         setData(EMPTY_PAGE);
+        setStats(null);
+        statsSignature.current = null;
         setError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => {
@@ -271,7 +288,7 @@ export function AuditLogPage() {
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [filterSignature, query]);
 
   // 筛选选项只跟「可见范围 + 模块」走：跟着其他条件收窄会让选项互相抹掉，越筛越选不动
   useEffect(() => {
@@ -349,14 +366,8 @@ export function AuditLogPage() {
     until,
   ].filter(Boolean).length;
 
-  // 概览数字由服务端按整个筛选集统计：分页后前端只拿得到当前页，自己算会算错
-  const stats = {
-    total: data.total,
-    uniqueResources: data.stats.uniqueResources,
-    uniqueActors: data.stats.uniqueActors,
-    aiCount: data.stats.aiCount,
-    riskCount: data.stats.riskCount,
-  };
+  /** 去重统计到顶时真实值更大，显示成 “N+”，不谎报确切数字。 */
+  const capped = (value: number, isCapped: boolean) => (isCapped ? `${value}+` : value);
 
   const resetFilters = () => {
     setKeyword("");
@@ -461,11 +472,11 @@ export function AuditLogPage() {
 
         <section className="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-5">
           {[
-            { label: t("匹配记录"), value: stats.total, Icon: Database, tone: "text-slate-900" },
-            { label: t("涉及对象"), value: stats.uniqueResources, Icon: Activity, tone: "text-cyan-700" },
-            { label: t("操作人员"), value: stats.uniqueActors, Icon: UserRound, tone: "text-emerald-600" },
-            { label: t("AI/自动"), value: stats.aiCount, Icon: Bot, tone: "text-indigo-700" },
-            { label: t("风险动作"), value: stats.riskCount, Icon: ShieldCheck, tone: "text-amber-600" },
+            { label: t("匹配记录"), value: data.total, Icon: Database, tone: "text-slate-900" },
+            { label: t("涉及对象"), value: capped(stats?.uniqueResources ?? 0, stats?.resourcesCapped ?? false), Icon: Activity, tone: "text-cyan-700" },
+            { label: t("操作人员"), value: capped(stats?.uniqueActors ?? 0, stats?.actorsCapped ?? false), Icon: UserRound, tone: "text-emerald-600" },
+            { label: t("AI/自动"), value: stats?.aiCount ?? 0, Icon: Bot, tone: "text-indigo-700" },
+            { label: t("风险动作"), value: stats?.riskCount ?? 0, Icon: ShieldCheck, tone: "text-amber-600" },
           ].map(({ label, value, Icon, tone }, index) => (
             <motion.div
               key={label}

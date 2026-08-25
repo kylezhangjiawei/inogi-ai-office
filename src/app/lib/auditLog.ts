@@ -794,6 +794,18 @@ export type UnifiedAuditQuery = {
   page?: number;
   pageSize?: number;
   snapshotAt?: string;
+  /** 是否一并计算概览统计。翻页时置 false，省掉服务端 4 条重复的聚合查询。 */
+  withStats?: boolean;
+};
+
+export type AuditStats = {
+  uniqueActors: number;
+  uniqueResources: number;
+  /** 去重统计到达取数上限：真实值更大，显示成 “N+”。 */
+  actorsCapped: boolean;
+  resourcesCapped: boolean;
+  aiCount: number;
+  riskCount: number;
 };
 
 export type UnifiedAuditPage = {
@@ -802,7 +814,8 @@ export type UnifiedAuditPage = {
   pageSize: number;
   snapshotAt: string;
   canViewAll: boolean;
-  stats: { uniqueActors: number; uniqueResources: number; aiCount: number; riskCount: number };
+  /** 只在请求了统计时返回；翻页时为 null，调用方沿用上一次的结果。 */
+  stats: AuditStats | null;
   items: UnifiedAuditLog[];
 };
 
@@ -875,6 +888,7 @@ function buildAuditQuery(query: UnifiedAuditQuery): string {
   put("page", query.page);
   put("pageSize", query.pageSize);
   put("snapshotAt", query.snapshotAt);
+  if (query.withStats !== undefined) params.set("withStats", query.withStats ? "1" : "0");
   if (query.actions && query.actions.length > 0) params.set("actions", query.actions.join(","));
   return params.toString();
 }
