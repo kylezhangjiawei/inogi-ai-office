@@ -11169,7 +11169,7 @@ function ProjectClassificationDialog({
       </motion.div>
 
       <AlertDialog open={showMergeConfirm} onOpenChange={(open) => { if (!merging) setShowMergeConfirm(open); }}>
-        <AlertDialogContent className="max-w-xl">
+        <AlertDialogContent overlayClassName="z-[90]" className="z-[91] sm:max-w-xl">
           <AlertDialogHeader>
             <AlertDialogTitle>确认整理为主任务线？</AlertDialogTitle>
             <AlertDialogDescription className="space-y-3 text-left">

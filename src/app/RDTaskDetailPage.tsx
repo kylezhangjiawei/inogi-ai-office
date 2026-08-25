@@ -2235,7 +2235,7 @@ export default function RDTaskDetailPage() {
 
       {/* 人员名下任务弹层（Radix Dialog）：点任务跳转到该任务的详情页 */}
       <Dialog open={Boolean(personTasksFor)} onOpenChange={(open) => { if (!open) setPersonTasksFor(null); }}>
-        <DialogContent className={cn("max-w-md rounded-2xl border-slate-200 bg-white p-5 shadow-2xl", !productionWorkspace && "rd-horizon-detail-dialog")}>
+        <DialogContent className={cn("sm:max-w-md rounded-2xl border-slate-200 bg-white p-5 shadow-2xl", !productionWorkspace && "rd-horizon-detail-dialog")}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-slate-800">
               {personTasksFor && <OwnerAvatar name={personTasksFor} size="sm" />}
