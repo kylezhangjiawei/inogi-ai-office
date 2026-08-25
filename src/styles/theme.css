@@ -1837,15 +1837,17 @@
 
 .rd-horizon-cockpit .rd-horizon-task-card-body {
   min-height: 12.5rem !important;
+  gap: 0.75rem !important;
+  padding: 1rem !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-task-card {
   border-color: var(--rd-line) !important;
   border-radius: 16px !important;
   background: var(--rd-surface) !important;
-  box-shadow: 0 6px 20px rgba(112, 144, 176, 0.055) !important;
+  box-shadow: none !important;
   transform: none !important;
-  transition: box-shadow 190ms ease !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-task-card::before {
@@ -1854,7 +1856,7 @@
 
 .rd-horizon-cockpit .rd-horizon-task-card:hover {
   border-color: rgba(0, 47, 167, 0.08) !important;
-  box-shadow: 0 10px 26px rgba(112, 144, 176, 0.09) !important;
+  box-shadow: 0 8px 22px rgba(112, 144, 176, 0.075) !important;
   transform: none !important;
 }
 
@@ -1869,12 +1871,14 @@
   color: var(--rd-muted) !important;
   background: var(--rd-canvas) !important;
   font-weight: 600 !important;
+  font-size: 0.75rem !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-structure-tag {
   border-color: transparent !important;
   color: var(--rd-muted) !important;
   background: var(--rd-canvas) !important;
+  font-size: 0.75rem !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-task-summary {
@@ -1929,6 +1933,12 @@
   background: var(--rd-soft-blue) !important;
 }
 
+.rd-horizon-cockpit .rd-horizon-more-action {
+  border-color: var(--rd-line) !important;
+  color: var(--rd-muted) !important;
+  background: transparent !important;
+}
+
 .rd-horizon-cockpit .rd-horizon-attachment-action:hover,
 .rd-horizon-cockpit .rd-horizon-more-action:hover {
   border-color: rgba(0, 47, 167, 0.12) !important;
@@ -1978,12 +1988,13 @@
   border-color: var(--rd-line) !important;
   border-radius: 16px !important;
   background: var(--rd-surface) !important;
-  box-shadow: 0 6px 20px rgba(112, 144, 176, 0.055) !important;
+  box-shadow: none !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-system-card:hover {
   border-color: rgba(0, 47, 167, 0.08) !important;
-  box-shadow: 0 10px 26px rgba(112, 144, 176, 0.09) !important;
+  box-shadow: 0 8px 22px rgba(112, 144, 176, 0.075) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-system-accent {
@@ -2227,6 +2238,12 @@
 
 .rd-horizon-board .rd-board-tree-node svg:not(.text-red-500),
 .rd-horizon-board .rd-board-tree-root > svg {
+  color: var(--rd-muted) !important;
+}
+
+.rd-horizon-board .rd-board-tree-root[data-active="true"] > svg,
+.rd-horizon-board .rd-board-tree-group[data-active="true"] .rd-board-tree-node svg:not(.text-red-500),
+.rd-horizon-board .rd-board-tree-sub[data-active="true"] svg:not(.text-red-500) {
   color: var(--rd-primary) !important;
 }
 
@@ -2302,7 +2319,7 @@
 .rd-horizon-board .rd-board-command-metric .text-\[10px\],
 .rd-horizon-board .rd-board-command-metric .text-\[11px\] {
   color: var(--rd-muted) !important;
-  font-size: 0.6875rem !important;
+  font-size: 0.75rem !important;
 }
 
 .rd-horizon-board .rd-board-primary-control {
@@ -2523,11 +2540,11 @@
 
 .rd-horizon-board .rd-board-task-filters {
   gap: 0.75rem !important;
-  border-color: transparent !important;
+  border-color: var(--rd-line) !important;
   border-radius: 16px !important;
   padding: 0.75rem !important;
   background: var(--rd-surface) !important;
-  box-shadow: var(--rd-shadow-card) !important;
+  box-shadow: none !important;
 }
 
 .rd-horizon-board .rd-board-task-filters :where(input, select, button) {
@@ -2551,11 +2568,11 @@
 }
 
 .rd-horizon-board .rd-board-subproject {
-  border: 1px solid transparent !important;
+  border: 1px solid var(--rd-line) !important;
   border-radius: 16px !important;
   padding: 1rem !important;
   background: var(--rd-surface) !important;
-  box-shadow: var(--rd-shadow-card) !important;
+  box-shadow: none !important;
 }
 
 .rd-horizon-board .rd-board-subproject h3,
@@ -2803,7 +2820,15 @@
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-score {
+  border-color: var(--rd-line) !important;
   border-radius: 16px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-work-items > * {
+  border-color: var(--rd-line) !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-score > button:hover {
