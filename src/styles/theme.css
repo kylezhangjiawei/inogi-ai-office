@@ -2249,8 +2249,7 @@
 }
 
 .rd-horizon-board .rd-board-tree-root[data-active="true"] > svg,
-.rd-horizon-board .rd-board-tree-group[data-active="true"] .rd-board-tree-node svg:not(.text-red-500),
-.rd-horizon-board .rd-board-tree-sub[data-active="true"] svg:not(.text-red-500) {
+.rd-horizon-board .rd-board-tree-group[data-active="true"] .rd-board-tree-node svg:not(.text-red-500) {
   color: var(--rd-primary) !important;
 }
 
