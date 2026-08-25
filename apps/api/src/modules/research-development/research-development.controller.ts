@@ -299,6 +299,27 @@ export class ResearchDevelopmentController {
     });
   }
 
+  /** 批量转派：一次请求转派多个任务，批次号由服务端生成并写进每条留痕。 */
+  @Post('task-categories/tasks/reassign-batch')
+  @Permissions(...RD_TASK_MANAGER_PERMISSIONS)
+  reassignTasksBatch(
+    @Body() body: { task_ids?: unknown; primary_owner?: unknown; primary_owner_user_id?: unknown },
+    @Request() req: AuthedRequest,
+  ) {
+    const taskIds = Array.isArray(body?.task_ids)
+      ? body.task_ids.filter((id): id is string => typeof id === 'string')
+      : [];
+    const perms = req.user?.permissions ?? [];
+    return this.rdService.reassignTasksBatch(
+      taskIds,
+      {
+        primaryOwner: typeof body?.primary_owner === 'string' ? body.primary_owner : '',
+        primaryOwnerUserId: typeof body?.primary_owner_user_id === 'string' ? body.primary_owner_user_id : null,
+      },
+      { ...auditActor(req), canEditAny: canManageTaskStructure(perms) },
+    );
+  }
+
   @Delete('task-categories/tasks/:taskId')
   @Permissions('rd-task:edit')
   deleteTask(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {

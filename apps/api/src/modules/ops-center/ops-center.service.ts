@@ -263,7 +263,7 @@ export class OpsCenterService {
   }
 
   async getDatabaseMonitoring() {
-    const [dbRuntime, slowQueries, apiStats] = await Promise.all([
+    const [dbRuntime, slowQueries, apiStats, invalidIndexes] = await Promise.all([
       this.getDatabaseRuntime(),
       this.getSlowQueries(),
       this.prisma.apiRequestLog.aggregate({
@@ -271,6 +271,7 @@ export class OpsCenterService {
         _avg: { durationMs: true },
         _count: true,
       }),
+      this.getInvalidIndexes(),
     ]);
 
     const connectionLabel = `${dbRuntime.activeConnections ?? '-'} / ${process.env.DATABASE_POOL_LIMIT ?? '80'}`;
@@ -284,6 +285,13 @@ export class OpsCenterService {
         { label: '连接池', value: connectionLabel, helper: '来自 pg_stat_activity', tone: 'info', icon: 'Server' },
         { label: '慢请求', value: String(slowQueries.length), helper: '按接口耗时推断', tone: slowQueries.length > 0 ? 'warning' : 'healthy', icon: 'Clock3' },
         { label: '数据体积', value: storageValue, helper: 'current_database()', tone: 'healthy', icon: 'Gauge' },
+        {
+          label: '失效索引',
+          value: invalidIndexes.length === 0 ? '无' : invalidIndexes.map((item) => item.index_name).join('、'),
+          helper: invalidIndexes.length === 0 ? '全部索引可用' : 'CONCURRENTLY 建索引中断所致，需人工删除后重建',
+          tone: invalidIndexes.length === 0 ? 'healthy' : 'warning',
+          icon: 'ListFilter',
+        },
       ],
       database_trend: this.getDatabaseTrendFromApiStats(apiStats._count, Math.round(apiStats._avg.durationMs ?? 0)),
       slow_queries: slowQueries,
@@ -502,6 +510,38 @@ export class OpsCenterService {
       count: item.count,
       source: this.resolveServiceName(item.path),
     }));
+  }
+
+  /**
+   * 失效（INVALID）索引。
+   *
+   * CREATE INDEX CONCURRENTLY 中途失败（磁盘不足、被 kill、死锁）会留下一个 INVALID 索引：
+   * 占空间、不被查询使用，而且带 IF NOT EXISTS 的重建会认为它已存在从而跳过 ——
+   * 除非有人主动去查，否则不会有人发现。留痕表的四条 trigram 索引正是这么建的
+   * （20260825190100~190400），所以把检查做进面板，而不是只写在迁移注释里。
+   *
+   * 面板报出失效索引后的处理步骤：
+   *   1) 删掉它（不能带 IF NOT EXISTS 重建，那会被跳过）：
+   *      DROP INDEX CONCURRENTLY "<面板里显示的索引名>";
+   *   2) 标记对应迁移为已回滚，再重新部署：
+   *      npx prisma migrate resolve --rolled-back <迁移目录名>
+   *      npx prisma migrate deploy
+   */
+  private async getInvalidIndexes(): Promise<Array<{ index_name: string; table_name: string }>> {
+    try {
+      return await this.prisma.$queryRaw<Array<{ index_name: string; table_name: string }>>(Prisma.sql`
+        SELECT c.relname AS index_name, t.relname AS table_name
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indexrelid
+        JOIN pg_class t ON t.oid = i.indrelid
+        WHERE NOT i.indisvalid
+        ORDER BY c.relname
+        LIMIT 20
+      `);
+    } catch {
+      // 权限不足或非 PostgreSQL：这项是附加检查，取不到就当作没有失效索引，不影响面板其余部分
+      return [];
+    }
   }
 
   private getDatabaseTrendFromApiStats(count: number, avgDuration: number) {

@@ -1193,6 +1193,27 @@ export function saveRdApprovalFlows<TFlow>(payload: TFlow[]) {
  * 传 resourceType/resourceId 时按资源下推过滤——任务详情时间线必须走这条路径，
  * 否则会被服务端的条数上限截断，稍早的任务查不到自己的历史。
  */
+/**
+ * 批量转派。一次请求交给服务端串行处理，批次号由服务端生成并写进每条留痕，
+ * 事后能把一次批量还原成一组——前端并发调 N 次 PATCH 是做不到这点的。
+ * 返回成功与失败的任务清单：部分失败不回滚，由调用方提示。
+ */
+export function reassignRdTasksBatch(payload: {
+  task_ids: string[];
+  primary_owner: string;
+  primary_owner_user_id?: string | null;
+}) {
+  return requestJson<{
+    ok: true;
+    batch_id: string;
+    succeeded: string[];
+    failed: Array<{ task_id: string; reason: string }>;
+  }>("/task-categories/tasks/reassign-batch", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function fetchRdAuditLogs<TLog = unknown>(
   filter?: { resourceType?: string; resourceId?: string },
 ) {

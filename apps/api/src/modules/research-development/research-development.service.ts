@@ -231,6 +231,9 @@ const RD_ANY_TASK_TRANSFER_PERMISSIONS = [
 ] as const;
 const MAX_AUDIT_LOGS = 1000;
 
+/** 单次批量转派的任务数上限。updateTask 是整树读改写，串行执行，太多会把请求拖到超时。 */
+const MAX_BATCH_REASSIGN_TASKS = 100;
+
 /** 服务端留痕的操作人。控制器从 req.user 取，服务层不自己猜。 */
 type AuditActorRef = { userId?: string; userName?: string };
 
@@ -3796,7 +3799,7 @@ export class ResearchDevelopmentService {
   async updateTask(
     taskId: string,
     patch: JsonRecord,
-    options?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean },
+    options?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean; auditBatchId?: string },
   ) {
     // Strip private notification-metadata fields before persisting
     const {
@@ -4056,7 +4059,11 @@ export class ResearchDevelopmentService {
           actor: { id: options?.requesterUserId, name: options?.requesterName },
           comment,
           changes: auditChanges,
-          ...(review ? { metadata: { review_type: cleanText(auditBefore.pending_review_type) || 'result' } } : {}),
+          metadata: {
+            ...(review ? { review_type: cleanText(auditBefore.pending_review_type) || 'result' } : {}),
+            // 批量操作里的每条记录都带同一个批次号，事后能把一次批量还原成一组
+            ...(options?.auditBatchId ? { batch_id: options.auditBatchId } : {}),
+          },
         });
       }
     }
@@ -4670,6 +4677,65 @@ export class ResearchDevelopmentService {
         : undefined;
     }
     return this.getUserKbLevel(viewer.userId);
+  }
+
+  /**
+   * 批量转派。
+   *
+   * 原先由前端并发调 N 次 PATCH：服务端只看到 N 条互不相干的转派，
+   * 「这是一次批量」的信息在留痕里丢失了。改成一个接口后批次号由服务端生成——
+   * 让调用方自报批次号等于又把审计信息交回给调用方决定。
+   *
+   * 每个任务仍各留一条 task.reassigned（保留精确的前后值），额外写一条汇总。
+   */
+  async reassignTasksBatch(
+    taskIds: string[],
+    target: { primaryOwner: string; primaryOwnerUserId?: string | null },
+    actor?: AuditActorRef & { canEditAny?: boolean },
+  ) {
+    const ids = Array.from(new Set(taskIds.map((id) => cleanText(id)).filter(Boolean)));
+    if (ids.length === 0) throw new BadRequestException('请至少选择一个任务');
+    if (ids.length > MAX_BATCH_REASSIGN_TASKS) {
+      throw new BadRequestException(`一次最多转派 ${MAX_BATCH_REASSIGN_TASKS} 个任务`);
+    }
+    const owner = cleanText(target.primaryOwner);
+    if (!owner) throw new BadRequestException('缺少目标负责人');
+
+    const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const succeeded: string[] = [];
+    const failed: Array<{ task_id: string; reason: string }> = [];
+
+    // 串行执行：updateTask 内部是「读整棵任务树 → 改 → 写回」，并发会互相覆盖
+    for (const taskId of ids) {
+      try {
+        await this.updateTask(
+          taskId,
+          { primary_owner: owner, primary_owner_user_id: target.primaryOwnerUserId ?? null, status: 'in_progress' },
+          {
+            requesterUserId: actor?.userId,
+            requesterName: actor?.userName,
+            canEditAny: actor?.canEditAny,
+            auditBatchId: batchId,
+          },
+        );
+        succeeded.push(taskId);
+      } catch (err) {
+        failed.push({ task_id: taskId, reason: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
+    await this.recordServerAudit({
+      action: 'system.bulk_reassign',
+      resource: { type: 'system', id: batchId, name: '批量转派' },
+      actor: { id: actor?.userId, name: actor?.userName },
+      comment: failed.length
+        ? `批量转派 ${succeeded.length} 个任务给 ${owner}，${failed.length} 个失败`
+        : `批量转派 ${succeeded.length} 个任务给 ${owner}`,
+      changes: [{ field: 'primary_owner', before: '', after: owner }],
+      metadata: { batch_id: batchId, task_ids: succeeded, failed },
+    });
+
+    return { ok: true as const, batch_id: batchId, succeeded, failed };
   }
 
   async deleteTask(taskId: string, actor?: { userId?: string; userName?: string; canEditAny?: boolean }) {

@@ -59,6 +59,7 @@ import {
   saveRdTaskCategories,
   sendRdMessage,
   updateRdPerson,
+  reassignRdTasksBatch,
   updateRdTask,
   type RdBlockedTask,
   type RdCategory,
@@ -1624,17 +1625,19 @@ function BatchReassignModal({
 
     setSaving(true);
     try {
-      await Promise.all(
-        selected.map((task) =>
-          updateRdTask(task.task_id, {
-            primary_owner: targetPerson.name,
-            primary_owner_user_id: targetPerson.user_id ?? null,
-            status: "in_progress",
-          }),
-        ),
-      );
-      selected.forEach((task) => {
+      const result = await reassignRdTasksBatch({
+        task_ids: selected.map((task) => task.task_id),
+        primary_owner: targetPerson.name,
+        primary_owner_user_id: targetPerson.user_id ?? null,
       });
+      // 部分失败不回滚：成功的那些已经转派掉了，如实告诉用户哪些没成
+      if (result.failed.length > 0) {
+        toast.warning(
+          translate("{n} 个任务转派失败：{ids}")
+            .replace("{n}", String(result.failed.length))
+            .replace("{ids}", result.failed.map((item) => item.task_id).join("、")),
+        );
+      }
       onUpdated?.();
       setConfirmed(true);
     } catch (err) {

@@ -47,6 +47,21 @@ const CASES: Array<{ name: string; query: Partial<AuditLogQueryDto>; viewer: Aud
   { name: '普通成员只看自己', query: {}, viewer: { userId: 'nobody', userName: '张三', permissions: ['page:audit-log'] } },
   { name: '既无 id 也无姓名', query: {}, viewer: { permissions: ['page:audit-log'] } },
   { name: '组合筛选', query: { module: 'rd', source: 'web', keyword: '张三' }, viewer: { userId: 'nobody', userName: '张三', permissions: ['rd-people:manage'] } },
+  // 研发的五个管理码逐个覆盖：漏掉任何一个，SQL 版的模块集合就会与 Prisma 版不同
+  { name: '管理码 rd-task:reassign', query: {}, viewer: { userId: 'x', userName: '张三', permissions: ['rd-task:reassign'] } },
+  { name: '管理码 rd-project:direct', query: {}, viewer: { userId: 'x', userName: '张三', permissions: ['rd-project:direct'] } },
+  { name: '管理码 rd-project:review-l1', query: {}, viewer: { userId: 'x', userName: '张三', permissions: ['rd-project:review-l1'] } },
+  { name: '管理码 rd-project:review-l2', query: {}, viewer: { userId: 'x', userName: '张三', permissions: ['rd-project:review-l2'] } },
+  { name: '管理码 rd-procurement:review', query: {}, viewer: { userId: 'x', userName: '李四', permissions: ['rd-procurement:review'] } },
+  // 同时持有研发与采购管理码：两个模块集合要并起来
+  { name: '跨模块管理者', query: {}, viewer: { userId: 'x', userName: '张三', permissions: ['rd-people:manage', 'proc-task:reassign'] } },
+  // 只有 id 没有姓名 / 只有姓名没有 id：两个兜底分支各自走一遍
+  { name: '只有 id 无姓名', query: {}, viewer: { userId: 'x', permissions: ['page:audit-log'] } },
+  { name: '只有姓名无 id', query: {}, viewer: { userName: '张三', permissions: ['page:audit-log'] } },
+  // 时间窗与 actorUserId 也各覆盖一次
+  { name: '时间窗', query: { dateFrom: new Date(Date.now() - 86400_000).toISOString(), dateTo: new Date(Date.now() + 86400_000).toISOString() }, viewer: { permissions: ['*'] } },
+  { name: '指定操作人', query: { actorUserId: 'nobody' }, viewer: { permissions: ['*'] } },
+  { name: '普通成员叠加关键字', query: { keyword: '任务' }, viewer: { userId: 'x', userName: '张三', permissions: ['page:audit-log'] } },
 ];
 
 test('buildWhere 与 buildSqlWhere 命中的记录集必须完全一致', async (t) => {
