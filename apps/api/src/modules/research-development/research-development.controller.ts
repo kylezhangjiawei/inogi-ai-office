@@ -16,15 +16,13 @@ const RD_READ_PERMISSIONS = [
   'page:rd-my-workspace',
   'page:rd-director-dashboard',
   'page:rd-approval-flow',
-  'page:rd-audit-log',
   'page:rd-ai-settings',
-  // 中美协同页面复用研发接口（协同驾驶舱 / 工作台 / 审批流 / 留痕 / AI 策略），读权限等同研发页面。
+  // 中美协同页面复用研发接口（协同驾驶舱 / 工作台 / 审批流 / AI 策略），读权限等同研发页面。
   // 三个配置页的码必须在列：存在「只配某个配置页、不配驾驶舱」的角色，漏配会让其接口全 403。
   // 跨池读写仍被 RdWorkspaceInterceptor 的池级准入挡住——这里只决定「能读研发接口」，不决定「能读哪个池」。
   'page:us-collab-cockpit',
   'page:us-collab-workspace',
   'page:us-collab-approval-flow',
-  'page:us-collab-audit-log',
   'page:us-collab-ai-settings',
 ];
 
@@ -62,6 +60,11 @@ export function canManageTaskStructure(permissions: string[]): boolean {
 
 function canManageAnyTask(permissions: string[]): boolean {
   return permissions.includes('*') || RD_TASK_MANAGER_PERMISSIONS.some((code) => permissions.includes(code));
+}
+
+/** 服务端留痕的操作人：一律取自 JWT 里的登录身份，不接受请求体自报。 */
+function auditActor(req: AuthedRequest) {
+  return { userId: req.user?.id, userName: req.user?.name };
 }
 
 function buildAuditLogViewer(req: AuthedRequest) {
@@ -218,8 +221,8 @@ export class ResearchDevelopmentController {
 
   @Put('task-categories')
   @Permissions(...RD_TASK_STRUCTURE_MANAGER_PERMISSIONS)
-  saveTaskCategories(@Body() payload: unknown[]) {
-    return this.rdService.saveTaskCategories(payload);
+  saveTaskCategories(@Body() payload: unknown[], @Request() req: AuthedRequest) {
+    return this.rdService.saveTaskCategories(payload, auditActor(req));
   }
 
   /** 普通立项人只能让服务端补一个空分类容器，不能通过整树 PUT 注入或覆盖任务。 */
@@ -426,8 +429,8 @@ export class ResearchDevelopmentController {
 
   @Delete('task-data')
   @Permissions('rd-data:clear')
-  clearTaskData() {
-    return this.rdService.clearAllTaskData();
+  clearTaskData(@Request() req: AuthedRequest) {
+    return this.rdService.clearAllTaskData(auditActor(req));
   }
 
   @Get('task-progress-notes')
@@ -1152,20 +1155,20 @@ export class ResearchDevelopmentController {
 
   @Post('people')
   @Permissions('rd-people:manage')
-  createPerson(@Body() payload: Record<string, unknown>) {
-    return this.rdService.createPerson(payload);
+  createPerson(@Body() payload: Record<string, unknown>, @Request() req: AuthedRequest) {
+    return this.rdService.createPerson(payload, auditActor(req));
   }
 
   @Patch('people/:id')
   @Permissions('rd-people:manage')
-  updatePerson(@Param('id') id: string, @Body() payload: Record<string, unknown>) {
-    return this.rdService.updatePerson(id, payload);
+  updatePerson(@Param('id') id: string, @Body() payload: Record<string, unknown>, @Request() req: AuthedRequest) {
+    return this.rdService.updatePerson(id, payload, auditActor(req));
   }
 
   @Delete('people/:id')
   @Permissions('rd-people:manage')
-  removePerson(@Param('id') id: string) {
-    return this.rdService.removePerson(id);
+  removePerson(@Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.rdService.removePerson(id, auditActor(req));
   }
 
   @Get('approval-flows')
@@ -1191,31 +1194,24 @@ export class ResearchDevelopmentController {
 
   @Put('approval-flows')
   @Permissions('rd-approval-flow:manage')
-  saveApprovalFlows(@Body() payload: unknown[]) {
-    return this.rdService.saveApprovalFlows(payload);
+  saveApprovalFlows(@Body() payload: unknown[], @Request() req: AuthedRequest) {
+    return this.rdService.saveApprovalFlows(payload, auditActor(req));
   }
 
   @Get('audit-logs')
-  auditLogs(@Request() req: AuthedRequest) {
-    return this.rdService.getAuditLogs(buildAuditLogViewer(req));
-  }
-
-  @Post('audit-logs')
-  createAuditLog(@Body() payload: Record<string, unknown>) {
-    return this.rdService.createAuditLog(payload);
-  }
-
-  @Delete('audit-logs')
-  @Permissions('rd-audit:clear')
-  clearAuditLogs() {
-    return this.rdService.clearAuditLogs();
+  auditLogs(
+    @Request() req: AuthedRequest,
+    @Query('resource_type') resourceType?: string,
+    @Query('resource_id') resourceId?: string,
+  ) {
+    return this.rdService.getAuditLogs(buildAuditLogViewer(req), { resourceType, resourceId });
   }
 
   // 仅研发管理员（与前端 canManageTaskFlow 同口径）可给留痕追加备注
   @Post('audit-logs/:id/notes')
   @Permissions('rd-project:direct', 'rd-project:review-l1', 'rd-project:review-l2', 'rd-people:manage', 'rd-task:reassign')
-  addAuditLogNote(@Param('id') id: string, @Body() payload: Record<string, unknown>) {
-    return this.rdService.addAuditLogNote(id, payload);
+  addAuditLogNote(@Param('id') id: string, @Body() payload: Record<string, unknown>, @Request() req: AuthedRequest) {
+    return this.rdService.addAuditLogNote(id, payload, auditActor(req));
   }
 
   @Get('ai-settings')
@@ -1363,8 +1359,9 @@ export class ResearchDevelopmentController {
   @Permissions('rd-kb:manage', 'rd-kb:category:create')
   createKnowledgeCategory(
     @Body() body: { label?: unknown; parent_id?: unknown; icon?: unknown; color?: unknown },
+    @Request() req: AuthedRequest,
   ) {
-    return this.rdService.createKnowledgeCategory(body);
+    return this.rdService.createKnowledgeCategory(body, undefined, auditActor(req));
   }
 
   @Patch('knowledge/categories/:id')
@@ -1372,14 +1369,15 @@ export class ResearchDevelopmentController {
   updateKnowledgeCategory(
     @Param('id') id: string,
     @Body() body: { label?: unknown; icon?: unknown; color?: unknown },
+    @Request() req: AuthedRequest,
   ) {
-    return this.rdService.updateKnowledgeCategory(id, body);
+    return this.rdService.updateKnowledgeCategory(id, body, undefined, auditActor(req));
   }
 
   @Delete('knowledge/categories/:id')
   @Permissions('rd-kb:manage', 'rd-kb:category:delete')
-  deleteKnowledgeCategory(@Param('id') id: string) {
-    return this.rdService.deleteKnowledgeCategory(id);
+  deleteKnowledgeCategory(@Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.rdService.deleteKnowledgeCategory(id, undefined, auditActor(req));
   }
 
   @Get('knowledge/entries')
@@ -1674,7 +1672,7 @@ export class ResearchDevelopmentController {
     if (!isKbManager && body.permission_level !== undefined) {
       delete body.permission_level;
     }
-    return this.rdService.updateKnowledgeEntry(id, body);
+    return this.rdService.updateKnowledgeEntry(id, body, undefined, auditActor(req));
   }
 
   @Patch('knowledge/entries/:id/move')
@@ -1682,14 +1680,15 @@ export class ResearchDevelopmentController {
   moveKnowledgeEntry(
     @Param('id') id: string,
     @Body() body: { category_id?: string },
+    @Request() req: AuthedRequest,
   ) {
-    return this.rdService.moveKnowledgeEntry(id, body.category_id ?? '');
+    return this.rdService.moveKnowledgeEntry(id, body.category_id ?? '', undefined, auditActor(req));
   }
 
   @Delete('knowledge/entries/:id')
   @Permissions('rd-kb:manage', 'rd-kb:entry:delete')
-  deleteKnowledgeEntry(@Param('id') id: string) {
-    return this.rdService.deleteKnowledgeEntry(id);
+  deleteKnowledgeEntry(@Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.rdService.deleteKnowledgeEntry(id, undefined, auditActor(req));
   }
 
   @Post('knowledge/entries/:id/view')

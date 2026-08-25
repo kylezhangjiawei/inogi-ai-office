@@ -2,17 +2,18 @@
  * 留痕（审计日志）基础设施
  *
  * 设计原则：
- * 1. 每个关键操作都通过 `recordAudit()` 记录
- * 2. 同一份日志可在「全局审计日志」「资源详情时间轴」复用
- * 3. 通过研发模块 API 持久化；localStorage 仅作为离线乐观回显
+ * 1. 留痕由服务端在业务方法里写（见 RD service 的 recordServerAudit）——
+ *    前端不再自行落审计，绕开界面直调接口同样留得下记录
+ * 2. 同一份日志可在「全局操作留痕页」「资源详情时间轴」复用
+ * 3. 本模块只负责读取与展示：拉取、缓存回显、按需刷新
  * 4. 通过 CustomEvent 让任意 `useAuditLogs()` 实时刷新
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth";
-import { getStoredUser } from "./authSession";
+import { authFetch, getStoredUser, readErrorMessage } from "./authSession";
 import { hasAnyPermission, PERMISSIONS } from "./permissions";
-import { addRdAuditLogNote, clearRdAuditLogs, createRdAuditLog, fetchRdAuditLogs, isUsCollabWorkspace } from "./rdApi";
+import { addRdAuditLogNote, fetchRdAuditLogs, isUsCollabWorkspace, RD_MUTATED_EVENT } from "./rdApi";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -35,6 +36,7 @@ export type AuditAction =
   | "task.priority_changed"
   | "task.assigned"
   | "task.reassigned"
+  | "task.deleted"
   | "task.archived"
   | "task.unarchived"
   | "task.progress_updated"
@@ -250,6 +252,7 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "task.priority_changed": { category: "task", label: "优先级变更", verb: "调整了任务优先级", tone: "amber" },
   "task.assigned": { category: "task", label: "指派任务", verb: "指派了任务", tone: "violet" },
   "task.reassigned": { category: "task", label: "转派任务", verb: "转派了任务", tone: "violet" },
+  "task.deleted": { category: "task", label: "删除任务", verb: "删除了任务", tone: "red" },
   "task.archived": { category: "task", label: "封存任务", verb: "封存了任务", tone: "slate" },
   "task.unarchived": { category: "task", label: "解封任务", verb: "解封了任务", tone: "emerald" },
   "task.progress_updated": { category: "task", label: "进度更新", verb: "更新了任务进度", tone: "blue" },
@@ -409,55 +412,18 @@ export async function syncAuditLogsFromRemote(): Promise<void> {
   }
 }
 
-/** Record a new audit entry. Returns the saved entry with id and timestamp. */
-export function recordAudit(entry: Omit<AuditLog, "id" | "timestamp">): AuditLog {
-  const full: AuditLog = {
-    ...entry,
-    id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    timestamp: new Date().toISOString(),
-  };
-  // 发起时就把缓存键定死：响应回来时用户可能已切到另一个池的页面（见 loadRaw 注释）
-  const key = storageKey(entry.actor.id);
-  const logs = loadRaw(key);
-  logs.unshift(full); // newest first
-  saveRaw(logs.slice(0, MAX_LOGS), true, key);
-  void createRdAuditLog<AuditLog>(full)
-    .then((saved) => {
-      const current = loadRaw(key).filter((log) => log.id !== saved.id);
-      saveRaw([saved, ...current].slice(0, MAX_LOGS), true, key);
-    })
-    .catch(() => {
-      // Keep optimistic local copy; the next successful API read will reconcile.
-    });
-  return full;
-}
-
 /**
  * 给某条留痕追加一条备注。成功后把更新后的留痕写回本地缓存并广播 AUDIT_EVENT，
  * 让所有 `useAuditLogs()` 立即刷新看到新备注。返回更新后的留痕。
  * 写入失败时会抛出异常（不再静默吞错），由调用方捕获并提示用户——
  * 否则备注其实没写进后端，UI 却「假装成功」，会导致谁都看不到。
  */
-export async function addAuditLogNote(
-  logId: string,
-  note: { text: string; actor: AuditActor },
-): Promise<AuditLog> {
+export async function addAuditLogNote(logId: string, note: { text: string }): Promise<AuditLog> {
   const key = storageKey(); // await 之前取，防响应回来时用户已切池
   const updated = await addRdAuditLogNote<AuditLog>(logId, note);
   const current = loadRaw(key).map((log) => (log.id === updated.id ? updated : log));
   saveRaw(current, true, key); // emit=true → 广播事件，触发各处 useAuditLogs 从本地刷新
   return updated;
-}
-
-/** Load all logs (newest first). */
-export function loadLogs(): AuditLog[] {
-  return loadRaw();
-}
-
-/** Clear all logs (admin only). */
-export function clearLogs(): void {
-  saveRaw([]);
-  void clearRdAuditLogs().catch(() => {});
 }
 
 /**
@@ -515,13 +481,12 @@ function filterLogs(logs: AuditLog[], filter: AuditFilter = {}): AuditLog[] {
   });
 }
 
-export function queryLogs(filter: AuditFilter = {}): AuditLog[] {
-  return filterLogs(loadLogs(), filter);
-}
+/** 写操作后重新拉取留痕的防抖窗口：一次界面操作往往连发数个写请求。 */
+const AUDIT_REFRESH_DEBOUNCE_MS = 400;
 
 // ─── React hook ──────────────────────────────────────────────────────────────
 
-/** Subscribe to audit logs with optional filter. Re-renders on `recordAudit()`. */
+/** Subscribe to audit logs with optional filter. Re-renders on AUDIT_EVENT. */
 export function useAuditLogs(filter?: AuditFilter): AuditLog[] {
   const { user } = useAuth();
   const filterKey = useMemo(() => JSON.stringify(filter ?? {}), [filter]);
@@ -536,11 +501,17 @@ export function useAuditLogs(filter?: AuditFilter): AuditLog[] {
     const key = storageKey(user?.id);
     const visibleLogs = (items: AuditLog[]) => filterLogs(filterAuditLogsForViewer(items, user), filter);
     const refreshLocal = () => setLogs(visibleLogs(loadRaw(key)));
+    // 指定了资源就让服务端按资源过滤：留痕由服务端随每次变更写入，条数远多于从前，
+    // 「拉最新一批再本地筛」会让稍早任务的时间线整段落到上限之外。
+    const scoped = Boolean(filter?.resourceId || filter?.resourceType);
     const refreshRemote = async () => {
       try {
-        const remoteLogs = await fetchRdAuditLogs<AuditLog>();
+        const remoteLogs = await fetchRdAuditLogs<AuditLog>(
+          scoped ? { resourceType: filter?.resourceType, resourceId: filter?.resourceId } : undefined,
+        );
         if (cancelled) return;
-        saveRaw(remoteLogs.slice(0, MAX_LOGS), false, key);
+        // 只有全量拉取才回写共享缓存：把某个任务的子集写进去会让其它订阅者看到残缺数据
+        if (!scoped) saveRaw(remoteLogs.slice(0, MAX_LOGS), false, key);
         setLogs(visibleLogs(remoteLogs));
       } catch {
         if (!cancelled) {
@@ -551,10 +522,26 @@ export function useAuditLogs(filter?: AuditFilter): AuditLog[] {
 
     void refreshRemote();
     if (typeof window === "undefined") return;
-    window.addEventListener(AUDIT_EVENT, refreshLocal);
+    // 写操作后重新拉取：留痕在服务端写，本地缓存里不会凭空出现新记录。
+    // 一次操作常连着发好几个写请求，防抖合并成一次拉取。
+    let pending: number | undefined;
+    const refreshAfterMutation = () => {
+      window.clearTimeout(pending);
+      pending = window.setTimeout(() => {
+        // 标签页在后台时没人在看时间线，等回到前台再拉
+        if (document.visibilityState === "hidden") return;
+        void refreshRemote();
+      }, AUDIT_REFRESH_DEBOUNCE_MS);
+    };
+    // AUDIT_EVENT 表示共享缓存被更新，只对全量订阅者有意义；
+    // 按资源过滤的订阅者从缓存回填会看到别的任务的记录，只跟着写操作重新拉取
+    if (!scoped) window.addEventListener(AUDIT_EVENT, refreshLocal);
+    window.addEventListener(RD_MUTATED_EVENT, refreshAfterMutation);
     return () => {
       cancelled = true;
+      window.clearTimeout(pending);
       window.removeEventListener(AUDIT_EVENT, refreshLocal);
+      window.removeEventListener(RD_MUTATED_EVENT, refreshAfterMutation);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterKey, viewerKey]);
@@ -777,3 +764,139 @@ function generateDemoLogs(): AuditLog[] {
 //   if (!res.ok) throw new Error(await readErrorMessage(res));
 //   return res.json();
 // }
+
+// ─── 统一操作留痕（全站合并页）────────────────────────────────────────────────
+//
+// 研发 / 中美协同 / 采购三个留痕页合并为 /audit-log 后，读取一律走 /api/audit/logs：
+// 筛选、分页、可见范围都在服务端收口，前端不再把全量日志拉到内存里自己算。
+// 上面的 useAuditLogs 保留不动 —— 那是任务详情时间轴的既有读取通路。
+
+/** 服务端返回的留痕。比 AuditLog 宽松：跨模块后 resource.type 是任意业务段名，操作人可能已注销。 */
+export type UnifiedAuditLog = Omit<AuditLog, "actor" | "resource"> & {
+  module: string;
+  actor: { id: string | null; name: string; role?: string; deleted?: boolean };
+  resource: { type: string; id: string | null; name?: string | null };
+  ip?: string | null;
+};
+
+export type UnifiedAuditQuery = {
+  module?: string;
+  source?: string;
+  /** 动作码列表。类目 → 动作码的展开在前端做，服务端不复制 AUDIT_ACTION_META。 */
+  actions?: string[];
+  resource?: string;
+  resourceId?: string;
+  actorUserId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  keyword?: string;
+  sort?: "newest" | "oldest";
+  page?: number;
+  pageSize?: number;
+  snapshotAt?: string;
+};
+
+export type UnifiedAuditPage = {
+  total: number;
+  page: number;
+  pageSize: number;
+  snapshotAt: string;
+  canViewAll: boolean;
+  stats: { uniqueActors: number; uniqueResources: number; aiCount: number; riskCount: number };
+  items: UnifiedAuditLog[];
+};
+
+export type AuditFacets = {
+  modules: Array<{ value: string; count: number }>;
+  actions: Array<{ value: string; count: number }>;
+  resources: Array<{ value: string; count: number }>;
+  actors: Array<{ id: string | null; name: string; count: number }>;
+};
+
+/** 模块展示名。查不到就显示原始 module 值——新模块接入时页面不会因为漏加词条而显示空白。 */
+export const AUDIT_MODULE_LABELS: Record<string, string> = {
+  rd: "研发任务管理",
+  "us-collab": "中美协同",
+  production: "生产",
+  procurement: "采购管理",
+  auth: "登录与账号",
+  chat: "智能助手",
+  chat_tool: "智能助手工具",
+  chat_pending_action: "智能助手待确认动作",
+  files: "文件",
+  "image-generation": "图片生成",
+  image_generation_upstream: "图片生成上游",
+  "video-generation": "视频生成",
+  "integration-management": "集成管理",
+  i18n: "多语言",
+  rag: "知识检索",
+  other: "其他",
+};
+
+export function auditModuleLabel(module: string): string {
+  return AUDIT_MODULE_LABELS[module] ?? module;
+}
+
+/** 某个类目下的全部动作码。映射只存在 AUDIT_ACTION_META 一处，服务端按结果做 IN 过滤。 */
+export function actionsForCategory(category: AuditCategory): string[] {
+  return Object.entries(AUDIT_ACTION_META)
+    .filter(([, meta]) => meta.category === category)
+    .map(([action]) => action);
+}
+
+/** UnifiedAuditLog → AuditLog：把宽松字段收回严格类型，供既有的 AuditTimeline 直接渲染。 */
+export function toTimelineLog(log: UnifiedAuditLog): AuditLog {
+  return {
+    ...log,
+    actor: { id: log.actor.id ?? "", name: log.actor.name, role: log.actor.role },
+    resource: {
+      type: log.resource.type as AuditResource["type"],
+      id: log.resource.id ?? "",
+      name: log.resource.name ?? undefined,
+    },
+  };
+}
+
+function buildAuditQuery(query: UnifiedAuditQuery): string {
+  const params = new URLSearchParams();
+  const put = (key: string, value: string | number | undefined) => {
+    if (value === undefined || value === "" ) return;
+    params.set(key, String(value));
+  };
+  put("module", query.module);
+  put("source", query.source);
+  put("resource", query.resource);
+  put("resourceId", query.resourceId);
+  put("actorUserId", query.actorUserId);
+  put("dateFrom", query.dateFrom);
+  put("dateTo", query.dateTo);
+  put("keyword", query.keyword);
+  put("sort", query.sort);
+  put("page", query.page);
+  put("pageSize", query.pageSize);
+  put("snapshotAt", query.snapshotAt);
+  if (query.actions && query.actions.length > 0) params.set("actions", query.actions.join(","));
+  return params.toString();
+}
+
+async function auditRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await authFetch(path, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `操作留痕请求失败：${response.status}`));
+  }
+  return response.json() as Promise<T>;
+}
+
+export function fetchAuditLogPage(query: UnifiedAuditQuery): Promise<UnifiedAuditPage> {
+  const qs = buildAuditQuery(query);
+  return auditRequest<UnifiedAuditPage>(`/api/audit/logs${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchAuditFacets(module?: string): Promise<AuditFacets> {
+  const qs = module ? `?module=${encodeURIComponent(module)}` : "";
+  return auditRequest<AuditFacets>(`/api/audit/facets${qs}`);
+}

@@ -6,34 +6,56 @@ import { ResearchDevelopmentService } from '../src/modules/research-development/
 
 type RecordValue = Record<string, unknown>;
 
-const logs: RecordValue[] = [
+// 语义留痕已从 SystemSetting KV 迁到 AuditLog 表：actor.id 变成 userId 外键，
+// 姓名落在 actorName 快照上（账号注销后 userId 被置空，仍要认得出是谁的记录）。
+const rows = [
   {
     id: 'other-newer',
-    timestamp: '2026-08-06T09:00:00.000Z',
-    actor: { id: 'user-other', name: '其他成员' },
+    userId: 'user-other',
+    actorName: '其他成员',
+    createdAt: new Date('2026-08-06T09:00:00.000Z'),
   },
   {
     id: 'own-by-id',
-    timestamp: '2026-08-06T08:00:00.000Z',
-    actor: { id: 'user-member', name: '当前成员旧名称' },
+    userId: 'user-member',
+    actorName: '当前成员旧名称',
+    createdAt: new Date('2026-08-06T08:00:00.000Z'),
   },
   {
     id: 'same-name-different-id',
-    timestamp: '2026-08-06T07:00:00.000Z',
-    actor: { id: 'user-other-duplicate', name: '当前成员（研发部）' },
+    userId: 'user-other-duplicate',
+    actorName: '当前成员（研发部）',
+    createdAt: new Date('2026-08-06T07:00:00.000Z'),
   },
   {
     id: 'legacy-own-by-name',
-    timestamp: '2026-08-06T06:00:00.000Z',
-    actor: { name: '当前成员（研发部）' },
+    userId: null,
+    actorName: '当前成员（研发部）',
+    createdAt: new Date('2026-08-06T06:00:00.000Z'),
   },
-];
+].map((row) => ({
+  action: 'task.updated',
+  resource: 'task',
+  resourceId: 'RD-1',
+  resourceName: '任务',
+  summary: null,
+  source: 'web',
+  meta: {},
+  notes: [],
+  ...row,
+}));
+
+const queries: RecordValue[] = [];
 
 function createService() {
   const service = Object.create(ResearchDevelopmentService.prototype) as any;
-  service.readArray = async (key: string) => {
-    assert.equal(key, 'rd.auditLogs');
-    return structuredClone(logs);
+  service.prisma = {
+    auditLog: {
+      findMany: async (args: RecordValue) => {
+        queries.push(args);
+        return rows.map((row) => ({ ...row }));
+      },
+    },
   };
   return service as ResearchDevelopmentService;
 }
@@ -50,6 +72,9 @@ test('non-admin audit reads only return the current actor while administrators r
 
   const anonymousLogs = await service.getAuditLogs({ canReadAll: false }) as RecordValue[];
   assert.deepEqual(anonymousLogs, []);
+
+  // 只读当前工作区，且排除拦截器写的 HTTP 原始留痕——否则研发快照会混进一堆裸 POST 记录
+  assert.deepEqual(queries[0].where, { module: 'rd', source: { not: 'api' } });
 
   const adminLogs = await service.getAuditLogs({ canReadAll: true }) as RecordValue[];
   assert.deepEqual(adminLogs.map((log) => log.id), [
@@ -88,7 +113,7 @@ test('audit and snapshot controllers derive visibility from authenticated admini
     user: { id: 'system-admin', name: '系统管理员', permissions: ['*'] },
   });
   await controller.snapshot({
-    user: { id: 'member', name: '普通成员', permissions: ['page:rd-audit-log'] },
+    user: { id: 'member', name: '普通成员', permissions: ['page:rd-my-workspace'] },
   });
 
   assert.deepEqual(auditViewers, [

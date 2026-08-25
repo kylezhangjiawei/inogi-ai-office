@@ -103,6 +103,17 @@ async function fetchWithTimeout(
   }
 }
 
+/**
+ * 研发模块发生写操作后广播的信号。
+ *
+ * 留痕现在由服务端随业务变更写入（见 RD service 的 recordServerAudit），前端不再自己记一份，
+ * 于是「操作完时间线立刻更新」这件事没人做了。让写请求统一发个信号，
+ * 由 useAuditLogs 自己去重新拉取——比在每个操作点手写一次刷新可靠得多。
+ */
+export const RD_MUTATED_EVENT = "inogi-rd-mutated";
+
+const RD_WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
 async function requestJson<T>(path: string, init?: RequestJsonOptions): Promise<T> {
   const { timeoutMs, ...rest } = init ?? {};
   const response = await fetchWithTimeout(
@@ -111,7 +122,13 @@ async function requestJson<T>(path: string, init?: RequestJsonOptions): Promise<
     timeoutMs ?? RD_DEFAULT_TIMEOUT_MS,
     "研发模块接口请求失败",
   );
-  return (await response.json()) as T;
+  const payload = (await response.json()) as T;
+  const method = (rest.method ?? "GET").toUpperCase();
+  // 只在写成功后广播；读请求广播会把时间线拖进无限刷新
+  if (RD_WRITE_METHODS.has(method) && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(RD_MUTATED_EVENT));
+  }
+  return payload;
 }
 
 // ── Shared enums ──────────────────────────────────────────────────────────────
@@ -1171,25 +1188,26 @@ export function saveRdApprovalFlows<TFlow>(payload: TFlow[]) {
   });
 }
 
-export function fetchRdAuditLogs<TLog = unknown>() {
-  return requestJson<TLog[]>("/audit-logs");
+/**
+ * 拉取当前工作区的语义留痕。
+ * 传 resourceType/resourceId 时按资源下推过滤——任务详情时间线必须走这条路径，
+ * 否则会被服务端的条数上限截断，稍早的任务查不到自己的历史。
+ */
+export function fetchRdAuditLogs<TLog = unknown>(
+  filter?: { resourceType?: string; resourceId?: string },
+) {
+  const params = new URLSearchParams();
+  if (filter?.resourceType) params.set("resource_type", filter.resourceType);
+  if (filter?.resourceId) params.set("resource_id", filter.resourceId);
+  const qs = params.toString();
+  return requestJson<TLog[]>(`/audit-logs${qs ? `?${qs}` : ""}`);
 }
 
-export function createRdAuditLog<TLog>(payload: Omit<TLog, "id" | "timestamp"> | TLog) {
-  return requestJson<TLog>("/audit-logs", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function clearRdAuditLogs() {
-  return requestJson<{ ok: true }>("/audit-logs", {
-    method: "DELETE",
-  });
-}
-
-/** 给某条操作留痕追加一条备注（仅研发管理员）。返回更新后的留痕记录。 */
-export function addRdAuditLogNote<TLog>(logId: string, payload: { text: string; actor: unknown }) {
+/**
+ * 给某条操作留痕追加一条备注（仅研发管理员）。返回更新后的留痕记录。
+ * 署名由服务端从 JWT 取——备注是审计内容的一部分，不能由调用方决定算在谁头上。
+ */
+export function addRdAuditLogNote<TLog>(logId: string, payload: { text: string }) {
   return requestJson<TLog>(`/audit-logs/${encodeURIComponent(logId)}/notes`, {
     method: "POST",
     body: JSON.stringify(payload),

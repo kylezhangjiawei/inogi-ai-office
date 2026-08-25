@@ -15,7 +15,6 @@ import {
   ImportMaterialsDto,
   LinkPurchaseOrderDto,
   ProcAttachmentInputDto,
-  ProcAuditLogQueryDto,
   ReassignProcTaskDto,
   ReceiveGoodsDto,
   RenameCategoryDto,
@@ -59,13 +58,6 @@ export class ProcurementController {
       name: req.user.name ?? req.user.username ?? '',
       permissions: req.user.permissions ?? [],
     };
-  }
-
-  /** 采购模块写操作留痕，只读、独立页面权限。 */
-  @Get('audit-logs')
-  @Permissions('page:proc-audit-log')
-  listAuditLogs(@Query() query: ProcAuditLogQueryDto) {
-    return this.service.listAuditLogs(query);
   }
 
   // ── 任务 ────────────────────────────────────────────────────────────────────

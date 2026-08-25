@@ -130,7 +130,7 @@ import { cn } from "./components/ui/utils";
 import { useAuth } from "./auth";
 import { useAvatarDirectory } from "./lib/userAvatar";
 import { hasPermission } from "./lib/permissions";
-import { recordAudit, useAuditActor } from "./lib/auditLog";
+
 import { KbAdvancedPreview } from "./components/KbAdvancedPreview";
 import { MobileZoomableImage } from "./components/MobileZoomableImage";
 import {
@@ -2556,7 +2556,6 @@ export function RDKnowledgeBasePage({
     ? { upload: 'dept-kb:upload', manage: 'dept-kb:manage', entryEdit: 'dept-kb:entry:edit', entryMove: 'dept-kb:entry:move', entryDelete: 'dept-kb:entry:delete', catCreate: 'dept-kb:category:create', catEdit: 'dept-kb:category:edit', catDelete: 'dept-kb:category:delete' }
     : { upload: 'rd-kb:upload', manage: 'rd-kb:manage', entryEdit: 'rd-kb:entry:edit', entryMove: 'rd-kb:entry:move', entryDelete: 'rd-kb:entry:delete', catCreate: 'rd-kb:category:create', catEdit: 'rd-kb:category:edit', catDelete: 'rd-kb:category:delete' };
   // 留痕动作的 actor 信息，按当前账号填充；姓名/角色取自 user 对象
-  const kbAuditActor = useAuditActor(user?.name || "成员");
   const isSuper = userPerms.includes('*');
   const canUpload =
     !!user &&
@@ -2807,18 +2806,6 @@ export function RDKnowledgeBasePage({
     try {
       await deleteKbEntry(deletingEntry.id, kbId);
       toast.success(t('已删除'));
-      recordAudit({
-        actor: kbAuditActor,
-        action: "kb.entry.deleted",
-        resource: { type: "knowledge", id: deletingEntry.id, name: deletingEntry.title },
-        comment: `删除知识库文件「${deletingEntry.title}」`,
-        metadata: {
-          category_id: deletingEntry.category_id,
-          file_name: deletingEntry.file_name,
-          permission_level: deletingEntry.permission_level,
-        },
-        source: "web",
-      });
       setEntries((prev) => prev.filter((e) => e.id !== deletingEntry.id));
       void fetchKbCategories(kbId).then(syncCategories).catch(() => undefined);
       setDeletingEntry(null);
@@ -2846,31 +2833,11 @@ export function RDKnowledgeBasePage({
 
       // 留痕：新建或编辑分类
       if (isCreate) {
-        recordAudit({
-          actor: kbAuditActor,
-          action: "kb.category.created",
-          resource: { type: "knowledge", id: payload.label, name: payload.label },
-          comment: `新建知识库分类「${payload.label}」`,
-          metadata: {
-            parent_id: payload.parent_id ?? null,
-            icon: payload.icon,
-            color: payload.color,
-          },
-          source: "web",
-        });
       } else if (before) {
         const changes: { field: string; before?: unknown; after?: unknown }[] = [];
         if (before.label !== payload.label) changes.push({ field: 'label', before: before.label, after: payload.label });
         if (before.icon !== payload.icon) changes.push({ field: 'icon', before: before.icon, after: payload.icon });
         if (before.color !== payload.color) changes.push({ field: 'color', before: before.color, after: payload.color });
-        recordAudit({
-          actor: kbAuditActor,
-          action: "kb.category.edited",
-          resource: { type: "knowledge", id: before.id, name: payload.label },
-          changes,
-          comment: `编辑知识库分类「${payload.label}」`,
-          source: "web",
-        });
       }
 
       setCategoryDialog(null);
@@ -2889,14 +2856,6 @@ export function RDKnowledgeBasePage({
       const deletedIds = new Set(collectCategoryIds(deletingCategory));
       const result = await deleteKbCategory(deletingCategory.id, kbId);
       syncCategories(result.categories);
-      recordAudit({
-        actor: kbAuditActor,
-        action: "kb.category.deleted",
-        resource: { type: "knowledge", id: deletingCategory.id, name: deletingCategory.label },
-        comment: `删除知识库分类「${deletingCategory.label}」`,
-        metadata: { affected_subcategory_ids: Array.from(deletedIds) },
-        source: "web",
-      });
       if (selectedCatId && deletedIds.has(selectedCatId)) setSelectedCatId(null);
       setDeletingCategory(null);
       toast.success(t('类目已删除'));
@@ -2922,14 +2881,6 @@ export function RDKnowledgeBasePage({
         return prev
           .map((entry) => (entry.id === updatedEntry.id ? updatedEntry : entry))
           .filter((entry) => entry.id !== updatedEntry.id || movedEntryVisible);
-      });
-      recordAudit({
-        actor: kbAuditActor,
-        action: "kb.entry.moved",
-        resource: { type: "knowledge", id: updatedEntry.id, name: updatedEntry.title },
-        changes: [{ field: 'category_id', before: previousCategoryId, after: updatedEntry.category_id }],
-        comment: `移动文件「${updatedEntry.title}」`,
-        source: "web",
       });
       setMovingEntry(null);
       toast.success(t('文件已移动'));
@@ -2958,20 +2909,6 @@ export function RDKnowledgeBasePage({
 
     // 留痕：上传文件（每条文件分别记录，便于审计追溯到具体文件）
     for (const entry of sanitized) {
-      recordAudit({
-        actor: kbAuditActor,
-        action: "kb.entry.uploaded",
-        resource: { type: "knowledge", id: entry.id, name: entry.title },
-        comment: `上传知识库文件「${entry.title}」`,
-        metadata: {
-          category_id: entry.category_id,
-          file_name: entry.file_name,
-          file_size: entry.file_size,
-          file_type: entry.file_type,
-          permission_level: entry.permission_level,
-        },
-        source: "web",
-      });
     }
   }
 
@@ -3427,14 +3364,6 @@ export function RDKnowledgeBasePage({
             if (before.category_id !== updated.category_id) changes.push({ field: 'category_id', before: before.category_id, after: updated.category_id });
             if (JSON.stringify(before.tags ?? []) !== JSON.stringify(updated.tags ?? [])) changes.push({ field: 'tags', before: before.tags, after: updated.tags });
             if ((before.permission_level ?? 0) !== (updated.permission_level ?? 0)) changes.push({ field: 'permission_level', before: before.permission_level, after: updated.permission_level });
-            recordAudit({
-              actor: kbAuditActor,
-              action: "kb.entry.edited",
-              resource: { type: "knowledge", id: updated.id, name: updated.title },
-              changes,
-              comment: `编辑知识库文件「${updated.title}」`,
-              source: "web",
-            });
             setEntries((prev) => prev.map((e) => (e.id === updated.id ? toListEntry(updated) : e)));
             void fetchKbCategories(kbId).then(syncCategories).catch(() => undefined);
             setEditingEntry(null);

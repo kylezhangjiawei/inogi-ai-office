@@ -46,7 +46,6 @@ import {
   canReadAllAuditLogs,
   filterAuditLogsByActor,
   filterAuditLogsForViewer,
-  recordAudit,
   useAuditActor,
   type AuditActorIdentity,
   type AuditLog,
@@ -706,14 +705,6 @@ export default function RDTaskDetailPage() {
       ...(titleChanged ? { title } : {}),
       ...(descChanged ? { description: nextDescription } : {}),
     });
-    recordAudit({
-      actor: AUDIT_ACTOR,
-      action: "task.edited",
-      resource: { type: "task", id: task.task_id, name: title },
-      changes,
-      comment: t("研发详情页编辑任务信息"),
-      source: "web",
-    });
     setTask((prev) => (prev?.task_id === task.task_id ? { ...prev, title, description: nextDescription } : prev));
     setAllTasks((prev) => prev.map((item) => (item.task_id === task.task_id ? { ...item, title, description: nextDescription } : item)));
     setShowEditInfo(false);
@@ -756,15 +747,6 @@ export default function RDTaskDetailPage() {
     setSavingPriority(true);
     try {
       await updateRdTask(task.task_id, { final_priority: next });
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        // 脏数据兜底：库里可能存在枚举外的优先级值，直接取 label 会在写库成功后抛错误导用户重试
-        changes: [{ field: "priority", before: PRIORITY_CONFIG[prev]?.label ?? String(prev), after: PRIORITY_CONFIG[next]?.label ?? String(next) }],
-        comment: "更新任务优先级",
-        source: "web",
-      });
       setTask((prevTask) => (prevTask ? { ...prevTask, final_priority: next } : prevTask));
       // 同步 allTasks，保证人员任务弹层等派生视图显示新值（task 与 allTasks 双源须一起更新）
       setAllTasks((prevAll) => prevAll.map((t) => (t.task_id === task.task_id ? { ...t, final_priority: next } : t)));
@@ -792,14 +774,6 @@ export default function RDTaskDetailPage() {
     setSavingTaskType(true);
     try {
       await updateRdTask(task.task_id, { category_path: nextPath });
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "category_path", before: task.category_path, after: nextPath }],
-        comment: `更新任务类型 → ${value}`,
-        source: "web",
-      });
       // task 与 allTasks 双源须一起更新，否则人员任务弹层等派生视图仍显示旧 tag
       setTask((prevTask) => (prevTask ? { ...prevTask, category_path: nextPath } : prevTask));
       setAllTasks((prevAll) =>
@@ -831,14 +805,6 @@ export default function RDTaskDetailPage() {
         ...(isApprove ? {} : { _reject_reason: reason ?? `驳回${meta.label}` }),
         ...(!isApprove && typeof rollbackProgress === "number" ? { progress: rollbackProgress } : {}),
       } as Parameters<typeof updateRdTask>[1]);
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: isApprove ? meta.approveAction : meta.rejectAction,
-        resource: { type: "task", id: task.task_id, name: task.title },
-        comment: `${isApprove ? "审核通过" : "驳回"}了${meta.label}${reason ? `：${reason}` : ""}`,
-        metadata: { task_id: task.task_id, pending_review_type: task.pending_review_type },
-        source: "web",
-      });
       toast.success(`${t(meta.label)}${isApprove ? t("已通过") : t("已驳回")}`);
       setShowApproval(null);
       void loadTask();
@@ -857,14 +823,6 @@ export default function RDTaskDetailPage() {
         primary_owner: newOwner,
         _actor_name: user?.name || "管理员",
       } as Partial<Omit<RdTask, "task_id">> & { _actor_name?: string });
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "primary_owner", before: task.primary_owner, after: newOwner }],
-        comment: `移交任务给 ${newOwner}`,
-        source: "web",
-      });
       toast.success(t("任务已移交给 {name}", { name: newOwner }));
       setShowHandover(false);
       void loadTask();
@@ -896,13 +854,6 @@ export default function RDTaskDetailPage() {
         collaborators: merged,
         _actor_name: user?.name || "管理员",
       } as Partial<Omit<RdTask, "task_id">> & { _actor_name?: string });
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        comment: `管理员直接添加协作人：${newCollaborators.map((c) => c.name).join("、")}`,
-        source: "web",
-      });
       toast.success(t("已添加 {n} 位协作人", { n: newCollaborators.length }));
       setShowAddCollab(false);
       void loadTask();
@@ -916,17 +867,6 @@ export default function RDTaskDetailPage() {
     setSubmitting(true);
     try {
       await updateRdTask(task.task_id, { status: "completed", progress: 100 });
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [
-          { field: "status", before: task.status, after: "completed" },
-          { field: "progress", before: String(task.progress), after: "100" },
-        ],
-        comment: "管理员直接标记任务完成",
-        source: "web",
-      });
       toast.success(t("任务已标记完成"));
       setShowComplete(false);
       void loadTask();
@@ -972,14 +912,6 @@ export default function RDTaskDetailPage() {
       if (task.progress !== 100) {
         changes.push({ field: "progress", before: String(task.progress), after: "100" });
       }
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes,
-        comment: "提交任务审核，进度自动置为 100%",
-        source: "web",
-      });
       toast.success(t("任务已提交审核，等待确认"));
       window.dispatchEvent(new CustomEvent("rd:review-submitted"));
       setShowSubmitConfirm(false);
@@ -1079,14 +1011,6 @@ export default function RDTaskDetailPage() {
       });
       const productLabel = products.find((p) => p.id === targetProductId)?.name ?? "";
       const movedPath = `${result.targetCategoryLabel} / ${result.targetSubLabel}`;
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "category_path", before: task.category_path, after: productLabel ? `${productLabel} / ${movedPath}` : movedPath }],
-        comment: `手动调整任务类目 → ${productLabel ? `${productLabel} / ` : ""}${movedPath}`,
-        source: "web",
-      });
       toast.success(productLabel ? `任务已移动到 ${productLabel} · ${movedPath}` : `任务已移动到 ${movedPath}`);
       setShowMove(false);
       void loadTask();
@@ -1156,14 +1080,6 @@ export default function RDTaskDetailPage() {
       due_date: input.due_date || undefined,
       description: input.description || undefined,
     });
-    recordAudit({
-      actor: AUDIT_ACTOR,
-      action: "task.created",
-      resource: { type: "task", id: created.task_id, name: created.title },
-      comment: `在任务 ${task.task_id} 下新建子任务`,
-      metadata: { parent_task_id: task.task_id, subtask_origin: "created" },
-      source: "web",
-    });
     toast.success(t("子任务已创建"));
     setShowCreateSubtask(false);
     void Promise.all([loadTask({ silent: true }), loadProgressGroup(false)]);
@@ -1174,15 +1090,6 @@ export default function RDTaskDetailPage() {
     await attachRdTasksToParent(childIds, task.task_id);
     for (const childId of childIds) {
       const child = allTaskById.get(childId);
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: childId, name: child?.title ?? childId },
-        changes: [{ field: "parent_task_id", before: "", after: task.task_id }],
-        comment: `并入任务 ${task.task_id}（${task.title}）成为其子任务`,
-        metadata: { parent_task_id: task.task_id, subtask_origin: "attached" },
-        source: "web",
-      });
     }
     toast.success(t("已并入 {n} 个任务为子任务", { n: childIds.length }));
     setShowAttachSubtasks(false);
@@ -1194,14 +1101,6 @@ export default function RDTaskDetailPage() {
     await detachRdSubtasks(childIds, task.task_id);
     for (const childId of childIds) {
       const child = allTaskById.get(childId);
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: childId, name: child?.title ?? childId },
-        changes: [{ field: "parent_task_id", before: task.task_id, after: "" }],
-        comment: `批量取消与任务 ${task.task_id}（${task.title}）的子任务关系，整棵子树提升为顶层任务`,
-        source: "web",
-      });
     }
     toast.success(t("已取消 {n} 个子任务关系", { n: childIds.length }));
     setShowDetachSubtasks(false);
@@ -1213,14 +1112,6 @@ export default function RDTaskDetailPage() {
     setDetaching(true);
     try {
       await detachRdSubtask(task.task_id);
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "parent_task_id", before: parentTask?.task_id ?? "", after: "" }],
-        comment: `取消子任务关系，提升为顶层任务`,
-        source: "web",
-      });
       toast.success(t("已取消子任务关系，该任务已提升为独立任务"));
       void Promise.all([loadTask({ silent: true }), loadProgressGroup(false)]);
     } catch (error) {
@@ -2192,7 +2083,7 @@ export default function RDTaskDetailPage() {
                   emptyText={t("暂无操作记录")}
                   canAddNote={canManage}
                   onAddNote={async (logId, text) => {
-                    await addAuditLogNote(logId, { text, actor: AUDIT_ACTOR });
+                    await addAuditLogNote(logId, { text });
                   }}
                   notePlaceholder={t("填写备注（最多 200 字），仅主管可添加…")}
                   selectedActor={canSelectActivityActor ? selectedActivityActor : null}

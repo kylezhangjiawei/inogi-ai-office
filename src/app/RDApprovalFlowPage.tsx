@@ -38,7 +38,6 @@ import {
   PoolMember,
   saveFlows,
 } from "./lib/approvalFlowConfig";
-import { AuditActor, AuditChange, recordAudit, useAuditActor } from "./lib/auditLog";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { PERMISSIONS } from "./lib/permissions";
 import { isUsCollabWorkspace } from "./lib/rdApi";
@@ -506,96 +505,10 @@ function nodeSummary(node: ApprovalNode): string {
   return `${node.level}.${node.label}(${node.permission_code}/${node.mode})`;
 }
 
-function nodeEditChanges(before: ApprovalNode, after: ApprovalNode): AuditChange[] {
-  const changes: AuditChange[] = [];
-  (
-    [
-      "level",
-      "label",
-      "permission_code",
-      "mode",
-      "description",
-      "sla_hours",
-      "escalate_on_timeout",
-      "extra_members",
-      "excluded_member_ids",
-    ] as const
-  ).forEach((field) => {
-    const b = before[field];
-    const a = after[field];
-    // 数组字段（手动增删名单）按内容比较——引用比较会把「没改」也记成变更
-    const changed =
-      Array.isArray(b) || Array.isArray(a) ? JSON.stringify(b ?? []) !== JSON.stringify(a ?? []) : b !== a;
-    if (changed) {
-      changes.push({ field, before: b, after: a });
-    }
-  });
-  return changes;
-}
-
-function recordFlowSaveAudit(previous: ApprovalFlow | undefined, next: ApprovalFlow, actor: AuditActor) {
-  const resource = { type: "flow" as const, id: next.id, name: next.name };
-  const previousNodes = new Map(previous?.nodes.map((node) => [node.id, node]) ?? []);
-  const nextNodes = new Map(next.nodes.map((node) => [node.id, node]));
-
-  next.nodes.forEach((node) => {
-    if (!previousNodes.has(node.id)) {
-      recordAudit({
-        actor,
-        action: "flow.node_added",
-        resource,
-        comment: `新增审批节点：${node.label}`,
-        metadata: { node: nodeSummary(node) },
-        source: "web",
-      });
-    }
-  });
-
-  previousNodes.forEach((node, nodeId) => {
-    if (!nextNodes.has(nodeId)) {
-      recordAudit({
-        actor,
-        action: "flow.node_removed",
-        resource,
-        comment: `删除审批节点：${node.label}`,
-        metadata: { node: nodeSummary(node) },
-        source: "web",
-      });
-    }
-  });
-
-  next.nodes.forEach((node) => {
-    const before = previousNodes.get(node.id);
-    if (!before) return;
-    const changes = nodeEditChanges(before, node);
-    if (changes.length === 0) return;
-    recordAudit({
-      actor,
-      action: changes.some((change) => change.field === "mode") ? "flow.mode_changed" : "flow.node_edited",
-      resource,
-      changes,
-      comment: `修改审批节点：${node.label}`,
-      source: "web",
-    });
-  });
-
-  recordAudit({
-    actor,
-    action: "flow.saved",
-    resource,
-    changes: previous
-      ? [{ field: "node_count", before: previous.nodes.length, after: next.nodes.length }]
-      : [{ field: "node_count", before: 0, after: next.nodes.length }],
-    comment: "保存审批流配置",
-    source: "web",
-  });
-}
-
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export function RDApprovalFlowPage() {
   useI18n(); // 订阅语言切换：本页文案全部经 t()
-  const flowAuditActor = useAuditActor("研发管理员");
   const [flows, setFlowsState] = useState<ApprovalFlow[]>([]);
   const [savedFlows, setSavedFlows] = useState<ApprovalFlow[]>([]);
   const [activeFlowId, setActiveFlowId] = useState<string>("");
@@ -827,7 +740,6 @@ export function RDApprovalFlowPage() {
       return;
     }
     const previousFlow = savedFlows.find((f) => f.id === activeFlow.id);
-    recordFlowSaveAudit(previousFlow, activeFlow, flowAuditActor);
     saveFlows(flows);
     setSavedFlows(flows);
     setDirty(false);
@@ -843,14 +755,6 @@ export function RDApprovalFlowPage() {
     }
     const previousFlow = activeFlow;
     const template = defaultFlowTemplate();
-    recordAudit({
-      actor: flowAuditActor,
-      action: "flow.reset",
-      resource: { type: "flow", id: template.id, name: template.name },
-      changes: [{ field: "node_count", before: previousFlow.nodes.length, after: template.nodes.length }],
-      comment: "恢复系统默认审批流",
-      source: "web",
-    });
     setFlowsState([template]);
     setSavedFlows([template]);
     setActiveFlowId(template.id);

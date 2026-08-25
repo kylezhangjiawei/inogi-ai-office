@@ -230,6 +230,53 @@ const RD_ANY_TASK_TRANSFER_PERMISSIONS = [
   'rd-people:manage',
 ] as const;
 const MAX_AUDIT_LOGS = 1000;
+
+/** 服务端留痕的操作人。控制器从 req.user 取，服务层不自己猜。 */
+type AuditActorRef = { userId?: string; userName?: string };
+
+/**
+ * 进留痕的任务字段。其余都是内部记账字段（creation_request_*、subtask_attached_* 等），
+ * diff 出来只会淹没真正的业务变更。
+ *
+ * 优先级有三个字段：priority 是 AI 给的初值、ai_priority 是 AI 复算值、
+ * final_priority 才是界面上改的那个生效值——只盯 priority 会漏掉用户的每一次调整。
+ */
+const AUDITED_TASK_FIELDS = [
+  'title',
+  'status',
+  'final_priority',
+  'priority',
+  'progress',
+  'due_date',
+  'description',
+  'primary_owner',
+  'collaborators',
+  'category_path',
+  'archived',
+  'work_items',
+] as const;
+
+/** 进留痕的研发成员字段。 */
+const AUDITED_PERSON_FIELDS = ['name', 'role', 'department', 'status', 'skills', 'kb_level'] as const;
+
+/** 审核类型的中文说法，留痕文案与通知用同一套叫法。 */
+const REVIEW_TYPE_LABELS: Record<string, string> = {
+  result: '成果审核',
+  collaboration: '协同申请',
+  due_date: '延期申请',
+  abandon: '放弃申请',
+  merge: '合并申请',
+  procurement_transfer: '转采购申请',
+};
+
+/** 提交各类审核时对应的动作码，与前端各页原先手写的口径一致。 */
+const PENDING_REVIEW_ACTIONS: Record<string, string> = {
+  result: 'task.submitted',
+  collaboration: 'task.collaboration_requested',
+  due_date: 'task.due_date_requested',
+  abandon: 'task.abandon_requested',
+  merge: 'task.merge_requested',
+};
 const DEFAULT_BOM_TASK_TYPE = '研发任务';
 // 主产品（便携式制氧机）：其任务分类树存于 rd.taskCategories；其余产品存于 rd.productTaskCategories[productId]。
 // 与前端 MAIN_PRODUCT_ID 保持一致，是跨产品移动任务时判断「写哪个 store」的唯一依据。
@@ -2062,7 +2109,8 @@ export class ResearchDevelopmentService {
     return JSON.stringify(mirrors);
   }
 
-  async saveTaskCategories(payload: unknown[]) {
+  async saveTaskCategories(payload: unknown[], actor?: AuditActorRef) {
+    const structureBefore = await this.readNormalizedTaskCategories();
     await this.refreshProductionMirrorsIfNeeded();
     const submittedRevision = submittedTaskCategoryStructureRevision(payload);
     const normalized = ensurePocBomTaskCategories(payload);
@@ -2085,8 +2133,88 @@ export class ResearchDevelopmentService {
       await this.writeValue('rd.taskCategories', withDefaults);
       return decorateTaskCategoriesWithStructureRevision(withDefaults);
     });
+    // 分类/子项目的增删改走的是整树覆盖保存，服务端拿不到「改了哪一个」的语义，
+    // 只能记录结构规模的变化。粒度粗，但这是唯一绕不过去的落点——
+    // 合并前前后端都没为这条路径留过痕，等于系统树可以被静默改动。
+    await this.recordStructureAudit(structureBefore, saved, actor);
     await this.recomputeDirectorDashboard();
     return saved;
+  }
+
+  /** 系统树的节点清单：id → 名称，一级分类与子项目分开收集。 */
+  private collectStructureNodes(categories: unknown[]) {
+    const categoryLabels = new Map<string, string>();
+    const subProjectLabels = new Map<string, string>();
+    for (const category of categories) {
+      if (!isRecord(category)) continue;
+      const categoryId = cleanText(category.id);
+      if (categoryId) categoryLabels.set(categoryId, cleanText(category.label));
+      for (const child of asArray(category.children)) {
+        if (!isRecord(child)) continue;
+        const childId = cleanText(child.id);
+        if (childId) subProjectLabels.set(childId, cleanText(child.label));
+      }
+    }
+    return { categoryLabels, subProjectLabels };
+  }
+
+  /** 两份节点清单的增 / 删 / 改名。 */
+  private diffStructureNodes(before: Map<string, string>, after: Map<string, string>) {
+    const added: string[] = [];
+    const removed: string[] = [];
+    const renamed: Array<{ before: string; after: string }> = [];
+    for (const [id, label] of after) {
+      if (!before.has(id)) added.push(label || id);
+      else if (before.get(id) !== label) renamed.push({ before: before.get(id) || id, after: label || id });
+    }
+    for (const [id, label] of before) {
+      if (!after.has(id)) removed.push(label || id);
+    }
+    return { added, removed, renamed };
+  }
+
+  /**
+   * 系统树结构变化的留痕。
+   *
+   * 分类/子项目的增删改走整树覆盖保存，请求体里没有「我改了哪一个」的语义，
+   * 所以在服务端按节点 id 比对前后两棵树，把具体加了什么、删了什么、谁改名了算出来——
+   * 只记数量的话，删一个又加一个会显示成「没变化」。
+   */
+  private async recordStructureAudit(before: unknown[], after: unknown[], actor?: AuditActorRef) {
+    const prev = this.collectStructureNodes(before);
+    const next = this.collectStructureNodes(after);
+    const categories = this.diffStructureNodes(prev.categoryLabels, next.categoryLabels);
+    const subProjects = this.diffStructureNodes(prev.subProjectLabels, next.subProjectLabels);
+
+    const changes: Array<{ field: string; before: unknown; after: unknown }> = [];
+    const push = (field: string, diff: ReturnType<typeof this.diffStructureNodes>) => {
+      if (diff.added.length) changes.push({ field: `${field}_added`, before: '', after: diff.added.join('、') });
+      if (diff.removed.length) changes.push({ field: `${field}_removed`, before: diff.removed.join('、'), after: '' });
+      for (const item of diff.renamed) changes.push({ field: `${field}_renamed`, before: item.before, after: item.after });
+    };
+    push('category', categories);
+    push('sub_project', subProjects);
+    if (changes.length === 0) return;
+
+    // 动作码按「本次主要干了什么」取：新增优先于删除，都没有则算编辑（改名/移动）
+    const created = categories.added.length + subProjects.added.length;
+    const deleted = categories.removed.length + subProjects.removed.length;
+    const action = created > 0 ? 'category.created' : deleted > 0 ? 'category.deleted' : 'category.edited';
+    const summary = [
+      created > 0 ? `新增 ${created} 项` : '',
+      deleted > 0 ? `删除 ${deleted} 项` : '',
+      categories.renamed.length + subProjects.renamed.length > 0
+        ? `改名 ${categories.renamed.length + subProjects.renamed.length} 项`
+        : '',
+    ].filter(Boolean).join('，');
+
+    await this.recordServerAudit({
+      action,
+      resource: { type: 'category', id: `task-tree-${currentRdWorkspace()}`, name: '任务系统树' },
+      actor: { id: actor?.userId, name: actor?.userName },
+      comment: `调整任务系统树：${summary}`,
+      changes,
+    });
   }
 
   /**
@@ -3452,6 +3580,17 @@ export class ResearchDevelopmentService {
     if (newTask.status === 'pending_review') {
       void this.notifyAdminsOfPendingReview(newTask, {});
     }
+    await this.recordServerAudit({
+      action: 'task.created',
+      resource: { type: 'task', id: String(newTask.task_id ?? ''), name: cleanText(newTask.title) },
+      actor: { id: actor?.requesterUserId, name: actor?.requesterName },
+      comment: newTask.status === 'pending_review' ? '提交立项申请' : '新建任务',
+      metadata: {
+        status: cleanText(newTask.status),
+        primary_owner: cleanText(newTask.primary_owner),
+        category_path: cleanText(newTask.category_path),
+      },
+    });
     // 任务入向量索引（fire-and-forget）：AI 问答可按语义检索到任务
     void this.syncTaskToRag(String(newTask.task_id ?? ''));
     return newTask;
@@ -3898,6 +4037,29 @@ export class ResearchDevelopmentService {
 
     if (!found) throw new NotFoundException('任务不存在');
     await this.recomputeDirectorDashboard();
+
+    // 服务端审计：变更集由「改动前的任务 + 实际落库的补丁」在服务层自行 diff，
+    // 不依赖前端上报——绕开界面直调本接口同样留痕。
+    if (originalTask) {
+      const auditBefore = originalTask as JsonRecord;
+      const auditChanges = this.buildTaskChanges(auditBefore, resolvedPatch);
+      const review = _review_action
+        ? { action: _review_action, reviewerName: _reviewer_name, rejectReason: _reject_reason }
+        : undefined;
+      // 无字段变化且非审批动作：多为幂等重存，不值得占一条留痕
+      if (auditChanges.length > 0 || review) {
+        const { action, comment } = this.classifyTaskUpdate(auditBefore, resolvedPatch, auditChanges, review);
+        await this.recordServerAudit({
+          action,
+          resource: { type: 'task', id: taskId, name: cleanText(auditBefore.title) || taskId },
+          // 操作人只认 JWT 身份：_actor_name 是请求体自报的，拿它兜底等于让调用方决定留痕算在谁头上
+          actor: { id: options?.requesterUserId, name: options?.requesterName },
+          comment,
+          changes: auditChanges,
+          ...(review ? { metadata: { review_type: cleanText(auditBefore.pending_review_type) || 'result' } } : {}),
+        });
+      }
+    }
 
     // Auto-send review notifications (best-effort, never blocks response)
     if (originalTask) {
@@ -4469,6 +4631,16 @@ export class ResearchDevelopmentService {
         ...(typeof patch.handled === 'boolean' ? { handled: patch.handled } : {}),
       },
     });
+    // 只有「关闭通知」这一下才值得留痕；已读标记是浏览行为，记下来只会淹没审计流
+    if (patch.handled === true && msg.handled !== true) {
+      await this.recordServerAudit({
+        action: 'notification.handled',
+        resource: { type: 'system', id: messageId, name: cleanText(msg.subject) },
+        actor: { id: viewer.userId, name: cleanText(msg.recipientName) },
+        comment: '关闭通知中心提醒',
+        metadata: { message_category: cleanText(msg.category), message_source: cleanText(msg.source) },
+      });
+    }
     return this.serializeMessage(updated);
   }
 
@@ -4590,6 +4762,21 @@ export class ResearchDevelopmentService {
       await this.notifyTaskDeleted(removedTask, actor?.userName?.trim() || '管理员', cleanUserId(actor?.userId)).catch(
         () => {},
       );
+    }
+    // 删除任务原先没有任何留痕（前端各页都没记）——这是最该留痕的动作之一，本次补上
+    if (removedTask) {
+      const deleted = removedTask as JsonRecord;
+      await this.recordServerAudit({
+        action: 'task.deleted',
+        resource: { type: 'task', id: taskId, name: cleanText(deleted.title) || taskId },
+        actor: { id: actor?.userId, name: actor?.userName },
+        comment: removedTaskIds.length > 1 ? `删除任务及其 ${removedTaskIds.length - 1} 个子任务` : '删除任务',
+        metadata: {
+          status: cleanText(deleted.status),
+          primary_owner: cleanText(deleted.primary_owner),
+          removed_task_ids: removedTaskIds,
+        },
+      });
     }
     await this.recomputeDirectorDashboard();
     return { ok: true };
@@ -5566,6 +5753,21 @@ export class ResearchDevelopmentService {
         // Best-effort: never let KB ingestion fail the main request
       }
     }
+
+    // 进展留痕的审计：与留痕本体同路径写入，绕过界面直调本接口同样留下记录
+    await this.recordServerAudit({
+      action: 'task.progress_updated',
+      resource: { type: 'task', id: taskId },
+      actor: payload.actor ?? { id: payload.requesterUserId, name: payload.requesterName },
+      comment: cleanText(note.text) || '提交进展留痕',
+      ...(typeof payload.progress === 'number'
+        ? { changes: [{ field: 'progress', before: '', after: String(payload.progress) }] }
+        : {}),
+      metadata: {
+        note_id: String(note.id ?? ''),
+        attachment_count: asArray(note.attachments).length,
+      },
+    });
 
     return this.decorateNotesWithPreview([note])[0];
   }
@@ -6590,7 +6792,187 @@ export class ResearchDevelopmentService {
     return attachments.reduce((sum, a) => sum + (typeof a.size === 'number' ? a.size : 0), 0);
   }
 
-  /** 服务端审计：附件增/删/换与数据变更同路径写入，绕过前端直调 API 同样留痕。 */
+  /**
+   * 服务端审计统一入口。
+   *
+   * 留痕原先由前端在 88 处 `recordAudit()` 调用里发起——绕开界面直接打接口就不留痕，
+   * 等于审计可以被绕过。现在所有数据变更都在服务层自己写留痕，前端只负责展示。
+   *
+   * 写失败不回滚业务变更（审计是旁路，不该让业务因它失败），但必须告警可追查。
+   */
+  private async recordServerAudit(entry: {
+    action: string;
+    resource: { type: string; id: string; name?: string };
+    actor: { id?: string | null; name?: string; role?: string };
+    comment?: string;
+    changes?: Array<{ field: string; before: unknown; after: unknown }>;
+    metadata?: JsonRecord;
+    source?: 'web' | 'ai' | 'system' | 'api';
+  }): Promise<void> {
+    try {
+      await this.createAuditLog({
+        actor: {
+          id: entry.actor.id ?? null,
+          name: entry.actor.name ?? '未知用户',
+          ...(entry.actor.role ? { role: entry.actor.role } : {}),
+        },
+        action: entry.action,
+        resource: entry.resource,
+        ...(entry.changes?.length ? { changes: entry.changes } : {}),
+        ...(entry.comment ? { comment: entry.comment } : {}),
+        ...(entry.metadata ? { metadata: entry.metadata } : {}),
+        source: entry.source ?? 'web',
+      });
+    } catch (err) {
+      this.logger.error(
+        `[服务端审计] 写入失败 (${entry.action}, ${entry.resource.type}=${entry.resource.id}): ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /**
+   * 任务补丁 → 可读变更集。
+   *
+   * 只挑用户看得懂的业务字段：任务记录里还有一大票内部字段（creation_request_*、
+   * subtask_attached_* 等），全量 diff 会把留痕淹掉，看的人反而找不到重点。
+   */
+  private buildTaskChanges(before: JsonRecord, patch: JsonRecord) {
+    const changes: Array<{ field: string; before: unknown; after: unknown }> = [];
+    for (const field of AUDITED_TASK_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(patch, field)) continue;
+      const prev = this.auditFieldValue(before[field]);
+      const next = this.auditFieldValue(patch[field]);
+      if (prev === next) continue;
+      changes.push({ field, before: prev, after: next });
+    }
+    return changes;
+  }
+
+  /** 任意实体的字段 diff，字段白名单由调用方给。 */
+  private buildRecordChanges(before: JsonRecord, after: JsonRecord, fields: readonly string[]) {
+    const changes: Array<{ field: string; before: unknown; after: unknown }> = [];
+    for (const field of fields) {
+      const prev = this.auditFieldValue(before[field]);
+      const next = this.auditFieldValue(after[field]);
+      if (prev === next) continue;
+      changes.push({ field, before: prev, after: next });
+    }
+    return changes;
+  }
+
+  /** 变更值统一转成可读字符串：协作人这类数组取姓名拼接，对象兜底 JSON。 */
+  private auditFieldValue(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => (isRecord(item) ? cleanText(item.name ?? item.title ?? item.id) : String(item)))
+        .filter(Boolean)
+        .join('、');
+    }
+    if (isRecord(value)) return cleanText(value.name ?? value.title ?? value.id) || JSON.stringify(value);
+    return String(value);
+  }
+
+  /**
+   * 任务更新落到哪个动作码。
+   *
+   * 审批动作优先（它决定了任务的流转语义），其次是状态/主责人/进度这类"有专门动作码"的
+   * 单点变更，最后才回落到笼统的 task.updated —— 与合并前前端各页手写的口径保持一致，
+   * 这样迁移前后同一个操作在留痕页里长得一样。
+   */
+  private classifyTaskUpdate(
+    before: JsonRecord,
+    patch: JsonRecord,
+    changes: Array<{ field: string; before: unknown; after: unknown }>,
+    review?: { action?: string; reviewerName?: string; rejectReason?: string },
+  ): { action: string; comment: string } {
+    const reviewType = cleanText(before.pending_review_type) || 'result';
+    if (review?.action === 'approve') {
+      return { action: 'task.review_approved', comment: `${REVIEW_TYPE_LABELS[reviewType] ?? '审核'}通过` };
+    }
+    if (review?.action === 'reject') {
+      const reason = cleanText(review.rejectReason);
+      return {
+        action: 'task.review_rejected',
+        comment: `${REVIEW_TYPE_LABELS[reviewType] ?? '审核'}驳回${reason ? `：${reason}` : ''}`,
+      };
+    }
+
+    const changed = new Set(changes.map((item) => item.field));
+    const nextStatus = cleanText(patch.status);
+    if (changed.has('status') && nextStatus === 'pending_review') {
+      const pendingType = cleanText(patch.pending_review_type) || reviewType;
+      return {
+        action: PENDING_REVIEW_ACTIONS[pendingType] ?? 'task.submitted',
+        comment: `提交${REVIEW_TYPE_LABELS[pendingType] ?? '审核'}`,
+      };
+    }
+    // 封存/解封走的是 archived 布尔位，不是 status
+    if (changed.has('archived')) {
+      const archived = String(this.auditFieldValue(patch.archived)) === 'true';
+      return archived
+        ? { action: 'task.archived', comment: '封存任务' }
+        : { action: 'task.unarchived', comment: '解封任务' };
+    }
+    if (changed.has('status')) return { action: 'task.status_changed', comment: '变更任务状态' };
+    if (changed.has('primary_owner')) return { action: 'task.reassigned', comment: '转派任务负责人' };
+    if (changed.has('collaborators')) return { action: 'task.collaboration_updated', comment: '更新任务协同人' };
+    if (changed.has('progress')) return { action: 'task.progress_updated', comment: '更新任务进度' };
+    if (changed.has('work_items')) return { action: 'task.work_item_updated', comment: '更新任务工作项' };
+    if (changed.has('final_priority') || changed.has('priority')) {
+      return { action: 'task.priority_changed', comment: '调整任务优先级' };
+    }
+    if (changed.has('category_path')) return { action: 'task.edited', comment: '调整任务归类' };
+    if (changed.has('title') || changed.has('description')) return { action: 'task.edited', comment: '编辑任务标题与描述' };
+    return { action: 'task.updated', comment: '更新任务' };
+  }
+
+  /**
+   * 知识库留痕。研发库与各部门库共用同一批方法（靠 kbId 区分存储键），
+   * kb_id 记进 metadata，合并留痕页里才分得清是哪个库的操作。
+   */
+  private async recordKnowledgeAudit(
+    action: string,
+    resourceId: string,
+    resourceName: string,
+    comment: string,
+    kbId?: string,
+    actor?: AuditActorRef,
+    metadata?: JsonRecord,
+  ): Promise<void> {
+    await this.recordServerAudit({
+      action,
+      resource: { type: 'knowledge', id: resourceId, name: resourceName },
+      actor: { id: actor?.userId, name: actor?.userName },
+      comment,
+      metadata: { kb_id: kbId ?? 'rd', ...(metadata ?? {}) },
+    });
+  }
+
+  /**
+   * AI 调用留痕。AI 本身不改业务数据，但「谁在哪个对象上用了 AI」属于要追溯的操作，
+   * 合并前由前端各页自己上报——同样绕得过去，现在移到接口侧。
+   */
+  async recordAiAudit(entry: {
+    action: string;
+    resourceType: string;
+    resourceId: string;
+    resourceName?: string;
+    comment: string;
+    actor: AuditActorRef;
+    metadata?: JsonRecord;
+  }): Promise<void> {
+    await this.recordServerAudit({
+      action: entry.action,
+      resource: { type: entry.resourceType, id: entry.resourceId, name: entry.resourceName },
+      actor: { id: entry.actor.userId, name: entry.actor.userName },
+      comment: entry.comment,
+      metadata: entry.metadata,
+      source: 'ai',
+    });
+  }
+
+  /** 附件增/删/换的留痕，走统一入口，额外把 note_id 带进 metadata。 */
   private async recordNoteAttachmentAudit(entry: {
     action: 'task.attachment_added' | 'task.attachment_removed' | 'task.attachment_replaced';
     task: JsonRecord;
@@ -6600,24 +6982,14 @@ export class ResearchDevelopmentService {
     metadata?: JsonRecord;
     actor: { id?: string; name?: string; role?: string };
   }): Promise<void> {
-    try {
-      await this.createAuditLog({
-        actor: {
-          id: entry.actor.id ?? null,
-          name: entry.actor.name ?? '未知用户',
-          role: entry.actor.role ?? '研发成员',
-        },
-        action: entry.action,
-        resource: { type: 'task', id: String(entry.task.task_id ?? ''), name: String(entry.task.title ?? '') },
-        ...(entry.changes ? { changes: entry.changes } : {}),
-        comment: entry.comment,
-        metadata: { note_id: entry.noteId, ...(entry.metadata ?? {}) },
-        source: 'web',
-      });
-    } catch (err) {
-      // 审计写失败不回滚业务变更（KV 单点故障场景），但必须告警可追查
-      this.logger.error(`[附件审计] 写入失败 (${entry.action}, task=${entry.task.task_id}): ${err instanceof Error ? err.message : err}`);
-    }
+    await this.recordServerAudit({
+      action: entry.action,
+      resource: { type: 'task', id: String(entry.task.task_id ?? ''), name: String(entry.task.title ?? '') },
+      actor: { ...entry.actor, role: entry.actor.role ?? '研发成员' },
+      comment: entry.comment,
+      changes: entry.changes,
+      metadata: { note_id: entry.noteId, ...(entry.metadata ?? {}) },
+    });
   }
 
   /**
@@ -8797,6 +9169,13 @@ export class ResearchDevelopmentService {
       next = [draft, ...existing];
     }
     await this.writeValue('rd.proposalDrafts', next.slice(0, 500));
+    await this.recordServerAudit({
+      action: 'proposal.draft_saved',
+      resource: { type: 'proposal', id: draft.id, name: title },
+      actor: { id: payload.author.id, name: payload.author.name ?? undefined, role: payload.author.role ?? undefined },
+      comment: idx >= 0 ? '更新立项草稿' : '保存立项草稿',
+      metadata: { task_count: asArray(payload.tasks).length, file_count: asArray(payload.file_names).length },
+    });
     return draft;
   }
 
@@ -8817,7 +9196,7 @@ export class ResearchDevelopmentService {
     return { ok: true };
   }
 
-  async clearAllTaskData() {
+  async clearAllTaskData(actor?: AuditActorRef) {
     // 消息中心是研发/协同共享的全局数据，绝不能随当前工作区任务一起清空。
     // 先记录当前池全部任务 id，清理任务后只把相应审核待办标记为已处理，历史消息仍保留。
     const removedTaskIds = new Set(
@@ -8842,6 +9221,14 @@ export class ResearchDevelopmentService {
     } catch {
       // best-effort：核心任务数据已经清空，不因消息状态刷新失败把成功操作报告为失败。
     }
+    // 清空整池任务是破坏性最强的动作，留痕本身不在被清空之列（它在 AuditLog 表）
+    await this.recordServerAudit({
+      action: 'task.data.cleared',
+      resource: { type: 'system', id: `task-data-${currentRdWorkspace()}`, name: '任务池数据' },
+      actor: { id: actor?.userId, name: actor?.userName },
+      comment: `清空任务池数据（${removedTaskIds.size} 个任务）`,
+      metadata: { workspace: currentRdWorkspace(), removed_task_count: removedTaskIds.size },
+    });
     return { ok: true };
   }
 
@@ -9572,7 +9959,7 @@ export class ResearchDevelopmentService {
     return this.listIdentityUsers();
   }
 
-  async createPerson(payload: JsonRecord) {
+  async createPerson(payload: JsonRecord, actor?: AuditActorRef) {
     const [people, users] = await Promise.all([this.getPeople(), this.listIdentityUsers()]);
     const nextPerson = this.normalizePeopleRecords([withGeneratedId('rd-person', payload)], users)[0];
     if (!nextPerson) {
@@ -9580,11 +9967,18 @@ export class ResearchDevelopmentService {
     }
     const nextPeople = [nextPerson, ...people.filter((item) => !isRecord(item) || item.id !== nextPerson.id)];
     await this.writeValue('rd.people', nextPeople);
+    await this.recordServerAudit({
+      action: 'person.created',
+      resource: { type: 'person', id: String(nextPerson.id ?? ''), name: cleanText(nextPerson.name) },
+      actor: { id: actor?.userId, name: actor?.userName },
+      comment: '新增研发成员',
+      metadata: { role: cleanText(nextPerson.role), department: cleanText(nextPerson.department) },
+    });
     await this.recomputeDirectorDashboard();
     return nextPerson;
   }
 
-  async updatePerson(id: string, payload: JsonRecord) {
+  async updatePerson(id: string, payload: JsonRecord, actor?: AuditActorRef) {
     const [people, users] = await Promise.all([this.getPeople(), this.listIdentityUsers()]);
     let found = false;
     let beforePerson: JsonRecord | null = null;
@@ -9625,18 +10019,32 @@ export class ResearchDevelopmentService {
     await this.writeValue('rd.people', nextPeople);
     if (beforePerson && afterPerson) {
       await this.rewritePersonAssignments(beforePerson, afterPerson);
+      await this.recordServerAudit({
+        action: 'person.edited',
+        resource: { type: 'person', id, name: cleanText((afterPerson as JsonRecord).name) },
+        actor: { id: actor?.userId, name: actor?.userName },
+        comment: '修改研发成员',
+        changes: this.buildRecordChanges(beforePerson as JsonRecord, afterPerson as JsonRecord, AUDITED_PERSON_FIELDS),
+      });
     }
     await this.recomputeDirectorDashboard();
     return nextPeople.find((item) => isRecord(item) && item.id === id);
   }
 
-  async removePerson(id: string) {
+  async removePerson(id: string, actor?: AuditActorRef) {
     const people = await this.getPeople();
     const beforePerson = people.find((item) => isRecord(item) && item.id === id);
     const nextPeople = people.filter((item) => !isRecord(item) || item.id !== id);
     await this.writeValue('rd.people', nextPeople);
     if (isRecord(beforePerson)) {
       await this.rewritePersonAssignments(beforePerson, null);
+      await this.recordServerAudit({
+        action: 'person.deleted',
+        resource: { type: 'person', id, name: cleanText(beforePerson.name) },
+        actor: { id: actor?.userId, name: actor?.userName },
+        comment: '删除研发成员',
+        metadata: { role: cleanText(beforePerson.role), department: cleanText(beforePerson.department) },
+      });
     }
     await this.recomputeDirectorDashboard();
     return { ok: true };
@@ -9733,30 +10141,106 @@ export class ResearchDevelopmentService {
     return pools;
   }
 
-  async saveApprovalFlows(payload: unknown[]) {
-    return this.writeValue('rd.approvalFlows', asArray(payload));
+  /**
+   * 审批流是整份覆盖保存，服务端拿不到「加了哪个节点、删了哪个节点」这种细粒度语义，
+   * 只能记录流程数与节点数的变化——比前端各自上报 flow.node_added/removed 粗，
+   * 但胜在绕不过去：直接调接口改流程同样留痕。
+   */
+  async saveApprovalFlows(payload: unknown[], actor?: AuditActorRef) {
+    const before = await this.readArray('rd.approvalFlows');
+    const next = asArray(payload);
+    const result = await this.writeValue('rd.approvalFlows', next);
+    const countNodes = (flows: unknown[]) =>
+      flows.reduce<number>((sum, flow) => sum + (isRecord(flow) ? asArray(flow.nodes).length : 0), 0);
+    await this.recordServerAudit({
+      action: 'flow.saved',
+      resource: { type: 'flow', id: 'rd-approval-flows', name: '审批流配置' },
+      actor: { id: actor?.userId, name: actor?.userName },
+      comment: '保存审批流配置',
+      changes: [
+        { field: 'flow_count', before: before.length, after: next.length },
+        { field: 'node_count', before: countNodes(before), after: countNodes(next) },
+      ],
+    });
+    return result;
   }
 
-  async getAuditLogs(viewer?: { userId?: string; userName?: string; canReadAll: boolean }) {
-    const logs = await this.readArray('rd.auditLogs');
-    const sortedLogs = logs
-      .filter(isRecord)
-      .sort((a, b) => String(b.timestamp ?? '').localeCompare(String(a.timestamp ?? '')));
+  /**
+   * 语义留痕已并入 AuditLog 表（module = 工作区名），不再走 SystemSetting KV。
+   * 输出结构保持 KV 时代的 JSON 形状：snapshot()、完成度评分等既有调用方无需改动。
+   *
+   * source <> 'api' 是为了排除全局拦截器写的 HTTP 原始留痕 —— 那份属于统一留痕页，
+   * 混进研发快照会让「任务相关留痕」凭空多出一堆看不懂的 POST 记录。
+   */
+  async getAuditLogs(
+    viewer?: { userId?: string; userName?: string; canReadAll: boolean },
+    filter?: { resourceType?: string; resourceId?: string },
+  ) {
+    // 按资源过滤必须下推到查询：留痕现在由服务端随每次变更写入，条数远多于从前，
+    // 「取最新 1000 条再由前端筛某个任务」会让稍早的任务时间线整段查不到。
+    const resourceType = cleanText(filter?.resourceType);
+    const resourceId = cleanText(filter?.resourceId);
+    const rows = await this.prisma.auditLog.findMany({
+      where: {
+        module: currentRdWorkspace(),
+        source: { not: 'api' },
+        ...(resourceType ? { resource: resourceType } : {}),
+        ...(resourceId ? { resourceId } : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      // 上限保留：不带过滤条件时 snapshot() 会把整段留痕塞进响应，不能无界增长
+      take: MAX_AUDIT_LOGS,
+    });
+    const logs = rows.map((row) => this.auditRowToJson(row));
 
     // Internal callers (for example completion scoring) intentionally omit a viewer and
     // retain the complete audit stream. Every HTTP read path supplies a viewer.
-    if (!viewer || viewer.canReadAll) return sortedLogs;
+    if (!viewer || viewer.canReadAll) return logs;
 
     const viewerId = cleanUserId(viewer.userId);
     const viewerNameKey = personNameLookupKey(viewer.userName);
     if (!viewerId && !viewerNameKey) return [];
 
-    return sortedLogs.filter((log) => {
+    return logs.filter((log) => {
       const actor = isRecord(log.actor) ? log.actor : {};
       const actorId = cleanUserId(actor.id);
       if (actorId) return Boolean(viewerId) && actorId === viewerId;
       return Boolean(viewerNameKey) && personNameLookupKey(actor.name) === viewerNameKey;
     });
+  }
+
+  /** AuditLog 行 → KV 时代的留痕 JSON。两侧字段一一对应，改动只在存储层。 */
+  private auditRowToJson(row: {
+    id: string;
+    userId: string | null;
+    actorName: string | null;
+    action: string;
+    resource: string;
+    resourceId: string | null;
+    resourceName: string | null;
+    summary: string | null;
+    source: string;
+    meta: unknown;
+    notes: unknown;
+    createdAt: Date;
+  }): JsonRecord {
+    const meta = isRecord(row.meta) ? row.meta : {};
+    return {
+      id: row.id,
+      timestamp: row.createdAt.toISOString(),
+      actor: {
+        id: row.userId,
+        name: row.actorName ?? '',
+        ...(typeof meta.actorRole === 'string' ? { role: meta.actorRole } : {}),
+      },
+      action: row.action,
+      source: row.source,
+      resource: { type: row.resource, id: row.resourceId, name: row.resourceName },
+      ...(row.summary ? { comment: row.summary } : {}),
+      ...(isRecord(meta.metadata) ? { metadata: meta.metadata } : {}),
+      ...(Array.isArray(meta.changes) ? { changes: meta.changes } : {}),
+      notes: Array.isArray(row.notes) ? row.notes : [],
+    };
   }
 
   // ── 已完成任务 AI 质量评分（持久化）─────────────────────────────────────────
@@ -10480,36 +10964,57 @@ export class ResearchDevelopmentService {
     }
   }
 
+  /**
+   * 写一条语义留痕。落 AuditLog 表而非 KV：KV 是「读整份数组 → 改 → 写回」，
+   * 并发写天然互相覆盖，且 1000 条上限会静默淘汰早期记录——审计数据不该这么存。
+   */
   async createAuditLog(payload: JsonRecord) {
-    const currentLogs = await this.getAuditLogs();
-    const nextLog = {
-      ...withGeneratedId('rd-log', payload),
-      timestamp: new Date().toISOString(),
-    };
-    await this.writeValue('rd.auditLogs', [nextLog, ...currentLogs].slice(0, MAX_AUDIT_LOGS));
-    return nextLog;
-  }
+    const actor = isRecord(payload.actor) ? payload.actor : {};
+    const resource = isRecord(payload.resource) ? payload.resource : {};
+    const actorId = cleanUserId(actor.id);
+    // userId 是外键：指向已删除账号会让整条写入失败。宁可丢关联也不能丢留痕，
+    // 姓名快照 actorName 保证这类记录仍追溯得到人。
+    const actorExists = actorId
+      ? await this.prisma.user.findUnique({ where: { id: actorId }, select: { id: true } })
+      : null;
+    const source = cleanText(payload.source);
 
-  async clearAuditLogs() {
-    await this.writeValue('rd.auditLogs', []);
-    return { ok: true };
+    const row = await this.prisma.auditLog.create({
+      data: {
+        userId: actorExists ? actorId : null,
+        actorName: cleanText(actor.name) || null,
+        module: currentRdWorkspace(),
+        source: source === 'ai' || source === 'system' || source === 'api' ? source : 'web',
+        action: cleanText(payload.action) || 'unknown',
+        resource: cleanText(resource.type) || 'system',
+        resourceId: cleanText(resource.id) || null,
+        resourceName: cleanText(resource.name) || null,
+        summary: cleanText(payload.comment) || cleanText(payload.summary) || null,
+        meta: {
+          ...(Array.isArray(payload.changes) ? { changes: payload.changes } : {}),
+          ...(isRecord(payload.metadata) ? { metadata: payload.metadata } : {}),
+          ...(cleanText(actor.role) ? { actorRole: cleanText(actor.role) } : {}),
+        } as Prisma.InputJsonValue,
+        notes: [],
+      },
+    });
+    return this.auditRowToJson(row);
   }
 
   /**
    * 给某条操作留痕追加一条「备注」。备注内嵌在该留痕记录的 notes 数组里，
    * 随留痕一起持久化、一起被 MAX_AUDIT_LOGS 滚动淘汰，做到「跟着留痕走」。
    */
-  async addAuditLogNote(logId: string, payload: JsonRecord) {
+  async addAuditLogNote(logId: string, payload: JsonRecord, actorRef?: AuditActorRef) {
     const text = typeof payload.text === 'string' ? payload.text.trim() : '';
     if (!text) throw new BadRequestException('备注内容不能为空');
     if (text.length > 200) throw new BadRequestException('备注内容过长（上限 200 字符）');
 
-    const logs = await this.readArray('rd.auditLogs');
-    const idx = logs.findIndex((log) => isRecord(log) && log.id === logId);
-    if (idx === -1) throw new NotFoundException('操作留痕记录不存在');
+    const log = await this.prisma.auditLog.findUnique({ where: { id: logId }, select: { notes: true } });
+    if (!log) throw new NotFoundException('操作留痕记录不存在');
 
-    const log = logs[idx] as JsonRecord;
-    const actor = isRecord(payload.actor) ? payload.actor : {};
+    // 备注署名同样只认 JWT 身份，不用请求体里的 actor
+    const actor: JsonRecord = { id: actorRef?.userId ?? null, name: actorRef?.userName ?? '' };
     const note: JsonRecord = {
       id: `rd-log-note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       text,
@@ -10517,10 +11022,11 @@ export class ResearchDevelopmentService {
       created_at: new Date().toISOString(),
     };
     const existing = Array.isArray(log.notes) ? log.notes : [];
-    const updated: JsonRecord = { ...log, notes: [...existing, note] };
-    logs[idx] = updated;
-    await this.writeValue('rd.auditLogs', logs);
-    return updated;
+    const updated = await this.prisma.auditLog.update({
+      where: { id: logId },
+      data: { notes: [...existing, note] as Prisma.InputJsonValue },
+    });
+    return this.auditRowToJson(updated);
   }
 
   async getAiSettings() {
@@ -10805,7 +11311,7 @@ export class ResearchDevelopmentService {
     return { ok: true, categories: this.attachKnowledgeCategoryCounts(normalized, entries) };
   }
 
-  async createKnowledgeCategory(payload: { label?: unknown; parent_id?: unknown; icon?: unknown; color?: unknown }, kbId?: string) {
+  async createKnowledgeCategory(payload: { label?: unknown; parent_id?: unknown; icon?: unknown; color?: unknown }, kbId?: string, actor?: AuditActorRef) {
     const label = cleanText(payload.label);
     if (!label) throw new BadRequestException('类目名称不能为空');
     if (label.length > 40) throw new BadRequestException('类目名称不能超过 40 个字符');
@@ -10838,6 +11344,7 @@ export class ResearchDevelopmentService {
 
     siblings.push(category);
     await this.writeValue(this.kbCategoriesKey(kbId), this.stripKnowledgeCategoryComputedFields(categories));
+    await this.recordKnowledgeAudit('kb.category.created', cleanText(category.id), cleanText(category.label), '新建知识库类目', kbId, actor);
     const entries = await this.readActiveKnowledgeEntryRecords(kbId);
     return { ok: true, category, categories: this.attachKnowledgeCategoryCounts(categories, entries) };
   }
@@ -10846,6 +11353,7 @@ export class ResearchDevelopmentService {
     id: string,
     payload: { label?: unknown; icon?: unknown; color?: unknown },
     kbId?: string,
+    actor?: AuditActorRef,
   ) {
     const categoryId = cleanText(id);
     const categories = await this.readKnowledgeCategoryRecords(kbId);
@@ -10876,10 +11384,11 @@ export class ResearchDevelopmentService {
     found.category.updated_at = new Date().toISOString();
 
     await this.writeValue(this.kbCategoriesKey(kbId), this.stripKnowledgeCategoryComputedFields(categories));
+    await this.recordKnowledgeAudit('kb.category.edited', categoryId, cleanText(found.category.label), '修改知识库类目', kbId, actor);
     return { ok: true, category: found.category, categories: this.attachKnowledgeCategoryCounts(categories, entries) };
   }
 
-  async deleteKnowledgeCategory(id: string, kbId?: string) {
+  async deleteKnowledgeCategory(id: string, kbId?: string, actor?: AuditActorRef) {
     const categoryId = cleanText(id);
     if (categoryId === 'kb-other') {
       throw new BadRequestException('默认“其他”类目不能删除');
@@ -10895,8 +11404,10 @@ export class ResearchDevelopmentService {
     }
 
     const index = found.siblings.findIndex((category) => cleanText(category.id) === categoryId);
+    const removedLabel = cleanText(found.category.label);
     if (index >= 0) found.siblings.splice(index, 1);
     await this.writeValue(this.kbCategoriesKey(kbId), this.stripKnowledgeCategoryComputedFields(categories));
+    await this.recordKnowledgeAudit('kb.category.deleted', categoryId, removedLabel, '删除知识库类目', kbId, actor);
     return { ok: true, categories: this.attachKnowledgeCategoryCounts(categories, entries) };
   }
 
@@ -11213,7 +11724,7 @@ export class ResearchDevelopmentService {
   async updateKnowledgeEntry(id: string, payload: Partial<{
     title: string; description: string; category_id: string;
     tags: string[]; visibility: string; permission_level: number; archived: boolean;
-  }>, kbId?: string) {
+  }>, kbId?: string, actor?: AuditActorRef, auditAction: 'kb.entry.edited' | 'kb.entry.moved' = 'kb.entry.edited') {
     const raw = await this.readValue(this.kbEntriesKey(kbId));
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     const categoryId = payload.category_id !== undefined
@@ -11236,20 +11747,29 @@ export class ResearchDevelopmentService {
     if (!found) throw new NotFoundException('知识条目不存在');
     await this.writeValue(this.kbEntriesKey(kbId), updated);
     const next = updated.find(e => e.id === id);
-    // RAG 同步：内容变更需要重新 embedding（研发库与部门/协同库一视同仁）
-    if (next) void this.syncKbEntryToRag(next, kbId);
+    await this.recordKnowledgeAudit(
+      auditAction,
+      id,
+      cleanText(next?.title),
+      auditAction === 'kb.entry.moved' ? '移动知识库文件' : '修改知识库文件',
+      kbId,
+      actor,
+      auditAction === 'kb.entry.moved' ? { category_id: cleanText(payload.category_id) } : undefined,
+    );
     return next;
   }
 
-  async moveKnowledgeEntry(id: string, categoryId: string, kbId?: string) {
-    return this.updateKnowledgeEntry(id, { category_id: categoryId }, kbId);
+  async moveKnowledgeEntry(id: string, categoryId: string, kbId?: string, actor?: AuditActorRef) {
+    return this.updateKnowledgeEntry(id, { category_id: categoryId }, kbId, actor, 'kb.entry.moved');
   }
 
-  async deleteKnowledgeEntry(id: string, kbId?: string) {
+  async deleteKnowledgeEntry(id: string, kbId?: string, actor?: AuditActorRef) {
     const raw = await this.readValue(this.kbEntriesKey(kbId));
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    const removed = entries.find(e => e.id === id);
     const updated = entries.map(e => e.id === id ? { ...e, archived: true, updated_at: new Date().toISOString() } : e);
     await this.writeValue(this.kbEntriesKey(kbId), updated);
+    await this.recordKnowledgeAudit('kb.entry.deleted', id, cleanText(removed?.title), '删除知识库文件', kbId, actor);
     // RAG 同步：archived=true 触发 chunk 删除（各库同机制）
     void this.ragService.removeChunksForSource('kb', id).catch((err) => {
       this.logger.warn(`[RAG] removeChunksForSource 失败 (entry=${id}): ${err instanceof Error ? err.message : String(err)}`);

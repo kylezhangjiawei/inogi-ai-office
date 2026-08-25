@@ -219,36 +219,6 @@ export interface ProcSummary {
   pendingReview: number;
 }
 
-export type ProcAuditAction = "POST" | "PUT" | "PATCH" | "DELETE";
-
-export interface ProcAuditLogItem {
-  id: string;
-  action: string;
-  section: string;
-  operator: { id: string | null; name: string };
-  occurredAt: string;
-  details: Array<{ field: string; value: string }>;
-}
-
-export interface ProcAuditLogQuery {
-  page: number;
-  pageSize: number;
-  keyword?: string;
-  action?: ProcAuditAction;
-  section?: string;
-  dateFrom?: string;
-  dateTo?: string;
-  snapshotAt?: string;
-}
-
-export interface ProcAuditLogPage {
-  total: number;
-  page: number;
-  pageSize: number;
-  snapshotAt: string;
-  items: ProcAuditLogItem[];
-}
-
 interface Paged<T> {
   total: number;
   page: number;
@@ -295,24 +265,6 @@ export async function getProcTask(id: string): Promise<ProcurementTask> {
 
 export async function getProcSummary(signal?: AbortSignal): Promise<ProcSummary> {
   return request<ProcSummary>("/summary", { signal });
-}
-
-/** 负责人候选：eligible=采购名录及采购部，department=仅采购部，all=全部启用人员。 */
-export async function listProcAuditLogs(
-  query: ProcAuditLogQuery,
-  signal?: AbortSignal,
-): Promise<ProcAuditLogPage> {
-  const params = new URLSearchParams({
-    page: String(query.page),
-    pageSize: String(query.pageSize),
-  });
-  if (query.keyword) params.set("keyword", query.keyword);
-  if (query.action) params.set("action", query.action);
-  if (query.section) params.set("section", query.section);
-  if (query.dateFrom) params.set("dateFrom", query.dateFrom);
-  if (query.dateTo) params.set("dateTo", query.dateTo);
-  if (query.snapshotAt) params.set("snapshotAt", query.snapshotAt);
-  return request<ProcAuditLogPage>(`/audit-logs?${params.toString()}`, { signal });
 }
 
 /** 负责人候选（转派/建单人员选择）：成员名录 > 采购部 > 全员。 */

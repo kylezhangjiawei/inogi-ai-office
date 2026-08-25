@@ -35,7 +35,7 @@ import {
   getPoolForPermission,
   PoolMember,
 } from "./lib/approvalFlowConfig";
-import { AuditActor, recordAudit, useAuditActor } from "./lib/auditLog";
+
 import { PERMISSIONS } from "./lib/permissions";
 import {
   createRdSubtasks,
@@ -1597,7 +1597,6 @@ function StepReview({
   tasks,
   setTasks,
   proposalId,
-  auditActor,
   categories,
   peopleProfiles,
   products,
@@ -1624,7 +1623,6 @@ function StepReview({
   tasks: ProposedTask[];
   setTasks: (t: ProposedTask[]) => void;
   proposalId: string;
-  auditActor: AuditActor;
   categories: RdCategory[];
   peopleProfiles: RdAiPersonContext[];
   products: RdProductDef[];
@@ -1685,14 +1683,6 @@ function StepReview({
         duration_basis: "默认 3 天",
       },
     ]);
-    recordAudit({
-      actor: auditActor,
-      action: "task.created",
-      resource: { type: "task", id: taskId, name: "新增任务" },
-      comment: "在立项审阅阶段手动追加任务草稿",
-      metadata: { proposal_id: proposalId, origin: "manual_draft" },
-      source: "web",
-    });
   };
 
   const updateTask = (id: string, t: ProposedTask) => {
@@ -1703,14 +1693,6 @@ function StepReview({
     const target = tasks.find((x) => x.id === id);
     setTasks(tasks.filter((x) => x.id !== id));
     if (target) {
-      recordAudit({
-        actor: auditActor,
-        action: "task.edited",
-        resource: { type: "task", id: target.id, name: target.title },
-        comment: "在立项审阅阶段移除了任务草稿",
-        metadata: { proposal_id: proposalId, removed: true },
-        source: "web",
-      });
     }
   };
 
@@ -1766,21 +1748,6 @@ function StepReview({
         provider: result.provider,
         model: result.model,
       });
-      recordAudit({
-        actor: auditActor,
-        action: "ai.proposal_refined",
-        resource: { type: "proposal", id: proposalId, name: title || "AI 立项" },
-        comment: instruction,
-        metadata: {
-          proposal_id: proposalId,
-          scope,
-          selected_task_ids: selectedIds,
-          task_count: tasks.length,
-          provider: result.provider,
-          model: result.model,
-        },
-        source: "web",
-      });
       toast.success(t("已生成 AI 微调预览"), { description: t("确认后再应用到当前任务草稿") });
     } catch (error) {
       const message = error instanceof Error ? error.message : t("AI 微调失败");
@@ -1796,14 +1763,6 @@ function StepReview({
     setTasks(refinePreview.tasks);
     setSelectedTaskIds([]);
     setRefinePreview(null);
-    recordAudit({
-      actor: auditActor,
-      action: "ai.proposal_refine_applied",
-      resource: { type: "proposal", id: proposalId, name: title || "AI 立项" },
-      comment: "应用 AI 微调预览到立项任务草稿",
-      metadata: { proposal_id: proposalId, task_count: refinePreview.tasks.length },
-      source: "web",
-    });
     toast.success(t("已应用 AI 微调结果"));
   };
 
@@ -2436,7 +2395,6 @@ export function RDProjectProposalDialog({
     ? (user?.name?.trim() || user?.email || user?.username || "")
     : "";
   const ownerLocked = forceOwnerToCurrentUser && !!forcedOwnerName;
-  const auditActor = useAuditActor(effectiveUserRole === "director" ? "研发主管" : effectiveUserRole === "admin" ? "研发管理员" : "研发成员");
 
   useEffect(() => {
     if (open) {
@@ -2582,17 +2540,6 @@ export function RDProjectProposalDialog({
 
   // Real AI parsing: text or file → backend AI → structured tasks
   const runAiParse = () => {
-    recordAudit({
-      actor: auditActor,
-      action: "ai.parse_triggered",
-      resource: { type: "proposal", id: proposalId, name: title || "AI 立项" },
-      comment: "发起 AI 立项解析",
-      metadata: {
-        input_type: description.trim() ? (files.length > 0 ? "text_and_files" : "text") : "files",
-        attachment_count: files.length,
-      },
-      source: "web",
-    });
 
     setStep(2);
     setAiProgress(0);
@@ -2883,19 +2830,6 @@ export function RDProjectProposalDialog({
       await recomputeRdDirectorDashboard().catch(() => {});
       await notifyCompleted();
 
-      recordAudit({
-        actor: auditActor,
-        action: "proposal.submitted",
-        resource: { type: "proposal", id: proposalId, name: title || "未命名立项" },
-        comment: comment || "提交立项审核",
-        metadata: {
-          task_count: tasks.length,
-          review_node_count: getApplicableNodes(effectiveUserRole).length,
-          parent_project_id: parentProjectId,
-          ...(parentTask ? { parent_task_id: parentTask.task_id } : {}),
-        },
-        source: "web",
-      });
       toast.success(t("立项已提交审核"), {
         description: t("共 {n} 个任务，已进入主管驾驶舱待审核队列", { n: tasks.length }),
       });
@@ -2920,14 +2854,6 @@ export function RDProjectProposalDialog({
         tasks: tasks as unknown[],
         file_names: files.map((f) => f.name),
       });
-      recordAudit({
-        actor: auditActor,
-        action: "proposal.draft_saved",
-        resource: { type: "proposal", id: saved.id, name: saved.title },
-        comment: comment || "保存立项草稿",
-        metadata: { task_count: tasks.length, attachment_count: files.length, draft_id: saved.id },
-        source: "web",
-      });
       toast.success(t("立项已保存为草稿"), {
         description: t("已存档 {n} 个任务草案，可后续继续编辑或提交", { n: tasks.length }),
       });
@@ -2951,38 +2877,8 @@ export function RDProjectProposalDialog({
       await recomputeRdDirectorDashboard().catch(() => {});
       await notifyCompleted();
 
-      recordAudit({
-        actor: auditActor,
-        action: "proposal.direct_dispatched",
-        resource: { type: "proposal", id: proposalId, name: title || "未命名立项" },
-        comment: comment || "直接立项并分配任务",
-        metadata: {
-          task_count: tasks.length,
-          parent_project_id: parentProjectId,
-          project_name: parentProjectId === "new" ? newProjectName || title || "未命名立项" : parentProjectId,
-          ...(parentTask ? { parent_task_id: parentTask.task_id } : {}),
-        },
-        source: "web",
-      });
       created.forEach((createdTask, index) => {
         const task = tasks[index]!;
-        recordAudit({
-          actor: auditActor,
-          action: "task.created",
-          resource: { type: "task", id: createdTask.task_id, name: createdTask.title },
-          changes: [
-            { field: "owner", before: undefined, after: task.owner },
-            { field: "priority", before: undefined, after: task.priority },
-            { field: "due_date", before: undefined, after: task.due_date },
-          ],
-          comment: parentTask ? `在任务 ${parentTask.task_id} 下立项并创建子任务` : "立项直接生效后自动创建任务",
-          metadata: {
-            proposal_id: proposalId,
-            category_path: createdTask.category_path ?? task.category_path,
-            ...(parentTask ? { parent_task_id: parentTask.task_id, subtask_origin: "created" } : {}),
-          },
-          source: "web",
-        });
       });
 
       toast.success(t("立项已生效并自动分配"), {
@@ -3095,7 +2991,6 @@ export function RDProjectProposalDialog({
             tasks={tasks}
             setTasks={setTasks}
             proposalId={proposalId}
-            auditActor={auditActor}
             categories={categories}
             peopleProfiles={peopleProfiles}
             products={products}

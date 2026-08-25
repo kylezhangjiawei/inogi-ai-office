@@ -155,18 +155,38 @@ model RefreshToken {
   createdAt DateTime @default(now())
 }
 
+/// 全站统一操作留痕。两类记录共用这张表，靠 source 区分：
+/// - source='api'：全局 AuditInterceptor 抓到的写请求，无差别记录所有登录用户（含超级管理员）；
+/// - source='web'/'ai'/'system'：业务语义留痕（谁把哪个任务转派给谁），带 summary 与 meta.changes。
+/// 研发/中美协同/生产三个池的语义留痕原先各存一份 SystemSetting KV（上限 1000 条滚动淘汰），
+/// 已并入本表并用 module 区分，页面据此做跨模块筛选。
 model AuditLog {
-  id         String   @id @default(cuid())
-  userId     String?
-  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action     String
-  resource   String
-  resourceId String?
-  meta       Json     @default("{}")
-  ip         String?
-  createdAt  DateTime @default(now())
+  id           String   @id @default(cuid())
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action       String
+  resource     String
+  resourceId   String?
+  meta         Json     @default("{}")
+  ip           String?
+  createdAt    DateTime @default(now())
+
+  /// 模块归属，留痕页筛选主维度：rd / us-collab / production / procurement / auth / chat / ...
+  module       String   @default("other")
+  /// 记录来源：web=页面业务操作，api=拦截器抓到的写请求，ai=智能体代执行，system=后台任务
+  source       String   @default("api")
+  /// 操作人姓名快照。user 关系在账号删除时被置空，快照保证历史留痕仍追溯得到人
+  actorName    String?
+  /// 资源名称快照（任务标题、立项名等）。HTTP 原始留痕留空
+  resourceName String?
+  /// 可读文案（语义留痕的 comment），HTTP 原始留痕留空
+  summary      String?
+  /// 事后补充的备注，元素形如 { id, text, actor, created_at }
+  notes        Json     @default("[]")
 
   @@index([resource, createdAt, id])
+  @@index([module, createdAt, id])
+  @@index([userId, createdAt])
 }
 
 model ApiRequestLog {

@@ -23,7 +23,6 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   // 「研发人员管理」页（/rd-people-management）实际由动作码 rd-people:manage 守卫（见 App.tsx），
   // 这里的 page: 码从未被任何守卫或导航引用，属冗余登记，已移除。授权仍走 rd-people:manage。
   { code: 'page:rd-approval-flow', label: '审批流配置', description: '配置立项/任务审批的节点、模式、SLA', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-approval-flow', sortOrder: 75 },
-  { code: 'page:rd-audit-log', label: '操作留痕', description: '查看研发任务管理关键操作的审计时间轴', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-audit-log', sortOrder: 76 },
   { code: 'page:rd-ai-settings', label: '研发 AI 策略', description: '配置研发模块 AI 场景模型、文件解析顺序、OCR 兜底与披露策略', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-ai-settings', sortOrder: 77 },
 
   // 研发任务操作权限
@@ -38,7 +37,6 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'rd-task:override-priority', label: '覆盖优先级', description: '覆盖 AI 判定的优先级（组长及以上）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 85 },
   { code: 'rd-people:manage', label: '管理研发人员', description: '新增、编辑、删除研发成员和任务容量', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 86 },
   { code: 'rd-approval-flow:manage', label: '管理审批流', description: '新增、调整、保存、重置研发审批流节点', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 87 },
-  { code: 'rd-audit:clear', label: '清空操作留痕', description: '清空研发任务管理操作留痕记录', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 88 },
   { code: 'rd-ai:configure', label: '配置研发 AI 策略', description: '维护研发模块各 AI 场景模型、OCR 兜底、文件解析和人工确认策略', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 89 },
   { code: 'rd-data:clear', label: '清空研发任务数据', description: '清空研发任务分类、个人工作台和生产驾驶舱数据', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 90 },
   { code: 'rd-sheet:edit', label: '编辑研发数据表', description: '新增/修改/删除数据表的行列与密级；拥有此权限即可看到全量数据（不受行级密级裁剪）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 91 },
@@ -77,7 +75,6 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:us-collab-workspace', label: '协同工作台', description: '中美协同个人工作台（复用研发个人工作台能力）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-workspace', sortOrder: 691 },
   { code: 'page:dept-kb-us-collab', label: '协同知识库', description: '中美协同独立知识库（与部门知识库同机制，存储隔离）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-kb', sortOrder: 692 },
   { code: 'page:us-collab-approval-flow', label: '协同审批流配置', description: '中美协同审批流配置（复用研发审批流页面，流程数据与研发池隔离）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-approval-flow', sortOrder: 693 },
-  { code: 'page:us-collab-audit-log', label: '协同操作留痕', description: '中美协同操作留痕（复用研发留痕页面，仅显示协同池的操作记录）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-audit-log', sortOrder: 694 },
   { code: 'page:us-collab-ai-settings', label: '协同 AI 策略', description: '中美协同 AI 策略配置（复用研发 AI 策略页面，配置与研发池隔离）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-ai-settings', sortOrder: 695 },
   // 操作权限：8 个部门库共用同一套操作码（归属由页面码决定）
   { code: 'dept-kb:upload', label: '上传部门知识库文件', description: '向所属部门知识库上传文件（含拖拽 / 文件选择）', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 670 },
@@ -118,7 +115,6 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:proc-my-workspace', label: '采购个人工作台', description: '成员视角：只看分配给我的采购任务，按阶段分组推进', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-my-workspace', sortOrder: 46 },
   { code: 'page:proc-materials', label: '采购物料库', description: '物料主数据与库存/在途资产视角：分类、审核与历史价格', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-materials', sortOrder: 47 },
   { code: 'page:proc-quote-book', label: '供应商报价库', description: '同一商品跨厂家比价：树形维护厂家报价与起订量阶梯价', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-quote-book', sortOrder: 48 },
-  { code: 'page:proc-audit-log', label: '采购操作留痕', description: '查看采购任务、物料、报价、成员和系统树的写操作记录', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-audit-log', sortOrder: 49 },
 
   { code: 'page:ui-design', label: 'AI 图像生成', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/ui-design', sortOrder: 300 },
   { code: 'page:image-library', label: '图像作品库', description: '历史创作、收藏作品与上游用量统计', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/image-library', sortOrder: 305 },
@@ -164,6 +160,10 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   // 「个人中心」/「消息中心」曾在此登记为隐藏页面，但两者的路由是 lazyWrap（任意登录用户可访问、
   // 无权限门），页面码从未被任何守卫或导航使用，留在目录里只会让角色编辑器多出勾了也没用的选项。
   // 已移除；若要重新做成受控页面，需同时给 App.tsx 的路由加回 makeLazyProtected。
+
+  // 全站统一操作留痕。研发 / 中美协同 / 采购三个留痕页合并到 /audit-log，页面码收敛为这一个；
+  // 能看自己还是看全部由服务端按管理权限分层判定，不再靠多发几个页面码来区分。
+  { code: 'page:audit-log', label: '操作留痕', description: '全站操作留痕：按模块、操作人、动作、时间筛选所有人的写操作记录（含超级管理员）', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/audit-log', sortOrder: 890 },
 
   { code: 'page:mailbox-management', label: '邮箱管理', description: '邮箱集成管理页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/mailbox-management', sortOrder: 900 },
   { code: 'page:ai-model-management', label: 'AI 模型管理', description: 'AI 模型配置页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/ai-model-management', sortOrder: 910 },

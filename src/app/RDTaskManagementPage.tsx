@@ -72,7 +72,7 @@ import {
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu";
 import { usePermission, useAnyPermission } from "./hooks/usePermission";
-import { AuditActor, AuditChange, AuditLog, recordAudit, useAuditActor } from "./lib/auditLog";
+import { AuditLog } from "./lib/auditLog";
 import { daysUntilDue, taskOverdueDays, isTaskOverdue, todayLocalDateStr } from "./lib/taskDue";
 import {
   AlertDialog,
@@ -2503,7 +2503,6 @@ function AiCreatePanel({
   onCreated: () => void;
   productId?: string; // 立项目标产品（board 中为当前产品，overview 为主产品）
 }) {
-  const RD_AUDIT_ACTOR = useAuditActor("研发成员");
   const [text, setText] = useState("");
   const [aiState, setAiState] = useState<AiInputState>("idle");
   const [draft, setDraft] = useState<Omit<Task, "task_id"> | null>(null);
@@ -2533,24 +2532,6 @@ function AiCreatePanel({
 
   async function handleProcess() {
     if (!text.trim() && selectedFiles.length === 0) return;
-    recordAudit({
-      actor: RD_AUDIT_ACTOR,
-      action: "ai.parse_triggered",
-      resource: { type: "system", id: "rd-ai-create", name: "AI 任务解析" },
-      comment: "发起 AI 任务解析",
-      metadata: {
-        input_length: text.trim().length,
-        file_count: selectedFiles.length,
-        ai_scene_id: activeScene?.id,
-        model_id: activeScene?.model_id,
-        model_label: describeRdAiModel(aiSettings, activeScene?.model_id),
-        fallback_model_id: activeScene?.fallback_model_id,
-        prompt_version: activeScene?.prompt_version,
-        ocr_provider: aiSettings?.file_policy.ocr_provider,
-        ocr_confidence_threshold: aiSettings?.file_policy.ocr_confidence_threshold,
-      },
-      source: "web",
-    });
     setAiState("processing");
     try {
       // 给 AI 的可选分类路径。自动补出的默认子项不作为一段暴露——只给分类名即可，
@@ -2657,35 +2638,7 @@ function AiCreatePanel({
       return;
     }
     const taskId = created.task_id;
-    recordAudit({
-      actor: RD_AUDIT_ACTOR,
-      action: "task.created",
-      resource: { type: "task", id: taskId, name: draft.title },
-      changes: [
-        { field: "primary_owner", before: undefined, after: draft.primary_owner },
-        { field: "priority", before: undefined, after: draft.final_priority },
-        { field: "due_date", before: undefined, after: draft.due_date },
-      ],
-      comment: "通过 AI 解析创建任务",
-      metadata: {
-        modified_fields: Array.from(modifiedFields),
-        category_path: draft.category_path,
-        ai_scene_id: activeScene?.id,
-        model_id: activeScene?.model_id,
-        model_label: describeRdAiModel(aiSettings, activeScene?.model_id),
-        prompt_version: activeScene?.prompt_version,
-      },
-      source: "web",
-    });
     if (modifiedFields.size > 0) {
-      recordAudit({
-        actor: RD_AUDIT_ACTOR,
-        action: "ai.suggestion_accepted",
-        resource: { type: "task", id: taskId, name: draft.title },
-        comment: "采纳 AI 建议并人工修正字段",
-        metadata: { modified_fields: Array.from(modifiedFields) },
-        source: "web",
-      });
     }
     toast.success(t("任务已创建，关键字段已留痕"));
     onCreated();
@@ -4175,18 +4128,9 @@ export function WorkItemsSection({
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
-  const auditActor = useAuditActor("研发成员");
 
   /** 工作项动作 → 操作留痕（带 work_item_id，留痕区按工作项 Tab 呈现完整时间线：创建→进展→完成） */
   const auditWorkItem = (comment: string, workItemId?: string) => {
-    recordAudit({
-      actor: auditActor,
-      action: "task.work_item_updated",
-      resource: { type: "task", id: task.task_id, name: task.title },
-      comment,
-      metadata: workItemId ? { work_item_id: workItemId } : {},
-      source: "web",
-    });
   };
 
   const persist = async (next: RdWorkItem[], successText?: string) => {
@@ -6062,13 +6006,6 @@ function emptyPerson(): Person {
   };
 }
 
-function getPersonChanges(before: Person, after: Person): AuditChange[] {
-  const fields: Array<keyof Person> = ["name", "position", "department", "email", "phone", "status", "max_tasks"];
-  return fields
-    .filter((field) => before[field] !== after[field])
-    .map((field) => ({ field, before: before[field], after: after[field] }));
-}
-
 /** Form modal for creating / editing a person */
 function PersonFormModal({
   person,
@@ -6301,7 +6238,6 @@ function ConfirmDeleteDialog({
 
 /** People management page — full CRUD, hidden from main nav */
 function PeopleManagementPage({ onBack }: { onBack: () => void }) {
-  const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
   const shouldReduceMotion = useReducedMotion();
   const [people, setPeople] = useState<Person[]>(INITIAL_PEOPLE);
   const [keyword, setKeyword] = useState("");
@@ -6338,27 +6274,11 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
 
   const handleSave = (p: Person) => {
     if (editing) {
-      const changes = getPersonChanges(editing, p);
       setPeople((prev) => prev.map((x) => (x.id === p.id ? p : x)));
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: changes.some((change) => change.field === "status") ? "person.status_changed" : "person.edited",
-        resource: { type: "person", id: p.id, name: p.name },
-        changes,
-        comment: "维护研发成员信息",
-        source: "web",
-      });
       setEditing(null);
     } else {
       const newPerson = { ...p, id: `p${Date.now()}` };
       setPeople((prev) => [...prev, newPerson]);
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: "person.created",
-        resource: { type: "person", id: newPerson.id, name: newPerson.name },
-        metadata: { department: newPerson.department, position: newPerson.position },
-        source: "web",
-      });
       setCreating(false);
     }
   };
@@ -6366,14 +6286,6 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
   const handleDelete = () => {
     if (deleteTarget) {
       setPeople((prev) => prev.filter((p) => p.id !== deleteTarget.id));
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: "person.deleted",
-        resource: { type: "person", id: deleteTarget.id, name: deleteTarget.name },
-        comment: "删除研发成员档案，关联任务需重新指派",
-        metadata: { department: deleteTarget.department, position: deleteTarget.position },
-        source: "web",
-      });
       setDeleteTarget(null);
     }
   };
@@ -8564,7 +8476,6 @@ function TaskReassignModal({
   allTasks: Task[];
   onUpdated?: () => void;
 }) {
-  const AUDIT_ACTOR = useAuditActor("研发管理员");
   const shouldReduceMotion = useReducedMotion();
   const assignableTasks: ReassignableTask[] = allTasks
     .filter((t) => !isProductionMirrorTask(t) && !t.archived && t.status !== "completed")
@@ -8636,14 +8547,6 @@ function TaskReassignModal({
       );
       const succeeded = results.filter((r) => r.status === "fulfilled").length;
       const failed = results.filter((r) => r.status === "rejected").length;
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: "system.bulk_reassign",
-        resource: { type: "system", id: `batch-${Date.now()}`, name: "批量转派任务" },
-        comment: `批量转派 ${succeeded} 个任务给 ${targetPerson.name}${failed > 0 ? `（${failed} 个失败）` : ""}`,
-        metadata: { to: targetPerson.name, task_count: succeeded, failed_count: failed },
-        source: "web",
-      });
       if (failed > 0) {
         toast.warning(t("{succeeded} 个任务转派成功，{failed} 个失败，请检查后重试", { succeeded, failed }));
       } else {
@@ -8841,7 +8744,6 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
   const usCollab = isUsCollabWorkspace();
   const moduleName = usCollab ? t("协同任务模块") : t("研发任务模块");
   const workspaceName = usCollab ? t("协同") : t("研发");
-  const AUDIT_ACTOR = useAuditActor(usCollab ? "协同管理员" : "研发管理员");
   const shouldReduceMotion = useReducedMotion();
   const [confirmText, setConfirmText] = useState("");
   const [clearing, setClearing] = useState(false);
@@ -8875,13 +8777,6 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
     setClearing(true);
     try {
       await clearRdAllTaskData();
-      recordAudit({
-        actor: AUDIT_ACTOR,
-        action: "task.data.cleared",
-        resource: { type: "system", id: usCollab ? "us-collab-task-data" : "rd-task-data", name: `${moduleName}数据` },
-        comment: `清空${moduleName}全部数据`,
-        source: "web",
-      });
       toast.success(t("{moduleName}数据已全部清空", { moduleName: t(moduleName) }));
       onCleared();
     } catch (err) {
@@ -10375,7 +10270,6 @@ function ProjectClassificationDialog({
   const [merging, setMerging] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const classificationAuditActor = useAuditActor("研发管理员");
   const scopedTasks = useMemo(() => flattenClassificationTasks(tasks), [tasks]);
   const taskById = useMemo(() => new Map(scopedTasks.map((task) => [task.task_id, task])), [scopedTasks]);
   const rootTaskIds = useMemo(() => new Set(tasks.map((task) => task.task_id)), [tasks]);
@@ -10581,20 +10475,6 @@ function ProjectClassificationDialog({
         const primaryTask = taskById.get(draft.primaryTaskId);
         for (const sourceTaskId of draft.sourceTaskIds) {
           const sourceTask = taskById.get(sourceTaskId);
-          recordAudit({
-            actor: classificationAuditActor,
-            action: "task.edited",
-            resource: { type: "task", id: sourceTaskId, name: sourceTask?.title ?? sourceTaskId },
-            changes: [{ field: "parent_task_id", before: "", after: draft.primaryTaskId }],
-            comment: `依据 AI 全量归纳的人工确认，将任务并入主任务「${primaryTask?.title ?? draft.primaryTaskId}」；原任务内容与记录完整保留`,
-            metadata: {
-              parent_task_id: draft.primaryTaskId,
-              subtask_origin: "attached",
-              ai_classification_group: draft.kind,
-              ai_classification_label: draft.label,
-            },
-            source: "web",
-          });
         }
         completedGroups += 1;
       }
@@ -10613,7 +10493,7 @@ function ProjectClassificationDialog({
     } finally {
       setMerging(false);
     }
-  }, [approvedMergeDrafts, approvedMergeTaskCount, classificationAuditActor, merging, onClose, onMerged, taskById]);
+  }, [approvedMergeDrafts, approvedMergeTaskCount, merging, onClose, onMerged, taskById]);
 
   const renderTaskLinks = (taskIds: string[], primaryTaskId?: string | null) => (
     <div className="mt-3 flex max-h-32 flex-wrap gap-2 overflow-y-auto pr-1">
@@ -11188,7 +11068,6 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const canViewCombinedMemberTasks = !usCollab && !productionWorkspace && canReassignTasks;
   const canSyncProductionPermission = usePermission(PERMISSIONS.RD_TASK_SYNC_PRODUCTION);
   const canSyncProduction = canSyncProductionPermission && !usCollab && !productionWorkspace;
-  const RD_ADMIN_AUDIT_ACTOR = useAuditActor(usCollab ? "协同管理员" : productionWorkspace ? "生产管理员" : "研发管理员");
   const [showCreate, setShowCreate] = useState(false);
   const [showReassign, setShowReassign] = useState(false);
   const [reassignTaskId, setReassignTaskId] = useState<string | null>(null);
@@ -11466,13 +11345,6 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       }
       setCategories(saved);
       setPanoramaReloadToken((n) => n + 1);
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: auditAction,
-        resource: { type: "category", id: auditResourceId, name: auditResourceName },
-        comment: `通过研发系统树管理${treeEditor.mode.startsWith("add") ? "新增" : treeEditor.mode.startsWith("edit") ? "重命名" : "删除"}节点`,
-        source: "web",
-      });
       toast.success(
         treeEditor.mode.startsWith("add") ? t("新增成功")
         : treeEditor.mode.startsWith("edit") ? t("已更新")
@@ -11511,16 +11383,6 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       const crossProduct = targetProductId !== boardProductId;
       const productLabel = products.find((p) => p.id === targetProductId)?.name ?? "";
       const movedPath = `${result.targetCategoryLabel} / ${result.targetSubLabel}`;
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "system", id: targetSubId, name: "移动任务" },
-        comment: crossProduct
-          ? `批量跨产品移动 ${result.movedCount} 个任务 → ${productLabel} / ${movedPath}`
-          : `批量移动 ${result.movedCount} 个任务到目标子项`,
-        metadata: { taskIds, targetProductId, targetSubId, fromSubId: moveTasks?.fromSub.id },
-        source: "web",
-      });
       toast.success(
         crossProduct
           ? `已移动 ${result.movedCount} 个任务到 ${productLabel} · ${movedPath}`
@@ -11555,14 +11417,6 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       const crossProduct = targetProductId !== boardProductId;
       const productLabel = products.find((p) => p.id === targetProductId)?.name ?? "";
       const movedPath = `${result.targetCategoryLabel} / ${result.targetSubLabel}`;
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "category_path", before: task.category_path, after: crossProduct ? `${productLabel} / ${movedPath}` : movedPath }],
-        comment: crossProduct ? `跨产品移动任务 → ${productLabel} / ${movedPath}` : `手动调整任务类目 → ${movedPath}`,
-        source: "web",
-      });
       toast.success(crossProduct ? t("任务已移动到 {product} · {path}", { product: productLabel, path: movedPath }) : t("任务已移动到 {path}", { path: movedPath }));
       setMoveTaskTarget(null);
     } catch (err) {
@@ -11831,13 +11685,6 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                   if (!target) return;
                   try {
                     await deleteRdTask(target.task_id);
-                    recordAudit({
-                      actor: RD_ADMIN_AUDIT_ACTOR,
-                      action: "task.edited",
-                      resource: { type: "task", id: target.task_id, name: target.title },
-                      comment: `从${usCollab ? "协同" : "研发"}任务驾驶舱删除任务`,
-                      source: "web",
-                    });
                     toast.success(t("任务已删除"));
                     loadCategories();
                   } catch (err) {
