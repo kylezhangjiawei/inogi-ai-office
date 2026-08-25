@@ -51,7 +51,7 @@ import {
   type Quotation,
   type TaskQuoteBookOption,
 } from "../../lib/procurementApi";
-import { refreshProcurement } from "../data";
+import { applyProcTaskUpdate, refreshProcurement } from "../data";
 import { BuyerComboInput, DateInput, fmtMoney, PROC_STATUS_META, useBuyerDirectory } from "./common";
 
 type FormKind = "quote" | "select" | "order" | "receive" | "reassign" | "confirm" | "test";
@@ -175,6 +175,13 @@ function formKindOf(task: ProcurementTask): FormKind | null {
  * onOpenDetail 由列表页传入（打开详情抽屉）。决策类动作从卡片触发时走它；
  * 详情抽屉内部不传，动作就地弹窗。
  */
+/** 写接口的返回值是不是一条采购任务（部分接口返回 { ok: true } 之类，不能拿来替换 store）。 */
+function isProcurementTask(value: unknown): value is ProcurementTask {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { id?: unknown; status?: unknown };
+  return typeof candidate.id === "string" && typeof candidate.status === "string";
+}
+
 export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementTask) => void }) {
   const [pending, setPending] = useState<PendingForm | null>(null);
   const [busy, setBusy] = useState(false);
@@ -183,11 +190,16 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
   const run = useCallback(async (fn: () => Promise<unknown>, okText: string) => {
     setBusy(true);
     try {
-      await fn();
-      // 只等写入，不等刷新。刷新要重拉全部任务和物料，数据量一上来就是好几秒，
-      // 期间弹窗按钮一直禁用、界面像卡住；而写入这一刻结果已经确定，先放行给用户。
-      // 列表由 store 订阅推送，后台刷完自动更新。
+      const result = await fn();
+      // 写接口返回的就是更新后的任务，立刻替换 store 里的那一条。
+      //
+      // 不能只靠 refreshProcurement()：它要重拉全部任务和物料，数据量一上来好几秒，
+      // 这期间界面还停在旧状态，用户看到的是「点了保存没反应」，于是再点一次——
+      // 而「下一步」按钮的含义是由任务状态推导的，刷新一旦在两次点击之间落地，
+      // 第二次点的其实已经是下一个动作，任务就这么一节节窜到了「已完成」。
+      if (isProcurementTask(result)) applyProcTaskUpdate(result);
       toast.success(okText);
+      // 整体刷新照旧在后台跑：物料聚合、列表统计等仍需要它
       void refreshProcurement();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "操作失败");

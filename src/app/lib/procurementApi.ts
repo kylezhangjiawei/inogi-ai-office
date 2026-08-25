@@ -449,6 +449,17 @@ export async function transitionProcTask(
   });
 }
 
+/**
+ * 重新维护报价：清空本任务已确认的报价并退回「待询价」。
+ * 仅限未下单阶段——已下单后单价已随采购单出去，需先撤销采购单关联。
+ */
+export async function resetProcTaskQuotations(id: string, reason?: string): Promise<ProcurementTask> {
+  return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/quotations/reset`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
 /** 审核驳回研发流转任务：删除采购任务，并通知研发相关人员与超级管理员。 */
 export async function rejectProcTask(id: string, reason: string): Promise<{ ok: true; deletedId: string }> {
   return request(`/tasks/${encodeURIComponent(id)}/reject`, {

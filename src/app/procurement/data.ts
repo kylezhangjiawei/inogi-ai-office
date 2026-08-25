@@ -98,6 +98,25 @@ async function load() {
 }
 
 /**
+ * 用写接口返回的最新任务就地替换 store 里的那一条。
+ *
+ * 为什么必须有这一步：写成功后只做 `refreshProcurement()` 是「重拉全部任务和物料」，
+ * 数据量一上来要好几秒。这几秒里详情抽屉、卡片上的「下一步」按钮显示的都还是旧状态，
+ * 用户看到的就是「点了保存没反应」，于是再点一次——而按钮的含义此时可能已经变成下一个动作，
+ * 于是任务一节一节往前窜，最后停在「已完成」。
+ *
+ * 写接口本来就返回了更新后的任务，直接用它即可让界面立刻正确；整体刷新照旧在后台跑。
+ */
+export function applyProcTaskUpdate(task: ProcurementTask): void {
+  const idx = state.tasks.findIndex((item) => item.id === task.id);
+  if (idx === -1) return;
+  const tasks = state.tasks.slice();
+  tasks[idx] = task;
+  emit({ tasks });
+  notifyProcurementRefreshed();
+}
+
+/**
  * 写操作后调用：重新拉取并广播给所有订阅组件。
  *
  * 关键点：**不能**直接复用正在飞的那次请求。调用方是在自己的写入落库之后才调进来的，

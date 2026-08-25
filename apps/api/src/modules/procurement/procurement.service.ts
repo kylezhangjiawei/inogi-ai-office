@@ -36,6 +36,7 @@ import {
   PROC_ARRIVAL_STATUSES,
   PROC_STATUS_LABELS,
   PROC_PO_LINKABLE_STATUSES,
+  PROC_QUOTATION_RESETTABLE_STATUSES,
   PROC_STATUS_TRANSITIONS,
   PROC_TERMINAL_STATUSES,
   type ProcActor,
@@ -1128,7 +1129,7 @@ export class ProcurementService {
     }
     // 客户端声明的来源状态与实际不符：说明它拿的是过期数据（例如上一次保存后界面没刷新，
     // 用户又点了一次）。此时每一步单看都合法，放行就会一路推到终态，所以直接拒绝。
-    if (dto.from_status && dto.from_status !== task.status) {
+    if (dto.from_status !== task.status) {
       throw new ConflictException(
         `任务已是「${PROC_STATUS_LABELS[task.status as ProcStatus] ?? task.status}」，页面数据已过期，请刷新后再操作`,
       );
@@ -1964,6 +1965,63 @@ export class ProcurementService {
   }
 
   /** 选定报价：需样 → 待到样，免样 → 已定价；同时回写物料最新价。 */
+  /**
+   * 撤销本任务已维护的报价，退回「待询价」重做。
+   *
+   * 报价一旦确认，此前没有任何入口可以改：维护错了只能带着错误单价走完流程，
+   * 或者把整条任务作废重建。这里补上重做入口。
+   *
+   * 边界：只允许在「还没下单」的阶段撤销。进入在途之后单价已经跟着采购单出去了，
+   * 再改这里只会让系统与 T+ 对不上，那种情况应当走采购单撤销而不是改报价。
+   */
+  async resetTaskQuotations(taskId: string, reason: string | undefined, actor: ProcActor) {
+    const task = await this.requireTask(taskId);
+    // 先看有没有报价：没有报价时说「请先撤销采购单关联」是答非所问，
+    // 而重置后任务回到「待询价」，此时再点一次正好落进这一支。
+    const existing = await this.prisma.procQuotation.count({ where: { taskId } });
+    if (existing === 0) throw new BadRequestException('该任务还没有已确认的报价，无需重新维护');
+
+    if (!PROC_QUOTATION_RESETTABLE_STATUSES.includes(task.status as ProcStatus)) {
+      throw new BadRequestException(
+        `「${PROC_STATUS_LABELS[task.status as ProcStatus] ?? task.status}」不能重新维护报价：`
+        + '已下单及之后的阶段请先撤销采购单关联',
+      );
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // 条件更新占位：并发下另一个人可能刚把任务推到在途，那时不能再清
+      const claimed = await tx.procTask.updateMany({
+        where: { id: taskId, status: task.status },
+        data: {
+          status: 'pending_inquiry',
+          selectedQuotationId: null,
+          quotationSubtotal: null,
+          quotationDiscount: null,
+          quotationTotal: null,
+        },
+      });
+      if (claimed.count !== 1) throw new ConflictException('任务状态已被其他操作更新，请刷新后重试');
+
+      await tx.procQuotation.deleteMany({ where: { taskId } });
+      await tx.procTaskLog.create({
+        data: {
+          taskId,
+          kind: 'action',
+          // 物料主数据上的「最新参考价」不回滚：它没有留存上一版，且下次确认会覆盖。
+          // 这里如实写进留痕，避免有人以为参考价也跟着退回去了。
+          text: `重新维护报价：清除 ${existing} 条报价并退回「待询价」${reason ? `；原因：${reason}` : ''}`
+            + '（物料主数据的最新参考价不回滚，将在下次确认时更新）',
+          fromStatus: task.status,
+          toStatus: 'pending_inquiry',
+          actor: actor.name,
+          actorUserId: actor.id,
+        },
+      });
+      return tx.procTask.findUniqueOrThrow({ where: { id: taskId }, include: PROC_TASK_VIEW_INCLUDE });
+    });
+    return this.serializeTask(updated);
+  }
+
   async selectQuotation(taskId: string, quotationId: string, actor: ProcActor) {
     const task = await this.requireTask(taskId);
     const quotation = await this.prisma.procQuotation.findUnique({ where: { id: quotationId } });

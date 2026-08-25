@@ -130,6 +130,12 @@ export const PROC_STATUS_META: Record<ProcStatus, { label: string; pill: string;
   cancelled: { label: "已取消", pill: "border-slate-200 bg-slate-100 text-slate-500" },
 };
 
+/**
+ * 允许「重新维护报价」的状态，与服务端 PROC_QUOTATION_RESETTABLE_STATUSES 一致。
+ * 已下单及之后不在其中：那时单价已随采购单出去，改报价会与 T+ 对不上。
+ */
+export const QUOTE_RESETTABLE_STATUSES: ProcStatus[] = ["inquiring", "pending_sample", "testing", "priced"];
+
 /** 询价长流程 / 直购短流程步骤条节点。 */
 export const INQUIRY_FLOW: ProcStatus[] = ["pending_rd_review", "pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "in_transit", "partial_arrival", "completed"];
 export const DIRECT_FLOW: ProcStatus[] = ["pending_rd_review", "pending_confirm", "pending_purchase", "in_transit", "completed"];

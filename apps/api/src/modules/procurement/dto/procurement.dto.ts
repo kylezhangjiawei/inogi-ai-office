@@ -249,13 +249,15 @@ export class TransitionProcTaskDto {
   status!: string;
 
   /**
-   * 客户端渲染这次操作时看到的状态。带上它，服务端就能识别「界面已经过期、用户是在
-   * 重复推进」并直接拒绝，而不是把一串各自合法的单步流转一路走到已完成。
-   * 可选：老客户端不带时退回原有校验，不阻断发布。
+   * 客户端渲染这次操作时看到的状态。服务端据此识别「界面已经过期、用户在重复推进」并拒绝，
+   * 而不是把一串各自合法的单步流转一路走到已完成。
+   *
+   * 必填。此前是可选的「老客户端兼容」，但可选就等于这道防护形同虚设：不带它的调用方
+   * 照样能连推数级直达终态（实测 询价中→已定价→已下单→已完成 三连全部放行）。
+   * 现有调用方本来就都带，改必填不影响任何一处。
    */
-  @IsOptional()
   @IsIn(PROC_STATUSES)
-  from_status?: string;
+  from_status!: string;
 
   @IsOptional()
   @IsString()
@@ -355,6 +357,14 @@ export class ConfirmQuoteBookQuotesDto {
   @IsNumber({ maxDecimalPlaces: 4 })
   @Min(0)
   discountAmount!: number;
+}
+
+/** 重新维护报价：清空任务已确认的报价并退回「待询价」。 */
+export class ResetTaskQuotationsDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  reason?: string;
 }
 
 /** 关联 T+ 采购单：本系统不创建采购单，只登记接缝。 */

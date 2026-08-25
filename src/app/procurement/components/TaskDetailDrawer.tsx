@@ -19,13 +19,13 @@ import { ScrollArea } from "../../components/ui/scroll-area";
 import { Textarea } from "../../components/ui/textarea";
 import { cn } from "../../components/ui/utils";
 import { AttachmentPreviewDialog, type PreviewableAttachment } from "../../components/AttachmentPreviewDialog";
-import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney, useBuyerDirectory, useProcCan } from "./common";
+import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, QUOTE_RESETTABLE_STATUSES, SourcePill, StatusPill, fmtMoney, useBuyerDirectory, useProcCan } from "./common";
 import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
 import { MoveTaskDialog } from "./MoveTaskDialog";
-import { refreshProcurement, taskRequester, useProcurementData, type ProcurementTask } from "../data";
-import { listQuotations, rejectProcTask, unlinkPurchaseOrder, type Quotation } from "../../lib/procurementApi";
+import { applyProcTaskUpdate, refreshProcurement, taskRequester, useProcurementData, type ProcurementTask } from "../data";
+import { listQuotations, rejectProcTask, resetProcTaskQuotations, unlinkPurchaseOrder, type Quotation } from "../../lib/procurementApi";
 import { toast } from "sonner";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
@@ -66,6 +66,27 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const meta = PROC_STATUS_META[task.status];
   const flow = task.method === "direct" ? DIRECT_FLOW : INQUIRY_FLOW;
   const curIdx = flow.indexOf(task.status);
+  // 报价维护错了要能重做。已下单及之后不给：那时单价已随采购单出去，改这里会与 T+ 对不上
+  // 报价区块本身只在有报价时渲染，这里不必再判条数
+  const canResetQuotes = can("proc-task:select-quote") && QUOTE_RESETTABLE_STATUSES.includes(task.status);
+  const [resetting, setResetting] = useState(false);
+  const [resetReason, setResetReason] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const submitResetQuotes = async () => {
+    setResetBusy(true);
+    try {
+      const updated = await resetProcTaskQuotations(task.id, resetReason.trim() || undefined);
+      applyProcTaskUpdate(updated);
+      void refreshProcurement();
+      toast.success(t("已清空报价并退回「待询价」，可重新维护"));
+      setResetting(false);
+      setResetReason("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("重新维护失败"));
+    } finally {
+      setResetBusy(false);
+    }
+  };
   // 研发流转的待处理任务走「审核」语义：通过=确认提交，驳回须理由并删除采购任务
   const isRdReview = task.source === "rd" && task.status === "pending_confirm";
   const [rejecting, setRejecting] = useState(false);
@@ -315,7 +336,19 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                 </div>
               )}
               <div className="rounded-xl border border-slate-100">
-                <div className="border-b border-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">{t('供应商报价（{count}）', { count: quotes.length })}</div>
+                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
+                  <span className="text-sm font-semibold text-slate-700">{t('供应商报价（{count}）', { count: quotes.length })}</span>
+                  {/* 维护错价格此前只能作废整条任务重建，这里提供重做入口；已下单之后不再允许改 */}
+                  {canResetQuotes && (
+                    <button
+                      type="button"
+                      onClick={() => setResetting(true)}
+                      className="shrink-0 text-xs font-medium text-indigo-600 hover:underline"
+                    >
+                      {t('重新维护')}
+                    </button>
+                  )}
+                </div>
                 <ul className="divide-y divide-slate-100">
                   {quotes.map((q) => (
                     <li key={q.id} className={cn("px-4 py-2.5", q.isSelected && "bg-emerald-50/40")}>
@@ -487,6 +520,32 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               className="rounded-lg bg-rose-600 hover:bg-rose-700"
             >
               {unlinkBusy ? t('处理中…') : t('撤销关联')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={resetting} onOpenChange={(o) => { if (!o && !resetBusy) { setResetting(false); setResetReason(""); } }}>
+        <AlertDialogContent className="rounded-2xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-900">{t('重新维护报价？')}</AlertDialogTitle>
+            <AlertDialogDescription className="leading-relaxed">
+              {t('将清空本任务已确认的 {count} 条报价与总价，并把任务退回「待询价」，之后可重新从报价库选择。物料主数据上的最新参考价不会回滚，会在下次确认报价时更新。', { count: quotes.length })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            value={resetReason}
+            onChange={(e) => setResetReason(e.target.value)}
+            placeholder={t('重新维护的原因（选填，会记入操作留痕）')}
+            className="min-h-[72px] rounded-lg text-sm"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={resetBusy} className="rounded-lg">{t('取消')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={resetBusy}
+              onClick={(event) => { event.preventDefault(); void submitResetQuotes(); }}
+              className="rounded-lg bg-amber-600 hover:bg-amber-700"
+            >
+              {resetBusy ? t('处理中…') : t('清空并重新维护')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

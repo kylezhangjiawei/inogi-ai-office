@@ -380,7 +380,7 @@ test('普通采购状态接口不能绕过研发管理员前置审核', async ()
   const { service } = makeService(task, []);
 
   await assert.rejects(
-    service.transitionTask('proc-1', { status: 'pending_confirm' }, {
+    service.transitionTask('proc-1', { status: 'pending_confirm', from_status: 'pending_rd_review' }, {
       id: 'buyer',
       name: '采购人员',
       permissions: ['proc-task:inquiry'],
