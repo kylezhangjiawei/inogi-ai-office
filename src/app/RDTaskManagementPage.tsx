@@ -7909,10 +7909,14 @@ function PersonTaskCockpit({
             <div className="rd-horizon-progress-track h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
               <motion.div
                 className={cn("rd-horizon-task-progress h-full rounded-full", task.progress === 100 && "rd-horizon-task-progress--complete")}
-                initial={{ width: 0 }}
-                animate={{ width: `${task.progress}%` }}
-                transition={{ duration: 0.45, ease: RD_MOTION_EASE, delay: taskIdx * 0.03 }}
-                style={{ background: task.progress === 100 ? "#10b981" : `linear-gradient(90deg, ${grad.from}, ${grad.to})` }}
+                initial={shouldReduceMotion ? false : { scaleX: 0 }}
+                animate={{ scaleX: task.progress / 100 }}
+                transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.28, ease: RD_MOTION_EASE, delay: taskIdx * 0.02 }}
+                style={{
+                  width: "100%",
+                  transformOrigin: "left center",
+                  background: task.progress === 100 ? "#10b981" : `linear-gradient(90deg, ${grad.from}, ${grad.to})`,
+                }}
               />
             </div>
             <span className="w-9 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">
@@ -8367,7 +8371,7 @@ function PersonTaskCockpit({
                               onClick={() => loadNextTaskPage("all", allActiveTasks.length)}
                               className="flex w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-indigo-50/50 hover:text-indigo-600"
                             >
-                              <ChevronDown className="h-3 w-3 animate-bounce" />
+                              <ChevronDown className="h-3 w-3" />
                               <span>{t("继续向下滚动 · 已显示")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> {t("个任务")}</span>
                             </button>
                           ) : (
@@ -8516,7 +8520,7 @@ function PersonTaskCockpit({
                               onClick={() => loadNextTaskPage(p.key, primaryTasks.length)}
                               className="flex w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-indigo-50/50 hover:text-indigo-600"
                             >
-                              <ChevronDown className="h-3 w-3 animate-bounce" />
+                              <ChevronDown className="h-3 w-3" />
                               <span>{t("继续向下滚动 · 已显示主责")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{primaryTasks.length}</span> {t("个任务")}</span>
                             </button>
                           ) : tasks.length > 0 ? (
@@ -9541,10 +9545,8 @@ function ExecutiveOverview({
               </button>
           </div>
         )}
-        <motion.div
-          initial={false}
-          animate={{ height: headerCollapsed ? 0 : "auto", opacity: headerCollapsed ? 0 : 1 }}
-          transition={shouldReduceMotion ? { duration: 0 } : RD_FAST_TRANSITION}
+        <div
+          hidden={headerCollapsed}
           className={headerCollapsed ? "overflow-hidden" : "overflow-visible"}
           aria-hidden={headerCollapsed}
           {...(headerCollapsed ? { inert: "" } : {})}
@@ -9798,7 +9800,7 @@ function ExecutiveOverview({
         )}
         </div>
         )}
-        </motion.div>
+        </div>
         </div>
 
         {/* 骨架屏只在「尚无数据可显示」时出现（首次加载 / 真空数据）。刷新（如删除任务后的

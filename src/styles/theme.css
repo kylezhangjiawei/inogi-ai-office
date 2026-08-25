@@ -1381,6 +1381,8 @@
   background: rgba(255, 255, 255, 0.94) !important;
   color: #002fa7 !important;
   box-shadow: 0 18px 38px -20px rgba(0, 47, 167, 0.48) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-command {
@@ -2088,6 +2090,7 @@
  * 根画布保持透明，白色只落在独立的导航、数据面板与任务组上，避免卡套卡。
  * ──────────────────────────────────────────────────────────────────────────── */
 .rd-horizon-board {
+  container: rd-board / inline-size;
   overflow: visible !important;
   border: 0 !important;
   border-radius: 0 !important;
@@ -2374,6 +2377,7 @@
   background: transparent !important;
   box-shadow: none !important;
   transform: none !important;
+  transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease !important;
 }
 
 .rd-horizon-board .rd-board-kpi:hover {
@@ -2418,6 +2422,7 @@
   background: var(--rd-surface) !important;
   box-shadow: none !important;
   transform: none !important;
+  transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease !important;
 }
 
 .rd-horizon-board .rd-board-filter-chip:not(:disabled):hover {
@@ -2575,6 +2580,7 @@
   padding: 0.75rem !important;
   background: transparent !important;
   transform: none !important;
+  transition: color 160ms ease, background-color 160ms ease !important;
 }
 
 .rd-horizon-board .rd-board-task-row:hover {
@@ -2608,7 +2614,7 @@
   box-shadow: none !important;
 }
 
-@media (max-width: 1500px) {
+@container rd-board (max-width: 1500px) {
   .rd-horizon-board .rd-board-decision-grid {
     grid-template-columns: minmax(0, 1fr) !important;
   }
@@ -2622,7 +2628,7 @@
   }
 }
 
-@media (max-width: 1200px) {
+@container rd-board (max-width: 1200px) {
   .rd-horizon-board .rd-board-body {
     flex-direction: column;
     overflow: visible;
@@ -2650,7 +2656,7 @@
   }
 }
 
-@media (max-width: 1100px) {
+@container rd-board (max-width: 1100px) {
   .rd-horizon-board .rd-board-breadcrumb {
     align-items: flex-start;
     overflow-x: auto;
