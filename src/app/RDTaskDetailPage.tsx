@@ -112,6 +112,17 @@ import {
   type RdProductionTaskSync,
 } from "./lib/rdApi";
 
+function DetailGridOrder({
+  productionWorkspace,
+  children,
+}: {
+  productionWorkspace: boolean;
+  children: React.ReactNode;
+}) {
+  const items = React.Children.toArray(children);
+  return <>{productionWorkspace ? items : [...items].reverse()}</>;
+}
+
 type DetailTab = "notes" | "conversation" | "attachments" | "audit" | "relations" | "procurement";
 /** 模块级常量：保证 useAuditLogs 的订阅条件恒定，避免任何重订阅/重拉取。 */
 const TASK_AUDIT_FILTER = { resourceType: "task" } as const;
@@ -1284,8 +1295,11 @@ export default function RDTaskDetailPage() {
         !productionWorkspace && "rd-horizon-module rd-horizon-task-detail",
       )}
     >
+      <div className={cn(productionWorkspace ? "contents" : "rd-horizon-detail-shell")}>
+      <div className={cn(productionWorkspace ? "contents" : "rd-horizon-detail-context")}>
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="rd-horizon-detail-toolbar flex shrink-0 flex-wrap items-center gap-3">
+        <div className={cn(productionWorkspace ? "contents" : "rd-horizon-detail-orientation")}>
         {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
         <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)} className="rd-horizon-detail-nav-control gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
@@ -1328,6 +1342,7 @@ export default function RDTaskDetailPage() {
             {t("研发同步 · 完全只读")}
           </span>
         )}
+        </div>
         <div className="rd-horizon-detail-heading flex min-w-0 flex-1 items-center gap-1.5">
           <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-slate-900">
             <AutoTranslatedText text={task.title} />
@@ -1344,6 +1359,7 @@ export default function RDTaskDetailPage() {
             </button>
           )}
         </div>
+        <div className={cn(productionWorkspace ? "contents" : "rd-horizon-detail-state")}>
         <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>
           <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
           {t(sCfg.label)}
@@ -1395,9 +1411,10 @@ export default function RDTaskDetailPage() {
             {t(`${pCfg.label}优先`)}
           </span>
         )}
+        </div>
       </div>
 
-      {/* 详情总览：保留当前项目的材料卡样式，只重排信息层级。 */}
+      {/* 详情总览：与标题共用一个 Horizon 上下文表面。 */}
       <section className="rd-horizon-detail-overview material-card overflow-hidden">
         <div className="grid lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="rd-horizon-detail-description min-w-0 px-5 py-4">
@@ -1509,11 +1526,13 @@ export default function RDTaskDetailPage() {
           </div>
         </div>
       </section>
+      </div>
 
       {/* 美式 content-first 布局：主内容（描述/工作项/时间线）居左，Properties 侧栏居右（GitHub issue / Linear 范式） */}
       <div className="rd-horizon-detail-grid grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔；超高自身内滚）══ */}
-        <div className="rd-horizon-detail-aside cockpit-scroll min-h-0 xl:order-2 xl:overflow-y-auto">
+        <DetailGridOrder productionWorkspace={productionWorkspace}>
+        {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔；随页面自然滚动）══ */}
+        <div key="properties" className="rd-horizon-detail-aside cockpit-scroll min-h-0 xl:order-2 xl:overflow-y-auto">
         <div className="rd-horizon-detail-properties material-card divide-y divide-slate-100">
           {/* 字段节 */}
           <div className="space-y-2.5 px-4 py-3.5">
@@ -1577,7 +1596,7 @@ export default function RDTaskDetailPage() {
 
           {/* 中间层任务可同时显示直接父任务和直接子任务，并继续向下扩展关系树。 */}
           {parentTask && (
-            <div className="bg-sky-50/60 px-4 py-3.5">
+            <div className="rd-horizon-detail-parent-task bg-sky-50/60 px-4 py-3.5">
               <div className="mb-2 flex items-center gap-1.5">
                 <SubtaskBadge task={task} />
                 <span className="text-xs font-semibold text-slate-500">{t("所属父任务")}</span>
@@ -1585,7 +1604,7 @@ export default function RDTaskDetailPage() {
               <button
                 type="button"
                 onClick={() => navigate(taskDetailPath(parentTask.task_id))}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2 text-left transition hover:border-sky-300 hover:bg-sky-50/60"
+                className="rd-horizon-detail-parent-task__link flex w-full cursor-pointer items-center gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2 text-left transition hover:border-sky-300 hover:bg-sky-50/60"
               >
                 <ChevronLeft className="h-3.5 w-3.5 shrink-0 text-sky-500" />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-700">
@@ -1873,7 +1892,7 @@ export default function RDTaskDetailPage() {
         </div>
 
         {/* ══ 主内容列（左）：纵向过程叙事——Tab 卡吃掉剩余高度，内容内滚 ══ */}
-        <div className="rd-horizon-detail-main flex min-h-0 min-w-0 flex-col gap-4 xl:order-1">
+        <div key="workspace" className="rd-horizon-detail-main flex min-h-0 min-w-0 flex-col gap-4 xl:order-1">
           {/* 工作项（只读展示）：创建/勾选/删除入口在个人工作台，成员按需自建 */}
           <div className="rd-horizon-detail-work-items shrink-0">
             <WorkItemsSection
@@ -1984,6 +2003,7 @@ export default function RDTaskDetailPage() {
                   }}
                   selectedActor={canSelectActivityActor ? selectedActivityActor : null}
                   onActorClick={canSelectActivityActor ? toggleActivityActor : undefined}
+                  className="rd-horizon-detail-conversation rd-horizon-detail-conversation--timeline"
                 />
               </TabsContent>
 
@@ -1998,6 +2018,7 @@ export default function RDTaskDetailPage() {
                   showHeader={false}
                   threadLayout="replace"
                   onUnreadChange={setDiscussionUnread}
+                  className="rd-horizon-detail-conversation rd-horizon-detail-conversation--discussion"
                 />
               </TabsContent>
 
@@ -2126,6 +2147,8 @@ export default function RDTaskDetailPage() {
 
           </div>
         </div>
+        </DetailGridOrder>
+      </div>
       </div>
 
       {/* ── 管理弹窗 ── */}

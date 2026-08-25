@@ -2706,36 +2706,93 @@
   }
 }
 
-/* 原生研发任务详情页：独立路由仍延续同一套信息层级；生产详情不挂此作用域。 */
+/* 原生研发任务详情页：Horizon 工作台信息层级；生产详情不挂此作用域。 */
 .rd-horizon-task-detail {
   --primary: #002fa7;
   --ring: rgba(0, 47, 167, 0.24);
   width: 100%;
-  max-width: 92rem !important;
-  gap: 1.25rem !important;
-  padding: 0.25rem 0.25rem 1.25rem !important;
+  max-width: 100rem !important;
+  gap: 0 !important;
+  padding: 0.75rem 1rem 1.5rem !important;
   color: var(--rd-body);
   background: transparent !important;
 }
 
-.rd-horizon-task-detail .rd-horizon-detail-toolbar {
-  min-height: 4.25rem;
+.rd-horizon-task-detail .rd-horizon-detail-shell {
+  container: rd-detail-shell / inline-size;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-context {
+  min-width: 0;
   border: 1px solid transparent;
   border-radius: 20px;
-  padding: 0.75rem 1rem;
   background: var(--rd-surface);
-  box-shadow: var(--rd-shadow-card);
+  box-shadow: var(--rd-shadow-focal);
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-toolbar {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "orientation"
+    "heading"
+    "state";
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 0;
+  border: 0 !important;
+  border-radius: 0;
+  padding: 1.25rem 1.25rem 1rem;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-orientation {
+  grid-area: orientation;
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-toolbar h1 {
   color: var(--rd-ink) !important;
-  font-size: 1.375rem !important;
+  font-size: clamp(1.5rem, 2.2cqw, 1.875rem) !important;
+  line-height: 1.2 !important;
   font-weight: 700 !important;
-  letter-spacing: 0;
+  letter-spacing: -0.025em;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-heading {
-  min-width: min(100%, 18rem);
+  grid-area: heading;
+  min-width: 0;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-heading > button {
+  border-radius: 10px !important;
+  color: var(--rd-muted) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-heading > button:hover {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-state {
+  grid-area: state;
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-nav-control {
@@ -2755,30 +2812,40 @@
   background: var(--rd-soft-blue) !important;
 }
 
-.rd-horizon-task-detail .rd-horizon-detail-overview,
-.rd-horizon-task-detail .rd-horizon-detail-properties,
-.rd-horizon-task-detail .rd-horizon-detail-activity,
-.rd-horizon-task-detail .rd-horizon-detail-score,
-.rd-horizon-task-detail .rd-horizon-detail-work-items > * {
-  border: 1px solid transparent !important;
-  border-radius: 20px !important;
+.rd-horizon-task-detail .rd-horizon-detail-overview {
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
   color: var(--rd-body);
-  background: var(--rd-surface) !important;
-  box-shadow: var(--rd-shadow-card) !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
-.rd-horizon-task-detail .rd-horizon-detail-overview {
-  padding: 0 !important;
+.rd-horizon-task-detail .rd-horizon-detail-overview > div {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-description,
 .rd-horizon-task-detail .rd-horizon-detail-topic {
-  padding: 1.25rem !important;
+  padding: 1rem 1.25rem 1.25rem !important;
   background: transparent !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-topic {
+  border-left: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
   border-color: var(--rd-line) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-description button.bg-indigo-600 {
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-description button.bg-indigo-600:hover {
+  background: var(--rd-primary-hover) !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-overview :where(.text-indigo-500, .text-indigo-600, .text-indigo-700),
@@ -2795,22 +2862,33 @@
 
 .rd-horizon-task-detail .rd-horizon-detail-grid {
   grid-template-columns: minmax(0, 1fr) !important;
+  align-items: stretch;
   gap: 1.25rem !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-aside {
-  order: 1 !important;
+  order: 2 !important;
+  align-self: start;
   overflow: visible !important;
   padding: 0;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-main {
-  order: 2 !important;
-  gap: 1.25rem !important;
+  order: 1 !important;
+  gap: 0 !important;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  background: var(--rd-surface);
+  box-shadow: var(--rd-shadow-focal);
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-properties {
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
   overflow: hidden;
+  color: var(--rd-body);
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-properties > div {
@@ -2826,14 +2904,28 @@
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-score {
-  border-color: var(--rd-line) !important;
-  border-radius: 16px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  color: var(--rd-body);
+  background: transparent !important;
   box-shadow: none !important;
 }
 
+.rd-horizon-task-detail .rd-horizon-detail-work-items:empty {
+  display: none;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-work-items:not(:empty) {
+  border-bottom: 1px solid var(--rd-line);
+}
+
 .rd-horizon-task-detail .rd-horizon-detail-work-items > * {
-  border-color: var(--rd-line) !important;
-  border-radius: 16px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 1rem 1.25rem !important;
+  color: var(--rd-body);
+  background: transparent !important;
   box-shadow: none !important;
 }
 
@@ -2842,7 +2934,12 @@
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-activity {
-  min-height: 30rem;
+  min-height: 34rem;
+  border: 0 !important;
+  border-radius: 0 !important;
+  color: var(--rd-body);
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-tabs {
@@ -2863,6 +2960,198 @@
 .rd-horizon-task-detail .rd-horizon-detail-tabs [role="tab"][data-state="active"] {
   border-bottom-color: var(--rd-primary) !important;
   color: var(--rd-primary) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation,
+.rd-horizon-task-detail .rd-horizon-detail-conversation > section {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation :where(.bg-indigo-50, .bg-indigo-100) {
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation :where(.bg-indigo-600, .bg-indigo-700) {
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation :where(.border-indigo-100, .border-indigo-200, .border-indigo-300) {
+  border-color: rgba(0, 47, 167, 0.14) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation :where(
+  [class~="bg-indigo-50/70"],
+  [class~="bg-indigo-50/95"],
+  [class~="bg-indigo-100/70"]
+) {
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation--timeline .rd-progress-timeline {
+  margin-top: 1rem;
+  padding: 0 0.5rem 0.75rem;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation--timeline .rd-progress-anchor-card {
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation--timeline .rd-progress-anchor-card__header {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation--timeline .rd-progress-anchor-card__body {
+  background: transparent !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation--timeline .rd-progress-anchor-card__progress {
+  font-size: 0.625rem !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation--timeline .rd-progress-anchor-card__header time {
+  font-size: 0.625rem !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation--timeline .rd-progress-timeline__line {
+  background: var(--rd-line-strong) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-conversation--timeline .rd-progress-timeline__dot {
+  background: var(--rd-primary) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.1) !important;
+}
+
+.rd-horizon-task-detail .rd-conversation-date-divider > span:first-child,
+.rd-horizon-task-detail .rd-conversation-date-divider > span:last-child {
+  background: var(--rd-line) !important;
+}
+
+.rd-horizon-task-detail .rd-conversation-date-divider > span:nth-child(2) {
+  border: 0 !important;
+  border-radius: 0 !important;
+  color: var(--rd-subtle) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-inline-note-comments {
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 0 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-task-detail .rd-thread-invitation {
+  border-bottom-color: rgba(0, 47, 167, 0.1) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-task-detail .rd-thread-invitation__content {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-message-bubble__surface {
+  border-color: var(--rd-line) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-message-bubble[data-mine="true"] .rd-message-bubble__surface {
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-task-detail .rd-conversation-composer {
+  background: var(--rd-surface) !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-task-detail .rd-conversation-composer__field {
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 12px !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-conversation-composer__field:focus-within {
+  border-color: rgba(0, 47, 167, 0.3) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+}
+
+.rd-horizon-task-detail .rd-conversation-composer__send:not(:disabled) {
+  border-radius: 10px !important;
+  background: var(--rd-primary) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-conversation-composer__send:not(:disabled):hover {
+  background: var(--rd-primary-hover) !important;
+}
+
+.rd-horizon-task-detail .rd-related-progress-threads {
+  border: 0 !important;
+  padding: 0.75rem 0 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-related-progress-threads__item {
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-related-progress-threads__item:hover {
+  border-color: rgba(0, 47, 167, 0.1) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-task-detail .rd-task-image-gallery {
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0.5rem 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-task-detail .rd-procurement-activity {
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0.25rem 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-task-detail .rd-procurement-activity__dot {
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-task-detail .rd-work-item-note-count {
+  color: var(--rd-primary) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-parent-task {
+  background: transparent !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-parent-task__link {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-parent-task__link:hover {
+  border-color: rgba(14, 165, 233, 0.12) !important;
+  background: rgba(240, 249, 255, 0.72) !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-filter {
@@ -2888,7 +3177,7 @@
   border-color: transparent !important;
   border-radius: 12px !important;
   color: var(--rd-body) !important;
-  background: var(--rd-canvas) !important;
+  background: transparent !important;
   box-shadow: none !important;
 }
 
@@ -2902,7 +3191,7 @@
   border-color: rgba(0, 47, 167, 0.14) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
-  box-shadow: inset 0 -2px 0 var(--rd-primary) !important;
+  box-shadow: none !important;
 }
 
 .rd-horizon-task-detail :where(button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
@@ -2948,14 +3237,38 @@
   background: var(--rd-soft-blue) !important;
 }
 
-@media (min-width: 1500px) {
+@container rd-detail-shell (min-width: 52rem) {
+  .rd-horizon-task-detail .rd-horizon-detail-overview > div {
+    grid-template-columns: minmax(0, 1fr) 20rem !important;
+  }
+
+  .rd-horizon-task-detail .rd-horizon-detail-topic {
+    border-top: 0 !important;
+    border-left: 1px solid var(--rd-line) !important;
+  }
+}
+
+@container rd-detail-shell (min-width: 68rem) {
+  .rd-horizon-task-detail .rd-horizon-detail-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "orientation state"
+      "heading state";
+    column-gap: 1.5rem;
+  }
+
+  .rd-horizon-task-detail .rd-horizon-detail-state {
+    max-width: 34rem;
+    justify-content: flex-end;
+    align-self: center;
+  }
+
   .rd-horizon-task-detail .rd-horizon-detail-grid {
-    grid-template-columns: minmax(0, 1fr) 21.25rem !important;
+    grid-template-columns: minmax(0, 1fr) 20rem !important;
   }
 
   .rd-horizon-task-detail .rd-horizon-detail-aside {
     order: 2 !important;
-    overflow-y: auto !important;
   }
 
   .rd-horizon-task-detail .rd-horizon-detail-main {
@@ -2963,13 +3276,20 @@
   }
 }
 
-@media (max-width: 1200px) {
-  .rd-horizon-task-detail .rd-horizon-detail-toolbar {
-    align-items: flex-start;
+@container rd-detail-shell (max-width: 40rem) {
+  .rd-horizon-task-detail .rd-horizon-detail-toolbar,
+  .rd-horizon-task-detail .rd-horizon-detail-description,
+  .rd-horizon-task-detail .rd-horizon-detail-topic {
+    padding-inline: 1rem !important;
   }
 
-  .rd-horizon-task-detail .rd-horizon-detail-heading {
-    flex-basis: 100%;
+  .rd-horizon-task-detail .rd-horizon-detail-nav-control {
+    min-width: 2.25rem;
+    min-height: 2.25rem;
+  }
+
+  .rd-horizon-task-detail .rd-horizon-detail-state {
+    align-items: flex-start;
   }
 }
 

@@ -4296,7 +4296,7 @@ export function WorkItemsSection({
                 <span className={cn("min-w-0 flex-1 truncate", it.done ? "text-slate-400 line-through" : "text-slate-700")}>{it.title}</span>
                 {it.owner_name && <span className="shrink-0 text-[11px] text-slate-400">{it.owner_name}</span>}
                 {noteCount > 0 && (
-                  <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-500">{t("{n} 条留痕", { n: noteCount })}</span>
+                  <span className="rd-work-item-note-count shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-500">{t("{n} 条留痕", { n: noteCount })}</span>
                 )}
                 {canEdit && (
                   <button

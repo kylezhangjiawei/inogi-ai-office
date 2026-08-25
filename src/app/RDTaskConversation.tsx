@@ -281,7 +281,7 @@ function formatDayLabel(iso: string) {
 
 function DateDivider({ iso }: { iso: string }) {
   return (
-    <div className="flex items-center gap-2 py-2" role="separator" aria-label={formatDayLabel(iso)}>
+    <div className="rd-conversation-date-divider flex items-center gap-2 py-2" role="separator" aria-label={formatDayLabel(iso)}>
       <span className="h-px flex-1 bg-gradient-to-r from-transparent to-slate-200" />
       <span className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[10px] font-semibold text-slate-500 shadow-sm">
         {formatDayLabel(iso)}
@@ -790,7 +790,7 @@ function InlineNoteComments({
   };
 
   return (
-    <section id={id} aria-label={t("留痕留言")} className="mt-1.5 rounded-xl border border-indigo-100 bg-slate-50/80 p-2">
+    <section id={id} aria-label={t("留痕留言")} className="rd-inline-note-comments mt-1.5 rounded-xl border border-indigo-100 bg-slate-50/80 p-2">
       {loading ? (
         <div className="space-y-2 py-1" aria-label={t("正在加载留言")}>
           {[0, 1].map((item) => (
@@ -912,14 +912,14 @@ function ProgressAnchorCard({
   const timeline = presentation === "timeline";
   return (
     <article className={cn(
-      "overflow-hidden border border-slate-200 border-l-[3px] bg-white",
+      "rd-progress-anchor-card overflow-hidden border border-slate-200 border-l-[3px] bg-white",
       timeline
         ? "rounded-xl shadow-[0_5px_18px_rgba(15,23,42,0.055)]"
         : "rounded-lg shadow-[0_3px_12px_rgba(15,23,42,0.05)]",
       tone.border,
     )}>
       <div className={cn(
-        "flex items-center border-b border-slate-200/80",
+        "rd-progress-anchor-card__header flex items-center border-b border-slate-200/80",
         timeline ? "min-h-10 gap-2 px-3 py-1.5" : "min-h-8 gap-1.5 px-2 py-1",
         tone.header,
       )}>
@@ -956,13 +956,13 @@ function ProgressAnchorCard({
           <span>{note.actor.role ? t(note.actor.role) : t("研发成员")}</span>
         </div>
         {typeof note.progress === "number" && (
-          <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold leading-none text-white", tone.badge)}>
+          <span className={cn("rd-progress-anchor-card__progress shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold leading-none text-white", tone.badge)}>
             {note.progress}%
           </span>
         )}
         <time className="shrink-0 font-mono text-[9px] tabular-nums text-slate-500">{formatTimeWithSeconds(note.created_at)}</time>
       </div>
-      <div className={cn(timeline ? "px-4 py-3" : "px-2.5 py-1.5")}>
+      <div className={cn("rd-progress-anchor-card__body", timeline ? "px-4 py-3" : "px-2.5 py-1.5")}>
         {sourceTask && (
           <div className="mb-1.5 flex min-w-0 items-center gap-1.5">
             <button
@@ -1051,12 +1051,13 @@ function MessageBubble({
   return (
     <motion.div
       data-message-id={message.id}
+      data-mine={mine ? "true" : "false"}
       layout="position"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, ease: CHAT_EASE }}
       className={cn(
-        "flex items-end gap-1.5",
+        "rd-message-bubble flex items-end gap-1.5",
         mine ? "justify-end" : "justify-start",
         compactTop ? "mt-0.5" : "mt-2",
       )}
@@ -1071,7 +1072,7 @@ function MessageBubble({
         )}
         <div
           className={cn(
-            "relative overflow-hidden px-3 py-2 shadow-sm transition-[box-shadow,background-color]",
+            "rd-message-bubble__surface relative overflow-hidden px-3 py-2 shadow-sm transition-[box-shadow,background-color]",
             mine
               ? "rounded-[20px] rounded-br-[7px] bg-indigo-600 text-white shadow-indigo-200/60"
               : "rounded-[20px] rounded-bl-[7px] border border-slate-200 bg-white text-slate-800",
@@ -1210,7 +1211,7 @@ function Composer({
   return (
     <div
       className={cn(
-        "relative bg-white/95 backdrop-blur-xl",
+        "rd-conversation-composer relative bg-white/95 backdrop-blur-xl",
         presentation === "inline"
           ? "mt-2 rounded-xl border border-slate-200 p-2"
           : "border-t border-slate-200 px-3 py-2",
@@ -1295,7 +1296,7 @@ function Composer({
           ))}
         </div>
       )}
-      <div className="flex items-end gap-2 rounded-[22px] border border-slate-200 bg-slate-50 p-1.5 transition-colors focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-50">
+      <div className="rd-conversation-composer__field flex items-end gap-2 rounded-[22px] border border-slate-200 bg-slate-50 p-1.5 transition-colors focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-50">
         <label
           className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-white hover:text-indigo-600"
           title={t("添加附件")}
@@ -1341,7 +1342,7 @@ function Composer({
           whileTap={{ scale: 0.92 }}
           onClick={() => void submit()}
           disabled={(!text.trim() && files.length === 0) || sending}
-          className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-indigo-600 text-white shadow-[0_6px_16px_rgba(79,70,229,0.28)] transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+          className="rd-conversation-composer__send flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-indigo-600 text-white shadow-[0_6px_16px_rgba(79,70,229,0.28)] transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
           aria-label={t("发送消息")}
         >
           {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -1448,8 +1449,8 @@ function ThreadInvitationBanner({
   compact: boolean;
 }) {
   return (
-    <div className={cn("border-b border-indigo-100 bg-indigo-50/70", compact ? "px-2.5 py-2" : "px-3 py-2.5")}>
-      <div className="rounded-lg border border-indigo-200 bg-white/90 px-2.5 py-2 shadow-[0_2px_8px_rgba(79,70,229,0.06)]">
+    <div className={cn("rd-thread-invitation border-b border-indigo-100 bg-indigo-50/70", compact ? "px-2.5 py-2" : "px-3 py-2.5")}>
+      <div className="rd-thread-invitation__content rounded-lg border border-indigo-200 bg-white/90 px-2.5 py-2 shadow-[0_2px_8px_rgba(79,70,229,0.06)]">
         <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-700">
           <Sparkles className="h-3.5 w-3.5" />
           <span>{t("{name} 邀请你参与这条讨论", { name: inviterName || t("任务成员") })}</span>
@@ -2050,7 +2051,7 @@ export function RDTaskConversation({
               <LoadEarlierButton loading={mainEarlierLoading} onClick={() => void loadEarlierMain()} />
             )}
             {mode === "task" && relatedProgressThreads.length > 0 && (
-              <section className="mt-2 rounded-xl border border-indigo-100 bg-white/90 p-2.5 shadow-[0_5px_18px_rgba(79,70,229,0.05)]">
+              <section className="rd-related-progress-threads mt-2 rounded-xl border border-indigo-100 bg-white/90 p-2.5 shadow-[0_5px_18px_rgba(79,70,229,0.05)]">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h5 className="text-xs font-bold text-slate-800">{t("相关进度讨论")}</h5>
@@ -2076,7 +2077,7 @@ export function RDTaskConversation({
                         key={note.id}
                         type="button"
                         onClick={() => void openThread(anchor)}
-                        className="group flex min-h-14 cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-left transition-colors duration-200 hover:border-indigo-200 hover:bg-indigo-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                        className="rd-related-progress-threads__item group flex min-h-14 cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-left transition-colors duration-200 hover:border-indigo-200 hover:bg-indigo-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
                       >
                         <ConversationAvatar name={note.actor.name} userId={note.actor.id} size="xs" />
                         <span className="min-w-0 flex-1">
@@ -2382,7 +2383,7 @@ function ProgressTimeline({
   variant: "desktop" | "mobile";
 }) {
   return (
-    <div className="mt-3 pb-2" aria-label={t("进展留痕时间线")}>
+    <div className="rd-progress-timeline mt-3 pb-2" aria-label={t("进展留痕时间线")}>
       {items.map((item, index) => {
         const previous = items[index - 1];
         const showDate = !previous || localDayKey(previous.createdAt) !== localDayKey(item.createdAt);
@@ -2390,7 +2391,7 @@ function ProgressTimeline({
         return (
           <div
             key={item.note.id}
-            className="grid grid-cols-[64px_22px_minmax(0,1fr)] sm:grid-cols-[76px_26px_minmax(0,1fr)]"
+            className="rd-progress-timeline__row grid grid-cols-[64px_22px_minmax(0,1fr)] sm:grid-cols-[76px_26px_minmax(0,1fr)]"
             style={{ contentVisibility: "auto", containIntrinsicSize: "180px" }}
           >
             <time
@@ -2405,9 +2406,9 @@ function ProgressTimeline({
               {date.secondary ? <span className="mt-0.5 block text-[10px] font-medium text-slate-400">{date.secondary}</span> : null}
             </time>
             <div className="relative flex justify-center" aria-hidden="true">
-              {index > 0 ? <span className="absolute left-1/2 top-0 h-4 w-px -translate-x-1/2 bg-slate-200" /> : null}
-              {index < items.length - 1 ? <span className="absolute bottom-0 left-1/2 top-4 w-px -translate-x-1/2 bg-slate-200" /> : null}
-              <span className="relative mt-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-indigo-600 shadow-[0_0_0_3px_rgba(99,102,241,0.13)]" />
+              {index > 0 ? <span className="rd-progress-timeline__line absolute left-1/2 top-0 h-4 w-px -translate-x-1/2 bg-slate-200" /> : null}
+              {index < items.length - 1 ? <span className="rd-progress-timeline__line absolute bottom-0 left-1/2 top-4 w-px -translate-x-1/2 bg-slate-200" /> : null}
+              <span className="rd-progress-timeline__dot relative mt-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-indigo-600 shadow-[0_0_0_3px_rgba(99,102,241,0.13)]" />
             </div>
             <div className={cn("min-w-0", index < items.length - 1 ? "pb-4" : "pb-1")}>
               <ProgressAnchorCard

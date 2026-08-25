@@ -109,7 +109,7 @@ export function ProcurementActivitySection({ task }: { task: ProcurementTask }) 
   const { t } = useI18n();
   const statusLabel = PROC_STATUS_META[task.status]?.label ?? task.status;
   return (
-    <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
+    <div className="rd-procurement-activity rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
       <div className="mb-2 flex items-center justify-between gap-3">
         <div className="text-sm font-semibold text-indigo-700">{t("采购动态")}</div>
         <div className="text-[11px] text-indigo-500">{task.code} · {t(statusLabel)}</div>
@@ -118,7 +118,7 @@ export function ProcurementActivitySection({ task }: { task: ProcurementTask }) 
         <ul className="space-y-2">
           {task.logs.slice(-5).reverse().map((event, index) => (
             <li key={`${event.at}-${index}`} className="flex gap-3 text-sm">
-              <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-violet-500" />
+              <span className="rd-procurement-activity__dot mt-1.5 h-2 w-2 shrink-0 rounded-full bg-violet-500" />
               <div>
                 <AutoTranslatedText as="div" className="text-slate-600" text={event.text} />
                 <div className="text-[11px] text-slate-400">{event.at}</div>

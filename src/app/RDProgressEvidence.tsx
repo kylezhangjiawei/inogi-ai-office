@@ -176,7 +176,7 @@ export function TaskImageGallery({
   if (images.length === 0) return null;
 
   return (
-    <div className={cn("rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5", className)}>
+    <div className={cn("rd-task-image-gallery rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5", className)}>
       <button
         type="button"
         onClick={() => setCollapsed((prev) => !prev)}
