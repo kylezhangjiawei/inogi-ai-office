@@ -16,29 +16,62 @@ import { RD_DEFAULT_WORKSPACE, RD_WORKSPACE_IDS } from '../research-development/
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**
- * 落库前必须抹掉的键。与 ApiRequestLogInterceptor 的同名集合保持一致 ——
- * 两个拦截器都在记请求体，口径不一致就等于其中一个在漏。
+ * 落库前必须抹掉的键。
  *
  * 实测本地库里 auth 模块有 474 条 refresh 记录存了明文 refreshToken、
  * 7 条 login 记录存了 encryptedPassword：刷新令牌是 bearer 凭据，
  * 拿到就能换访问令牌，落在留痕表里等于给了一份可离线利用的凭据副本。
+ *
+ * 分两段匹配而不是一律按子串：`token` 按子串会误伤 AI 用量里的
+ * totalTokens / inputTokens 这类**计数**字段（实测存量里有 55 条），
+ * 把正常审计数据抹成 [redacted]。所以 token 类只认确切的凭据键名，
+ * password / secret 这些词根才按子串。
  */
-const SENSITIVE_KEYS = [
-  'password',
+const SENSITIVE_EXACT_KEYS = new Set([
   'token',
+  'accesstoken',
+  'refreshtoken',
+  'idtoken',
   'access_token',
   'refresh_token',
-  'api_key',
-  'apikey',
-  'secret',
-  'credential',
+  'id_token',
+  'bearertoken',
   'authorization',
+  'credential',
+  'credentials',
+  'cookie',
+]);
+
+/** 出现即视为凭据的词根，按子串匹配（覆盖 encryptedPassword、appSecret 这类写法）。 */
+const SENSITIVE_KEY_PARTS = [
+  'password',
+  'passwd',
+  'secret',
+  'apikey',
+  'api_key',
+  'privatekey',
+  'private_key',
 ];
 
-/** 键名命中敏感词（含子串，覆盖 encryptedPassword / refreshToken 这类驼峰写法）。 */
+/** 递归下探的深度上限：请求体再深也就几层，够用且不会在畸形结构上打转。 */
+const MAX_REDACT_DEPTH = 6;
+
 function isSensitiveKey(key: string): boolean {
   const normalized = key.toLowerCase();
-  return SENSITIVE_KEYS.some((word) => normalized.includes(word));
+  if (SENSITIVE_EXACT_KEYS.has(normalized)) return true;
+  return SENSITIVE_KEY_PARTS.some((word) => normalized.includes(word));
+}
+
+/** 嵌套结构里的凭据同样要抹。数组逐项下探，深度足够覆盖实际请求体。 */
+function redactSensitive(key: string, value: unknown, depth = 0): unknown {
+  if (isSensitiveKey(key)) return '[redacted]';
+  if (depth >= MAX_REDACT_DEPTH || !value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((item) => redactSensitive('', item, depth + 1));
+  const result: Record<string, unknown> = {};
+  for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
+    result[childKey] = redactSensitive(childKey, childValue, depth + 1);
+  }
+  return result;
 }
 
 @Injectable()
@@ -156,9 +189,10 @@ export class AuditInterceptor implements NestInterceptor {
 
     const meta = { ...(body as Record<string, unknown>) };
 
-    // 凭据一律不落库。放在最前面：后面的分支只处理体积问题，漏一个键就是漏一份凭据
+    // 凭据一律不落库。放在最前面：后面的分支只处理体积问题，漏一个键就是漏一份凭据。
+    // 递归下探：只抹顶层的话，{ auth: { token } } 这类嵌套结构照样会把凭据写进去。
     for (const key of Object.keys(meta)) {
-      if (isSensitiveKey(key)) meta[key] = '[redacted]';
+      meta[key] = redactSensitive(key, meta[key]);
     }
     const referenceImageData = meta.reference_image_data;
     if (typeof referenceImageData === 'string') {

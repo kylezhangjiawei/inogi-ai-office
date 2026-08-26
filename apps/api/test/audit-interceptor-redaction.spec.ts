@@ -47,3 +47,37 @@ test('请求体不是对象时返回空对象，不抛', () => {
   assert.deepEqual(sanitize(null), {});
   assert.deepEqual(sanitize('raw-string'), {});
 });
+
+test('嵌套结构里的凭据同样抹掉', () => {
+  const meta = sanitize({
+    account: 'alex',
+    auth: { token: 'abc', nested: { refreshToken: 'def' } },
+    items: [{ apiKey: 'k1' }, { name: '正常字段' }],
+  });
+  const auth = meta.auth as { token: string; nested: { refreshToken: string } };
+  assert.equal(auth.token, '[redacted]');
+  assert.equal(auth.nested.refreshToken, '[redacted]', '两层以下也要命中');
+  const items = meta.items as Array<Record<string, unknown>>;
+  assert.equal(items[0].apiKey, '[redacted]', '数组元素里的凭据也要抹');
+  assert.equal(items[1].name, '正常字段', '正常字段不受影响');
+});
+
+test('AI 用量的 token 计数不能被误抹', () => {
+  // 实测存量里有 55 条这样的记录：totalTokens 是计数不是凭据，
+  // 按子串匹配 'token' 会把正常审计数据抹成 [redacted]
+  const meta = sanitize({
+    usage: { totalTokens: 1234, inputTokens: 900, outputTokens: 334, inputImageTokens: 12 },
+    accessToken: 'real-credential',
+  });
+  const usage = meta.usage as Record<string, unknown>;
+  assert.equal(usage.totalTokens, 1234);
+  assert.equal(usage.inputTokens, 900);
+  assert.equal(usage.inputImageTokens, 12);
+  assert.equal(meta.accessToken, '[redacted]', '真正的凭据仍要抹');
+});
+
+test('appSecret 这类词根写法要命中', () => {
+  const meta = sanitize({ appSecret: 's', appId: 'id-not-a-secret' });
+  assert.equal(meta.appSecret, '[redacted]');
+  assert.equal(meta.appId, 'id-not-a-secret');
+});
