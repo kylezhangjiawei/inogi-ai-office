@@ -10,14 +10,34 @@ import { AuditLogQueryDto } from '../src/modules/audit/dto/audit-log-query.dto';
  * buildWhere（Prisma）与 buildSqlWhere（SQL）。两份里都含可见范围规则，改一处漏一处就是越权。
  *
  * 这个用例用同一批 fixture 同时跑两条路径，断言命中的记录集完全一致 —— 把两份实现钉死。
- * 需要可用的数据库；连不上时跳过（本地与部署环境都有库，CI 无库时不因此失败）。
+ *
+ * 两条安全约束（都是踩过才加的）：
+ * 1. 全程在事务里跑、结束一律回滚 —— 部署脚本会在服务器上执行 `npm test`，那里的
+ *    DATABASE_URL 指向**生产库**。往真表插 fixture 再删，一旦中途失败就会留下脏数据。
+ * 2. 先检查 schema 是否已含新列再跑 —— 部署顺序是「跑测试 → 再迁移」（deploy.sh:813 / 868），
+ *    所以测试执行时生产库可能还没有 module/source/summary 这些列，此时应跳过而不是失败。
  */
 const PREFIX = 'parity-test-';
 
-async function reachable(prisma: PrismaClient) {
+/** 用来强制回滚的哨兵：Prisma 只认「回调抛错」这一种回滚方式。 */
+const ROLLBACK = Symbol('rollback');
+
+async function reachable(prisma: PrismaClient): Promise<boolean> {
   try {
     await prisma.$queryRaw`SELECT 1`;
     return true;
+  } catch {
+    return false;
+  }
+}
+
+async function schemaReady(prisma: PrismaClient): Promise<boolean> {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ n: bigint }>>`
+      SELECT count(*)::bigint AS n FROM information_schema.columns
+      WHERE table_name = 'AuditLog' AND column_name IN ('module', 'source', 'summary')
+    `;
+    return Number(rows[0]?.n ?? 0) === 3;
   } catch {
     return false;
   }
@@ -71,36 +91,59 @@ test('buildWhere 与 buildSqlWhere 命中的记录集必须完全一致', async 
     t.skip('数据库不可用，跳过 where 一致性用例');
     return;
   }
+  // 部署顺序是「先跑测试、再执行迁移」（deploy.sh:813 / 868），
+  // 所以服务器上跑到这里时库里可能还没有 module/source/summary 这几列。
+  // 那种情况下跳过 —— 用还没迁移的 schema 去插新字段必然失败，但那不是回归。
+  if (!(await schemaReady(prisma))) {
+    await prisma.$disconnect();
+    t.skip('AuditLog 尚未包含合并后的新列（迁移未执行），跳过 where 一致性用例');
+    return;
+  }
 
   const service = Object.create(AuditService.prototype) as any;
-  service.prisma = prisma;
+  const snapshotAt = new Date(Date.now() + 60_000);
 
   try {
-    await prisma.auditLog.deleteMany({ where: { id: { startsWith: PREFIX } } });
-    await prisma.auditLog.createMany({ data: FIXTURES });
-    const snapshotAt = new Date(Date.now() + 60_000);
+    // 整段放进事务并强制回滚：这段代码会在部署机上跑，而那里的 DATABASE_URL 指向生产库，
+    // 绝不能留下任何 fixture。回滚由抛哨兵触发，Prisma 只认这一种方式。
+    await prisma.$transaction(async (tx) => {
+      service.prisma = tx;
+      await tx.auditLog.createMany({ data: FIXTURES });
 
-    for (const item of CASES) {
-      const query = item.query as AuditLogQueryDto;
-      const where = service.buildWhere(query, item.viewer, snapshotAt) as Prisma.AuditLogWhereInput;
-      const sqlWhere = service.buildSqlWhere(query, item.viewer, snapshotAt) as Prisma.Sql;
+      for (const item of CASES) {
+        const query = item.query as AuditLogQueryDto;
+        const where = service.buildWhere(query, item.viewer, snapshotAt) as Prisma.AuditLogWhereInput;
+        const sqlWhere = service.buildSqlWhere(query, item.viewer, snapshotAt) as Prisma.Sql;
 
-      const viaPrisma = await prisma.auditLog.findMany({
-        where: { AND: [where, { id: { startsWith: PREFIX } }] },
-        select: { id: true },
-      });
-      const viaSql = await prisma.$queryRaw<Array<{ id: string }>>`
-        SELECT "id" FROM "AuditLog" WHERE ${sqlWhere} AND "id" LIKE ${`${PREFIX}%`}
-      `;
+        const viaPrisma = await tx.auditLog.findMany({
+          where: { AND: [where, { id: { startsWith: PREFIX } }] },
+          select: { id: true },
+        });
+        const viaSql = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT "id" FROM "AuditLog" WHERE ${sqlWhere} AND "id" LIKE ${`${PREFIX}%`}
+        `;
 
-      assert.deepEqual(
-        viaSql.map((r) => r.id).sort(),
-        viaPrisma.map((r) => r.id).sort(),
-        `「${item.name}」两份 where 结果不一致`,
-      );
-    }
+        assert.deepEqual(
+          viaSql.map((r) => r.id).sort(),
+          viaPrisma.map((r) => r.id).sort(),
+          `「${item.name}」两份 where 结果不一致`,
+        );
+      }
+      throw ROLLBACK;
+    });
+    assert.fail('事务应当被回滚');
+  } catch (err) {
+    if (err !== ROLLBACK) throw err;
   } finally {
-    await prisma.auditLog.deleteMany({ where: { id: { startsWith: PREFIX } } });
     await prisma.$disconnect();
+  }
+
+  // 回滚是否真的生效：留一条 fixture 都说明这套写法在生产上会留脏数据
+  const verifier = new PrismaClient();
+  try {
+    const leftover = await verifier.auditLog.count({ where: { id: { startsWith: PREFIX } } });
+    assert.equal(leftover, 0, 'fixture 必须随事务回滚，一条都不能留在库里');
+  } finally {
+    await verifier.$disconnect();
   }
 });
