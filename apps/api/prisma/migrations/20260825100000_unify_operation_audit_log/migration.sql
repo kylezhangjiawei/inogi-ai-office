@@ -31,6 +31,18 @@ SET "actorName" = u."name"
 FROM "User" u
 WHERE a."userId" = u."id" AND a."actorName" IS NULL;
 
+-- 时间戳容错：COALESCE 只兜 NULL，兜不住「格式不对」——写成 epoch 毫秒数这类值时
+-- `::timestamptz` 会直接报错并让整条迁移中止。KV 是多年累积的 JSON，不能假设每条都规整，
+-- 因此转换失败一律回落到 now() 而不是让迁移失败：留痕晚一点的时间戳，好过整批导不进来。
+CREATE OR REPLACE FUNCTION pg_temp.kv_timestamp(raw text, fallback timestamptz)
+RETURNS timestamptz LANGUAGE plpgsql AS $$
+BEGIN
+  IF raw IS NULL OR btrim(raw) = '' THEN RETURN fallback; END IF;
+  RETURN raw::timestamptz;
+EXCEPTION WHEN others THEN
+  RETURN fallback;
+END $$;
+
 -- ── 3. 导入 KV 语义留痕 ──────────────────────────────────────────────────────
 -- actor.id 有 100+ 条指向已删除账号，直接写进 userId 会撞 FK；
 -- 这类记录 userId 置空、只留 actorName —— 留痕宁可少一个可点的人，也不能整条丢。
@@ -54,7 +66,7 @@ SELECT DISTINCT ON (e.log->>'id')
     'actorRole', e.log->'actor'->>'role'
   )),
   NULL,
-  COALESCE((e.log->>'timestamp')::timestamptz, now()),
+  pg_temp.kv_timestamp(e.log->>'timestamp', now()),
   CASE s."key"
     WHEN 'rd.auditLogs' THEN 'rd'
     ELSE split_part(s."key", '.', 2)
@@ -62,7 +74,7 @@ SELECT DISTINCT ON (e.log->>'id')
   COALESCE(NULLIF(e.log->>'source', ''), 'web'),
   NULLIF(e.log->'actor'->>'name', ''),
   COALESCE(NULLIF(e.log->>'comment', ''), NULLIF(e.log->>'summary', '')),
-  COALESCE(e.log->'notes', '[]'::jsonb)
+  CASE WHEN jsonb_typeof(e.log->'notes') = 'array' THEN e.log->'notes' ELSE '[]'::jsonb END
 FROM "SystemSetting" s
 CROSS JOIN LATERAL jsonb_array_elements(s."value"::jsonb) AS e(log)
 LEFT JOIN "User" u ON u."id" = e.log->'actor'->>'id'
