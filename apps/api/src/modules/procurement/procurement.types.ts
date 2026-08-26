@@ -93,6 +93,17 @@ export const PROC_PO_LINKABLE_STATUSES: ProcStatus[] = [
 /** 已下单及之后：到货数据由 T+ 采购单驱动。 */
 export const PROC_ARRIVAL_STATUSES: ProcStatus[] = ['in_transit', 'partial_arrival', 'completed'];
 
+/**
+ * 允许「重新维护报价」的状态：报价已确认但还没下单。
+ * 进入在途之后单价已随采购单出去，再改这里会与 T+ 对不上，须先撤销采购单关联。
+ */
+export const PROC_QUOTATION_RESETTABLE_STATUSES: ProcStatus[] = [
+  'inquiring',
+  'pending_sample',
+  'testing',
+  'priced',
+];
+
 /** 终态：不可再流转，也不计入待办统计。 */
 export const PROC_TERMINAL_STATUSES: ProcStatus[] = ['completed', 'cancelled'];
 
@@ -123,17 +134,6 @@ export interface ProcTaskListQuery {
   rdLink?: string;
   page?: string;
   pageSize?: string;
-}
-
-export interface ProcAuditLogQuery {
-  page?: string | number;
-  pageSize?: string | number;
-  keyword?: string;
-  action?: string;
-  section?: string;
-  dateFrom?: string;
-  dateTo?: string;
-  snapshotAt?: string;
 }
 
 export interface ProcMaterialListQuery {

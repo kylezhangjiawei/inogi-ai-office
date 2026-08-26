@@ -15,8 +15,8 @@ import {
   ImportMaterialsDto,
   LinkPurchaseOrderDto,
   ProcAttachmentInputDto,
-  ProcAuditLogQueryDto,
   ReassignProcTaskDto,
+  ResetTaskQuotationsDto,
   ReceiveGoodsDto,
   RenameCategoryDto,
   ReviewMaterialDto,
@@ -59,13 +59,6 @@ export class ProcurementController {
       name: req.user.name ?? req.user.username ?? '',
       permissions: req.user.permissions ?? [],
     };
-  }
-
-  /** 采购模块写操作留痕，只读、独立页面权限。 */
-  @Get('audit-logs')
-  @Permissions('page:proc-audit-log')
-  listAuditLogs(@Query() query: ProcAuditLogQueryDto) {
-    return this.service.listAuditLogs(query);
   }
 
   // ── 任务 ────────────────────────────────────────────────────────────────────
@@ -306,6 +299,17 @@ export class ProcurementController {
     @Request() req: AuthedRequest,
   ) {
     return this.service.confirmQuotationsFromQuoteBook(id, dto, this.actor(req));
+  }
+
+  /** 重新维护报价：清空本任务已确认的报价并退回「待询价」。仅限未下单阶段。 */
+  @Post('tasks/:id/quotations/reset')
+  @Permissions('proc-task:select-quote')
+  resetTaskQuotations(
+    @Param('id') id: string,
+    @Body() dto: ResetTaskQuotationsDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.resetTaskQuotations(id, dto.reason, this.actor(req));
   }
 
   @Post('tasks/:id/quotations/:quotationId/select')

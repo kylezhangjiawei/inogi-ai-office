@@ -114,7 +114,6 @@ const BASE_NAV_GROUPS: NavGroup[] = [
       { label: "个人工作台", path: "/proc-my-workspace", icon: GanttChartSquare, requiredPermission: "page:proc-my-workspace" },
       { label: "物料库", path: "/proc-materials", icon: Warehouse, requiredPermission: "page:proc-materials" },
       { label: "供应商报价库", path: "/proc-quote-book", icon: Store, requiredPermission: "page:proc-quote-book" },
-      { label: "操作留痕", path: "/proc-audit-log", icon: ShieldCheck, requiredPermission: "page:proc-audit-log" },
     ],
   },
   {
@@ -126,7 +125,6 @@ const BASE_NAV_GROUPS: NavGroup[] = [
       { label: "问题记录与 AI 定位", path: "/issue-ai", icon: Microscope, requiredPermission: "page:issue-ai" },
       // 「研发知识库」入口已移到下方「部门知识库」分组（仍指向 /rd-knowledge-base 原页面）
       { label: "审批流配置", path: "/rd-approval-flow", icon: GitBranch, requiredPermission: "page:rd-approval-flow" },
-      { label: "操作留痕", path: "/rd-audit-log", icon: ShieldCheck, requiredPermission: "page:rd-audit-log" },
       { label: "研发 AI 策略", path: "/rd-ai-settings", icon: Bot, requiredPermission: "page:rd-ai-settings" },
     ],
   },
@@ -138,7 +136,6 @@ const BASE_NAV_GROUPS: NavGroup[] = [
       { label: "协同工作台", path: "/us-collab-workspace", icon: GanttChartSquare, requiredPermission: "page:us-collab-workspace" },
       { label: "协同知识库", path: "/us-collab-kb", icon: BookOpen, requiredPermission: "page:dept-kb-us-collab" },
       { label: "协同审批流配置", path: "/us-collab-approval-flow", icon: GitBranch, requiredPermission: "page:us-collab-approval-flow" },
-      { label: "协同操作留痕", path: "/us-collab-audit-log", icon: ShieldCheck, requiredPermission: "page:us-collab-audit-log" },
       { label: "协同 AI 策略", path: "/us-collab-ai-settings", icon: Bot, requiredPermission: "page:us-collab-ai-settings" },
     ],
   },
@@ -257,6 +254,9 @@ const BASE_NAV_GROUPS: NavGroup[] = [
       { label: "部门管理", path: "/departments", icon: Building2, requiredPermission: "page:departments" },
       { label: "用户管理", path: "/users", icon: UserSquare2, requiredPermission: "page:users" },
       { label: "角色权限", path: "/roles", icon: UserCog, requiredPermission: "page:roles" },
+      // 研发 / 中美协同 / 采购三个「操作留痕」入口合并到这里：一个页面、一个页面码，
+      // 模块在页内下拉切换；旧地址仍可访问，会重定向过来并预选对应模块。
+      { label: "操作留痕", path: "/audit-log", icon: ShieldCheck, requiredPermission: "page:audit-log" },
       { label: "页面路由管理", path: "/route-management", icon: Route, requiredPermission: "page:route-management" },
       { label: "字典列表", path: "/settings", icon: MonitorCog, requiredPermission: "page:settings" },
     ],

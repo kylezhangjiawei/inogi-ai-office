@@ -1,10 +1,16 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // postgresqlExtensions：允许在 datasource 里声明 pg_trgm，让扩展也纳入迁移管理，
+  // 否则扩展与依赖它的 GIN 索引会被后续 migrate 当作库上的「意外物」处理。
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // 留痕的关键字搜索是中文子串匹配（ILIKE %kw%），只有 trigram 索引救得了；
+  // 内置全文检索对中文不分词，帮不上忙。
+  extensions = [pg_trgm]
 }
 
 enum UserStatus {
@@ -155,18 +161,48 @@ model RefreshToken {
   createdAt DateTime @default(now())
 }
 
+/// 全站统一操作留痕。两类记录共用这张表，靠 source 区分：
+/// - source='api'：全局 AuditInterceptor 抓到的写请求，无差别记录所有登录用户（含超级管理员）；
+/// - source='web'/'ai'/'system'：业务语义留痕（谁把哪个任务转派给谁），带 summary 与 meta.changes。
+/// 研发/中美协同/生产三个池的语义留痕原先各存一份 SystemSetting KV（上限 1000 条滚动淘汰），
+/// 已并入本表并用 module 区分，页面据此做跨模块筛选。
 model AuditLog {
-  id         String   @id @default(cuid())
-  userId     String?
-  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action     String
-  resource   String
-  resourceId String?
-  meta       Json     @default("{}")
-  ip         String?
-  createdAt  DateTime @default(now())
+  id           String   @id @default(cuid())
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action       String
+  resource     String
+  resourceId   String?
+  meta         Json     @default("{}")
+  ip           String?
+  createdAt    DateTime @default(now())
 
+  /// 模块归属，留痕页筛选主维度：rd / us-collab / production / procurement / auth / chat / ...
+  module       String   @default("other")
+  /// 记录来源：web=页面业务操作，api=拦截器抓到的写请求，ai=智能体代执行，system=后台任务
+  source       String   @default("api")
+  /// 操作人姓名快照。user 关系在账号删除时被置空，快照保证历史留痕仍追溯得到人
+  actorName    String?
+  /// 资源名称快照（任务标题、立项名等）。HTTP 原始留痕留空
+  resourceName String?
+  /// 可读文案（语义留痕的 comment），HTTP 原始留痕留空
+  summary      String?
+  /// 事后补充的备注，元素形如 { id, text, actor, created_at }
+  notes        Json     @default("[]")
+
+  /// 默认视图不带模块筛选，按时间倒序翻页；上面几条复合索引的首列都对不上，
+  /// 没有这条会退化成全表排序。
+  /// 关键字搜索是多列 ILIKE '%kw%'，B-tree 用不上。实测 30 万行：搜不到时全表扫 213ms，
+  /// 建 trigram GIN 后 0.05ms；代价是写入 +0.055ms/行、索引约 150 字节/行。
+  /// 只给真正会被子串搜索的列建：action 是枚举式的动作码，由「动作」下拉精确筛，不建。
+  @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([resourceName(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([actorName(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([resourceId(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([createdAt, id])
   @@index([resource, createdAt, id])
+  @@index([module, createdAt, id])
+  @@index([userId, createdAt])
 }
 
 model ApiRequestLog {

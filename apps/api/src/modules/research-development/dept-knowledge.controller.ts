@@ -61,6 +61,11 @@ export class DeptKnowledgeController {
     return { userId: req.user?.id, hasFullAccess: true };
   }
 
+  /** 服务端留痕的操作人：与研发库同口径，一律取自 JWT 身份。 */
+  private auditActor(req: AuthedRequest) {
+    return { userId: req.user?.id, userName: req.user?.name };
+  }
+
   private isManager(req: AuthedRequest): boolean {
     const perms = req.user?.permissions ?? [];
     return perms.includes('*') || perms.includes(DEPT_KB_OPS.MANAGE);
@@ -96,8 +101,9 @@ export class DeptKnowledgeController {
   createCategory(
     @Param('kbId') kbId: string,
     @Body() body: { label?: unknown; parent_id?: unknown; icon?: unknown; color?: unknown },
+    @Request() req: AuthedRequest,
   ) {
-    return this.rdService.createKnowledgeCategory(body, kbId);
+    return this.rdService.createKnowledgeCategory(body, kbId, this.auditActor(req));
   }
 
   @Patch('categories/:id')
@@ -106,14 +112,15 @@ export class DeptKnowledgeController {
     @Param('kbId') kbId: string,
     @Param('id') id: string,
     @Body() body: { label?: unknown; icon?: unknown; color?: unknown },
+    @Request() req: AuthedRequest,
   ) {
-    return this.rdService.updateKnowledgeCategory(id, body, kbId);
+    return this.rdService.updateKnowledgeCategory(id, body, kbId, this.auditActor(req));
   }
 
   @Delete('categories/:id')
   @DeptKbOp(DEPT_KB_OPS.CATEGORY_DELETE)
-  deleteCategory(@Param('kbId') kbId: string, @Param('id') id: string) {
-    return this.rdService.deleteKnowledgeCategory(id, kbId);
+  deleteCategory(@Param('kbId') kbId: string, @Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.rdService.deleteKnowledgeCategory(id, kbId, this.auditActor(req));
   }
 
   // ── Entries ─────────────────────────────────────────────────────────────────
@@ -421,19 +428,19 @@ export class DeptKnowledgeController {
     if (!this.isManager(req) && body.permission_level !== undefined) {
       delete body.permission_level;
     }
-    return this.rdService.updateKnowledgeEntry(id, body, kbId);
+    return this.rdService.updateKnowledgeEntry(id, body, kbId, this.auditActor(req));
   }
 
   @Patch('entries/:id/move')
   @DeptKbOp(DEPT_KB_OPS.ENTRY_MOVE, DEPT_KB_OPS.ENTRY_EDIT)
-  moveEntry(@Param('kbId') kbId: string, @Param('id') id: string, @Body() body: { category_id?: string }) {
-    return this.rdService.moveKnowledgeEntry(id, body.category_id ?? '', kbId);
+  moveEntry(@Param('kbId') kbId: string, @Param('id') id: string, @Body() body: { category_id?: string }, @Request() req: AuthedRequest) {
+    return this.rdService.moveKnowledgeEntry(id, body.category_id ?? '', kbId, this.auditActor(req));
   }
 
   @Delete('entries/:id')
   @DeptKbOp(DEPT_KB_OPS.ENTRY_DELETE)
-  deleteEntry(@Param('kbId') kbId: string, @Param('id') id: string) {
-    return this.rdService.deleteKnowledgeEntry(id, kbId);
+  deleteEntry(@Param('kbId') kbId: string, @Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.rdService.deleteKnowledgeEntry(id, kbId, this.auditActor(req));
   }
 
   @Post('entries/:id/view')

@@ -20,7 +20,7 @@ import { NativeSelect } from "./components/ui/native-select";
 import { Slider } from "./components/ui/slider";
 import { cn } from "./components/ui/utils";
 import { usePermission } from "./hooks/usePermission";
-import { AuditChange, recordAudit, useAuditActor } from "./lib/auditLog";
+
 import { PERMISSIONS } from "./lib/permissions";
 import {
   createRdPerson,
@@ -267,13 +267,6 @@ function emptyPerson(): Person {
     kb_level: 20,
     kb_level_scale: "score",
   };
-}
-
-function getPersonChanges(before: Person, after: Person): AuditChange[] {
-  const fields: Array<keyof Person> = ["user_id", "name", "position", "department", "email", "phone", "status", "max_tasks", "kb_level"];
-  return fields
-    .filter((field) => before[field] !== after[field])
-    .map((field) => ({ field, before: before[field], after: after[field] }));
 }
 
 function personFromLoad(person: RdPersonLoad): Person {
@@ -892,16 +885,7 @@ export function RDPeopleManagementPage({
       try {
         const saved = await updateRdPerson({ ...p, id: editing.id });
         const savedPerson = personFromLoad(saved);
-        const changes = getPersonChanges(editing, savedPerson);
         setPeople((prev) => prev.map((x) => (x.id === savedPerson.id ? savedPerson : x)));
-        recordAudit({
-          actor: PEOPLE_AUDIT_ACTOR,
-          action: changes.some((change) => change.field === "status") ? "person.status_changed" : "person.edited",
-          resource: { type: "person", id: savedPerson.id, name: savedPerson.name },
-          changes,
-          comment: "维护研发成员信息",
-          source: "web",
-        });
         setEditing(null);
         toast.success(t("研发成员已保存"));
       } catch (error) {
@@ -913,13 +897,6 @@ export function RDPeopleManagementPage({
         const saved = await createRdPerson({ ...p, id: p.id || undefined });
         const savedPerson = personFromLoad(saved);
         setPeople((prev) => [savedPerson, ...prev]);
-        recordAudit({
-          actor: PEOPLE_AUDIT_ACTOR,
-          action: "person.created",
-          resource: { type: "person", id: savedPerson.id, name: savedPerson.name },
-          metadata: { department: savedPerson.department, position: savedPerson.position },
-          source: "web",
-        });
         setCreating(false);
         toast.success(t("研发成员已创建"));
       } catch (error) {
@@ -939,14 +916,6 @@ export function RDPeopleManagementPage({
       try {
         await deleteRdPerson(deleteTarget.id);
         setPeople((prev) => prev.filter((p) => p.id !== deleteTarget.id));
-        recordAudit({
-          actor: PEOPLE_AUDIT_ACTOR,
-          action: "person.deleted",
-          resource: { type: "person", id: deleteTarget.id, name: deleteTarget.name },
-          comment: "删除研发成员档案，关联任务需重新指派",
-          metadata: { department: deleteTarget.department, position: deleteTarget.position },
-          source: "web",
-        });
         setDeleteTarget(null);
         setPage(1);
         toast.success(t("研发成员已删除"));

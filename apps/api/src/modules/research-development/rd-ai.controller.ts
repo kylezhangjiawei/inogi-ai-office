@@ -15,7 +15,7 @@ import {
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { randomUUID } from 'node:crypto';
 
-type AuthedRequest = { user?: { id?: string } };
+type AuthedRequest = { user?: { id?: string; name?: string } };
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { currentRdWorkspace, RdWorkspaceInterceptor } from './rd-workspace.context';
@@ -162,7 +162,17 @@ export class RdAiController {
       proposalTitle?: string;
       products?: RdAiProductOption[];
     },
+    @Request() request: AuthedRequest,
   ) {
+    await this.researchDevelopmentService.recordAiAudit({
+      action: 'ai.parse_triggered',
+      resourceType: 'proposal',
+      resourceId: (body.proposalTitle ?? '').trim() || 'ai-extract',
+      resourceName: body.proposalTitle,
+      comment: 'AI 解析文本生成任务',
+      actor: { userId: request.user?.id, userName: request.user?.name },
+      metadata: { input_type: 'text', text_length: (body.text ?? '').length },
+    });
     return this.rdAiService.extract({
       text: body.text ?? '',
       peopleNames: parseList(body.peopleNames),
@@ -185,7 +195,17 @@ export class RdAiController {
       proposalTitle?: string;
       products?: string | RdAiProductOption[];
     },
+    @Request() request: AuthedRequest,
   ) {
+    await this.researchDevelopmentService.recordAiAudit({
+      action: 'ai.parse_triggered',
+      resourceType: 'proposal',
+      resourceId: (body.proposalTitle ?? '').trim() || 'ai-extract-file',
+      resourceName: body.proposalTitle,
+      comment: 'AI 解析文件生成任务',
+      actor: { userId: request.user?.id, userName: request.user?.name },
+      metadata: { input_type: 'file', file_name: file?.originalname ?? '' },
+    });
     return this.rdAiService.extract({
       file,
       peopleNames: parseList(body.peopleNames),
@@ -210,7 +230,17 @@ export class RdAiController {
       scope?: RdAiProposalRefineScope;
       selectedTaskIds?: string[];
     },
+    @Request() request: AuthedRequest,
   ) {
+    await this.researchDevelopmentService.recordAiAudit({
+      action: 'ai.proposal_refined',
+      resourceType: 'proposal',
+      resourceId: (body.proposalTitle ?? '').trim() || 'ai-refine',
+      resourceName: body.proposalTitle,
+      comment: 'AI 优化立项方案',
+      actor: { userId: request.user?.id, userName: request.user?.name },
+      metadata: { scope: body.scope ?? 'all', instruction_length: (body.instruction ?? '').length },
+    });
     const scope =
       body.scope === 'all' || body.scope === 'selected' || body.scope === 'single'
         ? body.scope
@@ -366,6 +396,15 @@ export class RdAiController {
     if (!title) {
       throw new BadRequestException('title 不能为空');
     }
+    await this.researchDevelopmentService.recordAiAudit({
+      action: 'ai.parse_triggered',
+      resourceType: 'task',
+      resourceId: (body.task_id ?? '').toString().trim() || 'ai-assess',
+      resourceName: title,
+      comment: 'AI 综合进展说明与附件判断当前任务进度',
+      actor: { userId: req.user?.id, userName: req.user?.name },
+      metadata: { attachment_count: files?.length ?? 0, text_length: (body.text ?? '').length },
+    });
     const currentProgressRaw = body.current_progress;
     const currentProgress =
       typeof currentProgressRaw === 'number'

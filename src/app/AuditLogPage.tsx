@@ -1,7 +1,9 @@
-import React, { useDeferredValue, useMemo, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   Activity,
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   Bot,
@@ -14,6 +16,7 @@ import {
   Filter,
   History,
   ListFilter,
+  Loader2,
   RotateCcw,
   Search,
   ShieldCheck,
@@ -22,12 +25,18 @@ import {
 import { AuditTimeline } from "./RDAuditTimeline";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import {
+  actionsForCategory,
   AuditCategory,
-  AuditLog,
-  AuditResource,
+  AuditFacets,
+  AuditStats,
+  auditModuleLabel,
   CATEGORY_LABELS,
+  fetchAuditFacets,
+  fetchAuditLogPage,
   getAuditActionMeta,
-  useAuditLogs,
+  toTimelineLog,
+  UnifiedAuditLog,
+  UnifiedAuditPage,
 } from "./lib/auditLog";
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
@@ -37,9 +46,22 @@ import { todayLocalDateStr } from "./lib/taskDue";
 import { isProductionWorkspace, isUsCollabWorkspace } from "./lib/rdApi";
 
 type FilterValue<T extends string> = T | "all";
-type AuditSource = AuditLog["source"];
-type ResourceType = AuditResource["type"];
+type AuditSource = UnifiedAuditLog["source"];
+type ResourceType = string;
 type SortOrder = "newest" | "oldest";
+
+const EMPTY_PAGE: UnifiedAuditPage = {
+  total: 0,
+  page: 1,
+  pageSize: 25,
+  snapshotAt: "",
+  canViewAll: false,
+  filterSignature: "",
+  stats: null,
+  items: [],
+};
+const EMPTY_FACETS: AuditFacets = { modules: [], actions: [], resources: [], actors: [] };
+const KEYWORD_DEBOUNCE_MS = 300;
 
 const CATEGORY_FILTERS: Array<FilterValue<AuditCategory>> = [
   "all",
@@ -53,16 +75,6 @@ const CATEGORY_FILTERS: Array<FilterValue<AuditCategory>> = [
 ];
 
 const SOURCE_FILTERS: Array<FilterValue<AuditSource>> = ["all", "web", "ai", "api", "system"];
-const RESOURCE_FILTERS: Array<FilterValue<ResourceType>> = [
-  "all",
-  "task",
-  "proposal",
-  "project",
-  "person",
-  "flow",
-  "role",
-  "system",
-];
 const PAGE_SIZE_OPTIONS = [12, 25, 50] as const;
 const AUDIT_EASE = [0.22, 1, 0.36, 1] as [number, number, number, number];
 const AUDIT_FAST = { duration: 0.18, ease: AUDIT_EASE };
@@ -164,46 +176,24 @@ function formatValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function logSearchText(log: AuditLog): string {
-  const meta = getAuditActionMeta(log.action);
-  const changes = log.changes?.map((change) => `${change.field} ${formatValue(change.before)} ${formatValue(change.after)}`).join(" ") ?? "";
-  const metadata = log.metadata ? Object.entries(log.metadata).map(([key, value]) => `${key} ${formatValue(value)}`).join(" ") : "";
-  return [
-    log.id,
-    log.actor.name,
-    log.actor.role,
-    meta.label,
-    meta.verb,
-    log.resource.type,
-    log.resource.id,
-    log.resource.name,
-    log.comment,
-    log.source,
-    changes,
-    metadata,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-}
-
-function summarizeLog(log: AuditLog) {
+function summarizeLog(log: UnifiedAuditLog) {
   const meta = getAuditActionMeta(log.action);
   const target = log.resource.name ?? log.resource.id;
   return `${log.actor.name} ${t(meta.verb)}${target ? ` · ${target}` : ""}`;
 }
 
-function sameResource(a: AuditLog, b: AuditLog) {
-  return a.resource.type === b.resource.type && a.resource.id === b.resource.id;
-}
-
-export function RDAuditLogPage() {
+export function AuditLogPage() {
   useI18n(); // 订阅语言切换：本页文案全部经 t()，切语言即重渲染
   const shouldReduceMotion = useReducedMotion();
+
   const nativeRdAudit = !isUsCollabWorkspace() && !isProductionWorkspace();
   const allLogs = useAuditLogs();
   const [keyword, setKeyword] = useState("");
   const deferredKeyword = useDeferredValue(keyword);
+  const [debouncedKeyword, setDebouncedKeyword] = useState("");
+  // 旧地址（/rd-audit-log 等）重定向过来时带 ?module=，落地即选中对应模块
+  const [searchParams] = useSearchParams();
+  const [moduleFilter, setModuleFilter] = useState(() => searchParams.get("module") ?? "all");
   const [category, setCategory] = useState<FilterValue<AuditCategory>>("all");
   const [source, setSource] = useState<FilterValue<AuditSource>>("all");
   const [resourceType, setResourceType] = useState<FilterValue<ResourceType>>("all");
@@ -216,62 +206,139 @@ export function RDAuditLogPage() {
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const actorOptions = useMemo(() => {
-    const byId = new Map<string, { id: string; name: string; role?: string; count: number }>();
-    allLogs.forEach((log) => {
-      const existing = byId.get(log.actor.id);
-      byId.set(log.actor.id, {
-        id: log.actor.id,
-        name: log.actor.name,
-        role: log.actor.role,
-        count: (existing?.count ?? 0) + 1,
-      });
-    });
-    return Array.from(byId.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-CN"));
-  }, [allLogs]);
+  const [data, setData] = useState<UnifiedAuditPage>(EMPTY_PAGE);
+  // 统计只跟筛选条件走。翻页时不再让服务端重算，沿用上一次的结果。
+  const [stats, setStats] = useState<AuditStats | null>(null);
+  const [facets, setFacets] = useState<AuditFacets>(EMPTY_FACETS);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [relatedLogs, setRelatedLogs] = useState<UnifiedAuditLog[]>([]);
 
-  const actionOptions = useMemo(() => {
-    const actions = Array.from(new Set(allLogs.map((log) => String(log.action))));
-    return actions
-      .filter((item) => category === "all" || getAuditActionMeta(item).category === category)
-      .sort((a, b) => getAuditActionMeta(a).label.localeCompare(getAuditActionMeta(b).label, "zh-CN"));
-  }, [allLogs, category]);
+  // 关键字改由服务端匹配：逐字符发请求既浪费又会把分页打乱，统一防抖后再查
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedKeyword(deferredKeyword.trim()), KEYWORD_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [deferredKeyword]);
 
-  const filteredLogs = useMemo(() => {
-    const keywordText = deferredKeyword.trim().toLowerCase();
-    const sinceIso = toDateStart(since);
-    const untilIso = toDateEnd(until);
+  const query = useMemo(
+    () => ({
+      module: moduleFilter === "all" ? undefined : moduleFilter,
+      source: source === "all" ? undefined : source,
+      resource: resourceType === "all" ? undefined : resourceType,
+      actorUserId: actorId === "all" ? undefined : actorId,
+      // 类目 → 动作码的展开放在前端：映射的唯一事实源是 AUDIT_ACTION_META，服务端按结果做 IN 过滤
+      actions:
+        action !== "all" ? [action] : category !== "all" ? actionsForCategory(category) : undefined,
+      dateFrom: toDateStart(since),
+      dateTo: toDateEnd(until),
+      keyword: debouncedKeyword || undefined,
+      sort: sortOrder,
+      page,
+      pageSize,
+    }),
+    [action, actorId, category, debouncedKeyword, moduleFilter, page, pageSize, resourceType, since, sortOrder, source, until],
+  );
 
-    return allLogs
-      .filter((log) => {
-        const meta = getAuditActionMeta(log.action);
-        if (category !== "all" && meta.category !== category) return false;
-        if (source !== "all" && log.source !== source) return false;
-        if (resourceType !== "all" && log.resource.type !== resourceType) return false;
-        if (actorId !== "all" && log.actor.id !== actorId) return false;
-        if (action !== "all" && log.action !== action) return false;
-        if (sinceIso && log.timestamp < sinceIso) return false;
-        if (untilIso && log.timestamp > untilIso) return false;
-        if (keywordText && !logSearchText(log).includes(keywordText)) return false;
-        return true;
+  // 手上这份统计对应的服务端指纹。回带给服务端，它自己判断要不要重算。
+  const statsSignature = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchAuditLogPage({ ...query, statsSignature: statsSignature.current })
+      .then((result) => {
+        if (cancelled) return;
+        setData(result);
+        if (result.stats) {
+          setStats(result.stats);
+          statsSignature.current = result.filterSignature;
+        }
+        setError(null);
+        // 服务端会把越界页码收回最后一页；本地页码跟随，否则翻页按钮与实际内容对不上
+        if (result.page !== query.page) setPage(result.page);
       })
-      .sort((a, b) =>
-        sortOrder === "newest"
-          ? b.timestamp.localeCompare(a.timestamp)
-          : a.timestamp.localeCompare(b.timestamp),
-      );
-  }, [action, actorId, allLogs, category, deferredKeyword, resourceType, since, sortOrder, source, until]);
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setData(EMPTY_PAGE);
+        setStats(null);
+        statsSignature.current = undefined;
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [query]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const pagedLogs = filteredLogs.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const selectedLog = filteredLogs.find((log) => log.id === selectedId) ?? pagedLogs[0] ?? filteredLogs[0] ?? null;
+  // 筛选选项只跟「可见范围 + 模块」走：跟着其他条件收窄会让选项互相抹掉，越筛越选不动
+  useEffect(() => {
+    let cancelled = false;
+    fetchAuditFacets(moduleFilter === "all" ? undefined : moduleFilter)
+      .then((result) => {
+        if (!cancelled) setFacets(result);
+      })
+      .catch(() => {
+        if (!cancelled) setFacets(EMPTY_FACETS);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [moduleFilter]);
+
+  const pagedLogs = data.items;
+  const selectedLog = pagedLogs.find((log) => log.id === selectedId) ?? pagedLogs[0] ?? null;
   const selectedMeta = selectedLog ? getAuditActionMeta(selectedLog.action) : getAuditActionMeta(undefined);
-  const relatedLogs = selectedLog ? filteredLogs.filter((log) => sameResource(log, selectedLog)).slice(0, 12) : [];
-  const visibleStart = filteredLogs.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const visibleEnd = Math.min(safePage * pageSize, filteredLogs.length);
+  const selectedResourceType = selectedLog?.resource.type ?? null;
+  const selectedResourceId = selectedLog?.resource.id ?? null;
+
+  // 「同对象记录」单独查：合并后数据不在内存里，无法像以前那样从全量日志里筛
+  useEffect(() => {
+    if (!selectedResourceType || !selectedResourceId) {
+      setRelatedLogs([]);
+      return;
+    }
+    let cancelled = false;
+    fetchAuditLogPage({
+      resource: selectedResourceType,
+      resourceId: selectedResourceId,
+      pageSize: 12,
+      sort: "newest",
+    })
+      .then((result) => {
+        if (!cancelled) setRelatedLogs(result.items);
+      })
+      .catch(() => {
+        if (!cancelled) setRelatedLogs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedResourceId, selectedResourceType]);
+
+  // userId 为空的记录（后台任务写入、账号已注销）无法按 id 过滤，不进下拉；列表里照常显示
+  const actorOptions = useMemo(
+    () => facets.actors.filter((actor): actor is typeof actor & { id: string } => Boolean(actor.id)),
+    [facets.actors],
+  );
+  const actionOptions = useMemo(
+    () =>
+      facets.actions
+        .map((item) => item.value)
+        .filter((item) => category === "all" || getAuditActionMeta(item).category === category)
+        .sort((a, b) => getAuditActionMeta(a).label.localeCompare(getAuditActionMeta(b).label, "zh-CN")),
+    [category, facets.actions],
+  );
+  const resourceOptions = useMemo(() => facets.resources.map((item) => item.value), [facets.resources]);
+
+  const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
+  const safePage = data.page;
+  const visibleStart = data.total === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const visibleEnd = Math.min(safePage * pageSize, data.total);
   const activeFilterCount = [
-    deferredKeyword.trim(),
+    debouncedKeyword,
+    moduleFilter !== "all",
     category !== "all",
     source !== "all",
     resourceType !== "all",
@@ -281,16 +348,12 @@ export function RDAuditLogPage() {
     until,
   ].filter(Boolean).length;
 
-  const stats = useMemo(() => {
-    const uniqueResources = new Set(filteredLogs.map((log) => `${log.resource.type}:${log.resource.id}`)).size;
-    const uniqueActors = new Set(filteredLogs.map((log) => log.actor.id)).size;
-    const aiCount = filteredLogs.filter((log) => log.source === "ai" || getAuditActionMeta(log.action).category === "ai").length;
-    const riskCount = filteredLogs.filter((log) => ["proposal.rejected", "task.reassigned", "task.archived", "flow.reset"].includes(log.action)).length;
-    return { total: filteredLogs.length, uniqueResources, uniqueActors, aiCount, riskCount };
-  }, [filteredLogs]);
+  /** 去重统计到顶时真实值更大，显示成 “N+”，不谎报确切数字。 */
+  const capped = (value: number, isCapped: boolean) => (isCapped ? `${value}+` : value);
 
   const resetFilters = () => {
     setKeyword("");
+    setModuleFilter("all");
     setCategory("all");
     setSource("all");
     setResourceType("all");
@@ -358,6 +421,9 @@ export function RDAuditLogPage() {
               <span className="rd-horizon-audit-command-icon flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-[0_10px_22px_rgba(15,23,42,0.18)]">
                 <ShieldCheck className="h-4 w-4" />
               </span>
+              <div>
+                <h1 className="text-xl font-semibold text-slate-950">{t("操作留痕")}</h1>
+                <p className="mt-0.5 text-sm text-slate-500">{t("全站审计查询台 · 追责、复盘、抽查、异常定位")}</p>
               <div className="rd-horizon-audit-command-copy">
                 <h2 className="text-xl font-semibold text-slate-950">{t(isUsCollabWorkspace() ? "协同操作留痕" : "研发操作留痕")}</h2>
                 <p className="mt-0.5 text-sm text-slate-500">{t("审计查询台 · 追责、复盘、抽查、异常定位")}</p>
@@ -394,12 +460,12 @@ export function RDAuditLogPage() {
 
         <section className="rd-horizon-audit-stats grid shrink-0 grid-cols-2 gap-2 md:grid-cols-5">
           {[
-            { label: t("匹配记录"), value: stats.total, Icon: Database, tone: "text-slate-900", semantic: "neutral" },
-            { label: t("涉及对象"), value: stats.uniqueResources, Icon: Activity, tone: "text-cyan-700", semantic: "neutral" },
-            { label: t("操作人员"), value: stats.uniqueActors, Icon: UserRound, tone: "text-emerald-600", semantic: "neutral" },
-            { label: t("AI/自动"), value: stats.aiCount, Icon: Bot, tone: "text-indigo-700", semantic: "neutral" },
-            { label: t("风险动作"), value: stats.riskCount, Icon: ShieldCheck, tone: "text-amber-600", semantic: "risk" },
-          ].map(({ label, value, Icon, tone, semantic }, index) => (
+            { label: t("匹配记录"), value: data.total, Icon: Database, tone: "text-slate-900" },
+            { label: t("涉及对象"), value: capped(stats?.uniqueResources ?? 0, stats?.resourcesCapped ?? false), Icon: Activity, tone: "text-cyan-700" },
+            { label: t("操作人员"), value: capped(stats?.uniqueActors ?? 0, stats?.actorsCapped ?? false), Icon: UserRound, tone: "text-emerald-600" },
+            { label: t("AI/自动"), value: stats?.aiCount ?? 0, Icon: Bot, tone: "text-indigo-700" },
+            { label: t("风险动作"), value: stats?.riskCount ?? 0, Icon: ShieldCheck, tone: "text-amber-600" },
+          ].map(({ label, value, Icon, tone }, index) => (
             <motion.div
               key={label}
               initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
@@ -446,7 +512,30 @@ export function RDAuditLogPage() {
               </div>
             </label>
 
-            <div className="rd-horizon-audit-filter-categories">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-600">{t("模块")}</span>
+              <NativeSelect
+                value={moduleFilter}
+                onChange={(event) => {
+                  setModuleFilter(event.target.value);
+                  setResourceType("all");
+                  setAction("all");
+                  setActorId("all");
+                  setPage(1);
+                  setSelectedId(null);
+                }}
+                className="h-9 w-full cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-700 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              >
+                <option value="all">{t("全部模块")}</option>
+                {facets.modules.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {t(auditModuleLabel(item.value))}（{item.count}）
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
+
+            <div>
               <div className="mb-1.5 text-xs font-medium text-slate-600">{t("类别")}</div>
               <div className="grid grid-cols-2 gap-1">
                 {CATEGORY_FILTERS.map((item) => (
@@ -502,7 +591,8 @@ export function RDAuditLogPage() {
                   }}
                   className="h-9 w-full cursor-pointer rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                 >
-                  {RESOURCE_FILTERS.map((item) => (
+                  <option value="all">{t("全部对象")}</option>
+                  {resourceOptions.map((item) => (
                     <option key={item} value={item}>
                       {resourceLabel(item)}
                     </option>
@@ -589,7 +679,7 @@ export function RDAuditLogPage() {
                   {t("审计结果")}
                 </h2>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  {t("当前显示")} <span className="font-semibold tabular-nums text-slate-700">{visibleStart}-{visibleEnd}</span> / {filteredLogs.length}
+                  {t("当前显示")} <span className="font-semibold tabular-nums text-slate-700">{visibleStart}-{visibleEnd}</span> / {data.total}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -631,7 +721,22 @@ export function RDAuditLogPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {pagedLogs.length === 0 ? (
+                  {error ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-14 text-center">
+                        <AlertTriangle className="mx-auto mb-2 h-5 w-5 text-amber-400" />
+                        <div className="text-sm font-medium text-slate-600">{t("留痕加载失败")}</div>
+                        <div className="mt-1 text-xs text-slate-400">{error}</div>
+                      </td>
+                    </tr>
+                  ) : loading && pagedLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-14 text-center">
+                        <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-slate-300" />
+                        <div className="text-sm font-medium text-slate-500">{t("正在加载留痕…")}</div>
+                      </td>
+                    </tr>
+                  ) : pagedLogs.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-14 text-center">
                         <Filter className="mx-auto mb-2 h-5 w-5 text-slate-300" />
@@ -721,10 +826,9 @@ export function RDAuditLogPage() {
 
             <div className="rd-horizon-audit-list-footer flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
               <div className="text-xs tabular-nums text-slate-500">
-                {t("显示")} {filteredLogs.length === 0 ? 0 : (safePage - 1) * pageSize + 1}-
-                {Math.min(safePage * pageSize, filteredLogs.length)}
+                {t("显示")} {visibleStart}-{visibleEnd}
                 <span className="mx-1 text-slate-300">/</span>
-                {filteredLogs.length}
+                {data.total}
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -844,7 +948,7 @@ export function RDAuditLogPage() {
                         {relatedLogs.length}
                       </span>
                     </div>
-                    <AuditTimeline logs={relatedLogs} showResource={false} emptyText={t("暂无同对象记录")} />
+                    <AuditTimeline logs={relatedLogs.map(toTimelineLog)} showResource={false} emptyText={t("暂无同对象记录")} />
                   </section>
                 </div>
               </motion.div>
@@ -869,4 +973,4 @@ export function RDAuditLogPage() {
   );
 }
 
-export default RDAuditLogPage;
+export default AuditLogPage;

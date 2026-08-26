@@ -58,7 +58,7 @@ import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { RDTaskConversation } from "./RDTaskConversation";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { ProgressAttachmentGrid, ProgressNoteList, formatTraceDateTime } from "./RDProgressEvidence";
-import { AuditActor, recordAudit, syncAuditLogsFromRemote, useAuditActor, useAuditLogs } from "./lib/auditLog";
+import { syncAuditLogsFromRemote, useAuditLogs } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
 import { daysUntilDue, isTaskOverdue, taskOverdueDays, todayLocalDateStr } from "./lib/taskDue";
 import { buildTaskTree, collectTaskTreeIds, filterTaskTree, type TaskTreeNode } from "./lib/taskTree";
@@ -978,7 +978,6 @@ function TaskOperationDrawer({
   autoAbandon?: boolean;
 }) {
   useI18n(); // 订阅语言切换（抽屉 Tab/流程步骤/表单文案已 t() 化）
-  const WORKSPACE_AUDIT_ACTOR = useAuditActor("研发成员");
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const canReviewProjectL1 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L1);
   const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
@@ -1011,14 +1010,6 @@ function TaskOperationDrawer({
       await updateRdTask(task.task_id, { work_items: next });
       // 工作项动作写入操作留痕（带 work_item_id），驾驶舱详情按工作项 Tab 可见完整时间线
       if (auditComment) {
-        recordAudit({
-          actor: WORKSPACE_AUDIT_ACTOR,
-          action: "task.work_item_updated",
-          resource: { type: "task", id: task.task_id, name: task.title },
-          comment: auditComment,
-          metadata: workItemId ? { work_item_id: workItemId } : {},
-          source: "web",
-        });
       }
       return true;
     } catch (error) {
@@ -1365,20 +1356,6 @@ function TaskOperationDrawer({
             mention.resetMentions();
           }
           await onProgressSave(task.task_id, progressToSave);
-          recordAudit({
-            actor: WORKSPACE_AUDIT_ACTOR,
-            action: "task.progress_updated",
-            resource: { type: "task", id: task.task_id, name: task.title },
-            changes: [{ field: "progress", before: task.progress, after: progressToSave }],
-            comment: note || "更新任务进度",
-            metadata: {
-              source,
-              note_attachment_count: noteAttachments.length,
-              // 留痕 id 作为关联键，操作留痕据此精确挂出该次进度的附件缩略图。
-              ...(savedNoteId ? { note_id: savedNoteId } : {}),
-            },
-            source: "web",
-          });
           setReceipt(message);
           onLog(message);
           // 重置所有提交相关状态，避免重开对话框还看到旧附件 / 说明 / AI 判断残影
@@ -1447,22 +1424,6 @@ function TaskOperationDrawer({
       };
       setAiAssessment(assessment);
       // AI 分析记入留痕（无论最终是否采用，AI 确实跑过）
-      recordAudit({
-        actor: WORKSPACE_AUDIT_ACTOR,
-        action: "ai.parse_triggered",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        comment: "AI 综合进展说明与附件判断当前任务进度",
-        metadata: {
-          confidence: assessment.confidence,
-          stage: assessment.stage,
-          provider: result.provider,
-          model: result.model,
-          source: result.source,
-          note_attachment_count: noteAttachments.length,
-          has_note_text: hasNote,
-        },
-        source: "ai",
-      });
       const aiProgress = clampProgressValue(assessment.progress);
       onRequestConfirm({
         title: t("AI 解析结果"),
@@ -1515,15 +1476,6 @@ function TaskOperationDrawer({
             pending_collaboration_reason: null,
             pending_collaboration_requested_at: null,
           });
-          recordAudit({
-            actor: WORKSPACE_AUDIT_ACTOR,
-            action: "task.collaboration_updated",
-            resource: { type: "task", id: task.task_id, name: task.title },
-            changes: [{ field: "collaborators", before: (task.collaborators ?? []).map((item) => item.name).join("、"), after: collaboratorNames }],
-            comment: handoffReason.trim() || "主管直接更新任务协同人",
-            metadata: { collaborators: selectedCollaborators },
-            source: "web",
-          });
           toast.success(`${task.task_id} 协同人已更新`);
           await onCollaborationChanged(task.task_id, selectedCollaborators);
           onClose();
@@ -1536,15 +1488,6 @@ function TaskOperationDrawer({
           pending_collaborators: selectedCollaborators,
           pending_collaboration_reason: handoffReason.trim(),
           pending_collaboration_requested_at: new Date().toISOString(),
-        });
-        recordAudit({
-          actor: WORKSPACE_AUDIT_ACTOR,
-          action: "task.collaboration_requested",
-          resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [{ field: "pending_collaborators", before: (task.collaborators ?? []).map((item) => item.name).join("、"), after: collaboratorNames }],
-          comment: handoffReason.trim(),
-          metadata: { current_progress: task.progress, collaborators: selectedCollaborators },
-          source: "web",
         });
         toast.success(`${task.task_id} 已提交协作审批`);
         onLog(`${task.task_id} 已提交协作审批`);
@@ -1563,18 +1506,6 @@ function TaskOperationDrawer({
       details: [t("请确认交付物、风险说明和测试记录已补齐"), t("进度将标记为 100%（待验收，非完成）"), t("验收通过后任务才标记完成；被驳回则退回继续")],
       onConfirm: async () => {
         await updateRdTask(task.task_id, { status: "pending_review", pending_review_type: "result", progress: 100 });
-        recordAudit({
-          actor: WORKSPACE_AUDIT_ACTOR,
-          action: "task.submitted",
-          resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [
-            { field: "status", before: task.status, after: "pending_review" },
-            { field: "progress", before: String(task.progress), after: "100" },
-          ],
-          comment: "提交成果验收，进度标记为 100%（待验收，非完成）",
-          metadata: { progress: 100 },
-          source: "web",
-        });
         toast.success(`${task.task_id} 已提交成果验收`);
         onLog(`${task.task_id} 已提交成果验收`);
         window.dispatchEvent(new CustomEvent('rd:review-submitted'));
@@ -1618,15 +1549,6 @@ function TaskOperationDrawer({
           pending_due_date_reason: dueDateReason.trim(),
           pending_due_date_requested_at: new Date().toISOString(),
         });
-        recordAudit({
-          actor: WORKSPACE_AUDIT_ACTOR,
-          action: "task.due_date_requested",
-          resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [{ field: "due_date", before: current || "未设置", after: next }],
-          comment: dueDateReason.trim(),
-          metadata: { current_due_date: current, pending_due_date: next },
-          source: "web",
-        });
         toast.success(`${task.task_id} 已提交截止日期变更审核`);
         onLog(`${task.task_id} 已提交截止日期变更审核`);
         window.dispatchEvent(new CustomEvent('rd:review-submitted'));
@@ -1655,15 +1577,6 @@ function TaskOperationDrawer({
         pending_review_type: "abandon",
         pending_abandon_reason: reason,
         pending_abandon_requested_at: new Date().toISOString(),
-      });
-      recordAudit({
-        actor: WORKSPACE_AUDIT_ACTOR,
-        action: "task.abandon_requested",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "status", before: task.status, after: "pending_review" }],
-        comment: reason,
-        metadata: { current_progress: task.progress },
-        source: "web",
       });
       toast.success(t("{taskId} 已提交放弃申请", { taskId: task.task_id }));
       onLog(`${task.task_id} 已提交放弃申请`);
@@ -1737,16 +1650,6 @@ function TaskOperationDrawer({
     try {
       await attachRdTaskToParent(task.task_id, attachTargetId);
       const target = attachCandidates.find((c) => c.task_id === attachTargetId);
-      recordAudit({
-        actor: WORKSPACE_AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "parent_task_id", before: "", after: attachTargetId }],
-        comment: attachReason.trim()
-          || `并入任务 ${attachTargetId}${target?.title ? `（${target.title}）` : ""} 成为其子任务`,
-        metadata: { parent_task_id: attachTargetId, subtask_origin: "attached" },
-        source: "web",
-      });
       toast.success(t("已并入目标任务，成为其子任务"));
       onLog(`${task.task_id} 已并入 ${attachTargetId} 成为子任务`);
       setAttachOpen(false);
@@ -1764,14 +1667,6 @@ function TaskOperationDrawer({
     setDetaching(true);
     try {
       await detachRdSubtask(task.task_id);
-      recordAudit({
-        actor: WORKSPACE_AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "parent_task_id", before: task.parent_task_id ?? "", after: "" }],
-        comment: "取消子任务关系，提升为顶层任务",
-        source: "web",
-      });
       toast.success(t("已取消子任务关系，该任务已提升为独立任务"));
       onLog(`${task.task_id} 已取消子任务关系`);
       await onSubtaskChanged(task.task_id);
@@ -2429,15 +2324,6 @@ function TaskOperationDrawer({
                         const before = draftProgress;
                         setDraftProgress(clampProgressValue(aiAssessment.progress));
                         setReceipt(null);
-                        recordAudit({
-                          actor: WORKSPACE_AUDIT_ACTOR,
-                          action: "ai.suggestion_accepted",
-                          resource: { type: "task", id: task.task_id, name: task.title },
-                          changes: [{ field: "draft_progress", before, after: aiAssessment.progress }],
-                          comment: "恢复 AI 进度建议",
-                          metadata: { confidence: aiAssessment.confidence, stage: aiAssessment.stage },
-                          source: "web",
-                        });
                       }}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" />
@@ -5022,14 +4908,6 @@ export function RDMyWorkspacePage() {
           } as Parameters<typeof updateRdTask>[1]);
         }
         await patchRdMessage(notification.id, { handled: true, read: true });
-        recordAudit({
-          actor: WORKSPACE_AUDIT_ACTOR,
-          action: "task.review_approved",
-          resource: { type: "task", id: taskId, name: taskTitle },
-          comment: "批准任务审核",
-          metadata: { notification_id: notification.id, reviewer: user?.name },
-          source: "web",
-        });
         toast.success(`已批准「${taskTitle}」`);
         setDismissedNotifs((prev) => new Set(prev).add(notification.id));
         window.dispatchEvent(new CustomEvent("rd:review-submitted"));
@@ -5037,7 +4915,7 @@ export function RDMyWorkspacePage() {
         await loadWorkspace({ silent: true });
       },
     });
-  }, [WORKSPACE_AUDIT_ACTOR, loadWorkspace, user?.name]);
+  }, [loadWorkspace, user?.name]);
 
   const closeSuggestion = (id: string) => {
     setClosedSuggestions((prev) => new Set(prev).add(id));
@@ -5356,14 +5234,6 @@ export function RDMyWorkspacePage() {
                                   confirmLabel: t("确认关闭"),
                                   details: [t("关闭后会从通知中心移除"), t("不会影响关联任务本身")],
                                   onConfirm: () => {
-                                    recordAudit({
-                                      actor: WORKSPACE_AUDIT_ACTOR,
-                                      action: "notification.handled",
-                                      resource: { type: "system", id: notification.id, name: notification.title },
-                                      comment: "关闭通知中心提醒",
-                                      metadata: { related_task_id: notification.related_task_id, notification_type: notification.type },
-                                      source: "web",
-                                    });
                                     // Persist handled state to backend so it survives page refresh
                                     if (notification.id.startsWith("msg-")) {
                                       void patchRdMessage(notification.id, { handled: true, read: true }).catch(() => {});
@@ -5432,14 +5302,6 @@ export function RDMyWorkspacePage() {
                         <ActionButton
                           onClick={() => {
                             setRegeneratedSuggestions((prev) => new Set(prev).add(suggestion.id));
-                            recordAudit({
-                              actor: WORKSPACE_AUDIT_ACTOR,
-                              action: "ai.regenerated",
-                              resource: { type: "system", id: suggestion.id, name: suggestion.title },
-                              comment: "重新生成 AI 建议",
-                              metadata: { source: suggestion.source },
-                              source: "web",
-                            });
                             setActivePanel({ kind: "ai", suggestion, regenerated: true });
                           }}
                         >
@@ -5455,14 +5317,6 @@ export function RDMyWorkspacePage() {
                               tone: "danger",
                               details: [t("忽略后会从待审核列表移除"), t("如需恢复，需要重新生成建议")],
                               onConfirm: () => {
-                                recordAudit({
-                                  actor: WORKSPACE_AUDIT_ACTOR,
-                                  action: "ai.suggestion_rejected",
-                                  resource: { type: "system", id: suggestion.id, name: suggestion.title },
-                                  comment: "忽略 AI 生成建议",
-                                  metadata: { source: suggestion.source },
-                                  source: "web",
-                                });
                                 closeSuggestion(suggestion.id);
                               },
                             })
@@ -5539,14 +5393,6 @@ export function RDMyWorkspacePage() {
           onClose={() => setActivePanel(null)}
           onRegenerate={() => {
             setRegeneratedSuggestions((prev) => new Set(prev).add(activePanel.suggestion.id));
-            recordAudit({
-              actor: WORKSPACE_AUDIT_ACTOR,
-              action: "ai.regenerated",
-              resource: { type: "system", id: activePanel.suggestion.id, name: activePanel.suggestion.title },
-              comment: "重新生成 AI 建议",
-              metadata: { source: activePanel.suggestion.source },
-              source: "web",
-            });
             setActivePanel({ kind: "ai", suggestion: activePanel.suggestion, regenerated: true });
           }}
           onConfirm={() =>
@@ -5556,31 +5402,7 @@ export function RDMyWorkspacePage() {
               confirmLabel: t("确认写入"),
               details: [t("生成任务数：{n}", { n: activePanel.suggestion.generated_tasks.length }), t("来源：{source}", { source: activePanel.suggestion.source }), t("写入后会从待审核列表移除")],
               onConfirm: () => {
-                recordAudit({
-                  actor: WORKSPACE_AUDIT_ACTOR,
-                  action: "ai.suggestion_accepted",
-                  resource: { type: "system", id: activePanel.suggestion.id, name: activePanel.suggestion.title },
-                  comment: "确认 AI 建议写入任务池",
-                  metadata: {
-                    source: activePanel.suggestion.source,
-                    generated_tasks: activePanel.suggestion.generated_tasks.length,
-                  },
-                  source: "web",
-                });
                 activePanel.suggestion.generated_tasks.forEach((task, index) => {
-                  recordAudit({
-                    actor: WORKSPACE_AUDIT_ACTOR,
-                    action: "task.created",
-                    resource: { type: "task", id: `${activePanel.suggestion.id}-task-${index + 1}`, name: task.title },
-                    changes: [
-                      { field: "owner", before: undefined, after: task.owner },
-                      { field: "priority", before: undefined, after: task.priority },
-                      { field: "due_date", before: undefined, after: task.due },
-                    ],
-                    comment: "由 AI 建议确认后写入任务池",
-                    metadata: { suggestion_id: activePanel.suggestion.id },
-                    source: "web",
-                  });
                 });
                 closeSuggestion(activePanel.suggestion.id);
               },
@@ -5594,14 +5416,6 @@ export function RDMyWorkspacePage() {
               tone: "danger",
               details: [t("忽略后会从待审核列表移除"), t("如需恢复，需要重新生成建议")],
               onConfirm: () => {
-                recordAudit({
-                  actor: WORKSPACE_AUDIT_ACTOR,
-                  action: "ai.suggestion_rejected",
-                  resource: { type: "system", id: activePanel.suggestion.id, name: activePanel.suggestion.title },
-                  comment: "忽略 AI 生成建议",
-                  metadata: { source: activePanel.suggestion.source },
-                  source: "web",
-                });
                 closeSuggestion(activePanel.suggestion.id);
               },
             })
@@ -5622,17 +5436,6 @@ export function RDMyWorkspacePage() {
               confirmLabel: t("确认处理"),
               details: [t("通知会从通知中心移除"), t("会在操作记录中留下处理记录")],
               onConfirm: () => {
-                recordAudit({
-                  actor: WORKSPACE_AUDIT_ACTOR,
-                  action: "notification.handled",
-                  resource: { type: "system", id: activePanel.notification.id, name: activePanel.notification.title },
-                  comment: "标记通知已处理",
-                  metadata: {
-                    related_task_id: activePanel.notification.related_task_id,
-                    notification_type: activePanel.notification.type,
-                  },
-                  source: "web",
-                });
                 // Persist handled state so the message doesn't reappear after page refresh
                 if (activePanel.notification.id.startsWith("msg-")) {
                   void patchRdMessage(activePanel.notification.id, { handled: true, read: true }).catch(() => {});
@@ -5678,14 +5481,6 @@ export function RDMyWorkspacePage() {
                 } as Parameters<typeof updateRdTask>[1]);
               }
               await patchRdMessage(notif.id, { handled: true, read: true });
-              recordAudit({
-                actor: WORKSPACE_AUDIT_ACTOR,
-                action: "task.review_rejected",
-                resource: { type: "task", id: taskId, name: taskTitle },
-                comment: `驳回任务审核：${reason}`,
-                metadata: { notification_id: notif.id, reviewer: user?.name, reason },
-                source: "web",
-              });
               toast.success(t("已驳回「{title}」", { title: taskTitle }));
               setDismissedNotifs((prev) => new Set(prev).add(notif.id));
               window.dispatchEvent(new CustomEvent("rd:review-submitted"));

@@ -36,10 +36,10 @@ import {
   PROC_ARRIVAL_STATUSES,
   PROC_STATUS_LABELS,
   PROC_PO_LINKABLE_STATUSES,
+  PROC_QUOTATION_RESETTABLE_STATUSES,
   PROC_STATUS_TRANSITIONS,
   PROC_TERMINAL_STATUSES,
   type ProcActor,
-  type ProcAuditLogQuery,
   type ProcMaterialListQuery,
   type ProcStatus,
   type ProcTaskListQuery,
@@ -172,7 +172,6 @@ const PROC_AUDIT_SAFE_META_FIELDS = new Set([
   'userId',
 ]);
 
-const MAX_PROC_AUDIT_KEYWORD_LENGTH = 100;
 
 function auditDetailValue(value: Prisma.JsonValue | undefined): string | null {
   if (value === null || value === undefined) return null;
@@ -182,28 +181,6 @@ function auditDetailValue(value: Prisma.JsonValue | undefined): string | null {
   const text = String(value).trim();
   if (!text) return null;
   return text.length > 120 ? `${text.slice(0, 120)}…` : text;
-}
-
-function safeAuditDetails(meta: Prisma.JsonValue): Array<{ field: string; value: string }> {
-  if (!meta || Array.isArray(meta) || typeof meta !== 'object') return [];
-  const details: Array<{ field: string; value: string }> = [];
-  for (const [field, value] of Object.entries(meta)) {
-    if (!PROC_AUDIT_SAFE_META_FIELDS.has(field)) continue;
-    const displayValue = auditDetailValue(value);
-    if (displayValue !== null) details.push({ field, value: displayValue });
-  }
-  return details;
-}
-
-function boundedAuditPageValue(
-  value: string | number | undefined,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(max, Math.max(min, Math.floor(parsed)));
 }
 
 const PROC_TASK_VIEW_INCLUDE = Prisma.validator<Prisma.ProcTaskInclude>()({
@@ -278,84 +255,6 @@ export class ProcurementService {
     } catch {
       return null;
     }
-  }
-
-  async listAuditLogs(query: ProcAuditLogQuery) {
-    const requestedPage = boundedAuditPageValue(query.page, 1, 1, Number.MAX_SAFE_INTEGER);
-    const pageSize = boundedAuditPageValue(query.pageSize, 20, 10, 100);
-    const where: Prisma.AuditLogWhereInput = { resource: 'procurement' };
-    const action = query.action?.trim().toUpperCase();
-    if (action && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(action)) where.action = action;
-    if (query.section?.trim()) where.resourceId = query.section.trim();
-
-    const createdAt: Prisma.DateTimeFilter = {};
-    const dateFrom = query.dateFrom ? new Date(query.dateFrom) : null;
-    const dateTo = query.dateTo ? new Date(query.dateTo) : null;
-    const now = new Date();
-    const requestedSnapshot = query.snapshotAt ? new Date(query.snapshotAt) : null;
-    const snapshotAt = requestedSnapshot
-      && !Number.isNaN(requestedSnapshot.getTime())
-      && requestedSnapshot < now
-      ? requestedSnapshot
-      : now;
-    if (dateFrom && !Number.isNaN(dateFrom.getTime())) createdAt.gte = dateFrom;
-    if (dateTo && !Number.isNaN(dateTo.getTime())) createdAt.lt = dateTo;
-    createdAt.lte = snapshotAt;
-    where.createdAt = createdAt;
-
-    const keyword = query.keyword?.trim().slice(0, MAX_PROC_AUDIT_KEYWORD_LENGTH);
-    if (keyword) {
-      where.OR = [
-        { action: { contains: keyword, mode: 'insensitive' } },
-        { resourceId: { contains: keyword, mode: 'insensitive' } },
-        {
-          user: {
-            is: {
-              OR: [
-                { name: { contains: keyword, mode: 'insensitive' } },
-                { englishName: { contains: keyword, mode: 'insensitive' } },
-                { username: { contains: keyword, mode: 'insensitive' } },
-              ],
-            },
-          },
-        },
-      ];
-    }
-
-    const { total, page, rows } = await this.prisma.$transaction(async (tx) => {
-      const snapshotTotal = await tx.auditLog.count({ where });
-      const snapshotPage = Math.min(requestedPage, Math.max(1, Math.ceil(snapshotTotal / pageSize)));
-      const snapshotRows = await tx.auditLog.findMany({
-        where,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        skip: (snapshotPage - 1) * pageSize,
-        take: pageSize,
-        include: {
-          user: { select: { id: true, name: true, englishName: true, username: true } },
-        },
-      });
-      return { total: snapshotTotal, page: snapshotPage, rows: snapshotRows };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-
-    return {
-      total,
-      page,
-      pageSize,
-      snapshotAt: snapshotAt.toISOString(),
-      items: rows.map((row) => ({
-        id: row.id,
-        action: row.action,
-        section: row.resourceId || 'other',
-        operator: row.user
-          ? {
-              id: row.user.id,
-              name: row.user.name || row.user.englishName || row.user.username || '未知用户',
-            }
-          : { id: null, name: '系统' },
-        occurredAt: row.createdAt.toISOString(),
-        details: safeAuditDetails(row.meta),
-      })),
-    };
   }
 
   // ── 任务 ────────────────────────────────────────────────────────────────────
@@ -1230,7 +1129,7 @@ export class ProcurementService {
     }
     // 客户端声明的来源状态与实际不符：说明它拿的是过期数据（例如上一次保存后界面没刷新，
     // 用户又点了一次）。此时每一步单看都合法，放行就会一路推到终态，所以直接拒绝。
-    if (dto.from_status && dto.from_status !== task.status) {
+    if (dto.from_status !== task.status) {
       throw new ConflictException(
         `任务已是「${PROC_STATUS_LABELS[task.status as ProcStatus] ?? task.status}」，页面数据已过期，请刷新后再操作`,
       );
@@ -2066,6 +1965,63 @@ export class ProcurementService {
   }
 
   /** 选定报价：需样 → 待到样，免样 → 已定价；同时回写物料最新价。 */
+  /**
+   * 撤销本任务已维护的报价，退回「待询价」重做。
+   *
+   * 报价一旦确认，此前没有任何入口可以改：维护错了只能带着错误单价走完流程，
+   * 或者把整条任务作废重建。这里补上重做入口。
+   *
+   * 边界：只允许在「还没下单」的阶段撤销。进入在途之后单价已经跟着采购单出去了，
+   * 再改这里只会让系统与 T+ 对不上，那种情况应当走采购单撤销而不是改报价。
+   */
+  async resetTaskQuotations(taskId: string, reason: string | undefined, actor: ProcActor) {
+    const task = await this.requireTask(taskId);
+    // 先看有没有报价：没有报价时说「请先撤销采购单关联」是答非所问，
+    // 而重置后任务回到「待询价」，此时再点一次正好落进这一支。
+    const existing = await this.prisma.procQuotation.count({ where: { taskId } });
+    if (existing === 0) throw new BadRequestException('该任务还没有已确认的报价，无需重新维护');
+
+    if (!PROC_QUOTATION_RESETTABLE_STATUSES.includes(task.status as ProcStatus)) {
+      throw new BadRequestException(
+        `「${PROC_STATUS_LABELS[task.status as ProcStatus] ?? task.status}」不能重新维护报价：`
+        + '已下单及之后的阶段请先撤销采购单关联',
+      );
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // 条件更新占位：并发下另一个人可能刚把任务推到在途，那时不能再清
+      const claimed = await tx.procTask.updateMany({
+        where: { id: taskId, status: task.status },
+        data: {
+          status: 'pending_inquiry',
+          selectedQuotationId: null,
+          quotationSubtotal: null,
+          quotationDiscount: null,
+          quotationTotal: null,
+        },
+      });
+      if (claimed.count !== 1) throw new ConflictException('任务状态已被其他操作更新，请刷新后重试');
+
+      await tx.procQuotation.deleteMany({ where: { taskId } });
+      await tx.procTaskLog.create({
+        data: {
+          taskId,
+          kind: 'action',
+          // 物料主数据上的「最新参考价」不回滚：它没有留存上一版，且下次确认会覆盖。
+          // 这里如实写进留痕，避免有人以为参考价也跟着退回去了。
+          text: `重新维护报价：清除 ${existing} 条报价并退回「待询价」${reason ? `；原因：${reason}` : ''}`
+            + '（物料主数据的最新参考价不回滚，将在下次确认时更新）',
+          fromStatus: task.status,
+          toStatus: 'pending_inquiry',
+          actor: actor.name,
+          actorUserId: actor.id,
+        },
+      });
+      return tx.procTask.findUniqueOrThrow({ where: { id: taskId }, include: PROC_TASK_VIEW_INCLUDE });
+    });
+    return this.serializeTask(updated);
+  }
+
   async selectQuotation(taskId: string, quotationId: string, actor: ProcActor) {
     const task = await this.requireTask(taskId);
     const quotation = await this.prisma.procQuotation.findUnique({ where: { id: quotationId } });

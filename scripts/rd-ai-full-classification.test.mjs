@@ -142,7 +142,10 @@ test("analysis produces member task lines and supports reviewed duplicate or hom
   assert.match(cockpit, /toggleMergeSource/);
   assert.match(cockpit, /attachRdTasksToParent\(draft\.sourceTaskIds, draft\.primaryTaskId\)/);
   assert.match(cockpit, /确认并执行/);
-  assert.match(cockpit, /原任务内容与记录完整保留/);
+  // 「内容完整保留」这句原先写在前端 recordAudit 的 comment 里；留痕下沉服务端后，
+  // 它由 attachTasksAsSubtasks 产出 —— 走接口直调并入同样留得下这条记录。
+  assert.match(rdService, /原任务内容与记录完整保留/);
+  assert.match(rdService, /将任务并入主任务/);
 });
 
 test("collaboration tasks are projected into personal and administrator member views without entering AI scope", () => {
@@ -153,4 +156,28 @@ test("collaboration tasks are projected into personal and administrator member v
   assert.match(rdService, /source_workspace: workspace/);
   assert.match(cockpit, /const classificationTasks/);
   assert.match(cockpit, /tasks=\{classificationTasks\}/);
+});
+
+test("任务类型预设：前后端两份清单锁死，详情页可人工纠正且不动分类归属", async () => {
+  const detail = await readFile(new URL("../src/app/RDTaskDetailPage.tsx", import.meta.url), "utf8");
+  const extract = (src) => {
+    const block = src.match(/RD_TASK_TYPE_PRESETS = \[([\s\S]*?)\] as const/)?.[1] ?? "";
+    return [...block.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  };
+  const backend = extract(aiService);
+  const frontend = extract(apiClient);
+  assert.ok(backend.length >= 12, `后端任务类型清单缺失或过短：${backend.length}`);
+  assert.deepEqual(frontend, backend, "前后端任务类型预设不一致，选择器会给出 AI 不认的值");
+  // 提示词由常量拼接，杜绝「清单改了提示词没改」
+  assert.match(aiService, /任务类型要从任务内容中判断，例如：\$\{RD_TASK_TYPE_PRESETS\.join\('、'\)\}/);
+  // 详情页只改 category_path 第三段：前两段是分类归属，归属变更走「移动归类」
+  assert.match(detail, /const saveTaskType = async/);
+  assert.match(detail, /withTaskType\(task\.category_path, value\)/);
+  assert.match(detail, /updateRdTask\(task\.task_id, \{ category_path: nextPath \}\)/);
+  // 预设之外允许自定义，否则清单外的新类型改不了
+  assert.match(detail, /CUSTOM_TASK_TYPE_OPTION/);
+  // task 与 allTasks 双源同步，否则人员任务弹层等派生视图仍显示旧 tag
+  assert.match(detail, /setAllTasks\([\s\S]{0,240}category_path: nextPath/);
+  // 原「主题」只读行已被取代，不该同一个值显示两遍
+  assert.doesNotMatch(detail, /\{ label: t\("主题"\), value: topicLabel \}/);
 });

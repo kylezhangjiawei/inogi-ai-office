@@ -72,7 +72,6 @@ const ProcMyWorkspacePage = lazyNamed(() => import("./procurement"), "ProcMyWork
 const MaterialWorkbenchPage = lazyNamed(() => import("./procurement"), "MaterialWorkbenchPage");
 const QuoteBookPage = lazyNamed(() => import("./procurement"), "QuoteBookPage");
 const ProcPeopleManagementPage = lazyNamed(() => import("./procurement"), "ProcPeopleManagementPage");
-const ProcAuditLogPage = lazyNamed(() => import("./procurement/ProcAuditLogPage"), "ProcAuditLogPage");
 const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");
 const ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");
 const QualityDMSPage = lazyNamed(() => import("./QualityDMSPage"), "QualityDMSPage");
@@ -99,7 +98,7 @@ const KB_PAGE_PERMISSIONS = [
 ];
 const RDPeopleManagementPage = lazyNamed(() => import("./RDPeopleManagementPage"), "RDPeopleManagementPage");
 const RDApprovalFlowPage = lazyNamed(() => import("./RDApprovalFlowPage"), "RDApprovalFlowPage");
-const RDAuditLogPage = lazyNamed(() => import("./RDAuditLogPage"), "RDAuditLogPage");
+const AuditLogPage = lazyNamed(() => import("./AuditLogPage"), "AuditLogPage");
 const RDAiSettingsPage = lazyNamed(() => import("./RDAiSettingsPage"), "RDAiSettingsPage");
 const RDSheetPage = lazyNamed(() => import("./RDSheetPage"), "RDSheetPage");
 const RouteManagementPage = lazyNamed(() => import("./RouteManagementPage"), "RouteManagementPage");
@@ -438,13 +437,15 @@ const router = createBrowserRouter([
       // —— rdApi 据此给请求带 ?workspace=us-collab，后端把 rd.* 存储键改写成 rdws.us-collab.*。
       // key="ws-us" 强制与研发路由分离组件实例，避免两池间切换时残留上一池的状态。
       { path: asChildPath(routePath("page:us-collab-approval-flow", "/us-collab-approval-flow")), element: makeLazyProtected(<RDApprovalFlowPage key="ws-us" />, "page:us-collab-approval-flow") },
-      { path: asChildPath(routePath("page:us-collab-audit-log", "/us-collab-audit-log")), element: makeLazyProtected(<RDAuditLogPage key="ws-us" />, "page:us-collab-audit-log") },
+      { path: "us-collab-audit-log", element: <Navigate to="/audit-log?module=us-collab" replace /> },
       { path: asChildPath(routePath("page:us-collab-ai-settings", "/us-collab-ai-settings")), element: makeLazyProtected(<RDAiSettingsPage key="ws-us" />, "page:us-collab-ai-settings") },
       // 生产驾驶舱与研发任务驾驶舱共用页面实现，但使用独立工作区数据；旧主管驾驶舱链接继续跳转兼容。
       { path: "production-dashboard", element: makeLazyProtected(<RDTaskManagementPage key="ws-production" />, "page:rd-director-dashboard") },
       { path: "rd-director-dashboard", element: makeLazyProtected(<Navigate to="/production-dashboard" replace />, "page:rd-director-dashboard") },
       { path: asChildPath(routePath("page:rd-approval-flow", "/rd-approval-flow")), element: makeLazyProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },
-      { path: asChildPath(routePath("page:rd-audit-log", "/rd-audit-log")), element: makeLazyProtected(<RDAuditLogPage />, "page:rd-audit-log") },
+      { path: "rd-audit-log", element: <Navigate to="/audit-log?module=rd" replace /> },
+      // 全站统一操作留痕（研发 / 中美协同 / 采购三页合并），旧地址在上面重定向到这里并带上模块预选。
+      { path: asChildPath(routePath("page:audit-log", "/audit-log")), element: makeLazyProtected(<AuditLogPage />, "page:audit-log") },
       { path: asChildPath(routePath("page:rd-ai-settings", "/rd-ai-settings")), element: makeLazyProtected(<RDAiSettingsPage />, "page:rd-ai-settings") },
       { path: asChildPath(routePath("page:rd-triage", "/rd-triage")), element: makeLazyProtected(<RDIssues />, "page:rd-triage") },
       { path: asChildPath(routePath("page:registration-projects", "/registration-projects")), element: makeLazyProtected(<RegistrationProjects />, "page:registration-projects") },
@@ -468,7 +469,7 @@ const router = createBrowserRouter([
       { path: asChildPath(routePath("page:proc-my-workspace", "/proc-my-workspace")), element: makeLazyProtected(<ProcMyWorkspacePage />, "page:proc-my-workspace") },
       { path: asChildPath(routePath("page:proc-materials", "/proc-materials")), element: makeLazyProtected(<MaterialWorkbenchPage />, "page:proc-materials") },
       { path: asChildPath(routePath("page:proc-quote-book", "/proc-quote-book")), element: makeLazyProtected(<QuoteBookPage />, "page:proc-quote-book") },
-      { path: asChildPath(routePath("page:proc-audit-log", "/proc-audit-log")), element: makeLazyProtected(<ProcAuditLogPage />, "page:proc-audit-log") },
+      { path: "proc-audit-log", element: <Navigate to="/audit-log?module=procurement" replace /> },
       // 采购人员管理独立页：从驾驶舱进入，不进侧边栏菜单（对齐研发 rd-people-management 模式）
       // 与采购驾驶舱**共用同一权限码**的兄弟页面：路径必须保持固定。
       // 若也用 routePath("page:proc-cockpit") 解析，两条路由会解析到同一路径，本页直接失联。

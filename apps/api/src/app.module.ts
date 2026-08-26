@@ -23,6 +23,7 @@ import { ImageGenerationModule } from './modules/image-generation/image-generati
 import { VideoGenerationModule } from './modules/video-generation/video-generation.module';
 import { AiUsageModule } from './modules/ai-usage/ai-usage.module';
 import { ContentSlotsModule } from './modules/content-slots/content-slots.module';
+import { AuditModule } from './modules/audit/audit.module';
 import { OpsCenterModule } from './modules/ops-center/ops-center.module';
 import { PermissionCatalogModule } from './modules/permission-catalog/permission-catalog.module';
 import { ExpenseModule } from './modules/expense/expense.module';
@@ -75,6 +76,7 @@ const envFilePath = [
     VideoGenerationModule,
     AiUsageModule,
     ContentSlotsModule,
+    AuditModule,
     OpsCenterModule,
     PermissionCatalogModule,
     OssModule,

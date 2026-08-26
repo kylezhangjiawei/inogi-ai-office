@@ -40,7 +40,7 @@ import { cn } from "./components/ui/utils";
 import { usePermission } from "./hooks/usePermission";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { AuditTimeline } from "./RDAuditTimeline";
-import { recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
+import { useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
 import { isTaskOverdue, todayLocalDateStr } from "./lib/taskDue";
 import { PERMISSIONS } from "./lib/permissions";
@@ -59,6 +59,7 @@ import {
   saveRdTaskCategories,
   sendRdMessage,
   updateRdPerson,
+  reassignRdTasksBatch,
   updateRdTask,
   type RdBlockedTask,
   type RdCategory,
@@ -553,7 +554,6 @@ function TaskDetailDrawer({
   onDiscussionActivity?: () => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
-  const DIRECTOR_AUDIT_ACTOR = useAuditActor("生产驾驶舱");
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     title: task.title,
@@ -614,13 +614,6 @@ function TaskDetailDrawer({
         description: editForm.description || undefined,
         primary_owner: editForm.owner || task.owner,
       });
-      recordAudit({
-        actor: DIRECTOR_AUDIT_ACTOR,
-        action: "task.edited",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        comment: "从生产驾驶舱编辑并保存任务",
-        source: "web",
-      });
       toast.success(translate("任务已保存"));
       setIsEditing(false);
       onUpdate?.();
@@ -636,13 +629,6 @@ function TaskDetailDrawer({
     setDeleting(true);
     try {
       await deleteRdTask(task.task_id);
-      recordAudit({
-        actor: DIRECTOR_AUDIT_ACTOR,
-        action: "task.edited",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        comment: "从生产驾驶舱删除任务",
-        source: "web",
-      });
       toast.success(translate("任务已删除"));
       onDelete?.();
     } catch (err) {
@@ -659,17 +645,6 @@ function TaskDetailDrawer({
     setSaving(true);
     try {
       await updateRdTask(task.task_id, { status: "completed", progress: 100 });
-      recordAudit({
-        actor: DIRECTOR_AUDIT_ACTOR,
-        action,
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [
-          { field: "status", before: task.status, after: "completed" },
-          { field: "progress", before: task.progress, after: 100 },
-        ],
-        comment: "从生产驾驶舱标记任务完成",
-        source: "web",
-      });
       toast.success(translate("任务已标记完成"));
       onUpdate?.();
     } catch (err) {
@@ -1617,7 +1592,6 @@ function BatchReassignModal({
   initialTaskIds?: string[];
   onUpdated?: () => void;
 }) {
-  const DIRECTOR_AUDIT_ACTOR = useAuditActor("生产驾驶舱");
   const shouldReduceMotion = useReducedMotion();
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(() => new Set(initialTaskIds?.length ? initialTaskIds : initialTaskId ? [initialTaskId] : []));
   const [targetPerson, setTargetPerson] = useState<PersonLoad | null>(null);
@@ -1651,41 +1625,19 @@ function BatchReassignModal({
 
     setSaving(true);
     try {
-      await Promise.all(
-        selected.map((task) =>
-          updateRdTask(task.task_id, {
-            primary_owner: targetPerson.name,
-            primary_owner_user_id: targetPerson.user_id ?? null,
-            status: "in_progress",
-          }),
-        ),
-      );
-      recordAudit({
-        actor: DIRECTOR_AUDIT_ACTOR,
-        action: "system.bulk_reassign",
-        resource: { type: "system", id: `batch-${Date.now()}`, name: "批量转派任务" },
-        comment: `批量转派 ${selected.length} 个任务给 ${targetPerson.name}`,
-        metadata: {
-          to: targetPerson.name,
-          task_count: selected.length,
-          task_ids: selected.map((task) => task.task_id),
-        },
-        source: "web",
+      const result = await reassignRdTasksBatch({
+        task_ids: selected.map((task) => task.task_id),
+        primary_owner: targetPerson.name,
+        primary_owner_user_id: targetPerson.user_id ?? null,
       });
-      selected.forEach((task) => {
-        recordAudit({
-          actor: DIRECTOR_AUDIT_ACTOR,
-          action: "task.reassigned",
-          resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [
-            { field: "owner", before: task.owner, after: targetPerson.name },
-            { field: "status", before: task.owner === "待指派" ? "pending_assign" : undefined, after: "in_progress" },
-          ],
-          comment: "批量转派中更新负责人",
-          metadata: { blocked_days: task.days_blocked, reason: task.reason },
-          source: "web",
-        });
-      });
+      // 部分失败不回滚：成功的那些已经转派掉了，如实告诉用户哪些没成
+      if (result.failed.length > 0) {
+        toast.warning(
+          translate("{n} 个任务转派失败：{ids}")
+            .replace("{n}", String(result.failed.length))
+            .replace("{ids}", result.failed.map((item) => item.task_id).join("、")),
+        );
+      }
       onUpdated?.();
       setConfirmed(true);
     } catch (err) {
@@ -2409,7 +2361,6 @@ function CreateTaskModalV2({
 }
 
 function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleared: () => void }) {
-  const DIRECTOR_AUDIT_ACTOR = useAuditActor("生产驾驶舱");
   const shouldReduceMotion = useReducedMotion();
   const [confirm, setConfirm] = useState("");
   const [clearing, setClearing] = useState(false);
@@ -2421,13 +2372,6 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
     setClearing(true);
     try {
       await clearRdAllTaskData();
-      recordAudit({
-        actor: DIRECTOR_AUDIT_ACTOR,
-        action: "task.data.cleared",
-        resource: { type: "system", id: "rd-task-data", name: "研发任务模块数据" },
-        comment: "清空研发任务模块全部数据",
-        source: "web",
-      });
       toast.success(translate("研发任务模块数据已全部清空"));
       onCleared();
     } catch (err) {
@@ -3117,31 +3061,6 @@ export function RDDirectorDashboardPage() {
           ...(approved ? {} : { _reject_reason: `主管驳回${meta.label}` }),
         } as Parameters<typeof updateRdTask>[1]);
         await recomputeRdDirectorDashboard().catch(() => {});
-        recordAudit({
-          actor: DIRECTOR_AUDIT_ACTOR,
-          action: approved ? meta.approveAction : meta.rejectAction,
-          resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [
-            ...(meta.key === "due_date" && approved
-              ? [{ field: "due_date", before: task.due_date ?? "", after: task.pending_due_date ?? task.due_date ?? "" }]
-              : []),
-            ...(meta.key === "collaboration" && approved
-              ? [{
-                  field: "collaborators",
-                  before: task.collaborators?.join("、") ?? "",
-                  after: (task.pending_collaborators ?? []).map((item) => item.name).join("、"),
-                }]
-              : []),
-          ],
-          comment: `${approved ? "审核通过" : "驳回"}了${meta.label}${isSelfReview ? "（本人自审）" : ""}`,
-          metadata: {
-            task_id: task.task_id,
-            category_path: task.category_path,
-            pending_review_type: task.pending_review_type,
-            self_review: isSelfReview,
-          },
-          source: "web",
-        });
       toast.success(`${translate(meta.label)}${approved ? translate("已通过") : translate("已驳回")}${isSelfReview ? translate("（自审）") : ""}`);
         setSelectedTask(null);
         reloadAll();

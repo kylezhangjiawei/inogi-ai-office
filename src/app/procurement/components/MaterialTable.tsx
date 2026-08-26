@@ -98,7 +98,7 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
   const td = "px-3 py-1.5 text-sm text-slate-700";
 
   const materialRow = (m: Material, indent: number, showCategory: boolean) => {
-    const agg = materialAggregates(tasks, m.name);
+    const agg = materialAggregates(tasks, m);
     return (
       <tr key={m.id} onClick={() => onOpen(m)} className="cursor-pointer border-t border-slate-50 hover:bg-indigo-50/40">
         <td className={td}>
