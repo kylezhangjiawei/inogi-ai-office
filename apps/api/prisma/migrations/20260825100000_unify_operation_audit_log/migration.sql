@@ -110,7 +110,7 @@ WHERE code IN ('page:rd-audit-log', 'page:us-collab-audit-log', 'page:proc-audit
 
 -- ── 6. 断言 ─────────────────────────────────────────────────────────────────
 DO $$
-DECLARE stale bigint; migrated bigint; imported bigint; kv bigint;
+DECLARE stale bigint; migrated bigint; imported bigint; kv bigint; missing text[];
 BEGIN
   SELECT count(*) INTO stale FROM "Role"
     WHERE permissions ?| array['page:rd-audit-log', 'page:us-collab-audit-log', 'page:proc-audit-log'];
@@ -118,19 +118,28 @@ BEGIN
     RAISE EXCEPTION '仍有 % 个角色残留旧留痕页面码', stale;
   END IF;
 
-  -- 按**去重后**的 id 数比对：同一 id 在多个池里重复出现时只该导入一条，
-  -- 那是正确行为不是数据丢失。此前按原始条数比，生产上 1117 条里有 2 个重复 id，
-  -- 导入 1115 条即被判为失败，整条迁移回滚。
-  SELECT count(DISTINCT e.log->>'id') INTO kv
+  -- 逐个 id 核对「KV 里这条，表里有没有」，而不是数「表里有多少条 source <> 'api'」。
+  -- source 是留痕自带的业务字段（web/api/ai/system），生产同步、撤销同步、合并失败告知这几个
+  -- 服务端入口写的就是 source='api'（见 createAuditLog），拿它当「是否来自 KV」的判据必然漏数 ——
+  -- 生产上正好有这么 2 条，于是 1117 条被判成只导入 1115 条，整条迁移回滚。
+  -- 去重也落在这个 id 集合上：同一 id 在多个池里重复出现只该导入一条，不算数据丢失。
+  SELECT count(*), count(a."id"), array_agg(k."id") FILTER (WHERE a."id" IS NULL)
+    INTO kv, imported, missing
+  FROM (
+    SELECT DISTINCT e.log->>'id' AS "id"
     FROM "SystemSetting" s CROSS JOIN LATERAL jsonb_array_elements(s."value"::jsonb) AS e(log)
     WHERE s."key" IN ('rd.auditLogs', 'rdws.us-collab.auditLogs', 'rdws.production.auditLogs')
       AND jsonb_typeof(s."value"::jsonb) = 'array'
-      AND COALESCE(NULLIF(e.log->>'id', ''), '') <> '';
-  SELECT count(*) INTO imported FROM "AuditLog" WHERE "source" <> 'api';
+      AND COALESCE(NULLIF(e.log->>'id', ''), '') <> ''
+  ) k
+  LEFT JOIN "AuditLog" a ON a."id" = k."id";
+
   IF imported < kv THEN
-    RAISE EXCEPTION 'KV 去重后 % 条语义留痕，实际导入 % 条，缺口 % 条', kv, imported, kv - imported;
+    -- 带上缺失的 id：真出问题时能直接回 KV 原始 JSON 查这几条，不用再靠猜。
+    RAISE EXCEPTION 'KV 有 % 条语义留痕，表内只找到 % 条，缺口 % 条（缺失 id 示例：%）',
+      kv, imported, kv - imported, array_to_string(missing[1:5], ', ');
   END IF;
 
   SELECT count(*) INTO migrated FROM "Role" WHERE permissions @> '["page:audit-log"]'::jsonb;
-  RAISE NOTICE '[操作留痕合并] 导入语义留痕 % 条，持有 page:audit-log 的角色数：%', imported, migrated;
+  RAISE NOTICE '[操作留痕合并] 语义留痕 % 条已全部落表，持有 page:audit-log 的角色数：%', kv, migrated;
 END $$;
