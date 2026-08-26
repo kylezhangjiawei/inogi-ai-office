@@ -15,6 +15,32 @@ import { RD_DEFAULT_WORKSPACE, RD_WORKSPACE_IDS } from '../research-development/
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
+/**
+ * 落库前必须抹掉的键。与 ApiRequestLogInterceptor 的同名集合保持一致 ——
+ * 两个拦截器都在记请求体，口径不一致就等于其中一个在漏。
+ *
+ * 实测本地库里 auth 模块有 474 条 refresh 记录存了明文 refreshToken、
+ * 7 条 login 记录存了 encryptedPassword：刷新令牌是 bearer 凭据，
+ * 拿到就能换访问令牌，落在留痕表里等于给了一份可离线利用的凭据副本。
+ */
+const SENSITIVE_KEYS = [
+  'password',
+  'token',
+  'access_token',
+  'refresh_token',
+  'api_key',
+  'apikey',
+  'secret',
+  'credential',
+  'authorization',
+];
+
+/** 键名命中敏感词（含子串，覆盖 encryptedPassword / refreshToken 这类驼峰写法）。 */
+function isSensitiveKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return SENSITIVE_KEYS.some((word) => normalized.includes(word));
+}
+
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
   private readonly logger = new Logger(AuditInterceptor.name);
@@ -129,6 +155,11 @@ export class AuditInterceptor implements NestInterceptor {
     if (!body || typeof body !== 'object') return {};
 
     const meta = { ...(body as Record<string, unknown>) };
+
+    // 凭据一律不落库。放在最前面：后面的分支只处理体积问题，漏一个键就是漏一份凭据
+    for (const key of Object.keys(meta)) {
+      if (isSensitiveKey(key)) meta[key] = '[redacted]';
+    }
     const referenceImageData = meta.reference_image_data;
     if (typeof referenceImageData === 'string') {
       meta.reference_image_data = '[omitted base64 image]';
