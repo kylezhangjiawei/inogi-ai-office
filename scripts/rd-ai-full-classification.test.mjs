@@ -142,7 +142,10 @@ test("analysis produces member task lines and supports reviewed duplicate or hom
   assert.match(cockpit, /toggleMergeSource/);
   assert.match(cockpit, /attachRdTasksToParent\(draft\.sourceTaskIds, draft\.primaryTaskId\)/);
   assert.match(cockpit, /确认并执行/);
-  assert.match(cockpit, /原任务内容与记录完整保留/);
+  // 「内容完整保留」这句原先写在前端 recordAudit 的 comment 里；留痕下沉服务端后，
+  // 它由 attachTasksAsSubtasks 产出 —— 走接口直调并入同样留得下这条记录。
+  assert.match(rdService, /原任务内容与记录完整保留/);
+  assert.match(rdService, /将任务并入主任务/);
 });
 
 test("collaboration tasks are projected into personal and administrator member views without entering AI scope", () => {

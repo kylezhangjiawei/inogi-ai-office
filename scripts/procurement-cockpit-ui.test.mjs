@@ -233,8 +233,12 @@ test("列表缩略图用 OSS 缩放地址，不下载原图", () => {
 const actions = source("src/app/procurement/components/taskActions.tsx");
 
 test("流转请求携带界面当时的状态，服务端不一致即拒绝", () => {
-  assert.match(dto, /from_status\?: string;/);
-  assert.match(service, /dto\.from_status && dto\.from_status !== task\.status/);
+  // from_status 必填。此前是可选的「老客户端兼容」，但可选就等于这道防护形同虚设：
+  // 不带它的调用方可以连推数级直达终态（实测 询价中→已定价→已下单→已完成 三连全部放行）。
+  assert.match(dto, /from_status!: string;/);
+  assert.doesNotMatch(dto, /from_status\?: string;/);
+  assert.match(service, /dto\.from_status !== task\.status/);
+  assert.doesNotMatch(service, /dto\.from_status && dto\.from_status !== task\.status/);
   assert.match(service, /页面数据已过期，请刷新后再操作/);
   assert.match(api, /from_status: fromStatus/);
   // 所有流转调用点都要把 task.status 传上去，漏一个就等于留了个后门。
@@ -249,10 +253,16 @@ test("流转请求携带界面当时的状态，服务端不一致即拒绝", ()
   assert.ok(found > 0, "应存在流转调用");
 });
 
-test("保存只等写入，刷新不阻塞界面", () => {
-  // 写入后立即提示并放行，全量刷新放到后台；否则数据量一大弹窗要禁用好几秒
-  assert.match(actions, /toast\.success\(okText\);\s*\n\s*void refreshProcurement\(\);/);
+test("保存只等写入，刷新不阻塞界面，但界面要立刻反映新状态", () => {
+  // 全量刷新仍放后台：它要重拉全部任务和物料，数据量一大弹窗要禁用好几秒
+  assert.match(actions, /void refreshProcurement\(\);/);
   assert.doesNotMatch(actions, /await fn\(\);\s*\n\s*await refreshProcurement\(\);/);
+  // 但只做后台刷新是不够的：那几秒里详情抽屉和「下一步」按钮还停在旧状态，
+  // 用户看到的是「点了保存没反应」，于是再点一次——而按钮的动作由任务状态推导，
+  // 刷新一旦在两次点击之间落地，第二次点的已经是下一个动作，任务就一节节窜到「已完成」。
+  // 写接口返回的就是更新后的任务，必须立刻替换 store 里的那一条。
+  assert.match(actions, /applyProcTaskUpdate\(result\)/);
+  assert.match(source("src/app/procurement/data.ts"), /export function applyProcTaskUpdate\(/);
 });
 
 test("报价库一级商品行的移出按钮常显，无报价时置灰而不是消失", () => {

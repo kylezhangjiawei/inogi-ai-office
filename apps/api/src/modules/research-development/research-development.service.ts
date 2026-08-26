@@ -3299,6 +3299,21 @@ export class ResearchDevelopmentService {
     dirty.set(parentSlot.productId, targetRebuilt as JsonRecord[]);
     await this.commitTaskTrees(dirty, store);
 
+    // 并入是结构性改动，写入下沉时漏了这一处：原先由前端在 AI 全量归纳确认后自己记，
+    // 走接口直调就没有留痕。父任务标题在锁内取，避免与并发改名读到不一致的值。
+    const parentTitle = cleanText(parentSlot.task.title) || parentId;
+    for (const slot of childSlots) {
+      const childId = cleanText(slot.task.task_id);
+      await this.recordServerAudit({
+        action: 'task.edited',
+        resource: { type: 'task', id: childId, name: cleanText(slot.task.title) || childId },
+        actor: { id: actor.userId, name: actor.userName },
+        comment: `将任务并入主任务「${parentTitle}」；原任务内容与记录完整保留`,
+        changes: [{ field: 'parent_task_id', before: '', after: parentId }],
+        metadata: { parent_task_id: parentId, subtask_origin: 'attached' },
+      });
+    }
+
     await this.recomputeDirectorDashboard();
     for (const childId of childIds) void this.syncTaskToRag(childId);
     return { ok: true as const, task_ids: childIds, parent_task_id: parentId };
