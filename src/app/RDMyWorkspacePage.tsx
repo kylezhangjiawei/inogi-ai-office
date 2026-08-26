@@ -109,6 +109,7 @@ import {
   type RdPerformanceReport,
   getAttachmentThumbUrl,
   RD_DEFAULT_SUBPROJECT_LABEL,
+  isProductionWorkspace,
 } from "./lib/rdApi";
 import { approveRdProcurementTransfer, rejectRdProcurementTransfer } from "./lib/procurementApi";
 import { announceProcurementRefresh } from "./procurement/data";
@@ -149,6 +150,259 @@ type ConfirmDialogConfig = {
   details?: string[];
   onConfirm: () => void | Promise<void>;
 };
+
+const WORKSPACE_MODAL_FOCUSABLE_SELECTOR = [
+  'a[href]:not([tabindex="-1"])',
+  'button:not([disabled]):not([tabindex="-1"])',
+  'input:not([disabled]):not([type="hidden"]):not([tabindex="-1"])',
+  'select:not([disabled]):not([tabindex="-1"])',
+  'textarea:not([disabled]):not([tabindex="-1"])',
+  '[contenteditable="true"]:not([tabindex="-1"])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+const WORKSPACE_NESTED_PORTAL_SELECTOR = [
+  '[data-radix-popper-content-wrapper]',
+  '[data-slot="popover-content"]',
+  '[data-slot="select-content"]',
+  '[data-slot="dropdown-menu-content"]',
+  '[role="listbox"]',
+  '[role="menu"]',
+].join(",");
+
+type WorkspaceModalLayer = {
+  token: symbol;
+  element: HTMLElement;
+  initialFocus: HTMLElement | null;
+  restoreFocus: HTMLElement | null;
+};
+
+type WorkspaceInertState = {
+  count: number;
+  inert: boolean;
+  ariaHidden: string | null;
+};
+
+type WorkspaceScrollLockState = {
+  count: number;
+  overflowY: string;
+};
+
+/**
+ * Drawer 与确认弹窗可以嵌套出现。共享栈与引用计数可确保：
+ * - 只有最上层响应 Tab / Escape；
+ * - 下层弹层与全局外壳在上层关闭前保持 inert；
+ * - 任意关闭顺序都不会提前解除滚动锁或把焦点送回已经卸载的节点。
+ */
+const workspaceModalLayers: WorkspaceModalLayer[] = [];
+const workspaceInertStates = new Map<HTMLElement, WorkspaceInertState>();
+const workspaceScrollLockStates = new Map<HTMLElement, WorkspaceScrollLockState>();
+
+function workspaceFocusableElements(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(WORKSPACE_MODAL_FOCUSABLE_SELECTOR)).filter((element) => {
+    if (element.closest("[inert]") || element.getAttribute("aria-hidden") === "true") return false;
+    return element.getClientRects().length > 0;
+  });
+}
+
+function canRestoreWorkspaceFocus(element: HTMLElement | null): element is HTMLElement {
+  return Boolean(
+    element
+      && element.isConnected
+      && !element.closest("[inert]")
+      && !element.hasAttribute("disabled")
+      && element.getClientRects().length > 0,
+  );
+}
+
+function workspaceBackgroundBranches(layer: HTMLElement): HTMLElement[] {
+  const branches = new Set<HTMLElement>();
+  let activeBranch: HTMLElement = layer;
+
+  while (activeBranch.parentElement) {
+    const parent = activeBranch.parentElement;
+    for (const sibling of Array.from(parent.children)) {
+      if (sibling !== activeBranch && sibling instanceof HTMLElement) branches.add(sibling);
+    }
+    if (parent === document.body) break;
+    activeBranch = parent;
+  }
+
+  return Array.from(branches);
+}
+
+function retainWorkspaceInert(element: HTMLElement) {
+  const current = workspaceInertStates.get(element);
+  if (current) {
+    current.count += 1;
+  } else {
+    workspaceInertStates.set(element, {
+      count: 1,
+      inert: element.inert,
+      ariaHidden: element.getAttribute("aria-hidden"),
+    });
+  }
+  element.inert = true;
+  element.setAttribute("aria-hidden", "true");
+}
+
+function releaseWorkspaceInert(element: HTMLElement) {
+  const current = workspaceInertStates.get(element);
+  if (!current) return;
+  current.count -= 1;
+  if (current.count > 0) return;
+
+  element.inert = current.inert;
+  if (current.ariaHidden === null) element.removeAttribute("aria-hidden");
+  else element.setAttribute("aria-hidden", current.ariaHidden);
+  workspaceInertStates.delete(element);
+}
+
+function workspaceScrollContainers(layer: HTMLElement): HTMLElement[] {
+  const containers = new Set<HTMLElement>([document.documentElement, document.body]);
+  let ancestor = layer.parentElement;
+  while (ancestor && ancestor !== document.body) {
+    const style = window.getComputedStyle(ancestor);
+    if (/(auto|scroll|overlay)/.test(`${style.overflowY} ${style.overflow}`)) containers.add(ancestor);
+    ancestor = ancestor.parentElement;
+  }
+  return Array.from(containers);
+}
+
+function retainWorkspaceScrollLock(element: HTMLElement) {
+  const current = workspaceScrollLockStates.get(element);
+  if (current) {
+    current.count += 1;
+  } else {
+    workspaceScrollLockStates.set(element, { count: 1, overflowY: element.style.overflowY });
+  }
+  element.style.overflowY = "hidden";
+}
+
+function releaseWorkspaceScrollLock(element: HTMLElement) {
+  const current = workspaceScrollLockStates.get(element);
+  if (!current) return;
+  current.count -= 1;
+  if (current.count > 0) return;
+  element.style.overflowY = current.overflowY;
+  workspaceScrollLockStates.delete(element);
+}
+
+function focusBelongsToNestedWorkspacePortal(layer: HTMLElement): boolean {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || layer.contains(active)) return false;
+  const modal = active.closest<HTMLElement>('[role="dialog"][aria-modal="true"]');
+  if (modal && modal !== layer) return true;
+  return Boolean(active.closest(WORKSPACE_NESTED_PORTAL_SELECTOR));
+}
+
+function hasExternalModalDialog(): boolean {
+  return Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')).some(
+    (dialog) => dialog.isConnected && dialog.getClientRects().length > 0,
+  );
+}
+
+function useWorkspaceModalLayer<TLayer extends HTMLElement, TInitial extends HTMLElement>(
+  layerRef: React.RefObject<TLayer | null>,
+  initialFocusRef: React.RefObject<TInitial | null>,
+  onDismiss: () => void,
+) {
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
+
+  React.useLayoutEffect(() => {
+    const element = layerRef.current;
+    if (!element) return undefined;
+
+    const restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const initialFocus = initialFocusRef.current ?? workspaceFocusableElements(element)[0] ?? element;
+    const layer: WorkspaceModalLayer = {
+      token: Symbol("rd-workspace-modal-layer"),
+      element,
+      initialFocus,
+      restoreFocus,
+    };
+    workspaceModalLayers.push(layer);
+
+    // 先移动焦点，再隐藏原焦点所在背景，避免 aria-hidden 包含当前焦点的浏览器警告。
+    initialFocus.focus({ preventScroll: true });
+
+    const inerted = workspaceBackgroundBranches(element);
+    inerted.forEach(retainWorkspaceInert);
+    const locked = workspaceScrollContainers(element);
+    locked.forEach(retainWorkspaceScrollLock);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (workspaceModalLayers.at(-1)?.token !== layer.token || event.defaultPrevented) return;
+      if (focusBelongsToNestedWorkspacePortal(element)) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        dismissRef.current();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusable = workspaceFocusableElements(element);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        element.focus({ preventScroll: true });
+        return;
+      }
+
+      const active = document.activeElement;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (active === first || !element.contains(active))) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      } else if (!event.shiftKey && (active === last || !element.contains(active))) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+
+      const layerIndex = workspaceModalLayers.findIndex((item) => item.token === layer.token);
+      const wasTopLayer = layerIndex === workspaceModalLayers.length - 1;
+      if (layerIndex >= 0) {
+        // 若底层抽屉先被业务动作关闭，把焦点归还链交给仍在其上方的确认弹窗。
+        for (const upperLayer of workspaceModalLayers.slice(layerIndex + 1)) {
+          if (!upperLayer.restoreFocus?.isConnected || element.contains(upperLayer.restoreFocus)) {
+            upperLayer.restoreFocus = layer.restoreFocus;
+          }
+        }
+        workspaceModalLayers.splice(layerIndex, 1);
+      }
+
+      inerted.forEach(releaseWorkspaceInert);
+      locked.forEach(releaseWorkspaceScrollLock);
+
+      if (!wasTopLayer) return;
+      window.requestAnimationFrame(() => {
+        const currentLayer = workspaceModalLayers.at(-1);
+        if (currentLayer) {
+          const target = canRestoreWorkspaceFocus(layer.restoreFocus) && currentLayer.element.contains(layer.restoreFocus)
+            ? layer.restoreFocus
+            : canRestoreWorkspaceFocus(currentLayer.initialFocus)
+              ? currentLayer.initialFocus
+              : workspaceFocusableElements(currentLayer.element)[0] ?? currentLayer.element;
+          target.focus({ preventScroll: true });
+          return;
+        }
+
+        // 让同时打开的 Radix 等外部模态层自行接管焦点，不把焦点抢回背景。
+        if (!hasExternalModalDialog() && canRestoreWorkspaceFocus(layer.restoreFocus)) {
+          layer.restoreFocus.focus({ preventScroll: true });
+        }
+      });
+    };
+  }, [initialFocusRef, layerRef]);
+}
 
 /** 「今日」标签。函数而非常量：跨零点要跟着变，且必须取本地日历日（详见 lib/taskDue.ts）。 */
 const todayLabel = () => todayLocalDateStr();
@@ -366,8 +620,8 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-white bg-white/75 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.045)]">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <section className="rd-horizon-workspace-section rounded-2xl border border-white bg-white/75 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.045)]">
+      <div className="rd-horizon-workspace-section-heading mb-3 flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
           <Icon className="h-4 w-4 text-slate-500" />
           {title}
@@ -388,15 +642,18 @@ function ActionButton({
   variant = "secondary",
   className,
   disabled,
+  buttonRef,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   variant?: "primary" | "secondary" | "ghost" | "danger";
   className?: string;
   disabled?: boolean;
+  buttonRef?: React.Ref<HTMLButtonElement>;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       onClick={onClick}
       disabled={disabled}
@@ -426,6 +683,9 @@ function ConfirmActionModal({
   const isDanger = config.tone === "danger";
   const Icon = isDanger ? AlertTriangle : ShieldCheck;
   const [confirming, setConfirming] = useState(false);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  useWorkspaceModalLayer(surfaceRef, cancelButtonRef, onCancel);
 
   const confirm = async () => {
     if (confirming) return;
@@ -441,17 +701,20 @@ function ConfirmActionModal({
 
   return (
     <motion.div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/35 px-4 backdrop-blur-[2px]"
+      className="rd-horizon-workspace-confirm-backdrop fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/35 px-4 backdrop-blur-[2px]"
       initial={shouldReduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.16 }}
     >
       <motion.div
+        ref={surfaceRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="rd-workspace-confirm-title"
-        className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_28px_70px_rgba(15,23,42,0.22)]"
+        aria-describedby="rd-workspace-confirm-description"
+        tabIndex={-1}
+        className="rd-horizon-workspace-confirm-surface w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_28px_70px_rgba(15,23,42,0.22)]"
         initial={shouldReduceMotion ? false : { opacity: 0, y: 16, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 10, scale: 0.98 }}
@@ -470,7 +733,7 @@ function ConfirmActionModal({
             <h2 id="rd-workspace-confirm-title" className="text-base font-semibold text-slate-950">
               {config.title}
             </h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">{config.message}</p>
+            <p id="rd-workspace-confirm-description" className="mt-1 text-sm leading-6 text-slate-600">{config.message}</p>
           </div>
           <button
             type="button"
@@ -498,7 +761,7 @@ function ConfirmActionModal({
         )}
 
         <div className="flex items-center justify-end gap-2 px-5 py-4">
-          <ActionButton onClick={onCancel}>{config.cancelLabel ?? t("取消")}</ActionButton>
+          <ActionButton buttonRef={cancelButtonRef} onClick={onCancel}>{config.cancelLabel ?? t("取消")}</ActionButton>
           <button
             type="button"
             onClick={confirm}
@@ -649,22 +912,33 @@ function DrawerShell({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const surfaceRef = useRef<HTMLElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const titleId = React.useId();
+  useWorkspaceModalLayer(surfaceRef, closeButtonRef, onClose);
+
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/20 backdrop-blur-[1px]">
+    <div className="rd-horizon-workspace-drawer-backdrop fixed inset-0 z-50 flex justify-end bg-slate-950/20 backdrop-blur-[1px]">
       <aside
-        className="flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl"
+        ref={surfaceRef}
+        className="rd-horizon-workspace-drawer-surface flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
       >
-        <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-4">
+        <header className="rd-horizon-workspace-drawer-header flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-4">
           <div className="flex min-w-0 items-start gap-3">
             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
               <Icon className="h-4 w-4" />
             </span>
             <div className="min-w-0">
-              <h2 className="truncate text-base font-semibold text-slate-950">{title}</h2>
+              <h2 id={titleId} className="truncate text-base font-semibold text-slate-950">{title}</h2>
               <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
             </div>
           </div>
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
@@ -673,7 +947,7 @@ function DrawerShell({
             <X className="h-4 w-4" />
           </button>
         </header>
-        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div className="rd-horizon-workspace-drawer-body flex-1 overflow-y-auto px-6 py-5">{children}</div>
       </aside>
     </div>
   );
@@ -3520,6 +3794,7 @@ function WorkspaceTaskCard({
 }) {
   const grad = WS_PRIORITY_GRAD[task.priority] ?? WS_PRIORITY_GRAD.medium!;
   const pCfg = WS_PRIORITY_CONFIG[task.priority] ?? WS_PRIORITY_CONFIG.medium!;
+  const horizonWorkspace = !isUsCollabWorkspace() && !isProductionWorkspace();
   const days = workspaceDaysUntil(task.due_date);
   const isOverdue = isTaskOverdue(task);
   const currentWorkspace = isUsCollabWorkspace() ? "us-collab" : "rd";
@@ -3551,7 +3826,7 @@ function WorkspaceTaskCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={horizonWorkspace ? { opacity: 0 } : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
       onClick={isPendingReview ? undefined : () => onOpen(task, "detail")}
@@ -3567,14 +3842,17 @@ function WorkspaceTaskCard({
         }
       }}
       className={cn(
-        "group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-all duration-200 focus-visible:outline-none",
+        "rd-horizon-workspace-task-card group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-all duration-200 focus-visible:outline-none",
         isPendingReview
           ? "cursor-not-allowed select-text bg-slate-50 opacity-60 grayscale"
           : "cursor-pointer hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_12px_28px_-12px_rgba(79,70,229,0.28)] focus-visible:ring-2 focus-visible:ring-indigo-200",
         selected && "ring-2 ring-indigo-400/70",
       )}
+      data-status={task.status}
+      data-priority={task.priority}
+      data-selected={selected || undefined}
     >
-      <div className="flex min-h-[220px] min-w-0 flex-col gap-2.5 px-4 py-3.5">
+      <div className="rd-horizon-workspace-task-card-body flex min-h-[220px] min-w-0 flex-col gap-2.5 px-4 py-3.5">
         {/* 参考卡片第一行：分类标签在左，附件和三点菜单在右。 */}
         <div className="flex items-start gap-3">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-hidden">
@@ -3708,10 +3986,17 @@ function WorkspaceTaskCard({
           <div className="mt-auto flex items-center gap-2 pt-0.5">
             <div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100">
               <div
-                className="h-full rounded-full transition-all duration-500"
+                className={cn(
+                  "rd-horizon-workspace-task-progress h-full rounded-full transition-all duration-500",
+                  task.progress === 100 && "rd-horizon-workspace-task-progress--complete",
+                )}
                 style={{
                   width: `${task.progress}%`,
-                  background: task.progress === 100 ? "#10b981" : `linear-gradient(90deg, ${grad.from}, ${grad.to})`,
+                  background: task.progress === 100
+                    ? "#10b981"
+                    : horizonWorkspace
+                      ? "#002fa7"
+                      : `linear-gradient(90deg, ${grad.from}, ${grad.to})`,
                 }}
               />
             </div>
@@ -4353,6 +4638,7 @@ export function RDMyWorkspacePage() {
   const canProposeProject = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const canStartProject = canProposeProject || canDirectProject;
+  const nativeRdWorkspace = !isUsCollabWorkspace() && !isProductionWorkspace();
   const WORKSPACE_AUDIT_ACTOR = useAuditActor("研发成员");
   const canReview = user
     ? user.permissions.includes("*")
@@ -4759,45 +5045,45 @@ export function RDMyWorkspacePage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 px-5 py-6 lg:px-7">
-      <div className="mx-auto flex h-full min-h-0 w-full max-w-[1680px] flex-col gap-4">
+    <div className={cn("flex h-full min-h-0 px-5 py-6 lg:px-7", nativeRdWorkspace && "rd-horizon-module rd-horizon-workspace")}>
+      <div className="rd-horizon-workspace-shell mx-auto flex h-full min-h-0 w-full max-w-[1680px] flex-col gap-4">
         {/* ── Compact header ── */}
-        <header className="rounded-2xl border border-white bg-white/75 px-5 py-3 shadow-sm">
+        <header className="rd-horizon-workspace-command rounded-2xl border border-white bg-white/75 px-5 py-3 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             {/* Left group: title + date + stat chips */}
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h1 className="text-base font-semibold text-slate-950 shrink-0">
+            <div className="rd-horizon-workspace-metrics flex min-w-0 flex-wrap items-center gap-2">
+              <h2 className="rd-horizon-workspace-title text-base font-semibold text-slate-950 shrink-0">
                 {t(isUsCollabWorkspace() ? "协同工作台" : "个人工作台")}
-              </h1>
-              <span className="text-xs text-slate-400 shrink-0">{t("今日")} {todayLabel()}</span>
+              </h2>
+              <span className="rd-horizon-workspace-date text-xs text-slate-400 shrink-0">{t("今日")} {todayLabel()}</span>
               {/* Stat chips — always shown */}
-              <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
+              <span className="rd-horizon-workspace-metric rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700" data-tone="brand">
                 {t("主责")} {activeMyCount}
               </span>
-              <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+              <span className="rd-horizon-workspace-metric rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600" data-tone="neutral">
                 {t("协助")} {activeCollabCount}
               </span>
-              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+              <span className="rd-horizon-workspace-metric rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700" data-tone="complete">
                 {t("完成率")} {averageProgress}%
               </span>
               {completedCount > 0 && (
-                <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                <span className="rd-horizon-workspace-metric rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700" data-tone="complete">
                   {t("已完成")} {completedCount}
                 </span>
               )}
               {/* Conditional chips */}
               {overdueCount > 0 && (
-                <span className="rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-600">
+                <span className="rd-horizon-workspace-metric rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-600" data-tone="danger">
                   {t("逾期")} {overdueCount}
                 </span>
               )}
               {dueTodayCount > 0 && (
-                <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                <span className="rd-horizon-workspace-metric rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700" data-tone="warning">
                   {t("今日到期")} {dueTodayCount}
                 </span>
               )}
               {visibleNotifications.length + visibleSuggestions.length > 0 && (
-                <span className="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
+                <span className="rd-horizon-workspace-metric rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700" data-tone="brand">
                   {t("待处理")} {visibleNotifications.length + visibleSuggestions.length}
                 </span>
               )}
@@ -4816,7 +5102,7 @@ export function RDMyWorkspacePage() {
                   setProposalParentTask(null);
                   setShowProposalDialog(true);
                 }}
-                className="group inline-flex shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_24px_rgba(79,70,229,0.26)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                className="rd-horizon-workspace-primary-action group inline-flex shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_24px_rgba(79,70,229,0.26)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
                 title={t("AI 立项 · 上传文档或写描述，自动拆任务")}
               >
                 <Sparkles className="h-3.5 w-3.5 transition-transform group-hover:rotate-12" />
@@ -4828,29 +5114,30 @@ export function RDMyWorkspacePage() {
         </header>
 
         {/* ── Body: 2-column grid ── */}
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden 2xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.65fr)]">
+        <div className="rd-horizon-workspace-grid grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden 2xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.65fr)]">
           {/* ── LEFT column ── */}
-          <main className="flex min-h-0 flex-col gap-3">
+          <main className="rd-horizon-workspace-main flex min-h-0 flex-col gap-3">
             {/* Sticky filter bar */}
-            <div className="shrink-0 rounded-2xl border border-white bg-white/90 p-3 shadow-sm backdrop-blur">
+            <div className="rd-horizon-workspace-filters shrink-0 rounded-2xl border border-white bg-white/90 p-3 shadow-sm backdrop-blur">
               <div className="flex items-center justify-between gap-3">
                 {/* Search — grows up to a sensible cap so the right-side filters always keep their room */}
-                <label className="relative block min-w-0 flex-1 xl:max-w-[360px]">
+                <label className="rd-horizon-workspace-search relative block min-w-0 flex-1 xl:max-w-[360px]">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                   <Input
                     className="h-8 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-50"
                     placeholder={t("搜索任务、负责人…")}
+                    aria-label={t("搜索任务、负责人…")}
                     value={taskKeyword}
                     onChange={(event) => setTaskKeyword(event.target.value)}
                   />
                 </label>
 
                 {/* 窄屏保持单行但允许横向滚动，避免筛选项被工作台 overflow-hidden 裁切。 */}
-                <div className="flex w-full min-w-0 items-center gap-1.5 overflow-x-auto pb-1 xl:w-auto xl:shrink-0 xl:overflow-visible xl:pb-0">
+                <div className="rd-horizon-workspace-filter-controls flex w-full min-w-0 items-center gap-1.5 overflow-x-auto pb-1 xl:w-auto xl:shrink-0 xl:overflow-visible xl:pb-0">
                   <div
                     role="tablist"
                     aria-label={t("任务角色筛选")}
-                    className="flex items-center gap-0.5 rounded-[8px] border border-slate-200 bg-slate-50 p-0.5"
+                    className="rd-horizon-workspace-role-tabs flex items-center gap-0.5 rounded-[8px] border border-slate-200 bg-slate-50 p-0.5"
                   >
                     <button
                       type="button"
@@ -4882,6 +5169,7 @@ export function RDMyWorkspacePage() {
                     </button>
                   </div>
                   <NativeSelect
+                    aria-label={t("优先级")}
                     className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                     value={taskPriorityFilter}
                     onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
@@ -4892,6 +5180,7 @@ export function RDMyWorkspacePage() {
                     <option value="low">{t("低")}</option>
                   </NativeSelect>
                   <NativeSelect
+                    aria-label={t("状态")}
                     className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                     value={taskStatusFilter}
                     onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
@@ -4904,6 +5193,7 @@ export function RDMyWorkspacePage() {
                     <option value="completed">{t("已完成")}</option>
                   </NativeSelect>
                   <NativeSelect
+                    aria-label={t("时间")}
                     className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                     value={taskDueFilter}
                     onChange={(event) => setTaskDueFilter(event.target.value as WorkspaceDueFilter)}
@@ -4935,7 +5225,7 @@ export function RDMyWorkspacePage() {
               </div>
             </div>
 
-            <div ref={taskScrollRef} className="material-scrollbar min-h-0 flex-1 overflow-y-auto pr-1">
+            <div ref={taskScrollRef} className="rd-horizon-workspace-task-scroll material-scrollbar min-h-0 flex-1 overflow-y-auto pr-1">
               {/* Task list */}
               {loading ? (
                 <div className="space-y-2">
@@ -4958,7 +5248,7 @@ export function RDMyWorkspacePage() {
                 </div>
               ) : (
                 <>
-                  <div className="space-y-2">
+                  <div className="rd-horizon-workspace-task-list space-y-2">
                     <AnimatePresence>
                       {shownTasks.map((task) => (
                         <WorkspaceTaskCard
@@ -4996,9 +5286,9 @@ export function RDMyWorkspacePage() {
           </main>
 
           {/* ── RIGHT column ── */}
-          <aside className="material-scrollbar min-h-0 space-y-4 overflow-y-auto pr-1">
+          <aside className="rd-horizon-workspace-aside material-scrollbar min-h-0 space-y-4 overflow-y-auto pr-1">
             {/* MateChat 连续使用打卡（激励多用 AI） */}
-            <MateChatStreakCardConnected variant="full" />
+            <MateChatStreakCardConnected variant="full" className="rd-horizon-workspace-streak-card" />
             {/* 通知中心 */}
             <SectionCard title={t("通知中心")} icon={Bell} count={visibleNotifications.length}>
               {visibleNotifications.length === 0 ? (
@@ -5012,7 +5302,7 @@ export function RDMyWorkspacePage() {
                         <li key={notification.id}>
                           <div
                             className={cn(
-                              "group flex w-full cursor-pointer items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]",
+                              "rd-horizon-workspace-notification group flex w-full cursor-pointer items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]",
                               isMessage
                                 ? "border-blue-100 bg-blue-50/60"
                                 : notification.type === "blocked" || notification.type === "due_soon"
@@ -5121,13 +5411,13 @@ export function RDMyWorkspacePage() {
               <SectionCard title={t("待审核 AI 建议")} icon={Sparkles} count={visibleSuggestions.length} helper={t("确认后才写入任务池")}>
                 <div className="space-y-3">
                   {visibleSuggestions.map((suggestion) => (
-                    <article key={suggestion.id} className="rounded-xl border border-violet-100 bg-violet-50/60 p-3">
+                    <article key={suggestion.id} className="rd-horizon-workspace-ai-card rounded-xl border border-violet-100 bg-violet-50/60 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <h3 className="text-xs font-semibold text-slate-900">{suggestion.title}</h3>
                           <p className="mt-0.5 line-clamp-2 text-[11px] leading-5 text-slate-500">{suggestion.preview}</p>
                         </div>
-                        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-violet-700">
+                        <span className="rd-horizon-workspace-ai-score shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-violet-700">
                           {regeneratedSuggestions.has(suggestion.id) ? suggestion.confidence + 6 : suggestion.confidence}%
                         </span>
                       </div>

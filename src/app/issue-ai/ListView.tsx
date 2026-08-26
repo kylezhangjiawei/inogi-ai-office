@@ -64,14 +64,14 @@ const panelClass =
  */
 function InitialAvatar({ name, src, className }: { name: string; src?: string | null; className?: string }) {
   if (src) {
-    return <img src={src} alt={name} className={cn("shrink-0 rounded-full object-cover", className)} />;
+    return <img src={src} alt={name} className={cn("rd-horizon-issue-avatar shrink-0 rounded-full object-cover", className)} />;
   }
   const ch = (name ?? "").trim().charAt(0) || "?";
   return (
     <span
       aria-hidden
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300",
+        "rd-horizon-issue-avatar flex shrink-0 items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300",
         className,
       )}
     >
@@ -89,22 +89,22 @@ const statToneClass: Record<StatTone, { shell: string; icon: string; value: stri
     value: "text-slate-800 dark:text-slate-100",
   },
   amber: {
-    shell: "border-amber-200 bg-amber-50/70 dark:border-amber-500/30 dark:bg-amber-500/10",
+    shell: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
     icon: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
     value: "text-amber-800 dark:text-amber-200",
   },
   emerald: {
-    shell: "border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10",
+    shell: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
     icon: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
     value: "text-emerald-800 dark:text-emerald-200",
   },
   indigo: {
-    shell: "border-indigo-200 bg-indigo-50/70 dark:border-indigo-500/30 dark:bg-indigo-500/10",
+    shell: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
     icon: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300",
     value: "text-indigo-800 dark:text-indigo-200",
   },
   sky: {
-    shell: "border-sky-200 bg-sky-50/70 dark:border-sky-500/30 dark:bg-sky-500/10",
+    shell: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
     icon: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
     value: "text-sky-800 dark:text-sky-200",
   },
@@ -129,18 +129,19 @@ function StatTile({
   const toneClass = statToneClass[tone];
   return (
     <div
+      data-tone={tone}
       className={cn(
-        "flex min-h-[4.75rem] min-w-0 items-center gap-3 rounded-lg border px-3.5 py-3 transition-colors duration-200",
+        "rd-horizon-issue-stat flex min-h-[4.75rem] min-w-0 items-center gap-3 rounded-lg border px-3.5 py-3 transition-colors duration-200",
         "shadow-[0_1px_2px_rgba(15,23,42,0.035)]",
         toneClass.shell,
       )}
     >
-      <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-md", toneClass.icon)}>
+      <span className={cn("rd-horizon-issue-stat-icon flex size-9 shrink-0 items-center justify-center rounded-md", toneClass.icon)}>
         <Icon className="size-4" />
       </span>
       <div className="min-w-0">
-        <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{label}</span>
-        <span className={cn("mt-1 block text-2xl font-semibold leading-none", toneClass.value)}>
+        <span className="rd-horizon-issue-stat-label block truncate text-xs text-slate-500 dark:text-slate-400">{label}</span>
+        <span className={cn("rd-horizon-issue-stat-value mt-1 block text-2xl font-semibold leading-none", toneClass.value)}>
           <Mono>{value}</Mono>
           {suffix ? <span className="ml-0.5 text-sm font-normal text-slate-400">{suffix}</span> : null}
         </span>
@@ -152,11 +153,11 @@ function StatTile({
 function StatsBand({ stats }: { stats: IssueStats | null }) {
   if (!stats) {
     return (
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+      <div className="rd-horizon-issue-stats grid grid-cols-2 gap-2 lg:grid-cols-5" data-surface="stats" aria-busy="true">
         {Array.from({ length: 5 }).map((_, i) => (
           <div
             key={i}
-            className="h-[4.75rem] animate-pulse rounded-lg border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-slate-700/80 dark:bg-slate-900"
+            className="rd-horizon-issue-stat rd-horizon-issue-stat--loading h-[4.75rem] animate-pulse rounded-lg border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-slate-700/80 dark:bg-slate-900"
           />
         ))}
       </div>
@@ -166,7 +167,7 @@ function StatsBand({ stats }: { stats: IssueStats | null }) {
   const avg = stats.avgLocateHours;
   const avgStr = Number.isInteger(avg) ? String(avg) : avg.toFixed(1);
   return (
-    <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+    <div className="rd-horizon-issue-stats grid grid-cols-2 gap-2 lg:grid-cols-5" data-surface="stats">
       <StatTile label={t("问题总数")} value={stats.total} icon={Database} />
       <StatTile label={t("待处理")} value={stats.pending} icon={ClipboardList} tone="amber" />
       <StatTile label={t("已解决")} value={stats.solved} icon={ListChecks} tone="emerald" />
@@ -187,7 +188,7 @@ function ActiveTag({
   onClear: () => void;
 }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 py-0.5 pl-2 pr-1 text-xs text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
+    <span className="rd-horizon-issue-active-filter inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 py-0.5 pl-2 pr-1 text-xs text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
       {label}
       <button
         type="button"
@@ -217,15 +218,18 @@ function IssueList({
   const avatarFor = (createdBy: string): string | null =>
     user && norm(createdBy) === norm(user.name) ? user.avatarUrl : null;
   return (
-    <div className="space-y-2">
+    <div className="rd-horizon-issue-rows space-y-2" data-view="issues">
       {items.map((it) => (
         <button
           key={it.id}
           type="button"
           onClick={() => onOpen(it.id)}
+          data-issue-id={it.id}
+          data-status={it.status}
+          data-severity={it.severity}
           className={cn(
             cardClass,
-            "group grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-all duration-200 hover:border-indigo-300 hover:bg-white hover:shadow-[0_10px_28px_rgba(79,70,229,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50 dark:hover:bg-slate-900",
+            "rd-horizon-issue-row group grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-all duration-200 hover:border-indigo-300 hover:bg-white hover:shadow-[0_10px_28px_rgba(79,70,229,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50 dark:hover:bg-slate-900",
           )}
         >
           {/* 头像（创建人，最前）：本人显示真实头像，其余首字 */}
@@ -282,7 +286,7 @@ function ReusableCards({
   onOpen: (id: string) => void;
 }) {
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="rd-horizon-issue-reusable-grid grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" data-view="reusable">
       {items.map((it) => {
         const adopted = it.adopted;
         const adoptedAnalysis = it.analyses.find((a) => a.isAdopted);
@@ -306,21 +310,24 @@ function ReusableCards({
             key={it.id}
             type="button"
             onClick={() => onOpen(it.id)}
+            data-issue-id={it.id}
+            data-status={it.status}
+            data-severity={it.severity}
             className={cn(
               cardClass,
-              "flex min-h-[12rem] cursor-pointer flex-col gap-2 p-4 text-left transition-all duration-200 hover:border-indigo-300 hover:bg-white hover:shadow-[0_10px_28px_rgba(79,70,229,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50 dark:hover:bg-slate-900",
+              "rd-horizon-issue-reusable-card flex min-h-[12rem] cursor-pointer flex-col gap-2 p-4 text-left transition-all duration-200 hover:border-indigo-300 hover:bg-white hover:shadow-[0_10px_28px_rgba(79,70,229,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50 dark:hover:bg-slate-900",
             )}
           >
             <div className="flex items-start justify-between gap-2">
               <Mono className="text-xs text-slate-400">{it.id}</Mono>
-              <span className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
+              <span className="rd-horizon-issue-reusable-badge inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
                 {t("可复用")}
               </span>
             </div>
-            <div className="line-clamp-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+            <div className="rd-horizon-issue-reusable-title line-clamp-2 text-sm font-medium text-slate-800 dark:text-slate-100">
               {it.title}
             </div>
-            <div className="mt-1 rounded-lg border border-indigo-100 bg-indigo-50/50 p-2.5 dark:border-indigo-500/20 dark:bg-indigo-500/5">
+            <div className="rd-horizon-issue-reuse-suggestion mt-1 rounded-lg border border-slate-100 bg-slate-50/70 p-2.5 dark:border-slate-700 dark:bg-slate-800/50">
               <div className="mb-1 flex items-center gap-1.5">
                 <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
                   {t("采纳方案")}
@@ -370,7 +377,7 @@ function Pagination({
   const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+    <div className="rd-horizon-issue-pagination flex flex-wrap items-center justify-between gap-3 px-1">
       <span className="text-xs text-slate-500 dark:text-slate-400">
         {t("共")} <Mono>{total}</Mono> {t("条 · 第")} <Mono>{from}</Mono>–<Mono>{to}</Mono> {t("条")}
       </span>
@@ -420,12 +427,19 @@ function Pagination({
 export function ListView({
   service,
   onOpen,
+  restoreFocusIssueId,
+  onFocusRestored,
 }: {
   service: IssueService;
   onOpen: (id: string) => void;
+  restoreFocusIssueId?: string | null;
+  onFocusRestored?: () => void;
 }) {
   useI18n();
   const canCreate = usePermission("issue:create");
+  const pageRef = React.useRef<HTMLDivElement | null>(null);
+  const pageHeadingRef = React.useRef<HTMLHeadingElement | null>(null);
+  const restoredIssueIdRef = React.useRef<string | null>(null);
   const [stats, setStats] = React.useState<IssueStats | null>(null);
 
   const [query, setQuery] = React.useState<IssueQuery>({
@@ -489,23 +503,46 @@ export function ListView({
   const items = paged?.items ?? [];
   const total = paged?.total ?? 0;
 
+  // 从详情返回时，优先回到原行/卡片；筛选或分页已使它不在当前结果时，回到清单标题保留页面上下文。
+  React.useEffect(() => {
+    if (!restoreFocusIssueId) {
+      restoredIssueIdRef.current = null;
+      return;
+    }
+    if (loading || !paged || restoredIssueIdRef.current === restoreFocusIssueId) return;
+
+    const issueTarget = Array.from(
+      pageRef.current?.querySelectorAll<HTMLElement>("[data-issue-id]") ?? [],
+    ).find((node) => node.dataset.issueId === restoreFocusIssueId);
+
+    if (issueTarget) issueTarget.focus();
+    else pageHeadingRef.current?.focus();
+
+    restoredIssueIdRef.current = restoreFocusIssueId;
+    onFocusRestored?.();
+  }, [loading, onFocusRestored, paged, restoreFocusIssueId]);
+
   return (
-    <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-end justify-between gap-4">
+    <div ref={pageRef} className="rd-horizon-module rd-horizon-issue-list-page flex flex-col gap-4" data-page="issue-ai-list">
+      <header className="rd-horizon-issue-context flex flex-wrap items-end justify-between gap-4" data-surface="context">
         <div className="min-w-0">
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
+          <span className="rd-horizon-issue-context-kicker inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
             <Sparkles className="size-3.5" />
             {t("AI 根因定位")}
           </span>
-          <h1 className="mt-2 text-[1.65rem] font-semibold leading-tight text-slate-950 dark:text-white">
+          <h2
+            ref={pageHeadingRef}
+            tabIndex={-1}
+            className="rd-horizon-issue-context-title mt-2 rounded-sm text-[1.65rem] font-semibold leading-tight text-slate-950 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:ring-offset-2 dark:text-white"
+          >
             {t("问题记录与 AI 定位")}
-          </h1>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+          </h2>
+          <p className="rd-horizon-issue-context-copy mt-1 max-w-3xl text-sm leading-6 text-slate-500 dark:text-slate-400">
             {t("面向研发与生产异常的质量闭环工作台，统一记录、相似复用、根因分析与处理留痕。")}
           </p>
         </div>
         {canCreate && (
-          <Button size="sm" onClick={() => setDrawerOpen(true)} className="cursor-pointer shadow-sm">
+          <Button size="sm" onClick={() => setDrawerOpen(true)} className="rd-horizon-issue-primary-action cursor-pointer shadow-sm">
             <Plus className="size-4" />
             {t("新建问题")}
           </Button>
@@ -513,15 +550,15 @@ export function ListView({
       </header>
 
       {/* 1) 概览统计带 */}
-      <div className="shrink-0">
+      <div className="rd-horizon-issue-stats-region shrink-0">
         <StatsBand stats={stats} />
       </div>
 
       {/* 2) 工具栏 / 筛选 */}
-      <section className={cn(panelClass, "flex shrink-0 flex-col gap-3 p-3")}>
+      <section className={cn(panelClass, "rd-horizon-issue-filters flex shrink-0 flex-col gap-3 p-3")} data-surface="filters">
         <div className="flex flex-wrap items-center gap-2">
           {/* 状态分段 */}
-          <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/40">
+          <div className="rd-horizon-issue-status-tabs inline-flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/40" role="group" aria-label={t("状态筛选")}>
             {STATUS_GROUP_ORDER.map((key) => {
               const active = statusGroup === key;
               return (
@@ -529,6 +566,9 @@ export function ListView({
                   key={key}
                   type="button"
                   onClick={() => patchQuery({ statusGroup: key })}
+                  data-status-group={key}
+                  data-active={active || undefined}
+                  aria-pressed={active}
                   className={cn(
                     "cursor-pointer rounded-md px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60",
                     active
@@ -543,7 +583,7 @@ export function ListView({
           </div>
 
           {/* 搜索（推到右侧，与新建相邻） */}
-          <div className="relative ml-auto w-full max-w-[18rem]">
+          <div className="rd-horizon-issue-search relative ml-auto w-full max-w-[18rem]">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input
               value={searchText}
@@ -553,6 +593,7 @@ export function ListView({
                 if (e.key === "Enter") applySearch();
               }}
               placeholder={t("搜索标题 / 编号 / 产品 / 描述")}
+              aria-label={t("搜索标题 / 编号 / 产品 / 描述")}
               className="h-9 border-slate-300 bg-white pl-8 text-xs shadow-sm focus-visible:border-indigo-400 dark:border-slate-600 dark:bg-slate-900"
             />
           </div>
@@ -582,13 +623,18 @@ export function ListView({
       </section>
 
       {/* 3) 列表主体 + 分页：内容自然流动（列表项卡片，数据少不撑空），分页紧跟列表 */}
-      <section className="flex flex-col gap-3">
+      <section
+        className="rd-horizon-issue-list-surface flex flex-col gap-3"
+        data-surface="issue-list"
+        data-view={isReusableView ? "reusable" : "issues"}
+        aria-busy={loading}
+      >
         {loading && !paged ? (
-          <div className={cn(cardClass, "flex items-center justify-center py-16 text-sm text-slate-400")}>
+          <div className={cn(cardClass, "rd-horizon-issue-list-state flex items-center justify-center py-16 text-sm text-slate-400")} role="status" aria-live="polite">
             {t("加载中…")}
           </div>
         ) : total === 0 ? (
-          <div className={cn(cardClass, "flex flex-col items-center justify-center gap-1 py-16 text-center")}>
+          <div className={cn(cardClass, "rd-horizon-issue-list-state flex flex-col items-center justify-center gap-1 py-16 text-center")} role="status" aria-live="polite">
             <p className="text-sm text-slate-500 dark:text-slate-400">{t("未找到匹配的问题")}</p>
             <p className="text-xs text-slate-400">
               {hasExtraFilter ? t("试试调整或清除筛选条件") : t("点击「新建问题」开始记录")}

@@ -169,6 +169,9 @@ import { backfillKbToRag } from "./lib/ragApi";
 // 用 Context 把 kbId 下发给所有子组件（缩略图 / 预览 / 编辑 / 上传弹窗），避免逐层 prop 透传。
 const KbScopeContext = React.createContext<string | undefined>(undefined);
 const useKbId = () => React.useContext(KbScopeContext);
+/** Portal 弹层仍保留 React Context；借此只给原生研发实例挂 Horizon 类。 */
+const KbHorizonVariantContext = React.createContext(false);
+const useKbHorizonVariant = () => React.useContext(KbHorizonVariantContext);
 
 /** 本页面对外的作用域入参：缺省即研发库。 */
 export type KbScope = { kbId: string; label: string };
@@ -655,17 +658,17 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
   return (
     <div
       ref={ref}
-      className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_14px_30px_-12px_rgba(79,70,229,0.28)] [content-visibility:auto] [contain-intrinsic-size:300px]"
+      className="rd-kb-entry-card group relative flex flex-col overflow-hidden rounded-xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_14px_30px_-12px_rgba(79,70,229,0.28)] [content-visibility:auto] [contain-intrinsic-size:300px]"
     >
       {/* Cover */}
-      <div className="relative aspect-[16/10] w-full overflow-hidden bg-slate-50">
+      <div className="rd-kb-entry-cover relative aspect-[16/10] w-full overflow-hidden bg-slate-50">
         <EntryCover entry={entry} />
         <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 shadow-sm ring-1 ring-slate-200/70 backdrop-blur">
           <FileTypeIcon entry={entry} className="h-3 w-3" />
           {getTypeLabel(entry)}
         </span>
         {(isPreviewable || hasDownload) && (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 bg-slate-900/35 opacity-0 backdrop-blur-[1px] transition-opacity duration-200 group-hover:opacity-100">
+          <div className="rd-kb-cover-actions absolute inset-0 flex items-center justify-center gap-2 bg-slate-900/35 opacity-0 backdrop-blur-[1px] transition-opacity duration-200 group-hover:opacity-100">
             {isPreviewable && (
               <button
                 type="button"
@@ -691,7 +694,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
       </div>
 
       {/* Body */}
-      <div className="flex flex-1 flex-col gap-1 p-3">
+      <div className="rd-kb-entry-body flex flex-1 flex-col gap-1 p-3">
         <button
           type="button"
           onClick={isPreviewable ? () => onPreview(entry) : undefined}
@@ -726,7 +729,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
           </span>
 
           {hasManage && (
-            <div className="absolute inset-0 flex items-center justify-end gap-1 bg-white/95 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+            <div className="rd-kb-entry-actions absolute inset-0 flex items-center justify-end gap-1 bg-white/95 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
               {canEdit && (
                 <button type="button" onClick={() => onEdit(entry)} title={t("编辑")} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700">
                   <Edit3 className="h-3.5 w-3.5" />
@@ -771,7 +774,7 @@ const EntryRow = React.memo(function EntryRow({
   const iconBtn = 'flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700';
 
   return (
-    <div className="group flex items-center gap-3 rounded-lg border border-slate-200/70 bg-white px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-indigo-200 hover:shadow-[0_8px_18px_-10px_rgba(79,70,229,0.25)]">
+    <div className="rd-kb-entry-row group flex items-center gap-3 rounded-lg border border-slate-200/70 bg-white px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-indigo-200 hover:shadow-[0_8px_18px_-10px_rgba(79,70,229,0.25)]">
       <EntryThumbSmall entry={entry} onClick={isPreviewable ? () => onPreview(entry) : undefined} />
       <span className="hidden shrink-0 items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200/70 sm:inline-flex">
         <FileTypeIcon entry={entry} className="h-3 w-3" />
@@ -811,7 +814,7 @@ const EntryRow = React.memo(function EntryRow({
           <button type="button" onClick={() => void downloadKbEntry(entry, kbId)} title={entry.external_url ? t('打开链接') : t('下载')} className={iconBtn}><ArrowDownToLine className="h-3.5 w-3.5" /></button>
         )}
         {hasManage && (
-          <span className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+          <span className="rd-kb-row-actions flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
             {canEdit && <button type="button" onClick={() => onEdit(entry)} title={t("编辑")} className={iconBtn}><Edit3 className="h-3.5 w-3.5" /></button>}
             {canMove && <button type="button" onClick={() => onMove(entry)} title={t("移动")} className={iconBtn}><MoveRight className="h-3.5 w-3.5" /></button>}
             {canDelete && <button type="button" onClick={() => onDelete(entry)} title={t("删除")} className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>}
@@ -838,6 +841,7 @@ function EditEntryDialog({
   onClose: () => void;
 }) {
   const kbId = useKbId();
+  const horizonVariant = useKbHorizonVariant();
   const flatCats = useMemo(() => flattenCategories(categories), [categories]);
   const [title, setTitle] = useState(entry.title);
   const [description, setDescription] = useState(entry.description ?? '');
@@ -890,7 +894,10 @@ function EditEntryDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
+      <DialogContent className={cn(
+        "sm:max-w-lg rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden",
+        horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-edit-dialog",
+      )}>
         <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
@@ -1120,8 +1127,8 @@ const CategorySidebar = React.memo(function CategorySidebar({
   };
 
   return (
-    <Card className="w-full lg:w-80 lg:shrink-0 lg:min-h-0 bg-white rounded-lg border border-slate-200/80 p-2.5 flex flex-row lg:flex-col gap-1 overflow-x-auto lg:overflow-y-auto shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <div className="hidden lg:flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold uppercase text-slate-400">
+    <Card className="rd-kb-category-sidebar w-full lg:w-80 lg:shrink-0 lg:min-h-0 bg-white rounded-lg border border-slate-200/80 p-2.5 flex flex-row lg:flex-col gap-1 overflow-x-auto lg:overflow-y-auto shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="rd-kb-category-heading hidden lg:flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold uppercase text-slate-400">
         <span>{t("知识域")}</span>
         <div className="flex items-center gap-2">
           {canCreate && (
@@ -1144,7 +1151,9 @@ const CategorySidebar = React.memo(function CategorySidebar({
         variant="ghost"
         size="sm"
         onClick={() => onSelect(null)}
+        data-selected={selectedCatId === null}
         className={cn(
+          'rd-kb-category-all',
           'h-auto min-w-max lg:min-w-0 justify-between w-full px-3 py-2 rounded-md text-sm font-medium outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-indigo-300',
           selectedCatId === null
             ? 'bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(79,70,229,0.16)]'
@@ -1165,7 +1174,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
         const isSelected = selectedCatId === cat.id;
 
         return (
-          <div key={cat.id} className="group/category lg:w-full">
+          <div key={cat.id} className="rd-kb-category-item group/category lg:w-full" data-selected={isSelected}>
             <div
               className={cn(
                 'flex min-w-max items-center rounded-md transition-colors duration-200 lg:min-w-0',
@@ -1214,7 +1223,9 @@ const CategorySidebar = React.memo(function CategorySidebar({
                   return (
                     <div
                       key={child.id}
+                      data-selected={isChildSelected}
                       className={cn(
+                        'rd-kb-category-child',
                         'group/category flex w-full items-center rounded-md transition-colors duration-200',
                         isChildSelected
                           ? 'bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(79,70,229,0.16)]'
@@ -1279,6 +1290,7 @@ function CategoryFormDialog({
   onSubmit: (payload: CategorySubmitPayload) => void;
   onClose: () => void;
 }) {
+  const horizonVariant = useKbHorizonVariant();
   const isEdit = state.mode === 'edit';
   const [label, setLabel] = useState(isEdit ? state.category.label : '');
   const [icon, setIcon] = useState(isEdit ? (state.category.icon ?? 'FolderOpen') : 'FolderOpen');
@@ -1302,7 +1314,10 @@ function CategoryFormDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
+      <DialogContent className={cn(
+        "sm:max-w-md rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden",
+        horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-category-dialog",
+      )}>
         <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
@@ -1456,9 +1471,13 @@ function DeleteCategoryDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const horizonVariant = useKbHorizonVariant();
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="sm:max-w-sm rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
+      <DialogContent className={cn(
+        "sm:max-w-sm rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden",
+        horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-danger-dialog",
+      )}>
         <DialogTitle className="sr-only">{t("确认删除知识库类目")}</DialogTitle>
         <DialogDescription className="sr-only">
           {t("删除空的知识库类目，已有文件的类目不能删除。")}
@@ -1507,6 +1526,7 @@ function MoveEntryDialog({
   onConfirm: (categoryId: string) => void;
   onCancel: () => void;
 }) {
+  const horizonVariant = useKbHorizonVariant();
   const flatCats = useMemo(() => flattenCategories(categories), [categories]);
   const [targetId, setTargetId] = useState(entry.category_id);
 
@@ -1519,7 +1539,10 @@ function MoveEntryDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="sm:max-w-md rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
+      <DialogContent className={cn(
+        "sm:max-w-md rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden",
+        horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-move-dialog",
+      )}>
         <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
@@ -1602,9 +1625,13 @@ interface DeleteConfirmDialogProps {
 }
 
 function DeleteConfirmDialog({ entry, loading, onConfirm, onCancel }: DeleteConfirmDialogProps) {
+  const horizonVariant = useKbHorizonVariant();
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="sm:max-w-sm rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.22)] [&>button]:hidden">
+      <DialogContent className={cn(
+        "sm:max-w-sm rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.22)] [&>button]:hidden",
+        horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-danger-dialog",
+      )}>
         <DialogTitle className="sr-only">{t("确认删除文件")}</DialogTitle>
         <DialogDescription className="sr-only">
           {t("删除知识库文件，此操作不可撤销。")}
@@ -1668,6 +1695,7 @@ interface PreviewModalProps {
 
 function PreviewModal({ entry, onClose }: PreviewModalProps) {
   const kbId = useKbId();
+  const horizonVariant = useKbHorizonVariant();
   const fileType = getFileType(entry.file_name, entry.file_type);
   const [fileUrl, setFileUrl] = React.useState<string | null>(entry.oss_url ?? null);
   // Same-origin inline-preview proxy URL — used by iframe/fetch-based previews (pdf/html/text/xlsx/docx)
@@ -1699,13 +1727,16 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-5xl w-[calc(100vw-2rem)] gap-0 rounded-2xl border-0 bg-white p-0 shadow-[0_32px_80px_rgba(15,23,42,0.36)] [&>button]:hidden overflow-hidden">
+      <DialogContent className={cn(
+        "sm:max-w-5xl w-[calc(100vw-2rem)] gap-0 rounded-2xl border-0 bg-white p-0 shadow-[0_32px_80px_rgba(15,23,42,0.36)] [&>button]:hidden overflow-hidden",
+        horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-preview-dialog",
+      )}>
         <DialogDescription className="sr-only">
           {t("预览知识库文件并查看文件元数据。")}
         </DialogDescription>
 
         {/* ── Header ── */}
-        <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 bg-white">
+        <div className="rd-kb-preview-header flex items-center gap-3 px-5 py-3 border-b border-slate-100 bg-white">
           {/* File icon */}
           <div className="shrink-0 p-2 rounded-lg bg-slate-50 ring-1 ring-slate-200/80">
             <FileTypeIcon entry={entry} className="w-4 h-4" />
@@ -1786,6 +1817,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
 
         {/* ── Preview body ── */}
         <div className={cn(
+          'rd-kb-preview-body',
           'flex items-center justify-center overflow-hidden',
           isDarkBg
             ? 'bg-linear-to-br from-slate-900 via-slate-800 to-slate-900 min-h-[320px]'
@@ -1879,7 +1911,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
         </div>
 
         {/* ── Metadata footer ── */}
-        <div className="border-t border-slate-100 bg-slate-50/40 px-5 py-2.5 flex items-center gap-3 flex-wrap text-xs text-slate-500">
+        <div className="rd-kb-preview-footer border-t border-slate-100 bg-slate-50/40 px-5 py-2.5 flex items-center gap-3 flex-wrap text-xs text-slate-500">
           {/* Uploader */}
           <div className="flex items-center gap-1.5 shrink-0">
             <Avatar className="h-5 w-5 shrink-0">
@@ -1958,6 +1990,7 @@ interface UploadDialogProps {
 function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canSetPermissionLevel = false }: UploadDialogProps) {
   const { user } = useAuth();
   const kbId = useKbId();
+  const horizonVariant = useKbHorizonVariant();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const [selectedFiles, setSelectedFiles] = useState<File[]>(() => initialFiles);
@@ -2115,7 +2148,10 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
-        className="w-full max-w-xl overflow-hidden rounded-lg border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.32)] sm:max-w-xl [&>button]:hidden"
+        className={cn(
+          "w-full max-w-xl overflow-hidden rounded-lg border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.32)] sm:max-w-xl [&>button]:hidden",
+          horizonVariant && "rd-horizon-kb-dialog rd-horizon-kb-upload-dialog",
+        )}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -2140,7 +2176,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
           </Button>
         </DialogHeader>
 
-        <div className="bg-[#f8fafc] p-6 flex flex-col gap-5 overflow-y-auto max-h-[72vh]">
+        <div className="rd-kb-upload-body bg-[#f8fafc] p-6 flex flex-col gap-5 overflow-y-auto max-h-[72vh]">
           {/* Drop zone — use <label> so clicking anywhere (including the icon) natively opens file picker */}
           <label
             htmlFor="kb-upload-files"
@@ -2169,6 +2205,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
             }}
             tabIndex={0}
             className={cn(
+              'rd-kb-upload-dropzone',
               'relative min-h-[184px] overflow-hidden border border-dashed rounded-lg p-6 flex flex-col items-center justify-center gap-3 cursor-pointer outline-none transition-all duration-200',
               dragging
                 ? 'border-indigo-400 bg-indigo-50 ring-4 ring-indigo-100 shadow-[0_16px_36px_rgba(79,70,229,0.12)]'
@@ -2384,7 +2421,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
         </div>
 
         {/* Dialog footer */}
-        <DialogFooter className="flex-col gap-3 border-t border-slate-200 bg-white px-6 py-4 sm:flex-row sm:items-center">
+        <DialogFooter className="rd-kb-upload-footer flex-col gap-3 border-t border-slate-200 bg-white px-6 py-4 sm:flex-row sm:items-center">
           {/* 分片上传进度。小文件走单次 PUT 没有进度，此处不显示 */}
           {uploadProgress && (
             <div className="min-w-0 flex-1 sm:mr-auto">
@@ -2540,16 +2577,20 @@ function MemberLevelsDialog({ kbId, onClose }: { kbId: string; onClose: () => vo
 export function RDKnowledgeBasePage({
   kbScope,
   toolbarLeading,
+  visualVariant,
 }: {
   kbScope?: KbScope;
   /** 插在工具条最前面的额外控件（知识库统一入口用它放「切换库」下拉）。 */
   toolbarLeading?: React.ReactNode;
+  /** 仅原生研发知识库显式启用的 Horizon 视觉；部门库与协同库不得继承。 */
+  visualVariant?: "rd-horizon";
 } = {}) {
   useI18n(); // 订阅语言切换（工具栏/上传按钮等文案已 t() 化）
   const { user } = useAuth();
 
   // 作用域：研发库 kbId=undefined（rd-kb:* 权限 + /knowledge 接口）；部门库 kbId=部门 id（dept-kb:* 权限 + /dept-knowledge 接口）
   const kbId = kbScope?.kbId;
+  const horizonVariant = visualVariant === "rd-horizon" && !kbId;
   const userPerms = user?.permissions ?? [];
   // 按作用域选用的一套权限码：研发库用 rd-kb:*，部门库用共用的 dept-kb:*
   const P = kbId
@@ -3032,18 +3073,22 @@ export function RDKnowledgeBasePage({
   }, [entries]);
 
   return (
+    <KbHorizonVariantContext.Provider value={horizonVariant}>
     <KbScopeContext.Provider value={kbId}>
     <div
-      className="relative h-full overflow-hidden bg-slate-50/30 flex flex-col text-slate-900"
+      className={cn(
+        "relative h-full overflow-hidden bg-slate-50/30 flex flex-col text-slate-900",
+        horizonVariant && "rd-horizon-module rd-horizon-kb",
+      )}
       onDragEnter={handlePageDragEnter}
       onDragOver={handlePageDragOver}
       onDragLeave={handlePageDragLeave}
       onDrop={handlePageDrop}
     >
       {pageDragActive && canUpload && !showUpload && (
-        <div className="pointer-events-none fixed inset-4 z-40 flex items-center justify-center rounded-2xl border border-indigo-200 bg-white/88 shadow-[0_28px_80px_rgba(79,70,229,0.18)] backdrop-blur-sm">
+        <div className="rd-kb-drop-overlay pointer-events-none fixed inset-4 z-40 flex items-center justify-center rounded-2xl border border-indigo-200 bg-white/88 shadow-[0_28px_80px_rgba(79,70,229,0.18)] backdrop-blur-sm">
           <div className="absolute inset-0 rounded-2xl bg-slate-50/40" />
-          <div className="relative flex items-center gap-4 rounded-xl border border-indigo-100 bg-white/95 px-6 py-5 text-slate-900 shadow-[0_16px_36px_rgba(79,70,229,0.12)]">
+          <div className="rd-kb-drop-surface relative flex items-center gap-4 rounded-xl border border-indigo-100 bg-white/95 px-6 py-5 text-slate-900 shadow-[0_16px_36px_rgba(79,70,229,0.12)]">
             <span className="flex h-12 w-12 items-center justify-center rounded-lg border border-indigo-100 bg-indigo-50">
               <Upload className="h-6 w-6 text-indigo-600" />
             </span>
@@ -3055,10 +3100,10 @@ export function RDKnowledgeBasePage({
         </div>
       )}
       {/* Toolbar —— 单排：左 筛选/类型/权限；右 计数 + 视图切换 + 同步 + 更多 + 上传 */}
-      <div className="mx-4 mt-5 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3 py-2.5 shadow-[0_10px_24px_rgba(15,23,42,0.05)] sm:mx-6">
+      <div className="rd-kb-toolbar mx-4 mt-5 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3 py-2.5 shadow-[0_10px_24px_rgba(15,23,42,0.05)] sm:mx-6">
         {toolbarLeading}
         {/* 筛选输入 */}
-        <div className="relative min-w-[180px] flex-1 sm:max-w-xs">
+        <div className="rd-kb-search relative min-w-[180px] flex-1 sm:max-w-xs">
           <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <Input
             type="text"
@@ -3083,7 +3128,7 @@ export function RDKnowledgeBasePage({
         <NativeSelect
           value={fileTypeFilter}
           onValueChange={handleFileTypeFilterChange}
-          className="h-9 w-auto min-w-[7rem] rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+          className="rd-kb-filter h-9 w-auto min-w-[7rem] rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
         >
           {FILE_TYPE_FILTER_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -3096,7 +3141,7 @@ export function RDKnowledgeBasePage({
         <NativeSelect
           value={String(levelFilter)}
           onValueChange={(v) => setLevelFilter(Number(v))}
-          className="h-9 w-auto min-w-[9rem] rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+          className="rd-kb-filter h-9 w-auto min-w-[9rem] rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
         >
           <option value="100">{t("权限分 ≤ 100（全部）")}</option>
           <option value="75">{t("权限分 ≤ 75（受限）")}</option>
@@ -3105,9 +3150,9 @@ export function RDKnowledgeBasePage({
         </NativeSelect>
 
         {/* 右侧：计数 + 视图切换 + 同步 + 更多 + 上传 */}
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="rd-kb-toolbar-actions ml-auto flex flex-wrap items-center gap-2">
           {/* 计数（纯展示） */}
-          <div className="hidden items-center gap-1.5 md:flex">
+          <div className="rd-kb-toolbar-stats hidden items-center gap-1.5 md:flex">
             <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{t("共")} <span className="tabular-nums">{entries.length}</span></span>
             <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-600">{t("文档")} <span className="tabular-nums">{docCount}</span></span>
             <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-600">PDF <span className="tabular-nums">{pdfCount}</span></span>
@@ -3115,7 +3160,7 @@ export function RDKnowledgeBasePage({
           </div>
 
           {/* 网格 / 列表 视图切换 */}
-          <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          <div className="rd-kb-view-toggle inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
             <button
               type="button"
               onClick={() => setViewMode('grid')}
@@ -3142,7 +3187,7 @@ export function RDKnowledgeBasePage({
             variant="outline"
             onClick={handleRefresh}
             disabled={loading}
-            className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rd-kb-toolbar-action h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
             title={t("同步（保留当前筛选条件）")}
           >
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
@@ -3157,13 +3202,16 @@ export function RDKnowledgeBasePage({
                   type="button"
                   variant="outline"
                   size="icon"
-                  className="h-9 w-9 rounded-lg border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200"
+                  className="rd-kb-toolbar-action h-9 w-9 rounded-lg border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200"
                   title={t("更多操作")}
                 >
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent
+                align="end"
+                className={cn("w-48", horizonVariant && "rd-horizon-kb-menu")}
+              >
                 <DropdownMenuItem onClick={handleRepairFilenames} disabled={repairing} className="gap-2">
                   <Wrench className={cn('h-4 w-4', repairing && 'animate-spin')} />
                   {repairing ? t("修复中…") : t("修复文件名乱码")}
@@ -3196,7 +3244,7 @@ export function RDKnowledgeBasePage({
             <Button
               type="button"
               onClick={() => openUploadDialog()}
-              className="h-9 gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.20)] transition-all duration-200 hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+              className="rd-kb-primary-action h-9 gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.20)] transition-all duration-200 hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
             >
               <Plus className="h-4 w-4" />
               {t("上传文件")}
@@ -3206,7 +3254,7 @@ export function RDKnowledgeBasePage({
       </div>
 
       {/* Content area */}
-      <div className="flex flex-col lg:flex-row gap-4 px-4 sm:px-6 py-5 flex-1 min-h-0">
+      <div className="rd-kb-layout flex flex-col lg:flex-row gap-4 px-4 sm:px-6 py-5 flex-1 min-h-0">
         {/* Sidebar */}
         <CategorySidebar
           categories={categories}
@@ -3223,9 +3271,9 @@ export function RDKnowledgeBasePage({
         />
 
         {/* Entry grid */}
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-4">
+        <div className="rd-kb-content flex-1 min-w-0 min-h-0 flex flex-col gap-4">
           {/* Result count */}
-          <div className="shrink-0 flex items-center justify-between rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <div className="rd-kb-result-bar shrink-0 flex items-center justify-between rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <span>
               {loading
                 ? t('加载中...')
@@ -3233,15 +3281,15 @@ export function RDKnowledgeBasePage({
                   ? t('筛选结果 {n} 条', { n: entries.length })
                   : t('共 {n} 条记录', { n: entries.length })}
             </span>
-            <span className="hidden sm:flex items-center gap-1.5 font-mono text-[11px] text-indigo-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+            <span className="rd-kb-index hidden sm:flex items-center gap-1.5 font-mono text-[11px] text-indigo-700">
+              <span className="rd-kb-index-dot h-1.5 w-1.5 rounded-full bg-indigo-500" />
               KB_INDEX
             </span>
           </div>
 
           {/* Loading */}
           {loading && entries.length === 0 && (
-            <div className="flex-1 flex items-center justify-center py-20">
+            <div className="rd-kb-state flex-1 flex items-center justify-center py-20">
               <div className="flex flex-col items-center gap-3 text-slate-400">
                 <Loader2 className="w-8 h-8 animate-spin" />
                 <span className="text-sm">{t("加载中...")}</span>
@@ -3251,7 +3299,7 @@ export function RDKnowledgeBasePage({
 
           {/* Empty state */}
           {!loading && entries.length === 0 && (
-            <div className="flex-1 flex items-center justify-center py-20">
+            <div className="rd-kb-state flex-1 flex items-center justify-center py-20">
               <div className="flex flex-col items-center gap-3 text-slate-400">
                 <BookOpen className="w-12 h-12 text-slate-200" />
                 <p className="text-sm font-medium">
@@ -3267,7 +3315,7 @@ export function RDKnowledgeBasePage({
                     type="button"
                     variant="secondary"
                     onClick={() => openUploadDialog()}
-                    className="mt-2 flex items-center gap-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 text-sm font-medium rounded-lg transition-colors"
+                    className="rd-kb-empty-action mt-2 flex items-center gap-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 text-sm font-medium rounded-lg transition-colors"
                   >
                     <Upload className="w-4 h-4" />
                     {t("上传文件")}
@@ -3280,9 +3328,9 @@ export function RDKnowledgeBasePage({
           {/* Grid */}
           {entries.length > 0 && (
             <>
-              <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+              <div className="rd-kb-entry-scroll flex-1 min-h-0 overflow-y-auto pr-1">
               {viewMode === 'grid' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+                <div className="rd-kb-entry-grid grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
                   {visibleEntries.map((entry) => (
                     <EntryCard
                       key={entry.id}
@@ -3298,7 +3346,7 @@ export function RDKnowledgeBasePage({
                   ))}
                 </div>
               ) : (
-                <div className="flex flex-col gap-2">
+                <div className="rd-kb-entry-list flex flex-col gap-2">
                   {visibleEntries.map((entry) => (
                     <EntryRow
                       key={entry.id}
@@ -3320,7 +3368,7 @@ export function RDKnowledgeBasePage({
               {totalPages > 1 && (
                 <nav
                   aria-label={t("知识库分页")}
-                  className="shrink-0 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                  className="rd-kb-pagination shrink-0 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                 >
                   <span className="text-slate-500">
                     {t("第 {page} / {total} 页 · 共 {n} 条", { page, total: totalPages, n: entries.length })}
@@ -3462,5 +3510,6 @@ export function RDKnowledgeBasePage({
       )}
     </div>
     </KbScopeContext.Provider>
+    </KbHorizonVariantContext.Provider>
   );
 }

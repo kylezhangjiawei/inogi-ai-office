@@ -5065,9 +5065,11 @@ function PersonDetailDrawer({
 function SystemHealthCard({
   stat,
   onClick,
+  horizonVariant = false,
 }: {
   stat: CatStat;
   onClick?: () => void;
+  horizonVariant?: boolean;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const theme = getTheme(stat.cat.id);
@@ -5084,10 +5086,11 @@ function SystemHealthCard({
       initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={RD_PANEL_TRANSITION}
-      whileHover={shouldReduceMotion ? undefined : { y: -1 }}
+      whileHover={shouldReduceMotion || horizonVariant ? undefined : { y: -1 }}
       whileTap={shouldReduceMotion ? undefined : { scale: 0.99 }}
       className={cn(
-        "rd-horizon-system-card group relative flex flex-col gap-3 overflow-hidden rounded-xl border bg-white p-4 text-left transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(15,23,42,0.08)] active:translate-y-0 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2",
+        "rd-horizon-system-card group relative flex flex-col gap-3 overflow-hidden rounded-xl border bg-white p-4 text-left transition-all duration-300 ease-out active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2",
+        !horizonVariant && "hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(15,23,42,0.08)] active:translate-y-0",
         hConfig.border,
         isIdle && "opacity-55 hover:opacity-100",
       )}
@@ -5207,7 +5210,10 @@ function SystemHealthCard({
       {/* Hover hint */}
       <div className="pointer-events-none flex items-center justify-end text-[11px] font-medium text-slate-400 opacity-0 transition-all duration-200 group-hover:opacity-100">
         {t("进入详情")}
-        <ChevronRight className="ml-0.5 h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5" />
+        <ChevronRight className={cn(
+          "rd-horizon-system-arrow ml-0.5 h-3 w-3 transition-transform duration-200",
+          !horizonVariant && "group-hover:translate-x-0.5",
+        )} />
       </div>
     </motion.button>
   );
@@ -5248,6 +5254,7 @@ function SystemPanorama({
   onManageProducts,
   canManage,
   reloadToken = 0,
+  horizonVariant = false,
 }: {
   mainCatStats: CatStat[];          // 便携式制氧机的全局 catStats
   products: ProductDef[];
@@ -5255,6 +5262,7 @@ function SystemPanorama({
   onManageProducts: () => void;
   canManage: boolean;
   reloadToken?: number;             // 跨产品移动后 +1，强制刷新受影响产品的统计
+  horizonVariant?: boolean;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const [activeProdId, setActiveProdId] = useState(() => products[0]?.id ?? "");
@@ -5396,6 +5404,7 @@ function SystemPanorama({
                   key={stat.cat.id}
                   stat={stat}
                   onClick={() => onSelectSystem(stat.cat.id, activeProdId)}
+                  horizonVariant={horizonVariant}
                 />
               ))}
             </div>
@@ -9881,6 +9890,7 @@ function ExecutiveOverview({
                 onManageProducts={onManageProducts ?? (() => {})}
                 canManage={canManageProducts ?? false}
                 reloadToken={panoramaReloadToken}
+                horizonVariant={horizonVariant}
               />
             )}
           </>

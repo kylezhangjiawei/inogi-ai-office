@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ArrowRight,
@@ -98,6 +99,87 @@ const PERSON_STATUS_CONFIG: Record<
 
 const PEOPLE_PAGE_SIZE = 5;
 
+export type RDPeopleVisualVariant = "default" | "rd-horizon";
+
+const DIALOG_FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function useDialogFocus(onClose: () => void, lockPage: boolean) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return undefined;
+
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const appRoot = document.getElementById("root");
+    const rootWasInert = appRoot?.hasAttribute("inert") ?? false;
+    const previousBodyOverflow = document.body.style.overflow;
+
+    if (lockPage) {
+      appRoot?.setAttribute("inert", "");
+      document.body.style.overflow = "hidden";
+    }
+
+    const focusFirstControl = window.requestAnimationFrame(() => {
+      const initialTarget = dialog.querySelector<HTMLElement>("[data-autofocus]")
+        ?? dialog.querySelector<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR);
+      initialTarget?.focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const controls = Array.from(dialog.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR))
+        .filter((element) => element.getClientRects().length > 0 && !element.hasAttribute("disabled"));
+      if (controls.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFirstControl);
+      document.removeEventListener("keydown", handleKeyDown);
+      if (lockPage) {
+        if (!rootWasInert) appRoot?.removeAttribute("inert");
+        document.body.style.overflow = previousBodyOverflow;
+      }
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [lockPage]);
+
+  return dialogRef;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function hashColor(name: string): string {
@@ -161,7 +243,7 @@ function PersonAvatar({ name }: { name: string }) {
   return (
     <span
       className={cn(
-        "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white ring-2 ring-white",
+        "rd-people-avatar inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white ring-2 ring-white",
         hashColor(name),
       )}
       title={name}
@@ -225,21 +307,37 @@ function Field({
   label,
   required,
   error,
+  group,
   children,
 }: {
   label: string;
   required?: boolean;
   error?: string;
+  group?: boolean;
   children: React.ReactNode;
 }) {
-  return (
-    <label className="block">
+  const content = (
+    <>
       <div className="mb-1.5 flex items-baseline gap-1 text-xs font-medium text-slate-700">
         {label}
         {required && <span className="text-red-500">*</span>}
         {error && <span className="ml-auto text-[11px] font-normal text-red-500">{error}</span>}
       </div>
       {children}
+    </>
+  );
+
+  if (group) {
+    return (
+      <div className="block" role="group" aria-label={label}>
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <label className="block">
+      {content}
     </label>
   );
 }
@@ -250,17 +348,23 @@ function PersonFormModal({
   person,
   users,
   canManageDepartments,
+  visualVariant,
   onSave,
   onClose,
 }: {
   person: Person | null;
   users: RdIdentityUser[];
   canManageDepartments: boolean;
+  visualVariant: RDPeopleVisualVariant;
   onSave: (p: Person) => void;
   onClose: () => void;
 }) {
   useI18n();
   const isEdit = person !== null;
+  const isHorizon = visualVariant === "rd-horizon";
+  const titleId = useId();
+  const descriptionId = useId();
+  const dialogRef = useDialogFocus(onClose, isHorizon);
   const [form, setForm] = useState<Person>(person ?? emptyPerson());
   const [errors, setErrors] = useState<{ name?: string; position?: string }>({});
   // 切换编辑对象 / 重新打开同一个对象时，把表单 state 同步到最新 person prop，避免显示老数据
@@ -334,19 +438,31 @@ function PersonFormModal({
     onSave({ ...form, kb_level: kbScore, kb_level_scale: "score" });
   };
 
-  return (
+  const dialog = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in"
+      className={cn(
+        "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in",
+        isHorizon && "rd-horizon-people-dialog-overlay",
+      )}
     >
       <div
-        className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        tabIndex={-1}
+        className={cn(
+          "w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in",
+          isHorizon && "rd-horizon-people-dialog rd-horizon-people-form-dialog",
+        )}
       >
-        <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <header className="rd-people-dialog-header flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
-            <h3 className="text-base font-semibold text-slate-900">
+            <h3 id={titleId} className="text-base font-semibold text-slate-900">
               {isEdit ? t("编辑成员") : t("新增成员")}
             </h3>
-            <p className="mt-0.5 text-xs text-slate-500">
+            <p id={descriptionId} className="mt-0.5 text-xs text-slate-500">
               {isEdit ? t("修改 {name} 的信息", { name: person!.name }) : t("创建一个新的团队成员")}
             </p>
           </div>
@@ -360,7 +476,7 @@ function PersonFormModal({
           </button>
         </header>
 
-        <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
+        <form onSubmit={handleSubmit} className="rd-people-dialog-form space-y-4 px-6 py-5">
           <Field label={t("绑定登录用户")}>
             <NativeSelect
               value={form.user_id ?? ""}
@@ -405,7 +521,8 @@ function PersonFormModal({
                   errors.name ? "border-red-300" : "border-slate-200",
                 )}
                 placeholder={t("例: 王磊")}
-                autoFocus
+                data-autofocus
+                aria-invalid={Boolean(errors.name)}
               />
             </Field>
             <Field label={t("职位")} required error={errors.position}>
@@ -417,12 +534,13 @@ function PersonFormModal({
                   errors.position ? "border-red-300" : "border-slate-200",
                 )}
                 placeholder={t("硬件测试工程师")}
+                aria-invalid={Boolean(errors.position)}
               />
             </Field>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label={t("所属组")}>
+            <Field label={t("所属组")} group>
               {creatingDept ? (
                 <div className="flex items-center gap-1.5">
                   <Input
@@ -432,7 +550,11 @@ function PersonFormModal({
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === "Enter") { e.preventDefault(); void handleCreateDepartment(); }
-                      else if (e.key === "Escape") { setCreatingDept(false); setNewDeptName(""); }
+                      else if (e.key === "Escape") {
+                        e.stopPropagation();
+                        setCreatingDept(false);
+                        setNewDeptName("");
+                      }
                     }}
                     className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                   />
@@ -531,7 +653,7 @@ function PersonFormModal({
           </div>
 
           <Field label={t("知识库访问分值（0–100）")}>
-            <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3">
+            <div className="rd-people-access-control rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold tabular-nums text-slate-900">{kbScore}/100</div>
@@ -564,7 +686,7 @@ function PersonFormModal({
             <p className="mt-1 text-[11px] text-slate-400">{t("该成员可查看“文件权限分值 ≤ 成员分值”的所有知识库文件。")}</p>
           </Field>
 
-          <footer className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
+          <footer className="rd-people-dialog-footer flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
             <Button
               type="button"
               variant="outline"
@@ -575,7 +697,7 @@ function PersonFormModal({
             </Button>
             <Button
               type="submit"
-              className="h-9 gap-1.5 rounded-md bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.2)] hover:bg-indigo-700"
+              className="rd-people-dialog-primary h-9 gap-1.5 rounded-md bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.2)] hover:bg-indigo-700"
             >
               {isEdit ? t("保存修改") : t("创建成员")}
               <ArrowRight className="h-3.5 w-3.5" />
@@ -585,40 +707,63 @@ function PersonFormModal({
       </div>
     </div>
   );
+
+  return isHorizon && typeof document !== "undefined"
+    ? createPortal(dialog, document.body)
+    : dialog;
 }
 
 // ─── Confirm delete dialog ───────────────────────────────────────────────────
 
 function ConfirmDeleteDialog({
   person,
+  visualVariant,
   onConfirm,
   onCancel,
 }: {
   person: Person;
+  visualVariant: RDPeopleVisualVariant;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
   useI18n();
-  return (
+  const isHorizon = visualVariant === "rd-horizon";
+  const titleId = useId();
+  const descriptionId = useId();
+  const dialogRef = useDialogFocus(onCancel, isHorizon);
+  const dialog = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in"
+      className={cn(
+        "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in",
+        isHorizon && "rd-horizon-people-dialog-overlay",
+      )}
     >
       <div
-        className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in"
+        ref={dialogRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        tabIndex={-1}
+        className={cn(
+          "w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in",
+          isHorizon && "rd-horizon-people-dialog rd-horizon-people-delete-dialog",
+        )}
       >
-        <div className="px-6 pt-6">
+        <div className="rd-people-delete-body px-6 pt-6">
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-50">
             <AlertTriangle className="h-6 w-6 text-red-500" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900">{t("删除 {name}?", { name: person.name })}</h3>
-          <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
+          <h3 id={titleId} className="text-base font-semibold text-slate-900">{t("删除 {name}?", { name: person.name })}</h3>
+          <p id={descriptionId} className="mt-1.5 text-sm leading-relaxed text-slate-500">
             {t("此操作将永久删除该成员的档案，关联任务将转为待指派状态。删除后无法撤销。")}
           </p>
         </div>
-        <footer className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/50 px-6 py-3">
+        <footer className="rd-people-dialog-footer mt-5 flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/50 px-6 py-3">
           <button
             type="button"
             onClick={onCancel}
+            data-autofocus
             className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
           >
             {t("取消")}
@@ -635,6 +780,10 @@ function ConfirmDeleteDialog({
       </div>
     </div>
   );
+
+  return isHorizon && typeof document !== "undefined"
+    ? createPortal(dialog, document.body)
+    : dialog;
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -642,11 +791,14 @@ function ConfirmDeleteDialog({
 export function RDPeopleManagementPage({
   onBack,
   initialPeople = INITIAL_PEOPLE,
+  visualVariant = "default",
 }: {
   onBack: () => void;
   initialPeople?: Person[];
+  visualVariant?: RDPeopleVisualVariant;
 }) {
   useI18n();
+  const isHorizon = visualVariant === "rd-horizon";
   const PEOPLE_AUDIT_ACTOR = useAuditActor("研发主管");
   const [people, setPeople] = useState<Person[]>(initialPeople);
   const [keyword, setKeyword] = useState("");
@@ -805,14 +957,20 @@ export function RDPeopleManagementPage({
   };
 
   return (
-    <div className="flex min-h-full flex-col overflow-hidden bg-slate-50/40 animate-rd-fade-in">
+    <div
+      className={cn(
+        "rd-people-page flex min-h-full flex-col overflow-hidden bg-slate-50/40 animate-rd-fade-in",
+        isHorizon && "rd-horizon-module rd-horizon-people",
+      )}
+      data-visual-variant={visualVariant}
+    >
       {/* Breadcrumb top bar */}
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-5 py-2.5">
-        <div className="flex items-center gap-3">
+      <div className="rd-people-context flex items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-5 py-2.5">
+        <div className="rd-people-breadcrumb flex items-center gap-3">
           <button
             type="button"
             onClick={onBack}
-            className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.96]"
+            className="rd-people-back group flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.96]"
           >
             <ChevronLeft className="h-4 w-4 transition-transform duration-200 ease-out group-hover:-translate-x-0.5" />
             {t("返回")}
@@ -826,36 +984,36 @@ export function RDPeopleManagementPage({
           <button
             type="button"
             onClick={() => setCreating(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.2)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_24px_rgba(79,70,229,0.22)] active:scale-[0.98]"
+            className="rd-people-primary inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.2)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_24px_rgba(79,70,229,0.22)] active:scale-[0.98]"
           >
             <Plus className="h-3.5 w-3.5" />
             {t("新增成员")}
           </button>
         ) : (
-          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500">
+          <span className="rd-people-readonly rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500">
             {t("只读")}
           </span>
         )}
       </div>
 
-      <div className="flex-1 overflow-auto px-6 py-6">
-        <div className="mx-auto max-w-6xl space-y-5 rd-stagger-children">
+      <div className="rd-people-viewport flex-1 overflow-auto px-6 py-6">
+        <div className="rd-people-shell mx-auto max-w-6xl space-y-5 rd-stagger-children">
           {/* Stats strip */}
-          <section className="overflow-hidden rounded-xl border border-slate-100 bg-white">
-            <div className="grid grid-cols-2 divide-x divide-slate-100 md:grid-cols-4">
-              <div className="px-6 py-4">
+          <section className="rd-people-stats overflow-hidden rounded-xl border border-slate-100 bg-white">
+            <div className="rd-people-stats-grid grid grid-cols-2 divide-x divide-slate-100 md:grid-cols-4">
+              <div className="rd-people-stat px-6 py-4" data-tone="neutral">
                 <div className="text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
                   {stats.total}
                 </div>
                 <div className="mt-1 text-[11px] font-medium text-slate-500">{t("总成员数")}</div>
               </div>
-              <div className="px-6 py-4">
+              <div className="rd-people-stat px-6 py-4" data-tone="success">
                 <div className="text-3xl font-semibold tabular-nums tracking-tight text-emerald-600">
                   {stats.active}
                 </div>
                 <div className="mt-1 text-[11px] font-medium text-slate-500">{t("在岗")}</div>
               </div>
-              <div className="px-6 py-4">
+              <div className="rd-people-stat px-6 py-4" data-tone="warning">
                 <div
                   className={cn(
                     "text-3xl font-semibold tabular-nums tracking-tight",
@@ -866,7 +1024,7 @@ export function RDPeopleManagementPage({
                 </div>
                 <div className="mt-1 text-[11px] font-medium text-slate-500">{t("请假中")}</div>
               </div>
-              <div className="px-6 py-4">
+              <div className="rd-people-stat px-6 py-4" data-tone="neutral">
                 <div className="text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
                   {stats.departments}
                 </div>
@@ -876,8 +1034,8 @@ export function RDPeopleManagementPage({
           </section>
 
           {/* Filters */}
-          <section className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-100 bg-white px-4 py-3">
-            <div className="flex min-w-[260px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition-all focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
+          <section className="rd-people-filters flex flex-wrap items-center gap-2 rounded-xl border border-slate-100 bg-white px-4 py-3">
+            <div className="rd-people-search flex min-w-[260px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition-all focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
               <Search className="h-3.5 w-3.5 text-slate-400" />
               <Input
                 value={keyword}
@@ -886,6 +1044,7 @@ export function RDPeopleManagementPage({
                   setPage(1);
                 }}
                 placeholder={t("搜索姓名 / 职位 / 组 / 邮箱…")}
+                aria-label={t("搜索姓名 / 职位 / 组 / 邮箱…")}
                 className="flex-1 text-sm text-slate-900 outline-none placeholder:text-slate-400"
               />
               {keyword && (
@@ -903,7 +1062,7 @@ export function RDPeopleManagementPage({
               )}
             </div>
 
-            <div className="flex items-center gap-1 rounded-md border border-slate-200 bg-white p-0.5">
+            <div className="rd-people-status-filter flex items-center gap-1 rounded-md border border-slate-200 bg-white p-0.5" role="group" aria-label={t("状态筛选")}>
               {(["all", "active", "on_leave", "resigned"] as const).map((s) => (
                 <button
                   key={s}
@@ -912,6 +1071,9 @@ export function RDPeopleManagementPage({
                     setStatusFilter(s);
                     setPage(1);
                   }}
+                  aria-pressed={statusFilter === s}
+                  data-status={s}
+                  data-active={statusFilter === s}
                   className={cn(
                     "rounded border border-transparent px-2.5 py-1 text-xs font-medium transition-all duration-150 active:scale-95",
                     statusFilter === s
@@ -930,7 +1092,7 @@ export function RDPeopleManagementPage({
                 setDeptFilter(e.target.value);
                 setPage(1);
               }}
-              className="cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="rd-people-department-filter cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             >
               <option value="all">{t("全部组")}</option>
               {departmentFilters.map((d) => (
@@ -940,14 +1102,15 @@ export function RDPeopleManagementPage({
               ))}
             </NativeSelect>
 
-            <span className="ml-auto text-xs tabular-nums text-slate-400">
+            <span className="rd-people-result-count ml-auto text-xs tabular-nums text-slate-400">
               {t("共 {shown} / {total} 人", { shown: filtered.length, total: people.length })}
             </span>
           </section>
 
           {/* Table */}
-          <section className="overflow-hidden rounded-xl border border-slate-100 bg-white">
-            <table className="w-full">
+          <section className="rd-people-table-surface overflow-hidden rounded-xl border border-slate-100 bg-white">
+            <div className="rd-people-table-scroll">
+            <table className="rd-people-table w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   <th className="px-6 py-3 text-left">{t("成员")}</th>
@@ -964,13 +1127,13 @@ export function RDPeopleManagementPage({
                 {loading ? (
                   <tr>
                     <td colSpan={8} className="px-6 py-16 text-center">
-                      <div className="text-sm font-medium text-slate-500">{t("正在加载研发成员…")}</div>
+                      <div role="status" aria-live="polite" className="text-sm font-medium text-slate-500">{t("正在加载研发成员…")}</div>
                     </td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-6 py-16 text-center">
-                      <div className="text-sm font-semibold text-slate-600">
+                      <div role="status" className="text-sm font-semibold text-slate-600">
                         {people.length === 0 ? t("暂无研发成员") : t("没有匹配的成员")}
                       </div>
                       <div className="mx-auto mt-1 max-w-sm text-xs leading-5 text-slate-400">
@@ -979,7 +1142,7 @@ export function RDPeopleManagementPage({
                           : t("当前筛选条件下没有可显示的成员。")}
                       </div>
                       {loadError && (
-                        <div className="mx-auto mt-3 max-w-md rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                        <div role="alert" className="mx-auto mt-3 max-w-md rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                           {loadError}
                         </div>
                       )}
@@ -988,7 +1151,7 @@ export function RDPeopleManagementPage({
                           <button
                             type="button"
                             onClick={() => setCreating(true)}
-                            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-indigo-700 active:scale-[0.98]"
+                            className="rd-people-empty-primary inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-indigo-700 active:scale-[0.98]"
                           >
                             <Plus className="h-3.5 w-3.5" />
                             {t("新增成员")}
@@ -1002,7 +1165,7 @@ export function RDPeopleManagementPage({
                               setDeptFilter("all");
                               setPage(1);
                             }}
-                            className="text-xs font-medium text-indigo-600 hover:underline"
+                            className="rd-people-reset text-xs font-medium text-indigo-600 hover:underline"
                           >
                             {t("重置筛选")}
                           </button>
@@ -1016,7 +1179,8 @@ export function RDPeopleManagementPage({
                     return (
                       <tr
                         key={p.id}
-                        className="group transition-colors duration-150 hover:bg-slate-50/60"
+                        className="rd-people-row group transition-colors duration-150 hover:bg-slate-50/60"
+                        data-status={p.status}
                       >
                         <td className="px-6 py-3.5">
                           <div className="flex items-center gap-3">
@@ -1096,10 +1260,11 @@ export function RDPeopleManagementPage({
                         </td>
                         <td className="px-4 py-3.5">
                           {canManagePeople ? (
-                            <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                            <div className="rd-people-row-actions flex items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
                               <button
                                 type="button"
                                 onClick={() => setEditing(p)}
+                                data-action="edit"
                                 className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-indigo-50 hover:text-indigo-600 active:scale-90"
                                 aria-label={t("编辑 {name}", { name: p.name })}
                                 title={t("编辑")}
@@ -1109,6 +1274,7 @@ export function RDPeopleManagementPage({
                               <button
                                 type="button"
                                 onClick={() => setDeleteTarget(p)}
+                                data-action="delete"
                                 className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-red-50 hover:text-red-600 active:scale-90"
                                 aria-label={t("删除 {name}", { name: p.name })}
                                 title={t("删除")}
@@ -1126,8 +1292,9 @@ export function RDPeopleManagementPage({
                 )}
               </tbody>
             </table>
+            </div>
             {filtered.length > 0 && (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-3">
+              <div className="rd-people-pagination flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-3">
                 <div className="text-xs tabular-nums text-slate-400">
                   {t("显示 {from}-{to} / {total} 人", {
                     from: firstItem,
@@ -1140,6 +1307,7 @@ export function RDPeopleManagementPage({
                     type="button"
                     onClick={() => setPage((current) => Math.max(1, current - 1))}
                     disabled={safePage === 1}
+                    data-direction="previous"
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all duration-150 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500"
                     aria-label={t("上一页")}
                   >
@@ -1152,6 +1320,8 @@ export function RDPeopleManagementPage({
                         key={pageNumber}
                         type="button"
                         onClick={() => setPage(pageNumber)}
+                        aria-current={safePage === pageNumber ? "page" : undefined}
+                        data-active={safePage === pageNumber}
                         className={cn(
                           "h-8 min-w-8 rounded-md border px-2 text-xs font-semibold tabular-nums transition-all duration-150 active:scale-95",
                           safePage === pageNumber
@@ -1167,6 +1337,7 @@ export function RDPeopleManagementPage({
                     type="button"
                     onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                     disabled={safePage === totalPages}
+                    data-direction="next"
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all duration-150 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500"
                     aria-label={t("下一页")}
                   >
@@ -1185,6 +1356,7 @@ export function RDPeopleManagementPage({
           person={editing}
           users={systemUsers}
           canManageDepartments={canManagePeople}
+          visualVariant={visualVariant}
           onSave={handleSave}
           onClose={() => {
             setEditing(null);
@@ -1195,6 +1367,7 @@ export function RDPeopleManagementPage({
       {canManagePeople && deleteTarget && (
         <ConfirmDeleteDialog
           person={deleteTarget}
+          visualVariant={visualVariant}
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
         />

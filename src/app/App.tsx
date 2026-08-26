@@ -410,8 +410,8 @@ const router = createBrowserRouter([
       { path: asChildPath(routePath("page:rd-task-management", "/rd-task-management")), element: makeLazyProtected(<RDTaskManagementPage key="ws-rd" />, "page:rd-task-management") },
       { path: asChildPath(routePath("page:issue-ai", "/issue-ai")), element: makeLazyProtected(<IssueAiModule />, "page:issue-ai") },
       // 由动作码 rd-people:manage 守卫（目录中为 action 类型、无 routePath），故路径保持硬编码
-      { path: "rd-people-management", element: makeLazyProtected(<RDPeopleManagementPage key="ws-rd" onBack={() => window.history.back()} />, "rd-people:manage") },
-      { path: "rd-my-workspace", element: makeLazyProtected(<RDMyWorkspacePage key="ws-rd" />, "page:rd-my-workspace") },
+      { path: "rd-people-management", element: makeLazyProtected(<RDPeopleManagementPage key="ws-rd" visualVariant="rd-horizon" onBack={() => window.history.back()} />, "rd-people:manage") },
+      { path: asChildPath(routePath("page:rd-my-workspace", "/rd-my-workspace")), element: makeLazyProtected(<RDMyWorkspacePage key="ws-rd" />, "page:rd-my-workspace") },
       { path: "rd-discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       { path: asChildPath(routePath("page:rd-sheet", "/rd-sheet")), element: makeLazyProtected(<RDSheetPage />, "page:rd-sheet") },
       // 研发知识库：页面与部门库共用统一入口（顶部下拉可互切），底层仍是 /knowledge/* + rd-kb:* 那一套

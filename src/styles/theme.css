@@ -1996,12 +1996,17 @@
   border-radius: 16px !important;
   background: var(--rd-surface) !important;
   box-shadow: none !important;
-  transition: border-color 160ms ease, box-shadow 160ms ease !important;
+  transition: border-color 160ms ease, background-color 160ms ease, opacity 160ms ease !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-system-card:hover {
   border-color: rgba(0, 47, 167, 0.08) !important;
-  box-shadow: 0 8px 22px rgba(112, 144, 176, 0.075) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-system-arrow,
+.rd-horizon-cockpit .rd-horizon-system-card:hover .rd-horizon-system-arrow {
+  transform: none !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-system-accent {
@@ -3374,6 +3379,1904 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+ * 问题记录与 AI 定位：Horizon / Klein Blue 精修
+ * 页面只挂载于 /issue-ai；语义色（严重度、状态、6M、方案类型）继续由业务组件控制。
+ * ──────────────────────────────────────────────────────────────────────────── */
+.rd-horizon-issue-ai {
+  container: rd-issue-ai / inline-size;
+  color: var(--rd-body) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-ai > .material-scrollbar > div {
+  width: 100%;
+  max-width: 95rem !important;
+  margin-inline: auto;
+  padding: 0 !important;
+}
+
+.rd-horizon-issue-ai :where(h1, h2, h3) {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-issue-ai :where(button, input, textarea, select, [role="button"], [tabindex]):focus-visible,
+.rd-horizon-issue-drawer :where(button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-ai [data-slot="button"],
+.rd-horizon-issue-drawer [data-slot="button"] {
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-issue-ai [data-slot="button"].bg-primary,
+.rd-horizon-issue-drawer [data-slot="button"].bg-primary,
+.rd-horizon-issue-ai .rd-horizon-issue-primary-action {
+  border-color: var(--rd-primary) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-issue-ai [data-slot="button"].bg-primary:hover,
+.rd-horizon-issue-drawer [data-slot="button"].bg-primary:hover,
+.rd-horizon-issue-ai .rd-horizon-issue-primary-action:hover {
+  border-color: var(--rd-primary-hover) !important;
+  background: var(--rd-primary-hover) !important;
+}
+
+/* 列表：命令区 */
+.rd-horizon-issue-list-page {
+  gap: 1.25rem !important;
+}
+
+.rd-horizon-issue-list-page .rd-horizon-issue-context {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center !important;
+  gap: 1.25rem !important;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  padding: 1.25rem;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-focal);
+}
+
+.rd-horizon-issue-context-kicker {
+  border-color: rgba(0, 47, 167, 0.1) !important;
+  border-radius: 999px !important;
+  padding: 0.3125rem 0.625rem !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-issue-avatar:not(img),
+.rd-horizon-issue-reusable-badge {
+  border-color: rgba(0, 47, 167, 0.1) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-issue-reusable-badge {
+  border-radius: 999px !important;
+}
+
+.rd-horizon-issue-context-title {
+  margin-top: 0.625rem !important;
+  font-size: 1.25rem !important;
+  line-height: 1.55rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em;
+}
+
+.rd-horizon-issue-context-copy {
+  max-width: 52rem !important;
+  color: var(--rd-muted) !important;
+  font-size: 0.8125rem !important;
+  line-height: 1.3rem !important;
+}
+
+.rd-horizon-issue-primary-action {
+  min-height: 2.5rem !important;
+  padding-inline: 1rem !important;
+}
+
+/* 列表：单层数据带 */
+.rd-horizon-issue-stats-region {
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  background: var(--rd-line) !important;
+  box-shadow: var(--rd-shadow-card);
+}
+
+.rd-horizon-issue-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 1px !important;
+  background: var(--rd-line) !important;
+}
+
+.rd-horizon-issue-stat {
+  min-height: 5.25rem !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 1rem !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-stat:last-child {
+  grid-column: 1 / -1;
+}
+
+.rd-horizon-issue-stat-icon {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  border-radius: 12px !important;
+  color: var(--rd-muted) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-issue-stat[data-tone="amber"] .rd-horizon-issue-stat-icon {
+  color: #b7791f !important;
+  background: #fff6da !important;
+}
+
+.rd-horizon-issue-stat[data-tone="emerald"] .rd-horizon-issue-stat-icon {
+  color: #01a66f !important;
+  background: #e6faf5 !important;
+}
+
+.rd-horizon-issue-stat[data-tone="indigo"] .rd-horizon-issue-stat-icon {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-issue-stat[data-tone="sky"] .rd-horizon-issue-stat-icon {
+  color: #0284c7 !important;
+  background: #effaff !important;
+}
+
+.rd-horizon-issue-stat-label {
+  color: var(--rd-muted) !important;
+  font-size: 0.6875rem !important;
+  line-height: 1rem !important;
+  font-weight: 600;
+}
+
+.rd-horizon-issue-stat-value {
+  margin-top: 0.375rem !important;
+  color: var(--rd-ink) !important;
+  font-size: 1.375rem !important;
+  line-height: 1.5rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em;
+}
+
+.rd-horizon-issue-stat[data-tone="amber"] .rd-horizon-issue-stat-value {
+  color: #a16207 !important;
+}
+
+.rd-horizon-issue-stat[data-tone="emerald"] .rd-horizon-issue-stat-value {
+  color: #01865b !important;
+}
+
+.rd-horizon-issue-stat[data-tone="indigo"] .rd-horizon-issue-stat-value {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-issue-stat[data-tone="sky"] .rd-horizon-issue-stat-value {
+  color: #0369a1 !important;
+}
+
+.rd-horizon-issue-stat--loading {
+  background: linear-gradient(90deg, #ffffff 15%, #f6f8fd 50%, #ffffff 85%) !important;
+  background-size: 220% 100% !important;
+}
+
+/* 列表：筛选与主数据面 */
+.rd-horizon-issue-filters {
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  padding: 0.75rem !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-issue-status-tabs {
+  gap: 0.25rem !important;
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  padding: 0.25rem !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-issue-status-tabs > button {
+  min-height: 2rem;
+  border-radius: 9px !important;
+  padding-inline: 0.75rem !important;
+  color: var(--rd-muted) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-status-tabs > button:hover {
+  color: var(--rd-ink) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+}
+
+.rd-horizon-issue-status-tabs > button[data-active="true"] {
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 4px 12px rgba(0, 47, 167, 0.14) !important;
+}
+
+.rd-horizon-issue-search {
+  max-width: 20rem !important;
+}
+
+.rd-horizon-issue-search input {
+  height: 2.5rem !important;
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-search input:hover {
+  border-color: var(--rd-line-strong) !important;
+}
+
+.rd-horizon-issue-search input:focus,
+.rd-horizon-issue-search input:focus-visible {
+  border-color: rgba(0, 47, 167, 0.28) !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+}
+
+.rd-horizon-issue-active-filter {
+  border-color: rgba(0, 47, 167, 0.1) !important;
+  border-radius: 999px !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-issue-active-filter > button:hover {
+  color: var(--rd-primary) !important;
+  background: rgba(0, 47, 167, 0.08) !important;
+}
+
+.rd-horizon-issue-active-filter > button {
+  display: inline-flex;
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.rd-horizon-issue-list-surface {
+  overflow: hidden;
+  gap: 0 !important;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  padding: 0.5rem;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-focal);
+}
+
+.rd-horizon-issue-list-surface[data-view="reusable"] {
+  overflow: visible;
+  padding: 0;
+  background: transparent !important;
+  box-shadow: none;
+}
+
+.rd-horizon-issue-rows {
+  gap: 0 !important;
+}
+
+.rd-horizon-issue-row {
+  min-height: 4.75rem;
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  color: var(--rd-body) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-issue-row:first-child {
+  border-top-left-radius: 12px !important;
+  border-top-right-radius: 12px !important;
+}
+
+.rd-horizon-issue-row:last-child {
+  border-bottom: 0 !important;
+  border-bottom-right-radius: 12px !important;
+  border-bottom-left-radius: 12px !important;
+}
+
+.rd-horizon-issue-row:hover {
+  border-bottom-color: transparent !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-row:hover + .rd-horizon-issue-row {
+  border-top-color: transparent !important;
+}
+
+.rd-horizon-issue-row .group-hover\:text-indigo-700 {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-issue-row:hover .group-hover\:text-indigo-700 {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-issue-row :where(img, span[aria-hidden]) {
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-reusable-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 0.75rem !important;
+  padding: 0.25rem;
+}
+
+.rd-horizon-issue-reusable-card {
+  min-height: 11.5rem !important;
+  border-color: transparent !important;
+  border-radius: 16px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+  transform: none !important;
+}
+
+.rd-horizon-issue-reusable-card:hover {
+  border-color: rgba(0, 47, 167, 0.12) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: 0 12px 30px rgba(112, 144, 176, 0.1) !important;
+}
+
+.rd-horizon-issue-reusable-title {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-issue-reuse-suggestion {
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 0 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-reuse-suggestion > div:first-child > span:first-child {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-issue-list-state {
+  border: 0 !important;
+  border-radius: 14px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-pagination {
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--rd-line);
+  padding: 0.875rem 0.5rem 0.25rem !important;
+}
+
+.rd-horizon-issue-pagination button {
+  min-height: 2.25rem !important;
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 9px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-pagination > div:last-child {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 0.125rem;
+}
+
+.rd-horizon-issue-pagination button:hover:not(:disabled) {
+  border-color: rgba(0, 47, 167, 0.12) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-issue-pagination button[aria-current="page"] {
+  border-color: rgba(0, 47, 167, 0.12) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+/* 详情：页面结构与两级表面 */
+.rd-horizon-issue-detail {
+  color: var(--rd-body);
+}
+
+.rd-horizon-issue-state {
+  width: min(100%, 42rem);
+  border: 1px solid transparent;
+  border-radius: 20px;
+  color: var(--rd-muted) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card);
+}
+
+.rd-horizon-issue-back {
+  min-height: 2.25rem;
+  border-radius: 10px !important;
+  padding-inline: 0.625rem !important;
+  color: var(--rd-muted) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-back:hover {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-issue-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 1.25rem !important;
+}
+
+.rd-horizon-issue-main,
+.rd-horizon-issue-sidebar {
+  min-width: 0;
+}
+
+.rd-horizon-issue-context,
+.rd-horizon-issue-description,
+.rd-horizon-issue-supporting,
+.rd-horizon-issue-analysis,
+.rd-horizon-issue-conversation {
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  color: var(--rd-body);
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-issue-context {
+  box-shadow: var(--rd-shadow-focal) !important;
+}
+
+.rd-horizon-issue-context-body {
+  padding: 1.25rem !important;
+}
+
+.rd-horizon-issue-context-meta {
+  color: var(--rd-muted) !important;
+}
+
+.rd-horizon-issue-heading {
+  color: var(--rd-ink) !important;
+  font-size: 1.375rem !important;
+  line-height: 1.75rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.025em;
+}
+
+.rd-horizon-issue-metadata {
+  gap: 0.875rem 1.25rem !important;
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 1rem 0 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-meta-cell dt {
+  color: var(--rd-subtle) !important;
+  font-size: 0.6875rem !important;
+  font-weight: 600;
+}
+
+.rd-horizon-issue-meta-cell dd {
+  color: var(--rd-body) !important;
+  font-size: 0.8125rem !important;
+}
+
+.rd-horizon-issue-section-heading h2,
+.rd-horizon-issue-analysis-header h2,
+.rd-horizon-issue-conversation-header h2,
+.rd-horizon-issue-adopted h2 {
+  color: var(--rd-ink) !important;
+  font-size: 0.9375rem !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-issue-description-body {
+  padding: 0 !important;
+  color: var(--rd-body) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-attachment {
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-issue-attachment button {
+  min-width: 2rem;
+  min-height: 2rem;
+}
+
+.rd-horizon-issue-attachment pre {
+  border-color: var(--rd-line) !important;
+  border-radius: 10px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-supporting {
+  gap: 0 !important;
+  overflow: hidden;
+}
+
+.rd-horizon-issue-adopted,
+.rd-horizon-issue-timeline {
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 1rem 1.25rem !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-adopted {
+  border-bottom: 1px solid var(--rd-line) !important;
+}
+
+.rd-horizon-issue-adopted-content {
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 0 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-adopted h2 > svg,
+.rd-horizon-issue-analysis-header h2 > svg,
+.rd-horizon-issue-analysis-loading > svg {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-issue-timeline-list > li > span > span {
+  box-shadow: 0 0 0 3px var(--rd-surface) !important;
+}
+
+.rd-horizon-issue-adjustment-trail {
+  border-top-color: var(--rd-line) !important;
+}
+
+.rd-horizon-issue-analysis {
+  padding: 1.25rem !important;
+}
+
+.rd-horizon-issue-analysis-header select,
+.rd-horizon-issue-chat-composer select {
+  min-height: 2.25rem;
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-reuse {
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.875rem 0 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-reuse > p:first-child,
+.rd-horizon-issue-reuse > p:nth-child(2) .font-mono {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-issue-reuse-content {
+  border: 0 !important;
+  border-top: 1px solid rgba(0, 47, 167, 0.1) !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 0 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-analysis-loading {
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-issue-analysis-summary {
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0 0 0.875rem !important;
+  color: var(--rd-body) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-causes {
+  border-top: 1px solid var(--rd-line);
+  padding-top: 0.25rem;
+}
+
+.rd-horizon-issue-cause-card {
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.875rem 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-cause-card:last-child {
+  border-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.rd-horizon-issue-solution {
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-solution[data-adopted="true"] {
+  border-color: rgba(1, 181, 116, 0.22) !important;
+  background: #f0fbf7 !important;
+}
+
+.rd-horizon-issue-conversation {
+  min-height: 31rem !important;
+  overflow: hidden;
+}
+
+.rd-horizon-issue-conversation-header {
+  border-bottom-color: var(--rd-line) !important;
+  padding: 1rem 1.25rem !important;
+}
+
+.rd-horizon-issue-chat-stream {
+  background: transparent !important;
+}
+
+.rd-horizon-issue-message > span:first-child {
+  color: var(--rd-muted) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-issue-message[data-message-role="user"] > span:first-child {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-issue-message > div > div:last-child {
+  border: 1px solid transparent;
+  border-radius: 12px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-issue-message[data-message-role="user"] > div > div:last-child {
+  border-color: var(--rd-primary) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-issue-chat-composer {
+  border-top-color: var(--rd-line) !important;
+  background: var(--rd-surface) !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-issue-chat-composer textarea {
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 12px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-chat-composer textarea:focus,
+.rd-horizon-issue-chat-composer textarea:focus-visible {
+  border-color: rgba(0, 47, 167, 0.28) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+}
+
+.rd-horizon-issue-chat-dropzone {
+  border-color: rgba(0, 47, 167, 0.28) !important;
+  background: rgba(238, 243, 255, 0.94) !important;
+}
+
+.rd-horizon-issue-chat-dropzone :where(svg, div:first-of-type) {
+  color: var(--rd-primary) !important;
+}
+
+/* 新建问题：单一抽屉表面 */
+.rd-horizon-issue-drawer {
+  --rd-primary: #002fa7;
+  --rd-primary-hover: #002581;
+  --rd-ink: #1b2559;
+  --rd-body: #42526f;
+  --rd-muted: #64748b;
+  --rd-subtle: #8f9bba;
+  --rd-canvas: #f4f7fe;
+  --rd-surface: #ffffff;
+  --rd-soft-blue: #eef3ff;
+  --rd-line: #e9edf7;
+  --rd-line-strong: #e0e5f2;
+  z-index: 90 !important;
+}
+
+.rd-horizon-issue-drawer-backdrop {
+  background: rgba(27, 37, 89, 0.32) !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-issue-drawer-surface {
+  width: min(38rem, calc(100vw - 1.5rem)) !important;
+  max-width: 38rem !important;
+  overflow: hidden;
+  border-left: 1px solid var(--rd-line) !important;
+  border-top-left-radius: 20px;
+  border-bottom-left-radius: 20px;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: -18px 0 52px rgba(27, 37, 89, 0.16) !important;
+}
+
+.rd-horizon-issue-drawer-header,
+.rd-horizon-issue-drawer-footer {
+  flex: none;
+  border-color: var(--rd-line) !important;
+  padding: 1rem 1.25rem !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-issue-drawer-header h2 {
+  color: var(--rd-ink) !important;
+  font-size: 1.125rem !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-issue-drawer-header p {
+  color: var(--rd-muted) !important;
+  font-size: 0.6875rem !important;
+}
+
+.rd-horizon-issue-drawer-header > button {
+  border-radius: 10px !important;
+  color: var(--rd-muted) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-drawer-header > button:hover {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-issue-drawer-body {
+  padding: 1.25rem !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-issue-drawer-note {
+  border: 0 !important;
+  border-radius: 12px !important;
+  color: var(--rd-muted) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-issue-drawer-field > span:first-child {
+  margin-bottom: 0.375rem !important;
+  color: var(--rd-body) !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+}
+
+.rd-horizon-issue-drawer-field :where(input, textarea) {
+  min-height: 2.5rem;
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 12px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-drawer-field :where(input, textarea):focus,
+.rd-horizon-issue-drawer-field :where(input, textarea):focus-visible {
+  border-color: rgba(0, 47, 167, 0.28) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+}
+
+.rd-horizon-issue-drawer-dropzone {
+  min-height: 7.5rem;
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 14px !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-issue-drawer-dropzone:hover {
+  border-color: rgba(0, 47, 167, 0.24) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-issue-drawer-dropzone .animate-spin,
+.rd-horizon-issue-file-picker,
+.rd-horizon-issue-similarity-score .font-mono,
+.rd-horizon-issue-similar-solution > div:first-child > span:first-child {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-issue-file-picker:focus-within {
+  border-radius: 4px;
+  outline: 2px solid rgba(0, 47, 167, 0.72);
+  outline-offset: 2px;
+}
+
+.rd-horizon-issue-drawer-attachment {
+  border-color: transparent !important;
+  border-radius: 10px !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-issue-drawer-attachment button {
+  min-width: 2rem;
+  min-height: 2rem;
+}
+
+.rd-horizon-issue-similar-list {
+  gap: 0 !important;
+}
+
+.rd-horizon-issue-similar-card {
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 1rem 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-issue-similar-card:last-child {
+  border-bottom: 0 !important;
+}
+
+.rd-horizon-issue-similar-solution {
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 0 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-issue-similarity-score svg circle:last-child {
+  stroke: var(--rd-primary) !important;
+}
+
+@container rd-issue-ai (min-width: 48rem) {
+  .rd-horizon-issue-stats {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+
+  .rd-horizon-issue-stat:last-child {
+    grid-column: auto;
+  }
+
+  .rd-horizon-issue-reusable-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@container rd-issue-ai (min-width: 68rem) {
+  .rd-horizon-issue-detail-viewport {
+    overflow: hidden !important;
+  }
+
+  .rd-horizon-issue-detail-shell {
+    height: 100% !important;
+  }
+
+  .rd-horizon-issue-detail,
+  .rd-horizon-issue-grid {
+    height: 100%;
+  }
+
+  .rd-horizon-issue-grid {
+    grid-template-columns: minmax(21rem, 24rem) minmax(0, 1fr) !important;
+  }
+
+  .rd-horizon-issue-main {
+    min-height: 0;
+    overflow-y: auto !important;
+    padding-right: 0.25rem;
+  }
+
+  .rd-horizon-issue-sidebar {
+    position: static !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.75rem !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+
+  .rd-horizon-issue-sidebar > * + * {
+    margin-top: 0 !important;
+  }
+
+  .rd-horizon-issue-analysis {
+    flex: 0 0 auto !important;
+    max-height: 48% !important;
+    overflow-y: auto !important;
+  }
+
+  .rd-horizon-issue-conversation {
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+  }
+}
+
+@container rd-issue-ai (min-width: 86rem) {
+  .rd-horizon-issue-reusable-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@container rd-issue-ai (max-width: 47.999rem) {
+  .rd-horizon-issue-list-page .rd-horizon-issue-context {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rd-horizon-issue-primary-action {
+    justify-self: start;
+  }
+
+  .rd-horizon-issue-filters > div:first-child {
+    align-items: stretch !important;
+  }
+
+  .rd-horizon-issue-search {
+    margin-left: 0 !important;
+    max-width: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-horizon-issue-ai *,
+  .rd-horizon-issue-drawer * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 研发数据表：Horizon / Klein Blue 精修
+ * 页面只保留「命令面 + 工作簿」两级表面；说明信息不再形成第三张白卡。
+ * ──────────────────────────────────────────────────────────────────────────── */
+.rd-horizon-sheet,
+.rd-horizon-sheet-dialog {
+  --rd-primary: #002fa7;
+  --rd-primary-hover: #002581;
+  --rd-ink: #1b2559;
+  --rd-body: #42526f;
+  --rd-muted: #64748b;
+  --rd-subtle: #8f9bba;
+  --rd-canvas: #f4f7fe;
+  --rd-surface: #ffffff;
+  --rd-soft-blue: #eef3ff;
+  --rd-line: #e9edf7;
+  --rd-line-strong: #e0e5f2;
+  --rd-shadow-card: 0 8px 24px rgba(112, 144, 176, 0.07);
+  --rd-shadow-focal: 0 16px 36px rgba(112, 144, 176, 0.11);
+}
+
+.rd-horizon-sheet {
+  container: rd-sheet / inline-size;
+  gap: 0.75rem;
+  padding: 0;
+  color: var(--rd-body);
+  background: transparent !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-command {
+  margin: 0 !important;
+  overflow: visible !important;
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  padding: 1.25rem !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-focal) !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-command-layout {
+  display: grid !important;
+  grid-template-columns: minmax(15rem, 1fr) auto !important;
+  align-items: center !important;
+  gap: 1rem 1.5rem !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-heading {
+  margin: 0 !important;
+  color: var(--rd-ink) !important;
+  font-size: 1.125rem !important;
+  line-height: 1.5rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.015em;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-icon {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  border-radius: 12px !important;
+  color: #fff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-subtitle {
+  margin: 0.375rem 0 0 3.25rem !important;
+  color: var(--rd-muted) !important;
+  font-size: 0.75rem !important;
+  line-height: 1.125rem !important;
+  font-weight: 500 !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-end !important;
+  gap: 0.375rem !important;
+  min-width: 0;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-action,
+.rd-horizon-sheet .rd-horizon-sheet-primary {
+  min-height: 2.5rem !important;
+  border-radius: 12px !important;
+  padding-inline: 0.75rem !important;
+  font-size: 0.75rem !important;
+  line-height: 1rem !important;
+  font-weight: 650 !important;
+  box-shadow: none !important;
+  transform: none !important;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-action {
+  border-color: transparent !important;
+  color: var(--rd-body) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-action:hover,
+.rd-horizon-sheet .rd-horizon-sheet-action:focus-visible {
+  border-color: rgba(0, 47, 167, 0.08) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-import {
+  border-color: rgba(0, 47, 167, 0.16) !important;
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-primary {
+  border-color: var(--rd-primary) !important;
+  color: #fff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-primary:hover:not(:disabled),
+.rd-horizon-sheet .rd-horizon-sheet-primary:focus-visible:not(:disabled) {
+  border-color: var(--rd-primary-hover) !important;
+  color: #fff !important;
+  background: var(--rd-primary-hover) !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-feedback {
+  margin: 0 !important;
+  padding: 0 0.5rem !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-guidance {
+  min-height: 2rem;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0.25rem 0 !important;
+  color: var(--rd-muted) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-guidance strong {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-guidance svg {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-notice,
+.rd-horizon-sheet .rd-horizon-sheet-error {
+  border-radius: 12px !important;
+  padding: 0.625rem 0.75rem !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-notice {
+  border-color: rgba(0, 47, 167, 0.12) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-editor {
+  margin: 0 !important;
+  min-width: 0;
+  min-height: 32rem;
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-sheet .rd-horizon-sheet-state {
+  color: var(--rd-muted) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-sheet :where(button, [role="button"], input, select, textarea):focus-visible,
+.rd-horizon-sheet-dialog :where(button, [role="button"], input, select, textarea):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+/* DialogContent 通过 Portal 挂到 body，必须使用自身作用域。 */
+.rd-horizon-sheet-dialog {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(32rem, calc(100vw - 2rem)) !important;
+  max-height: min(42rem, calc(100dvh - 2rem));
+  overflow: hidden;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 20px !important;
+  padding: 1.25rem !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: 0 22px 56px rgba(112, 144, 176, 0.2) !important;
+}
+
+.rd-horizon-sheet-dialog h2 {
+  color: var(--rd-ink) !important;
+  font-size: 1.125rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.015em;
+}
+
+.rd-horizon-sheet-dialog [data-slot="dialog-description"] {
+  color: var(--rd-muted) !important;
+}
+
+.rd-horizon-sheet-dialog .rd-horizon-sheet-version-list {
+  min-height: 0;
+  height: 100%;
+  max-height: min(20rem, calc(100dvh - 12rem)) !important;
+  overflow-y: auto !important;
+  scrollbar-color: var(--rd-line-strong) transparent;
+}
+
+.rd-horizon-sheet-dialog .rd-horizon-sheet-version {
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 0.25rem !important;
+  background: transparent !important;
+}
+
+.rd-horizon-sheet-dialog .rd-horizon-sheet-version:last-child {
+  border-bottom: 0 !important;
+}
+
+.rd-horizon-sheet-dialog .rd-horizon-sheet-version > div > div:first-child {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-sheet-dialog .rd-horizon-sheet-version > div > div:last-child {
+  color: var(--rd-muted) !important;
+}
+
+.rd-horizon-sheet-dialog .rd-horizon-sheet-restore {
+  min-height: 2.25rem !important;
+  border-color: transparent !important;
+  border-radius: 10px !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-sheet-dialog .rd-horizon-sheet-restore:hover {
+  color: #fff !important;
+  background: var(--rd-primary) !important;
+}
+
+@container rd-sheet (max-width: 71.999rem) {
+  .rd-horizon-sheet .rd-horizon-sheet-command-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .rd-horizon-sheet .rd-horizon-sheet-actions {
+    justify-content: flex-start !important;
+  }
+}
+
+@container rd-sheet (max-width: 51.999rem) {
+  .rd-horizon-sheet .rd-horizon-sheet-command {
+    padding: 1rem !important;
+  }
+
+  .rd-horizon-sheet .rd-horizon-sheet-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rd-horizon-sheet .rd-horizon-sheet-action,
+  .rd-horizon-sheet .rd-horizon-sheet-primary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .rd-horizon-sheet .rd-horizon-sheet-actions > :only-child {
+    grid-column: 1 / -1;
+  }
+
+  .rd-horizon-sheet .rd-horizon-sheet-subtitle {
+    margin-left: 0 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-horizon-sheet *,
+  .rd-horizon-sheet-dialog,
+  .rd-horizon-sheet-dialog * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 原生研发个人工作台：Horizon / Klein Blue 精修
+ * 仅由 RDMyWorkspacePage 在非协同、非生产工作区挂载的根类开启。
+ * 父级继续负责画布；本页只建立单层数据面、任务工作面与辅助侧栏。
+ * ──────────────────────────────────────────────────────────────────────────── */
+.rd-horizon-workspace {
+  padding: 0.875rem 1rem 1.25rem !important;
+  background: transparent !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-shell {
+  width: 100%;
+  max-width: 95rem !important;
+  gap: 1rem !important;
+  container-name: rd-workspace;
+  container-type: inline-size;
+}
+
+.rd-horizon-workspace :where(h2, h3) {
+  color: var(--rd-ink);
+}
+
+.rd-horizon-workspace :where(button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-command {
+  flex: 0 0 auto;
+  min-height: 4.75rem;
+  overflow: hidden;
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  padding: 1rem 1.125rem !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-focal) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-command > div {
+  min-height: 2.75rem;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-title {
+  margin-right: 0.25rem;
+  color: var(--rd-ink) !important;
+  font-size: 1.05rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.012em;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-date {
+  margin-right: 0.25rem;
+  color: var(--rd-subtle) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-metrics {
+  row-gap: 0.5rem !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-metric {
+  min-height: 1.75rem;
+  border-left: 1px solid var(--rd-line);
+  border-radius: 0 !important;
+  padding: 0.25rem 0.625rem !important;
+  background: transparent !important;
+  color: var(--rd-body) !important;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25rem;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-metric[data-tone="brand"] {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-metric[data-tone="complete"] {
+  color: #15805f !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-metric[data-tone="danger"] {
+  color: #dc2626 !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-metric[data-tone="warning"] {
+  color: #b45309 !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-primary-action {
+  min-height: 2.5rem;
+  border-radius: 12px !important;
+  padding: 0.625rem 0.875rem !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 10px 20px -14px rgba(0, 47, 167, 0.68) !important;
+  transform: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-primary-action:hover {
+  background: var(--rd-primary-hover) !important;
+  box-shadow: 0 12px 24px -16px rgba(0, 47, 167, 0.76) !important;
+  transform: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-primary-action svg {
+  transform: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-grid {
+  gap: 1rem !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-main {
+  gap: 0 !important;
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--rd-surface);
+  box-shadow: var(--rd-shadow-card);
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-filters {
+  z-index: 2;
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.875rem 1rem !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-search input {
+  min-height: 2.5rem;
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: inset 0 0 0 1px var(--rd-line) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-search input:hover {
+  box-shadow: inset 0 0 0 1px var(--rd-line-strong) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-search input:focus,
+.rd-horizon-workspace .rd-horizon-workspace-search input:focus-visible {
+  border-color: rgba(0, 47, 167, 0.28) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-filter-controls {
+  scrollbar-color: var(--rd-line-strong) transparent;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-filter-controls > select {
+  min-height: 2.5rem !important;
+  border-color: var(--rd-line) !important;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background-color: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-filter-controls > select:hover {
+  border-color: rgba(0, 47, 167, 0.2) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-role-tabs {
+  min-height: 2.5rem;
+  border-color: transparent !important;
+  border-radius: 11px !important;
+  padding: 0.1875rem !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-role-tabs [role="tab"] {
+  min-height: 2.125rem;
+  border-radius: 8px !important;
+  color: var(--rd-muted) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-role-tabs [role="tab"][aria-selected="true"] {
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 5px 12px -9px rgba(0, 47, 167, 0.75) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-task-scroll {
+  padding: 0 1rem 1rem !important;
+  background: var(--rd-surface);
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0 !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-task-card {
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-task-card:hover {
+  border-color: var(--rd-line) !important;
+  background: rgba(238, 243, 255, 0.5) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-task-card[data-selected="true"] {
+  background: var(--rd-soft-blue) !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.34) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-task-card[data-status="pending_review"] {
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-task-card-body {
+  min-height: 11.5rem !important;
+  padding: 1rem 0.375rem !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-task-card :where(.bg-indigo-50, .bg-violet-50) {
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-task-card :where(.text-indigo-600, .text-indigo-700, .text-violet-600, .text-violet-700) {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-task-card button:hover {
+  transform: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-task-progress {
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-task-progress--complete {
+  background: #10b981 !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-aside {
+  padding-right: 0.25rem !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-aside > * + * {
+  margin-top: 1rem !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-streak-card {
+  border: 0 !important;
+  border-radius: 20px !important;
+  background-color: var(--rd-primary) !important;
+  background-image: none !important;
+  box-shadow: var(--rd-shadow-focal) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-streak-card :where(button, svg) {
+  transform: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-section {
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  padding: 1rem !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-section-heading {
+  min-height: 2rem;
+  margin-bottom: 0.375rem !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-section-heading h2 {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-section-heading h2 > svg {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-section-heading h2 > span {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-section ul {
+  gap: 0 !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-notification,
+.rd-horizon-workspace .rd-horizon-workspace-ai-card {
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.875rem 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-notification:hover,
+.rd-horizon-workspace .rd-horizon-workspace-ai-card:hover {
+  background: rgba(238, 243, 255, 0.44) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-ai-score {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-workspace :where(button.bg-indigo-600, button.bg-violet-600) {
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-workspace :where(button.bg-indigo-600, button.bg-violet-600):hover {
+  background: var(--rd-primary-hover) !important;
+  transform: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-drawer-backdrop,
+.rd-horizon-workspace .rd-horizon-workspace-confirm-backdrop {
+  background: rgba(15, 23, 42, 0.34) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-drawer-surface {
+  width: min(100%, 40rem) !important;
+  border: 0 !important;
+  border-radius: 20px 0 0 20px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: -24px 0 64px -34px rgba(27, 37, 89, 0.52) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-drawer-header {
+  min-height: 5rem;
+  border-color: var(--rd-line) !important;
+  padding: 1.125rem 1.25rem !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-drawer-header > div > span:first-child {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-drawer-body {
+  padding: 1.25rem !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-confirm-surface {
+  border-color: transparent !important;
+  border-radius: 20px !important;
+  box-shadow: 0 24px 64px -28px rgba(27, 37, 89, 0.52) !important;
+}
+
+@container rd-workspace (min-width: 70rem) {
+  .rd-horizon-workspace-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 22rem) !important;
+    overflow: hidden !important;
+  }
+
+  .rd-horizon-workspace-main,
+  .rd-horizon-workspace-aside {
+    min-height: 0 !important;
+  }
+
+  .rd-horizon-workspace-aside {
+    display: block !important;
+    overflow-y: auto !important;
+  }
+}
+
+@container rd-workspace (max-width: 69.999rem) {
+  .rd-horizon-workspace-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-content: start;
+    overflow-y: auto !important;
+  }
+
+  .rd-horizon-workspace-main {
+    min-height: 34rem;
+  }
+
+  .rd-horizon-workspace-aside {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    overflow: visible !important;
+    padding-right: 0 !important;
+  }
+
+  .rd-horizon-workspace-aside > * + * {
+    margin-top: 0 !important;
+  }
+}
+
+@container rd-workspace (max-width: 56rem) {
+  .rd-horizon-workspace-command > div,
+  .rd-horizon-workspace-filters > div {
+    align-items: stretch !important;
+  }
+
+  .rd-horizon-workspace-filters > div {
+    flex-wrap: wrap;
+  }
+
+  .rd-horizon-workspace-search {
+    flex-basis: 100%;
+    max-width: none !important;
+  }
+
+  .rd-horizon-workspace-filter-controls {
+    width: 100% !important;
+  }
+}
+
+@container rd-workspace (max-width: 46rem) {
+  .rd-horizon-workspace-command > div {
+    align-items: flex-start !important;
+  }
+
+  .rd-horizon-workspace-primary-action {
+    margin-left: 0;
+  }
+
+  .rd-horizon-workspace-aside {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-horizon-workspace *,
+  .rd-horizon-workspace *::before,
+  .rd-horizon-workspace *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* 研发任务讨论：保留线程工具属性，移除独立旧卡头与消费聊天式装饰。 */
+.rd-horizon-discussion {
+  container: rd-discussion / inline-size;
+  padding: 0 !important;
+  color: var(--rd-body);
+  background: transparent !important;
+}
+
+.rd-horizon-discussion .rd-horizon-discussion-surface {
+  max-width: none !important;
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-discussion .rd-horizon-discussion-header {
+  min-height: 4rem !important;
+  gap: 0.625rem !important;
+  border-bottom-color: var(--rd-line) !important;
+  padding: 0.625rem 1rem !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-discussion .rd-horizon-discussion-back {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  border-radius: 12px !important;
+  color: var(--rd-muted) !important;
+}
+
+.rd-horizon-discussion .rd-horizon-discussion-back:hover,
+.rd-horizon-discussion .rd-horizon-discussion-back:focus-visible {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-discussion .rd-horizon-discussion-icon {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  border-radius: 12px !important;
+  color: #fff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-discussion .rd-horizon-discussion-title {
+  color: var(--rd-ink) !important;
+  font-size: 0.9375rem !important;
+  line-height: 1.25rem !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-discussion .rd-horizon-discussion-badge,
+.rd-horizon-discussion .rd-horizon-discussion-scope {
+  border-color: rgba(0, 47, 167, 0.08) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-discussion .rd-horizon-discussion-conversation,
+.rd-horizon-discussion .rd-horizon-discussion-conversation > section {
+  min-height: 0;
+  border: 0 !important;
+  background: var(--rd-surface) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-discussion .rd-progress-anchor-card {
+  border: 1px solid var(--rd-line) !important;
+  border-left-width: 1px !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-discussion .rd-progress-anchor-card__header {
+  border-bottom-color: var(--rd-line) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-discussion .rd-conversation-composer {
+  border-top-color: var(--rd-line) !important;
+  background: var(--rd-surface) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-discussion .rd-conversation-composer__field {
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 12px !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-discussion .rd-conversation-composer__send {
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-discussion .rd-conversation-composer__send:not(:disabled) {
+  color: #fff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-discussion .rd-conversation-composer__send:disabled {
+  color: #fff !important;
+  background: #cbd5e1 !important;
+  opacity: 0.72;
+}
+
+.rd-horizon-discussion .rd-conversation-composer__field > label:first-child {
+  position: relative;
+}
+
+.rd-horizon-discussion .rd-conversation-composer__field > label:first-child > input[type="file"] {
+  display: block !important;
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.rd-horizon-discussion .rd-conversation-composer__field > label:first-child:focus-within {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+}
+
+.rd-horizon-discussion :where(button, [role="button"], input, textarea):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+@container rd-discussion (max-width: 47.999rem) {
+  .rd-horizon-discussion .rd-horizon-discussion-header {
+    padding-inline: 0.75rem !important;
+  }
+
+  .rd-horizon-discussion .rd-horizon-discussion-scope {
+    display: none !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
  * 移动端路由（/m）专用覆盖
  * 桌面外壳在 @layer base 里给 html/body/#root 强加了 min-width:1024px、body 锁竖向滚动、
  * #root 固定 100vh —— 这是为「最小 1024 的桌面应用」设计的，会把移动页强行撑到 1024 宽，
@@ -3413,4 +5316,3116 @@ html.mobile-route input:not([type="checkbox"]):not([type="radio"]),
 html.mobile-route textarea,
 html.mobile-route select {
   font-size: 16px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 原生研发人员管理：Horizon / Klein Blue 页面级精修
+ * 仅 /rd-people-management 显式挂载 .rd-horizon-people；协同与生产复用页不命中。
+ * 人员状态、知识库等级与删除动作继续使用各自业务语义色。
+ * ──────────────────────────────────────────────────────────────────────────── */
+.rd-horizon-people {
+  container: rd-people / inline-size;
+  gap: 1rem;
+  min-height: 100%;
+  padding: 1rem clamp(1rem, 2vw, 1.5rem) 1.5rem;
+  color: var(--rd-body);
+  background: transparent !important;
+}
+
+.rd-horizon-people .rd-people-context,
+.rd-horizon-people .rd-people-shell {
+  width: 100%;
+  max-width: 95rem !important;
+  margin-inline: auto;
+}
+
+.rd-horizon-people .rd-people-context {
+  flex: 0 0 auto;
+  min-height: 4.25rem;
+  padding: 0.875rem 1.125rem !important;
+  border: 1px solid transparent !important;
+  border-radius: 20px;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card);
+}
+
+.rd-horizon-people .rd-people-breadcrumb {
+  min-width: 0;
+  color: var(--rd-muted);
+}
+
+.rd-horizon-people .rd-people-breadcrumb > span:last-child {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-people .rd-people-back {
+  min-height: 2.5rem;
+  padding-inline: 0.75rem !important;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 12px !important;
+  color: var(--rd-body) !important;
+  background: #ffffff !important;
+}
+
+.rd-horizon-people .rd-people-back:hover {
+  border-color: rgba(0, 47, 167, 0.2) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-people .rd-people-back svg,
+.rd-horizon-people .rd-people-back:hover svg {
+  transform: none !important;
+}
+
+.rd-horizon-people .rd-people-primary,
+.rd-horizon-people .rd-people-empty-primary {
+  min-height: 2.5rem;
+  padding-inline: 1rem !important;
+  border: 1px solid var(--rd-primary) !important;
+  border-radius: 12px !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 10px 22px -14px rgba(0, 47, 167, 0.72) !important;
+}
+
+.rd-horizon-people .rd-people-primary:hover,
+.rd-horizon-people .rd-people-empty-primary:hover {
+  background: var(--rd-primary-hover) !important;
+  box-shadow: 0 10px 22px -14px rgba(0, 47, 167, 0.72) !important;
+  transform: none !important;
+}
+
+.rd-horizon-people .rd-people-readonly {
+  border-color: var(--rd-line-strong) !important;
+  color: var(--rd-muted) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-people .rd-people-viewport {
+  min-height: 0;
+  padding: 0 !important;
+  overflow: auto;
+}
+
+.rd-horizon-people .rd-people-shell {
+  padding-bottom: 0.25rem;
+}
+
+.rd-horizon-people .rd-people-stats,
+.rd-horizon-people .rd-people-filters,
+.rd-horizon-people .rd-people-table-surface {
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-people .rd-people-stats-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rd-line) !important;
+}
+
+.rd-horizon-people .rd-people-stat {
+  min-width: 0;
+  padding: 1.125rem 1.25rem !important;
+  border: 0 !important;
+  background: #ffffff;
+}
+
+.rd-horizon-people .rd-people-stat > div:first-child {
+  color: var(--rd-ink);
+  font-size: clamp(1.65rem, 2.1vw, 2rem) !important;
+  font-weight: 700 !important;
+  line-height: 1;
+}
+
+.rd-horizon-people .rd-people-stat[data-tone="success"] > div:first-child {
+  color: #059669 !important;
+}
+
+.rd-horizon-people .rd-people-stat[data-tone="warning"] > div:first-child:not(.text-slate-300) {
+  color: #d97706 !important;
+}
+
+.rd-horizon-people .rd-people-stat > div:last-child {
+  margin-top: 0.5rem !important;
+  color: var(--rd-muted) !important;
+  font-size: 0.6875rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em;
+}
+
+.rd-horizon-people .rd-people-filters {
+  gap: 0.75rem !important;
+  padding: 0.875rem 1rem !important;
+}
+
+.rd-horizon-people .rd-people-search {
+  min-height: 2.625rem;
+  padding-inline: 0.75rem !important;
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-people .rd-people-search:focus-within {
+  border-color: rgba(0, 47, 167, 0.24) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.07) !important;
+}
+
+.rd-horizon-people .rd-people-search input {
+  min-height: 2.25rem;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-people .rd-people-status-filter {
+  gap: 0.25rem !important;
+  min-height: 2.625rem;
+  padding: 0.25rem !important;
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-people .rd-people-status-filter button {
+  min-height: 2.125rem;
+  padding-inline: 0.75rem !important;
+  border: 0 !important;
+  border-radius: 9px !important;
+  color: var(--rd-muted) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-people .rd-people-status-filter button:hover {
+  color: var(--rd-primary) !important;
+  background: rgba(255, 255, 255, 0.82) !important;
+}
+
+.rd-horizon-people .rd-people-status-filter button[data-active="true"] {
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 7px 16px -12px rgba(0, 47, 167, 0.72) !important;
+}
+
+.rd-horizon-people .rd-people-department-filter {
+  min-height: 2.625rem;
+  padding-inline: 0.75rem 2rem !important;
+  border-color: transparent !important;
+  border-radius: 12px !important;
+  color: var(--rd-body) !important;
+  background-color: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-people .rd-people-department-filter:focus {
+  border-color: rgba(0, 47, 167, 0.24) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.07) !important;
+}
+
+.rd-horizon-people .rd-people-result-count {
+  color: var(--rd-muted) !important;
+  font-weight: 500;
+}
+
+.rd-horizon-people .rd-people-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+}
+
+.rd-horizon-people .rd-people-table {
+  min-width: 70rem;
+  border-collapse: collapse;
+}
+
+.rd-horizon-people .rd-people-table thead tr {
+  border-bottom-color: var(--rd-line) !important;
+  color: var(--rd-muted) !important;
+  background: #f8faff !important;
+}
+
+.rd-horizon-people .rd-people-table th {
+  height: 3rem;
+  padding-block: 0.75rem !important;
+  font-size: 0.6875rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.055em !important;
+}
+
+.rd-horizon-people .rd-people-table tbody {
+  border-color: var(--rd-line) !important;
+}
+
+.rd-horizon-people .rd-people-row {
+  border-color: var(--rd-line) !important;
+  background: #ffffff;
+}
+
+.rd-horizon-people .rd-people-row:hover {
+  background: #f8faff !important;
+}
+
+.rd-horizon-people .rd-people-row td {
+  padding-block: 0.9rem !important;
+}
+
+.rd-horizon-people .rd-people-avatar {
+  width: 2rem;
+  height: 2rem;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 0 0 3px var(--rd-soft-blue);
+}
+
+.rd-horizon-people .rd-people-row-actions {
+  opacity: 0.62 !important;
+}
+
+.rd-horizon-people .rd-people-row:hover .rd-people-row-actions,
+.rd-horizon-people .rd-people-row:focus-within .rd-people-row-actions {
+  opacity: 1 !important;
+}
+
+.rd-horizon-people .rd-people-row-actions button {
+  display: inline-flex;
+  width: 2.125rem;
+  height: 2.125rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 10px !important;
+  transform: none !important;
+}
+
+.rd-horizon-people .rd-people-row-actions button[data-action="edit"]:hover {
+  border-color: rgba(0, 47, 167, 0.14);
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-people .rd-people-pagination {
+  min-height: 3.75rem;
+  padding: 0.75rem 1.25rem !important;
+  border-top-color: var(--rd-line) !important;
+  background: #ffffff;
+}
+
+.rd-horizon-people .rd-people-pagination button {
+  min-width: 2.25rem;
+  height: 2.25rem;
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 10px !important;
+  color: var(--rd-muted) !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-people .rd-people-pagination button:not(:disabled):hover {
+  border-color: rgba(0, 47, 167, 0.2) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-people .rd-people-pagination button[data-active="true"] {
+  border-color: var(--rd-primary) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-people .rd-people-reset {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-people :where(button, input, select, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px;
+}
+
+.rd-horizon-people button {
+  transform: none !important;
+}
+
+/* Portal 到 body 的研发人员弹窗自带完整作用域，不依赖页面祖先选择器。 */
+.rd-horizon-people-dialog-overlay {
+  --rd-primary: #002fa7;
+  --rd-primary-hover: #002581;
+  --rd-ink: #1b2559;
+  --rd-body: #42526f;
+  --rd-muted: #64748b;
+  --rd-canvas: #f4f7fe;
+  --rd-soft-blue: #eef3ff;
+  --rd-line: #e9edf7;
+  --rd-line-strong: #e0e5f2;
+  z-index: 90 !important;
+  padding: 1rem !important;
+  background: rgba(27, 37, 89, 0.32) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-people-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 2rem);
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 20px !important;
+  color: var(--rd-body);
+  background: #ffffff !important;
+  box-shadow: 0 22px 56px rgba(27, 37, 89, 0.2) !important;
+}
+
+.rd-horizon-people-dialog .rd-people-dialog-header {
+  flex: 0 0 auto;
+  padding: 1.125rem 1.25rem !important;
+  border-bottom-color: var(--rd-line) !important;
+}
+
+.rd-horizon-people-dialog :where(h2, h3) {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-people-dialog .rd-people-dialog-form {
+  min-height: 0;
+  padding: 1.125rem 1.25rem 1.25rem !important;
+  overflow-y: auto;
+}
+
+.rd-horizon-people-dialog :where(input, select) {
+  min-height: 2.625rem;
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-people-dialog :where(input, select):focus {
+  border-color: rgba(0, 47, 167, 0.28) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.07) !important;
+}
+
+.rd-horizon-people-dialog .rd-people-access-control {
+  border-color: var(--rd-line) !important;
+  border-radius: 14px !important;
+  background: #f8faff !important;
+}
+
+.rd-horizon-people-dialog .rd-people-dialog-footer {
+  border-top-color: var(--rd-line) !important;
+  background: #ffffff !important;
+}
+
+.rd-horizon-people-dialog .rd-people-dialog-primary {
+  border-color: var(--rd-primary) !important;
+  border-radius: 10px !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 10px 22px -14px rgba(0, 47, 167, 0.72) !important;
+}
+
+.rd-horizon-people-dialog .rd-people-dialog-primary:hover {
+  background: var(--rd-primary-hover) !important;
+}
+
+.rd-horizon-people-dialog :where(button, input, select, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px;
+}
+
+.rd-horizon-people-dialog button {
+  transform: none !important;
+}
+
+.rd-horizon-people-delete-dialog .rd-people-delete-body {
+  padding: 1.5rem 1.5rem 0 !important;
+}
+
+.rd-horizon-people-delete-dialog .rd-people-dialog-footer {
+  padding: 0.875rem 1.5rem !important;
+}
+
+@container rd-people (min-width: 48rem) {
+  .rd-horizon-people .rd-people-stats-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container rd-people (max-width: 54rem) {
+  .rd-horizon-people .rd-people-context {
+    align-items: flex-start;
+  }
+
+  .rd-horizon-people .rd-people-breadcrumb {
+    flex-wrap: wrap;
+  }
+
+  .rd-horizon-people .rd-people-result-count {
+    width: 100%;
+    margin-left: 0 !important;
+  }
+}
+
+@container rd-people (max-width: 40rem) {
+  .rd-horizon-people {
+    padding: 0.75rem;
+  }
+
+  .rd-horizon-people .rd-people-context {
+    flex-wrap: wrap;
+    border-radius: 16px;
+  }
+
+  .rd-horizon-people .rd-people-search {
+    min-width: 100% !important;
+  }
+
+  .rd-horizon-people .rd-people-status-filter {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .rd-horizon-people .rd-people-status-filter button {
+    flex: 1 0 auto;
+  }
+}
+
+@media (max-width: 40rem) {
+  .rd-horizon-people-form-dialog .grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-horizon-people *,
+  .rd-horizon-people *::before,
+  .rd-horizon-people *::after,
+  .rd-horizon-people-dialog,
+  .rd-horizon-people-dialog * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 原生研发 AI 策略：Horizon / Klein Blue 页面级精修
+ * 根类仅在非协同、非生产工作区挂载；Portal 下拉使用独立类避免作用域泄漏。
+ * OCR、人工复核与异常状态继续保留绿 / 橙 / 红业务语义色。
+ * ──────────────────────────────────────────────────────────────────────────── */
+.rd-horizon-ai-settings {
+  container: rd-ai-settings / inline-size;
+  width: 100%;
+  max-width: 95rem !important;
+  color: var(--rd-body);
+  background: transparent !important;
+}
+
+.rd-horizon-ai-settings.rd-horizon-ai-state {
+  max-width: 95rem !important;
+  min-height: min(26rem, 50vh);
+  margin-inline: auto;
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  color: var(--rd-muted) !important;
+  background: #ffffff !important;
+  box-shadow: var(--rd-shadow-card);
+}
+
+.rd-horizon-ai-settings > * + * {
+  margin-top: 1.25rem !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-command,
+.rd-horizon-ai-settings .rd-ai-pipeline,
+.rd-horizon-ai-settings .rd-ai-scenes,
+.rd-horizon-ai-settings .rd-ai-ocr-panel,
+.rd-horizon-ai-settings .rd-ai-file-policy,
+.rd-horizon-ai-settings .rd-ai-disclosure {
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  background: #ffffff !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-command {
+  box-shadow: var(--rd-shadow-focal) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-command-body {
+  padding: 1.25rem !important;
+  border-bottom-color: var(--rd-line) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-command-layout {
+  gap: 1.25rem !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-command-copy {
+  min-width: 0;
+}
+
+.rd-horizon-ai-settings .rd-ai-command-chip {
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 999px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-command h2 {
+  margin-top: 0.75rem !important;
+  color: var(--rd-ink) !important;
+  font-size: clamp(1.65rem, 2.4vw, 2rem) !important;
+  line-height: 1.12;
+}
+
+.rd-horizon-ai-settings .rd-ai-command-meta {
+  gap: 0.5rem 0.875rem !important;
+  color: var(--rd-muted) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-command-meta > span + span {
+  position: relative;
+  padding-left: 0.875rem;
+}
+
+.rd-horizon-ai-settings .rd-ai-command-meta > span + span::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--rd-subtle);
+  transform: translateY(-50%);
+  content: "";
+}
+
+.rd-horizon-ai-settings .rd-ai-command-actions {
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.rd-horizon-ai-settings .rd-ai-command-actions button {
+  min-height: 2.625rem;
+  padding-inline: 1rem !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-restore {
+  border-color: var(--rd-line-strong) !important;
+  color: var(--rd-body) !important;
+  background: #ffffff !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-restore:not(:disabled):hover {
+  border-color: rgba(0, 47, 167, 0.2) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-save {
+  border-color: var(--rd-primary) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 10px 22px -14px rgba(0, 47, 167, 0.72) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-save:not(:disabled):hover {
+  background: var(--rd-primary-hover) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-kpis {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  border: 0 !important;
+  background: var(--rd-line) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-kpi {
+  min-width: 0;
+  padding: 1rem 1.25rem !important;
+  border: 0 !important;
+  background: #ffffff;
+}
+
+.rd-horizon-ai-settings .rd-ai-kpi > div:first-child {
+  color: var(--rd-muted) !important;
+  font-size: 0.6875rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.055em !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-kpi > div:last-child {
+  margin-top: 0.45rem !important;
+  color: var(--rd-ink) !important;
+  font-size: 1.5rem !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-kpi[data-tone="brand"] > div:last-child {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-kpi[data-tone="review"] > div:last-child {
+  color: #d97706 !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-kpi[data-tone="ready"] > div:last-child {
+  color: #059669 !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-kpi[data-tone="error"] > div:last-child {
+  color: #e11d48 !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-empty-model {
+  border-color: #fde68a !important;
+  border-radius: 14px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-pipeline,
+.rd-horizon-ai-settings .rd-ai-scenes,
+.rd-horizon-ai-settings .rd-ai-ocr-panel,
+.rd-horizon-ai-settings .rd-ai-disclosure {
+  padding: 1.25rem !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-section-header,
+.rd-horizon-ai-settings .rd-ai-scenes-header,
+.rd-horizon-ai-settings .rd-ai-disclosure-header {
+  margin-bottom: 1rem !important;
+}
+
+/* 场景列头由场景容器本身决定断点；viewport 的 xl:grid 不参与研发版布局。 */
+.rd-horizon-ai-settings .rd-ai-scenes-header {
+  display: block !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-scenes-columns {
+  display: none !important;
+}
+
+.rd-horizon-ai-settings :where(h3) {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-ai-settings :where(.rd-ai-section-header, .rd-ai-scenes-header) p {
+  color: var(--rd-muted) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-pipeline-steps {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0 !important;
+  border-top: 1px solid var(--rd-line);
+  border-bottom: 1px solid var(--rd-line);
+}
+
+.rd-horizon-ai-settings .rd-ai-pipeline-step {
+  padding: 0.875rem 0.25rem !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-pipeline-step:last-child {
+  border-bottom: 0 !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-pipeline-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-pipeline-step [class*="text-xs"] {
+  color: var(--rd-subtle) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-pipeline-step [class*="text-sm"] {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-scenes {
+  container: rd-ai-scenes / inline-size;
+}
+
+.rd-horizon-ai-settings .rd-ai-scene-list {
+  margin-top: 0 !important;
+  border-top: 1px solid var(--rd-line);
+}
+
+.rd-horizon-ai-settings .rd-ai-scene-list > * + * {
+  margin-top: 0 !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-scene-row {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-areas:
+    "identity"
+    "primary"
+    "fallback"
+    "prompt"
+    "threshold"
+    "flags";
+  gap: 0.75rem !important;
+  padding: 1rem 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-scene-row:last-child {
+  border-bottom: 0 !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-scene-row[data-enabled="false"] {
+  opacity: 0.72;
+}
+
+.rd-horizon-ai-settings .rd-ai-scene-identity {
+  grid-area: identity;
+}
+
+.rd-horizon-ai-settings .rd-ai-scene-primary-model {
+  grid-area: primary;
+}
+
+.rd-horizon-ai-settings .rd-ai-scene-fallback-model {
+  grid-area: fallback;
+}
+
+.rd-horizon-ai-settings .rd-ai-scene-prompt {
+  grid-area: prompt;
+}
+
+.rd-horizon-ai-settings .rd-ai-scene-threshold {
+  grid-area: threshold;
+}
+
+.rd-horizon-ai-settings .rd-ai-scene-flags {
+  grid-area: flags;
+  min-height: 2.625rem;
+  justify-content: flex-start !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-scene-flags label,
+.rd-horizon-ai-settings .rd-ai-capability-toggle,
+.rd-horizon-ai-settings .rd-ai-ocr-switches label,
+.rd-horizon-ai-settings .rd-ai-disclosure-item {
+  cursor: pointer;
+}
+
+.rd-horizon-ai-settings :where(input, [data-slot="select-trigger"]) {
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background: #f8faff !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-ai-settings :where(input, [data-slot="select-trigger"]):focus,
+.rd-horizon-ai-settings :where(input, [data-slot="select-trigger"]):focus-visible {
+  border-color: rgba(0, 47, 167, 0.28) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.07) !important;
+}
+
+.rd-horizon-ai-settings [data-slot="switch"][data-state="checked"],
+.rd-horizon-ai-settings [data-slot="checkbox"][data-state="checked"] {
+  border-color: var(--rd-primary) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-policy-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 1.25rem !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-ocr-runtime {
+  padding: 0 0 1rem !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-ocr-runtime-meta > div {
+  border: 0 !important;
+  border-radius: 9px !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-ocr-switches {
+  padding: 1rem 0 0 !important;
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-ocr-switches label {
+  min-height: 2rem;
+}
+
+.rd-horizon-ai-settings .rd-ai-file-policy {
+  container: rd-ai-file-policy / inline-size;
+}
+
+.rd-horizon-ai-settings .rd-ai-file-policy-header {
+  padding: 1.25rem !important;
+  border-bottom-color: var(--rd-line) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-file-stats {
+  gap: 1px !important;
+  overflow: hidden;
+  border: 1px solid var(--rd-line);
+  border-radius: 12px;
+  background: var(--rd-line);
+}
+
+.rd-horizon-ai-settings .rd-ai-file-stat {
+  min-width: 4.75rem;
+  padding: 0.625rem 0.75rem !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: #f8faff !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-file-stat > div:last-child {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-file-rule {
+  padding: 1.125rem 1.25rem !important;
+  border-bottom-color: var(--rd-line) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-file-rule-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 1rem !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-file-rule-icon {
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+  --tw-ring-color: transparent !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-file-extensions span {
+  border-color: var(--rd-line) !important;
+  color: var(--rd-muted) !important;
+  background: #f8faff !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-file-rule-fields {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-file-rule-capabilities {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-capability-toggle {
+  min-height: 2.75rem;
+  border-color: var(--rd-line) !important;
+  border-radius: 10px !important;
+  color: var(--rd-muted) !important;
+  background: #ffffff !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-capability-toggle:hover {
+  border-color: rgba(0, 47, 167, 0.18) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-capability-toggle[data-active="true"] {
+  border-color: rgba(0, 47, 167, 0.22) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-ai-settings .rd-ai-disclosure-grid {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px !important;
+  overflow: hidden;
+  border: 1px solid var(--rd-line);
+  border-radius: 14px;
+  background: var(--rd-line);
+}
+
+.rd-horizon-ai-settings .rd-ai-disclosure-item {
+  min-height: 3.25rem;
+  padding: 0.75rem 1rem !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  color: var(--rd-body) !important;
+  background: #ffffff !important;
+}
+
+.rd-horizon-ai-settings :where(button, input, [data-slot="select-trigger"], [data-slot="switch"], [data-slot="checkbox"]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px;
+}
+
+.rd-horizon-ai-settings button {
+  transform: none !important;
+}
+
+/* Radix Select Portal：只有研发 AI 策略显式传入该类。 */
+.rd-horizon-ai-select-content {
+  --rd-primary: #002fa7;
+  --rd-ink: #1b2559;
+  --rd-body: #42526f;
+  --rd-soft-blue: #eef3ff;
+  --rd-line: #e9edf7;
+  z-index: 100 !important;
+  padding: 0.25rem !important;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 12px !important;
+  color: var(--rd-body) !important;
+  background: #ffffff !important;
+  box-shadow: 0 18px 42px rgba(27, 37, 89, 0.16) !important;
+}
+
+.rd-horizon-ai-select-content [data-slot="select-item"] {
+  min-height: 2.25rem;
+  border-radius: 8px !important;
+  color: var(--rd-body) !important;
+}
+
+.rd-horizon-ai-select-content [data-slot="select-item"]:focus,
+.rd-horizon-ai-select-content [data-slot="select-item"][data-highlighted] {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-ai-select-content [data-state="checked"] {
+  color: var(--rd-primary) !important;
+  font-weight: 600;
+}
+
+@container rd-ai-settings (min-width: 48rem) {
+  .rd-horizon-ai-settings .rd-ai-kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .rd-horizon-ai-settings .rd-ai-pipeline-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px !important;
+    background: var(--rd-line);
+  }
+
+  .rd-horizon-ai-settings .rd-ai-pipeline-step {
+    padding: 0.875rem !important;
+    border: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .rd-horizon-ai-settings .rd-ai-disclosure-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container rd-ai-settings (min-width: 68rem) {
+  .rd-horizon-ai-settings .rd-ai-command-layout {
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
+
+  .rd-horizon-ai-settings .rd-ai-pipeline-steps {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 1rem !important;
+    border: 0;
+    background: transparent;
+  }
+
+  .rd-horizon-ai-settings .rd-ai-pipeline-step {
+    padding-inline: 0 !important;
+    background: transparent !important;
+  }
+
+  .rd-horizon-ai-settings .rd-ai-pipeline-step:not(:last-child)::after {
+    position: absolute;
+    top: 50%;
+    right: -0.75rem;
+    width: 0.5rem;
+    height: 1px;
+    background: var(--rd-line-strong);
+    content: "";
+  }
+
+  .rd-horizon-ai-settings .rd-ai-policy-grid {
+    grid-template-columns: minmax(20rem, 22rem) minmax(0, 1fr) !important;
+  }
+
+  .rd-horizon-ai-settings .rd-ai-disclosure-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container rd-ai-scenes (min-width: 44rem) {
+  .rd-horizon-ai-settings .rd-ai-scene-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-areas:
+      "identity identity"
+      "primary fallback"
+      "prompt threshold"
+      "flags flags";
+  }
+}
+
+@container rd-ai-scenes (min-width: 72rem) {
+  .rd-horizon-ai-settings .rd-ai-scenes-header {
+    display: grid !important;
+    grid-template-columns: minmax(14rem, 1.2fr) minmax(10rem, 1fr) minmax(10rem, 1fr) 8.75rem 7.5rem 7.5rem;
+    gap: 0.75rem !important;
+    align-items: end !important;
+  }
+
+  .rd-horizon-ai-settings .rd-ai-scenes-header > div:first-child {
+    min-width: 0;
+    grid-column: 1;
+  }
+
+  .rd-horizon-ai-settings .rd-ai-scene-row {
+    grid-template-columns: minmax(14rem, 1.2fr) minmax(10rem, 1fr) minmax(10rem, 1fr) 8.75rem 7.5rem 7.5rem !important;
+    grid-template-areas: "identity primary fallback prompt threshold flags";
+    align-items: center !important;
+  }
+
+  .rd-horizon-ai-settings .rd-ai-scenes-columns {
+    display: grid !important;
+    grid-column: 2 / -1;
+    grid-template-columns: minmax(10rem, 1fr) minmax(10rem, 1fr) 8.75rem 7.5rem 7.5rem !important;
+    width: 100%;
+    gap: 0.75rem !important;
+    padding-right: 0 !important;
+  }
+}
+
+@container rd-ai-file-policy (min-width: 38rem) {
+  .rd-horizon-ai-settings .rd-ai-file-rule-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@container rd-ai-file-policy (min-width: 52rem) {
+  .rd-horizon-ai-settings .rd-ai-file-rule-grid {
+    grid-template-columns: minmax(13rem, 0.85fr) minmax(20rem, 1.5fr) minmax(10rem, 0.7fr) !important;
+    align-items: start !important;
+  }
+
+  .rd-horizon-ai-settings .rd-ai-file-rule-capabilities {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@container rd-ai-settings (max-width: 40rem) {
+  .rd-horizon-ai-settings .rd-ai-command-body,
+  .rd-horizon-ai-settings .rd-ai-pipeline,
+  .rd-horizon-ai-settings .rd-ai-scenes,
+  .rd-horizon-ai-settings .rd-ai-ocr-panel,
+  .rd-horizon-ai-settings .rd-ai-disclosure,
+  .rd-horizon-ai-settings .rd-ai-file-policy-header,
+  .rd-horizon-ai-settings .rd-ai-file-rule {
+    padding-inline: 1rem !important;
+  }
+
+  .rd-horizon-ai-settings .rd-ai-command-actions,
+  .rd-horizon-ai-settings .rd-ai-command-actions button {
+    width: 100%;
+  }
+
+  .rd-horizon-ai-settings .rd-ai-file-rule-capabilities {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-horizon-ai-settings *,
+  .rd-horizon-ai-settings *::before,
+  .rd-horizon-ai-settings *::after,
+  .rd-horizon-ai-select-content,
+  .rd-horizon-ai-select-content * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 原生研发操作留痕：Horizon / Klein Blue 精修
+ * 仅 RDAuditLogPage 在非协同、非生产工作区挂载根类后生效。
+ * 三栏切换以有效内容容器宽度为准，避免侧边栏占宽后仍命中 viewport xl。
+ * ──────────────────────────────────────────────────────────────────────────── */
+.rd-horizon-audit {
+  padding: 0.875rem 1rem 1.25rem !important;
+  background: transparent !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-shell {
+  width: 100%;
+  max-width: 95rem !important;
+  gap: 1rem !important;
+  container-name: rd-audit;
+  container-type: inline-size;
+}
+
+.rd-horizon-audit :where(h2, h3, h4) {
+  color: var(--rd-ink);
+}
+
+.rd-horizon-audit :where(button, input, select, textarea, [role="button"], [tabindex]):focus-visible,
+.rd-horizon-audit .rd-horizon-audit-row:focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: -2px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-command {
+  min-height: 4.875rem;
+  align-items: center !important;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  padding: 1rem 1.125rem !important;
+  background: var(--rd-surface);
+  box-shadow: var(--rd-shadow-focal);
+}
+
+.rd-horizon-audit .rd-horizon-audit-command-icon {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+  border-radius: 12px !important;
+  background: var(--rd-primary) !important;
+  box-shadow: 0 9px 18px -13px rgba(0, 47, 167, 0.74) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-command-copy h2 {
+  color: var(--rd-ink) !important;
+  font-size: 1.05rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.012em;
+}
+
+.rd-horizon-audit .rd-horizon-audit-command-copy p {
+  color: var(--rd-muted) !important;
+  font-size: 0.75rem !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-presets {
+  justify-content: flex-end;
+}
+
+.rd-horizon-audit .rd-horizon-audit-preset,
+.rd-horizon-audit .rd-horizon-audit-reset {
+  min-height: 2.5rem;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-preset {
+  border-color: var(--rd-line) !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-preset:hover {
+  border-color: rgba(0, 47, 167, 0.2) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  transform: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-reset {
+  background: var(--rd-primary) !important;
+  box-shadow: 0 10px 20px -14px rgba(0, 47, 167, 0.7) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-reset:hover {
+  background: var(--rd-primary-hover) !important;
+  transform: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 0 !important;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  background: var(--rd-surface);
+  box-shadow: var(--rd-shadow-card);
+}
+
+.rd-horizon-audit .rd-horizon-audit-stat {
+  min-height: 5rem !important;
+  border: 0 !important;
+  border-right: 1px solid var(--rd-line) !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.875rem 1rem !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-stat:hover {
+  border-color: var(--rd-line) !important;
+  background: rgba(238, 243, 255, 0.36) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-stat:nth-child(2n) {
+  border-right: 0 !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-stat:last-child {
+  grid-column: span 2;
+  border-right: 0 !important;
+  border-bottom: 0 !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-stat > svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.rd-horizon-audit .rd-horizon-audit-stat > div > div:first-child {
+  color: var(--rd-ink);
+  font-size: 1.375rem !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-stat[data-tone="risk"] > div > div:first-child {
+  color: #d97706;
+}
+
+.rd-horizon-audit .rd-horizon-audit-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-content: start;
+  gap: 1rem !important;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  scrollbar-gutter: stable;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filters,
+.rd-horizon-audit .rd-horizon-audit-list,
+.rd-horizon-audit .rd-horizon-audit-detail {
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filters {
+  padding: 1rem !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-heading {
+  min-height: 2rem;
+  margin-bottom: 0.25rem;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-heading h2,
+.rd-horizon-audit .rd-horizon-audit-list-header h2 {
+  color: var(--rd-ink) !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-heading h2 > svg,
+.rd-horizon-audit .rd-horizon-audit-list-header h2 > svg {
+  color: var(--rd-primary) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-heading > span {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filters label > span,
+.rd-horizon-audit .rd-horizon-audit-filter-categories > div:first-child {
+  color: var(--rd-body) !important;
+  font-weight: 600 !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-search > div {
+  min-height: 2.5rem;
+  border-color: transparent !important;
+  border-radius: 11px !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: inset 0 0 0 1px var(--rd-line) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-search > div:focus-within {
+  border-color: rgba(0, 47, 167, 0.28) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-search input {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-categories button {
+  min-height: 2.375rem;
+  border-color: var(--rd-line) !important;
+  border-radius: 9px !important;
+  color: var(--rd-muted) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-categories button:hover {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-categories button[aria-pressed="true"] {
+  border-color: transparent !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filters select,
+.rd-horizon-audit .rd-horizon-audit-filters input[type="date"],
+.rd-horizon-audit .rd-horizon-audit-list-header select {
+  min-height: 2.5rem !important;
+  border-color: var(--rd-line) !important;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background-color: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filters :where(select, input[type="date"]):hover,
+.rd-horizon-audit .rd-horizon-audit-list-header select:hover {
+  border-color: rgba(0, 47, 167, 0.2) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-list {
+  min-height: 32rem;
+}
+
+.rd-horizon-audit .rd-horizon-audit-list-header,
+.rd-horizon-audit .rd-horizon-audit-list-footer,
+.rd-horizon-audit .rd-horizon-audit-detail-header {
+  border-color: var(--rd-line) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-list-header {
+  min-height: 4.5rem;
+  padding: 0.875rem 1rem !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-list-header button,
+.rd-horizon-audit .rd-horizon-audit-list-footer button {
+  min-height: 2.5rem;
+  border-color: var(--rd-line) !important;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-list-header button:hover,
+.rd-horizon-audit .rd-horizon-audit-list-footer button:not(:disabled):hover {
+  border-color: rgba(0, 47, 167, 0.2) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  transform: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-table-scroll {
+  scrollbar-gutter: stable both-edges;
+  scrollbar-color: var(--rd-line-strong) transparent;
+}
+
+.rd-horizon-audit .rd-horizon-audit-table thead {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+}
+
+.rd-horizon-audit .rd-horizon-audit-table thead tr {
+  border-color: var(--rd-line) !important;
+  color: var(--rd-muted) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-table tbody {
+  border-color: var(--rd-line) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-row {
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-row:hover,
+.rd-horizon-audit .rd-horizon-audit-row:focus-visible {
+  background: rgba(238, 243, 255, 0.48) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-row[data-selected="true"] {
+  background: var(--rd-soft-blue) !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.24) !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-list-footer {
+  min-height: 4rem;
+  padding: 0.75rem 1rem !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-detail {
+  min-height: 30rem;
+}
+
+.rd-horizon-audit .rd-horizon-audit-detail-header {
+  padding: 1rem !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0 !important;
+  padding: 0 1rem 1.25rem !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-detail-body > section {
+  border-bottom: 1px solid var(--rd-line);
+  padding: 1rem 0;
+}
+
+.rd-horizon-audit .rd-horizon-audit-detail-body > section:last-child {
+  border-bottom: 0;
+}
+
+.rd-horizon-audit .rd-horizon-audit-detail-body > section > :where(.rounded-lg, p.rounded-lg) {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-detail-body section > .space-y-2 {
+  gap: 0 !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-detail-body section > .space-y-2 > * + * {
+  margin-top: 0 !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-detail-body section > .space-y-2 > .rounded-lg {
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-detail-body section > .space-y-2 > .rounded-lg:last-child {
+  border-bottom: 0 !important;
+}
+
+.rd-horizon-audit .rd-horizon-audit-detail-body .group:hover {
+  transform: none !important;
+}
+
+@container rd-audit (min-width: 48rem) {
+  .rd-horizon-audit-stats {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+
+  .rd-horizon-audit-stat {
+    grid-column: auto;
+    border-right: 1px solid var(--rd-line) !important;
+    border-bottom: 0 !important;
+  }
+
+  .rd-horizon-audit-stat:last-child {
+    border-right: 0 !important;
+  }
+}
+
+@container rd-audit (min-width: 60rem) and (max-width: 81.999rem) {
+  .rd-horizon-audit-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(19rem, 22rem) !important;
+    grid-template-rows: auto minmax(0, 1fr);
+    align-content: stretch;
+    overflow: hidden;
+    padding-right: 0;
+  }
+
+  .rd-horizon-audit-filters {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: end;
+    gap: 0.75rem 1rem !important;
+    overflow: visible !important;
+  }
+
+  .rd-horizon-audit-filters > * + * {
+    margin-top: 0 !important;
+  }
+
+  .rd-horizon-audit-filter-heading {
+    grid-column: 1 / -1;
+  }
+
+  .rd-horizon-audit-filter-search,
+  .rd-horizon-audit-filter-categories {
+    grid-column: span 2;
+  }
+
+  .rd-horizon-audit-list,
+  .rd-horizon-audit-detail {
+    min-height: 0 !important;
+  }
+}
+
+@container rd-audit (min-width: 82rem) {
+  .rd-horizon-audit-grid {
+    grid-template-columns: minmax(17rem, 18.75rem) minmax(0, 1fr) minmax(21rem, 22.5rem) !important;
+    grid-template-rows: minmax(0, 1fr);
+    align-content: stretch;
+    overflow: hidden;
+    padding-right: 0;
+  }
+
+  .rd-horizon-audit-filters {
+    display: block;
+    overflow-y: auto !important;
+  }
+
+  .rd-horizon-audit-filters > * + * {
+    margin-top: 0.75rem !important;
+  }
+
+  .rd-horizon-audit-list,
+  .rd-horizon-audit-detail {
+    min-height: 0 !important;
+  }
+}
+
+@container rd-audit (min-width: 44rem) and (max-width: 59.999rem) {
+  .rd-horizon-audit-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+    gap: 0.75rem 1rem !important;
+    overflow: visible !important;
+  }
+
+  .rd-horizon-audit-filters > * + * {
+    margin-top: 0 !important;
+  }
+
+  .rd-horizon-audit-filter-heading,
+  .rd-horizon-audit-filter-categories {
+    grid-column: 1 / -1;
+  }
+}
+
+@container rd-audit (max-width: 54rem) {
+  .rd-horizon-audit-command {
+    align-items: flex-start !important;
+  }
+
+  .rd-horizon-audit-command > div:first-child,
+  .rd-horizon-audit-presets {
+    width: 100%;
+  }
+
+  .rd-horizon-audit-presets {
+    justify-content: flex-start;
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+    padding-bottom: 0.125rem;
+  }
+
+  .rd-horizon-audit-preset,
+  .rd-horizon-audit-reset {
+    flex: 0 0 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-horizon-audit *,
+  .rd-horizon-audit *::before,
+  .rd-horizon-audit *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 原生研发审批流：Horizon / Klein Blue 精修
+ * 协同路由不挂 .rd-horizon-approval，继续保持原有视觉与交互。
+ * ──────────────────────────────────────────────────────────────────────────── */
+.rd-horizon-approval,
+.rd-horizon-approval-dialog {
+  --rd-primary: #002fa7;
+  --rd-primary-hover: #002581;
+  --rd-ink: #1b2559;
+  --rd-body: #42526f;
+  --rd-muted: #64748b;
+  --rd-subtle: #8f9bba;
+  --rd-canvas: #f4f7fe;
+  --rd-surface: #ffffff;
+  --rd-soft-blue: #eef3ff;
+  --rd-line: #e9edf7;
+  --rd-line-strong: #e0e5f2;
+  --rd-shadow-card: 0 8px 24px rgba(112, 144, 176, 0.065);
+  --rd-shadow-focal: 0 16px 38px rgba(112, 144, 176, 0.11);
+}
+
+.rd-horizon-approval {
+  container: rd-approval / inline-size;
+  width: 100%;
+  padding: 0.5rem 0.75rem 1.5rem !important;
+  color: var(--rd-body);
+  background: transparent !important;
+}
+
+.rd-horizon-approval .rd-approval-shell {
+  display: flex;
+  width: 100%;
+  max-width: 80rem !important;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.rd-horizon-approval .rd-approval-shell > * + * {
+  margin-top: 0 !important;
+}
+
+.rd-horizon-approval .rd-approval-command {
+  min-width: 0;
+  align-items: center !important;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  padding: 1.25rem 1.5rem;
+  background: var(--rd-surface);
+  box-shadow: var(--rd-shadow-focal);
+}
+
+.rd-horizon-approval .rd-approval-identity {
+  min-width: 0;
+}
+
+.rd-horizon-approval .rd-approval-command-mark {
+  border-radius: 12px !important;
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: inset 0 0 0 1px var(--rd-line) !important;
+}
+
+.rd-horizon-approval .rd-approval-title {
+  color: var(--rd-ink) !important;
+  font-size: 1.25rem !important;
+  line-height: 1.6rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em;
+}
+
+.rd-horizon-approval .rd-approval-command-copy {
+  margin-left: 2.75rem !important;
+  color: var(--rd-muted) !important;
+  font-size: 0.75rem !important;
+  line-height: 1.125rem !important;
+}
+
+.rd-horizon-approval .rd-approval-command-actions {
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.rd-horizon-approval .rd-approval-primary,
+.rd-horizon-approval .rd-approval-secondary {
+  min-height: 2.5rem;
+  border-radius: 11px !important;
+  padding-inline: 0.875rem !important;
+  font-size: 0.75rem !important;
+  font-weight: 650 !important;
+  transform: none !important;
+  box-shadow: none !important;
+  transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease !important;
+}
+
+.rd-horizon-approval .rd-approval-primary {
+  border: 1px solid var(--rd-primary) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-approval .rd-approval-primary:hover:not(:disabled),
+.rd-horizon-approval .rd-approval-primary:focus-visible:not(:disabled) {
+  border-color: var(--rd-primary-hover) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary-hover) !important;
+}
+
+.rd-horizon-approval .rd-approval-secondary {
+  border-color: var(--rd-line-strong) !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-approval .rd-approval-secondary:hover,
+.rd-horizon-approval .rd-approval-secondary:focus-visible {
+  border-color: rgba(0, 47, 167, 0.14) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-approval .rd-approval-summary {
+  overflow: hidden;
+  border: 1px solid transparent !important;
+  border-radius: 18px !important;
+  padding: 1.125rem 1.25rem 0 !important;
+  color: var(--rd-body);
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card);
+}
+
+.rd-horizon-approval .rd-approval-summary-header {
+  min-width: 0;
+  margin: 0 0 1rem !important;
+  gap: 1rem;
+}
+
+.rd-horizon-approval .rd-approval-summary h2 {
+  color: var(--rd-ink) !important;
+  font-size: 0.9375rem !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-approval .rd-approval-summary p {
+  color: var(--rd-muted) !important;
+}
+
+.rd-horizon-approval .rd-approval-guidance {
+  margin-inline: -1.25rem;
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 1.25rem !important;
+  color: var(--rd-muted) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-approval .rd-approval-guidance > svg {
+  color: var(--rd-muted) !important;
+}
+
+.rd-horizon-approval .rd-approval-guidance code {
+  border: 1px solid var(--rd-line);
+  color: var(--rd-ink) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-approval .rd-approval-nodes {
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  padding: 0 !important;
+  background: var(--rd-surface);
+  box-shadow: var(--rd-shadow-card);
+}
+
+.rd-horizon-approval .rd-approval-node-slot,
+.rd-horizon-approval .rd-approval-terminal {
+  margin-left: 0 !important;
+}
+
+.rd-horizon-approval .rd-approval-node {
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  color: var(--rd-body);
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-approval .rd-approval-node:hover {
+  background: rgba(244, 247, 254, 0.45) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-approval .rd-approval-node-level {
+  left: 1.25rem !important;
+  top: 1.25rem !important;
+  width: 1.75rem !important;
+  height: 1.75rem !important;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 9px !important;
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-approval .rd-approval-node-body {
+  padding: 1.25rem 1.25rem 1.25rem 4rem !important;
+}
+
+.rd-horizon-approval .rd-approval-node-header {
+  min-width: 0;
+  margin-bottom: 0.875rem !important;
+  flex-wrap: wrap;
+}
+
+.rd-horizon-approval .rd-approval-node-header > input {
+  min-width: 12rem;
+  min-height: 2.5rem;
+  border: 1px solid transparent !important;
+  border-radius: 10px !important;
+  color: var(--rd-ink) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-approval .rd-approval-node-header > input:not(:read-only):hover,
+.rd-horizon-approval .rd-approval-node-header > input:not(:read-only):focus {
+  border-color: var(--rd-line-strong) !important;
+  padding-inline: 0.75rem !important;
+  color: var(--rd-ink) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-approval .rd-approval-mode-badge {
+  border: 1px solid var(--rd-line) !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-approval .rd-approval-node-actions button {
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  border-radius: 10px !important;
+  transform: none !important;
+}
+
+.rd-horizon-approval .rd-approval-node-actions button:hover:not(:disabled) {
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-approval .rd-approval-node-actions button:last-child:hover:not(:disabled) {
+  color: #dc2626 !important;
+  background: #fef2f2 !important;
+}
+
+.rd-horizon-approval .rd-approval-node-description,
+.rd-horizon-approval .rd-approval-node-config :where(input, select) {
+  min-height: 2.5rem;
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-approval .rd-approval-node-description:focus,
+.rd-horizon-approval .rd-approval-node-config :where(input, select):focus {
+  border-color: rgba(0, 47, 167, 0.24) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.06) !important;
+}
+
+.rd-horizon-approval .rd-approval-node-config {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem !important;
+}
+
+.rd-horizon-approval .rd-approval-node-config label {
+  color: var(--rd-muted) !important;
+  font-size: 0.6875rem !important;
+  letter-spacing: 0.06em !important;
+}
+
+.rd-horizon-approval .rd-approval-mode-control {
+  min-height: 2.5rem;
+  border-color: var(--rd-line) !important;
+  border-radius: 10px !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-approval .rd-approval-mode-control button {
+  border-radius: 8px !important;
+  color: var(--rd-muted) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-approval .rd-approval-mode-control button[data-active="true"] {
+  color: var(--rd-ink) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: inset 0 0 0 1px var(--rd-line) !important;
+}
+
+.rd-horizon-approval .rd-approval-escalate {
+  min-height: 2.5rem !important;
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 10px !important;
+  transform: none !important;
+}
+
+.rd-horizon-approval .rd-approval-escalate[aria-pressed="false"] {
+  color: var(--rd-muted) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-approval .rd-approval-pool {
+  margin-top: 1rem !important;
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 0.875rem 0 0 !important;
+  background: transparent !important;
+}
+
+.rd-horizon-approval .rd-approval-avatar {
+  color: var(--rd-body) !important;
+  background: #e8edf8 !important;
+  box-shadow: inset 0 0 0 1px var(--rd-line) !important;
+}
+
+.rd-horizon-approval .rd-approval-pool-member {
+  border-color: var(--rd-line) !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-approval .rd-approval-pool-member > span.rounded {
+  color: var(--rd-muted) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-approval .rd-approval-candidate-panel {
+  border-color: var(--rd-line) !important;
+  border-radius: 12px !important;
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-approval .rd-approval-candidate-panel button:hover {
+  color: var(--rd-ink) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-approval .rd-approval-add-reviewer {
+  min-height: 2.25rem;
+  border-color: var(--rd-line-strong) !important;
+  border-style: solid !important;
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  transform: none !important;
+}
+
+.rd-horizon-approval .rd-approval-add-reviewer:hover {
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-approval .rd-approval-connector,
+.rd-horizon-approval .rd-approval-terminal-connector {
+  height: 0.75rem;
+  padding: 0 !important;
+  background: var(--rd-surface);
+}
+
+.rd-horizon-approval .rd-approval-connector > div,
+.rd-horizon-approval .rd-approval-terminal-connector > div {
+  width: 1px !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  background: var(--rd-line-strong) !important;
+}
+
+.rd-horizon-approval .rd-approval-connector svg,
+.rd-horizon-approval .rd-approval-terminal-connector svg {
+  display: none !important;
+}
+
+.rd-horizon-approval .rd-approval-terminal {
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  padding: 1rem 1.25rem !important;
+  background: #f0fdf4 !important;
+}
+
+.rd-horizon-approval .rd-approval-add-node-wrap {
+  padding: 0 !important;
+  background: var(--rd-surface);
+}
+
+.rd-horizon-approval .rd-approval-add-node {
+  min-height: 3rem;
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  color: var(--rd-muted) !important;
+  background: var(--rd-surface) !important;
+  transform: none !important;
+}
+
+.rd-horizon-approval .rd-approval-add-node:hover,
+.rd-horizon-approval .rd-approval-add-node:focus-visible {
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+  transform: none !important;
+}
+
+.rd-horizon-approval .rd-approval-add-node svg {
+  transform: none !important;
+}
+
+.rd-horizon-approval .rd-approval-footnote {
+  border-color: #fde7b1 !important;
+  border-radius: 14px !important;
+  color: #a15c09 !important;
+  background: #fffaf0 !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-approval-state .rd-approval-state-surface {
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  color: var(--rd-muted) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-approval-state .rd-approval-state-mark {
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-approval :where(button, input, select, textarea, [role="button"], [tabindex]):focus-visible,
+.rd-horizon-approval-dialog :where(button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-approval :where(button, .rd-approval-node) {
+  transform: none !important;
+}
+
+.rd-horizon-approval-dialog-backdrop {
+  z-index: 90 !important;
+  background: rgba(15, 23, 42, 0.34) !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-approval-dialog {
+  width: min(26rem, calc(100vw - 2rem)) !important;
+  overflow: hidden;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 20px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: 0 24px 64px rgba(112, 144, 176, 0.22) !important;
+}
+
+.rd-horizon-approval-dialog .rd-approval-dialog-body {
+  padding: 1.5rem 1.5rem 0 !important;
+}
+
+.rd-horizon-approval-dialog .rd-approval-dialog-mark {
+  color: #b45309 !important;
+  background: #fff7e6 !important;
+}
+
+.rd-horizon-approval-dialog h3 {
+  color: var(--rd-ink) !important;
+  font-size: 1.0625rem !important;
+  font-weight: 700 !important;
+}
+
+.rd-horizon-approval-dialog p {
+  color: var(--rd-muted) !important;
+}
+
+.rd-horizon-approval-dialog .rd-approval-dialog-footer {
+  border-top-color: var(--rd-line) !important;
+  padding: 0.875rem 1.5rem !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-approval-dialog :where(button) {
+  min-height: 2.5rem;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-approval-dialog .rd-approval-dialog-cancel {
+  border-color: var(--rd-line-strong) !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-approval-dialog .rd-approval-dialog-cancel:hover {
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-approval-dialog .rd-approval-dialog-confirm {
+  color: #ffffff !important;
+  background: #b45309 !important;
+}
+
+.rd-horizon-approval-dialog .rd-approval-dialog-confirm:hover {
+  background: #92400e !important;
+}
+
+@container rd-approval (min-width: 70rem) {
+  .rd-horizon-approval .rd-approval-node-config {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container rd-approval (max-width: 52rem) {
+  .rd-horizon-approval .rd-approval-command {
+    flex-direction: column;
+    align-items: flex-start !important;
+  }
+
+  .rd-horizon-approval .rd-approval-command-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .rd-horizon-approval .rd-approval-summary-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .rd-horizon-approval .rd-approval-node-config {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container rd-approval (max-width: 40rem) {
+  .rd-horizon-approval {
+    padding: 0.375rem 0.25rem 1rem !important;
+  }
+
+  .rd-horizon-approval .rd-approval-command {
+    padding: 1rem !important;
+  }
+
+  .rd-horizon-approval .rd-approval-command-copy {
+    margin-left: 0 !important;
+  }
+
+  .rd-horizon-approval .rd-approval-command-actions > * {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .rd-horizon-approval .rd-approval-node-body {
+    padding: 1rem 1rem 1rem 3.5rem !important;
+  }
+
+  .rd-horizon-approval .rd-approval-node-level {
+    left: 1rem !important;
+    top: 1rem !important;
+  }
+
+  .rd-horizon-approval .rd-approval-node-header > input {
+    flex-basis: calc(100% - 3rem);
+  }
+
+  .rd-horizon-approval .rd-approval-node-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-horizon-approval *,
+  .rd-horizon-approval *::before,
+  .rd-horizon-approval *::after,
+  .rd-horizon-approval-dialog,
+  .rd-horizon-approval-dialog * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 原生研发知识库：Horizon / Klein Blue 精修
+ * 仅 KnowledgeBaseEntryPage 的研发实例显式挂载 .rd-horizon-kb；部门库与 US 不命中。
+ * 文件类型、权限分值与危险动作继续沿用各自业务语义色。
+ * ──────────────────────────────────────────────────────────────────────────── */
+.rd-horizon-kb {
+  container: rd-kb / inline-size;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.5rem clamp(0.75rem, 1.8vw, 1.5rem) 1.5rem;
+  color: var(--rd-body);
+  background: transparent !important;
+}
+
+.rd-horizon-kb .rd-kb-toolbar {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  min-width: 0;
+  margin: 0 !important;
+  padding: 0.875rem 1rem !important;
+  border: 1px solid transparent !important;
+  border-radius: 20px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-kb .rd-kb-search {
+  min-width: min(100%, 13rem) !important;
+  max-width: 20rem !important;
+}
+
+.rd-horizon-kb .rd-kb-switcher,
+.rd-horizon-kb .rd-kb-filter,
+.rd-horizon-kb .rd-kb-search input,
+.rd-horizon-kb .rd-kb-toolbar-action {
+  border-color: var(--rd-line-strong) !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb .rd-kb-search input::placeholder {
+  color: var(--rd-subtle) !important;
+}
+
+.rd-horizon-kb .rd-kb-switcher:hover,
+.rd-horizon-kb .rd-kb-filter:hover,
+.rd-horizon-kb .rd-kb-toolbar-action:hover {
+  border-color: #cbd3e4 !important;
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-kb .rd-kb-switcher:focus-visible,
+.rd-horizon-kb .rd-kb-filter:focus-visible,
+.rd-horizon-kb .rd-kb-search input:focus-visible,
+.rd-horizon-kb .rd-kb-toolbar-action:focus-visible {
+  border-color: rgba(0, 47, 167, 0.4) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+}
+
+.rd-horizon-kb .rd-kb-search > svg,
+.rd-horizon-kb .rd-kb-search > button {
+  color: var(--rd-subtle) !important;
+}
+
+.rd-horizon-kb .rd-kb-search > button:hover {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-kb .rd-kb-toolbar-actions {
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.rd-horizon-kb .rd-kb-toolbar-stats {
+  padding-right: 0.25rem;
+}
+
+.rd-horizon-kb .rd-kb-toolbar-stats > span {
+  box-shadow: inset 0 0 0 1px rgba(143, 155, 186, 0.1);
+  font-variant-numeric: tabular-nums;
+}
+
+.rd-horizon-kb .rd-kb-view-toggle {
+  border-color: var(--rd-line-strong) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-kb .rd-kb-view-toggle button {
+  color: var(--rd-subtle) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb .rd-kb-view-toggle button:hover {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-kb .rd-kb-view-toggle button[aria-pressed="true"] {
+  color: var(--rd-primary) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: inset 0 0 0 1px var(--rd-line) !important;
+}
+
+.rd-horizon-kb .rd-kb-primary-action,
+.rd-horizon-kb .rd-kb-empty-action {
+  border: 1px solid var(--rd-primary) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb .rd-kb-primary-action:hover,
+.rd-horizon-kb .rd-kb-empty-action:hover {
+  border-color: var(--rd-primary-hover) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary-hover) !important;
+  transform: none !important;
+}
+
+.rd-horizon-kb .rd-kb-layout {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  gap: 0 !important;
+  margin-top: 1rem;
+  padding: 0 !important;
+  overflow: hidden;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 20px;
+  background: var(--rd-surface);
+  box-shadow: var(--rd-shadow-card);
+}
+
+.rd-horizon-kb .rd-kb-category-sidebar {
+  width: 18rem !important;
+  min-width: 18rem;
+  margin: 0 !important;
+  padding: 1rem 0.75rem !important;
+  border: 0 !important;
+  border-right: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  scrollbar-color: var(--rd-line-strong) transparent;
+}
+
+.rd-horizon-kb .rd-kb-category-heading {
+  min-height: 2rem;
+  padding: 0 0.625rem 0.625rem !important;
+  color: var(--rd-subtle) !important;
+  letter-spacing: 0.1em;
+}
+
+.rd-horizon-kb .rd-kb-category-heading button {
+  color: var(--rd-muted) !important;
+  background: transparent !important;
+}
+
+.rd-horizon-kb .rd-kb-category-heading button:hover {
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-kb .rd-kb-category-all,
+.rd-horizon-kb .rd-kb-category-item > div,
+.rd-horizon-kb .rd-kb-category-child {
+  border-radius: 10px !important;
+  color: var(--rd-body) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb .rd-kb-category-all:hover,
+.rd-horizon-kb .rd-kb-category-item:not([data-selected="true"]) > div:hover,
+.rd-horizon-kb .rd-kb-category-child:not([data-selected="true"]):hover {
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-kb .rd-kb-category-all[data-selected="true"],
+.rd-horizon-kb .rd-kb-category-item[data-selected="true"] > div,
+.rd-horizon-kb .rd-kb-category-child[data-selected="true"] {
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb .rd-kb-category-item[data-selected="true"] button,
+.rd-horizon-kb .rd-kb-category-child[data-selected="true"] button {
+  color: inherit !important;
+}
+
+.rd-horizon-kb .rd-kb-category-sidebar button {
+  transform: none !important;
+}
+
+.rd-horizon-kb .rd-kb-content {
+  min-width: 0;
+  padding: 1rem;
+  background: transparent;
+}
+
+.rd-horizon-kb .rd-kb-result-bar {
+  min-height: 2rem;
+  padding: 0 0.125rem 0.75rem !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  color: var(--rd-muted) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.rd-horizon-kb .rd-kb-index {
+  color: var(--rd-subtle) !important;
+}
+
+.rd-horizon-kb .rd-kb-index-dot {
+  background: var(--rd-line-strong) !important;
+}
+
+.rd-horizon-kb .rd-kb-state {
+  min-height: 15rem;
+  border-radius: 14px;
+  color: var(--rd-muted);
+  background: var(--rd-canvas);
+}
+
+.rd-horizon-kb .rd-kb-entry-scroll {
+  padding-right: 0.25rem !important;
+  scrollbar-color: var(--rd-line-strong) transparent;
+}
+
+.rd-horizon-kb .rd-kb-entry-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)) !important;
+  gap: 0.75rem !important;
+}
+
+.rd-horizon-kb .rd-kb-entry-list {
+  gap: 0 !important;
+  overflow: hidden;
+  border: 1px solid var(--rd-line);
+  border-radius: 14px;
+}
+
+.rd-horizon-kb .rd-kb-entry-card {
+  border-color: var(--rd-line) !important;
+  border-radius: 14px !important;
+  color: var(--rd-body);
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-kb .rd-kb-entry-card:hover,
+.rd-horizon-kb .rd-kb-entry-card:focus-within {
+  border-color: var(--rd-line-strong) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.rd-horizon-kb .rd-kb-entry-cover {
+  border-bottom: 1px solid var(--rd-line);
+}
+
+.rd-horizon-kb .rd-kb-entry-card > .rd-kb-entry-body > button:first-child,
+.rd-horizon-kb .rd-kb-entry-card:hover > .rd-kb-entry-body > button:first-child {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-kb .rd-kb-entry-cover button {
+  color: var(--rd-body) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb .rd-kb-entry-cover button:hover {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-kb .rd-kb-entry-card:focus-within .rd-kb-cover-actions,
+.rd-horizon-kb .rd-kb-entry-card:focus-within .rd-kb-entry-actions,
+.rd-horizon-kb .rd-kb-entry-row:focus-within .rd-kb-row-actions {
+  opacity: 1 !important;
+}
+
+.rd-horizon-kb .rd-kb-entry-actions {
+  background: rgba(255, 255, 255, 0.97) !important;
+}
+
+.rd-horizon-kb .rd-kb-entry-actions button:not(.text-red-500):hover {
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-kb .rd-kb-entry-row {
+  gap: 0.75rem !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb .rd-kb-entry-row:last-child {
+  border-bottom: 0 !important;
+}
+
+.rd-horizon-kb .rd-kb-entry-row:hover,
+.rd-horizon-kb .rd-kb-entry-row:focus-within {
+  background: var(--rd-canvas) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb .rd-kb-entry-row button:not(.text-red-500):hover {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-kb .rd-kb-pagination {
+  margin-top: 0.125rem;
+  padding: 0.75rem 0 0 !important;
+  border: 0 !important;
+  border-top: 1px solid var(--rd-line) !important;
+  border-radius: 0 !important;
+  color: var(--rd-muted);
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb .rd-kb-pagination button {
+  border-color: var(--rd-line-strong) !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb .rd-kb-pagination button:hover:not(:disabled):not([aria-current="page"]) {
+  border-color: #cbd3e4 !important;
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-kb .rd-kb-pagination button[aria-current="page"] {
+  border-color: var(--rd-primary) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-kb .rd-kb-drop-overlay {
+  inset: 0.75rem !important;
+  border-color: rgba(0, 47, 167, 0.24) !important;
+  background: rgba(244, 247, 254, 0.96) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-kb .rd-kb-drop-overlay > .absolute {
+  display: none;
+}
+
+.rd-horizon-kb .rd-kb-drop-surface {
+  border-color: var(--rd-line) !important;
+  border-radius: 16px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-kb .rd-kb-drop-surface > span {
+  border-color: rgba(0, 47, 167, 0.14) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb :where(button, input, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px;
+}
+
+.rd-horizon-kb :where(button, .rd-kb-entry-card, .rd-kb-entry-row) {
+  transform: none !important;
+}
+
+@container rd-kb (max-width: 70rem) {
+  .rd-horizon-kb .rd-kb-search {
+    flex-basis: 15rem;
+    max-width: none !important;
+  }
+
+  .rd-horizon-kb .rd-kb-toolbar-actions {
+    width: 100%;
+    margin-left: 0 !important;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rd-line);
+  }
+
+  .rd-horizon-kb .rd-kb-toolbar-stats {
+    margin-right: auto;
+  }
+}
+
+@container rd-kb (max-width: 62rem) {
+  .rd-horizon-kb .rd-kb-layout {
+    flex-direction: column !important;
+  }
+
+  .rd-horizon-kb .rd-kb-category-sidebar {
+    width: 100% !important;
+    min-width: 0;
+    min-height: auto !important;
+    flex-direction: row !important;
+    flex: none !important;
+    padding: 0.625rem !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--rd-line) !important;
+  }
+
+  .rd-horizon-kb .rd-kb-category-heading {
+    display: none !important;
+  }
+
+  .rd-horizon-kb .rd-kb-category-all,
+  .rd-horizon-kb .rd-kb-category-item {
+    width: auto !important;
+    min-width: max-content !important;
+    flex: none;
+  }
+
+  .rd-horizon-kb .rd-kb-category-item {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .rd-horizon-kb .rd-kb-category-item > div {
+    min-width: max-content !important;
+  }
+
+  .rd-horizon-kb .rd-kb-category-item > div + div {
+    display: flex !important;
+    width: auto !important;
+    margin: 0.25rem 0 0 !important;
+    padding: 0 !important;
+    flex-direction: row !important;
+    gap: 0.25rem !important;
+    border-left: 0 !important;
+  }
+
+  .rd-horizon-kb .rd-kb-category-child {
+    width: auto !important;
+    min-width: max-content !important;
+    flex: none;
+  }
+
+  .rd-horizon-kb .rd-kb-content {
+    padding: 0.875rem;
+  }
+}
+
+@container rd-kb (max-width: 44rem) {
+  .rd-horizon-kb {
+    padding: 0.5rem 0.5rem 1rem;
+  }
+
+  .rd-horizon-kb .rd-kb-toolbar {
+    padding: 0.75rem !important;
+    border-radius: 16px !important;
+  }
+
+  .rd-horizon-kb .rd-kb-search {
+    min-width: 100% !important;
+    flex-basis: 100%;
+  }
+
+  .rd-horizon-kb .rd-kb-switcher,
+  .rd-horizon-kb .rd-kb-filter {
+    min-width: min(100%, 9rem) !important;
+    flex: 1 1 9rem;
+  }
+
+  .rd-horizon-kb .rd-kb-toolbar-actions {
+    gap: 0.5rem;
+  }
+
+  .rd-horizon-kb .rd-kb-toolbar-stats {
+    display: none !important;
+  }
+
+  .rd-horizon-kb .rd-kb-layout {
+    margin-top: 0.75rem;
+    border-radius: 16px;
+  }
+
+  .rd-horizon-kb .rd-kb-content {
+    padding: 0.75rem;
+  }
+
+  .rd-horizon-kb .rd-kb-result-bar {
+    padding-bottom: 0.625rem !important;
+  }
+
+  .rd-horizon-kb .rd-kb-pagination {
+    align-items: flex-start;
+  }
+}
+
+@container rd-kb (max-width: 34rem) {
+  .rd-horizon-kb .rd-kb-toolbar-actions {
+    justify-content: flex-start;
+  }
+
+  .rd-horizon-kb .rd-kb-primary-action {
+    margin-left: auto;
+  }
+
+  .rd-horizon-kb .rd-kb-pagination {
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-horizon-kb *,
+  .rd-horizon-kb *::before,
+  .rd-horizon-kb *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* 研发知识库 Portal：类由 React Context 只挂到原生研发实例。 */
+.rd-horizon-kb-dialog,
+.rd-horizon-kb-menu {
+  --rd-primary: #002fa7;
+  --rd-primary-hover: #002581;
+  --rd-ink: #1b2559;
+  --rd-body: #42526f;
+  --rd-muted: #64748b;
+  --rd-subtle: #8f9bba;
+  --rd-canvas: #f4f7fe;
+  --rd-surface: #ffffff;
+  --rd-soft-blue: #eef3ff;
+  --rd-line: #e9edf7;
+  --rd-line-strong: #e0e5f2;
+  --rd-shadow-card: 0 8px 24px rgba(112, 144, 176, 0.065);
+  --rd-shadow-focal: 0 16px 42px rgba(27, 37, 89, 0.16);
+}
+
+[data-slot="dialog-overlay"]:has(+ .rd-horizon-kb-dialog) {
+  background: rgba(15, 23, 42, 0.38) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.rd-horizon-kb-dialog {
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 20px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-focal) !important;
+}
+
+.rd-horizon-kb-dialog [data-slot="dialog-header"] {
+  border-bottom-color: var(--rd-line) !important;
+  color: var(--rd-body);
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-kb-dialog [data-slot="dialog-header"] > .absolute.inset-0 {
+  display: none;
+}
+
+.rd-horizon-kb-dialog [data-slot="dialog-title"],
+.rd-horizon-kb-dialog :where(h2, h3) {
+  color: var(--rd-ink) !important;
+}
+
+.rd-horizon-kb-dialog [data-slot="dialog-title"] > span {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.08) !important;
+}
+
+.rd-horizon-kb-dialog [data-slot="dialog-description"]:not(.sr-only),
+.rd-horizon-kb-dialog label {
+  color: var(--rd-muted) !important;
+}
+
+.rd-horizon-kb-dialog :where(input, textarea, button[role="combobox"]) {
+  border-color: var(--rd-line-strong) !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb-dialog :where(input, textarea, button[role="combobox"])::placeholder {
+  color: var(--rd-subtle) !important;
+}
+
+.rd-horizon-kb-dialog :where(input, textarea, button[role="combobox"]):focus-visible,
+.rd-horizon-kb-dialog :where(button, [role="button"], [tabindex]):focus-visible,
+.rd-horizon-kb-menu :where([role="menuitem"], button):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb-dialog [data-slot="dialog-footer"],
+.rd-horizon-kb-danger-dialog > div.border-t {
+  border-top-color: var(--rd-line) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-kb-dialog [data-slot="dialog-footer"] > button:not(.bg-indigo-600):not(.bg-red-500),
+.rd-horizon-kb-danger-dialog > div.border-t > button:not(.bg-red-500) {
+  border-color: transparent !important;
+  color: var(--rd-body) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb-dialog [data-slot="dialog-footer"] > button:not(.bg-indigo-600):not(.bg-red-500):hover,
+.rd-horizon-kb-danger-dialog > div.border-t > button:not(.bg-red-500):hover {
+  color: var(--rd-ink) !important;
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-kb-dialog button.bg-indigo-600 {
+  border-color: var(--rd-primary) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb-dialog button.bg-indigo-600:hover:not(:disabled) {
+  border-color: var(--rd-primary-hover) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary-hover) !important;
+  transform: none !important;
+}
+
+.rd-horizon-kb-danger-dialog button.bg-red-500 {
+  border-color: #ef4444 !important;
+  color: #ffffff !important;
+  background: #ef4444 !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb-danger-dialog button.bg-red-500:hover:not(:disabled) {
+  border-color: #dc2626 !important;
+  background: #dc2626 !important;
+  transform: none !important;
+}
+
+.rd-horizon-kb-dialog:not(.rd-horizon-kb-preview-dialog) [class*="shadow-"] {
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb-dialog:not(.rd-horizon-kb-preview-dialog) [class*="bg-slate-50"] {
+  background: var(--rd-canvas) !important;
+}
+
+.rd-horizon-kb-dialog:not(.rd-horizon-kb-preview-dialog) div.rounded-lg.border {
+  border-color: var(--rd-line) !important;
+}
+
+.rd-horizon-kb-category-dialog button[aria-pressed] {
+  border-color: transparent !important;
+  color: var(--rd-muted) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb-category-dialog button[aria-pressed]:hover {
+  border-color: var(--rd-line-strong) !important;
+  color: var(--rd-ink) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-kb-category-dialog button[aria-pressed="true"] {
+  border-color: var(--rd-primary) !important;
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-kb-move-dialog button.bg-indigo-600 {
+  color: #ffffff !important;
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-kb-upload-dialog .rd-kb-upload-body {
+  background: #fbfcff !important;
+  scrollbar-color: var(--rd-line-strong) transparent;
+}
+
+.rd-horizon-kb-upload-dialog .rd-kb-upload-dropzone {
+  border-color: var(--rd-line-strong) !important;
+  border-radius: 14px !important;
+  background: var(--rd-surface) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb-upload-dialog .rd-kb-upload-dropzone > .absolute.inset-0 {
+  display: none;
+}
+
+.rd-horizon-kb-upload-dialog .rd-kb-upload-dropzone:hover {
+  border-color: rgba(0, 47, 167, 0.32) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-kb-upload-dialog .rd-kb-upload-dropzone[class*="border-indigo-400"] {
+  border-color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.07) !important;
+}
+
+.rd-horizon-kb-upload-dialog .rd-kb-upload-dropzone > span {
+  border-color: rgba(0, 47, 167, 0.12) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb-upload-dialog .rd-kb-upload-footer {
+  border-top-color: var(--rd-line) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-kb-preview-dialog .rd-kb-preview-header {
+  border-bottom-color: var(--rd-line) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-kb-preview-dialog .rd-kb-preview-header > div:first-of-type {
+  background: var(--rd-canvas) !important;
+  box-shadow: inset 0 0 0 1px var(--rd-line) !important;
+}
+
+.rd-horizon-kb-preview-dialog .rd-kb-preview-header button:not(.bg-indigo-600) {
+  box-shadow: none !important;
+}
+
+.rd-horizon-kb-preview-dialog .rd-kb-preview-header button.border-indigo-200 {
+  border-color: rgba(0, 47, 167, 0.18) !important;
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-kb-preview-dialog .rd-kb-preview-footer {
+  border-top-color: var(--rd-line) !important;
+  color: var(--rd-muted) !important;
+  background: var(--rd-surface) !important;
+}
+
+.rd-horizon-kb-preview-dialog .rd-kb-preview-footer .bg-indigo-600 {
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-kb-preview-dialog .rd-kb-preview-body button.bg-indigo-600 {
+  background: var(--rd-primary) !important;
+}
+
+.rd-horizon-kb-menu {
+  border-color: var(--rd-line) !important;
+  border-radius: 12px !important;
+  color: var(--rd-body) !important;
+  background: var(--rd-surface) !important;
+  box-shadow: var(--rd-shadow-card) !important;
+}
+
+.rd-horizon-kb-menu [data-slot="dropdown-menu-item"] {
+  min-height: 2.25rem;
+  border-radius: 8px !important;
+  color: var(--rd-body) !important;
+}
+
+.rd-horizon-kb-menu [data-slot="dropdown-menu-item"]:focus,
+.rd-horizon-kb-menu [data-slot="dropdown-menu-item"][data-highlighted] {
+  color: var(--rd-primary) !important;
+  background: var(--rd-soft-blue) !important;
+}
+
+.rd-horizon-kb-menu [data-slot="dropdown-menu-item"] svg {
+  color: var(--rd-muted) !important;
+}
+
+@media (max-width: 640px) {
+  .rd-horizon-kb-dialog {
+    width: calc(100vw - 1rem) !important;
+    max-height: calc(100dvh - 1rem);
+    border-radius: 16px !important;
+  }
+
+  .rd-horizon-kb-upload-dialog .rd-kb-upload-body {
+    padding: 1rem !important;
+  }
+
+  .rd-horizon-kb-preview-dialog .rd-kb-preview-header,
+  .rd-horizon-kb-preview-dialog .rd-kb-preview-footer {
+    padding-right: 0.875rem !important;
+    padding-left: 0.875rem !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-horizon-kb-dialog,
+  .rd-horizon-kb-dialog *,
+  .rd-horizon-kb-menu,
+  .rd-horizon-kb-menu * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

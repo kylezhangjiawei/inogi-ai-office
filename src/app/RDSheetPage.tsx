@@ -400,7 +400,7 @@ export function RDSheetPage() {
   );
 
   return (
-    <div className="relative min-h-full bg-transparent flex flex-col text-slate-900">
+    <div className="rd-horizon-module rd-horizon-sheet relative flex min-h-full flex-col bg-transparent text-slate-900">
       <input
         ref={fileInputRef}
         type="file"
@@ -410,26 +410,26 @@ export function RDSheetPage() {
       />
 
       {/* Header */}
-      <div className="relative mx-4 mt-5 overflow-hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-[0_16px_34px_rgba(15,23,42,0.06)] sm:mx-6">
-        <div className="relative z-10 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
-            <h1 className="flex items-center gap-3 text-xl font-semibold text-slate-950">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_10px_22px_rgba(79,70,229,0.22)]">
+      <div className="rd-horizon-sheet-command relative mx-4 mt-5 overflow-hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-[0_16px_34px_rgba(15,23,42,0.06)] sm:mx-6">
+        <div className="rd-horizon-sheet-command-layout relative z-10 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="rd-horizon-sheet-identity min-w-0">
+            <h2 className="rd-horizon-sheet-heading flex items-center gap-3 text-xl font-semibold text-slate-950">
+              <span className="rd-horizon-sheet-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_10px_22px_rgba(79,70,229,0.22)]">
                 <FileSpreadsheet className="w-4 h-4" />
               </span>
               <span className="truncate">{t("研发数据表")}</span>
-            </h1>
-            <p className="mt-1.5 text-sm font-medium text-slate-500">
+            </h2>
+            <p className="rd-horizon-sheet-subtitle mt-1.5 text-sm font-medium text-slate-500">
               {t("高保真导入 / 编辑 xlsx 工作簿（图片、合并单元格、样式原样保留）")}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+          <div className="rd-horizon-sheet-actions flex flex-wrap items-center gap-2 xl:justify-end">
             <Button
               type="button"
               variant="outline"
               onClick={handleUndo}
               disabled={loading || saving || importing}
-              className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+              className="rd-horizon-sheet-action h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
               title={t("从服务器重新加载（放弃未保存改动）")}
             >
               <RotateCcw className={cn("w-4 h-4", loading && "animate-spin")} />
@@ -441,7 +441,7 @@ export function RDSheetPage() {
                 variant="outline"
                 onClick={() => setShowVersions(true)}
                 disabled={loading || saving || importing}
-                className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                className="rd-horizon-sheet-action h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
                 title={t("查看/恢复服务器自动留档的历史版本（最近 10 版）")}
               >
                 <History className="w-4 h-4" />
@@ -454,7 +454,7 @@ export function RDSheetPage() {
                 variant="outline"
                 onClick={handleAutoFitRows}
                 disabled={loading || saving || importing}
-                className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                className="rd-horizon-sheet-action h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
                 title={t("按内容自动调整行高：框选多行只调整选中行；未框选则调整整表。调整后新增内容会持续自适应")}
               >
                 <Rows3 className="w-4 h-4" />
@@ -467,7 +467,7 @@ export function RDSheetPage() {
                 variant="outline"
                 onClick={() => void handleConvertImages()}
                 disabled={converting || importing || saving || loading}
-                className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                className="rd-horizon-sheet-action h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
                 title={t("把粘贴/导入进来的浮动图片转成嵌入单元格的图片（转换后点保存）")}
               >
                 {converting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageDown className="w-4 h-4" />}
@@ -480,7 +480,7 @@ export function RDSheetPage() {
                 variant="outline"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={importing || saving || loading}
-                className="h-9 gap-2 rounded-lg border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50"
+                className="rd-horizon-sheet-action rd-horizon-sheet-import h-9 gap-2 rounded-lg border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50"
               >
                 {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                 {importing ? t("解析中…") : t("导入 xlsx")}
@@ -491,7 +491,7 @@ export function RDSheetPage() {
                 type="button"
                 onClick={() => void handleSave()}
                 disabled={saving || importing || loading || !dirty}
-                className="h-9 gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.20)] hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rd-horizon-sheet-primary h-9 gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.20)] hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 {saving ? t("保存中…") : t("保存")}
@@ -502,8 +502,8 @@ export function RDSheetPage() {
       </div>
 
       {/* 提示 / 错误 */}
-      <div className="mx-4 mt-3 sm:mx-6 space-y-2">
-        <div className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+      <div className="rd-horizon-sheet-feedback mx-4 mt-3 space-y-2 sm:mx-6">
+        <div className="rd-horizon-sheet-guidance flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
           {canEdit ? (
             <>
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
@@ -521,17 +521,17 @@ export function RDSheetPage() {
           )}
         </div>
         {notice && (
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-xs font-medium text-indigo-700">{notice}</div>
+          <div className="rd-horizon-sheet-notice rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-xs font-medium text-indigo-700" role="status" aria-live="polite">{notice}</div>
         )}
         {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-600">{error}</div>
+          <div className="rd-horizon-sheet-error rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-600" role="alert">{error}</div>
         )}
       </div>
 
       {/* 编辑器 */}
-      <div className="mx-4 mb-6 mt-3 flex-1 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_16px_34px_rgba(15,23,42,0.06)] sm:mx-6">
+      <div className="rd-horizon-sheet-editor mx-4 mb-6 mt-3 flex-1 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_16px_34px_rgba(15,23,42,0.06)] sm:mx-6">
         {loading || !snapshot ? (
-          <div className="flex h-[70vh] min-h-[480px] items-center justify-center text-sm text-slate-400">
+          <div className="rd-horizon-sheet-state flex h-[70vh] min-h-[480px] items-center justify-center text-sm text-slate-400" role="status">
             {error ? error : (
               <span className="inline-flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" /> {t("加载中…")}
@@ -541,7 +541,7 @@ export function RDSheetPage() {
         ) : (
           <Suspense
             fallback={
-              <div className="flex h-[70vh] min-h-[480px] items-center justify-center text-sm text-slate-400">
+              <div className="rd-horizon-sheet-state flex h-[70vh] min-h-[480px] items-center justify-center text-sm text-slate-400" role="status">
                 <span className="inline-flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" /> {t("编辑器加载中…")}
                 </span>
@@ -563,7 +563,7 @@ export function RDSheetPage() {
 
       {/* 历史版本对话框 */}
       <Dialog open={showVersions} onOpenChange={setShowVersions}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="rd-horizon-sheet-dialog max-w-lg">
           <DialogHeader>
             <DialogTitle>{t("历史版本")}</DialogTitle>
             <DialogDescription>
@@ -577,11 +577,11 @@ export function RDSheetPage() {
           ) : !versions || versions.length === 0 ? (
             <div className="py-8 text-center text-sm text-slate-400">{t("暂无历史版本（保存一次后开始留档）。")}</div>
           ) : (
-            <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+            <div className="rd-horizon-sheet-version-list max-h-80 space-y-2 overflow-y-auto pr-1">
               {versions.map((v) => (
                 <div
                   key={v.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2"
+                  className="rd-horizon-sheet-version flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2"
                 >
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-slate-800">
@@ -597,7 +597,7 @@ export function RDSheetPage() {
                     size="sm"
                     disabled={restoringId !== null}
                     onClick={() => void handleRestoreVersion(v)}
-                    className="h-8 shrink-0 rounded-lg border-indigo-200 px-3 text-xs font-semibold text-indigo-600 hover:bg-indigo-50"
+                    className="rd-horizon-sheet-restore h-8 shrink-0 rounded-lg border-indigo-200 px-3 text-xs font-semibold text-indigo-600 hover:bg-indigo-50"
                   >
                     {restoringId === v.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("恢复")}
                   </Button>

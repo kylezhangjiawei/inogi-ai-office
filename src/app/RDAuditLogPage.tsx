@@ -34,7 +34,7 @@ import { NativeSelect } from "./components/ui/native-select";
 import { cn } from "./components/ui/utils";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { todayLocalDateStr } from "./lib/taskDue";
-import { isUsCollabWorkspace } from "./lib/rdApi";
+import { isProductionWorkspace, isUsCollabWorkspace } from "./lib/rdApi";
 
 type FilterValue<T extends string> = T | "all";
 type AuditSource = AuditLog["source"];
@@ -77,29 +77,12 @@ const TONE_BADGE_CLASSES: Record<"blue" | "emerald" | "amber" | "red" | "violet"
   slate: "border-slate-200 bg-slate-100 text-slate-700",
 };
 
-const TONE_BAR_CLASSES: Record<"blue" | "emerald" | "amber" | "red" | "violet" | "slate", string> = {
-  blue: "bg-sky-500",
-  emerald: "bg-emerald-500",
-  amber: "bg-amber-500",
-  red: "bg-rose-500",
-  violet: "bg-indigo-500",
-  slate: "bg-slate-500",
-};
-
 const SOURCE_BADGE_CLASSES: Record<AuditSource, string> = {
   web: "border-slate-200 bg-white text-slate-700",
   ai: "border-indigo-100 bg-indigo-50 text-indigo-700",
   api: "border-cyan-100 bg-cyan-50 text-cyan-700",
   system: "border-amber-100 bg-amber-50 text-amber-700",
 };
-
-const METRIC_TONES = [
-  "text-slate-950 bg-slate-950",
-  "text-cyan-700 bg-cyan-500",
-  "text-emerald-700 bg-emerald-500",
-  "text-indigo-700 bg-indigo-500",
-  "text-amber-700 bg-amber-500",
-] as const;
 
 const SOURCE_LABELS: Record<FilterValue<AuditSource>, string> = {
   all: "全部来源",
@@ -217,6 +200,7 @@ function sameResource(a: AuditLog, b: AuditLog) {
 export function RDAuditLogPage() {
   useI18n(); // 订阅语言切换：本页文案全部经 t()，切语言即重渲染
   const shouldReduceMotion = useReducedMotion();
+  const nativeRdAudit = !isUsCollabWorkspace() && !isProductionWorkspace();
   const allLogs = useAuditLogs();
   const [keyword, setKeyword] = useState("");
   const deferredKeyword = useDeferredValue(keyword);
@@ -359,25 +343,28 @@ export function RDAuditLogPage() {
 
   return (
     <motion.div
-      initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+      initial={shouldReduceMotion ? false : nativeRdAudit ? { opacity: 0 } : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={AUDIT_PANEL}
-      className="flex h-full min-h-0 flex-col overflow-hidden px-5 py-5 lg:px-7 lg:py-6"
+      className={cn(
+        "flex h-full min-h-0 flex-col overflow-hidden px-5 py-5 lg:px-7 lg:py-6",
+        nativeRdAudit && "rd-horizon-module rd-horizon-audit",
+      )}
     >
-      <div className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-4 overflow-hidden">
-        <header className="flex shrink-0 flex-wrap items-end justify-between gap-4  pb-4">
+      <div className="rd-horizon-audit-shell mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-4 overflow-hidden">
+        <header className="rd-horizon-audit-command flex shrink-0 flex-wrap items-end justify-between gap-4 pb-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-[0_10px_22px_rgba(15,23,42,0.18)]">
+              <span className="rd-horizon-audit-command-icon flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-[0_10px_22px_rgba(15,23,42,0.18)]">
                 <ShieldCheck className="h-4 w-4" />
               </span>
-              <div>
-                <h1 className="text-xl font-semibold text-slate-950">{t(isUsCollabWorkspace() ? "协同操作留痕" : "研发操作留痕")}</h1>
+              <div className="rd-horizon-audit-command-copy">
+                <h2 className="text-xl font-semibold text-slate-950">{t(isUsCollabWorkspace() ? "协同操作留痕" : "研发操作留痕")}</h2>
                 <p className="mt-0.5 text-sm text-slate-500">{t("审计查询台 · 追责、复盘、抽查、异常定位")}</p>
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="rd-horizon-audit-presets flex flex-wrap items-center gap-2">
             {[
               { label: t("任务变更"), onClick: () => applyPreset("task") },
               { label: t("立项审核"), onClick: () => applyPreset("proposal") },
@@ -389,7 +376,7 @@ export function RDAuditLogPage() {
                 key={item.label}
                 type="button"
                 onClick={item.onClick}
-                className="inline-flex h-8 cursor-pointer items-center rounded-md border border-slate-200 bg-white/90 px-3 text-xs font-semibold text-slate-600 shadow-[0_4px_12px_rgba(15,23,42,0.03)] transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+                className="rd-horizon-audit-preset inline-flex h-8 cursor-pointer items-center rounded-md border border-slate-200 bg-white/90 px-3 text-xs font-semibold text-slate-600 shadow-[0_4px_12px_rgba(15,23,42,0.03)] transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
               >
                 {item.label}
               </button>
@@ -397,7 +384,7 @@ export function RDAuditLogPage() {
             <button
               type="button"
               onClick={resetFilters}
-              className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-indigo-600 px-3 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.18)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+              className="rd-horizon-audit-reset inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-indigo-600 px-3 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.18)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               {t("重置")}
@@ -405,22 +392,23 @@ export function RDAuditLogPage() {
           </div>
         </header>
 
-        <section className="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-5">
+        <section className="rd-horizon-audit-stats grid shrink-0 grid-cols-2 gap-2 md:grid-cols-5">
           {[
-            { label: t("匹配记录"), value: stats.total, Icon: Database, tone: "text-slate-900" },
-            { label: t("涉及对象"), value: stats.uniqueResources, Icon: Activity, tone: "text-cyan-700" },
-            { label: t("操作人员"), value: stats.uniqueActors, Icon: UserRound, tone: "text-emerald-600" },
-            { label: t("AI/自动"), value: stats.aiCount, Icon: Bot, tone: "text-indigo-700" },
-            { label: t("风险动作"), value: stats.riskCount, Icon: ShieldCheck, tone: "text-amber-600" },
-          ].map(({ label, value, Icon, tone }, index) => (
+            { label: t("匹配记录"), value: stats.total, Icon: Database, tone: "text-slate-900", semantic: "neutral" },
+            { label: t("涉及对象"), value: stats.uniqueResources, Icon: Activity, tone: "text-cyan-700", semantic: "neutral" },
+            { label: t("操作人员"), value: stats.uniqueActors, Icon: UserRound, tone: "text-emerald-600", semantic: "neutral" },
+            { label: t("AI/自动"), value: stats.aiCount, Icon: Bot, tone: "text-indigo-700", semantic: "neutral" },
+            { label: t("风险动作"), value: stats.riskCount, Icon: ShieldCheck, tone: "text-amber-600", semantic: "risk" },
+          ].map(({ label, value, Icon, tone, semantic }, index) => (
             <motion.div
               key={label}
               initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ ...AUDIT_FAST, delay: shouldReduceMotion ? 0 : index * 0.035 }}
-              className="group relative flex min-h-20 items-center gap-3 overflow-hidden rounded-lg border border-slate-200 bg-white/95 px-4 py-3 shadow-[0_8px_20px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-[0_14px_28px_rgba(15,23,42,0.07)]"
+              className="rd-horizon-audit-stat group relative flex min-h-20 items-center gap-3 overflow-hidden rounded-lg border border-slate-200 bg-white/95 px-4 py-3 shadow-[0_8px_20px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-100 hover:shadow-[0_14px_28px_rgba(15,23,42,0.07)]"
+              data-stat-index={index}
+              data-tone={semantic}
             >
-              <span className={cn("absolute left-0 top-0 h-full w-1", METRIC_TONES[index].split(" ")[1])} />
               <Icon className={cn("h-4 w-4 shrink-0", tone)} />
               <div>
                 <div className={cn("text-2xl font-semibold tabular-nums", tone)}>{value}</div>
@@ -430,9 +418,9 @@ export function RDAuditLogPage() {
           ))}
         </section>
 
-        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)_360px]">
-          <aside className="space-y-3 overflow-y-auto rounded-lg border border-slate-200 bg-white/95 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)] xl:self-stretch">
-            <div className="flex items-center justify-between">
+        <div className="rd-horizon-audit-grid grid min-h-0 flex-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)_360px]">
+          <aside className="rd-horizon-audit-filters space-y-3 overflow-y-auto rounded-lg border border-slate-200 bg-white/95 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)] xl:self-stretch">
+            <div className="rd-horizon-audit-filter-heading flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                 <ListFilter className="h-4 w-4 text-slate-500" />
                 {t("精准筛选")}
@@ -442,7 +430,7 @@ export function RDAuditLogPage() {
               </span>
             </div>
 
-            <label className="block">
+            <label className="rd-horizon-audit-filter-search block">
               <span className="mb-1 block text-xs font-medium text-slate-600">{t("关键字")}</span>
               <div className="flex items-center gap-2 rounded-md border border-slate-200 px-2.5 py-2 transition-all focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
                 <Search className={cn("h-3.5 w-3.5 transition-colors", keyword ? "text-indigo-700" : "text-slate-400")} />
@@ -458,7 +446,7 @@ export function RDAuditLogPage() {
               </div>
             </label>
 
-            <div>
+            <div className="rd-horizon-audit-filter-categories">
               <div className="mb-1.5 text-xs font-medium text-slate-600">{t("类别")}</div>
               <div className="grid grid-cols-2 gap-1">
                 {CATEGORY_FILTERS.map((item) => (
@@ -484,7 +472,7 @@ export function RDAuditLogPage() {
               </div>
             </div>
 
-            <label className="block">
+            <label className="rd-horizon-audit-filter-action block">
               <span className="mb-1 block text-xs font-medium text-slate-600">{t("动作类型")}</span>
               <NativeSelect
                 value={action}
@@ -503,7 +491,7 @@ export function RDAuditLogPage() {
               </NativeSelect>
             </label>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="rd-horizon-audit-filter-entities grid grid-cols-2 gap-2">
               <label className="block">
                 <span className="mb-1 block text-xs font-medium text-slate-600">{t("对象")}</span>
                 <NativeSelect
@@ -540,7 +528,7 @@ export function RDAuditLogPage() {
               </label>
             </div>
 
-            <label className="block">
+            <label className="rd-horizon-audit-filter-actor block">
               <span className="mb-1 block text-xs font-medium text-slate-600">{t("操作人")}</span>
               <NativeSelect
                 value={actorId}
@@ -559,7 +547,7 @@ export function RDAuditLogPage() {
               </NativeSelect>
             </label>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="rd-horizon-audit-filter-dates grid grid-cols-2 gap-2">
               <label className="block">
                 <span className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-600">
                   <CalendarDays className="h-3 w-3" />
@@ -593,8 +581,8 @@ export function RDAuditLogPage() {
             </div>
           </aside>
 
-          <main className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white/95 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+          <main className="rd-horizon-audit-list flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white/95 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+            <div className="rd-horizon-audit-list-header flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
               <div>
                 <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                   <History className="h-4 w-4 text-slate-500" />
@@ -630,8 +618,8 @@ export function RDAuditLogPage() {
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto">
-              <table className="w-full min-w-[920px]">
+            <div className="rd-horizon-audit-table-scroll min-h-0 flex-1 overflow-auto">
+              <table className="rd-horizon-audit-table w-full min-w-[920px]">
                 <thead>
                   <tr className="border-b border-slate-100 bg-[#f8fafb] text-left text-[11px] font-semibold text-slate-500">
                     <th className="w-[132px] px-4 py-2.5">{t("时间")}</th>
@@ -670,10 +658,12 @@ export function RDAuditLogPage() {
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ ...AUDIT_FAST, delay: shouldReduceMotion ? 0 : Math.min(index, 8) * 0.018 }}
                           className={cn(
-                            "cursor-pointer transition-colors focus-visible:outline-none",
+                            "rd-horizon-audit-row cursor-pointer transition-colors focus-visible:outline-none",
                             "hover:bg-indigo-50/45 focus-visible:bg-indigo-50/60",
-                            selected && "bg-indigo-50/70 shadow-[inset_3px_0_0_#4f46e5]",
+                            selected && "bg-indigo-50/70",
                           )}
+                          data-selected={selected || undefined}
+                          data-tone={meta.tone}
                         >
                           <td className="px-4 py-3 align-top">
                             <div className="font-mono text-xs tabular-nums text-slate-700">{formatAbsolute(log.timestamp)}</div>
@@ -729,7 +719,7 @@ export function RDAuditLogPage() {
               </table>
             </div>
 
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
+            <div className="rd-horizon-audit-list-footer flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
               <div className="text-xs tabular-nums text-slate-500">
                 {t("显示")} {filteredLogs.length === 0 ? 0 : (safePage - 1) * pageSize + 1}-
                 {Math.min(safePage * pageSize, filteredLogs.length)}
@@ -762,7 +752,7 @@ export function RDAuditLogPage() {
             </div>
           </main>
 
-          <aside className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white/95 shadow-[0_10px_24px_rgba(15,23,42,0.05)] xl:self-stretch">
+          <aside className="rd-horizon-audit-detail flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white/95 shadow-[0_10px_24px_rgba(15,23,42,0.05)] xl:self-stretch">
             <AnimatePresence mode="wait" initial={false}>
               {selectedLog ? (
               <motion.div
@@ -771,10 +761,9 @@ export function RDAuditLogPage() {
                 animate={{ opacity: 1, x: 0 }}
                 exit={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, x: -8 }}
                 transition={AUDIT_FAST}
-                className="flex min-h-0 flex-1 flex-col"
+                className="rd-horizon-audit-detail-content flex min-h-0 flex-1 flex-col"
               >
-                <div className="relative shrink-0 border-b border-slate-200 px-4 py-3">
-                  <span className={cn("absolute left-0 top-0 h-full w-1", TONE_BAR_CLASSES[selectedMeta.tone])} />
+                <div className="rd-horizon-audit-detail-header relative shrink-0 border-b border-slate-200 px-4 py-3" data-tone={selectedMeta.tone}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-semibold", TONE_BADGE_CLASSES[selectedMeta.tone])}>
                       <CheckCircle2 className="h-3.5 w-3.5" />
@@ -786,7 +775,7 @@ export function RDAuditLogPage() {
                   <div className="mt-1 text-xs text-slate-500">{formatDateTimeFull(selectedLog.timestamp)}</div>
                 </div>
 
-                <div className="min-h-0 flex-1 space-y-4 overflow-auto px-4 pb-6 pt-4">
+                <div className="rd-horizon-audit-detail-body min-h-0 flex-1 space-y-4 overflow-auto px-4 pb-6 pt-4">
                   <section>
                     <h4 className="mb-2 text-xs font-semibold text-slate-500">{t("基础信息")}</h4>
                     <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/50 p-3 text-xs">

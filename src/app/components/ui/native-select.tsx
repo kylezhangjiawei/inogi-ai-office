@@ -15,6 +15,7 @@ type NativeSelectProps = Omit<
   "children" | "onChange" | "value" | "defaultValue"
 > & {
   children: React.ReactNode;
+  contentClassName?: string;
   value?: string | number;
   defaultValue?: string | number;
   onChange?: React.ChangeEventHandler<HTMLSelectElement>;
@@ -42,6 +43,7 @@ function getOptionText(children: React.ReactNode) {
 function NativeSelect({
   children,
   className,
+  contentClassName,
   disabled,
   value,
   defaultValue,
@@ -98,7 +100,7 @@ function NativeSelect({
         >
           <SelectValue placeholder={fallbackPlaceholder} />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className={contentClassName}>
           {options.map((option, index) => {
             if (!React.isValidElement(option)) return null;
             const optionValue = normalizeValue(option.props.value ?? "");

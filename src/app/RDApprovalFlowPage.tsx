@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ArrowDown,
@@ -45,6 +46,15 @@ import { isUsCollabWorkspace } from "./lib/rdApi";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+const DIALOG_FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
 function hashColor(name: string): string {
   const colors = [
     "bg-blue-500", "bg-emerald-500", "bg-violet-500", "bg-amber-500",
@@ -60,7 +70,7 @@ function MiniAvatar({ name }: { name: string }) {
   return (
     <span
       className={cn(
-        "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white ring-2 ring-white",
+        "rd-approval-avatar inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white ring-2 ring-white",
         hashColor(name),
       )}
       title={name}
@@ -149,15 +159,15 @@ function ApprovalNodeCard({
   const modeCfg = MODE_BADGE[node.mode];
 
   return (
-    <div className="relative rounded-xl border border-slate-200 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] transition-all hover:shadow-[0_8px_22px_rgba(15,23,42,0.06)]">
+    <div className="rd-approval-node relative rounded-xl border border-slate-200 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] transition-all hover:shadow-[0_8px_22px_rgba(15,23,42,0.06)]" data-mode={node.mode}>
       {/* Level badge (left edge) */}
-      <div className="absolute -left-3 top-4 flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-[11px] font-bold text-white shadow-[0_4px_10px_rgba(79,70,229,0.3)]">
+      <div className="rd-approval-node-level absolute -left-3 top-4 flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-[11px] font-bold text-white shadow-[0_4px_10px_rgba(79,70,229,0.3)]">
         {node.level}
       </div>
 
-      <div className="px-5 py-4">
+      <div className="rd-approval-node-body px-5 py-4">
         {/* Header row */}
-        <div className="mb-3 flex items-center gap-3">
+        <div className="rd-approval-node-header mb-3 flex items-center gap-3">
           <Input
             value={node.label}
             onChange={(e) => onChange({ label: e.target.value })}
@@ -170,14 +180,14 @@ function ApprovalNodeCard({
           />
           <span
             className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
+              "rd-approval-mode-badge inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
               modeCfg.bg,
               modeCfg.text,
             )}
           >
             {t(modeCfg.label)}
           </span>
-          <div className="flex shrink-0 items-center gap-0.5">
+          <div className="rd-approval-node-actions flex shrink-0 items-center gap-0.5">
             <button
               type="button"
               onClick={onMoveUp}
@@ -214,11 +224,11 @@ function ApprovalNodeCard({
           onChange={(e) => onChange({ description: e.target.value })}
           readOnly={readOnly}
           placeholder={t("节点说明（可选）")}
-          className="mb-3 w-full rounded border border-slate-100 bg-slate-50/40 px-3 py-1.5 text-xs text-slate-600 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100"
+          className="rd-approval-node-description mb-3 w-full rounded border border-slate-100 bg-slate-50/40 px-3 py-1.5 text-xs text-slate-600 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100"
         />
 
         {/* Config grid */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="rd-approval-node-config grid grid-cols-2 gap-3">
           {/* Permission */}
           <div>
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -246,13 +256,15 @@ function ApprovalNodeCard({
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               {t("审核模式")}
             </label>
-            <div className="flex gap-1 rounded border border-slate-200 bg-slate-50 p-0.5">
+            <div className="rd-approval-mode-control flex gap-1 rounded border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label={t("审核模式")}>
               {APPROVAL_MODE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
                   type="button"
                   onClick={() => onChange({ mode: opt.value })}
                   disabled={readOnly}
+                  aria-pressed={node.mode === opt.value}
+                  data-active={node.mode === opt.value}
                   className={cn(
                     "flex-1 rounded px-2 py-1 text-xs font-medium transition-all duration-150 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60",
                     node.mode === opt.value
@@ -301,8 +313,9 @@ function ApprovalNodeCard({
               type="button"
               onClick={() => onChange({ escalate_on_timeout: !node.escalate_on_timeout })}
               disabled={readOnly}
+              aria-pressed={Boolean(node.escalate_on_timeout)}
               className={cn(
-                "flex h-7 w-full items-center gap-2 rounded border px-2.5 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:opacity-70",
+                "rd-approval-escalate flex h-7 w-full items-center gap-2 rounded border px-2.5 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:opacity-70",
                 node.escalate_on_timeout
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                   : "border-slate-200 bg-white text-slate-500",
@@ -327,7 +340,7 @@ function ApprovalNodeCard({
         </div>
 
         {/* 审核池：权限码派生打底，支持手动增删（存进节点数据，随流程保存，两池各存各的） */}
-        <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/40 px-3 py-2.5">
+        <div className="rd-approval-pool mt-3 rounded-lg border border-slate-100 bg-slate-50/40 px-3 py-2.5">
           <div className="mb-2 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
               <Users className="h-3 w-3" />
@@ -382,7 +395,7 @@ function ApprovalNodeCard({
           {!readOnly && (
             <div className="mt-2">
               {addOpen ? (
-                <div className="rounded-md border border-indigo-100 bg-white p-2 shadow-sm">
+                <div className="rd-approval-candidate-panel rounded-md border border-indigo-100 bg-white p-2 shadow-sm">
                   <div className="mb-1.5 flex items-center gap-2">
                     <Input
                       autoFocus
@@ -427,7 +440,7 @@ function ApprovalNodeCard({
                 <button
                   type="button"
                   onClick={() => setAddOpen(true)}
-                  className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700"
+                  className="rd-approval-add-reviewer inline-flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700"
                 >
                   <Plus className="h-3 w-3" />
                   {t("添加审核人")}
@@ -456,7 +469,7 @@ function PoolMemberChip({
   return (
     <span
       className={cn(
-        "group/chip inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] text-slate-700 transition-colors",
+        "rd-approval-pool-member group/chip inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] text-slate-700 transition-colors",
         manual ? "border-indigo-200 bg-indigo-50/70" : "border-slate-200 bg-white hover:bg-slate-50",
       )}
     >
@@ -484,7 +497,7 @@ function PoolMemberChip({
 
 function FlowConnector() {
   return (
-    <div className="flex items-center justify-center py-2">
+    <div className="rd-approval-connector flex items-center justify-center py-2" aria-hidden="true">
       <div className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-400">
         <ArrowDown className="h-3 w-3" />
       </div>
@@ -595,6 +608,7 @@ function recordFlowSaveAudit(previous: ApprovalFlow | undefined, next: ApprovalF
 
 export function RDApprovalFlowPage() {
   useI18n(); // 订阅语言切换：本页文案全部经 t()
+  const horizonVariant = !isUsCollabWorkspace();
   const flowAuditActor = useAuditActor("研发管理员");
   const [flows, setFlowsState] = useState<ApprovalFlow[]>([]);
   const [savedFlows, setSavedFlows] = useState<ApprovalFlow[]>([]);
@@ -606,6 +620,66 @@ export function RDApprovalFlowPage() {
   const [approvalPools, setApprovalPools] = useState<Record<string, PoolMember[]>>({});
   const [candidates, setCandidates] = useState<PoolMember[]>([]);
   const canManageFlow = usePermission(PERMISSIONS.RD_APPROVAL_FLOW_MANAGE);
+  const resetDialogRef = useRef<HTMLDivElement>(null);
+  const resetTitleId = useId();
+  const resetDescriptionId = useId();
+
+  useEffect(() => {
+    if (!confirmReset || !horizonVariant || typeof document === "undefined") return undefined;
+
+    const dialog = resetDialogRef.current;
+    if (!dialog) return undefined;
+
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const appRoot = document.getElementById("root");
+    const rootWasInert = appRoot?.hasAttribute("inert") ?? false;
+    const previousBodyOverflow = document.body.style.overflow;
+
+    appRoot?.setAttribute("inert", "");
+    document.body.style.overflow = "hidden";
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const initialTarget = dialog.querySelector<HTMLElement>("[data-autofocus]")
+        ?? dialog.querySelector<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR);
+      initialTarget?.focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setConfirmReset(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const controls = Array.from(dialog.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR))
+        .filter((element) => element.getClientRects().length > 0 && !element.hasAttribute("disabled"));
+      if (controls.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleKeyDown);
+      if (!rootWasInert) appRoot?.removeAttribute("inert");
+      document.body.style.overflow = previousBodyOverflow;
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [confirmReset, horizonVariant]);
 
   // 「添加审核人」候选：仅管理员需要（端点也只对 rd-approval-flow:manage 开放）
   useEffect(() => {
@@ -679,8 +753,14 @@ export function RDApprovalFlowPage() {
 
   if (loading) {
     return (
-      <div className="min-h-full bg-slate-50/40 px-6 py-6 lg:px-8 lg:py-8">
-        <div className="mx-auto max-w-4xl rounded-xl border border-slate-100 bg-white px-6 py-10 text-sm text-slate-500 shadow-[0_18px_45px_rgba(15,23,42,0.05)]">
+      <div
+        className={cn(
+          "min-h-full bg-slate-50/40 px-6 py-6 lg:px-8 lg:py-8",
+          horizonVariant && "rd-horizon-module rd-horizon-approval rd-horizon-approval-state",
+        )}
+        role="status"
+      >
+        <div className="rd-approval-state-surface mx-auto max-w-4xl rounded-xl border border-slate-100 bg-white px-6 py-10 text-sm text-slate-500 shadow-[0_18px_45px_rgba(15,23,42,0.05)]">
           {t("正在从后端加载审批流配置…")}
         </div>
       </div>
@@ -703,9 +783,14 @@ export function RDApprovalFlowPage() {
 
   if (!activeFlow) {
     return (
-      <div className="min-h-full bg-slate-50/40 px-6 py-6 lg:px-8 lg:py-8">
-        <div className="mx-auto flex max-w-4xl flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center shadow-[0_18px_45px_rgba(15,23,42,0.04)]">
-          <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-900 text-white">
+      <div
+        className={cn(
+          "min-h-full bg-slate-50/40 px-6 py-6 lg:px-8 lg:py-8",
+          horizonVariant && "rd-horizon-module rd-horizon-approval rd-horizon-approval-state",
+        )}
+      >
+        <div className="rd-approval-state-surface mx-auto flex max-w-4xl flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center shadow-[0_18px_45px_rgba(15,23,42,0.04)]">
+          <span className="rd-approval-state-mark flex h-11 w-11 items-center justify-center rounded-lg bg-slate-900 text-white">
             <GitBranch className="h-5 w-5" />
           </span>
           <h1 className="mt-4 text-lg font-semibold text-slate-950">{t("暂无审批流配置")}</h1>
@@ -721,7 +806,7 @@ export function RDApprovalFlowPage() {
             <button
               type="button"
               onClick={createDefaultDraft}
-              className="mt-5 inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.18)] transition-all hover:bg-slate-800 active:scale-[0.98]"
+              className="rd-approval-primary mt-5 inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.18)] transition-all hover:bg-slate-800 active:scale-[0.98]"
             >
               <Plus className="h-4 w-4" />
               {t("创建默认草稿")}
@@ -860,31 +945,88 @@ export function RDApprovalFlowPage() {
     toast.info(t("已恢复默认审批流"));
   };
 
+  const resetDialog = canManageFlow && confirmReset ? (
+    <div
+      className={cn(
+        "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in",
+        horizonVariant && "rd-horizon-approval-dialog-backdrop",
+      )}
+    >
+      <div
+        ref={resetDialogRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={resetTitleId}
+        aria-describedby={resetDescriptionId}
+        tabIndex={-1}
+        className={cn(
+          "w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in",
+          horizonVariant && "rd-horizon-approval-dialog",
+        )}
+      >
+        <div className="rd-approval-dialog-body px-6 pt-6">
+          <div className="rd-approval-dialog-mark mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
+            <AlertTriangle className="h-6 w-6 text-amber-500" />
+          </div>
+          <h3 id={resetTitleId} className="text-base font-semibold text-slate-900">{t("恢复默认审批流？")}</h3>
+          <p id={resetDescriptionId} className="mt-1.5 text-sm leading-relaxed text-slate-500">
+            {t("这将丢弃当前所有配置，恢复为系统默认的「一审 → 终审」两级或签流程。")}
+          </p>
+        </div>
+        <footer className="rd-approval-dialog-footer mt-5 flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/50 px-6 py-3">
+          <button
+            type="button"
+            data-autofocus
+            onClick={() => setConfirmReset(false)}
+            className="rd-approval-dialog-cancel rounded-md border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98]"
+          >
+            {t("取消")}
+          </button>
+          <button
+            type="button"
+            onClick={reset}
+            className="rd-approval-dialog-confirm inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3.5 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(217,119,6,0.25)] transition-all hover:bg-amber-700 active:scale-[0.98]"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            {t("恢复默认")}
+          </button>
+        </footer>
+      </div>
+    </div>
+  ) : null;
+
+  const renderedResetDialog = resetDialog && horizonVariant && typeof document !== "undefined"
+    ? createPortal(resetDialog, document.body)
+    : resetDialog;
+
   return (
-    <div className="min-h-full bg-slate-50/40 px-6 py-6 lg:px-8 lg:py-8">
-      <div className="mx-auto max-w-4xl space-y-5">
+    <div className={cn(
+      "min-h-full bg-slate-50/40 px-6 py-6 lg:px-8 lg:py-8",
+      horizonVariant && "rd-horizon-module rd-horizon-approval",
+    )}>
+      <div className="rd-approval-shell mx-auto max-w-4xl space-y-5">
         {/* Header */}
-        <header className="flex items-end justify-between gap-4">
-          <div>
+        <header className="rd-approval-command flex items-end justify-between gap-4">
+          <div className="rd-approval-identity">
             <div className="flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_8px_18px_rgba(79,70,229,0.25)]">
+              <span className="rd-approval-command-mark flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_8px_18px_rgba(79,70,229,0.25)]">
                 <GitBranch className="h-4 w-4" />
               </span>
-              <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+              <h2 className="rd-approval-title text-xl font-semibold tracking-tight text-slate-900">
                 {t(isUsCollabWorkspace() ? "协同审批流配置" : "审批流配置")}
-              </h1>
+              </h2>
             </div>
-            <p className="mt-1.5 text-sm text-slate-500">
+            <p className="rd-approval-command-copy mt-1.5 text-sm text-slate-500">
               {t("配置「立项 / 任务封存 / 转派」等流程的审核节点 · 池成员由「角色权限」页分配")}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="rd-approval-command-actions flex items-center gap-2">
             {canManageFlow ? (
               <>
                 <button
                   type="button"
                   onClick={() => setConfirmReset(true)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition-all hover:bg-slate-50 active:scale-[0.98]"
+                  className="rd-approval-secondary inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition-all hover:bg-slate-50 active:scale-[0.98]"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
                   {t("恢复默认")}
@@ -893,7 +1035,7 @@ export function RDApprovalFlowPage() {
                   type="button"
                   onClick={save}
                   disabled={!dirty}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.2)] transition-all hover:bg-slate-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-slate-900"
+                  className="rd-approval-primary inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.2)] transition-all hover:bg-slate-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-slate-900"
                 >
                   <Save className="h-3.5 w-3.5" />
                   {dirty ? t("保存配置") : t("已保存")}
@@ -908,8 +1050,8 @@ export function RDApprovalFlowPage() {
         </header>
 
         {/* Flow selector */}
-        <section className="rounded-xl border border-slate-100 bg-white p-4">
-          <div className="mb-3 flex items-center justify-between">
+        <section className="rd-approval-summary rounded-xl border border-slate-100 bg-white p-4">
+          <div className="rd-approval-summary-header mb-3 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold text-slate-900">{t(activeFlow.name)}</h2>
               <p className="mt-0.5 text-xs text-slate-500">
@@ -928,7 +1070,7 @@ export function RDApprovalFlowPage() {
           </div>
 
           {/* Info banner */}
-          <div className="flex items-start gap-2 rounded-md border border-blue-100 bg-blue-50/50 px-3 py-2 text-[11px] text-blue-700">
+          <div className="rd-approval-guidance flex items-start gap-2 rounded-md border border-blue-100 bg-blue-50/50 px-3 py-2 text-[11px] text-blue-700">
             <Info className="mt-0.5 h-3 w-3 shrink-0" />
             <span>
               <span className="font-semibold">{t("如何添加审核人？")}</span> {t("在「角色权限」页面，给某角色勾选对应权限码（如")}
@@ -938,10 +1080,10 @@ export function RDApprovalFlowPage() {
         </section>
 
         {/* Nodes */}
-        <section className="space-y-1">
+        <section className="rd-approval-nodes space-y-1">
           {activeFlow.nodes.map((node, idx) => (
             <React.Fragment key={node.id}>
-              <div className="ml-3">
+              <div className="rd-approval-node-slot ml-3">
                 <ApprovalNodeCard
                   node={node}
                   isFirst={idx === 0}
@@ -960,23 +1102,23 @@ export function RDApprovalFlowPage() {
           ))}
 
           {/* Terminal node */}
-          <div className="flex items-center justify-center py-2">
+          <div className="rd-approval-terminal-connector flex items-center justify-center py-2" aria-hidden="true">
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-400">
               <ArrowDown className="h-3 w-3" />
             </div>
           </div>
-          <div className="ml-3 flex items-center justify-center gap-2 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/40 px-4 py-3">
+          <div className="rd-approval-terminal ml-3 flex items-center justify-center gap-2 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/40 px-4 py-3">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
             <span className="text-sm font-semibold text-emerald-700">{t("通过 · 任务自动分配")}</span>
           </div>
 
           {/* Add node button */}
           {canManageFlow && (
-            <div className="pt-3">
+            <div className="rd-approval-add-node-wrap pt-3">
             <button
               type="button"
               onClick={addNode}
-              className="group flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-transparent px-4 py-3 text-sm font-medium text-slate-500 transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50/30 hover:text-blue-600"
+              className="rd-approval-add-node group flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-transparent px-4 py-3 text-sm font-medium text-slate-500 transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50/30 hover:text-blue-600"
             >
               <Plus className="h-4 w-4 transition-transform group-hover:rotate-90" />
               {t("添加审核节点")}
@@ -986,7 +1128,7 @@ export function RDApprovalFlowPage() {
         </section>
 
         {/* Footer tip */}
-        <footer className="rounded-lg border border-amber-100 bg-amber-50/40 px-4 py-3 text-[11px] text-amber-700">
+        <footer className="rd-approval-footnote rounded-lg border border-amber-100 bg-amber-50/40 px-4 py-3 text-[11px] text-amber-700">
           <div className="flex items-start gap-2">
             <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
             <div>
@@ -1001,42 +1143,7 @@ export function RDApprovalFlowPage() {
       </div>
 
       {/* Reset confirm dialog */}
-      {canManageFlow && confirmReset && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in"
-        >
-          <div
-            className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in"
-          >
-            <div className="px-6 pt-6">
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
-                <AlertTriangle className="h-6 w-6 text-amber-500" />
-              </div>
-              <h3 className="text-base font-semibold text-slate-900">{t("恢复默认审批流？")}</h3>
-              <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
-                {t("这将丢弃当前所有配置，恢复为系统默认的「一审 → 终审」两级或签流程。")}
-              </p>
-            </div>
-            <footer className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/50 px-6 py-3">
-              <button
-                type="button"
-                onClick={() => setConfirmReset(false)}
-                className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98]"
-              >
-                {t("取消")}
-              </button>
-              <button
-                type="button"
-                onClick={reset}
-                className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3.5 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(217,119,6,0.25)] transition-all hover:bg-amber-700 active:scale-[0.98]"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                {t("恢复默认")}
-              </button>
-            </footer>
-          </div>
-        </div>
-      )}
+      {renderedResetDialog}
     </div>
   );
 }

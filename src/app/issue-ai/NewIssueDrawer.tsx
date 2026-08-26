@@ -7,6 +7,7 @@
  * 暗色纯遮罩（不用 backdrop-blur）；Esc 关闭；aria-modal；尊重 reduced-motion。
  */
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { toast } from "sonner";
 import { Loader2, Paperclip, Sparkles, X } from "lucide-react";
@@ -36,6 +37,15 @@ function fileToDataUrl(file: File): Promise<string | undefined> {
 
 type Step = "form" | "similar";
 
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "textarea:not([disabled])",
+  "select:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
 const emptyForm = {
   title: "",
   description: "",
@@ -54,6 +64,8 @@ export function NewIssueDrawer({
 }) {
   useI18n();
   const reduce = useReducedMotion();
+  const dialogTitleId = React.useId();
+  const dialogDescriptionId = React.useId();
 
   const [step, setStep] = React.useState<Step>("form");
   const [form, setForm] = React.useState(emptyForm);
@@ -68,6 +80,13 @@ export function NewIssueDrawer({
   const [busyAction, setBusyAction] = React.useState<string | null>(null);
 
   const panelRef = React.useRef<HTMLDivElement | null>(null);
+  const returnFocusRef = React.useRef<HTMLElement | null>(null);
+  const restoreFocusTimerRef = React.useRef<number | null>(null);
+  const onCloseRef = React.useRef(onClose);
+
+  React.useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   // 打开时重置全部状态。
   React.useEffect(() => {
@@ -84,19 +103,64 @@ export function NewIssueDrawer({
     }
   }, [open]);
 
-  // Esc 关闭 + 进入焦点。
+  // Esc 关闭、模态焦点约束与关闭后的焦点归还。
   React.useEffect(() => {
     if (!open) return;
+    if (restoreFocusTimerRef.current !== null) {
+      window.clearTimeout(restoreFocusTimerRef.current);
+      restoreFocusTimerRef.current = null;
+    }
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const appRoot = document.getElementById("root");
+    const rootWasInert = appRoot?.inert ?? false;
+    if (appRoot) appRoot.inert = true;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+        (node) => node.getClientRects().length > 0 && node.getAttribute("aria-hidden") !== "true",
+      );
+      if (focusable.length === 0) {
+        e.preventDefault();
+        panel.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!panel.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
-    const t = window.setTimeout(() => panelRef.current?.focus(), 30);
+    const t = window.setTimeout(() => {
+      const first = panelRef.current?.querySelector<HTMLElement>("[data-autofocus]")
+        ?? panelRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+      (first ?? panelRef.current)?.focus();
+    }, 30);
     return () => {
       document.removeEventListener("keydown", onKey);
       window.clearTimeout(t);
+      if (appRoot) appRoot.inert = rootWasInert;
+      const opener = returnFocusRef.current;
+      restoreFocusTimerRef.current = window.setTimeout(() => {
+        if (opener?.isConnected) opener.focus();
+        restoreFocusTimerRef.current = null;
+      }, reduce ? 0 : 260);
     };
-  }, [open, onClose]);
+  }, [open, reduce]);
 
   const titleOk = form.title.trim().length > 0;
   const descOk = form.description.trim().length > 0;
@@ -202,13 +266,16 @@ export function NewIssueDrawer({
     onOpen(id);
   };
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50" role="presentation">
+        <div className="rd-horizon-issue-drawer fixed inset-0 z-50" role="presentation">
           {/* 纯暗色遮罩，无 blur */}
           <motion.div
-            className="absolute inset-0 bg-slate-900/50"
+            className="rd-horizon-issue-drawer-backdrop absolute inset-0 bg-slate-900/50"
+            aria-hidden="true"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -219,21 +286,23 @@ export function NewIssueDrawer({
             ref={panelRef}
             role="dialog"
             aria-modal="true"
-            aria-label={t("新建问题")}
+            aria-labelledby={dialogTitleId}
+            aria-describedby={dialogDescriptionId}
+            data-step={step}
             tabIndex={-1}
-            className="absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col bg-white shadow-2xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/60 dark:bg-slate-900"
+            className="rd-horizon-issue-drawer-surface absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col bg-white outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/60 dark:bg-slate-900"
             initial={reduce ? { opacity: 0 } : { x: "100%" }}
             animate={reduce ? { opacity: 1 } : { x: 0 }}
             exit={reduce ? { opacity: 0 } : { x: "100%" }}
             transition={{ type: "tween", duration: reduce ? 0 : 0.25, ease: "easeOut" }}
           >
             {/* Header */}
-            <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+            <header className="rd-horizon-issue-drawer-header flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
               <div>
-                <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+                <h2 id={dialogTitleId} className="text-base font-semibold text-slate-800 dark:text-slate-100">
                   {t("新建问题")}
                 </h2>
-                <p className="mt-0.5 text-xs text-slate-400">
+                <p id={dialogDescriptionId} className="mt-0.5 text-xs text-slate-400">
                   {step === "form" ? t("第 1 步 · 填写问题") : t("第 2 步 · 查相似方案")}
                 </p>
               </div>
@@ -248,7 +317,7 @@ export function NewIssueDrawer({
             </header>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto px-5 py-4">
+            <div className="rd-horizon-issue-drawer-body flex-1 overflow-y-auto px-5 py-4">
               {step === "form" ? (
                 <FormStep
                   form={form}
@@ -272,7 +341,7 @@ export function NewIssueDrawer({
             </div>
 
             {/* Footer */}
-            <footer className="border-t border-slate-200 px-5 py-4 dark:border-slate-700">
+            <footer className="rd-horizon-issue-drawer-footer border-t border-slate-200 px-5 py-4 dark:border-slate-700">
               {step === "form" ? (
                 <div className="flex items-center justify-end gap-2">
                   <Button variant="ghost" onClick={onClose}>
@@ -300,7 +369,8 @@ export function NewIssueDrawer({
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
 
@@ -311,21 +381,31 @@ function Field({
   label,
   required,
   error,
+  group = false,
   children,
 }: {
   label: string;
   required?: boolean;
   error?: string;
+  group?: boolean;
   children: React.ReactNode;
 }) {
-  return (
-    <label className="block">
+  const content = (
+    <>
       <span className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-600 dark:text-slate-300">
         {label}
         {required ? <span className="text-red-500">*</span> : null}
       </span>
       {children}
       {error ? <span className="mt-1 block text-xs text-red-500">{error}</span> : null}
+    </>
+  );
+  if (group) {
+    return <div className="rd-horizon-issue-drawer-field" role="group" aria-label={label}>{content}</div>;
+  }
+  return (
+    <label className="rd-horizon-issue-drawer-field block">
+      {content}
     </label>
   );
 }
@@ -355,9 +435,9 @@ function FormStep({
     setForm((f) => ({ ...f, [key]: value }));
 
   return (
-    <div className="space-y-4">
+    <div className="rd-horizon-issue-drawer-form-section space-y-4">
       {/* 标题 / 描述 / 附件为「或」关系：任意其一填写即可，无需全部填写。 */}
-      <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
+      <p className="rd-horizon-issue-drawer-note rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
         {t("标题、描述、附件")} {" "}<span className="font-medium text-slate-600 dark:text-slate-300">{t("任填其一")}</span>{" "}{t("即可开始 AI 分析。")}
       </p>
       {invalid ? (
@@ -366,6 +446,7 @@ function FormStep({
 
       <Field label={t("标题")}>
         <Input
+          data-autofocus
           value={form.title}
           onChange={(e) => set("title", e.target.value)}
           placeholder={t("一句话描述问题现象（可留空）")}
@@ -387,7 +468,7 @@ function FormStep({
       </Field>
 
       {/* 附件（选填，但与标题/描述互为「或」） */}
-      <Field label={t("附件（选填）")}>
+      <Field label={t("附件（选填）")} group>
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -400,7 +481,7 @@ function FormStep({
             onFiles(e.dataTransfer.files);
           }}
           className={cn(
-            "flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-4 py-5 text-center transition-colors",
+            "rd-horizon-issue-drawer-dropzone flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-4 py-5 text-center transition-colors",
             dragOver
               ? "border-indigo-400 bg-indigo-50/60 dark:border-indigo-500/50 dark:bg-indigo-500/10"
               : "border-slate-300 dark:border-slate-600",
@@ -413,7 +494,7 @@ function FormStep({
           )}
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {t("拖拽文件到此，或")}{" "}
-            <label className="ml-1 cursor-pointer font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+            <label className="rd-horizon-issue-file-picker ml-1 cursor-pointer font-medium text-indigo-600 hover:underline dark:text-indigo-400">
               {t("点击选择")}
               <input
                 type="file"
@@ -436,7 +517,7 @@ function FormStep({
             {attachments.map((a, i) => (
               <li
                 key={`${a.fileName}-${i}`}
-                className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800/40"
+                className="rd-horizon-issue-drawer-attachment flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800/40"
               >
                 <span className="truncate text-slate-600 dark:text-slate-300">
                   {a.fileName}
@@ -470,7 +551,7 @@ function ScoreRing({ score }: { score: number }) {
   const c = 2 * Math.PI * r;
   const offset = c * (1 - pct / 100);
   return (
-    <div className="relative size-11 shrink-0">
+    <div className="rd-horizon-issue-similarity-score relative size-11 shrink-0">
       <svg viewBox="0 0 40 40" className="size-11 -rotate-90">
         <circle
           cx="20"
@@ -527,7 +608,7 @@ function SimilarStep({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="rd-horizon-issue-similar-list space-y-3">
       <p className="text-xs text-slate-400">
         {t("命中")} <Mono>{matches.length}</Mono> {t("条历史问题，可直接复用其方案：")}
       </p>
@@ -536,7 +617,7 @@ function SimilarStep({
         return (
           <div
             key={m.issue.id}
-            className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900"
+            className="rd-horizon-issue-similar-card rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900"
           >
             <div className="flex items-start gap-3">
               <ScoreRing score={m.score} />
@@ -552,7 +633,7 @@ function SimilarStep({
             </div>
 
             {m.adoptedSolution ? (
-              <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-2.5 dark:border-indigo-500/20 dark:bg-indigo-500/5">
+              <div className="rd-horizon-issue-similar-solution mt-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-2.5 dark:border-indigo-500/20 dark:bg-indigo-500/5">
                 <div className="mb-1 flex items-center gap-1.5">
                   <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
                     {t("采纳方案")}

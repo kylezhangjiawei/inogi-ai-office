@@ -305,6 +305,8 @@ export const routeTitleMap = navGroups
     "/us-collab-task": "协同任务详情",
     "/rd-task": "研发任务详情",
     "/production-task": "生产任务详情",
+    "/rd-people-management": "研发人员管理",
+    "/us-collab-people-management": "协同人员管理",
     "/production-people-management": "生产人员管理",
     "/ops-center/api-errors": "接口与错误",
     "/ops-center/database": "数据库监控",
