@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "./ui/utils";
 import { t } from "../lib/i18n";
 
@@ -44,22 +44,26 @@ export function useMentions(opts: {
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [selected, setSelected] = useState<MentionCandidate[]>([]);
 
-  /** 输入/点击/移动光标后重算当前 @ 查询（宿主在 onChange/onClick/onKeyUp 里调用） */
+  /**
+   * 输入/点击/移动光标后重算当前 @ 查询（宿主在 onChange/onClick/onKeyUp 里调用）。
+   * 查询没变时必须原样返回：↑/↓ 在 keydown 里已 preventDefault（光标不动），但 keyup 照常触发，
+   * 若这里无条件把高亮清零，键盘上下选择就永远停在第一个候选。
+   */
   const syncActiveQuery = useCallback(() => {
     const el = inputRef.current;
     if (!el) return;
     const next = parseActiveQuery(el.value, el.selectionStart ?? el.value.length);
+    if (active && next && active.query === next.query && active.start === next.start) return;
     setActive(next);
     setHighlightIndex(0);
-  }, [inputRef]);
+  }, [active, inputRef]);
 
+  // 不截断候选：面板/候选条本身可滚动；一旦截断，部门人数多于上限时后面的人永远选不到。
   const filtered = useMemo(() => {
     if (active === null) return [];
     const kw = active.query.trim().toLowerCase();
-    const pool = kw
-      ? candidates.filter((c) => c.name.toLowerCase().includes(kw))
-      : candidates;
-    return pool.slice(0, 8);
+    if (!kw) return candidates;
+    return candidates.filter((c) => c.name.toLowerCase().includes(kw));
   }, [active, candidates]);
 
   const open = active !== null && filtered.length > 0;
@@ -136,7 +140,30 @@ export function useMentions(opts: {
   return { open, filtered, highlightIndex, pick, handleKeyDown, syncActiveQuery, mentionsForSubmit, resetMentions };
 }
 
-/** 候选面板：desktop = 输入框上方的下拉列表；mobile = 输入框上方的横向候选条 */
+/** 候选面板高度：上限 420px（约 13 人一屏），下限 160px（空间再窄也留 5 行），与视口边缘留 12px。 */
+const PANEL_MAX_HEIGHT = 420;
+const PANEL_MIN_HEIGHT = 160;
+const PANEL_VIEWPORT_MARGIN = 12;
+
+/**
+ * 面板可用的上下边界：视口内缩 PANEL_VIEWPORT_MARGIN，再被每一层「会裁剪的祖先」收窄。
+ * 绝对定位的面板会被 overflow 非 visible 的祖先裁掉，只按视口算高度会撑出容器外看不见。
+ */
+function clipBounds(anchor: HTMLElement): { top: number; bottom: number } {
+  let top = PANEL_VIEWPORT_MARGIN;
+  let bottom = window.innerHeight - PANEL_VIEWPORT_MARGIN;
+  for (let node = anchor.parentElement; node; node = node.parentElement) {
+    const style = window.getComputedStyle(node);
+    // overflow-x/y 只要有一侧非 visible，另一侧就会被浏览器算成 auto，故任一侧非 visible 即裁剪
+    if (style.overflowY === "visible" && style.overflowX === "visible") continue;
+    const rect = node.getBoundingClientRect();
+    top = Math.max(top, rect.top);
+    bottom = Math.min(bottom, rect.bottom);
+  }
+  return { top, bottom };
+}
+
+/** 候选面板：desktop = 贴着输入框上/下弹的列表；mobile = 输入框上方的横向候选条 */
 export function MentionSuggestionPanel({
   open,
   candidates,
@@ -152,11 +179,50 @@ export function MentionSuggestionPanel({
   variant: "desktop" | "mobile";
   className?: string;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState<{ placement: "up" | "down"; maxHeight: number }>({
+    placement: "up",
+    maxHeight: PANEL_MAX_HEIGHT,
+  });
+
+  // 按输入框上下的剩余空间决定往上弹还是往下弹，并把面板撑到该侧可用高度（上限 PANEL_MAX_HEIGHT）。
+  // 原先写死向上弹 + 固定 224px：输入框贴近视口顶部时面板会被裁掉，且一屏只装得下 7 个人。
+  useLayoutEffect(() => {
+    if (!open || variant !== "desktop") return;
+    const anchor = panelRef.current?.offsetParent;
+    if (!(anchor instanceof HTMLElement)) return;
+    const rect = anchor.getBoundingClientRect();
+    const bounds = clipBounds(anchor);
+    const spaceAbove = rect.top - bounds.top;
+    const spaceBelow = bounds.bottom - rect.bottom;
+    // 空间相当时保持向上（沿用原有观感），只有下方明显更宽裕才翻到下面
+    const up = spaceAbove >= spaceBelow;
+    const available = up ? spaceAbove : spaceBelow;
+    setLayout({
+      placement: up ? "up" : "down",
+      maxHeight: Math.max(PANEL_MIN_HEIGHT, Math.min(PANEL_MAX_HEIGHT, available)),
+    });
+  }, [open, variant, candidates.length]);
+
+  // 候选不再截断，键盘上下移动时需把高亮项带进可视区，否则长名单下高亮会跑出滚动区。
+  // 只改候选区自身的 scrollTop（不用 scrollIntoView），避免连带滚动外层评论流。
+  useEffect(() => {
+    if (!open) return;
+    const list = listRef.current;
+    const item = list?.children[highlightIndex];
+    if (!list || !(item instanceof HTMLElement)) return;
+    const listRect = list.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    if (itemRect.top < listRect.top) list.scrollTop -= listRect.top - itemRect.top;
+    else if (itemRect.bottom > listRect.bottom) list.scrollTop += itemRect.bottom - listRect.bottom;
+  }, [open, highlightIndex]);
+
   if (!open) return null;
 
   if (variant === "mobile") {
     return (
-      <div className={cn("flex gap-1.5 overflow-x-auto px-1 pb-1.5", className)}>
+      <div ref={listRef} className={cn("flex gap-1.5 overflow-x-auto px-1 pb-1.5", className)}>
         {candidates.map((c) => (
           <button
             key={c.user_id ?? c.name}
@@ -176,15 +242,18 @@ export function MentionSuggestionPanel({
 
   return (
     <div
+      ref={panelRef}
+      style={{ maxHeight: layout.maxHeight }}
       className={cn(
-        "absolute bottom-full left-0 z-30 mb-1 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg",
+        "absolute left-0 z-30 flex w-64 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg",
+        layout.placement === "up" ? "bottom-full mb-1" : "top-full mt-1",
         className,
       )}
     >
-      <div className="border-b border-slate-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+      <div className="shrink-0 border-b border-slate-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
         {t("选择要提及的成员")}
       </div>
-      <div className="max-h-56 overflow-y-auto py-1">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
         {candidates.map((c, i) => (
           <button
             key={c.user_id ?? c.name}

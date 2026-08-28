@@ -4,6 +4,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, 
 import { cn } from "./components/ui/utils";
 import { currentI18nLang, i18nLocale, t, useI18n } from "./lib/i18n";
 import { renderTextWithMentions } from "./components/MentionInput";
+import { inferAttachmentMime } from "./components/AttachmentPreviewDialog";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { getAttachmentDownloadUrl, getAttachmentPreviewUrl, getAttachmentThumbUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "./lib/xlsxPreview";
@@ -102,7 +103,7 @@ function collectTaskGalleryImages(notes: RdTaskProgressNote[]): GalleryImage[] {
   const images: GalleryImage[] = [];
   for (const note of notes) {
     for (const att of note.attachments ?? []) {
-      if ((att.mime ?? "").startsWith("image/")) {
+      if (inferAttachmentMime(att).startsWith("image/")) {
         images.push({
           att,
           createdAt: note.created_at ?? "",
@@ -117,7 +118,7 @@ function collectTaskGalleryImages(notes: RdTaskProgressNote[]): GalleryImage[] {
 
 function attachmentsToGalleryImages(attachments: RdTaskProgressAttachment[]): GalleryImage[] {
   return attachments
-    .filter((att) => (att.mime ?? "").startsWith("image/"))
+    .filter((att) => inferAttachmentMime(att).startsWith("image/"))
     .map((att) => ({ att, createdAt: "", date: "未知日期", actor: "" }));
 }
 
@@ -1009,22 +1010,67 @@ export function MobileAttachmentPreviewHost() {
   return <AttachmentPreviewModal attachment={preview.attachment} onClose={closePreview} />;
 }
 
-function AttachmentPreviewModal({
+/**
+ * iframe 用的内联预览地址。
+ * 有同源代理地址（preview_url）时按原样用；只有内嵌 data: URL 的老附件必须转成 blob:，
+ * 因为 Chrome 禁止 iframe 加载 data: URL——直接塞进去是一片白屏，看不出是不支持还是坏了。
+ */
+function useInlinePreviewSrc(attachment: RdTaskProgressAttachment): { src: string; failed: boolean } {
+  const rawSrc = getAttachmentPreviewUrl(attachment);
+  const needsBlob = rawSrc.startsWith("data:");
+  const [blobSrc, setBlobSrc] = useState("");
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!needsBlob) {
+      setBlobSrc("");
+      setFailed(false);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl = "";
+    setBlobSrc("");
+    setFailed(false);
+    fetch(rawSrc)
+      .then((res) => res.blob())
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setBlobSrc(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [needsBlob, rawSrc]);
+
+  // 完全取不到地址（既无同源代理、也无 oss/内嵌数据）也算失败，否则会一直卡在加载态
+  if (!needsBlob) return { src: rawSrc, failed: !rawSrc };
+  return { src: blobSrc, failed };
+}
+
+export function AttachmentPreviewModal({
   attachment,
   onClose,
 }: {
   attachment: RdTaskProgressAttachment;
   onClose: () => void;
 }) {
-  const isImage = attachment.mime.startsWith("image/");
-  const isVideo = attachment.mime.startsWith("video/");
+  // 按扩展名兜底推断：存成 application/octet-stream 的 PDF 此前会掉进「不支持内嵌预览」。
+  const mime = inferAttachmentMime(attachment);
+  const isImage = mime.startsWith("image/");
+  const isVideo = mime.startsWith("video/");
   const isSpreadsheet = isSpreadsheetAttachment(attachment);
   const canInlinePreview =
     isImage ||
     isVideo ||
-    attachment.mime === "application/pdf" ||
-    attachment.mime === "text/plain" ||
-    attachment.mime === "application/json";
+    mime === "application/pdf" ||
+    mime === "text/plain" ||
+    mime === "application/json";
+  const inlinePreview = useInlinePreviewSrc(attachment);
   useBodyScrollLock(true);
 
   return createPortal(
@@ -1042,7 +1088,7 @@ function AttachmentPreviewModal({
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-slate-900">{attachment.name}</div>
             <div className="mt-0.5 text-xs text-slate-500">
-              {attachment.mime || "未知类型"} · {formatRdFileSize(attachment.size)}
+              {mime || "未知类型"} · {formatRdFileSize(attachment.size)}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -1091,14 +1137,32 @@ function AttachmentPreviewModal({
             </div>
           ) : isSpreadsheet ? (
             <XlsxTablePreview attachment={attachment} />
-          ) : canInlinePreview ? (
+          ) : canInlinePreview && inlinePreview.src ? (
             <iframe
-              src={getAttachmentPreviewUrl(attachment)}
+              /*
+               * 不能加 sandbox 属性：空 sandbox 会把 Chrome 内置 PDF 查看器一并禁掉，PDF 一律白屏
+               * （知识库的 iframe 没有这个属性，这正是「知识库能预览、这里不能」的原因）。
+               * 隔离由服务端承担且更强：预览响应带 Content-Security-Policy: default-src 'none'; sandbox
+               * 的文档级沙箱 + X-Content-Type-Options: nosniff，且 html/svg/js 等主动内容在服务端被
+               * 强制改写为 octet-stream + Content-Disposition: attachment，根本不会在 iframe 里渲染。
+               */
+              src={inlinePreview.src}
               title={attachment.name}
-              sandbox=""
               referrerPolicy="no-referrer"
               className="h-[72vh] w-full rounded-[8px] border border-slate-200 bg-white"
             />
+          ) : canInlinePreview && !inlinePreview.failed ? (
+            <div className="flex min-h-[52vh] items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-slate-300" />
+            </div>
+          ) : canInlinePreview ? (
+            <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white px-8 text-center">
+              <FileText className="h-10 w-10 text-slate-300" />
+              <div className="mt-4 text-sm font-semibold text-slate-900">该附件没有可在线预览的地址</div>
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                多为早期内嵌存储的历史附件。文件本身仍可用，请点右上角「下载」查看；重新上传一次即可恢复在线预览。
+              </p>
+            </div>
           ) : (
             <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white px-8 text-center">
               <FileText className="h-10 w-10 text-slate-300" />

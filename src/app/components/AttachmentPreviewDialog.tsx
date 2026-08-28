@@ -38,11 +38,19 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
 
-function attachmentMime(attachment: PreviewableAttachment): string {
+/**
+ * 按扩展名兜底推断 mime。部分上传来源（旧数据、合并迁移、未声明 Content-Type 的客户端）
+ * 会把 PDF 之类存成 application/octet-stream，只认 mime 字段会让这些文件白白失去内嵌预览。
+ */
+export function inferAttachmentMime(attachment: { name?: string; mime?: string }): string {
   const declared = attachment.mime?.trim().toLowerCase();
   if (declared && declared !== "application/octet-stream") return declared;
-  const extension = attachment.name.split(".").pop()?.toLowerCase() ?? "";
+  const extension = attachment.name?.split(".").pop()?.toLowerCase() ?? "";
   return MIME_BY_EXTENSION[extension] ?? declared ?? "application/octet-stream";
+}
+
+function attachmentMime(attachment: PreviewableAttachment): string {
+  return inferAttachmentMime(attachment);
 }
 
 function isSpreadsheetAttachment(attachment: PreviewableAttachment, mime: string): boolean {
@@ -153,9 +161,16 @@ export function AttachmentPreviewDialog({
             <XlsxTablePreview url={previewUrl} />
           ) : canInlinePreview ? (
             <iframe
+              /*
+               * 不能加 sandbox 属性：空 sandbox 会把 Chrome 内置 PDF 查看器一并禁掉，PDF 一律白屏。
+               * 预览地址由 ossService.buildInlinePreviewUrl 生成，走 CDN inline 或同源
+               * /api/research-development/oss-preview 代理；该代理响应带
+               * Content-Security-Policy: default-src 'none'; sandbox 的文档级沙箱 +
+               * X-Content-Type-Options: nosniff，且 html/svg/js 等主动内容被强制改写为
+               * octet-stream + Content-Disposition: attachment，不会在 iframe 里渲染。
+               */
               src={previewUrl}
               title={attachment.name}
-              sandbox=""
               referrerPolicy="no-referrer"
               className="h-[72vh] w-full rounded-lg border border-slate-200 bg-white"
             />

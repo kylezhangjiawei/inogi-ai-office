@@ -32,6 +32,7 @@ import { cn } from "./components/ui/utils";
 import {
   createRdTaskDiscussionMessage,
   fetchRdPeople,
+  isMentionablePerson,
   fetchRdTaskDiscussion,
   markRdTaskDiscussionRead,
   type RdDiscussionAnchorType,
@@ -1666,7 +1667,7 @@ export function RDTaskConversation({
     fetchRdPeople()
       .then((list) => {
         if (cancelled) return;
-        setPeople(list.map((person) => ({
+        setPeople(list.filter(isMentionablePerson).map((person) => ({
           user_id: person.user_id ?? null,
           name: person.name,
           hint: person.position,

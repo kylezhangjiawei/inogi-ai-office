@@ -75,6 +75,7 @@ import {
   replaceRdNoteAttachment,
   fetchProductTaskCategories,
   fetchRdPeople,
+  isMentionablePerson,
   fetchRdProducts,
   fetchRdTaskCategories,
   fetchRdTaskAttachmentPreviews,
@@ -772,7 +773,8 @@ function TaskOperationDrawer({
     };
     push(task.owner, task.owner_user_id, t("主责人"));
     for (const c of task.collaborators ?? []) push(c.name, c.user_id, t("协作人"));
-    for (const p of peopleOptions) push(p.name, p.user_id ?? null);
+    // 只在 @ 候选里排除离职/停用；协作人选择等其他用途仍用完整名单
+    for (const p of peopleOptions.filter(isMentionablePerson)) push(p.name, p.user_id ?? null);
     return out;
   }, [task.owner, task.owner_user_id, task.collaborators, peopleOptions]);
   const mention = useMentions({ value: note, setValue: setNote, inputRef: noteInputRef, candidates: mentionCandidates });

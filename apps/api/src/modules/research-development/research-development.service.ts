@@ -6,7 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr/ocr.service';
 import { OssService } from '../oss/oss.service';
 import { RagService } from '../rag/rag.service';
-import { isBlockedProgressAttachment } from './attachment-security';
+import { isBlockedProgressAttachment, resolveAttachmentMime } from './attachment-security';
 import { DEPT_KBS, DEPT_KB_DEFAULT_CATEGORIES, LEVEL_FILTERED_DEPT_KB_IDS, deptKbPageCode } from './dept-knowledge.constants';
 import {
   PRODUCTION_WORKSPACE,
@@ -291,6 +291,11 @@ export const RD_DEFAULT_SUBPROJECT_ID_SUFFIX = '-default';
 export const RD_DEFAULT_SUBPROJECT_FLAG = 'is_default';
 const PROGRESS_NOTE_MAX_FILES = 10;
 const PROGRESS_NOTE_MAX_FILE_BYTES = 25 * 1024 * 1024;
+/**
+ * 内嵌附件（早期 data_url 存储）单次下发的硬上限，用于防脏数据把内存撑爆，
+ * 不是业务限制——业务上限是 PROGRESS_NOTE_MAX_FILE_BYTES，且只作用于新上传。
+ */
+const EMBEDDED_ATTACHMENT_MAX_BYTES = 64 * 1024 * 1024;
 const PROGRESS_NOTE_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 const IMMUTABLE_RESOURCE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 type DirectProgressNoteUpload = {
@@ -5323,6 +5328,72 @@ export class ResearchDevelopmentService {
     return `/api/research-development/oss-preview?${params.toString()}`;
   }
 
+  /**
+   * 早期内嵌存储的附件（只有 data_url、没有 object_key / oss_url）的同源内联地址。
+   * 这类附件没有 OSS 对象可签名，前端此前只能退回 data: URL——而浏览器禁止 iframe 加载
+   * data: URL，PDF 一律白屏；列表接口出于体积考虑又不下发 data_url，连兜底都没有。
+   * 签名口径与 oss-preview 一致：token 只在调用方已通过可见性过滤后才会生成并下发。
+   */
+  private buildEmbeddedAttachmentUrl(
+    taskId: string,
+    noteId: string,
+    attachmentId: string,
+    download = false,
+  ): string | null {
+    const task = cleanText(taskId);
+    const note = cleanText(noteId);
+    const attachment = cleanText(attachmentId);
+    if (!task || !note || !attachment) return null;
+    const { exp, sig } = this.ossService.signPreviewToken(
+      `embedded:${task}:${note}:${attachment}`,
+      24 * 3600,
+    );
+    const params = new URLSearchParams({ task, note, att: attachment, exp: String(exp), sig });
+    if (download) params.set('dl', '1');
+    return `/api/research-development/embedded-attachment?${params.toString()}`;
+  }
+
+  /**
+   * 按「留痕 id + 附件 id」取出内嵌附件的字节。签名已在控制器校验，这里只负责解码。
+   * 找不到留痕、附件，或该附件本就在 OSS 上（不该走这条路）时返回 null。
+   */
+  async readEmbeddedAttachment(
+    taskId: string,
+    noteId: string,
+    attachmentId: string,
+  ): Promise<{ name: string; mime: string; buffer: Buffer } | null> {
+    const noteMap = await this.getProgressNoteMap();
+    // 按任务直接定位，不扫全表：留痕总量大时全表扫描会让这条老数据路径明显变慢
+    const note = (noteMap[taskId] ?? []).find((item) => isRecord(item) && cleanText(item.id) === noteId);
+    if (!note) return null;
+    const attachment = asArray(note.attachments)
+      .filter(isRecord)
+      .find((item) => cleanText(item.id) === attachmentId);
+    if (!attachment) return null;
+    const dataUrl = cleanText(attachment.data_url);
+    const match = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(dataUrl);
+    if (!match) return null;
+    const [, declaredMime, base64Flag, payload] = match;
+    // 先按编码长度估算解码后体积再决定是否解码：脏数据不应先分配内存再发现超限。
+    // base64 每 4 字符解出 3 字节；非 base64 的 data URL 按转义前长度粗估（只多不少）。
+    // 注意这里刻意用「防脏数据」的上限而不是 25MB 业务上限：历史内嵌附件可能是限制生效前
+    // 存进去的，本来能靠 data_url 正常下载；若按业务上限拦，download_url 会 404，
+    // 反而把原来能下载的老附件弄坏。
+    const estimatedBytes = base64Flag ? Math.ceil((payload.length * 3) / 4) : payload.length;
+    if (estimatedBytes > EMBEDDED_ATTACHMENT_MAX_BYTES) return null;
+    const buffer = base64Flag
+      ? Buffer.from(payload, 'base64')
+      : Buffer.from(decodeURIComponent(payload), 'utf8');
+    const name = cleanText(attachment.name) || 'attachment';
+    return {
+      name,
+      // 存储值为 octet-stream 时依次回退到 data URL 声明值、再按扩展名兜底，
+      // 否则控制器的 canInlineAttachment 会判否 → 强制下载 → PDF 仍旧预览不了。
+      mime: resolveAttachmentMime(name, cleanText(attachment.mime) || declaredMime),
+      buffer,
+    };
+  }
+
   /** Force a download response while keeping the object bytes on the CDN path. */
   private buildAttachmentDownloadUrl(attachmentOrUrl: JsonRecord | string): string | null {
     const objectKey = this.attachmentObjectKey(attachmentOrUrl);
@@ -5363,9 +5434,17 @@ export class ResearchDevelopmentService {
     return url;
   }
 
-  private decorateAttachmentForDisplay(att: JsonRecord, thumbnailWidth = 320): JsonRecord {
-    const previewUrl = this.buildAttachmentPreviewUrl(att);
-    const downloadUrl = this.buildAttachmentDownloadUrl(att);
+  private decorateAttachmentForDisplay(
+    att: JsonRecord,
+    thumbnailWidth = 320,
+    owner?: { taskId: string; noteId: string },
+  ): JsonRecord {
+    // 只有内嵌数据的老附件拿不到 OSS 签名地址，回退到同源内联路由（需任务/留痕 id 才能定位）
+    const embeddedId = owner ? cleanText(att.id) : '';
+    const previewUrl = this.buildAttachmentPreviewUrl(att)
+      ?? (embeddedId ? this.buildEmbeddedAttachmentUrl(owner!.taskId, owner!.noteId, embeddedId) : null);
+    const downloadUrl = this.buildAttachmentDownloadUrl(att)
+      ?? (embeddedId ? this.buildEmbeddedAttachmentUrl(owner!.taskId, owner!.noteId, embeddedId, true) : null);
     const thumbUrl = this.buildAttachmentThumbUrl(att, att.mime, thumbnailWidth);
     return {
       ...att,
@@ -5381,9 +5460,12 @@ export class ResearchDevelopmentService {
     return notes.map((note) => {
       const attachments = isRecord(note) ? note.attachments : null;
       if (!Array.isArray(attachments)) return note;
+      const owner = isRecord(note) && cleanText(note.task_id) && cleanText(note.id)
+        ? { taskId: cleanText(note.task_id), noteId: cleanText(note.id) }
+        : undefined;
       const decorated = attachments.map((att) => {
         if (!isRecord(att)) return att;
-        return this.decorateAttachmentForDisplay(att);
+        return this.decorateAttachmentForDisplay(att, 320, owner);
       });
       return { ...note, attachments: decorated };
     });
@@ -5496,7 +5578,7 @@ export class ResearchDevelopmentService {
     await this.refreshProductionMirrorsIfNeeded();
     const taskIds = Array.from(new Set(rawTaskIds.map((id) => cleanText(id)).filter(Boolean))).slice(0, 60);
     if (taskIds.length === 0) return {};
-    const cacheKey = this.taskResourceCacheKey('attachment-previews', taskIds, viewer);
+    const cacheKey = this.taskResourceCacheKey('attachment-previews-subtree', taskIds, viewer);
     const cached = this.readTaskResourceCache<Record<string, { attachment_count: number; attachments: JsonRecord[] }>>(
       cacheKey,
     );
@@ -5512,20 +5594,40 @@ export class ResearchDevelopmentService {
 
     for (const taskId of taskIds) {
       const task = taskById.get(taskId);
-      const allNotes = noteMap[taskId] ?? [];
-      let visibleNotes = allNotes;
-      if (!viewer?.hasFullAccess && !viewer?.canReadAll) {
-        if (!task || !isTaskParticipant(task, viewer?.userId, viewer?.userName)) {
-          visibleNotes = viewer?.userId
-            ? allNotes.filter((note) => isRecord(note.actor) && note.actor.id === viewer.userId)
-            : [];
+      // 卡片附件按子树聚合：主任务自己没传过附件、但子任务有时，最外层也要能看到。
+      // 可见性逐个任务单独判定（子任务的参与人可能与父任务不同），不因聚合而放宽。
+      const subtreeTasks = task ? this.collectTaskSubtree(task) : [];
+      const scopedTasks: Array<{ taskId: string; task: JsonRecord | undefined }> = subtreeTasks.length > 0
+        ? subtreeTasks.map((item) => ({ taskId: cleanText(item.task_id), task: item }))
+        : [{ taskId, task }];
+      const visibleNotes: JsonRecord[] = [];
+      for (const scoped of scopedTasks) {
+        if (!scoped.taskId) continue;
+        const allNotes = noteMap[scoped.taskId] ?? [];
+        if (!viewer?.hasFullAccess && !viewer?.canReadAll) {
+          if (!scoped.task || !isTaskParticipant(scoped.task, viewer?.userId, viewer?.userName)) {
+            visibleNotes.push(
+              ...(viewer?.userId
+                ? allNotes.filter((note) => isRecord(note.actor) && note.actor.id === viewer.userId)
+                : []),
+            );
+            continue;
+          }
         }
+        visibleNotes.push(...allNotes);
       }
       const orderedNotes = visibleNotes
         .slice()
         .sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)));
-      const allAttachments = orderedNotes.flatMap((note) =>
-        Array.isArray(note.attachments) ? note.attachments.filter(isRecord) : [],
+      // 保留所属留痕 id：只有内嵌数据的老附件要靠它生成同源内联地址
+      const allAttachments = this.dedupeAttachments(
+        orderedNotes.flatMap((note) => (Array.isArray(note.attachments)
+          ? note.attachments.filter(isRecord).map((att) => ({
+              ...att,
+              __task_id: cleanText(note.task_id),
+              __note_id: cleanText(note.id),
+            }))
+          : [])),
       );
       // Preserve the old card behavior: show recent images first, then fill remaining slots with
       // files. Simply slicing the first five could hide every image behind a note's document batch.
@@ -5534,7 +5636,13 @@ export class ResearchDevelopmentService {
         ...allAttachments.filter((attachment) => !cleanText(attachment.mime).startsWith('image/')),
       ].slice(0, 5);
       const attachments = previewAttachments.map((attachment) => {
-        const decorated = this.decorateAttachmentForDisplay(attachment, 240);
+        const ownerTaskId = cleanText(attachment.__task_id);
+        const ownerNoteId = cleanText(attachment.__note_id);
+        const decorated = this.decorateAttachmentForDisplay(
+          attachment,
+          240,
+          ownerTaskId && ownerNoteId ? { taskId: ownerTaskId, noteId: ownerNoteId } : undefined,
+        );
         return {
           id: String(decorated.id ?? ''),
           name: String(decorated.name ?? ''),
@@ -5560,15 +5668,34 @@ export class ResearchDevelopmentService {
     taskId: string,
     viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string },
   ) {
-    const cacheKey = this.taskResourceCacheKey('task-attachments', [taskId], viewer);
+    const cacheKey = this.taskResourceCacheKey('task-attachments-subtree', [taskId], viewer);
     const cached = this.readTaskResourceCache<{ attachment_count: number; attachments: JsonRecord[] }>(cacheKey);
     if (cached) return cached;
-    const notes = await this.getTaskProgressNotes(taskId, viewer);
-    const orderedNotes = notes
-      .slice()
-      .sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)));
-    const allAttachments = orderedNotes.flatMap((note) =>
-      Array.isArray(note.attachments) ? note.attachments.filter(isRecord) : [],
+    // 与卡片预览同一口径（子树聚合），否则卡片写着 8 个、点开「全部附件」却是空的。
+    // 注意：不能对每个子任务调 getTaskProgressNotes——它内部的 findTaskAcrossStores 每次都要
+    // 重读并合并全部产品库，子树有 N 个节点就是 N 次全量合并。这里整棵子树只读一次存储，
+    // 再逐任务套用同一套可见性规则（子任务参与人可能与父任务不同，聚合不放宽权限）。
+    await this.refreshProductionMirrorsIfNeeded();
+    const [noteMap, categories] = await Promise.all([
+      this.getProgressNoteMap(),
+      this.readMergedTaskCategories(),
+    ]);
+    const rootTask = this.collectAllCategoryTasks(categories)
+      .find((item) => cleanText(item.task_id) === taskId);
+    const scopedTasks = rootTask ? this.collectTaskSubtree(rootTask) : [];
+    const orderedNotes = (scopedTasks.length > 0
+      ? scopedTasks.flatMap((scopedTask) => this.visibleTaskProgressNotes(
+          scopedTask,
+          noteMap[cleanText(scopedTask.task_id)] ?? [],
+          viewer,
+        ))
+      // 任务不在任务池（历史/镜像数据）时退回单任务，与改动前行为一致
+      : this.visibleTaskProgressNotes(null, noteMap[taskId] ?? [], viewer)
+    ).sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)));
+    // 附件已在 visibleTaskProgressNotes → decorateNotesWithPreview 里按所属留痕装饰过
+    // （含内嵌附件的同源内联地址），这里直接取用，不重复装饰。
+    const allAttachments = this.dedupeAttachments(
+      orderedNotes.flatMap((note) => (Array.isArray(note.attachments) ? note.attachments.filter(isRecord) : [])),
     );
     const attachments = allAttachments.map((attachment) => ({
       id: String(attachment.id ?? ''),
@@ -7642,9 +7769,11 @@ export class ResearchDevelopmentService {
     // 移动端卡片只加载 480px WebP；原图能力 URL 仅在用户点开灯箱后加载。
     const coverImages = new Map<string, { full: string[]; thumbnails: string[] }>();
     for (const [taskId, notes] of Object.entries(noteMap)) {
-      const count = notes.reduce((sum, note) => {
-        return sum + (Array.isArray(note.attachments) ? note.attachments.length : 0);
-      }, 0);
+      // 按去重后的条数计：卡片数字要和「全部附件」弹窗、预览端点对得上，
+      // 三者都用 dedupeAttachments 的同一把 key（object_key → id → 名称+大小）。
+      const count = this.dedupeAttachments(
+        notes.flatMap((note) => (Array.isArray(note.attachments) ? note.attachments.filter(isRecord) : [])),
+      ).length;
       attachmentCounts.set(taskId, count);
       const ordered = notes
         .slice()
@@ -7680,8 +7809,14 @@ export class ResearchDevelopmentService {
       tasks.map((task) => {
         if (!isRecord(task)) return task;
         const taskKey = String(task.task_id ?? '');
-        const progressAttachmentCount = attachmentCounts.get(taskKey) ?? 0;
         const existing = typeof task.attachments === 'number' ? task.attachments : 0;
+        // 有留痕就以留痕（去重后）为准，只有「这个任务根本没有留痕」才回退存量计数器。
+        // 存量计数器由 +1/-1 维护、不去重，同一文件重复上传会让它偏大；而「全部附件」弹窗
+        // 和预览端点都是去重的——两边不等会让前端的 attachment_count 缓存校验永远不命中，
+        // 每次打开弹窗都重新请求，卡片数字也会比实际能打开的文件多。
+        const ownAttachmentCount = attachmentCounts.has(taskKey)
+          ? (attachmentCounts.get(taskKey) ?? 0)
+          : existing;
         const latestNote = latestNotes.get(taskKey);
         const latestProgressSummary = this.normalizeLatestProgressSummary(latestNote);
         // 「最后活动时间」= max(任务字段更新时间, 最新进度留痕时间)。进度留痕写入独立存储、
@@ -7701,9 +7836,18 @@ export class ResearchDevelopmentService {
           completion_score: _completionScore,
           ...taskRest
         } = task;
+        const updatedSubtasks = Array.isArray(task.subtasks) ? updateTasks(task.subtasks) : task.subtasks;
+        // 附件数按整棵子树合计：合并进来的子任务与自建子任务的附件都要计入父任务。
+        // 否则主任务自己没传过附件时这个数是 0，驾驶舱据此直接跳过预览请求（前端门槛
+        // attachments > 0），子任务里的附件在最外层就永远露不出来。子任务在上面的递归里
+        // 已各自算好子树合计，这里只需再叠一层。
+        const subtreeAttachments = asArray(updatedSubtasks).reduce<number>(
+          (sum, sub) => sum + (isRecord(sub) && typeof sub.attachments === 'number' ? sub.attachments : 0),
+          0,
+        );
         return {
           ...taskRest,
-          attachments: Math.max(existing, progressAttachmentCount),
+          attachments: ownAttachmentCount + subtreeAttachments,
           ...(latestProgressSummary ? { latest_progress_summary: latestProgressSummary } : {}),
           ...(lastActivityAt ? { last_activity_at: lastActivityAt } : {}),
           ...(taskCovers?.full.length
@@ -7713,7 +7857,7 @@ export class ResearchDevelopmentService {
               }
             : {}),
           ...(scoreSummary ? { completion_score: scoreSummary } : {}),
-          subtasks: Array.isArray(task.subtasks) ? updateTasks(task.subtasks) : task.subtasks,
+          subtasks: updatedSubtasks,
         };
       });
 
@@ -9311,6 +9455,47 @@ export class ResearchDevelopmentService {
       metadata: { workspace: currentRdWorkspace(), removed_task_count: removedTaskIds.size },
     });
     return { ok: true };
+  }
+
+  /**
+   * 一个任务连同其全部子孙（合并进来的和自建的子任务在数据里都是 subtasks 嵌套，无需区分）。
+   * 附件按此口径向下聚合：驾驶舱卡片是 flattenTasks 铺平的，子任务自己也有卡片，
+   * 若改按整棵关系树聚合，子任务卡片会显示出父任务和兄弟任务的附件。对根任务两者等价。
+   */
+  /**
+   * 子树聚合后同一个文件可能经由多条留痕重复出现，按 object_key（无则 id，再无则 名称+大小）去重。
+   * 与移动端附件库的去重口径一致。入参需已按时间倒序，保留的是最新那一条。
+   */
+  private dedupeAttachments(attachments: JsonRecord[]): JsonRecord[] {
+    const seen = new Set<string>();
+    const output: JsonRecord[] = [];
+    for (const attachment of attachments) {
+      const key = cleanText(attachment.object_key)
+        || cleanText(attachment.id)
+        || `${cleanText(attachment.name)}|${typeof attachment.size === 'number' ? attachment.size : 0}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      output.push(attachment);
+    }
+    return output;
+  }
+
+  private collectTaskSubtree(rootTask: JsonRecord): JsonRecord[] {
+    const output: JsonRecord[] = [];
+    const seen = new Set<string>();
+    const walk = (task: JsonRecord) => {
+      const taskId = cleanText(task.task_id);
+      if (taskId) {
+        if (seen.has(taskId)) return;
+        seen.add(taskId);
+      }
+      output.push(task);
+      for (const child of asArray(task.subtasks)) {
+        if (isRecord(child)) walk(child);
+      }
+    };
+    walk(rootTask);
+    return output;
   }
 
   private collectAllCategoryTasks(categories: unknown[]): JsonRecord[] {

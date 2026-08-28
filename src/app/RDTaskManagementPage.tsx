@@ -60,6 +60,7 @@ import { NativeSelect } from "./components/ui/native-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
+import { inferAttachmentMime } from "./components/AttachmentPreviewDialog";
 import { MobileZoomableImage } from "./components/MobileZoomableImage";
 import { formatTraceDateTime } from "./RDProgressEvidence";
 import { CollapseTransition } from "./components/CollapseTransition";
@@ -286,6 +287,8 @@ export type PersonProfile = {
   max_tasks?: number;
   on_leave?: boolean;
   status?: string;
+  /** 账号状态（ACTIVE / INVITED / DISABLED）：@ 候选据此排除已停用账号 */
+  user_status?: string | null;
   joined_at?: string;
 };
 
@@ -7201,7 +7204,7 @@ function PersonTaskCockpit({
     try {
       const result = await loadAllTaskAttachments(task.task_id, expectedCount);
       if (requestSequence !== attachmentOpenSequenceRef.current) return;
-      const images = result.attachments.filter((attachment) => attachment.mime.startsWith("image/"));
+      const images = result.attachments.filter((attachment) => inferAttachmentMime(attachment).startsWith("image/"));
       if (images.length === 0) {
         toast.info(t("该任务暂无图片附件"));
         return;
@@ -7544,7 +7547,8 @@ function PersonTaskCockpit({
     const pCfg = PRIORITY_CONFIG[priorityKey] ?? PRIORITY_CONFIG.medium;
     const attachmentPreview = attachmentPreviewMap[task.task_id];
     const taskAttachments: RdTaskProgressAttachment[] = attachmentPreview?.attachments ?? [];
-    const taskImages = taskAttachments.filter((a) => a.mime.startsWith("image/"));
+    // 按扩展名兜底判定：存成 application/octet-stream 的图片此前既不进图片位、也不算文档
+    const taskImages = taskAttachments.filter((a) => inferAttachmentMime(a).startsWith("image/"));
     const taskAttachmentCount = attachmentPreview?.attachment_count ?? task.attachments;
     const hasLoadedAttachments = Boolean(attachmentPreview && attachmentPreview.attachment_count > 0);
     const isRisk = riskTaskIds.has(task.task_id);
