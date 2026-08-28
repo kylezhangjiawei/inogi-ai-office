@@ -19,7 +19,7 @@ import { ScrollArea } from "../../components/ui/scroll-area";
 import { Textarea } from "../../components/ui/textarea";
 import { cn } from "../../components/ui/utils";
 import { AttachmentPreviewDialog, type PreviewableAttachment } from "../../components/AttachmentPreviewDialog";
-import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, QUOTE_RESETTABLE_STATUSES, SourcePill, StatusPill, fmtMoney, useBuyerDirectory, useProcCan } from "./common";
+import { BusinessLinePill, DIRECT_FLOW, FREE_SAMPLE_ONLY_STATUSES, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, QUOTE_RESETTABLE_STATUSES, SourcePill, StatusPill, fmtMoney, useBuyerDirectory, useProcCan } from "./common";
 import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
@@ -214,10 +214,12 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                 <Button type="button" disabled={taskAction.busy || rejectBusy} onClick={() => taskAction.runNext(task)} className="material-button-primary rounded-lg px-4 py-2 text-sm disabled:opacity-60">
                   {t(isRdReview ? '审核通过' : meta.next)}{task.method === "direct" && task.status === "pending_purchase" && <ExternalLink className="h-4 w-4" />}
                 </Button>
-                {/* 出样单不是状态流转：打样这一轮的采购单（含免费来样）在等样期间就要登记，任务仍停在「待到样」 */}
-                {task.status === "pending_sample" && can("proc-task:order") && (
+                {/* 出样单 / 免费样品来货都不是状态流转，只登记关联，任务原地不动：
+                    「待到样」是本轮打样的出样单；「待询价 / 询价中」是供应商提前寄的免费样，
+                    后者登记后选定报价可直接进「测试中」，省掉一轮空等的「待到样」。 */}
+                {(task.status === "pending_sample" || FREE_SAMPLE_ONLY_STATUSES.includes(task.status)) && can("proc-task:order") && (
                   <Button type="button" variant="outline" disabled={taskAction.busy} onClick={() => taskAction.linkSampleOrder(task)} className="rounded-lg border-indigo-200 bg-white px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700">
-                    {t('登记出样单')}
+                    {t(task.status === "pending_sample" ? '登记出样单' : '登记免费样品来货')}
                   </Button>
                 )}
                 {isRdReview && (

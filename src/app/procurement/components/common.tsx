@@ -131,6 +131,12 @@ export const PROC_STATUS_META: Record<ProcStatus, { label: string; pill: string;
 };
 
 /**
+ * 只能登记免费样品来货的状态，与服务端 PROC_FREE_SAMPLE_ONLY_STATUSES 一致。
+ * 这两档还没选定报价，T+ 里不可能有采购单号；放开登记只为让供应商提前寄样当场留痕。
+ */
+export const FREE_SAMPLE_ONLY_STATUSES: ProcStatus[] = ["pending_inquiry", "inquiring"];
+
+/**
  * 允许「重新维护报价」的状态，与服务端 PROC_QUOTATION_RESETTABLE_STATUSES 一致。
  * 已下单及之后不在其中：那时单价已随采购单出去，改报价会与 T+ 对不上。
  */

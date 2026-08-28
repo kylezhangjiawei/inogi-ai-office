@@ -65,7 +65,9 @@ export const PROC_STATUS_TRANSITIONS: Record<ProcStatus, ProcStatus[]> = {
   pending_rd_review: ['pending_confirm'],
   pending_confirm: ['pending_inquiry', 'pending_purchase'],
   pending_inquiry: ['inquiring'],
-  inquiring: ['pending_sample', 'priced'],
+  // testing 是条件流转：只有已登记免费样品来货（样品实际已到手）的任务才允许跳过「待到样」，
+  // 由 transitionTask 逐条校验。静态表放行是必要条件，不是充分条件。
+  inquiring: ['pending_sample', 'priced', 'testing'],
   pending_sample: ['testing'],
   // 测试不通过有两条路：同一家供应商改图再出一次样（回「待到样」），或换供应商重新询价
   testing: ['priced', 'inquiring', 'pending_sample'],
@@ -79,10 +81,29 @@ export const PROC_STATUS_TRANSITIONS: Record<ProcStatus, ProcStatus[]> = {
 
 /**
  * 允许登记 T+ 采购单关联的状态。
+ * 「待询价 / 询价中」只收免费样品来货：供应商寄样往往早于定价，T+ 里根本没有对应采购单，
+ * 带单号的正式采购单由 PROC_FREE_SAMPLE_ONLY_STATUSES 挡在这两档之外。
  * 「待到样」是打样轮次的出样单，只登记不流转；其余是正式采购单。
- * 单据匹配的候选任务也用这一份，两处各写一份必然漂移。
  */
 export const PROC_PO_LINKABLE_STATUSES: ProcStatus[] = [
+  'pending_inquiry',
+  'inquiring',
+  'pending_sample',
+  'priced',
+  'pending_purchase',
+  'in_transit',
+  'partial_arrival',
+];
+
+/** 只接受免费样品行的状态：这两档还没定价，不可能有 T+ 采购单号。 */
+export const PROC_FREE_SAMPLE_ONLY_STATUSES: ProcStatus[] = ['pending_inquiry', 'inquiring'];
+
+/**
+ * T+ 单据匹配的候选任务状态。
+ * 刻意不复用 PROC_PO_LINKABLE_STATUSES —— 这两份现在是不同的集合，不是重复定义：
+ * 询价两档只可能挂免费样品（T+ 里无单），放进候选只会让真实采购单被建议关联到还在询价的任务上。
+ */
+export const PROC_PO_MATCHABLE_STATUSES: ProcStatus[] = [
   'pending_sample',
   'priced',
   'pending_purchase',
