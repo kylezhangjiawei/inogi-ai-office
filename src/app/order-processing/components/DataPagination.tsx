@@ -48,7 +48,7 @@ export function DataPagination({
   const end = Math.min(page * pageSize, total);
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-xs text-slate-500">
+    <div className="order-horizon-pagination flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-xs text-slate-500">
       <span className="tabular-nums">
         {t('显示')} {start}–{end} / {t('共')} {total} {t('条')}
       </span>

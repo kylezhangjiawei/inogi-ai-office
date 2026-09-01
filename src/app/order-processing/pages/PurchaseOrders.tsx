@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import {
@@ -48,6 +48,12 @@ import {
   waitApplyJob,
 } from '../../lib/procurementApi';
 import { DataPagination } from '../components/DataPagination';
+import {
+  OrderEmptyState,
+  OrderMetric,
+  OrderMetricGrid,
+  OrderPageHeader,
+} from '../components/HorizonPage';
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "../../lib/routePaths";
 
@@ -56,6 +62,16 @@ export type { PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus } from '../.
 export const STATUS_OPTIONS: PurchaseOrderStatus[] = ['待确认', '已下单', '部分到货', '已完成', '异常'];
 
 const EMPTY_STATS: PurchaseOrderStats = { total: 0, open: 0, inbound: 0, abnormal: 0, amount: 0 };
+type PurchaseOrderQuery = {
+  q: string;
+  status: string;
+  supplier: string;
+  dateFrom: string;
+  dateTo: string;
+  page: number;
+  pageSize: number;
+};
+
 export function formatCurrency(value: number, currency: PurchaseOrder['currency']) {
   return new Intl.NumberFormat(i18nLocale(), {
     style: 'currency',
@@ -67,9 +83,9 @@ export function formatCurrency(value: number, currency: PurchaseOrder['currency'
 export function statusBadgeClass(status: PurchaseOrderStatus) {
   switch (status) {
     case '待确认':
-      return 'border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-50';
+      return 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-50';
     case '已下单':
-      return 'border-indigo-100 bg-indigo-50 text-indigo-700 hover:bg-indigo-50';
+      return 'border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7] hover:bg-[#eef3ff]';
     case '部分到货':
       return 'border-amber-100 bg-amber-50 text-amber-700 hover:bg-amber-50';
     case '已完成':
@@ -83,6 +99,7 @@ export function PurchaseOrders() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const canSync = usePermission('proc:sync-erp');
+  const canViewDetail = usePermission('page:purchase-order-detail');
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [stats, setStats] = useState<PurchaseOrderStats>(EMPTY_STATS);
   const [suppliers, setSuppliers] = useState<string[]>([]);
@@ -95,25 +112,45 @@ export function PurchaseOrders() {
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState('');
+  const [syncError, setSyncError] = useState('');
   const [syncedAt, setSyncedAt] = useState<string | null>(null);
   const [integration, setIntegration] = useState<{ configured: boolean; authorized: boolean } | null>(null);
+  const mountedRef = useRef(false);
+  const loadRequestRef = useRef(0);
+  const syncingRef = useRef(false);
+  const deferredQuery = useDeferredValue(query.trim());
+  const requestParams = useMemo<PurchaseOrderQuery>(() => ({
+    q: deferredQuery,
+    status: statusFilter,
+    supplier: supplierFilter,
+    dateFrom,
+    dateTo,
+    page,
+    pageSize,
+  }), [dateFrom, dateTo, deferredQuery, page, pageSize, statusFilter, supplierFilter]);
+  const requestParamsRef = useRef(requestParams);
+  requestParamsRef.current = requestParams;
 
   const loadOrders = useCallback(
-    async () => {
+    async (params: PurchaseOrderQuery = requestParamsRef.current) => {
+      const requestId = ++loadRequestRef.current;
       setLoading(true);
+      setLoadError('');
       try {
         const data = await orderProcessingApi.getPurchaseOrders({
-          q: query,
-          status: statusFilter,
-          supplier: supplierFilter,
-          dateFrom,
-          dateTo,
-          page,
-          pageSize,
+          q: params.q,
+          status: params.status,
+          supplier: params.supplier,
+          dateFrom: params.dateFrom,
+          dateTo: params.dateTo,
+          page: params.page,
+          pageSize: params.pageSize,
         });
+        if (requestId !== loadRequestRef.current) return true;
         setStats(data.stats);
         setSuppliers(data.suppliers);
         setSyncedAt(data.syncedAt ?? null);
@@ -121,18 +158,31 @@ export function PurchaseOrders() {
         setPage(data.orders.page);
         setTotalPages(data.orders.totalPages);
         setOrders(data.orders.items);
+        return true;
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : t('采购订单加载失败'));
+        if (requestId !== loadRequestRef.current) return true;
+        setLoadError(error instanceof Error ? error.message : t('采购订单加载失败'));
+        return false;
       } finally {
-        setLoading(false);
+        if (requestId === loadRequestRef.current) setLoading(false);
       }
     },
-    [dateFrom, dateTo, page, pageSize, query, statusFilter, supplierFilter, t],
+    [t],
   );
 
   useEffect(() => {
-    void loadOrders();
-  }, [loadOrders]);
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    void loadOrders(requestParams);
+    return () => {
+      loadRequestRef.current += 1;
+    };
+  }, [loadOrders, requestParams]);
 
   useEffect(() => {
     let alive = true;
@@ -157,41 +207,63 @@ export function PurchaseOrders() {
     setPage(1);
   };
 
+  const activeFilterCount = [
+    Boolean(query.trim()),
+    statusFilter !== 'all',
+    supplierFilter !== 'all',
+    Boolean(dateFrom),
+    Boolean(dateTo),
+  ].filter(Boolean).length;
+  const hasActiveFilters = activeFilterCount > 0;
+
   const handleSync = async () => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
     setSyncing(true);
+    setSyncError('');
     setSyncProgress(t('正在启动畅捷通同步…'));
     try {
       const { jobId } = await syncTplusOperations();
-      await waitApplyJob(jobId, setSyncProgress, getTplusSyncJob);
-      const [status] = await Promise.all([getTplusStatus(), loadOrders()]);
+      await waitApplyJob(jobId, (message) => {
+        if (mountedRef.current) setSyncProgress(message);
+      }, getTplusSyncJob);
+      if (!mountedRef.current) return;
+      const [status, loaded] = await Promise.all([getTplusStatus(), loadOrders()]);
+      if (!loaded) throw new Error(t('同步已完成，但采购订单刷新失败，请重试'));
+      if (!mountedRef.current) return;
       setIntegration(status);
       toast.success(t('畅捷通采购订单和库存已同步'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('畅捷通同步失败'));
+      if (!mountedRef.current) return;
+      const message = error instanceof Error ? error.message : t('畅捷通同步失败');
+      setSyncError(message);
+      toast.error(message);
     } finally {
-      setSyncing(false);
-      setSyncProgress('');
+      syncingRef.current = false;
+      if (mountedRef.current) {
+        setSyncing(false);
+        setSyncProgress('');
+      }
     }
   };
 
   const displayedAmount = useMemo(() => orders.reduce((sum, order) => sum + order.amount, 0), [orders]);
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden px-5 py-4">
-      <div className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <PackageCheck className="h-4 w-4 text-blue-500" />
-            {t('订单与库存')}
-          </div>
-          <h1 className="mt-1 text-2xl font-semibold text-slate-900 text-balance">{t('采购订单')}</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span>{t('数据来源：畅捷通 T+（只读）')}</span>
-            <span>·</span>
+    <div className="order-horizon flex h-full min-h-0 flex-1 flex-col overflow-auto px-4 py-4 sm:px-5">
+      <OrderPageHeader
+        Icon={PackageCheck}
+        eyebrow={t('订单与库存')}
+        title={t('采购订单')}
+        description={t('集中查看采购单履约、到货和异常状态，业务数据保持畅捷通 T+ 只读。')}
+        meta={(
+          <>
             <span>{t('最后同步')}：{syncedAt ? new Date(syncedAt).toLocaleString(i18nLocale()) : '-'}</span>
-            {syncProgress ? <span className="text-blue-600">· {syncProgress}</span> : null}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
+            {syncProgress ? <span role="status" aria-live="polite" className="text-blue-700">· {syncProgress}</span> : null}
+            {syncError ? <span role="alert" className="text-rose-700">· {syncError}</span> : null}
+          </>
+        )}
+        actions={(
+          <>
           <Badge
             variant="secondary"
             className={integration?.authorized
@@ -205,49 +277,26 @@ export function PurchaseOrders() {
               size="sm"
               disabled={syncing || !integration?.configured || !integration?.authorized}
               onClick={() => void handleSync()}
-              className="h-9 bg-blue-600 px-3 text-white shadow-sm shadow-blue-200 hover:bg-blue-700">
+              className="order-horizon-primary-action h-10 px-3 text-white">
               <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
               {syncing ? t('同步中') : t('同步畅捷通')}
             </Button>
           ) : null}
-        </div>
-      </div>
+          </>
+        )}
+      />
 
-      <div className="mb-4 grid shrink-0 gap-3 md:grid-cols-4">
-        <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>{t('采购单数')}</span>
-            <FileSpreadsheet className="h-4 w-4 text-blue-500" />
-          </div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">{stats.total}</div>
-        </div>
-        <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>{t('待推进')}</span>
-            <Truck className="h-4 w-4 text-indigo-500" />
-          </div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">{stats.open}</div>
-        </div>
-        <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>{t('部分到货')}</span>
-            <CalendarDays className="h-4 w-4 text-amber-500" />
-          </div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">{stats.inbound}</div>
-        </div>
-        <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>{t('异常')}</span>
-            <AlertCircle className="h-4 w-4 text-rose-500" />
-          </div>
-          <div className="mt-2 text-2xl font-semibold text-slate-900">{stats.abnormal}</div>
-        </div>
-      </div>
+      <OrderMetricGrid>
+        <OrderMetric Icon={FileSpreadsheet} label={t('采购单数')} value={stats.total} tone="primary" />
+        <OrderMetric Icon={Truck} label={t('待推进')} value={stats.open} tone="primary" />
+        <OrderMetric Icon={CalendarDays} label={t('部分到货')} value={stats.inbound} tone="warning" />
+        <OrderMetric Icon={AlertCircle} label={t('异常')} value={stats.abnormal} tone="danger" />
+      </OrderMetricGrid>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <div className="shrink-0 border-b border-slate-100 px-4 py-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[220px] flex-1">
+      <div className="order-horizon-data-surface flex min-h-[30rem] flex-1 flex-col overflow-hidden border bg-white" aria-busy={loading}>
+        <div className="order-horizon-toolbar shrink-0 border-b border-slate-100 px-4 py-3">
+          <div role="search" aria-label={t('采购订单筛选')} className="flex flex-wrap items-center gap-2">
+            <div className="relative w-full min-w-0 sm:min-w-[220px] sm:flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 value={query}
@@ -255,15 +304,16 @@ export function PurchaseOrders() {
                   setQuery(event.target.value);
                   setPage(1);
                 }}
+                aria-label={t('搜索采购订单')}
                 placeholder={t('搜索采购单号、供应商、采购员...')}
-                className="h-9 rounded-full border-slate-200 bg-slate-50 pl-9 text-sm"
+                className="h-9 border-slate-200 bg-white pl-9 text-sm"
               />
             </div>
             <Select value={statusFilter} onValueChange={(value) => {
               setStatusFilter(value);
               setPage(1);
             }}>
-              <SelectTrigger className="h-9 w-[132px] rounded-full border-slate-200 bg-white text-sm">
+              <SelectTrigger aria-label={t('按订单状态筛选')} className="h-9 w-full rounded-full border-slate-200 bg-white text-sm sm:w-[148px]">
                 <SelectValue placeholder={t('状态')} />
               </SelectTrigger>
               <SelectContent>
@@ -279,7 +329,7 @@ export function PurchaseOrders() {
               setSupplierFilter(value);
               setPage(1);
             }}>
-              <SelectTrigger className="h-9 w-[176px] rounded-full border-slate-200 bg-white text-sm">
+              <SelectTrigger aria-label={t('按供应商筛选')} className="h-9 w-full rounded-full border-slate-200 bg-white text-sm sm:w-[184px]">
                 <SelectValue placeholder={t('供应商')} />
               </SelectTrigger>
               <SelectContent>
@@ -293,36 +343,67 @@ export function PurchaseOrders() {
             </Select>
             <Input
               type="date"
+              aria-label={t('下单开始日期')}
+              max={dateTo || undefined}
               value={dateFrom}
               onChange={(event) => {
                 setDateFrom(event.target.value);
                 setPage(1);
               }}
-              className="h-9 w-[148px] rounded-full border-slate-200 bg-white text-sm"
+              className="h-9 w-full border-slate-200 bg-white text-sm sm:w-[156px]"
             />
             <Input
               type="date"
+              aria-label={t('下单结束日期')}
+              min={dateFrom || undefined}
               value={dateTo}
               onChange={(event) => {
                 setDateTo(event.target.value);
                 setPage(1);
               }}
-              className="h-9 w-[148px] rounded-full border-slate-200 bg-white text-sm"
+              className="h-9 w-full border-slate-200 bg-white text-sm sm:w-[156px]"
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={resetFilters}
-              className="h-9 rounded-full border-slate-200 px-3 text-slate-600">
-              <Filter className="h-4 w-4" />
-              {t('重置')}
-            </Button>
+            {hasActiveFilters ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label={t('清除全部采购订单筛选，共 {count} 项', { count: activeFilterCount })}
+                onClick={resetFilters}
+                className="order-horizon-secondary-action h-9 w-full border-slate-200 px-3 text-slate-600 sm:w-auto">
+                <Filter className="h-4 w-4" />
+                {t('清除筛选')}
+                <span className="tabular-nums" aria-hidden="true">({activeFilterCount})</span>
+              </Button>
+            ) : null}
+            {loading && orders.length > 0 ? (
+              <span role="status" aria-live="polite" className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                <Loader2 className="size-3.5 animate-spin" />
+                {t('正在更新结果')}
+              </span>
+            ) : null}
           </div>
         </div>
 
-        <div className="relative min-h-0 flex-1">
-          <Table containerClassName="absolute inset-0 h-full overflow-auto">
+        {loadError && orders.length > 0 ? (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-2 border-b border-rose-100 bg-rose-50 px-4 py-2.5 text-sm text-rose-700">
+            <span className="min-w-0 text-pretty">{t('采购订单更新失败')}：{loadError}</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => void loadOrders()} className="h-8 border-rose-200 bg-white text-rose-700 hover:bg-rose-50">
+              <RefreshCw className="size-3.5" />
+              {t('重试')}
+            </Button>
+          </div>
+        ) : null}
+
+        <div
+          role="region"
+          aria-label={t('采购订单列表，可横向滚动查看更多字段')}
+          tabIndex={0}
+          className="relative min-h-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]">
+          <span role="status" aria-live="polite" className="sr-only">
+            {loading ? t('正在加载采购订单') : t('采购订单加载完成，共 {count} 条', { count: total })}
+          </span>
+          <Table containerClassName="order-horizon-table absolute inset-0 h-full overflow-auto" className="min-w-[1120px]" aria-label={t('采购订单数据')}>
             <TableHeader className="sticky top-0 z-10 bg-slate-50">
               <TableRow className="border-slate-100">
                 <TableHead className="px-4">{t('采购单号')}</TableHead>
@@ -335,56 +416,98 @@ export function PurchaseOrders() {
                 <TableHead className="text-right">{t('金额')}</TableHead>
                 <TableHead>{t('到货仓')}</TableHead>
                 <TableHead>{t('来源')}</TableHead>
-                <TableHead className="sticky right-0 bg-slate-50 text-right">{t('操作')}</TableHead>
+                <TableHead className="order-horizon-sticky-action sticky right-0 bg-slate-50 text-right">{t('操作')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {orders.map((order) => (
                 <TableRow key={order.id} className="border-slate-100">
-                  <TableCell className="px-4 font-mono text-sm text-slate-800">{order.poNo}</TableCell>
-                  <TableCell className="max-w-[220px] truncate font-medium text-slate-800"><AutoTranslatedText text={order.supplier} /></TableCell>
+                  <TableCell className="px-4 font-mono text-sm text-slate-800 tabular-nums">{order.poNo}</TableCell>
+                  <TableCell className="max-w-[220px] truncate font-medium text-slate-800" title={order.supplier}><AutoTranslatedText text={order.supplier} /></TableCell>
                   <TableCell>
                     <Badge variant="secondary" className={`rounded-full px-2.5 py-1 font-medium ${statusBadgeClass(order.status)}`}>
                       {t(order.status)}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-slate-600">{order.buyer}</TableCell>
-                  <TableCell className="text-slate-600">{order.orderDate}</TableCell>
-                  <TableCell className="text-slate-800">{order.etaDate}</TableCell>
-                  <TableCell className="text-right text-slate-700">{order.itemCount}</TableCell>
-                  <TableCell className="text-right font-semibold text-slate-900">{formatCurrency(order.amount, order.currency)}</TableCell>
+                  <TableCell className="text-slate-600 tabular-nums">{order.orderDate}</TableCell>
+                  <TableCell className="text-slate-800 tabular-nums">{order.etaDate || '-'}</TableCell>
+                  <TableCell className="text-right text-slate-700 tabular-nums">{order.itemCount}</TableCell>
+                  <TableCell className="text-right font-semibold text-slate-900 tabular-nums">{formatCurrency(order.amount, order.currency)}</TableCell>
                   <TableCell className="text-slate-600"><AutoTranslatedText text={order.warehouse} /></TableCell>
                   <TableCell className="max-w-[160px] truncate text-slate-500"><AutoTranslatedText text={order.sourceFile || t('畅捷通 T+')} /></TableCell>
-                  <TableCell className="sticky right-0 bg-white text-right">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => navigate(`${routePath("page:purchase-orders", "/purchase-orders")}/${encodeURIComponent(order.id)}`)}
-                      className="h-8 rounded-full border-blue-100 bg-blue-50 px-3 text-xs font-medium text-blue-700 hover:bg-blue-100">
-                      <Eye className="h-3.5 w-3.5" />
-                      {t('查看')}
-                    </Button>
+                  <TableCell className="order-horizon-sticky-action sticky right-0 bg-white text-right">
+                    {canViewDetail ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={t('查看采购订单 {poNo}', { poNo: order.poNo })}
+                        onClick={() => navigate(`${routePath("page:purchase-orders", "/purchase-orders")}/${encodeURIComponent(order.id)}`)}
+                        className="order-horizon-row-action h-8 px-3 text-xs font-medium">
+                        <Eye className="h-3.5 w-3.5" />
+                        {t('查看')}
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-slate-400">{t('无详情权限')}</span>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
-              {!loading && orders.length === 0 && (
+              {!loading && loadError && orders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="h-28 text-center text-sm text-slate-400">
-                    {t('暂无匹配的采购订单')}
+                  <TableCell colSpan={11} className="h-44 text-center text-sm text-slate-400">
+                    <OrderEmptyState
+                      Icon={AlertCircle}
+                      title={t('采购订单加载失败')}
+                      description={loadError}
+                      action={(
+                        <Button type="button" variant="outline" size="sm" onClick={() => void loadOrders()} className="order-horizon-secondary-action">
+                          <RefreshCw className="size-4" />
+                          {t('重新加载')}
+                        </Button>
+                      )}
+                    />
                   </TableCell>
                 </TableRow>
-              )}
-              {loading && orders.length === 0 && (
+              ) : null}
+              {!loading && !loadError && orders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="h-28 text-center text-sm text-slate-400">
-                    <span className="inline-flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      {t('正在加载采购订单')}
-                    </span>
+                  <TableCell colSpan={11} className="h-44 text-center text-sm text-slate-400">
+                    <OrderEmptyState
+                      Icon={PackageCheck}
+                      title={hasActiveFilters ? t('暂无匹配的采购订单') : t('暂无采购订单')}
+                      description={hasActiveFilters
+                        ? t('可清除筛选条件后重新查看全部采购单。')
+                        : t('当前没有可显示的采购订单，可重新加载畅捷通数据。')}
+                      action={hasActiveFilters ? (
+                        <Button type="button" variant="outline" size="sm" onClick={resetFilters} className="order-horizon-secondary-action">
+                          <Filter className="size-4" />
+                          {t('清除筛选')}
+                        </Button>
+                      ) : (
+                        <Button type="button" variant="outline" size="sm" onClick={() => void loadOrders()} className="order-horizon-secondary-action">
+                          <RefreshCw className="size-4" />
+                          {t('刷新数据')}
+                        </Button>
+                      )}
+                    />
                   </TableCell>
                 </TableRow>
-              )}
+              ) : null}
+              {loading && orders.length === 0 ? (
+                <>
+                  {Array.from({ length: 6 }, (_, rowIndex) => (
+                    <TableRow key={`purchase-order-skeleton-${rowIndex}`} aria-hidden="true" className="border-slate-100">
+                      {Array.from({ length: 11 }, (_, cellIndex) => (
+                        <TableCell key={cellIndex} className="h-12">
+                          <span className="block h-3 w-full max-w-24 animate-pulse rounded-full bg-slate-100" />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </>
+              ) : null}
             </TableBody>
           </Table>
         </div>

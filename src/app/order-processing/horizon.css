@@ -1,0 +1,509 @@
+/*
+ * Order & Inventory Horizon
+ *
+ * 与研发、采购驾驶舱保持同源的 Klein Blue 工作界面；所有规则均限制在
+ * order-horizon 作用域内，避免影响其他业务模块。
+ */
+.order-horizon,
+.order-horizon-overlay {
+  --order-primary: #002fa7;
+  --order-primary-hover: #002581;
+  --order-ink: #1b2559;
+  --order-body: #42526f;
+  --order-muted: #64748b;
+  --order-subtle: #8f9bba;
+  --order-canvas: #f4f7fe;
+  --order-surface: #ffffff;
+  --order-soft-blue: #eef3ff;
+  --order-line: #e9edf7;
+  --order-line-strong: #e0e5f2;
+  --order-shadow-card: 0 8px 24px rgba(112, 144, 176, 0.065);
+  --order-shadow-focal: 0 14px 36px rgba(112, 144, 176, 0.1);
+  color: var(--order-body);
+}
+
+.order-horizon {
+  position: relative;
+  min-width: 0;
+  background: transparent;
+}
+
+.order-horizon-command {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 1rem;
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  margin-bottom: 0.75rem;
+  padding: 1.15rem 1.25rem;
+  background: var(--order-surface);
+  box-shadow: var(--order-shadow-focal);
+}
+
+.order-horizon-command-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.order-horizon-command-mark {
+  display: inline-flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: #fff;
+  background: var(--order-primary);
+  box-shadow: 0 9px 18px -12px rgba(0, 47, 167, 0.66);
+}
+
+.order-horizon-command-copy {
+  min-width: 0;
+}
+
+.order-horizon-eyebrow {
+  color: var(--order-primary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.order-horizon-command h1 {
+  margin-top: 0.15rem;
+  color: var(--order-ink);
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.order-horizon-description,
+.order-horizon-meta {
+  margin-top: 0.2rem;
+  color: var(--order-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.order-horizon-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--order-subtle);
+}
+
+.order-horizon-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.order-horizon-actions [data-slot="button"],
+.order-horizon-actions > button {
+  min-height: 2.5rem;
+  border-radius: 11px !important;
+  box-shadow: none !important;
+}
+
+.order-horizon-actions .order-horizon-primary-action {
+  border-color: var(--order-primary) !important;
+  color: #fff !important;
+  background: var(--order-primary) !important;
+  box-shadow: 0 13px 26px -15px rgba(0, 47, 167, 0.75) !important;
+}
+
+.order-horizon-actions .order-horizon-primary-action:hover {
+  border-color: var(--order-primary-hover) !important;
+  background: var(--order-primary-hover) !important;
+}
+
+.order-horizon-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  flex: none;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 18px;
+  margin-bottom: 0.75rem;
+  padding: 0.45rem;
+  background: var(--order-surface);
+  box-shadow: var(--order-shadow-card);
+}
+
+.order-horizon-metric {
+  display: flex;
+  min-width: 0;
+  min-height: 4.25rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-radius: 12px;
+  padding: 0.6rem 0.75rem;
+}
+
+.order-horizon-metric + .order-horizon-metric {
+  border-left: 1px solid var(--order-line);
+}
+
+.order-horizon-metric-copy {
+  min-width: 0;
+}
+
+.order-horizon-metric-label {
+  overflow: hidden;
+  color: var(--order-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-horizon-metric-value {
+  margin-top: 0.2rem;
+  color: var(--order-ink);
+  font-size: 1.28rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.order-horizon-metric-note {
+  margin-top: 0.15rem;
+  color: var(--order-subtle);
+  font-size: 0.65rem;
+  line-height: 1.35;
+}
+
+.order-horizon-metric-icon {
+  display: inline-flex;
+  width: 1.9rem;
+  height: 1.9rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: var(--order-primary);
+  background: var(--order-soft-blue);
+  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.08);
+}
+
+.order-horizon-metric[data-tone="success"] .order-horizon-metric-value,
+.order-horizon-metric[data-tone="success"] .order-horizon-metric-icon { color: #018f5b; }
+.order-horizon-metric[data-tone="success"] .order-horizon-metric-icon { background: #e7f9f2; }
+.order-horizon-metric[data-tone="warning"] .order-horizon-metric-value,
+.order-horizon-metric[data-tone="warning"] .order-horizon-metric-icon { color: #a66300; }
+.order-horizon-metric[data-tone="warning"] .order-horizon-metric-icon { background: #fff6da; }
+.order-horizon-metric[data-tone="danger"] .order-horizon-metric-value,
+.order-horizon-metric[data-tone="danger"] .order-horizon-metric-icon { color: #d51b1b; }
+.order-horizon-metric[data-tone="danger"] .order-horizon-metric-icon { background: #feefee; }
+
+.order-horizon-data-surface,
+.order-horizon-detail-surface {
+  border-color: transparent !important;
+  border-radius: 20px !important;
+  background: var(--order-surface) !important;
+  box-shadow: var(--order-shadow-card) !important;
+}
+
+.order-horizon-toolbar {
+  border-bottom-color: var(--order-line) !important;
+  background: rgba(244, 247, 254, 0.72);
+}
+
+.order-horizon-toolbar :is(input, button, [data-slot="select-trigger"]) {
+  border-radius: 10px !important;
+}
+
+.order-horizon-table [data-slot="table-header"],
+.order-horizon-table thead {
+  color: var(--order-muted);
+  background: var(--order-canvas) !important;
+}
+
+.order-horizon-table [data-slot="table-row"] {
+  border-color: var(--order-line) !important;
+}
+
+.order-horizon-table tbody [data-slot="table-row"]:hover {
+  background: rgba(238, 243, 255, 0.55) !important;
+}
+
+.order-horizon-table :is(th, td) {
+  height: 2.75rem;
+}
+
+.order-horizon-table .order-horizon-sticky-action {
+  box-shadow: -10px 0 18px -18px rgba(27, 37, 89, 0.45);
+}
+
+.order-horizon .order-horizon-row-action,
+.order-horizon .order-horizon-secondary-action {
+  border-radius: 9px !important;
+}
+
+.order-horizon .order-horizon-row-action {
+  border-color: rgba(0, 47, 167, 0.12) !important;
+  color: var(--order-primary) !important;
+  background: var(--order-soft-blue) !important;
+}
+
+.order-horizon [data-slot="badge"] {
+  border-radius: 8px !important;
+}
+
+.order-horizon-pagination {
+  border-top-color: var(--order-line) !important;
+}
+
+.order-horizon-pagination [data-slot="button"],
+.order-horizon-pagination [data-slot="select-trigger"] {
+  border-radius: 9px !important;
+}
+
+.order-horizon-empty {
+  display: flex;
+  min-height: 9rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1.5rem;
+  color: var(--order-muted);
+  text-align: center;
+}
+
+.order-horizon-empty-icon {
+  display: inline-flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: var(--order-primary);
+  background: var(--order-soft-blue);
+}
+
+.order-horizon-empty p { font-size: 0.75rem; }
+
+/* 订货单工作台 */
+.order-horizon-workbench {
+  overflow: auto !important;
+}
+
+.order-horizon-workbench-shell {
+  container-name: order-workbench;
+  container-type: inline-size;
+  min-width: 0 !important;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 20px !important;
+  background: var(--order-surface) !important;
+  box-shadow: var(--order-shadow-card) !important;
+}
+
+.order-horizon-workbench-layout {
+  display: grid !important;
+  grid-template-columns: 17rem minmax(32rem, 1fr) 19rem;
+  min-height: 0;
+  overflow: auto !important;
+  scrollbar-gutter: stable;
+  background: var(--order-canvas);
+}
+
+.order-horizon-queue,
+.order-horizon-invoice-rail {
+  width: auto !important;
+  min-width: 0;
+  border-color: var(--order-line) !important;
+}
+
+.order-horizon-compare {
+  min-width: 0 !important;
+  background: rgba(244, 247, 254, 0.68) !important;
+}
+
+.order-horizon-workbench .order-horizon-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  min-height: auto;
+  border-bottom-color: var(--order-line) !important;
+  padding: 0.4rem 0.75rem;
+  background: #fff !important;
+}
+
+.order-horizon-workbench .order-horizon-stat-item {
+  min-width: 0;
+  border-radius: 10px !important;
+  padding: 0.55rem 0.75rem !important;
+  background: transparent !important;
+}
+
+.order-horizon-workbench .order-horizon-stat-item + .order-horizon-stat-item {
+  border-left: 1px solid var(--order-line);
+}
+
+.order-horizon-workbench .order-horizon-panel {
+  border: 1px solid transparent !important;
+  border-radius: 16px !important;
+  box-shadow: var(--order-shadow-card) !important;
+}
+
+.order-horizon-workbench .order-horizon-summary {
+  border: 1px solid transparent;
+  border-radius: 16px !important;
+  box-shadow: var(--order-shadow-card) !important;
+}
+
+.order-horizon-workbench .order-horizon-order-item,
+.order-horizon-workbench .order-horizon-template-option {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 12px !important;
+  text-align: left;
+}
+
+.order-horizon-workbench .order-horizon-order-item:hover,
+.order-horizon-workbench .order-horizon-template-option:hover {
+  border-color: rgba(0, 47, 167, 0.08);
+  background: rgba(238, 243, 255, 0.72) !important;
+}
+
+.order-horizon-workbench .order-horizon-order-item[data-selected="true"],
+.order-horizon-workbench .order-horizon-template-option[data-selected="true"] {
+  border-color: rgba(0, 47, 167, 0.12);
+  background: var(--order-soft-blue) !important;
+}
+
+.order-horizon-workbench button:not([data-slot="select-trigger"]) {
+  border-radius: 9px;
+}
+
+.order-horizon-workbench .glow-blue,
+.order-horizon-workbench [class*="elevation-"] {
+  box-shadow: none !important;
+}
+
+.order-horizon-overlay {
+  --primary: #002fa7;
+  --ring: #002fa7;
+  border-color: var(--order-line) !important;
+  border-radius: 18px !important;
+  color: var(--order-body) !important;
+  background: #fff !important;
+  box-shadow: 0 20px 56px rgba(27, 37, 89, 0.16) !important;
+  overscroll-behavior: contain;
+}
+
+.order-horizon-overlay :is(h1, h2, h3, [data-slot="dialog-title"]) { color: var(--order-ink); }
+.order-horizon-overlay [class*="elevation-"] { box-shadow: none !important; }
+
+.order-horizon :where(button, input, select, textarea, a[href], [role="button"], [tabindex]):focus-visible,
+.order-horizon-overlay :where(button, input, select, textarea, a[href], [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+}
+
+@container order-workbench (max-width: 72rem) {
+  .order-horizon-workbench-layout {
+    grid-template-columns: 16rem minmax(31rem, 1fr);
+  }
+
+  .order-horizon-invoice-rail {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--order-line);
+    border-left: 0 !important;
+  }
+
+  .order-horizon-invoice-rail > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    padding-bottom: 1rem !important;
+  }
+}
+
+@container order-workbench (max-width: 52rem) {
+  .order-horizon-workbench-layout {
+    display: flex !important;
+    flex-direction: column;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    scrollbar-gutter: stable;
+  }
+
+  .order-horizon-queue {
+    max-height: 24rem;
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--order-line);
+  }
+
+  .order-horizon-compare { min-height: 42rem; }
+  .order-horizon-invoice-rail > div { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 1320px) {
+  .order-horizon-command {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .order-horizon-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 1100px) {
+  .order-horizon-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .order-horizon-metric + .order-horizon-metric {
+    border-left: 0;
+  }
+
+  .order-horizon-metric:nth-child(even) {
+    border-left: 1px solid var(--order-line);
+  }
+}
+
+@media (max-width: 760px) {
+  .order-horizon { padding: 0.75rem !important; }
+
+  .order-horizon-command {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 1rem;
+  }
+
+  .order-horizon-actions { justify-content: flex-start; }
+
+  .order-horizon-workbench-shell {
+    min-height: calc(100dvh - 10rem) !important;
+  }
+
+  .order-horizon-workbench :is(button, input, select, [data-slot="select-trigger"], [data-slot="tabs-trigger"]) {
+    min-height: 2.75rem;
+  }
+
+  .order-horizon-overlay {
+    width: calc(100% - 1rem) !important;
+    max-width: calc(100% - 1rem) !important;
+    max-height: calc(100dvh - 1rem) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .order-horizon *,
+  .order-horizon-overlay * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

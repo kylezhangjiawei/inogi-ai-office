@@ -73,6 +73,16 @@ type InvoicePdfInput = {
   templateId?: string;
   templateConfig?: Record<string, unknown>;
 };
+type InvoicePdfProfile = {
+  sellerName: string;
+  sellerEmail: string;
+  billingAddress: string[];
+  shippingAddress: string[];
+  incoterm: string;
+  paymentTerms: string;
+  paymentInstructions: string[];
+  additionalNotes: string[];
+};
 type ParsedOrderDraft = { order: OrderSummary; detail: OrderDetail; metadata: Record<string, unknown> };
 type ParsedStockInDraft = {
   type: string;
@@ -419,7 +429,7 @@ export class OrderProcessingService {
         unit: product.unit,
         quantity: product.orderQty,
         unitPrice: product.orderPrice,
-        subtotal: product.subtotal,
+        subtotal: this.formatMoneyValue(product.orderQty * this.parseCurrency(product.orderPrice)),
         status: product.status,
       }));
     const pdf = this.buildInvoicePdf({
@@ -1433,7 +1443,7 @@ export class OrderProcessingService {
       customer: order.customer,
       orderId: order.id,
       date: this.formatDate(order.shipDate),
-      amount: this.formatCurrency(order.invoice?.amount ? Number(order.invoice.amount) : invoiceLines.length > 0 ? this.sumInvoiceLines(invoiceLines) : this.sumProductAmount(products)),
+      amount: this.formatCurrency(invoiceLines.length > 0 ? this.sumInvoiceLines(invoiceLines) : order.invoice?.amount ? Number(order.invoice.amount) : this.sumProductAmount(products)),
       invoiceNo: order.invoice?.invoiceNo ?? '',
       invoiceTemplateId: order.invoice?.templateId || undefined,
       generatedAt: order.invoice?.generatedAt?.toISOString(),
@@ -1485,11 +1495,23 @@ export class OrderProcessingService {
   private toInvoiceLines(value: unknown): InvoiceLine[] {
     const metadata = this.toRecord(value);
     if (!Array.isArray(metadata.lines)) return [];
-    return metadata.lines.map((item) => {
+    return metadata.lines.map((item): InvoiceLine | null => {
       const row = this.toRecord(item);
-      const quantity = Math.max(0, Number(row.quantity) || 0);
-      const unitPrice = this.parseCurrency(row.unitPrice as string | number | Prisma.Decimal);
-      const subtotal = this.parseCurrency(row.subtotal as string | number | Prisma.Decimal) || quantity * unitPrice;
+      const quantity = Number(row.quantity);
+      const unitPriceText = String(row.unitPrice ?? '').replace(/[¥￥$, \s]/g, '');
+      const unitPrice = unitPriceText ? Number(unitPriceText) : Number.NaN;
+      const unitPriceCents = Math.round((unitPrice + Number.EPSILON) * 100);
+      const subtotalCents = quantity * unitPriceCents;
+      if (
+        !Number.isSafeInteger(quantity) ||
+        quantity <= 0 ||
+        !Number.isFinite(unitPrice) ||
+        unitPrice < 0 ||
+        !Number.isSafeInteger(unitPriceCents) ||
+        !Number.isSafeInteger(subtotalCents)
+      ) {
+        return null;
+      }
       return {
         id: this.toString(row.id) || this.toString(row.sku),
         lineId: this.toString(row.lineId) || undefined,
@@ -1497,10 +1519,10 @@ export class OrderProcessingService {
         spec: this.toString(row.spec),
         unit: this.toString(row.unit),
         quantity,
-        unitPrice: this.formatMoneyValue(unitPrice),
-        subtotal: this.formatMoneyValue(subtotal),
+        unitPrice: this.formatMoneyValue(unitPriceCents / 100),
+        subtotal: this.formatMoneyValue(subtotalCents / 100),
       };
-    }).filter((line) => line.id && line.name && line.quantity > 0);
+    }).filter((line): line is InvoiceLine => Boolean(line?.id && line.name));
   }
 
   private toOptionalInvoiceInfo(value: unknown): InvoiceInfo | undefined {
@@ -2755,15 +2777,27 @@ export class OrderProcessingService {
     return sourceLines.map((line, index) => {
       const product = (line.lineId ? productByLineId.get(line.lineId) : null) ?? (line.sku ? productBySku.get(line.sku) : null);
       if (!product) throw new BadRequestException(`第 ${index + 1} 行商品不在当前订货单中`);
-      const subtotal = line.subtotal ?? line.quantity * line.unitPrice;
+      const quantity = this.toInvoiceQuantity(line.quantity, `第 ${index + 1} 行数量`);
+      const unitPriceCents = this.toMoneyCents(line.unitPrice, `第 ${index + 1} 行单价`);
+      const subtotalCents = quantity * unitPriceCents;
+      if (!Number.isSafeInteger(subtotalCents)) {
+        throw new BadRequestException(`第 ${index + 1} 行金额超出可处理范围`);
+      }
+      if (line.subtotal !== undefined) {
+        const suppliedSubtotalCents = this.toMoneyCents(line.subtotal, `第 ${index + 1} 行金额`);
+        if (suppliedSubtotalCents !== subtotalCents) {
+          throw new BadRequestException(`第 ${index + 1} 行金额必须等于数量乘以单价`);
+        }
+      }
+      const subtotal = subtotalCents / 100;
       return {
         id: product.sku,
         lineId: product.id,
         name: line.name || product.name,
         spec: line.spec || product.spec,
         unit: line.unit || product.unit,
-        quantity: line.quantity,
-        unitPrice: this.formatMoneyValue(line.unitPrice),
+        quantity,
+        unitPrice: this.formatMoneyValue(unitPriceCents / 100),
         subtotal: this.formatMoneyValue(subtotal),
       };
     });
@@ -2810,7 +2844,8 @@ export class OrderProcessingService {
   }
 
   private toInvoiceDraftLines(value: unknown): InvoiceDraftLineInput[] {
-    if (!Array.isArray(value)) return [];
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw new BadRequestException('发票商品明细格式不正确');
     return value.map((item, index) => {
       const row = this.toRecord(item);
       const lineId = this.toString(row.lineId);
@@ -2858,8 +2893,11 @@ export class OrderProcessingService {
   }
 
   private toPositiveInteger(value: unknown, label: string) {
+    if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && !value.trim())) {
+      throw new BadRequestException(`${label}必须是大于 0 的整数`);
+    }
     const number = Number(value);
-    if (!Number.isFinite(number) || !Number.isInteger(number) || number <= 0) {
+    if (!Number.isSafeInteger(number) || number <= 0) {
       throw new BadRequestException(`${label}必须是大于 0 的整数`);
     }
     return number;
@@ -2874,11 +2912,23 @@ export class OrderProcessingService {
   }
 
   private toNonNegativeMoney(value: unknown, label: string) {
-    const number = Number(value);
-    if (!Number.isFinite(number) || number < 0) {
+    return this.toMoneyCents(value, label) / 100;
+  }
+
+  private toInvoiceQuantity(value: unknown, label: string) {
+    return this.toPositiveInteger(value, label);
+  }
+
+  private toMoneyCents(value: unknown, label: string) {
+    if ((typeof value !== 'number' && typeof value !== 'string') || (typeof value === 'string' && !value.trim())) {
       throw new BadRequestException(`${label}必须是大于等于 0 的金额`);
     }
-    return Math.round(number * 100) / 100;
+    const number = Number(value);
+    const cents = Math.round((number + Number.EPSILON) * 100);
+    if (!Number.isFinite(number) || number < 0 || !Number.isSafeInteger(cents)) {
+      throw new BadRequestException(`${label}必须是大于等于 0 且未超出范围的金额`);
+    }
+    return cents;
   }
 
   private toOptionalDate(value: unknown, label: string) {
@@ -3000,6 +3050,54 @@ export class OrderProcessingService {
     return 'generic';
   }
 
+  private resolveInvoicePdfProfile(input: InvoicePdfInput): InvoicePdfProfile {
+    const config = this.toRecord(input.templateConfig);
+    const pdf = this.toRecord(config.pdf);
+    const merged = { ...config, ...pdf };
+    const seller = { ...this.toRecord(config.seller), ...this.toRecord(pdf.seller) };
+    const customer = { ...this.toRecord(config.customer), ...this.toRecord(pdf.customer) };
+    const payment = { ...this.toRecord(config.payment), ...this.toRecord(pdf.payment) };
+    const bank = {
+      ...this.toRecord(config.bank),
+      ...this.toRecord(pdf.bank),
+      ...this.toRecord(payment.bank),
+    };
+    const paymentInstructions = this.toPdfTextLines(payment.instructions ?? merged.paymentInstructions);
+    const configuredBankLines = [
+      this.configuredPdfLine('Beneficiary Name', bank.beneficiaryName ?? payment.beneficiaryName),
+      this.configuredPdfLine('Bank Name', bank.bankName ?? payment.bankName),
+      this.configuredPdfLine('Bank Branch', bank.branchName ?? bank.bankBranch ?? payment.bankBranch),
+      this.configuredPdfLine('Account Name', bank.accountName ?? payment.accountName),
+      this.configuredPdfLine('Company Address', bank.companyAddress ?? payment.companyAddress),
+      this.configuredPdfLine('Account Number', bank.accountNumber ?? payment.accountNumber),
+      this.configuredPdfLine('SWIFT Code', bank.swiftCode ?? bank.swift ?? payment.swiftCode),
+      this.configuredPdfLine('Bank Address', bank.bankAddress ?? payment.bankAddress),
+    ].filter((line): line is string => Boolean(line));
+
+    return {
+      sellerName: this.toString(seller.name) || this.toString(merged.sellerName),
+      sellerEmail: this.toString(seller.email) || this.toString(merged.sellerEmail),
+      billingAddress: this.toPdfTextLines(
+        customer.billingAddress ?? customer.address ?? merged.billingAddress ?? merged.customerAddress,
+      ),
+      shippingAddress: this.toPdfTextLines(customer.shippingAddress ?? merged.shippingAddress),
+      incoterm: this.toString(merged.incoterm),
+      paymentTerms: this.toString(payment.terms) || this.toString(merged.paymentTerms),
+      paymentInstructions: [...paymentInstructions, ...configuredBankLines],
+      additionalNotes: this.toPdfTextLines(payment.notes ?? merged.additionalNotes),
+    };
+  }
+
+  private configuredPdfLine(label: string, value: unknown) {
+    const text = this.toString(value);
+    return text ? `${label}: ${text}` : '';
+  }
+
+  private toPdfTextLines(value: unknown) {
+    const values = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/\r?\n/) : [];
+    return values.map((line) => this.toString(line)).filter(Boolean);
+  }
+
   private buildWeoxyInvoicePdfPage(
     input: InvoicePdfInput,
     rows: InvoiceExportLine[],
@@ -3007,6 +3105,7 @@ export class OrderProcessingService {
     totalPages: number,
   ) {
     const commands: string[] = [];
+    const profile = this.resolveInvoicePdfProfile(input);
     const pageMargin = 48;
     const darkBlue = '#0a2342';
     const tableTop = 494;
@@ -3015,26 +3114,34 @@ export class OrderProcessingService {
     const isLastPage = pageNo === totalPages;
 
     commands.push(this.pdfFillRect(0, 0, 595, 842, '#ffffff'));
-    commands.push(this.pdfText(pageMargin, 780, 'WEOXY.CO', 32, darkBlue, 'left', 220));
+    commands.push(this.pdfText(pageMargin, 780, profile.sellerName || input.templateName, 28, darkBlue, 'left', 260));
     commands.push(this.pdfText(547, 784, 'INVOICE', 18, darkBlue, 'right', 160));
-    commands.push(this.pdfText(547, 766, 'degang.wang@gmail.com', 9, darkBlue, 'right', 180));
+    if (profile.sellerEmail) commands.push(this.pdfText(547, 766, profile.sellerEmail, 9, darkBlue, 'right', 180));
 
-    commands.push(this.pdfText(pageMargin, 714, 'Seller:', 10, darkBlue, 'left', 90));
-    commands.push(this.pdfText(pageMargin, 696, 'WeOxy Co., LTD.', 10, darkBlue, 'left', 180));
+    if (profile.sellerName) {
+      commands.push(this.pdfText(pageMargin, 714, 'Seller:', 10, darkBlue, 'left', 90));
+      commands.push(this.pdfText(pageMargin, 696, profile.sellerName, 10, darkBlue, 'left', 230));
+    }
     commands.push(this.pdfText(pageMargin, 662, 'Bill To:', 10, darkBlue, 'left', 90));
     commands.push(this.pdfText(pageMargin, 644, input.info.customer || '-', 10, darkBlue, 'left', 230));
-    commands.push(this.pdfText(pageMargin, 626, '110 Cedar Street, STE 105,', 9, darkBlue, 'left', 230));
-    commands.push(this.pdfText(pageMargin, 608, 'Wellesley, MA 02481, U.S.A.', 9, darkBlue, 'left', 230));
-    commands.push(this.pdfText(pageMargin, 574, 'Ship To:', 10, darkBlue, 'left', 90));
-    commands.push(this.pdfText(pageMargin, 556, input.info.customer || '-', 10, darkBlue, 'left', 230));
+    profile.billingAddress.slice(0, 2).forEach((line, index) => {
+      commands.push(this.pdfText(pageMargin, 626 - index * 18, line, 9, darkBlue, 'left', 230));
+    });
+    if (profile.shippingAddress.length > 0) {
+      commands.push(this.pdfText(pageMargin, 574, 'Ship To:', 10, darkBlue, 'left', 90));
+      commands.push(this.pdfText(pageMargin, 556, input.info.customer || '-', 10, darkBlue, 'left', 230));
+      profile.shippingAddress.slice(0, 1).forEach((line, index) => {
+        commands.push(this.pdfText(pageMargin, 538 - index * 18, line, 9, darkBlue, 'left', 230));
+      });
+    }
 
     const labelX = 352;
     const valueX = 547;
     commands.push(this.pdfKeyValue(labelX, 714, valueX, 'Invoice:', `#${input.detail.invoiceNo || '未生成'}`, darkBlue));
     commands.push(this.pdfKeyValue(labelX, 694, valueX, 'Date:', input.info.date || '-', darkBlue));
     commands.push(this.pdfKeyValue(labelX, 674, valueX, 'Purchase Order:', input.info.orderId || '-', darkBlue));
-    commands.push(this.pdfKeyValue(labelX, 654, valueX, 'Incoterm:', 'DDP', darkBlue));
-    commands.push(this.pdfKeyValue(labelX, 634, valueX, 'Terms:', 'Full Payment Due upon Receipt', darkBlue));
+    if (profile.incoterm) commands.push(this.pdfKeyValue(labelX, 654, valueX, 'Incoterm:', profile.incoterm, darkBlue));
+    if (profile.paymentTerms) commands.push(this.pdfKeyValue(labelX, 634, valueX, 'Terms:', profile.paymentTerms, darkBlue));
 
     commands.push(this.pdfLine(pageMargin, tableTop + 8, pageMargin + tableWidth, tableTop + 8, darkBlue, 3));
     commands.push(this.pdfText(pageMargin, tableTop - 10, 'DESCRIPTION', 9, darkBlue, 'left', 240));
@@ -3054,18 +3161,22 @@ export class OrderProcessingService {
     if (isLastPage) {
       const totalY = Math.max(184, afterRowsY);
       commands.push(this.pdfLine(pageMargin, totalY, pageMargin + tableWidth, totalY, darkBlue, 3));
-      commands.push(this.pdfText(pageMargin, totalY - 24, 'Subtotal', 12, darkBlue, 'left', 180));
-      commands.push(this.pdfText(pageMargin + tableWidth, totalY - 24, this.formatPdfMoney(input.detail.amount), 12, darkBlue, 'right', 140));
-      commands.push(this.pdfText(pageMargin, totalY - 48, 'Total Amount Due (100%)', 12, darkBlue, 'left', 220));
-      commands.push(this.pdfText(pageMargin + tableWidth, totalY - 48, this.formatPdfMoney(input.detail.amount), 12, darkBlue, 'right', 140));
-      commands.push(this.pdfLine(pageMargin, totalY - 62, pageMargin + tableWidth, totalY - 62, darkBlue, 3));
+      commands.push(this.pdfText(pageMargin, totalY - 28, 'Invoice Total', 12, darkBlue, 'left', 180));
+      commands.push(this.pdfText(pageMargin + tableWidth, totalY - 28, this.formatPdfMoney(input.detail.amount), 12, darkBlue, 'right', 140));
+      commands.push(this.pdfLine(pageMargin, totalY - 44, pageMargin + tableWidth, totalY - 44, darkBlue, 3));
 
-      commands.push(this.pdfText(pageMargin, 116, 'PAYMENT INSTRUCTIONS', 9, darkBlue, 'left', 180));
-      commands.push(this.pdfText(pageMargin, 96, 'Beneficiary Name: WEOXY CO LTD', 8, darkBlue, 'left', 240));
-      commands.push(this.pdfText(pageMargin, 80, 'Bank Name: Bank of America, N.A.', 8, darkBlue, 'left', 260));
-      commands.push(this.pdfText(pageMargin, 64, 'SWIFT Code: BOFAUS3N', 8, darkBlue, 'left', 220));
-      commands.push(this.pdfText(330, 116, 'ADDITIONAL NOTES', 9, darkBlue, 'left', 180));
-      commands.push(this.pdfText(330, 96, `Please include Invoice #${input.detail.invoiceNo || '未生成'} in the wire memo.`, 8, darkBlue, 'left', 210));
+      if (profile.paymentInstructions.length > 0) {
+        commands.push(this.pdfText(pageMargin, 116, 'PAYMENT INSTRUCTIONS', 9, darkBlue, 'left', 180));
+        profile.paymentInstructions.slice(0, 3).forEach((line, index) => {
+          commands.push(this.pdfText(pageMargin, 96 - index * 16, line, 8, darkBlue, 'left', 260));
+        });
+      }
+      if (profile.additionalNotes.length > 0) {
+        commands.push(this.pdfText(330, 116, 'ADDITIONAL NOTES', 9, darkBlue, 'left', 180));
+        profile.additionalNotes.slice(0, 2).forEach((line, index) => {
+          commands.push(this.pdfText(330, 96 - index * 18, line, 8, darkBlue, 'left', 210));
+        });
+      }
     }
 
     commands.push(this.pdfText(pageMargin, 32, `Invoice ${input.detail.invoiceNo || input.info.orderId}`, 8, '#94a3b8'));
@@ -3080,6 +3191,7 @@ export class OrderProcessingService {
     totalPages: number,
   ) {
     const commands: string[] = [];
+    const profile = this.resolveInvoicePdfProfile(input);
     const pageMargin = 42;
     const darkBlue = '#0a2342';
     const footerGray = '#e2e2e2';
@@ -3096,25 +3208,24 @@ export class OrderProcessingService {
     commands.push(this.pdfFillRect(36, darkBottom, 523, 596, darkBlue));
     commands.push(this.pdfFillRect(36, 42, 523, darkBottom - 42, footerGray));
 
-    commands.push(this.pdfText(pageMargin + 6, 778, 'INOGI', 34, '#ffffff', 'left', 180));
-    commands.push(this.pdfText(540, 786, 'INVOICE SERVICE', 13, '#ffffff', 'right', 170));
-    commands.push(this.pdfText(540, 766, 'www.inogi.cn', 9, '#dbeafe', 'right', 170));
-    commands.push(this.pdfText(540, 750, 'geshuang@inogi.cn', 9, '#dbeafe', 'right', 170));
+    commands.push(this.pdfText(pageMargin + 6, 778, profile.sellerName || input.templateName, 28, '#ffffff', 'left', 260));
+    commands.push(this.pdfText(540, 786, 'INVOICE', 13, '#ffffff', 'right', 170));
+    if (profile.sellerEmail) commands.push(this.pdfText(540, 766, profile.sellerEmail, 9, '#dbeafe', 'right', 190));
 
-    commands.push(this.pdfText(pageMargin + 6, 704, totalPages > 1 ? `Final Consolidated Balance Invoice (${pageNo}/${totalPages})` : 'Final Consolidated Balance Invoice', 20, '#ffffff', 'left', 420));
+    commands.push(this.pdfText(pageMargin + 6, 704, totalPages > 1 ? `Invoice (${pageNo}/${totalPages})` : 'Invoice', 20, '#ffffff', 'left', 420));
 
     commands.push(this.pdfText(pageMargin + 6, 658, 'CLIENT NAME', 10, '#ffffff', 'left', 150));
     commands.push(this.pdfText(pageMargin + 6, 636, input.info.customer || '-', 11, '#ffffff', 'left', 235));
-    commands.push(this.pdfText(pageMargin + 6, 616, '110 Cedar Street, STE 105,', 8, '#dbeafe', 'left', 220));
-    commands.push(this.pdfText(pageMargin + 6, 600, 'Wellesley, MA 02481, U.S.A.', 8, '#dbeafe', 'left', 220));
-    commands.push(this.pdfText(pageMargin + 6, 584, 'degang.wang@gmail.com', 8, '#dbeafe', 'left', 220));
+    profile.billingAddress.slice(0, 3).forEach((line, index) => {
+      commands.push(this.pdfText(pageMargin + 6, 616 - index * 16, line, 8, '#dbeafe', 'left', 235));
+    });
 
     const labelX = 354;
     const valueX = 540;
     commands.push(this.pdfKeyValue(labelX, 658, valueX, 'Invoice:', `#${invoiceNo}`, '#ffffff'));
     commands.push(this.pdfKeyValue(labelX, 638, valueX, 'Date:', input.info.date || '-', '#ffffff'));
     commands.push(this.pdfKeyValue(labelX, 618, valueX, 'Purchase Order:', input.info.orderId || '-', '#ffffff'));
-    commands.push(this.pdfKeyValue(labelX, 598, valueX, 'Incoterm:', 'DDP', '#ffffff'));
+    if (profile.incoterm) commands.push(this.pdfKeyValue(labelX, 598, valueX, 'Incoterm:', profile.incoterm, '#ffffff'));
 
     commands.push(this.pdfLine(pageMargin + 6, tableTop, pageMargin + contentWidth, tableTop, '#ffffff', 2.5));
     commands.push(this.pdfText(pageMargin + 6, tableTop - 24, 'ORIGINAL INVOICE AMOUNT', 9, '#ffffff', 'left', 280));
@@ -3133,29 +3244,25 @@ export class OrderProcessingService {
       const afterRowsY = rowStart - rows.length * rowHeight - 10;
       const totalTop = Math.max(darkBottom + 66, afterRowsY);
       commands.push(this.pdfLine(pageMargin + 6, totalTop, pageMargin + contentWidth, totalTop, '#ffffff', 2.5));
-      commands.push(this.pdfText(pageMargin + 6, totalTop - 26, 'Total Goods Value:', 12, '#ffffff', 'left', 220));
-      commands.push(this.pdfText(pageMargin + contentWidth, totalTop - 26, amount, 12, '#ffffff', 'right', 150));
-      commands.push(this.pdfText(pageMargin + 6, totalTop - 50, 'Total Payment Received:', 12, '#ffffff', 'left', 240));
-      commands.push(this.pdfText(pageMargin + contentWidth, totalTop - 50, '¥0.00', 12, '#ffffff', 'right', 150));
-      commands.push(this.pdfText(pageMargin + 6, totalTop - 74, 'Balance Due:', 12, '#ffffff', 'left', 180));
-      commands.push(this.pdfText(pageMargin + contentWidth, totalTop - 74, amount, 12, '#ffffff', 'right', 150));
+      commands.push(this.pdfText(pageMargin + 6, totalTop - 32, 'Invoice Total:', 12, '#ffffff', 'left', 220));
+      commands.push(this.pdfText(pageMargin + contentWidth, totalTop - 32, amount, 12, '#ffffff', 'right', 150));
     } else {
       commands.push(this.pdfText(pageMargin + 6, darkBottom + 36, 'Continued on next page', 9, '#dbeafe', 'left', 220));
     }
 
-    commands.push(this.pdfText(pageMargin + 6, 190, 'PAYMENT INSTRUCTIONS', 9, darkBlue, 'left', 180));
-    commands.push(this.pdfText(pageMargin + 6, 170, 'Bank Name: BANK OF CHINA JIANGSU BRANCH', 7, darkBlue, 'left', 240));
-    commands.push(this.pdfText(pageMargin + 6, 154, 'Sub-Branch: NANJING WENDE ROAD SUB-BRANCH', 7, darkBlue, 'left', 240));
-    commands.push(this.pdfText(pageMargin + 6, 138, 'Account Name: NANJING YINUOJI MEDICAL TECHNOLOGY CO., LTD.', 7, darkBlue, 'left', 240));
-    commands.push(this.pdfText(pageMargin + 6, 122, 'Company Address: 4F, Building 8, No. 71 Xinghui Road, Nanjing', 7, darkBlue, 'left', 240));
-    commands.push(this.pdfText(pageMargin + 6, 106, 'Account Number: 485880964815', 7, darkBlue, 'left', 240));
-    commands.push(this.pdfText(pageMargin + 6, 90, 'SWIFT Code: BKCHCNBJ940', 7, darkBlue, 'left', 240));
-    commands.push(this.pdfText(pageMargin + 6, 74, 'Bank Address: No. 1 Wende East Road, Pukou District, Nanjing', 7, darkBlue, 'left', 240));
-
-    commands.push(this.pdfText(356, 190, 'ADDITIONAL NOTES', 9, darkBlue, 'left', 168));
-    commands.push(this.pdfText(356, 170, 'Final balance for these POs.', 7, darkBlue, 'left', 170));
-    commands.push(this.pdfText(356, 138, `Include Invoice #${invoiceNo} in the wire memo.`, 7, darkBlue, 'left', 170));
-    commands.push(this.pdfText(548, 72, 'Nanjing Yinuoji Medical Technology Co.,Ltd', 8, darkBlue, 'right', 260));
+    if (profile.paymentInstructions.length > 0) {
+      commands.push(this.pdfText(pageMargin + 6, 190, 'PAYMENT INSTRUCTIONS', 9, darkBlue, 'left', 180));
+      profile.paymentInstructions.slice(0, 7).forEach((line, index) => {
+        commands.push(this.pdfText(pageMargin + 6, 170 - index * 16, line, 7, darkBlue, 'left', 270));
+      });
+    }
+    if (profile.additionalNotes.length > 0) {
+      commands.push(this.pdfText(356, 190, 'ADDITIONAL NOTES', 9, darkBlue, 'left', 168));
+      profile.additionalNotes.slice(0, 4).forEach((line, index) => {
+        commands.push(this.pdfText(356, 170 - index * 20, line, 7, darkBlue, 'left', 180));
+      });
+    }
+    if (profile.sellerName) commands.push(this.pdfText(548, 72, profile.sellerName, 8, darkBlue, 'right', 260));
 
     commands.push(this.pdfText(pageMargin, 24, `Invoice ${invoiceNo}`, 8, '#94a3b8'));
     commands.push(this.pdfText(298, 24, `Page ${pageNo} / ${totalPages}`, 8, '#94a3b8', 'center', 120));

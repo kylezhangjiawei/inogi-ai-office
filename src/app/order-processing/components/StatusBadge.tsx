@@ -12,7 +12,7 @@ export function StatusBadge({ type, text }: {type: string;text: string;}) {
   }[type] || 'text-slate-700 bg-slate-50';
   return (
     <span
-      className={`px-2.5 py-1 text-[10px] font-medium rounded-full ${styles}`}>
+      className={`order-horizon-status-badge rounded-lg px-2.5 py-1 text-xs font-medium ${styles}`}>
       
       <AutoTranslatedText text={t(text.trim())} />
     </span>);

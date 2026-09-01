@@ -22,11 +22,11 @@ export function StatItem({
   };
   return (
     <div
-      className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-sm ${colorMap[color]}`}>
+      className={`order-horizon-stat-item flex items-center gap-2 px-3.5 py-1.5 rounded-full text-sm ${colorMap[color]}`}>
       
-      <span className={`w-1.5 h-1.5 rounded-full ${dotColorMap[color]}`}></span>
+      <span className={`size-1.5 rounded-full ${dotColorMap[color]}`}></span>
       <span className="font-medium">{label}</span>
-      <span className="font-bold ml-0.5">{value}</span>
+      <span className="ml-auto font-bold tabular-nums">{value}</span>
     </div>);
 
 }
