@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 
@@ -178,8 +183,17 @@ export class UsersService {
   }
 
   async remove(id: string) {
-    const user = await this.prisma.user.findUnique({ where: { id } });
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        role: { select: { permissions: true } },
+      },
+    });
     if (!user) throw new NotFoundException('用户不存在');
+    if (isSuperAdminRole(user.role?.permissions)) {
+      throw new ForbiddenException('超级管理员账号不允许被删除');
+    }
 
     await this.prisma.user.delete({ where: { id } });
     return { ok: true };

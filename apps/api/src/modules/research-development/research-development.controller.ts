@@ -245,13 +245,44 @@ export class ResearchDevelopmentController {
     const canCreateDirectly = permissions.includes('*')
       || permissions.includes('rd-task:create')
       || permissions.includes('rd-project:direct');
+    const requestId = typeof payload?.creation_request_id === 'string' ? payload.creation_request_id : '';
+    const requestIndex = typeof payload?.creation_request_index === 'number' ? payload.creation_request_index : undefined;
     return this.rdService.createTask(payload, {
       requesterUserId: req.user?.id,
       requesterName: req.user?.name,
       canEditAny: canManageTaskStructure(permissions),
       // 只有“立项申请”权限的普通成员只能创建待审核任务；服务层会覆盖主责人并校验状态。
       proposalOnly: !canCreateDirectly && permissions.includes('rd-project:propose'),
-    });
+    }, requestId ? { requestId, requestIndex } : undefined);
+  }
+
+  /** 普通顶层立项原子批量建任务：整批校验后只写回一次，并兼容旧版逐条幂等数据。 */
+  @Post('task-categories/tasks/create-batch')
+  @Permissions('rd-task:create', 'rd-project:propose', 'rd-project:direct')
+  async createTasksBatch(
+    @Body() payload: { request_id?: unknown; tasks?: unknown },
+    @Request() req: AuthedRequest,
+  ) {
+    const rawTasks = Array.isArray(payload?.tasks) ? payload.tasks : [];
+    if (rawTasks.some((item) => !item || typeof item !== 'object' || Array.isArray(item))) {
+      throw new BadRequestException('任务列表格式不正确');
+    }
+    const permissions = req.user?.permissions ?? [];
+    const canCreateDirectly = permissions.includes('*')
+      || permissions.includes('rd-task:create')
+      || permissions.includes('rd-project:direct');
+    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : '';
+    const created = await this.rdService.createTasksBatch(
+      rawTasks as Record<string, unknown>[],
+      requestId,
+      {
+        requesterUserId: req.user?.id,
+        requesterName: req.user?.name,
+        canEditAny: canManageTaskStructure(permissions),
+        proposalOnly: !canCreateDirectly && permissions.includes('rd-project:propose'),
+      },
+    );
+    return { ok: true as const, request_id: requestId, tasks: created };
   }
 
   /** 节点立项原子批量建子任务：整批只写回一次，并用 request_id 防止超时重试重复创建。 */
@@ -288,6 +319,13 @@ export class ResearchDevelopmentController {
     @Body() payload: Record<string, unknown>,
     @Request() req: AuthedRequest,
   ) {
+    if (
+      Object.prototype.hasOwnProperty.call(payload ?? {}, '_review_action')
+      && payload._review_action !== 'approve'
+      && payload._review_action !== 'reject'
+    ) {
+      throw new BadRequestException('审核动作仅支持 approve 或 reject');
+    }
     // 越权防护：任务管理员、立项审核人和人员管理员可改任意任务；
     // 仅持工作台页面权限的普通成员由服务层按 owner/协作人兜底校验，且禁止审批/移交。
     const perms = req.user?.permissions ?? [];
@@ -296,6 +334,7 @@ export class ResearchDevelopmentController {
       requesterUserId: req.user?.id,
       requesterName: req.user?.name,
       canEditAny,
+      permissions: perms,
     });
   }
 
@@ -407,14 +446,13 @@ export class ResearchDevelopmentController {
     @Request() req: AuthedRequest,
   ) {
     // targetSubId 可省：纯一级分类只给到系统这一层，服务层落到该分类的默认子项。
-    // 个人工作台放开「移动归类」：管理员（* / rd-task:move / rd-task:reassign / rd-task:edit）可移动任意任务；
+    // 个人工作台放开「移动归类」：管理员（* / rd-task:move / rd-task:reassign）可移动任意任务；
     // 仅有 page:rd-my-workspace 的普通研发只能移动自己负责的任务（由服务层按 owner 兜底校验）。
     const perms = req.user?.permissions ?? [];
     const canMoveAny =
       perms.includes('*') ||
       perms.includes('rd-task:move') ||
-      perms.includes('rd-task:reassign') ||
-      perms.includes('rd-task:edit');
+      perms.includes('rd-task:reassign');
     return this.rdService.moveTasks(
       payload?.taskIds,
       {
@@ -1215,8 +1253,11 @@ export class ResearchDevelopmentController {
 
   @Put('approval-flows')
   @Permissions('rd-approval-flow:manage')
-  saveApprovalFlows(@Body() payload: unknown[], @Request() req: AuthedRequest) {
-    return this.rdService.saveApprovalFlows(payload, auditActor(req));
+  saveApprovalFlows(@Body() body: { flows?: unknown; base_flows?: unknown }, @Request() req: AuthedRequest) {
+    if (!Array.isArray(body?.flows) || !Array.isArray(body?.base_flows)) {
+      throw new BadRequestException('审批流保存缺少服务器基线，请重新读取后再保存');
+    }
+    return this.rdService.saveApprovalFlows(body.flows, body.base_flows, auditActor(req));
   }
 
   @Get('audit-logs')
@@ -1243,8 +1284,17 @@ export class ResearchDevelopmentController {
 
   @Put('ai-settings')
   @Permissions('rd-ai:configure', 'page:ai-model-management')
-  saveAiSettings(@Body() payload: Record<string, unknown>) {
-    return this.rdService.saveAiSettings(payload);
+  saveAiSettings(@Body() body: { settings?: unknown; base_updated_at?: unknown }) {
+    if (!body?.settings || typeof body.settings !== 'object' || Array.isArray(body.settings)) {
+      throw new BadRequestException('AI 策略保存内容格式不正确');
+    }
+    if (typeof body.base_updated_at !== 'string') {
+      throw new BadRequestException('AI 策略保存缺少服务器版本基线，请重新读取后再保存');
+    }
+    return this.rdService.saveAiSettings(
+      body.settings as Record<string, unknown>,
+      body.base_updated_at,
+    );
   }
 
   @Post('file-ingestion/plan')

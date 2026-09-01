@@ -73,7 +73,7 @@ export const DEFAULT_PROJECT_FLOW: ApprovalFlow = {
       label: "一审",
       permission_code: "rd-project:review-l1",
       mode: "any",
-      description: "研发管理员审核可行性，任一人通过即转下一级",
+      description: "研发管理员审核可行性，任一人通过即完成当前一阶段立项审核",
       sla_hours: 48,
       escalate_on_timeout: true,
     },
@@ -83,7 +83,7 @@ export const DEFAULT_PROJECT_FLOW: ApprovalFlow = {
       label: "终审",
       permission_code: "rd-project:review-l2",
       mode: "any",
-      description: "研发主管/总监终审，任一人通过即生效",
+      description: "研发主管/总监终审节点预留，当前版本不自动执行",
       sla_hours: 24,
       escalate_on_timeout: true,
     },
@@ -141,7 +141,7 @@ export const APPROVAL_PERMISSION_OPTIONS: { code: string; label: string }[] = [
 export const APPROVAL_MODE_OPTIONS: { value: ApprovalMode; label: string; helper: string }[] = [
   { value: "single", label: "单人", helper: "池里第一位被指定的人审批（按规则选择）" },
   { value: "any", label: "或签", helper: "任一池成员通过即终结此节点（最常用）" },
-  { value: "all", label: "会签", helper: "池里全部成员都需通过（关键决策）" },
+  { value: "all", label: "会签（预留）", helper: "当前版本首个生效节点暂不支持会签，可在后续预留节点中配置" },
 ];
 
 // ─── Storage layer (localStorage now, API later) ─────────────────────────────
@@ -168,10 +168,12 @@ export function loadFlows(): ApprovalFlow[] {
   }
 }
 
-export function saveFlows(flows: ApprovalFlow[]): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(storageKey(), JSON.stringify(flows));
-  void saveFlowsApi(flows).catch(() => {});
+export async function saveFlows(flows: ApprovalFlow[], baseFlows: ApprovalFlow[]): Promise<ApprovalFlow[]> {
+  const saved = await saveFlowsApi(flows, baseFlows);
+  if (typeof window !== "undefined") {
+    localStorage.setItem(storageKey(), JSON.stringify(saved));
+  }
+  return saved;
 }
 
 export function getActiveFlow(scope: ApprovalFlow["scope"] = "project_proposal"): ApprovalFlow {
@@ -179,8 +181,12 @@ export function getActiveFlow(scope: ApprovalFlow["scope"] = "project_proposal")
   return flows.find((f) => f.scope === scope && f.is_default) ?? DEFAULT_PROJECT_FLOW;
 }
 
-export function fetchFlowsApi(): Promise<ApprovalFlow[]> {
-  return fetchRdApprovalFlows<ApprovalFlow>();
+export async function fetchFlowsApi(): Promise<ApprovalFlow[]> {
+  const flows = await fetchRdApprovalFlows<ApprovalFlow>();
+  if (typeof window !== "undefined") {
+    localStorage.setItem(storageKey(), JSON.stringify(flows));
+  }
+  return flows;
 }
 
 export function fetchApprovalPoolsApi(permissionCodes: string[]): Promise<Record<string, PoolMember[]>> {
@@ -192,6 +198,6 @@ export function fetchApprovalCandidatesApi(): Promise<PoolMember[]> {
   return fetchRdApprovalCandidates<PoolMember>();
 }
 
-export function saveFlowsApi(flows: ApprovalFlow[]): Promise<ApprovalFlow[]> {
-  return saveRdApprovalFlows(flows);
+export function saveFlowsApi(flows: ApprovalFlow[], baseFlows: ApprovalFlow[]): Promise<ApprovalFlow[]> {
+  return saveRdApprovalFlows(flows, baseFlows);
 }

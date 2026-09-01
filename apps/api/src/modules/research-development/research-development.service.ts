@@ -35,6 +35,30 @@ type TaskCreateActor = {
   canEditAny?: boolean;
   proposalOnly?: boolean;
 };
+type TaskCreateIdempotency = {
+  requestId?: string;
+  requestIndex?: number;
+};
+
+/** 幂等摘要只覆盖业务入参；客户端夹带或旧接口附加的服务端幂等字段不参与规范摘要。 */
+function taskCreatePayloadForHash(payload: JsonRecord): JsonRecord {
+  const {
+    creation_request_id: _requestId,
+    creation_request_scope: _requestScope,
+    creation_request_hash: _requestHash,
+    creation_request_index: _requestIndex,
+    creation_request_batch_hash: _batchHash,
+    creation_request_batch_size: _batchSize,
+    ...businessPayload
+  } = payload;
+  void _requestId;
+  void _requestScope;
+  void _requestHash;
+  void _requestIndex;
+  void _batchHash;
+  void _batchSize;
+  return businessPayload;
+}
 type TaskProgressNoteViewer = {
   userId?: string;
   userName?: string;
@@ -3473,12 +3497,12 @@ export class ResearchDevelopmentService {
     };
   }
 
-  async createTask(payload: JsonRecord, actor?: TaskCreateActor) {
+  async createTask(payload: JsonRecord, actor?: TaskCreateActor, idempotency?: TaskCreateIdempotency) {
     // 建任务同为「读树→插入→写回」，纳入任务树写锁防并发互相覆盖
-    return this.withTaskTreeLock(() => this.createTaskUnlocked(payload, actor));
+    return this.withTaskTreeLock(() => this.createTaskUnlocked(payload, actor, idempotency));
   }
 
-  private async createTaskUnlocked(payload: JsonRecord, actor?: TaskCreateActor) {
+  private async createTaskUnlocked(payload: JsonRecord, actor?: TaskCreateActor, idempotency?: TaskCreateIdempotency) {
     const createPayload = this.applyTaskCreatePolicy(payload, actor);
 
     // 带 parent_task_id → 走子任务直建分支（分类继承父任务，不要求传 category_id）
@@ -3503,6 +3527,8 @@ export class ResearchDevelopmentService {
       creation_request_scope: _creationRequestScope,
       creation_request_hash: _creationRequestHash,
       creation_request_index: _creationRequestIndex,
+      creation_request_batch_hash: _creationRequestBatchHash,
+      creation_request_batch_size: _creationRequestBatchSize,
       ...taskData
     } = createPayload;
     void _productId;
@@ -3515,8 +3541,40 @@ export class ResearchDevelopmentService {
     void _creationRequestScope;
     void _creationRequestHash;
     void _creationRequestIndex;
+    void _creationRequestBatchHash;
+    void _creationRequestBatchSize;
     const categoryId = typeof category_id === 'string' ? category_id.trim() : '';
     const requestedSubProjectId = typeof sub_project_id === 'string' ? sub_project_id.trim() : '';
+    const normalizedRequestId = cleanText(idempotency?.requestId);
+    const requestIndex = idempotency?.requestIndex;
+    if (normalizedRequestId.length > 128) throw new BadRequestException('创建请求标识过长');
+    if (normalizedRequestId && (!Number.isInteger(requestIndex) || Number(requestIndex) < 0 || Number(requestIndex) >= RD_TASK_RELATION_BATCH_LIMIT)) {
+      throw new BadRequestException('创建请求序号不正确');
+    }
+    const requestHash = normalizedRequestId
+      ? createHash('sha256').update(JSON.stringify(taskCreatePayloadForHash(createPayload))).digest('hex')
+      : '';
+    const requestScope = normalizedRequestId
+      ? createHash('sha256').update([
+          currentRdWorkspace(),
+          cleanUserId(actor?.requesterUserId) || cleanText(actor?.requesterName) || 'system',
+          productId,
+          normalizedRequestId,
+        ].join('\u0000')).digest('hex')
+      : '';
+
+    if (normalizedRequestId) {
+      const existing = this.collectAllCategoryTasks(categories).find(
+        (task) => cleanText(task.creation_request_scope) === requestScope
+          && Number(task.creation_request_index) === requestIndex,
+      );
+      if (existing) {
+        if (cleanText(existing.creation_request_hash) !== requestHash) {
+          throw new ConflictException('创建请求标识已被其它任务使用');
+        }
+        return existing;
+      }
+    }
 
     if (!categoryId) {
       throw new BadRequestException('请选择任务所属分类');
@@ -3541,6 +3599,14 @@ export class ResearchDevelopmentService {
               : null,
         }),
         subtasks: [],
+        ...(normalizedRequestId
+          ? {
+              creation_request_id: normalizedRequestId,
+              creation_request_scope: requestScope,
+              creation_request_hash: requestHash,
+              creation_request_index: requestIndex,
+            }
+          : {}),
         // 立项时间：任务创建即写死，后续更新不再变（个人工作台按此排序）。
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -3553,6 +3619,7 @@ export class ResearchDevelopmentService {
     if (newTask.status === 'paused_blocked' && !cleanText(newTask.blocked_since)) {
       (newTask as JsonRecord).blocked_since = new Date().toISOString();
     }
+    await this.assertProposalCreationReviewMode([newTask]);
 
     const fallbackCategory = categories.find((cat) => isRecord(cat) && cat.id === categoryId);
     if (!fallbackCategory || !isRecord(fallbackCategory)) {
@@ -3596,7 +3663,9 @@ export class ResearchDevelopmentService {
     // 成员立项提交（status=pending_review）时，自动通知具备审核权限的管理员，
     // 触发管理员个人工作台通知中心的待审核卡片。直接派单（status=in_progress/draft）不触发。
     if (newTask.status === 'pending_review') {
-      void this.notifyAdminsOfPendingReview(newTask, {});
+      void this.notifyAdminsOfPendingReview(newTask, {}).catch((error: unknown) => {
+        this.logger.warn(`待审核通知发送失败：${error instanceof Error ? error.message : String(error)}`);
+      });
     }
     await this.recordServerAudit({
       action: 'task.created',
@@ -3612,6 +3681,279 @@ export class ResearchDevelopmentService {
     // 任务入向量索引（fire-and-forget）：AI 问答可按语义检索到任务
     void this.syncTaskToRag(String(newTask.task_id ?? ''));
     return newTask;
+  }
+
+  async createTasksBatch(
+    payloads: JsonRecord[],
+    requestId: string,
+    actor?: TaskCreateActor,
+  ) {
+    const normalizedRequestId = cleanText(requestId);
+    if (!normalizedRequestId) throw new BadRequestException('缺少批量创建请求标识');
+    const createPayloads = payloads.map((payload) => this.applyTaskCreatePolicy(payload, actor));
+    // 旧前端会把幂等字段附在每个任务体末尾，再由服务端套用 proposalOnly 策略；
+    // 保留这组旧摘要只用于识别升级前已经逐条成功的部分任务。
+    const legacyItemHashes = payloads.map((payload, index) => {
+      const legacyPayload = this.applyTaskCreatePolicy({
+        ...payload,
+        creation_request_id: normalizedRequestId,
+        creation_request_index: index,
+      }, actor);
+      return createHash('sha256').update(JSON.stringify(legacyPayload)).digest('hex');
+    });
+    return this.withTaskTreeLock(() =>
+      this.createTasksBatchUnlocked(createPayloads, normalizedRequestId, actor, legacyItemHashes),
+    );
+  }
+
+  /**
+   * 顶层任务批量立项：先在内存中完成整批校验、归一化和落点计算，再一次写回任务树。
+   * 每项沿用旧版 createTask 的作用域、序号和 payload hash，因此能识别并原样返回旧版完整批次；
+   * 旧数据缺少整批长度，禁止追加缺项。新批次另存整批摘要，阻止 request_id 被扩缩复用。
+   */
+  private async createTasksBatchUnlocked(
+    payloads: JsonRecord[],
+    requestId: string,
+    actor?: TaskCreateActor,
+    legacyItemHashes: string[] = [],
+  ): Promise<JsonRecord[]> {
+    if (payloads.length === 0) throw new BadRequestException('请至少提交一个任务');
+    if (payloads.length > RD_TASK_RELATION_BATCH_LIMIT) {
+      throw new BadRequestException(`单次最多创建 ${RD_TASK_RELATION_BATCH_LIMIT} 个任务`);
+    }
+    if (payloads.some((payload) => !cleanText(payload.title))) {
+      throw new BadRequestException('任务标题不能为空');
+    }
+    if (payloads.some((payload) => cleanText(payload.parent_task_id))) {
+      throw new BadRequestException('顶层批量立项不能包含父任务，请使用节点立项接口');
+    }
+
+    const normalizedRequestId = cleanText(requestId);
+    if (!normalizedRequestId) throw new BadRequestException('缺少批量创建请求标识');
+    if (normalizedRequestId.length > 128) throw new BadRequestException('批量创建请求标识过长');
+
+    const productIds = new Set(
+      payloads.map((payload) => cleanText(payload.product_id) || RD_MAIN_PRODUCT_ID),
+    );
+    if (productIds.size !== 1) throw new BadRequestException('同一批任务必须归属同一产品');
+    const productId = Array.from(productIds)[0] ?? RD_MAIN_PRODUCT_ID;
+    const categories = await this.readTaskCategoriesForProduct(productId);
+    const requestScope = createHash('sha256').update([
+      currentRdWorkspace(),
+      cleanUserId(actor?.requesterUserId) || cleanText(actor?.requesterName) || 'system',
+      productId,
+      normalizedRequestId,
+    ].join('\u0000')).digest('hex');
+    const canonicalPayloads = payloads.map(taskCreatePayloadForHash);
+    const batchHash = createHash('sha256').update(JSON.stringify(canonicalPayloads)).digest('hex');
+    const itemHashes = canonicalPayloads.map((payload) =>
+      createHash('sha256').update(JSON.stringify(payload)).digest('hex'),
+    );
+
+    const existingByIndex = new Map<number, JsonRecord>();
+    const scopedTasks = this.collectAllCategoryTasks(categories).filter(
+      (task) => cleanText(task.creation_request_scope) === requestScope,
+    );
+    for (const task of scopedTasks) {
+      const index = Number(task.creation_request_index);
+      if (!Number.isInteger(index) || index < 0 || index >= payloads.length || existingByIndex.has(index)) {
+        throw new ConflictException('批量创建请求标识已被其它任务使用');
+      }
+      const storedBatchHash = cleanText(task.creation_request_batch_hash);
+      const storedBatchSize = task.creation_request_batch_size;
+      if (
+        (storedBatchHash && storedBatchHash !== batchHash)
+        || (storedBatchSize !== undefined
+          && storedBatchSize !== null
+          && Number(storedBatchSize) !== payloads.length)
+        || (
+          cleanText(task.creation_request_hash) !== itemHashes[index]
+          && cleanText(task.creation_request_hash) !== legacyItemHashes[index]
+        )
+      ) {
+        throw new ConflictException('批量创建请求标识已被其它任务使用');
+      }
+      existingByIndex.set(index, task);
+    }
+
+    // 升级前逐条接口没有保存整批摘要/长度，因此无法区分“旧批次本来只有这些项”与
+    // “调用方正用同一个 request_id 追加尾项”。安全侧优先：旧数据只允许完整原样重放，
+    // 缺项时要求换新 request_id 重新提交，杜绝已完成旧批次被静默扩展。
+    const hasLegacyBatchTask = scopedTasks.some((task) =>
+      !cleanText(task.creation_request_batch_hash)
+      && (task.creation_request_batch_size === undefined || task.creation_request_batch_size === null),
+    );
+    if (hasLegacyBatchTask && existingByIndex.size !== payloads.length) {
+      throw new ConflictException('旧版批量请求已完成，不能使用同一请求标识追加任务');
+    }
+
+    type PreparedTask = {
+      index: number;
+      taskData: JsonRecord;
+      target: { categoryId: string; subProjectId: string };
+    };
+    const prepared: PreparedTask[] = [];
+    const categoryRecords = categories.filter(isRecord);
+
+    for (const [index, createPayload] of payloads.entries()) {
+      if (existingByIndex.has(index)) continue;
+      const {
+        category_id,
+        sub_project_id,
+        product_id: _productId,
+        parent_task_id: _parentTaskId,
+        task_id: _requestedTaskId,
+        id: _requestedInternalId,
+        created_at: _requestedCreatedAt,
+        updated_at: _requestedUpdatedAt,
+        creation_request_id: _creationRequestId,
+        creation_request_scope: _creationRequestScope,
+        creation_request_hash: _creationRequestHash,
+        creation_request_index: _creationRequestIndex,
+        creation_request_batch_hash: _creationRequestBatchHash,
+        creation_request_batch_size: _creationRequestBatchSize,
+        ...taskData
+      } = createPayload;
+      void _productId;
+      void _parentTaskId;
+      void _requestedTaskId;
+      void _requestedInternalId;
+      void _requestedCreatedAt;
+      void _requestedUpdatedAt;
+      void _creationRequestId;
+      void _creationRequestScope;
+      void _creationRequestHash;
+      void _creationRequestIndex;
+      void _creationRequestBatchHash;
+      void _creationRequestBatchSize;
+
+      const categoryId = typeof category_id === 'string' ? category_id.trim() : '';
+      const requestedSubProjectId = typeof sub_project_id === 'string' ? sub_project_id.trim() : '';
+      if (!categoryId) throw new BadRequestException('请选择任务所属分类');
+      const fallbackCategory = categoryRecords.find((category) => cleanText(category.id) === categoryId);
+      if (!fallbackCategory) throw new NotFoundException('指定的分类不存在');
+      const fallbackChildren = asArray(fallbackCategory.children).filter(isRecord);
+      const fallbackSubProject = requestedSubProjectId
+        ? fallbackChildren.find((child) => cleanText(child.id) === requestedSubProjectId)
+        : fallbackChildren[0];
+      const target = resolveCategoryTarget(
+        categoryRecords,
+        taskData.category_path,
+        categoryId,
+        cleanText(fallbackSubProject?.id),
+      );
+      const targetCategory = categoryRecords.find(
+        (category) => cleanText(category.id) === target.categoryId,
+      );
+      const targetChild = targetCategory
+        ? asArray(targetCategory.children).filter(isRecord).find(
+            (child) => cleanText(child.id) === target.subProjectId,
+          )
+        : undefined;
+      if (!targetCategory) throw new NotFoundException('指定的分类不存在');
+      if (!targetChild) throw new NotFoundException('指定的子项目不存在');
+      prepared.push({ index, taskData, target });
+    }
+
+    if (prepared.length === 0) {
+      return payloads.map((_payload, index) => existingByIndex.get(index)!);
+    }
+
+    const identity = await this.getIdentityContext();
+    const nowIso = new Date().toISOString();
+    const createdByIndex = new Map<number, JsonRecord>();
+    for (const item of prepared) {
+      const { index, taskData } = item;
+      const newTask = this.normalizeTaskIdentity(
+        withGeneratedId('rd-task', {
+          ...taskData,
+          task_id: generateTaskId(),
+          status: taskData.status ?? 'draft',
+          progress: typeof taskData.progress === 'number' ? taskData.progress : 0,
+          ai_priority: taskData.ai_priority ?? taskData.final_priority ?? 'medium',
+          final_priority: taskData.final_priority ?? taskData.ai_priority ?? 'medium',
+          archived: false,
+          attachments: 0,
+          collaborators: normalizeCollaboratorList(taskData.collaborators, {
+            name: typeof taskData.primary_owner === 'string' ? taskData.primary_owner : null,
+            user_id:
+              typeof taskData.primary_owner_user_id === 'string'
+                ? taskData.primary_owner_user_id
+                : null,
+          }),
+          subtasks: [],
+          creation_request_id: normalizedRequestId,
+          creation_request_scope: requestScope,
+          creation_request_hash: itemHashes[index],
+          creation_request_index: index,
+          creation_request_batch_hash: batchHash,
+          creation_request_batch_size: payloads.length,
+          created_at: nowIso,
+          updated_at: nowIso,
+        }),
+        identity.people,
+        identity.users,
+      );
+      if (newTask.status === 'paused_blocked' && !cleanText(newTask.blocked_since)) {
+        newTask.blocked_since = nowIso;
+      }
+      createdByIndex.set(index, newTask);
+    }
+
+    const tasksByTarget = new Map<string, JsonRecord[]>();
+    for (const item of prepared) {
+      const task = createdByIndex.get(item.index)!;
+      const key = `${item.target.categoryId}\u0000${item.target.subProjectId}`;
+      tasksByTarget.set(key, [...(tasksByTarget.get(key) ?? []), task]);
+    }
+    let insertedCount = 0;
+    const updated = categories.map((category) => {
+      if (!isRecord(category)) return category;
+      const categoryId = cleanText(category.id);
+      return {
+        ...category,
+        children: asArray(category.children).map((child) => {
+          if (!isRecord(child)) return child;
+          const additions = tasksByTarget.get(`${categoryId}\u0000${cleanText(child.id)}`);
+          if (!additions?.length) return child;
+          insertedCount += additions.length;
+          return { ...child, tasks: [...additions, ...asArray(child.tasks)] };
+        }),
+      };
+    });
+    if (insertedCount !== prepared.length) throw new NotFoundException('批量任务落点定位失败');
+
+    const createdTasks = Array.from(createdByIndex.values());
+    await this.assertProposalCreationReviewMode(createdTasks);
+    await this.writeTaskCategoriesForProduct(productId, updated);
+    await this.recomputeDirectorDashboard().catch((error: unknown) => {
+      this.logger.warn(
+        `批量任务已落库，但驾驶舱派生统计重算失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+
+    for (const newTask of createdTasks) {
+      if (newTask.status === 'pending_review') {
+        void this.notifyAdminsOfPendingReview(newTask, {}).catch((error: unknown) => {
+          this.logger.warn(`批量立项待审核通知发送失败：${error instanceof Error ? error.message : String(error)}`);
+        });
+      }
+      await this.recordServerAudit({
+        action: 'task.created',
+        resource: { type: 'task', id: cleanText(newTask.task_id), name: cleanText(newTask.title) },
+        actor: { id: actor?.requesterUserId, name: actor?.requesterName },
+        comment: newTask.status === 'pending_review' ? '提交立项申请' : '新建任务',
+        metadata: {
+          status: cleanText(newTask.status),
+          primary_owner: cleanText(newTask.primary_owner),
+          category_path: cleanText(newTask.category_path),
+          creation_request_id: normalizedRequestId,
+        },
+      });
+      void this.syncTaskToRag(cleanText(newTask.task_id));
+    }
+
+    return payloads.map((_payload, index) => existingByIndex.get(index) ?? createdByIndex.get(index)!);
   }
 
   async createSubtasks(
@@ -3796,6 +4138,7 @@ export class ResearchDevelopmentService {
     });
     if (!inserted) throw new NotFoundException('父任务定位失败');
 
+    await this.assertProposalCreationReviewMode(newTasks);
     await this.writeTaskCategoriesForProduct(parentSlot.productId, updated);
     await this.recomputeDirectorDashboard().catch((error: unknown) => {
       this.logger.warn(
@@ -3804,7 +4147,9 @@ export class ResearchDevelopmentService {
     });
     for (const newTask of newTasks) {
       if (newTask.status === 'pending_review') {
-        void this.notifyAdminsOfPendingReview(newTask, {});
+        void this.notifyAdminsOfPendingReview(newTask, {}).catch((error: unknown) => {
+          this.logger.warn(`节点立项待审核通知发送失败：${error instanceof Error ? error.message : String(error)}`);
+        });
       }
       void this.syncTaskToRag(String(newTask.task_id ?? ''));
     }
@@ -3814,7 +4159,7 @@ export class ResearchDevelopmentService {
   async updateTask(
     taskId: string,
     patch: JsonRecord,
-    options?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean; auditBatchId?: string },
+    options?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean; auditBatchId?: string; permissions?: string[] },
   ) {
     // Strip private notification-metadata fields before persisting
     const {
@@ -3832,6 +4177,8 @@ export class ResearchDevelopmentService {
       creation_request_scope: _protectedCreationRequestScope,
       creation_request_hash: _protectedCreationRequestHash,
       creation_request_index: _protectedCreationRequestIndex,
+      creation_request_batch_hash: _protectedCreationRequestBatchHash,
+      creation_request_batch_size: _protectedCreationRequestBatchSize,
       _review_action,
       _reviewer_name,
       _reject_reason,
@@ -3857,6 +4204,44 @@ export class ResearchDevelopmentService {
     void _protectedCreationRequestScope;
     void _protectedCreationRequestHash;
     void _protectedCreationRequestIndex;
+    void _protectedCreationRequestBatchHash;
+    void _protectedCreationRequestBatchSize;
+
+    if (
+      Object.prototype.hasOwnProperty.call(patch, '_review_action')
+      && _review_action !== 'approve'
+      && _review_action !== 'reject'
+    ) {
+      throw new BadRequestException('审核动作仅支持 approve 或 reject');
+    }
+
+    if (_review_action) {
+      await this.assertTaskReviewAuthorized(taskId, options);
+    }
+
+    // 合并通过必须把“审核结案 + 源/目标合并”作为同一次任务树写入完成。
+    // 独立路径会在锁外生成 AI 文案、锁内校验快照；冲突或失败时源任务仍保持待审，可安全重试。
+    if (_review_action === 'approve') {
+      const reviewTask = await this.findTaskAcrossStores(taskId);
+      if (cleanText(reviewTask?.pending_review_type) === 'merge') {
+        return this.approveTaskMergeReviewAtomic(
+          taskId,
+          String(_reviewer_name ?? '管理员'),
+          options,
+        );
+      }
+    }
+
+    if (!_review_action && cleanText(persistPatch.status) === 'pending_review') {
+      let reviewType = cleanText(persistPatch.pending_review_type);
+      if (!reviewType) {
+        const currentTask = await this.findTaskAcrossStores(taskId);
+        reviewType = cleanText(currentTask?.pending_review_type);
+      }
+      if (reviewType === 'proposal') {
+        await this.getProposalReviewRecipients();
+      }
+    }
 
     // work_items 在写入口统一归一化：任意客户端 PATCH 非法形状（对象/字符串/缺字段项）
     // 一律清洗为合法数组，防止污染后所有消费端（任务卡/详情页/AI prompt/报告导出）崩溃
@@ -3919,6 +4304,11 @@ export class ResearchDevelopmentService {
             if (String((t as JsonRecord).status ?? '') !== 'pending_review') {
               throw new BadRequestException('该任务当前不是待审核状态，可能已被处理，请勿重复审核');
             }
+            // 特殊路径判断后的极小窗口里，任务可能被另一写请求改成 merge 待审。
+            // 普通 PATCH 绝不能在这里把它结案；返回 409，刷新后由原子合并路径重新处理。
+            if (_review_action === 'approve' && reviewType === 'merge') {
+              throw new ConflictException('合并申请已变化，请刷新后重试');
+            }
 
             const actionPatch: JsonRecord = { ...persistPatch };
 
@@ -3960,8 +4350,7 @@ export class ResearchDevelopmentService {
               actionPatch.pending_abandon_requested_at = null;
             }
 
-            // 任务合并审核：通过 → 源任务先回 in_progress（上面已裁决），随后由 applyTaskMerge 归档并迁移到目标；
-            // 驳回 → 回 in_progress。两种情况都清空 pending_merge_* 字段。
+            // 合并通过已在 approveTaskMergeReviewAtomic 中单独原子处理；这里只处理驳回并清空申请字段。
             if (reviewType === 'merge') {
               actionPatch.pending_merge_target = null;
               actionPatch.pending_merge_reason = null;
@@ -4094,7 +4483,9 @@ export class ResearchDevelopmentService {
         newStatus === 'pending_review' &&
         Object.prototype.hasOwnProperty.call(persistPatch, 'status');
       if (newStatus === 'pending_review' && (oldStatus !== 'pending_review' || explicitlySubmittingForReview)) {
-        void this.notifyAdminsOfPendingReview(originalTask as JsonRecord, resolvedPatch);
+        void this.notifyAdminsOfPendingReview(originalTask as JsonRecord, resolvedPatch).catch((error: unknown) => {
+          this.logger.warn(`待审核通知发送失败：${error instanceof Error ? error.message : String(error)}`);
+        });
       } else if (oldStatus === 'pending_review' && newStatus !== 'pending_review' && _review_action) {
         const reviewType = String((originalTask as JsonRecord).pending_review_type ?? 'result');
         try {
@@ -4127,32 +4518,6 @@ export class ResearchDevelopmentService {
         // （通知读取的是 originalTask 快照，删除不影响）。
         if (_review_action === 'approve' && reviewType === 'abandon') {
           await this.deleteTask(taskId);
-        }
-        // 任务合并审核通过 → 执行合并：把源任务（含子任务/留痕/附件/协作人）并入目标任务，源任务归档保留。
-        // 读取 originalTask 快照上的合并目标与发起人（actionPatch 已清空 pending，故用快照）。
-        if (_review_action === 'approve' && reviewType === 'merge') {
-          const src = originalTask as JsonRecord;
-          const targetId = cleanText(src.pending_merge_target);
-          const initiator = {
-            id: cleanUserId(src.pending_merge_requested_by_id) || cleanUserId(src.primary_owner_user_id),
-            name: cleanText(src.pending_merge_requested_by) || cleanText(src.primary_owner) || '研发成员',
-          };
-          if (targetId) {
-            await this.applyTaskMerge(taskId, targetId, initiator).catch((err) => {
-              // eslint-disable-next-line no-console
-              console.error('[updateTask] applyTaskMerge failed', err);
-              // 审核已判「通过」且状态已落库，这里再抛会让整个 updateTask 失败、把审核也回滚掉。
-              // 所以不抛——但绝不能只留一行服务端日志：审核人看到的是「已通过」，
-              // 发起人以为已合并，实际源任务原封不动，没有任何人会发现。
-              void this.notifyTaskMergeFailure(
-                originalTask as JsonRecord,
-                targetId,
-                initiator,
-                String(_reviewer_name ?? '管理员'),
-                err instanceof Error ? err.message : String(err),
-              );
-            });
-          }
         }
       }
 
@@ -4193,6 +4558,97 @@ export class ResearchDevelopmentService {
 
     // 任务字段变更后刷新向量索引（fire-and-forget；archived 时内部转为删除 chunks）
     void this.syncTaskToRag(taskId);
+    return { ok: true, task_id: taskId };
+  }
+
+  /**
+   * 合并审批不能复用普通字段 PATCH：审核结案与源/目标任务合并必须在同一次任务树写入中完成。
+   * AI 文案允许锁外生成，但 applyTaskMerge 会在持锁后比较完整快照；任一任务在此期间有变更，
+   * 本次审批返回 409，源任务继续保持待审，审核人可在重新读取后安全重试。
+   */
+  private async approveTaskMergeReviewAtomic(
+    taskId: string,
+    reviewerName: string,
+    options?: { requesterUserId?: string; requesterName?: string },
+  ): Promise<{ ok: true; task_id: string }> {
+    const pendingTask = await this.findTaskAcrossStores(taskId);
+    if (!pendingTask) throw new NotFoundException('任务不存在');
+    if (
+      cleanText(pendingTask.status) !== 'pending_review'
+      || cleanText(pendingTask.pending_review_type) !== 'merge'
+    ) {
+      throw new BadRequestException('该任务当前不是待处理的合并审核，请勿重复审核');
+    }
+
+    const targetId = cleanText(pendingTask.pending_merge_target);
+    if (!targetId) throw new BadRequestException('合并申请缺少目标任务，无法审核通过');
+    const initiator = {
+      id:
+        cleanUserId(pendingTask.pending_merge_requested_by_id)
+        || cleanUserId(pendingTask.primary_owner_user_id),
+      name:
+        cleanText(pendingTask.pending_merge_requested_by)
+        || cleanText(pendingTask.primary_owner)
+        || '研发成员',
+    };
+    const effectiveReviewerName = cleanText(options?.requesterName) || cleanText(reviewerName) || '管理员';
+
+    let merged: { source: JsonRecord; target: JsonRecord };
+    try {
+      merged = await this.applyTaskMerge(taskId, targetId, initiator);
+    } catch (error) {
+      // 合并主写失败时不改变待审任务。失败告知仅作旁路，不得吞掉原异常或影响重试。
+      void this.notifyTaskMergeFailure(
+        pendingTask,
+        targetId,
+        initiator,
+        effectiveReviewerName,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
+    }
+
+    try {
+      await this.recordServerAudit({
+        action: 'task.review_approved',
+        resource: {
+          type: 'task',
+          id: taskId,
+          name: cleanText(merged.source.title) || taskId,
+        },
+        actor: { id: options?.requesterUserId, name: options?.requesterName },
+        comment: '合并申请通过',
+        changes: this.buildTaskChanges(merged.source, {
+          status: 'archived',
+          pending_review_type: null,
+          pending_merge_target: null,
+          pending_merge_reason: null,
+          pending_merge_requested_at: null,
+          pending_merge_requested_by: null,
+          pending_merge_requested_by_id: null,
+        }),
+        metadata: { review_type: 'merge' },
+      });
+    } catch (error) {
+      // 合并核心已原子提交，旁路审计失败不能返回可重试错误，否则重试会遇到“已处理”假失败。
+      this.logger.warn(
+        `合并审核审计写入失败 (task=${taskId})：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    try {
+      await this.markReviewRequestMessagesHandled(taskId, 'merge');
+    } catch (error) {
+      this.logger.warn(
+        `合并审核通知置为已处理失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    void this.notifySubmitterOfReviewResult(
+      merged.source,
+      'approve',
+      effectiveReviewerName,
+      '',
+      'merge',
+    );
     return { ok: true, task_id: taskId };
   }
 
@@ -4256,6 +4712,9 @@ export class ResearchDevelopmentService {
     if (!isRecord(flow)) return [];
     const firstNode = asArray(flow.nodes).find(isRecord);
     if (!firstNode) return [];
+    if (String(firstNode.mode ?? 'any') === 'all') {
+      throw new ConflictException('当前版本首个生效节点暂不支持会签，请将审批模式调整为单人或或签');
+    }
 
     const code = String(firstNode.permission_code ?? '').trim();
     const derived = code ? await this.getUsersWithAnyPermission([code]) : [];
@@ -4271,7 +4730,58 @@ export class ResearchDevelopmentService {
         seen.add(m.id);
         return true;
       });
-    return [...kept, ...extras];
+    const effectivePool = [...kept, ...extras];
+    return String(firstNode.mode ?? 'any') === 'single' ? effectivePool.slice(0, 1) : effectivePool;
+  }
+
+  /** 在任务树写入前验证立项审批模式；当前模型尚不支持首节点会签，必须 fail closed。 */
+  private async assertProposalCreationReviewMode(tasks: JsonRecord[]): Promise<void> {
+    const containsProposalReview = tasks.some(
+      (task) => cleanText(task.status) === 'pending_review'
+        && cleanText(task.pending_review_type) === 'proposal',
+    );
+    if (!containsProposalReview) return;
+    await this.getProposalReviewRecipients();
+  }
+
+  /**
+   * 审批是独立授权动作，不能因为用户恰好拥有“人员管理/任意任务编辑”就绕过立项节点。
+   * 当前任务模型仍是一阶段审核：立项类严格校验当前默认流程首节点的有效池；未配置流程
+   * 或有效池为空时，才回退到显式立项审核/直立权限，避免历史任务无人可处理。
+   */
+  private async assertTaskReviewAuthorized(
+    taskId: string,
+    options?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean; permissions?: string[] },
+  ): Promise<void> {
+    const task = await this.findTaskAcrossStores(taskId);
+    if (!task) throw new NotFoundException('任务不存在');
+    const permissions = options?.permissions ?? [];
+    if (permissions.includes('*')) return;
+    const reviewType = cleanText(task.pending_review_type);
+    if (reviewType !== 'proposal') {
+      if (options?.canEditAny) return;
+      throw new ForbiddenException('无审核权限：仅任务审核人员可处理');
+    }
+
+    // 鉴权读取失败必须 fail closed；只有成功读取后明确“未配置/空池”才走兼容回退。
+    const recipients = await this.getProposalReviewRecipients();
+    if (recipients.length > 0) {
+      const requesterId = cleanUserId(options?.requesterUserId);
+      const requesterName = personNameLookupKey(cleanText(options?.requesterName));
+      const matched = recipients.some((recipient) =>
+        (requesterId && recipient.id === requesterId)
+        || (!requesterId && requesterName && personNameLookupKey(recipient.name) === requesterName),
+      );
+      if (matched) return;
+      throw new ForbiddenException('无立项审核权限：当前账号不在生效审核节点的成员池中');
+    }
+
+    if (
+      permissions.includes('rd-project:review-l1')
+      || permissions.includes('rd-project:review-l2')
+      || permissions.includes('rd-project:direct')
+    ) return;
+    throw new ForbiddenException('无立项审核权限：当前审批流没有为你分配审核节点');
   }
 
   private async notifyAdminsOfPendingReview(task: JsonRecord, patch: JsonRecord): Promise<void> {
@@ -4285,7 +4795,7 @@ export class ResearchDevelopmentService {
       let admins = await this.getUsersWithAnyPermission([RD_REVIEW_NOTIFY_PERMISSION]);
       if (reviewType === 'proposal') {
         // 立项类：审批流配置了谁审，就通知谁（含手动增删的结果）；未配置回退管理员集
-        const poolRecipients = await this.getProposalReviewRecipients().catch(() => []);
+        const poolRecipients = await this.getProposalReviewRecipients();
         if (poolRecipients.length > 0) admins = poolRecipients;
       }
       const body = JSON.stringify({
@@ -4313,15 +4823,25 @@ export class ResearchDevelopmentService {
       });
       const typeLabel = reviewTypeLabel(reviewType);
       const subject = `[待审核·${typeLabel}] 「${task.title}」申请${typeLabel}审核`;
-      // 收件人是「全体审核人」，一条 INSERT 落 N 行，不逐个来回
-      await this.createMessages(
-        admins.map((admin) => ({
-          sender: { id: null, name: '系统通知', role: 'system' },
-          recipient_id: admin.id,
-          subject,
-          body,
-        })),
-      );
+      // 收件人查询可能比审批落库更慢。消息写入前在任务树锁内重读状态，与审批写共享同一顺序：
+      // 通知先完成则后续审批会将它标记已处理；审批先完成则这里不再补写一条“晚到”的待审消息。
+      await this.withTaskTreeLock(async () => {
+        const current = await this.findTaskAcrossStores(cleanText(task.task_id));
+        if (
+          !current
+          || cleanText(current.status) !== 'pending_review'
+          || cleanText(current.pending_review_type) !== reviewType
+        ) return;
+        // 收件人是「全体审核人」，一条 INSERT 落 N 行，不逐个来回
+        await this.createMessages(
+          admins.map((admin) => ({
+            sender: { id: null, name: '系统通知', role: 'system' },
+            recipient_id: admin.id,
+            subject,
+            body,
+          })),
+        );
+      });
     } catch (err) {
       // best-effort：通知失败不阻断审核提交，但必须留痕，否则线上「没收到通知」无从排查
       this.logger.warn(
@@ -4382,15 +4902,7 @@ export class ResearchDevelopmentService {
     }
   }
 
-  /**
-   * 合并审核已通过、但 applyTaskMerge 执行失败时的兜底告知。
-   *
-   * 这条路径的危险之处在于「所有人都以为成功了」：审核接口返回 200，审核人看到「已通过」，
-   * 发起人收到的是审核通过通知，而源任务其实原封不动。所以这里必须同时做到
-   * ①通知发起人 ②通知审核人 ③落审计——少任何一条，失败就还是隐形的。
-   *
-   * 整个方法 best-effort：告知失败不能再把已经落库的审核结果搅乱。
-   */
+  /** 合并审批核心写失败的旁路告知；主请求仍抛原异常，任务保持 pending_review 供刷新重试。 */
   private async notifyTaskMergeFailure(
     task: JsonRecord,
     targetId: string,
@@ -4400,10 +4912,10 @@ export class ResearchDevelopmentService {
   ): Promise<void> {
     const taskId = cleanText(task.task_id);
     const taskTitle = cleanText(task.title);
-    const subject = `[合并未执行] 「${taskTitle}」审核已通过，但合并失败`;
+    const subject = `[合并审批未完成] 「${taskTitle}」仍保持待审核`;
     const body =
-      `任务「${taskTitle}」(${taskId}) 的合并申请已审核通过，但系统执行合并到目标任务 ${targetId} 时失败，` +
-      `该任务**未被合并、也未归档，保持原状**。失败原因：${reason || '未知'}。请到研发任务驾驶舱确认后重新发起合并。`;
+      `任务「${taskTitle}」(${taskId}) 合并到目标任务 ${targetId} 的审批未能完成，` +
+      `该任务**未被合并、也未归档，仍保持待审核**。失败原因：${reason || '未知'}。请刷新任务后重试审批。`;
 
     try {
       await this.createMessage({
@@ -4420,7 +4932,7 @@ export class ResearchDevelopmentService {
       );
     }
 
-    // 审核人是「点了通过」的那个人，最需要知道结果与他看到的不一致
+    // 审核人是本次操作发起者，需要明确知道请求失败且可以重试。
     try {
       if (reviewerName && reviewerName !== initiator.name) {
         await this.createMessage({
@@ -4925,13 +5437,25 @@ export class ResearchDevelopmentService {
     sourceId: string,
     targetId: string,
     initiator: { id: string; name: string },
-  ): Promise<void> {
+  ): Promise<{ source: JsonRecord; target: JsonRecord }> {
     if (!sourceId || !targetId || sourceId === targetId) {
       throw new BadRequestException('合并的源任务与目标任务无效');
     }
     const source = await this.findTaskAcrossStores(sourceId);
     const target = await this.findTaskAcrossStores(targetId);
     if (!source || !target) throw new NotFoundException('源任务或目标任务不存在');
+    if (
+      cleanText(source.status) !== 'pending_review'
+      || cleanText(source.pending_review_type) !== 'merge'
+      || cleanText(source.pending_merge_target) !== targetId
+    ) {
+      throw new ConflictException('合并申请已变化，请刷新后重试');
+    }
+
+    // AI 在任务树锁外运行，避免长时间阻塞其他任务写。真正写入前会在锁内按这两份完整快照做 CAS，
+    // 因而锁外计算绝不会覆盖期间发生的源任务/目标任务修改。
+    const sourceSnapshot = JSON.stringify(source);
+    const targetSnapshot = JSON.stringify(target);
 
     const migratedSubtasks = asArray(source.subtasks).filter(isRecord);
 
@@ -4993,15 +5517,43 @@ export class ResearchDevelopmentService {
       updated_at: nowIso,
     };
 
-    // 同库内改写：同时命中源与目标才写（found = 二者皆命中），否则不写任何库 → 抛跨库错误。
+    // 同库内改写：同时命中源与目标且完整快照均未变化才写。mutateTaskAcrossStores 的
+    // 任务树锁覆盖“重读 → CAS → 单次写回”，审核结案与源/目标合并不会出现部分状态。
     const rebuild = (tasks: unknown[], flags: { fs: boolean; ft: boolean }): unknown[] =>
       tasks.map((t) => {
         if (!isRecord(t)) return t;
         if (t.task_id === sourceId) {
+          if (JSON.stringify(t) !== sourceSnapshot) {
+            throw new ConflictException('源任务在合并审批期间已被修改，请刷新后重试');
+          }
+          if (
+            cleanText(t.status) !== 'pending_review'
+            || cleanText(t.pending_review_type) !== 'merge'
+            || cleanText(t.pending_merge_target) !== targetId
+          ) {
+            throw new ConflictException('合并申请已变化，请刷新后重试');
+          }
           flags.fs = true;
-          return { ...t, archived: true, status: 'archived', merged_into: targetId, merged_at: nowIso, subtasks: [] };
+          return {
+            ...t,
+            archived: true,
+            status: 'archived',
+            pending_review_type: null,
+            pending_merge_target: null,
+            pending_merge_reason: null,
+            pending_merge_requested_at: null,
+            pending_merge_requested_by: null,
+            pending_merge_requested_by_id: null,
+            merged_into: targetId,
+            merged_at: nowIso,
+            updated_at: nowIso,
+            subtasks: [],
+          };
         }
         if (t.task_id === targetId) {
+          if (JSON.stringify(t) !== targetSnapshot) {
+            throw new ConflictException('目标任务在合并审批期间已被修改，请刷新后重试');
+          }
           flags.ft = true;
           return { ...t, ...targetPatch, subtasks: [...asArray(t.subtasks), ...migratedSubtasks] };
         }
@@ -5043,10 +5595,16 @@ export class ResearchDevelopmentService {
     }
 
     await this.notifyTaskMerged(source, target, initiator).catch(() => {});
-    await this.recomputeDirectorDashboard();
+    // 主写已提交后，派生看板失败不能把成功合并伪装成“可重试失败”。记录后由后续任务写重算覆盖。
+    await this.recomputeDirectorDashboard().catch((error: unknown) => {
+      this.logger.warn(
+        `任务合并后重算驾驶舱失败 (source=${sourceId}, target=${targetId})：${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
     // 向量索引：源任务已归档（syncTaskToRag 内部转删除）、目标任务字段/留痕已变（刷新）
     void this.syncTaskToRag(sourceId);
     void this.syncTaskToRag(targetId);
+    return { source, target };
   }
 
   /** 合并后通知：源任务负责人/协作人 + 目标任务原负责人（主责已换为发起人，原负责人需知悉）。 */
@@ -5120,12 +5678,16 @@ export class ResearchDevelopmentService {
   }
 
   private async recomputeDirectorDashboardUnlocked(): Promise<void> {
-    const [mainCategories, people, users, productStore] = await Promise.all([
+    // 仪表盘只读人员快照，不进入 peopleWriteLock。人员写完成后会再排队一次重算，
+    // 因此这里即使读到并发写前的快照，后续重算也会以最新值覆盖；同时消除
+    // taskTree -> dashboard -> people 与 people -> taskTree 的 ABBA 死锁链。
+    const [mainCategories, rawPeople, users, productStore] = await Promise.all([
       this.readNormalizedTaskCategories(),
-      this.getPeople(),
+      this.readArray('rd.people'),
       this.listIdentityUsers(),
       this.readProductCategoryStore(),
     ]);
+    const people = this.normalizePeopleRecords(rawPeople, users);
 
     // 汇总主库 + 所有产品库的分类树，让总监看板覆盖全部产品的任务（人员负载/阻塞/待指派/系统进度均跨产品）。
     const allTrees: JsonRecord[][] = [mainCategories.filter(isRecord)];
@@ -10026,14 +10588,26 @@ export class ResearchDevelopmentService {
     });
   }
 
-  async getPeople() {
-    const raw = await this.readArray('rd.people');
-    const users = await this.listIdentityUsers();
+  /** 人员表是整数组持久化；所有规范化与写操作必须走同一串行临界区，避免并发覆盖。 */
+  private peopleWriteLock: Promise<unknown> = Promise.resolve();
+
+  private withPeopleWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.peopleWriteLock.then(fn, fn);
+    this.peopleWriteLock = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  private async getPeopleUnlocked(): Promise<{ people: JsonRecord[]; users: IdentityUser[] }> {
+    const [raw, users] = await Promise.all([this.readArray('rd.people'), this.listIdentityUsers()]);
     const normalized = this.normalizePeopleRecords(raw, users);
     if (JSON.stringify(raw) !== JSON.stringify(normalized)) {
       await this.writeValue('rd.people', normalized);
     }
-    return normalized;
+    return { people: normalized, users };
+  }
+
+  async getPeople() {
+    return this.withPeopleWriteLock(async () => (await this.getPeopleUnlocked()).people);
   }
 
   async getPeopleUserOptions() {
@@ -10041,83 +10615,81 @@ export class ResearchDevelopmentService {
   }
 
   async createPerson(payload: JsonRecord, actor?: AuditActorRef) {
-    const [people, users] = await Promise.all([this.getPeople(), this.listIdentityUsers()]);
-    const nextPerson = this.normalizePeopleRecords([withGeneratedId('rd-person', payload)], users)[0];
-    if (!nextPerson) {
-      throw new BadRequestException('研发成员数据无效');
-    }
-    const nextPeople = [nextPerson, ...people.filter((item) => !isRecord(item) || item.id !== nextPerson.id)];
-    await this.writeValue('rd.people', nextPeople);
-    await this.recordServerAudit({
-      action: 'person.created',
-      resource: { type: 'person', id: String(nextPerson.id ?? ''), name: cleanText(nextPerson.name) },
-      actor: { id: actor?.userId, name: actor?.userName },
-      comment: '新增研发成员',
-      metadata: { role: cleanText(nextPerson.role), department: cleanText(nextPerson.department) },
+    const nextPerson = await this.withPeopleWriteLock(async () => {
+      const { people, users } = await this.getPeopleUnlocked();
+      const created = this.normalizePeopleRecords([withGeneratedId('rd-person', payload)], users)[0];
+      if (!created) throw new BadRequestException('研发成员数据无效');
+      const nextPeople = [created, ...people.filter((item) => !isRecord(item) || item.id !== created.id)];
+      await this.writeValue('rd.people', nextPeople);
+      await this.recordServerAudit({
+        action: 'person.created',
+        resource: { type: 'person', id: String(created.id ?? ''), name: cleanText(created.name) },
+        actor: { id: actor?.userId, name: actor?.userName },
+        comment: '新增研发成员',
+        metadata: { role: cleanText(created.role), department: cleanText(created.department) },
+      });
+      return created;
     });
     await this.recomputeDirectorDashboard();
     return nextPerson;
   }
 
   async updatePerson(id: string, payload: JsonRecord, actor?: AuditActorRef) {
-    const [people, users] = await Promise.all([this.getPeople(), this.listIdentityUsers()]);
-    let found = false;
-    let beforePerson: JsonRecord | null = null;
-    let afterPerson: JsonRecord | null = null;
+    const updatedPerson = await this.withPeopleWriteLock(async () => {
+      const { people, users } = await this.getPeopleUnlocked();
+      let beforePerson: JsonRecord | null = null;
+      let afterPerson: JsonRecord | null = null;
+      const incomingKbLevelNum = Number(payload?.kb_level);
+      const hasExplicitKbLevel = Object.prototype.hasOwnProperty.call(payload ?? {}, 'kb_level')
+        && Number.isFinite(incomingKbLevelNum);
+      const sanitizedKbLevel = hasExplicitKbLevel
+        ? Math.max(0, Math.min(100, Math.round(incomingKbLevelNum)))
+        : null;
 
-    // 防御性：显式校验/规范化 payload 中的 kb_level，避免 normalization 链路意外丢失或回退
-    const incomingKbLevelNum = Number(payload?.kb_level);
-    const hasExplicitKbLevel = Object.prototype.hasOwnProperty.call(payload ?? {}, 'kb_level')
-      && Number.isFinite(incomingKbLevelNum);
-    const sanitizedKbLevel = hasExplicitKbLevel
-      ? Math.max(0, Math.min(100, Math.round(incomingKbLevelNum)))
-      : null;
+      const nextPeople = people.map((item) => {
+        if (!isRecord(item) || item.id !== id) return item;
+        beforePerson = item;
+        const merged: JsonRecord = { ...item, ...payload, id };
+        if (sanitizedKbLevel !== null) {
+          merged.kb_level = sanitizedKbLevel;
+          merged.kb_level_scale = 'score';
+        }
+        const normalizedPerson = this.normalizePeopleRecords([merged], users)[0];
+        if (!normalizedPerson) return item;
+        if (sanitizedKbLevel !== null) {
+          normalizedPerson.kb_level = sanitizedKbLevel;
+          normalizedPerson.kb_level_scale = 'score';
+        }
+        afterPerson = normalizedPerson;
+        return normalizedPerson;
+      });
 
-    const nextPeople = people.map((item) => {
-      if (!isRecord(item) || item.id !== id) return item;
-      found = true;
-      beforePerson = item;
-      const merged: JsonRecord = { ...item, ...payload, id };
-      // 显式钉死 kb_level/kb_level_scale，确保 normalize 不会走 legacy 兜底回 20
-      if (sanitizedKbLevel !== null) {
-        merged.kb_level = sanitizedKbLevel;
-        merged.kb_level_scale = 'score';
-      }
-      const normalizedPerson = this.normalizePeopleRecords([merged], users)[0];
-      if (!normalizedPerson) return item;
-      if (sanitizedKbLevel !== null) {
-        normalizedPerson.kb_level = sanitizedKbLevel;
-        normalizedPerson.kb_level_scale = 'score';
-      }
-      afterPerson = normalizedPerson;
-      return normalizedPerson;
-    });
-
-    if (!found) {
-      throw new NotFoundException('研发成员不存在');
-    }
-
-    await this.writeValue('rd.people', nextPeople);
-    if (beforePerson && afterPerson) {
-      await this.rewritePersonAssignments(beforePerson, afterPerson);
+      // 赋值发生在 map 回调内，显式恢复闭包外的可空类型，避免 TS 将成功分支误收窄成 never。
+      const confirmedBefore = beforePerson as JsonRecord | null;
+      const confirmedAfter = afterPerson as JsonRecord | null;
+      if (!confirmedBefore || !confirmedAfter) throw new NotFoundException('研发成员不存在');
+      await this.writeValue('rd.people', nextPeople);
+      await this.rewritePersonAssignments(confirmedBefore, confirmedAfter);
       await this.recordServerAudit({
         action: 'person.edited',
-        resource: { type: 'person', id, name: cleanText((afterPerson as JsonRecord).name) },
+        resource: { type: 'person', id, name: cleanText(confirmedAfter.name) },
         actor: { id: actor?.userId, name: actor?.userName },
         comment: '修改研发成员',
-        changes: this.buildRecordChanges(beforePerson as JsonRecord, afterPerson as JsonRecord, AUDITED_PERSON_FIELDS),
+        changes: this.buildRecordChanges(confirmedBefore, confirmedAfter, AUDITED_PERSON_FIELDS),
       });
-    }
+      return confirmedAfter;
+    });
     await this.recomputeDirectorDashboard();
-    return nextPeople.find((item) => isRecord(item) && item.id === id);
+    return updatedPerson;
   }
 
   async removePerson(id: string, actor?: AuditActorRef) {
-    const people = await this.getPeople();
-    const beforePerson = people.find((item) => isRecord(item) && item.id === id);
-    const nextPeople = people.filter((item) => !isRecord(item) || item.id !== id);
-    await this.writeValue('rd.people', nextPeople);
-    if (isRecord(beforePerson)) {
+    await this.withPeopleWriteLock(async () => {
+      const { people } = await this.getPeopleUnlocked();
+      const beforePerson = people.find((item) => isRecord(item) && item.id === id);
+      if (!isRecord(beforePerson)) throw new NotFoundException('研发成员不存在');
+      const nextPeople = people.filter((item) => !isRecord(item) || item.id !== id);
+      await this.writeValue('rd.people', nextPeople);
       await this.rewritePersonAssignments(beforePerson, null);
       await this.recordServerAudit({
         action: 'person.deleted',
@@ -10126,7 +10698,7 @@ export class ResearchDevelopmentService {
         comment: '删除研发成员',
         metadata: { role: cleanText(beforePerson.role), department: cleanText(beforePerson.department) },
       });
-    }
+    });
     await this.recomputeDirectorDashboard();
     return { ok: true };
   }
@@ -10227,23 +10799,46 @@ export class ResearchDevelopmentService {
    * 只能记录流程数与节点数的变化——比前端各自上报 flow.node_added/removed 粗，
    * 但胜在绕不过去：直接调接口改流程同样留痕。
    */
-  async saveApprovalFlows(payload: unknown[], actor?: AuditActorRef) {
-    const before = await this.readArray('rd.approvalFlows');
-    const next = asArray(payload);
-    const result = await this.writeValue('rd.approvalFlows', next);
-    const countNodes = (flows: unknown[]) =>
-      flows.reduce<number>((sum, flow) => sum + (isRecord(flow) ? asArray(flow.nodes).length : 0), 0);
-    await this.recordServerAudit({
-      action: 'flow.saved',
-      resource: { type: 'flow', id: 'rd-approval-flows', name: '审批流配置' },
-      actor: { id: actor?.userId, name: actor?.userName },
-      comment: '保存审批流配置',
-      changes: [
-        { field: 'flow_count', before: before.length, after: next.length },
-        { field: 'node_count', before: countNodes(before), after: countNodes(next) },
-      ],
+  private approvalFlowWriteLock: Promise<unknown> = Promise.resolve();
+
+  private withApprovalFlowWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.approvalFlowWriteLock.then(fn, fn);
+    this.approvalFlowWriteLock = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  async saveApprovalFlows(payload: unknown[], basePayload: unknown[], actor?: AuditActorRef) {
+    return this.withApprovalFlowWriteLock(async () => {
+      const before = await this.readArray('rd.approvalFlows');
+      const baseline = asArray(basePayload);
+      if (JSON.stringify(before) !== JSON.stringify(baseline)) {
+        throw new ConflictException('审批流已被其他管理员更新，请重新读取后合并修改');
+      }
+      const next = asArray(payload);
+      const activeProposalFlow = next.find(
+        (flow) => isRecord(flow) && flow.scope === 'project_proposal' && flow.is_default === true,
+      ) ?? next.find((flow) => isRecord(flow) && flow.scope === 'project_proposal');
+      const firstProposalNode = isRecord(activeProposalFlow)
+        ? asArray(activeProposalFlow.nodes).find(isRecord)
+        : null;
+      if (firstProposalNode && cleanText(firstProposalNode.mode) === 'all') {
+        throw new BadRequestException('当前版本首个生效节点暂不支持会签，请选择单人或或签');
+      }
+      const result = await this.writeValue('rd.approvalFlows', next);
+      const countNodes = (flows: unknown[]) =>
+        flows.reduce<number>((sum, flow) => sum + (isRecord(flow) ? asArray(flow.nodes).length : 0), 0);
+      await this.recordServerAudit({
+        action: 'flow.saved',
+        resource: { type: 'flow', id: 'rd-approval-flows', name: '审批流配置' },
+        actor: { id: actor?.userId, name: actor?.userName },
+        comment: '保存审批流配置',
+        changes: [
+          { field: 'flow_count', before: before.length, after: next.length },
+          { field: 'node_count', before: countNodes(before), after: countNodes(next) },
+        ],
+      });
+      return result;
     });
-    return result;
   }
 
   /**
@@ -11129,15 +11724,48 @@ export class ResearchDevelopmentService {
     };
   }
 
-  async saveAiSettings(payload: JsonRecord) {
-    const previous = this.normalizeAiSettings(await this.readValue('rd.aiSettings'));
-    const next = this.normalizeAiSettings({
-      ...previous,
-      ...payload,
-      updated_at: new Date().toISOString(),
+  /** AI 策略为整对象存储，读-比-写必须串行，避免两个相同基线的并发请求同时通过 CAS。 */
+  private aiSettingsWriteLock: Promise<unknown> = Promise.resolve();
+
+  private withAiSettingsWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.aiSettingsWriteLock.then(fn, fn);
+    this.aiSettingsWriteLock = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  async saveAiSettings(payload: JsonRecord, baseUpdatedAt: string) {
+    return this.withAiSettingsWriteLock(async () => {
+      const previous = this.normalizeAiSettings(await this.readValue('rd.aiSettings'));
+      const currentUpdatedAt = cleanText(previous.updated_at);
+      if (currentUpdatedAt !== cleanText(baseUpdatedAt)) {
+        const currentLabel = currentUpdatedAt
+          ? new Date(currentUpdatedAt).toLocaleString('zh-CN')
+          : '未知时间';
+        throw new ConflictException(
+          `AI 策略保存冲突：服务器版本已于 ${currentLabel} 更新，请重新读取后再保存。`,
+        );
+      }
+
+      const previousTime = Date.parse(currentUpdatedAt);
+      const nextTime = Math.max(
+        Date.now(),
+        Number.isFinite(previousTime) ? previousTime + 1 : 0,
+      );
+      const {
+        runtime: _runtime,
+        updated_at: _submittedUpdatedAt,
+        ...editablePayload
+      } = payload;
+      void _runtime;
+      void _submittedUpdatedAt;
+      const next = this.normalizeAiSettings({
+        ...previous,
+        ...editablePayload,
+        updated_at: new Date(nextTime).toISOString(),
+      });
+      await this.writeValue('rd.aiSettings', next);
+      return this.getAiSettings();
     });
-    await this.writeValue('rd.aiSettings', next);
-    return this.getAiSettings();
   }
 
   async planFileIngestion(payload: JsonRecord) {

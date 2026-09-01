@@ -1,4 +1,5 @@
 import * as assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
@@ -64,8 +65,13 @@ test('task creation endpoints accept proposal permission and pass a constrained 
     PERMISSIONS_KEY,
     ResearchDevelopmentController.prototype.createSubtasks,
   ) as string[];
+  const createTasksBatchPermissions = Reflect.getMetadata(
+    PERMISSIONS_KEY,
+    ResearchDevelopmentController.prototype.createTasksBatch,
+  ) as string[];
   assert.ok(createTaskPermissions.includes('rd-project:propose'));
   assert.ok(createSubtasksPermissions.includes('rd-project:propose'));
+  assert.ok(createTasksBatchPermissions.includes('rd-project:propose'));
   const saveTreePermissions = Reflect.getMetadata(
     PERMISSIONS_KEY,
     ResearchDevelopmentController.prototype.saveTaskCategories,
@@ -75,9 +81,18 @@ test('task creation endpoints accept proposal permission and pass a constrained 
   assert.ok(saveTreePermissions.includes('rd-project:direct'));
 
   let receivedActor: Record<string, unknown> | undefined;
+  let receivedBatchActor: Record<string, unknown> | undefined;
   let receivedUpdateOptions: Record<string, unknown> | undefined;
   const controller = new ResearchDevelopmentController(
     {
+      createTasksBatch: async (
+        _tasks: Record<string, unknown>[],
+        _requestId: string,
+        actor: Record<string, unknown>,
+      ) => {
+        receivedBatchActor = actor;
+        return [];
+      },
       createSubtasks: async (
         _parentTaskId: string,
         _tasks: Record<string, unknown>[],
@@ -115,12 +130,126 @@ test('task creation endpoints accept proposal permission and pass a constrained 
     canEditAny: false,
     proposalOnly: true,
   });
+  await controller.createTasksBatch(
+    { request_id: 'request-top-1', tasks: [{ title: '顶层任务' }] },
+    {
+      user: {
+        id: 'user-1',
+        name: '研发成员',
+        permissions: ['page:rd-my-workspace', 'rd-project:propose'],
+      },
+    },
+  );
+  assert.deepEqual(receivedBatchActor, {
+    requesterUserId: 'user-1',
+    requesterName: '研发成员',
+    canEditAny: false,
+    proposalOnly: true,
+  });
   await controller.updateTask(
     'task-1',
     { title: '普通编辑' },
     { user: { id: 'user-1', name: '研发成员', permissions: ['page:rd-my-workspace', 'rd-task:edit'] } },
   );
   assert.equal(receivedUpdateOptions?.canEditAny, false);
+});
+
+test('review action is fail-closed in both controller and service', async () => {
+  let serviceCalls = 0;
+  const controller = new ResearchDevelopmentController(
+    {
+      updateTask: async () => {
+        serviceCalls += 1;
+        return { ok: true };
+      },
+    } as unknown as ResearchDevelopmentService,
+    {} as never,
+    {} as never,
+  );
+
+  assert.throws(
+    () => controller.updateTask(
+      'task-1',
+      { _review_action: 'approve_typo' },
+      { user: { id: 'admin-1', name: '管理员', permissions: ['*'] } },
+    ),
+    (error: unknown) =>
+      error instanceof Error
+      && 'getStatus' in error
+      && typeof error.getStatus === 'function'
+      && error.getStatus() === 400,
+  );
+  assert.equal(serviceCalls, 0);
+
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  await assert.rejects(
+    () => service.updateTask('task-1', { _review_action: 'reject_typo' }, { canEditAny: true }),
+    (error: unknown) =>
+      error instanceof Error
+      && 'getStatus' in error
+      && typeof error.getStatus === 'function'
+      && error.getStatus() === 400,
+  );
+});
+
+test('AI settings endpoint requires and forwards the last loaded server version', async () => {
+  let received: { settings?: Record<string, unknown>; baseUpdatedAt?: string } = {};
+  const controller = new ResearchDevelopmentController(
+    {
+      saveAiSettings: async (settings: Record<string, unknown>, baseUpdatedAt: string) => {
+        received = { settings, baseUpdatedAt };
+        return { ...settings, updated_at: '2026-09-01T08:00:01.000Z' };
+      },
+    } as unknown as ResearchDevelopmentService,
+    {} as never,
+    {} as never,
+  );
+
+  const result = await controller.saveAiSettings({
+    settings: { version: 2 },
+    base_updated_at: '2026-09-01T08:00:00.000Z',
+  });
+  assert.deepEqual(received, {
+    settings: { version: 2 },
+    baseUpdatedAt: '2026-09-01T08:00:00.000Z',
+  });
+  assert.equal((result as Record<string, unknown>).updated_at, '2026-09-01T08:00:01.000Z');
+  assert.throws(
+    () => controller.saveAiSettings({ settings: { version: 3 } }),
+    /缺少服务器版本基线/,
+  );
+});
+
+test('AI settings CAS serializes concurrent saves and rejects the stale baseline without overwriting', async () => {
+  let stored: Record<string, unknown> = {
+    version: 1,
+    updated_at: '2026-09-01T08:00:00.000Z',
+  };
+  let writes = 0;
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.aiSettingsWriteLock = Promise.resolve();
+  service.readValue = async () => structuredClone(stored);
+  service.writeValue = async (_key: string, value: Record<string, unknown>) => {
+    writes += 1;
+    await Promise.resolve();
+    stored = structuredClone(value);
+    return value;
+  };
+  service.getAiSettings = async () => structuredClone(stored);
+
+  const baseline = '2026-09-01T08:00:00.000Z';
+  const settled = await Promise.allSettled([
+    service.saveAiSettings({ version: 2 }, baseline),
+    service.saveAiSettings({ version: 3 }, baseline),
+  ]);
+
+  assert.equal(settled.filter((item) => item.status === 'fulfilled').length, 1);
+  assert.equal(settled.filter((item) => item.status === 'rejected').length, 1);
+  const rejected = settled.find((item) => item.status === 'rejected') as PromiseRejectedResult;
+  assert.match(String(rejected.reason?.message ?? rejected.reason), /保存冲突/);
+  assert.equal(writes, 1, 'only the first request using a shared baseline may write');
+  assert.equal(stored.version, 2);
+  assert.notEqual(stored.updated_at, baseline);
 });
 
 test('image gallery controls are excluded before the swipe surface captures a pointer', () => {
@@ -863,6 +992,7 @@ test('creating a child under a nested task inserts it at the requested depth', a
   };
   service.recomputeDirectorDashboard = async () => undefined;
   service.syncTaskToRag = () => undefined;
+  service.getProposalReviewRecipients = async () => [];
 
   const created = await service.createTaskUnlocked(
     {
@@ -1044,6 +1174,506 @@ test('batch child creation writes once and reuses the committed result on retry'
   );
 });
 
+test('研发人员整表写入串行执行，并发新增不会互相覆盖', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  let peopleStore: Record<string, unknown>[] = [];
+  service.peopleWriteLock = Promise.resolve();
+  service.readArray = async (key: string) => key === 'rd.people' ? structuredClone(peopleStore) : [];
+  service.listIdentityUsers = async () => [];
+  service.writeValue = async (key: string, value: Record<string, unknown>[]) => {
+    assert.equal(key, 'rd.people');
+    await Promise.resolve();
+    peopleStore = structuredClone(value);
+    return value;
+  };
+  service.recordServerAudit = async () => undefined;
+  service.recomputeDirectorDashboard = async () => undefined;
+
+  await Promise.all([
+    service.createPerson({ name: '研发甲', position: '工程师', department: '研发一组' }),
+    service.createPerson({ name: '研发乙', position: '工程师', department: '研发二组' }),
+  ]);
+
+  assert.deepEqual(new Set(peopleStore.map((person) => person.name)), new Set(['研发甲', '研发乙']));
+});
+
+test('人员归属改写与任务树内驾驶舱重算不会形成 ABBA 死锁', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.peopleWriteLock = Promise.resolve();
+  service.taskTreeWriteLock = Promise.resolve();
+  service.directorDashboardWriteLock = Promise.resolve();
+  service.readNormalizedTaskCategories = async () => [];
+  service.readArray = async () => [];
+  service.listIdentityUsers = async () => [];
+  service.readProductCategoryStore = async () => ({});
+  service.writeValue = async () => undefined;
+
+  let markTaskEntered!: () => void;
+  let markPeopleEntered!: () => void;
+  const taskEntered = new Promise<void>((resolve) => { markTaskEntered = resolve; });
+  const peopleEntered = new Promise<void>((resolve) => { markPeopleEntered = resolve; });
+
+  const taskWrite = service.withTaskTreeLock(async () => {
+    markTaskEntered();
+    await peopleEntered;
+    await service.recomputeDirectorDashboard();
+  });
+  await taskEntered;
+  const peopleWrite = service.withPeopleWriteLock(async () => {
+    markPeopleEntered();
+    await taskEntered;
+    await service.mutateAllStores((categories: unknown[]) => ({ categories, changed: false }));
+  });
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.all([taskWrite, peopleWrite]),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error('people/task-tree ABBA deadlock')), 500);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+});
+
+test('concurrent personnel rename preserves the task write that was already holding the tree lock', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.peopleWriteLock = Promise.resolve();
+  service.taskTreeWriteLock = Promise.resolve();
+  let peopleStore: Record<string, unknown>[] = [{
+    id: 'person-a',
+    name: '旧姓名',
+    position: '工程师',
+    department: '研发部',
+  }];
+  let categories: Array<Record<string, unknown>> = [{
+    id: 'system-a',
+    children: [{
+      id: 'project-a',
+      tasks: [{ task_id: 'task-existing', primary_owner: '旧姓名', subtasks: [] }],
+    }],
+  }];
+  let markPeoplePersisted!: () => void;
+  const peoplePersisted = new Promise<void>((resolve) => { markPeoplePersisted = resolve; });
+  service.readArray = async (key: string) =>
+    key === 'rd.people' ? structuredClone(peopleStore) : [];
+  service.listIdentityUsers = async () => [];
+  service.readNormalizedTaskCategories = async () => structuredClone(categories);
+  service.readProductCategoryStore = async () => ({});
+  service.writeValue = async (key: string, value: unknown) => {
+    if (key === 'rd.people') {
+      peopleStore = structuredClone(value as Record<string, unknown>[]);
+      markPeoplePersisted();
+    }
+    if (key === 'rd.taskCategories') {
+      categories = structuredClone(value as Array<Record<string, unknown>>);
+    }
+    return value;
+  };
+  service.recordServerAudit = async () => undefined;
+  service.recomputeDirectorDashboard = async () => undefined;
+
+  // 任务写先持锁，人员写先持 people 锁；人员落表后，任务写提交，再由归属改写读取最新任务树。
+  const taskWrite = service.withTaskTreeLock(async () => {
+    await peoplePersisted;
+    const tasks = ((categories[0].children as Array<Record<string, unknown>>)[0].tasks as unknown[]);
+    tasks.push({ task_id: 'task-concurrent', primary_owner: '旧姓名', subtasks: [] });
+  });
+  const personWrite = service.updatePerson('person-a', { name: '新姓名' });
+  await Promise.all([taskWrite, personWrite]);
+
+  const tasks = ((categories[0].children as Array<Record<string, unknown>>)[0].tasks as Array<Record<string, unknown>>);
+  assert.deepEqual(tasks.map((task) => task.task_id), ['task-existing', 'task-concurrent']);
+  assert.deepEqual(tasks.map((task) => task.primary_owner), ['新姓名', '新姓名']);
+  assert.equal(peopleStore[0].name, '新姓名');
+});
+
+test('top-level proposal batch recognizes a complete legacy replay but forbids appending a tail', async () => {
+  let categories: Array<Record<string, unknown>> = [{
+    id: 'system-a',
+    label: '系统 A',
+    children: [{ id: 'project-a', label: '项目 A', tasks: [] }],
+  }];
+  let writes = 0;
+  let recomputes = 0;
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.withTaskTreeLock = (operation: () => Promise<unknown>) => operation();
+  service.readTaskCategoriesForProduct = async () => categories;
+  service.getIdentityContext = async () => ({ people: [], users: [] });
+  service.normalizeTaskIdentity = (task: Record<string, unknown>) => task;
+  service.writeTaskCategoriesForProduct = async (_productId: string, value: Array<Record<string, unknown>>) => {
+    writes += 1;
+    categories = value;
+  };
+  service.recomputeDirectorDashboard = async () => { recomputes += 1; };
+  service.recordServerAudit = async () => undefined;
+  service.syncTaskToRag = () => undefined;
+  service.notifyAdminsOfPendingReview = async () => undefined;
+  service.getProposalReviewRecipients = async () => [];
+
+  const payloads = [
+    {
+      product_id: 'prod-portable-o2',
+      category_id: 'system-a',
+      sub_project_id: 'project-a',
+      title: '顶层任务 A',
+      primary_owner: '研发甲',
+      status: 'pending_review',
+      pending_review_type: 'proposal',
+    },
+    {
+      product_id: 'prod-portable-o2',
+      category_id: 'system-a',
+      sub_project_id: 'project-a',
+      title: '顶层任务 B',
+      primary_owner: '研发乙',
+      status: 'pending_review',
+      pending_review_type: 'proposal',
+    },
+  ];
+  const actor = {
+    requesterUserId: 'user-a',
+    requesterName: '研发甲',
+    canEditAny: false,
+    proposalOnly: true,
+  };
+
+  // 模拟升级前逐条接口已经完成整批；旧记录没有 batch_hash / batch_size。
+  const legacyTasks: Record<string, unknown>[] = [];
+  for (const [index, payload] of payloads.entries()) {
+    const legacyTask = await service.createTaskUnlocked(
+      payload,
+      actor,
+      { requestId: 'proposal-top-1', requestIndex: index },
+    );
+    legacyTask.creation_request_hash = createHash('sha256').update(JSON.stringify({
+      ...payload,
+      creation_request_id: 'proposal-top-1',
+      creation_request_index: index,
+      status: 'pending_review',
+      pending_review_type: 'proposal',
+      primary_owner: '研发甲',
+      primary_owner_user_id: 'user-a',
+    })).digest('hex');
+    legacyTasks.push(legacyTask);
+  }
+  writes = 0;
+  recomputes = 0;
+
+  const retry = await service.createTasksBatch(payloads, 'proposal-top-1', actor);
+
+  assert.equal(writes, 0, 'a complete legacy replay must not write duplicate tasks');
+  assert.equal(recomputes, 0);
+  assert.deepEqual(
+    retry.map((task: Record<string, unknown>) => task.task_id),
+    legacyTasks.map((task) => task.task_id),
+  );
+  assert.equal(
+    (((categories[0].children as any[])[0].tasks as any[]).length),
+    2,
+    'retry must not duplicate an already committed batch',
+  );
+
+  await assert.rejects(
+    () => service.createTasksBatch(
+      [
+        ...payloads,
+        {
+          ...payloads[1],
+          title: '试图追加的任务 C',
+        },
+      ],
+      'proposal-top-1',
+      actor,
+    ),
+    /旧版批量请求已完成.*不能.*追加任务/,
+  );
+
+  await assert.rejects(
+    () => service.createTasksBatch(
+      [payloads[0], { ...payloads[1], title: '篡改后的任务 B' }],
+      'proposal-top-1',
+      actor,
+    ),
+    /请求标识已被其它任务使用/,
+  );
+  assert.equal(writes, 0);
+});
+
+test('top-level proposal batch validates every target before writing any new task', async () => {
+  const categories: Array<Record<string, unknown>> = [{
+    id: 'system-a',
+    label: '系统 A',
+    children: [{ id: 'project-a', label: '项目 A', tasks: [] }],
+  }];
+  let writes = 0;
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.readTaskCategoriesForProduct = async () => categories;
+  service.getIdentityContext = async () => ({ people: [], users: [] });
+  service.normalizeTaskIdentity = (task: Record<string, unknown>) => task;
+  service.writeTaskCategoriesForProduct = async () => { writes += 1; };
+
+  await assert.rejects(
+    () => service.createTasksBatchUnlocked(
+      [
+        { product_id: 'prod-portable-o2', category_id: 'system-a', sub_project_id: 'project-a', title: '合法任务' },
+        { product_id: 'prod-portable-o2', category_id: 'missing-system', sub_project_id: 'missing-project', title: '非法任务' },
+      ],
+      'proposal-top-invalid',
+      { requesterUserId: 'user-a', canEditAny: true },
+    ),
+    /指定的分类不存在/,
+  );
+  assert.equal(writes, 0, 'a validation failure must not persist the valid prefix of the batch');
+  assert.equal((((categories[0].children as any[])[0].tasks as any[]).length), 0);
+});
+
+function createTaskMergeHarness(
+  mergeTaskDescriptions: (input: Record<string, unknown>) => Promise<string | null>,
+) {
+  let categories: Array<Record<string, unknown>> = [{
+    id: 'system-a',
+    children: [{
+      id: 'project-a',
+      tasks: [
+        {
+          task_id: 'source-task',
+          title: '源任务',
+          description: '源描述',
+          status: 'pending_review',
+          pending_review_type: 'merge',
+          pending_merge_target: 'target-task',
+          pending_merge_reason: '内容重复',
+          pending_merge_requested_by: '研发甲',
+          pending_merge_requested_by_id: 'user-a',
+          primary_owner: '研发甲',
+          primary_owner_user_id: 'user-a',
+          collaborators: [],
+          subtasks: [{ task_id: 'source-child', title: '源子任务', subtasks: [] }],
+          updated_at: '2026-09-01T01:00:00.000Z',
+        },
+        {
+          task_id: 'target-task',
+          title: '目标任务',
+          description: '目标描述',
+          status: 'in_progress',
+          primary_owner: '研发乙',
+          primary_owner_user_id: 'user-b',
+          collaborators: [],
+          subtasks: [],
+          updated_at: '2026-09-01T01:00:00.000Z',
+        },
+      ],
+    }],
+  }];
+  let writes = 0;
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  const findTask = (taskId: string): Record<string, unknown> | null => {
+    let found: Record<string, unknown> | null = null;
+    const walk = (tasks: unknown[]) => {
+      for (const task of tasks) {
+        if (!task || typeof task !== 'object' || Array.isArray(task)) continue;
+        const record = task as Record<string, unknown>;
+        if (record.task_id === taskId) {
+          found = record;
+          return;
+        }
+        if (Array.isArray(record.subtasks)) walk(record.subtasks);
+        if (found) return;
+      }
+    };
+    for (const category of categories) {
+      for (const child of (category.children as Array<Record<string, unknown>>)) {
+        walk(child.tasks as unknown[]);
+        if (found) return found;
+      }
+    }
+    return found;
+  };
+
+  service.findTaskAcrossStores = async (taskId: string) => findTask(taskId);
+  service.rdAiService = { mergeTaskDescriptions };
+  service.mutateTaskAcrossStores = async (
+    transform: (value: Array<Record<string, unknown>>) => { categories: unknown[]; found: boolean },
+  ) => {
+    const result = transform(structuredClone(categories));
+    if (result.found) {
+      writes += 1;
+      categories = result.categories as Array<Record<string, unknown>>;
+    }
+    return { found: result.found, productId: result.found ? 'prod-portable-o2' : null };
+  };
+  service.withProgressNoteLock = async (operation: () => Promise<unknown>) => operation();
+  service.getProgressNoteMap = async () => ({});
+  service.notifyTaskMerged = async () => undefined;
+  service.recomputeDirectorDashboard = async () => undefined;
+  service.syncTaskToRag = () => undefined;
+  return {
+    service,
+    findTask,
+    getWrites: () => writes,
+  };
+}
+
+test('merge approval commits source settlement and target update in one task-tree write', async () => {
+  const harness = createTaskMergeHarness(async () => 'AI 合并后的描述');
+  const result = await harness.service.applyTaskMerge(
+    'source-task',
+    'target-task',
+    { id: 'user-a', name: '研发甲' },
+  );
+
+  assert.equal(harness.getWrites(), 1);
+  assert.equal(result.source.status, 'pending_review');
+  const source = harness.findTask('source-task')!;
+  const target = harness.findTask('target-task')!;
+  assert.equal(source.status, 'archived');
+  assert.equal(source.pending_review_type, null);
+  assert.equal(source.pending_merge_target, null);
+  assert.deepEqual(source.subtasks, []);
+  assert.equal(target.description, 'AI 合并后的描述');
+  assert.deepEqual(
+    (target.subtasks as Array<Record<string, unknown>>).map((task) => task.task_id),
+    ['source-child'],
+  );
+});
+
+test('merge approval CAS preserves a concurrently edited target and leaves source pending', async () => {
+  let markAiStarted!: () => void;
+  let finishAi!: (description: string) => void;
+  const aiStarted = new Promise<void>((resolve) => { markAiStarted = resolve; });
+  const aiResult = new Promise<string>((resolve) => { finishAi = resolve; });
+  const harness = createTaskMergeHarness(async () => {
+    markAiStarted();
+    return aiResult;
+  });
+
+  const merge = harness.service.applyTaskMerge(
+    'source-task',
+    'target-task',
+    { id: 'user-a', name: '研发甲' },
+  );
+  await aiStarted;
+  const concurrentTarget = harness.findTask('target-task')!;
+  concurrentTarget.description = '管理员并发修改后的描述';
+  concurrentTarget.updated_at = '2026-09-01T02:00:00.000Z';
+  finishAi('基于旧快照生成的描述');
+
+  await assert.rejects(merge, /目标任务在合并审批期间已被修改/);
+  assert.equal(harness.getWrites(), 0);
+  assert.equal(harness.findTask('source-task')?.status, 'pending_review');
+  assert.equal(harness.findTask('source-task')?.pending_review_type, 'merge');
+  assert.equal(harness.findTask('target-task')?.description, '管理员并发修改后的描述');
+});
+
+test('merge approval propagates core failure without first clearing pending state', async () => {
+  const pendingTask = {
+    task_id: 'source-task',
+    title: '源任务',
+    status: 'pending_review',
+    pending_review_type: 'merge',
+    pending_merge_target: 'target-task',
+    pending_merge_requested_by: '研发甲',
+    pending_merge_requested_by_id: 'user-a',
+  };
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  let genericMutations = 0;
+  let failureNotices = 0;
+  service.assertTaskReviewAuthorized = async () => undefined;
+  service.findTaskAcrossStores = async () => pendingTask;
+  service.applyTaskMerge = async () => { throw new Error('atomic merge failed'); };
+  service.notifyTaskMergeFailure = async () => { failureNotices += 1; };
+  service.mutateTaskAcrossStores = async () => { genericMutations += 1; };
+
+  await assert.rejects(
+    () => service.updateTask(
+      'source-task',
+      { _review_action: 'approve', _reviewer_name: '管理员' },
+      { requesterUserId: 'admin-1', requesterName: '管理员', canEditAny: true },
+    ),
+    /atomic merge failed/,
+  );
+  assert.equal(genericMutations, 0);
+  assert.equal(failureNotices, 1);
+  assert.equal(pendingTask.status, 'pending_review');
+  assert.equal(pendingTask.pending_review_type, 'merge');
+});
+
+test('review approval fails closed if the task changes to merge after the special-path pre-read', async () => {
+  const storedTask: Record<string, unknown> = {
+    task_id: 'source-task',
+    status: 'pending_review',
+    pending_review_type: 'merge',
+    pending_merge_target: 'target-task',
+    primary_owner_user_id: 'admin-1',
+    subtasks: [],
+  };
+  const categories: Array<Record<string, unknown>> = [{
+    id: 'system-a',
+    children: [{ id: 'project-a', tasks: [storedTask] }],
+  }];
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  let writes = 0;
+  service.assertTaskReviewAuthorized = async () => undefined;
+  // 特殊路径预读仍看到 result；真正持锁改写时任务已经变成 merge。
+  service.findTaskAcrossStores = async () => ({
+    ...storedTask,
+    pending_review_type: 'result',
+  });
+  service.getIdentityContext = async () => ({ people: [], users: [] });
+  service.mutateTaskAcrossStores = async (
+    transform: (value: Array<Record<string, unknown>>) => { categories: unknown[]; found: boolean },
+  ) => {
+    const result = transform(categories);
+    if (result.found) writes += 1;
+    return { found: result.found, productId: 'prod-portable-o2' };
+  };
+
+  await assert.rejects(
+    () => service.updateTask(
+      'source-task',
+      { _review_action: 'approve' },
+      { requesterUserId: 'admin-1', requesterName: '管理员', canEditAny: true },
+    ),
+    /合并申请已变化，请刷新后重试/,
+  );
+  assert.equal(writes, 0);
+  assert.equal(storedTask.status, 'pending_review');
+  assert.equal(storedTask.pending_review_type, 'merge');
+});
+
+test('pending-review notification rechecks state after slow recipient lookup', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.taskTreeWriteLock = Promise.resolve();
+  let currentTask: Record<string, unknown> = {
+    task_id: 'task-1',
+    title: '待审任务',
+    status: 'pending_review',
+    pending_review_type: 'result',
+  };
+  let markLookupStarted!: () => void;
+  let finishLookup!: (admins: Array<{ id: string }>) => void;
+  const lookupStarted = new Promise<void>((resolve) => { markLookupStarted = resolve; });
+  const admins = new Promise<Array<{ id: string }>>((resolve) => { finishLookup = resolve; });
+  let messageWrites = 0;
+  service.getUsersWithAnyPermission = async () => {
+    markLookupStarted();
+    return admins;
+  };
+  service.findTaskAcrossStores = async () => currentTask;
+  service.createMessages = async () => { messageWrites += 1; };
+
+  const notification = service.notifyAdminsOfPendingReview(currentTask, {});
+  await lookupStarted;
+  currentTask = { ...currentTask, status: 'completed', pending_review_type: null };
+  finishLookup([{ id: 'admin-1' }]);
+  await notification;
+
+  assert.equal(messageWrites, 0, 'a settled review must not receive a late pending notification');
+});
+
 test('task patch cannot rewrite structural or server-owned idempotency fields', async () => {
   let categories: Array<Record<string, unknown>> = [{
     id: 'system-a',
@@ -1056,6 +1686,8 @@ test('task patch cannot rewrite structural or server-owned idempotency fields', 
         parent_task_id: 'parent-a',
         subtasks: [],
         creation_request_scope: 'server-scope',
+        creation_request_batch_hash: 'server-batch-hash',
+        creation_request_batch_size: 2,
       }],
     }],
   }];
@@ -1076,6 +1708,8 @@ test('task patch cannot rewrite structural or server-owned idempotency fields', 
       parent_task_id: 'forged-parent',
       subtasks: [{ task_id: 'forged-child' }],
       creation_request_scope: 'forged-scope',
+      creation_request_batch_hash: 'forged-batch-hash',
+      creation_request_batch_size: 99,
     },
     { requesterUserId: 'user-a', canEditAny: false },
   );
@@ -1084,6 +1718,8 @@ test('task patch cannot rewrite structural or server-owned idempotency fields', 
   assert.equal(task.parent_task_id, 'parent-a');
   assert.deepEqual(task.subtasks, []);
   assert.equal(task.creation_request_scope, 'server-scope');
+  assert.equal(task.creation_request_batch_hash, 'server-batch-hash');
+  assert.equal(task.creation_request_batch_size, 2);
 });
 
 test('ordinary members cannot delete tasks they do not participate in', async () => {

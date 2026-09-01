@@ -2569,7 +2569,7 @@ export class ChatToolsService {
           _reviewer_name: user.name,
           ...(decision === 'reject' ? { _reject_reason: String(entry.payload.reason ?? '') } : {}),
         } as Record<string, unknown>,
-        { requesterUserId: user.userId, requesterName: user.name, canEditAny: true },
+        { requesterUserId: user.userId, requesterName: user.name, canEditAny: true, permissions: user.permissions },
       );
       message = `已${decision === 'approve' ? '审批通过' : '驳回'}任务「${String(entry.payload.taskTitle ?? taskId)}」。`;
     } else if (entry.tool === 'generate_video') {

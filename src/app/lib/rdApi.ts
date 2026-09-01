@@ -930,11 +930,30 @@ export type RdCreateTaskInput = {
   pending_review_type?: "collaboration" | "result" | "proposal" | string | null;
 };
 
-export function createRdTask(payload: RdCreateTaskInput) {
+export function createRdTask(
+  payload: RdCreateTaskInput,
+  idempotency?: { requestId: string; requestIndex: number },
+) {
   return requestJson<RdTask>("/task-categories/tasks", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      ...payload,
+      ...(idempotency
+        ? { creation_request_id: idempotency.requestId, creation_request_index: idempotency.requestIndex }
+        : {}),
+    }),
   });
+}
+
+/** 普通顶层立项原子批量建任务；整批只写回一次，requestId 用于安全重试。 */
+export function createRdTasksBatch(tasks: RdCreateTaskInput[], requestId: string) {
+  return requestJson<{ ok: true; request_id: string; tasks: RdTask[] }>(
+    "/task-categories/tasks/create-batch",
+    {
+      method: "POST",
+      body: JSON.stringify({ request_id: requestId, tasks }),
+    },
+  ).then((result) => result.tasks);
 }
 
 /** 节点立项原子批量建子任务；requestId 在超时重试时保证同一批次不会重复落库。 */
@@ -1181,10 +1200,10 @@ export function fetchRdApprovalCandidates<TMember = unknown>() {
   return requestJson<TMember[]>("/approval-candidates");
 }
 
-export function saveRdApprovalFlows<TFlow>(payload: TFlow[]) {
+export function saveRdApprovalFlows<TFlow>(payload: TFlow[], baseFlows: TFlow[]) {
   return requestJson<TFlow[]>("/approval-flows", {
     method: "PUT",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ flows: payload, base_flows: baseFlows }),
   });
 }
 
@@ -1239,10 +1258,10 @@ export function fetchRdAiSettings() {
   return requestJson<RdAiSettingsPayload>("/ai-settings");
 }
 
-export function saveRdAiSettings(payload: RdAiSettingsPayload) {
+export function saveRdAiSettings(payload: RdAiSettingsPayload, baseUpdatedAt: string) {
   return requestJson<RdAiSettingsPayload>("/ai-settings", {
     method: "PUT",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ settings: payload, base_updated_at: baseUpdatedAt }),
   });
 }
 
