@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const page = readFileSync(new URL("../src/app/LoginPage.tsx", import.meta.url), "utf8");
+const recordFooter = readFileSync(
+  new URL("../src/app/components/SiteRecordFooter.tsx", import.meta.url),
+  "utf8",
+);
 
 test("登录入口保持仓库原有品牌视觉", () => {
   assert.match(
@@ -30,6 +34,8 @@ test("登录入口保持仓库原有品牌视觉", () => {
     page,
     /<SiteRecordFooter className="mt-4 w-full max-w-5xl border-white\/50 bg-white\/55" \/>/,
   );
+  assert.match(recordFooter, /tone = "light"/);
+  assert.match(recordFooter, /hover:text-indigo-600 focus-visible:ring-indigo-300/);
 
   for (const obsoleteHorizonPattern of [
     /horizon-theme/,

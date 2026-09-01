@@ -38,7 +38,7 @@ test("移动菜单使用标准 Sheet，焦点、Escape 和滚动锁不再手写"
 test("顶部、菜单和备案底栏覆盖安全区且所有操作目标至少 44px", () => {
   assert.match(shell, /pt-\[max\(0\.75rem,env\(safe-area-inset-top\)\)\]/);
   assert.match(shell, /pb-\[max\(0\.75rem,env\(safe-area-inset-bottom\)\)\]/);
-  assert.match(shell, /<SiteRecordFooter className="pb-\[max\(0\.5rem,env\(safe-area-inset-bottom\)\)\] backdrop-blur-none" \/>/);
+  assert.match(shell, /<SiteRecordFooter tone="horizon" className="pb-\[max\(0\.5rem,env\(safe-area-inset-bottom\)\)\] backdrop-blur-none" \/>/);
   assert.match(shell, /\[&_a\]:min-h-11/);
   assert.match(shell, /aria-label="打开菜单"[\s\S]{0,260}?className="[^"]*size-11/);
   assert.match(shell, /aria-label="关闭菜单"[\s\S]{0,180}?className="[^"]*size-11/);

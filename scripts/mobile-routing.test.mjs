@@ -103,7 +103,7 @@ test("桌面、移动端与登录页底部统一展示工信部及公安备案�
   );
   assert.match(recordFooterSource, /target="_blank"/);
   assert.match(recordFooterSource, /rel="noopener noreferrer"/);
-  assert.match(rootSource, /<SiteRecordFooter className="backdrop-blur-none" \/>/);
-  assert.match(shellSource, /<SiteRecordFooter className="pb-\[max\(0\.5rem,env\(safe-area-inset-bottom\)\)\] backdrop-blur-none" \/>/);
+  assert.match(rootSource, /<SiteRecordFooter tone="horizon" className="backdrop-blur-none" \/>/);
+  assert.match(shellSource, /<SiteRecordFooter tone="horizon" className="pb-\[max\(0\.5rem,env\(safe-area-inset-bottom\)\)\] backdrop-blur-none" \/>/);
   assert.match(loginSource, /<SiteRecordFooter className="mt-4 w-full max-w-5xl border-white\/50 bg-white\/55" \/>/);
 });

@@ -4,12 +4,20 @@ const ICP_RECORD_URL = "https://beian.miit.gov.cn/#/Integrated/index";
 const PUBLIC_SECURITY_RECORD_CODE = "32011202001840";
 const PUBLIC_SECURITY_RECORD_URL = `https://www.beian.gov.cn/portal/registerSystemInfo?recordcode=${PUBLIC_SECURITY_RECORD_CODE}`;
 
-export function SiteRecordFooter({ className, tone = "light" }: { className?: string; tone?: "light" | "dark" }) {
+export function SiteRecordFooter({
+  className,
+  tone = "light",
+}: {
+  className?: string;
+  tone?: "light" | "dark" | "horizon";
+}) {
   const linkClassName = cn(
     "rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-2",
     tone === "dark"
       ? "hover:text-blue-100 focus-visible:ring-blue-200"
-      : "hover:text-[#002fa7] focus-visible:ring-[#8cb4ff]",
+      : tone === "horizon"
+        ? "hover:text-[#002fa7] focus-visible:ring-[#8cb4ff]"
+        : "hover:text-indigo-600 focus-visible:ring-indigo-300",
   );
 
   return (

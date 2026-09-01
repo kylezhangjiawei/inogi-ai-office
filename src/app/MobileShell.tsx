@@ -152,7 +152,7 @@ export function MobileLayout() {
           </main>
 
           <div className="border-t border-[#e9edf7] bg-white [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center [&_a]:justify-center [&_a]:rounded-lg [&_a]:px-2 [&_a]:active:text-[#002fa7]">
-            <SiteRecordFooter className="pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-none" />
+            <SiteRecordFooter tone="horizon" className="pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-none" />
           </div>
 
           <SheetContent

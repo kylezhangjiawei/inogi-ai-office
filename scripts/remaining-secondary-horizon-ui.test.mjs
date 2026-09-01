@@ -46,8 +46,8 @@ test("全局错误恢复入口在 Horizon 作用域外仍使用 Klein Blue 与�
 });
 
 test("业务外壳禁用页脚模糊但登录页继续保持原有调用样式", () => {
-  assert.match(root, /<SiteRecordFooter className="backdrop-blur-none" \/>/);
-  assert.match(mobileShell, /<SiteRecordFooter className="pb-\[max\(0\.5rem,env\(safe-area-inset-bottom\)\)\] backdrop-blur-none" \/>/);
+  assert.match(root, /<SiteRecordFooter tone="horizon" className="backdrop-blur-none" \/>/);
+  assert.match(mobileShell, /<SiteRecordFooter tone="horizon" className="pb-\[max\(0\.5rem,env\(safe-area-inset-bottom\)\)\] backdrop-blur-none" \/>/);
   assert.match(login, /<SiteRecordFooter className="mt-4 w-full max-w-5xl border-white\/50 bg-white\/55" \/>/);
 });
 
