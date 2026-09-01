@@ -60,13 +60,10 @@ import { t, useI18n } from "../lib/i18n";
 
 // ── 工具 ───────────────────────────────────────────────────────────────────────
 
-const card =
-  "rounded-lg border border-slate-200/80 bg-white/95 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_rgba(15,23,42,0.06)] dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-[0_2px_8px_rgba(0,0,0,0.32)]";
-const insetPanel =
-  "rounded-lg border border-slate-200/70 bg-slate-50/70 dark:border-slate-700/80 dark:bg-slate-800/35";
-const sectionTitle =
-  "text-sm font-semibold text-slate-800 dark:text-slate-100";
-const muted = "text-slate-500 dark:text-slate-400";
+const card = "rounded-xl border border-slate-200 bg-white shadow-sm";
+const insetPanel = "rounded-lg border border-slate-200 bg-slate-50/70";
+const sectionTitle = "text-balance text-sm font-semibold text-slate-800";
+const muted = "text-slate-500";
 const INITIAL_CHAT_MESSAGES = 12;
 const CHAT_PAGE_SIZE = 12;
 const currentChatUser = { id: "current-user", name: "当前用户" };
@@ -99,7 +96,7 @@ function MetaCell({ label, children }: { label: string; children: React.ReactNod
   return (
     <div className="rd-horizon-issue-meta-cell min-w-0">
       <dt className={cn("text-xs", muted)}>{label}</dt>
-      <dd className="mt-0.5 truncate text-sm font-medium text-slate-800 dark:text-slate-100">{children ?? "—"}</dd>
+      <dd className="mt-0.5 truncate text-sm font-medium text-slate-800">{children ?? "—"}</dd>
     </div>
   );
 }
@@ -122,10 +119,10 @@ function AttachmentRow({ att }: { att: Issue["attachments"][number] }) {
     }
   };
   return (
-    <li className="rd-horizon-issue-attachment rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/40">
+    <li className="rd-horizon-issue-attachment rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2">
       <div className="flex items-center gap-2">
         <Paperclip className="size-4 shrink-0 text-slate-400" />
-        <span className="min-w-0 flex-1 truncate text-sm text-slate-800 dark:text-slate-100" title={att.fileName}>
+        <span className="min-w-0 flex-1 truncate text-sm text-slate-800" title={att.fileName}>
           {att.fileName}
         </span>
         <button
@@ -133,7 +130,7 @@ function AttachmentRow({ att }: { att: Issue["attachments"][number] }) {
           onClick={copyLink}
           title={t("复制 OSS 文件链接")}
           aria-label={t("复制文件链接")}
-          className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 outline-none hover:bg-slate-200/70 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:text-slate-400 dark:hover:bg-slate-700"
+          className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 outline-none hover:bg-slate-200/70 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
         >
           <Copy className="size-3.5" />
           {t("复制链接")}
@@ -142,7 +139,7 @@ function AttachmentRow({ att }: { att: Issue["attachments"][number] }) {
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-indigo-700 outline-none hover:bg-indigo-50 focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:text-indigo-300 dark:hover:bg-indigo-500/10"
+            className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-[#002fa7] outline-none hover:bg-[#eef3ff] focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
             aria-expanded={open}
           >
             {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
@@ -151,7 +148,7 @@ function AttachmentRow({ att }: { att: Issue["attachments"][number] }) {
         )}
       </div>
       {hasText && open && (
-        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-slate-200 bg-white p-2 text-xs leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-slate-200 bg-white p-2 text-xs leading-relaxed text-slate-600">
           {att.extractedText}
         </pre>
       )}
@@ -175,7 +172,7 @@ function ChatAttachment({
         "group min-w-0 rounded-lg border px-2.5 py-2 text-xs",
         tone === "user"
           ? "border-white/20 bg-white/12 text-white"
-          : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300",
+          : "border-slate-200 bg-slate-50 text-slate-600",
       )}
     >
       {isImage && (
@@ -195,7 +192,7 @@ function ChatAttachment({
               "cursor-pointer rounded-full p-0.5 opacity-80 outline-none transition hover:opacity-100 focus-visible:ring-2",
               tone === "user"
                 ? "hover:bg-white/15 focus-visible:ring-white/50"
-                : "hover:bg-slate-200 focus-visible:ring-indigo-500/50 dark:hover:bg-slate-700",
+                : "hover:bg-slate-200 focus-visible:ring-[#002fa7]/30",
             )}
             aria-label={t("移除 {file}", { file: att.fileName })}
           >
@@ -204,7 +201,7 @@ function ChatAttachment({
         )}
       </div>
       {att.extractedText && (
-        <p className={cn("mt-1 line-clamp-2 text-[11px]", tone === "user" ? "text-white/70" : muted)}>
+        <p className={cn("mt-1 line-clamp-2 text-pretty text-[11px]", tone === "user" ? "text-white/70" : muted)}>
           {att.extractedText}
         </p>
       )}
@@ -228,13 +225,13 @@ function CauseCard({
   onAdopt: (cause: PossibleCause, solution: Solution) => void;
 }) {
   return (
-    <div className="rd-horizon-issue-cause-card rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-800/30">
+    <div className="rd-horizon-issue-cause-card rounded-lg border border-slate-200 bg-slate-50/70 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <DimensionChip value={cause.dimension} full />
         <LikelihoodIndicator value={cause.likelihood} />
-        <span className="min-w-0 flex-1 text-sm font-medium text-slate-800 dark:text-slate-100">{cause.cause}</span>
+        <span className="min-w-0 flex-1 text-balance text-sm font-medium text-slate-800">{cause.cause}</span>
       </div>
-      <p className={cn("mt-1.5 text-xs leading-relaxed", muted)}>{cause.evidence}</p>
+      <p className={cn("mt-1.5 text-pretty text-xs leading-relaxed", muted)}>{cause.evidence}</p>
       <ul className="mt-2.5 space-y-1.5">
         {cause.solutions.map((sol) => {
           const isAdopted = adoptedSolutionId === sol.id;
@@ -244,17 +241,15 @@ function CauseCard({
               key={sol.id}
               data-adopted={isAdopted || undefined}
               className={cn(
-                "rd-horizon-issue-solution flex flex-wrap items-center gap-2 rounded-md border bg-white px-2.5 py-1.5 dark:bg-slate-900",
-                isAdopted
-                  ? "border-emerald-300 dark:border-emerald-500/40"
-                  : "border-slate-200 dark:border-slate-700",
+                "rd-horizon-issue-solution flex flex-wrap items-center gap-2 rounded-md border bg-white px-2.5 py-1.5",
+                isAdopted ? "border-emerald-300" : "border-slate-200",
               )}
             >
-              <span className="min-w-0 flex-1 text-sm text-slate-700 dark:text-slate-200">{sol.action}</span>
+              <span className="min-w-0 flex-1 text-pretty text-sm text-slate-700">{sol.action}</span>
               <SolutionTypeBadge value={sol.type} />
               {sol.owner && <span className={cn("text-xs", muted)}>{t("责任：")}{sol.owner}</span>}
               {isAdopted ? (
-                <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-600">
                   <CheckCircle2 className="size-3.5" />
                   {t("已采纳")}
                 </span>
@@ -291,9 +286,7 @@ function MessageBubble({ msg, modelLabel }: { msg: IssueMessage; modelLabel?: st
       <span
         className={cn(
           "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full",
-          isUser
-            ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300"
-            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+          isUser ? "bg-[#eef3ff] text-[#002fa7]" : "bg-slate-100 text-slate-600",
         )}
       >
         {isUser ? <UserIcon className="size-4" /> : <Bot className="size-4" />}
@@ -303,7 +296,7 @@ function MessageBubble({ msg, modelLabel }: { msg: IssueMessage; modelLabel?: st
           <span>{isUser ? t(msg.author?.name ?? msg.operator ?? "操作人") : t("AI 助手")}</span>
           <Mono>{fmtTime(msg.createdAt)}</Mono>
           {!isUser && modelLabel && (
-            <span className="inline-flex items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1 py-0.5 text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+            <span className="inline-flex items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1 py-0.5 text-[10px] font-medium text-slate-500">
               <Cpu className="size-2.5" />
               {modelLabel}
             </span>
@@ -311,10 +304,8 @@ function MessageBubble({ msg, modelLabel }: { msg: IssueMessage; modelLabel?: st
         </div>
         <div
           className={cn(
-            "mt-1 inline-block whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm leading-relaxed",
-            isUser
-              ? "bg-indigo-600 text-white dark:bg-indigo-600"
-              : "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100",
+            "mt-1 inline-block whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-pretty text-sm leading-relaxed",
+            isUser ? "bg-[#002fa7] text-white" : "bg-slate-100 text-slate-800",
           )}
         >
           {attachments.length > 0 && (
@@ -408,10 +399,10 @@ function ChatPanel({
       }}
     >
       {dragActive && (
-        <div className="rd-horizon-issue-chat-dropzone pointer-events-none absolute inset-0 z-30 m-3 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/85 dark:border-indigo-500/50 dark:bg-indigo-500/15">
-          <Paperclip className="size-7 text-indigo-500" />
-          <div className="text-sm font-medium text-indigo-700 dark:text-indigo-200">{t("松开鼠标上传文件")}</div>
-          <div className="text-xs text-indigo-400 dark:text-indigo-300/80">{t("支持任意图片与文档附件")}</div>
+        <div className="rd-horizon-issue-chat-dropzone pointer-events-none absolute inset-0 z-30 m-3 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#002fa7]/30 bg-[#eef3ff]/95">
+          <Paperclip className="size-7 text-[#002fa7]" />
+          <div className="text-sm font-medium text-[#002fa7]">{t("松开鼠标上传文件")}</div>
+          <div className="text-xs text-[#002fa7]/70">{t("支持任意图片与文档附件")}</div>
         </div>
       )}
       <div ref={scrollRef} onScroll={onScroll} className="rd-horizon-issue-chat-stream material-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3 sm:px-5">
@@ -419,13 +410,13 @@ function ChatPanel({
           <button
             type="button"
             onClick={onLoadMore}
-            className="mx-auto flex cursor-pointer rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 shadow-sm transition hover:border-indigo-200 hover:text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-indigo-300"
+            className="mx-auto flex cursor-pointer rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 shadow-sm transition-colors hover:border-[#002fa7]/25 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
           >
             {t("加载更早对话")}
           </button>
         )}
         {messages.length === 0 ? (
-          <p className={cn("rounded-lg bg-slate-50 px-3 py-6 text-center text-sm dark:bg-slate-800/40", muted)}>
+          <p className={cn("rounded-lg bg-slate-50 px-3 py-6 text-center text-pretty text-sm", muted)}>
             {t("暂无对话。可在下方补充信息以调整 AI 分析。")}
           </p>
         ) : (
@@ -443,7 +434,7 @@ function ChatPanel({
         )}
       </div>
 
-      <div className="rd-horizon-issue-chat-composer material-scrollbar max-h-[42%] shrink-0 overflow-y-auto border-t border-slate-200/70 bg-white/90 p-3 backdrop-blur dark:border-slate-700/80 dark:bg-slate-900/90 sm:p-4">
+      <div className="rd-horizon-issue-chat-composer material-scrollbar max-h-[42%] shrink-0 overflow-y-auto border-t border-slate-200 bg-white p-3 sm:p-4">
         {models.length > 0 && (() => {
           const current = models.find((m) => m.value === selectedModel);
           return (
@@ -456,7 +447,7 @@ function ChatPanel({
                   onChange={(e) => onSelectModel(e.target.value)}
                   disabled={sending}
                   aria-label={t("选择 AI 模型")}
-                  className="h-7 min-w-0 max-w-full rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                  className="h-7 min-w-0 max-w-full rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 disabled:cursor-not-allowed"
                 >
                   {models.map((m) => (
                     <option key={m.value} value={m.value}>
@@ -471,9 +462,9 @@ function ChatPanel({
               {current && (
                 <p className={cn("mt-1 pl-5 text-[11px]", muted)}>
                   {t("当前模型：")}
-                  <span className="text-slate-600 dark:text-slate-300">{current.provider}</span>
+                  <span className="text-slate-600">{current.provider}</span>
                   {" · "}
-                  <Mono className="text-slate-600 dark:text-slate-300">{current.model}</Mono>
+                  <Mono className="text-slate-600">{current.model}</Mono>
                   {" · "}
                   {t(current.usageLabel)}
                 </p>
@@ -527,7 +518,7 @@ function ChatPanel({
             placeholder={t("补充线索 / 提出调整方向…")}
             disabled={sending}
             aria-label={t("对话输入")}
-            className="max-h-24 min-h-10 resize-none rounded-lg border-slate-200 bg-slate-50 text-sm shadow-inner focus-visible:border-indigo-300 focus-visible:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-800/70"
+            className="max-h-24 min-h-10 resize-none rounded-lg border-slate-200 bg-slate-50 text-sm shadow-inner focus-visible:border-[#002fa7]/40 focus-visible:ring-[#002fa7]/20"
           />
           <Button onClick={onSend} disabled={!canSend} className="h-11 cursor-pointer px-3 disabled:cursor-not-allowed">
             {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
@@ -812,7 +803,7 @@ export function DetailView({
     return (
       <div className="rd-horizon-issue-state rd-horizon-issue-state--error mx-auto max-w-2xl px-4 py-16 text-center" role="alert">
         <AlertCircle className="mx-auto size-8 text-red-500" />
-        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{t("加载问题失败：")}{loadError}</p>
+        <p className="mt-3 text-pretty text-sm text-slate-600">{t("加载问题失败：")}{loadError}</p>
         <Button variant="outline" className="mt-4" onClick={onBack}>
           <ArrowLeft className="size-4" />
           {t("返回")}
@@ -911,7 +902,7 @@ export function DetailView({
       <button
         type="button"
         onClick={onBack}
-        className="rd-horizon-issue-back mb-3 inline-flex w-fit cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-sm font-medium text-slate-500 outline-none transition-colors hover:bg-white hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+        className="rd-horizon-issue-back mb-3 inline-flex w-fit cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-sm font-medium text-slate-500 outline-none transition-colors hover:bg-white hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
       >
         <ArrowLeft className="size-4" />
         {t("返回列表")}
@@ -925,17 +916,17 @@ export function DetailView({
             <div className="rd-horizon-issue-context-body p-4 sm:p-5">
               <div className="rd-horizon-issue-context-meta flex flex-wrap items-start justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Mono className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                  <Mono className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">
                     {issue.id}
                   </Mono>
                   <SeverityBadge value={issue.severity} />
                   <StatusBadge value={issue.status} />
                 </div>
-                <div className="text-right text-xs text-slate-500 dark:text-slate-400">
+                <div className="text-right text-xs text-slate-500">
                   {t("更新于")} <Mono>{fmtTime(issue.updatedAt)}</Mono>
                 </div>
               </div>
-              <h2 className="rd-horizon-issue-heading mt-3 max-w-5xl text-xl font-semibold leading-snug text-slate-950 dark:text-white">
+              <h2 className="rd-horizon-issue-heading mt-3 max-w-5xl text-balance text-xl font-semibold leading-snug text-slate-950">
                 {issue.title}
               </h2>
 
@@ -965,13 +956,13 @@ export function DetailView({
             <div className="rd-horizon-issue-section-heading flex items-center justify-between gap-3">
               <h2 className={sectionTitle}>{t("问题描述")}</h2>
               {issue.attachments.length > 0 && (
-                <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+                <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500 tabular-nums">
                   <Paperclip className="size-3.5" />
                   {t("{count} 个附件", { count: issue.attachments.length })}
                 </span>
               )}
             </div>
-            <p className="rd-horizon-issue-description-body mt-3 whitespace-pre-wrap rounded-lg bg-slate-50/70 px-3 py-2.5 text-sm leading-relaxed text-slate-700 dark:bg-slate-800/35 dark:text-slate-200">
+            <p className="rd-horizon-issue-description-body mt-3 whitespace-pre-wrap rounded-lg bg-slate-50/70 px-3 py-2.5 text-pretty text-sm leading-relaxed text-slate-700">
               {issue.description || <span className={muted}>{t("（无描述）")}</span>}
             </p>
             {issue.attachments.length > 0 && (
@@ -991,41 +982,41 @@ export function DetailView({
           {/* 当前采纳方案 */}
           <section className={cn(card, "rd-horizon-issue-adopted p-4")}>
             <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
-              <Pin className="size-4 text-indigo-500" />
+              <Pin className="size-4 text-[#002fa7]" />
               {t("当前采纳方案")}
             </h2>
             {!adopted ? (
-                <p className={cn("mt-2 rounded-lg bg-slate-50 px-3 py-3 text-sm dark:bg-slate-800/40", muted)}>
+                <p className={cn("mt-2 rounded-lg bg-slate-50 px-3 py-3 text-pretty text-sm", muted)}>
                   {t("尚未采纳方案")}
                 </p>
             ) : isReuse ? (
-                <div className="rd-horizon-issue-adopted-content mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
-                  <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">{t("复用历史方案")}</p>
+                <div className="rd-horizon-issue-adopted-content mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+                  <p className="text-xs font-medium text-emerald-700">{t("复用历史方案")}</p>
                   <p className={cn("mt-1 text-xs", muted)}>
-                    {t("来自")} <Mono className="text-slate-700 dark:text-slate-200">{adopted.kind === "reuse" ? adopted.reusedFrom : ""}</Mono>
+                    {t("来自")} <Mono className="text-slate-700">{adopted.kind === "reuse" ? adopted.reusedFrom : ""}</Mono>
                   </p>
                   {reusedAdopted && (
                       <div className="mt-2">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <DimensionChip value={reusedAdopted.cause.dimension} />
-                          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{reusedAdopted.cause.cause}</span>
+                          <span className="text-balance text-sm font-medium text-slate-800">{reusedAdopted.cause.cause}</span>
                         </div>
                         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                          <span className="text-sm text-slate-700 dark:text-slate-200">{reusedAdopted.solution.action}</span>
+                          <span className="text-pretty text-sm text-slate-700">{reusedAdopted.solution.action}</span>
                           <SolutionTypeBadge value={reusedAdopted.solution.type} />
                         </div>
                       </div>
                   )}
                 </div>
             ) : pinnedCause && pinnedSolution ? (
-                <div className="rd-horizon-issue-adopted-content mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+                <div className="rd-horizon-issue-adopted-content mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <DimensionChip value={pinnedCause.dimension} />
                     <LikelihoodIndicator value={pinnedCause.likelihood} />
                   </div>
-                  <p className="mt-1.5 text-sm font-medium text-slate-800 dark:text-slate-100">{pinnedCause.cause}</p>
+                  <p className="mt-1.5 text-balance text-sm font-medium text-slate-800">{pinnedCause.cause}</p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    <span className="text-sm text-slate-700 dark:text-slate-200">{pinnedSolution.action}</span>
+                    <span className="text-pretty text-sm text-slate-700">{pinnedSolution.action}</span>
                     <SolutionTypeBadge value={pinnedSolution.type} />
                   </div>
                   {pinnedSolution.owner && (
@@ -1033,7 +1024,7 @@ export function DetailView({
                   )}
                 </div>
             ) : (
-                <p className={cn("mt-2 rounded-lg bg-slate-50 px-3 py-3 text-sm dark:bg-slate-800/40", muted)}>
+                <p className={cn("mt-2 rounded-lg bg-slate-50 px-3 py-3 text-pretty text-sm", muted)}>
                   {t("已采纳方案（详情待加载）")}
                 </p>
             )}
@@ -1046,7 +1037,7 @@ export function DetailView({
                 <History className="size-4 text-slate-400" />
                 {t("版本与留痕")}
               </h2>
-              <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+              <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
                 <Lock className="size-2.5" />
                 {t("只增不改 · append-only")}
               </span>
@@ -1066,15 +1057,15 @@ export function DetailView({
                             className={cn(
                                 "size-2.5 shrink-0 rounded-full ring-2",
                                 v.isAdopted
-                                    ? "bg-emerald-500 ring-emerald-200 dark:ring-emerald-500/30"
-                                    : "bg-indigo-500 ring-indigo-200 dark:ring-indigo-500/30",
+                                    ? "bg-emerald-500 ring-emerald-200"
+                                    : "bg-[#002fa7] ring-[#eef3ff]",
                             )}
                         />
                       </span>
-                            <div className="min-w-0 flex-1 border-b border-slate-100 pb-2 last:border-0 dark:border-slate-800">
+                            <div className="min-w-0 flex-1 border-b border-slate-100 pb-2 last:border-0">
                               <div className="flex flex-wrap items-center gap-1.5">
-                                <Mono className="text-sm font-semibold text-slate-800 dark:text-slate-100">v{v.version}</Mono>
-                                <span className="rounded border border-slate-200 px-1 py-0.5 text-[10px] text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                                <Mono className="text-sm font-semibold text-slate-800">v{v.version}</Mono>
+                                <span className="rounded border border-slate-200 px-1 py-0.5 text-[10px] text-slate-500">
                             {t(triggerLabel(v.triggerType))}
                           </span>
                                 {v.basedOnVersion != null && (
@@ -1083,13 +1074,13 @@ export function DetailView({
                             </span>
                                 )}
                                 {v.isAdopted && (
-                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-600">
                               <CheckCircle2 className="size-3" />
                               {t("已采纳")}
                             </span>
                                 )}
                               </div>
-                              <p className={cn("mt-0.5 line-clamp-2 text-xs", muted)}>{v.summary}</p>
+                              <p className={cn("mt-0.5 line-clamp-2 text-pretty text-xs", muted)}>{v.summary}</p>
                               <p className={cn("mt-0.5 text-[10px]", muted)}>
                                 {v.createdBy} · {v.model} · <Mono>{fmtTime(v.createdAt)}</Mono>
                               </p>
@@ -1101,7 +1092,7 @@ export function DetailView({
 
             {/* 关键留痕事件（用户消息）摘要 */}
             {issue.messages.some((m) => m.role === "user") && (
-                <div className="rd-horizon-issue-adjustment-trail mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+                <div className="rd-horizon-issue-adjustment-trail mt-3 border-t border-slate-100 pt-3">
                   <h3 className={cn("flex items-center gap-1 text-[11px] font-medium", muted)}>
                     <FileText className="size-3" />
                     {t("调整留痕")}
@@ -1113,7 +1104,7 @@ export function DetailView({
                         .map((m) => (
                             <li key={m.id} className={cn("text-[11px] leading-snug", muted)}>
                               <Mono>{fmtTime(m.createdAt)}</Mono> · {m.operator ?? t("操作人")}：
-                              <span className="text-slate-600 dark:text-slate-300"> {m.content}</span>
+                              <span className="text-pretty text-slate-600"> {m.content}</span>
                             </li>
                         ))}
                   </ol>
@@ -1129,7 +1120,7 @@ export function DetailView({
           <motion.section {...fade} className={cn(card, "rd-horizon-issue-analysis p-4 sm:p-5 xl:max-h-[48%] xl:shrink-0 xl:overflow-y-auto")}>
             <div className="rd-horizon-issue-analysis-header flex flex-wrap items-center justify-between gap-2">
               <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
-                <Sparkles className="size-4 text-indigo-500" />
+                <Sparkles className="size-4 text-[#002fa7]" />
                 {t("AI 根因分析")}
               </h2>
               {totalVersions > 0 && shownVersion && (
@@ -1142,7 +1133,7 @@ export function DetailView({
                       value={shownVersion.version}
                       onChange={(e) => setViewVersion(Number(e.target.value))}
                       aria-label={t("查看历史版本")}
-                      className="h-7 rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                      className="h-7 rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
                     >
                       {analyses
                         .slice()
@@ -1160,27 +1151,27 @@ export function DetailView({
 
             {/* a. 复用历史方案块（无分析版本时） */}
             {isReuse && analyses.length === 0 && (
-              <div className="rd-horizon-issue-reuse mt-3 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 dark:border-indigo-500/30 dark:bg-indigo-500/10">
-                <p className="flex items-center gap-1.5 text-sm font-medium text-indigo-800 dark:text-indigo-200">
+              <div className="rd-horizon-issue-reuse mt-3 rounded-lg border border-[#002fa7]/20 bg-[#eef3ff] p-3">
+                <p className="flex items-center gap-1.5 text-balance text-sm font-medium text-[#002fa7]">
                   <CheckCircle2 className="size-4" />
                   {t("已复用历史方案")}
                 </p>
                 <p className={cn("mt-1 text-xs", muted)}>
-                  {t("复用自")} <Mono className="text-indigo-700 dark:text-indigo-300">{adopted?.kind === "reuse" ? adopted.reusedFrom : ""}</Mono>
+                  {t("复用自")} <Mono className="text-[#002fa7]">{adopted?.kind === "reuse" ? adopted.reusedFrom : ""}</Mono>
                 </p>
                 {reusedAdopted ? (
-                  <div className="rd-horizon-issue-reuse-content mt-2 rounded-md border border-slate-200 bg-white px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900">
+                  <div className="rd-horizon-issue-reuse-content mt-2 rounded-md border border-slate-200 bg-white px-2.5 py-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <DimensionChip value={reusedAdopted.cause.dimension} full />
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{reusedAdopted.cause.cause}</span>
+                      <span className="text-balance text-sm font-medium text-slate-800">{reusedAdopted.cause.cause}</span>
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                      <span className="text-sm text-slate-700 dark:text-slate-200">{reusedAdopted.solution.action}</span>
+                      <span className="text-pretty text-sm text-slate-700">{reusedAdopted.solution.action}</span>
                       <SolutionTypeBadge value={reusedAdopted.solution.type} />
                     </div>
                   </div>
                 ) : (
-                  <p className={cn("mt-2 text-xs", muted)}>{t("（历史方案详情可在下方对话调整中进一步细化）")}</p>
+                  <p className={cn("mt-2 text-pretty text-xs", muted)}>{t("（历史方案详情可在下方对话调整中进一步细化）")}</p>
                 )}
               </div>
             )}
@@ -1190,8 +1181,8 @@ export function DetailView({
               ((issue.status === "pending" || issue.status === "analyzing") &&
                 analyses.length === 0 &&
                 !isReuse)) && (
-              <div className="rd-horizon-issue-analysis-loading mt-3 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300">
-                <Loader2 className="size-4 animate-spin text-indigo-500" />
+              <div className="rd-horizon-issue-analysis-loading mt-3 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-pretty text-sm text-slate-600">
+                <Loader2 className="size-4 animate-spin text-[#002fa7]" />
                 {t("AI 正在分析根因，请稍候…")}
               </div>
             )}
@@ -1200,12 +1191,12 @@ export function DetailView({
             {shownVersion && (
               <div className="rd-horizon-issue-analysis-result mt-3 space-y-3">
                 {!isLatestShown && (
-                  <p className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                  <p className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
                     <Lock className="size-3" />
                     {t("历史版本 · 只读")}
                   </p>
                 )}
-                <p className="rd-horizon-issue-analysis-summary rounded-lg border border-indigo-100 bg-indigo-50/45 px-3 py-2.5 text-sm leading-relaxed text-slate-700 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-slate-200">
+                <p className="rd-horizon-issue-analysis-summary rounded-lg border border-[#002fa7]/15 bg-[#eef3ff] px-3 py-2.5 text-pretty text-sm leading-relaxed text-slate-700">
                   {shownVersion.summary}
                 </p>
                 {shownVersion.content.referencedCases.length > 0 && (
@@ -1214,7 +1205,7 @@ export function DetailView({
                     {shownVersion.content.referencedCases.map((c, i) => (
                       <React.Fragment key={c}>
                         {i > 0 && "、"}
-                        <Mono className="text-slate-600 dark:text-slate-300">{c}</Mono>
+                        <Mono className="text-slate-600">{c}</Mono>
                       </React.Fragment>
                     ))}
                   </p>
@@ -1237,15 +1228,15 @@ export function DetailView({
 
           {/* 4) 对话调整（留痕） */}
           <motion.section {...fade} className={cn(card, "rd-horizon-issue-conversation flex min-h-[24rem] flex-1 flex-col overflow-hidden p-0 xl:min-h-0")}>
-            <div className="rd-horizon-issue-conversation-header shrink-0 border-b border-slate-200/70 px-4 py-3 dark:border-slate-700/80 sm:px-5">
+            <div className="rd-horizon-issue-conversation-header shrink-0 border-b border-slate-200 px-4 py-3 sm:px-5">
               <div className="flex items-center justify-between gap-3">
                 <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
                   <History className="size-4 text-slate-400" />
                   {t("对话调整（留痕）")}
                 </h2>
-                <span className={cn("shrink-0 text-xs", muted)}>{t("{count} 条", { count: issue.messages.length })}</span>
+                <span className={cn("shrink-0 text-xs tabular-nums", muted)}>{t("{count} 条", { count: issue.messages.length })}</span>
               </div>
-              <p className={cn("mt-1 text-xs", muted)}>{t("每次调整都会生成新的分析版本，对话只增不改。")}</p>
+              <p className={cn("mt-1 text-pretty text-xs", muted)}>{t("每次调整都会生成新的分析版本，对话只增不改。")}</p>
             </div>
             <ChatPanel
               messages={visibleMessages}

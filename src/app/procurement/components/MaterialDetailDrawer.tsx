@@ -1,194 +1,382 @@
-// 物料详情抽屉：基本信息 + 库存与到货时间线 + 历史价格对比 + 关联采购任务列表 + 待审核物料的审核区。
-import { useState } from "react";
-import { Input } from "../../components/ui/input";
-import { HelpCircle, Loader2, Pencil } from "lucide-react";
+// 物料详情抽屉：主数据摘要 + 库存风险 + 到货时间线 + 历史价格 + 关联采购任务 + 审核区。
+import { useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  HelpCircle,
+  Image as ImageIcon,
+  Loader2,
+  Pencil,
+  TrendingUp,
+  Warehouse,
+} from "lucide-react";
 import { toast } from "sonner";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
+import { AutoTranslatedText } from "../../components/TranslatableText";
 import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 import { ScrollArea } from "../../components/ui/scroll-area";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
 import { cn } from "../../components/ui/utils";
-import { isTaskOfMaterial, materialAggregates, refreshProcurement, useProcurementData, type Material } from "../data";
+import { useI18n } from "../../lib/i18n";
 import { reviewMaterial } from "../../lib/procurementApi";
+import { isTaskOfMaterial, materialAggregates, refreshProcurement, useProcurementData, type Material } from "../data";
+import { ImageLightbox, StatusPill, fmtMoney, useProcCan } from "./common";
+import { materialSupplyRisk, type MaterialSupplyRisk } from "./MaterialTable";
 import { MaterialFormModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
-import { StatusPill, fmtMoney, useProcCan } from "./common";
-import { AutoTranslatedText } from "../../components/TranslatableText";
-import { useI18n } from "../../lib/i18n";
 
-function Info({ label, value }: { label: string; value: React.ReactNode }) {
+const RISK_STYLE: Record<MaterialSupplyRisk, string> = {
+  normal: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  low: "border-amber-200 bg-amber-50 text-amber-700",
+  shortage: "border-rose-200 bg-rose-50 text-rose-700",
+  unsynced: "border-slate-200 bg-slate-50 text-slate-600",
+};
+
+function Info({ label, value, numeric = false }: { label: string; value: React.ReactNode; numeric?: boolean }) {
   const { t } = useI18n();
-  return <div className="flex gap-2 py-0.5 text-sm"><span className="w-24 shrink-0 text-slate-400">{t(label)}</span><span className="text-slate-700">{value}</span></div>;
+  return (
+    <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-2 border-b border-slate-100 py-2 last:border-b-0">
+      <dt className="text-xs text-slate-500">{t(label)}</dt>
+      <dd className={cn("min-w-0 break-words text-sm font-medium text-slate-800", numeric && "tabular-nums")}>{value}</dd>
+    </div>
+  );
+}
+
+function ReviewBadge({ material }: { material: Material }) {
+  const { t } = useI18n();
+  const config = material.reviewStatus === "pending"
+    ? { label: "待审核", className: "border-amber-200 bg-amber-50 text-amber-700", Icon: AlertTriangle }
+    : material.reviewStatus === "rejected"
+      ? { label: "已驳回", className: "border-rose-200 bg-rose-50 text-rose-700", Icon: AlertTriangle }
+      : { label: "已通过", className: "border-emerald-200 bg-emerald-50 text-emerald-700", Icon: CheckCircle2 };
+  const Icon = config.Icon;
+  return (
+    <span className={cn("inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium", config.className)}>
+      <Icon aria-hidden="true" className="size-3" />
+      {t(config.label)}
+    </span>
+  );
 }
 
 export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { material: Material; onClose: () => void; onOpenTask: (taskId: string) => void }) {
   const { t } = useI18n();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [imageOpen, setImageOpen] = useState(false);
   const [reviewNote, setReviewNote] = useState("");
   const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const can = useProcCan();
   const { tasks } = useProcurementData();
 
-  // 审核就在详情里做：审核人此时能看到规格/库存/历史价格/关联任务等完整上下文
+  const { inTransit, taskCount } = useMemo(
+    () => materialAggregates(tasks, material),
+    [material, tasks],
+  );
+  const related = useMemo(
+    () => tasks.filter((t) => isTaskOfMaterial(t, material)),
+    [material, tasks],
+  );
+  const arrivals = useMemo(
+    () => related
+      .filter((task) => task.arrivedQty > 0)
+      .map((task) => ({ code: task.code, qty: task.arrivedQty, date: task.expectedArrivalDate ?? task.needDate })),
+    [related],
+  );
+  const warehouses = material.warehouses ?? [];
+  const inventoryReady = Boolean(material.tpInventoryCode?.trim() && material.inventorySyncedAt);
+  const risk = materialSupplyRisk(material, inTransit);
+  const RiskIcon = risk.Icon;
+
+  // 审核就在详情里做：审核人此时能看到规格、库存、历史价格和关联任务等完整上下文。
   const decide = async (reviewStatus: "approved" | "rejected") => {
     setReviewBusy(true);
+    setReviewError(null);
     try {
       await reviewMaterial(material.id, reviewStatus, reviewNote.trim() || undefined);
       await refreshProcurement();
       toast.success(t(reviewStatus === "approved" ? "已通过审核" : "已驳回"));
       setReviewNote("");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("审核失败"));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("审核失败");
+      setReviewError(message);
+      toast.error(message);
     } finally {
       setReviewBusy(false);
     }
   };
-  const { inTransit, taskCount } = materialAggregates(tasks, material);
-  const warehouses = material.warehouses ?? [];
-  const related = tasks.filter((t) => isTaskOfMaterial(t, material));
-  // 到货时间线（从关联任务的到货聚合，V1 单边只增）
-  const arrivals = related.filter((t) => t.arrivedQty > 0).map((t) => ({ code: t.code, qty: t.arrivedQty, date: t.expectedArrivalDate ?? t.needDate }));
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <SheetContent side="right" className="w-[640px] gap-0 p-0 sm:max-w-[640px]" aria-describedby={undefined}>
-        <SheetHeader className="border-b border-slate-100 px-6 py-4">
-          {/* pr-8 给 SheetContent 自带的关闭 X 留位 */}
-          <div className="flex items-start justify-between pr-8">
-            <div>
-              <div className="flex items-center gap-2">
-                <SheetTitle className="text-lg font-bold text-slate-900"><AutoTranslatedText as="span" text={material.name} /></SheetTitle>
-                {material.isSpecial && <span className="rounded border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[11px] text-purple-600">{t('特殊物料')}</span>}
-                {material.reviewStatus === "pending" ? <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700">{t('待审核')}</span> : <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700">{t('已审核')}</span>}
+    <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <SheetContent side="right" className="proc-horizon-drawer w-full max-w-full gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:w-[680px] sm:max-w-[680px]" aria-describedby={undefined}>
+        <SheetHeader className="border-b border-slate-200 bg-slate-50/60 px-5 py-4 sm:px-6">
+          <div className="flex min-w-0 items-start justify-between gap-4 pr-8">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <SheetTitle className="min-w-0 text-balance text-lg font-bold text-slate-900">
+                  <AutoTranslatedText as="span" text={material.name} />
+                </SheetTitle>
+                {material.isSpecial && <span className="rounded-md border border-[#cbd8f6] bg-[#eef3ff] px-1.5 py-0.5 text-[11px] font-medium text-[#002fa7]">{t("特殊物料")}</span>}
+                <ReviewBadge material={material} />
               </div>
-              <AutoTranslatedText as="div" className="mt-0.5 text-sm text-slate-500" text={`${material.spec} · ${material.category} · ${material.productLine}`} />
+              <AutoTranslatedText as="div" className="mt-1 truncate text-sm text-slate-600" text={material.spec || "—"} />
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-slate-500">
+                <span>{t("ERP 编码")}：{material.erpCode || "—"}</span>
+                <span>{t("T+ 编码")}：{material.tpInventoryCode || t("未关联")}</span>
+              </div>
             </div>
-            {can("proc-task:create") && <Button type="button" variant="outline" size="sm" onClick={() => setEditOpen(true)} title={t('编辑物料主数据')} className="h-7 rounded-lg px-2.5 text-xs text-slate-600"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</Button>}
+            {can("proc-task:create") && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setEditOpen(true)} className="h-8 shrink-0 rounded-lg px-2.5 text-xs text-slate-700">
+                <Pencil aria-hidden="true" className="size-3.5" />
+                {t("编辑")}
+              </Button>
+            )}
           </div>
         </SheetHeader>
 
         <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-4 px-6 py-4">
-          {/* 审核区：待审核物料 + 持审核权限者可见；核对下方完整信息后再决定 */}
-          {material.reviewStatus === "pending" && can("material:review") && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-amber-800">{t('待审核物料')}</span>
-                <span className="text-[11px] text-amber-600">{t(material.reviewSource === "import" ? "来源：批量导入" : material.reviewSource === "manual" ? "来源：手工新建" : "来源：任务沉淀")}</span>
-              </div>
-              <p className="mt-1 text-xs text-amber-700">{t('请核对下方规格、分类、历史价格与关联任务后决定；驳回原因会写入审核记录。')}</p>
-              <div className="mt-2 flex items-center gap-2">
-                <Input
-                  value={reviewNote}
-                  onChange={(e) => setReviewNote(e.target.value)}
-                  placeholder={t('备注 / 驳回原因（可选）')}
-                  className="h-8 flex-1 rounded-lg border border-amber-200 bg-white px-2 text-sm outline-none focus:border-amber-400"
+          <div className="space-y-4 px-4 py-4 sm:px-6">
+            {material.reviewStatus === "pending" && can("material:review") && (
+              <section aria-labelledby="material-review-title" className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 id="material-review-title" className="text-balance text-sm font-semibold text-amber-900">{t("待审核物料")}</h3>
+                  <span className="text-[11px] text-amber-700">
+                    {t(material.reviewSource === "import" ? "来源：批量导入" : material.reviewSource === "manual" ? "来源：手工新建" : "来源：任务沉淀")}
+                  </span>
+                </div>
+                <p className="mt-1 text-pretty text-xs text-amber-800">{t("请核对主数据、库存风险、历史价格与关联任务后决定；驳回原因会写入审核记录。")}</p>
+                <label htmlFor="material-review-note" className="mt-3 block">
+                  <span className="mb-1 block text-[11px] font-semibold text-amber-900">{t("审核意见")}</span>
+                  <Input
+                    id="material-review-note"
+                    value={reviewNote}
+                    onChange={(event) => setReviewNote(event.target.value)}
+                    placeholder={t("补充审核备注或驳回原因（可选）")}
+                    className="h-9 border-amber-200 bg-white text-sm focus-visible:ring-amber-400/30"
+                  />
+                </label>
+                {reviewError && <p role="alert" className="mt-2 text-pretty text-xs font-medium text-rose-700">{reviewError}</p>}
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                  <Button type="button" size="sm" disabled={reviewBusy} onClick={() => void decide("approved")} className="h-8 bg-emerald-600 px-3 text-xs text-white hover:bg-emerald-700">
+                    {reviewBusy && <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />}
+                    {reviewBusy ? t("处理中") : t("通过审核")}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" disabled={reviewBusy} onClick={() => void decide("rejected")} className="h-8 border-rose-200 bg-white px-3 text-xs text-rose-700 hover:bg-rose-50 hover:text-rose-800">{t("驳回")}</Button>
+                </div>
+              </section>
+            )}
+
+            {material.reviewNote && (
+              <section
+                aria-labelledby="material-review-record-title"
+                className={cn(
+                  "flex items-start gap-3 rounded-xl border p-4",
+                  material.reviewStatus === "rejected"
+                    ? "border-rose-200 bg-rose-50/60"
+                    : "border-slate-200 bg-slate-50",
+                )}
+              >
+                <AlertTriangle
+                  aria-hidden="true"
+                  className={cn(
+                    "mt-0.5 size-4 shrink-0",
+                    material.reviewStatus === "rejected" ? "text-rose-600" : "text-slate-500",
+                  )}
                 />
-                <Button type="button" size="sm" disabled={reviewBusy} onClick={() => void decide("approved")} className="h-8 rounded-lg bg-emerald-600 px-3 text-xs text-white hover:bg-emerald-700">
-                  {reviewBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t('通过')}
-                </Button>
-                <Button type="button" variant="outline" size="sm" disabled={reviewBusy} onClick={() => void decide("rejected")} className="h-8 rounded-lg border-rose-200 bg-rose-50 px-3 text-xs text-rose-600 hover:bg-rose-100 hover:text-rose-700">{t('驳回')}</Button>
-              </div>
-            </div>
-          )}
-
-          {/* 基本信息 */}
-          <div className="rounded-xl border border-slate-100 p-4">
-            <div className="mb-1 text-sm font-semibold text-slate-700">{t('基本信息')}</div>
-            <div className="grid grid-cols-2 gap-x-6">
-              <div>
-                <Info label="ERP 编码" value={material.erpCode} />
-                <Info label="单位" value={t(material.unit)} />
-                <Info label="分类" value={<AutoTranslatedText text={material.category} />} />
-                <Info label="产品线" value={<AutoTranslatedText text={material.productLine} />} />
-              </div>
-              <div>
-                <Info label="是否特殊" value={t(material.isSpecial ? "是" : "否")} />
-                <Info label="审核状态" value={
-                  material.reviewStatus === "pending"
-                    ? t('待审核（来源：{source}）', { source: t(material.reviewSource === "import" ? "批量导入" : material.reviewSource === "manual" ? "手工新建" : "任务沉淀") })
-                    : material.reviewStatus === "rejected"
-                      ? <>{t('已驳回')}{material.reviewNote && <>（<AutoTranslatedText text={material.reviewNote} />）</>}</>
-                      : t("已通过")
-                } />
-                <Info label="最新报价" value={`${fmtMoney(material.latestPrice)}${material.latestSupplier ? ` · ${material.latestSupplier}` : ""}`} />
-                <Info label="报价日期" value={material.latestQuoteDate ?? "—"} />
-              </div>
-            </div>
-          </div>
-
-          {/* 库存与到货时间线 */}
-          <div className="rounded-xl border border-slate-100 p-4">
-            <div className="mb-2 flex items-center gap-1 text-sm font-semibold text-slate-700">
-              {t('库存与到货')}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <HelpCircle className="h-3.5 w-3.5 text-slate-300" />
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-56">{t('V1 单边统计只增不减，不含领用扣减；V2 接 ERP 同步。')}</TooltipContent>
-              </Tooltip>
-            </div>
-            <div className="grid grid-cols-3 gap-1 rounded-lg bg-slate-50/70 py-2 text-center">
-              <div><div className="text-lg font-bold tabular-nums text-slate-900">{material.stockQty.toLocaleString()}</div><div className="text-[10px] text-slate-400">{t('当前库存')}</div></div>
-              <div><div className="text-lg font-bold tabular-nums text-indigo-600">{inTransit.toLocaleString()}</div><div className="text-[10px] text-slate-400">{t('在途')}</div></div>
-              <div><div className="text-lg font-bold tabular-nums text-slate-900">{taskCount}</div><div className="text-[10px] text-slate-400">{t('关联任务')}</div></div>
-            </div>
-            {warehouses.length > 0 && (
-              <div className="mt-3 overflow-hidden rounded-lg border border-slate-100">
-                <table className="w-full text-xs">
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr>
-                      <th className="px-3 py-1.5 text-left font-medium">{t('仓库')}</th>
-                      <th className="px-3 py-1.5 text-right font-medium">{t('现存量')}</th>
-                      <th className="px-3 py-1.5 text-right font-medium">{t('可用量')}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {warehouses.map((w) => (
-                      <tr key={w.name}>
-                        <td className="px-3 py-1.5 text-slate-800"><AutoTranslatedText text={w.name} /></td>
-                        <td className="px-3 py-1.5 text-right font-medium tabular-nums text-slate-900">{w.stock.toLocaleString()}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{w.available.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                <div className="min-w-0">
+                  <h3
+                    id="material-review-record-title"
+                    className={cn(
+                      "text-sm font-semibold",
+                      material.reviewStatus === "rejected" ? "text-rose-900" : "text-slate-900",
+                    )}
+                  >
+                    {t(material.reviewStatus === "rejected" ? "驳回原因" : "审核意见")}
+                  </h3>
+                  <AutoTranslatedText
+                    as="p"
+                    className={cn(
+                      "mt-1 break-words text-pretty text-sm",
+                      material.reviewStatus === "rejected" ? "text-rose-800" : "text-slate-700",
+                    )}
+                    text={material.reviewNote}
+                  />
+                </div>
+              </section>
             )}
-            <ul className="mt-3 space-y-1.5">
-              {arrivals.length === 0 ? <li className="text-xs text-slate-400">{t('暂无到货记录')}</li> : arrivals.map((a, i) => (
-                <li key={i} className="flex items-center gap-3 text-xs text-slate-600"><span className="h-2 w-2 rounded-full bg-emerald-500" /><span className="tabular-nums">{a.date}</span><span>{a.code}</span><span className="tabular-nums font-medium">+{a.qty.toLocaleString()}</span></li>
-              ))}
-            </ul>
-          </div>
 
-          {/* 历史价格对比入口 */}
-          <div className="flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-2.5 text-xs text-slate-600">
-            <span>{t('历史价格对比（跨供应商 / 趋势）')}</span>
-            <button type="button" onClick={() => setHistoryOpen(true)} className="font-medium text-indigo-600 hover:underline">{t('打开对比')} →</button>
-          </div>
+            <section aria-labelledby="material-summary-title" className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 id="material-summary-title" className="text-balance text-sm font-semibold text-slate-900">{t("物料摘要")}</h3>
+                <span className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium", RISK_STYLE[risk.tone])} title={t(risk.detail)}>
+                  <RiskIcon aria-hidden="true" className="size-3.5" />
+                  {t(risk.label)}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[112px_minmax(0,1fr)]">
+                {material.imageUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => setImageOpen(true)}
+                    aria-label={t("预览{name}的商品图片", { name: material.name })}
+                    className="group relative h-28 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                  >
+                    <img src={material.imageUrl} alt={t("{name}商品图片", { name: material.name })} loading="lazy" className="size-full object-cover" />
+                    <span className="absolute inset-x-0 bottom-0 bg-slate-900/75 px-2 py-1 text-center text-[10px] font-medium text-white">{t("点击预览")}</span>
+                  </button>
+                ) : (
+                  <div role="img" className="flex h-28 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-200 bg-slate-50 text-slate-400" aria-label={t("该物料暂未上传商品图片")}>
+                    <ImageIcon aria-hidden="true" className="size-5" />
+                    <span className="text-[10px]">{t("暂无图片")}</span>
+                  </div>
+                )}
+                <dl className="grid grid-cols-1 gap-x-5 sm:grid-cols-2">
+                  <Info label="单位" value={t(material.unit || "—")} />
+                  <Info label="分类" value={<AutoTranslatedText text={material.category || "未分类"} />} />
+                  <Info label="产品线" value={<AutoTranslatedText text={material.productLine || "—"} />} />
+                  <Info label="物料属性" value={t(material.isSpecial ? "特殊物料" : material.isConsumable ? "耗材" : "常规物料")} />
+                  <Info label="最新报价" value={`${fmtMoney(material.latestPrice)}${material.latestSupplier ? ` · ${material.latestSupplier}` : ""}`} numeric />
+                  <Info label="报价日期" value={material.latestQuoteDate ?? "—"} numeric />
+                </dl>
+              </div>
+              {material.remark && (
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                  <div className="text-[11px] font-semibold text-slate-500">{t("备注")}</div>
+                  <AutoTranslatedText as="p" className="mt-1 text-pretty text-sm text-slate-700" text={material.remark} />
+                </div>
+              )}
+            </section>
 
-          {/* 关联采购任务 */}
-          <div className="rounded-xl border border-slate-100 p-4">
-            <div className="mb-2 text-sm font-semibold text-slate-700">{t('关联采购任务（{count}）', { count: related.length })}</div>
-            {related.length === 0 ? <div className="text-xs text-slate-400">{t('暂无关联任务')}</div> : (
-              <ul className="space-y-1.5">
-                {related.map((task) => (
-                  <li key={task.id}>
-                    <button type="button" onClick={() => onOpenTask(task.id)} className={cn("flex w-full items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-left text-sm transition hover:border-indigo-200 hover:bg-indigo-50/40")}>
-                      <span className="flex items-center gap-2"><span className="text-slate-600">{task.code}</span><span className="text-xs text-slate-400">× {task.quantity} {t(task.unit)}</span></span>
-                      <StatusPill status={task.status} />
-                    </button>
-                  </li>
+            <section aria-labelledby="material-inventory-title" className="rounded-xl border border-slate-200 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Warehouse aria-hidden="true" className="size-4 text-[#002fa7]" />
+                  <h3 id="material-inventory-title" className="text-balance text-sm font-semibold text-slate-900">{t("库存与供应")}</h3>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" aria-label={t("查看库存口径说明")} className="rounded-md text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30">
+                        <HelpCircle aria-hidden="true" className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-64">{t("现存量、可用量和安全库存来自最近一次 T+ 同步；采购在途与关联任务由系统任务实时汇总。")}</TooltipContent>
+                  </Tooltip>
+                </div>
+                <span className="text-[11px] tabular-nums text-slate-500">
+                  {inventoryReady ? t("同步于 {time}", { time: material.inventorySyncedAt }) : t("库存数据待同步")}
+                </span>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 sm:grid-cols-4">
+                {[
+                  { label: t("现存量"), value: material.stockQty.toLocaleString(), className: "text-slate-900" },
+                  { label: t("可用量"), value: inventoryReady ? material.availableQty.toLocaleString() : "—", className: risk.tone === "shortage" || risk.tone === "low" ? "text-rose-700" : "text-slate-900" },
+                  { label: t("安全库存"), value: material.safeStock.toLocaleString(), className: "text-slate-900" },
+                  { label: t("采购在途"), value: inTransit.toLocaleString(), className: inTransit > 0 ? "text-[#002fa7]" : "text-slate-900" },
+                ].map((item) => (
+                  <div key={item.label} className="border-b border-r border-slate-100 px-3 py-2.5 last:border-r-0 sm:border-b-0">
+                    <div className={cn("text-lg font-bold tabular-nums", item.className)}>{item.value}</div>
+                    <div className="mt-0.5 text-[10px] text-slate-500">{item.label}</div>
+                  </div>
                 ))}
-              </ul>
-            )}
+              </div>
+
+              {warehouses.length > 0 ? (
+                <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200" role="region" aria-label={t("分仓库存明细")} tabIndex={0}>
+                  <table className="w-full min-w-[420px] text-xs">
+                    <caption className="sr-only">{t("分仓现存量与可用量")}</caption>
+                    <thead className="bg-slate-50 text-slate-600">
+                      <tr>
+                        <th scope="col" className="px-3 py-2 text-left font-semibold">{t("仓库")}</th>
+                        <th scope="col" className="px-3 py-2 text-right font-semibold">{t("现存量")}</th>
+                        <th scope="col" className="px-3 py-2 text-right font-semibold">{t("可用量")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {warehouses.map((warehouse) => (
+                        <tr key={warehouse.name} className="border-t border-slate-100">
+                          <td className="px-3 py-2 text-slate-800"><AutoTranslatedText text={warehouse.name} /></td>
+                          <td className="px-3 py-2 text-right font-semibold tabular-nums text-slate-900">{warehouse.stock.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate-700">{warehouse.available.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-pretty text-xs text-slate-500">{t("暂无分仓库存；完成 T+ 关联并同步后可查看仓库明细。")}</p>
+              )}
+
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <div className="mb-2 text-[11px] font-semibold text-slate-600">{t("最近到货")}</div>
+                {arrivals.length === 0 ? (
+                  <p className="text-xs text-slate-500">{t("暂无已登记的到货记录")}</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {arrivals.map((arrival, index) => (
+                      <li key={`${arrival.code}-${arrival.date}-${index}`} className="grid grid-cols-[auto_90px_minmax(0,1fr)_auto] items-center gap-2 text-xs text-slate-600">
+                        <CheckCircle2 aria-hidden="true" className="size-3.5 text-emerald-600" />
+                        <span className="tabular-nums">{arrival.date}</span>
+                        <span className="truncate">{arrival.code}</span>
+                        <span className="font-semibold tabular-nums text-slate-900">+{arrival.qty.toLocaleString()}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+
+            <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#dce5fa] bg-[#eef3ff] px-4 py-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <TrendingUp aria-hidden="true" className="size-4 shrink-0 text-[#002fa7]" />
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">{t("历史价格对比")}</h3>
+                  <p className="text-pretty text-[11px] text-slate-600">{t("查看跨供应商报价与价格趋势")}</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setHistoryOpen(true)} className="shrink-0 rounded-md px-2 py-1.5 text-xs font-semibold text-[#002fa7] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30">{t("打开对比")}</button>
+            </section>
+
+            <section aria-labelledby="material-related-title" className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 id="material-related-title" className="text-balance text-sm font-semibold text-slate-900">{t("关联采购任务")}</h3>
+                <span className="text-xs font-semibold tabular-nums text-slate-500">{taskCount}</span>
+              </div>
+              {related.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-5 text-center text-pretty text-xs text-slate-500">{t("暂无关联采购任务；后续任务关联此物料后会自动显示在这里。")}</div>
+              ) : (
+                <ul className="space-y-2">
+                  {related.map((task) => (
+                    <li key={task.id}>
+                      <button type="button" onClick={() => onOpenTask(task.id)} className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-left hover:border-[#cbd8f6] hover:bg-[#f6f8fd] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30">
+                        <span className="min-w-0">
+                          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-semibold tabular-nums text-slate-800">{task.code}</span>
+                            <span className="text-xs tabular-nums text-slate-500">{task.quantity.toLocaleString()} {t(task.unit)}</span>
+                          </span>
+                          <span className="mt-1 block truncate text-[11px] tabular-nums text-slate-500">
+                            {task.expectedArrivalDate ? `${t("预计到货")} ${task.expectedArrivalDate}` : `${t("需求日期")} ${task.needDate ?? "—"}`}
+                          </span>
+                        </span>
+                        <StatusPill status={task.status} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </div>
-        </div>
         </ScrollArea>
+
         <PriceHistoryModal materialName={material.name} open={historyOpen} onClose={() => setHistoryOpen(false)} />
         {editOpen && <MaterialFormModal material={material} onClose={() => setEditOpen(false)} />}
+        {imageOpen && material.imageUrl && (
+          <ImageLightbox
+            url={material.imageUrl}
+            alt={t("{name}商品图片预览", { name: material.name })}
+            onClose={() => setImageOpen(false)}
+          />
+        )}
       </SheetContent>
     </Sheet>
   );

@@ -17,7 +17,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { AnimatePresence, animate, motion, useReducedMotion } from "motion/react";
 import { toast } from "sonner";
 
 import {
@@ -92,9 +91,9 @@ type NodeHealth = "overdue" | "active" | "completed" | "closed" | "idle";
 const NODE_HEALTH_STYLE: Record<NodeHealth, { label: string; dot: string; badge: string; border: string }> = {
   overdue: {
     label: "有逾期",
-    dot: "bg-red-500",
-    badge: "bg-red-50 text-red-700",
-    border: "border-red-200",
+    dot: "bg-rose-500",
+    badge: "bg-rose-50 text-rose-700",
+    border: "border-rose-200",
   },
   active: {
     label: "进行中",
@@ -163,6 +162,8 @@ function getNodeMetrics(node: ProcTaskTreeNode, tasksById: Map<string, Procureme
   return { active, completed, health, latestTasks, overdue, progress, total };
 }
 
+type NodeMetrics = ReturnType<typeof getNodeMetrics>;
+
 function getTaskDescription(task: ProcurementTask) {
   const detail = task.consumableNote?.trim() || task.rdTaskTitle?.trim() || task.spec.trim();
   return [task.materialName, detail].filter(Boolean).join(" · ");
@@ -191,27 +192,26 @@ function PanoramaNodeCard({
   isRoot,
   isSelected,
   manageMode,
+  metrics,
   node,
   onAddChild,
   onDelete,
   onEdit,
   onSelect,
   materialsById,
-  tasksById,
 }: {
   isRoot: boolean;
   isSelected: boolean;
   manageMode: boolean;
+  metrics: NodeMetrics;
   node: ProcTaskTreeNode;
   onAddChild?: () => void;
   onDelete?: () => void;
   onEdit?: () => void;
   onSelect: () => void;
   materialsById: Map<string, Material>;
-  tasksById: Map<string, ProcurementTask>;
 }) {
   const { t } = useI18n();
-  const metrics = getNodeMetrics(node, tasksById);
   const health = NODE_HEALTH_STYLE[metrics.health];
   const locked = node.taskCount > 0;
   const stockQty = getNodeInventory(node, materialsById);
@@ -220,8 +220,8 @@ function PanoramaNodeCard({
   return (
     <div
       className={cn(
-        "group relative h-full overflow-hidden rounded-xl border bg-white shadow-sm transition-colors",
-        isSelected ? "border-indigo-300 ring-2 ring-indigo-100" : health.border,
+        "proc-horizon-system-card group relative h-full overflow-hidden rounded-xl border bg-white shadow-sm",
+        isSelected ? "border-[#8fa9e8] ring-2 ring-[#dce5fa]" : health.border,
         metrics.health === "idle" && "bg-slate-50/30",
       )}
     >
@@ -229,11 +229,11 @@ function PanoramaNodeCard({
         type="button"
         onClick={onSelect}
         className={cn(
-          "flex h-full min-h-44 w-full flex-col p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400",
+          "flex h-full min-h-44 w-full flex-col p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8fa9e8]",
           manageMode && "pb-14",
         )}
       >
-        <span className={cn("absolute inset-x-0 top-0 h-0.5", health.dot)} />
+        <span className={cn("proc-horizon-system-accent absolute inset-x-0 top-0 h-0.5", health.dot)} />
         <span className="flex w-full items-start gap-2">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
             <Layers3 className="size-4" />
@@ -269,7 +269,7 @@ function PanoramaNodeCard({
               </span>
               <span className="flex items-center gap-1.5">
                 {metrics.overdue > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-red-600">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-rose-600">
                     <AlertTriangle className="size-3" />
                     {metrics.overdue}
                   </span>
@@ -282,7 +282,7 @@ function PanoramaNodeCard({
               </span>
             </span>
 
-            <span className="mt-2 h-1 w-full overflow-hidden rounded-full bg-slate-100">
+            <span role="progressbar" aria-label={t("任务完成进度")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={metrics.progress} className="proc-horizon-task-progress-track mt-2 h-1 w-full overflow-hidden rounded-full bg-slate-100">
               <span className={cn("block h-full rounded-full", health.dot)} style={{ width: `${metrics.progress}%` }} />
             </span>
 
@@ -293,7 +293,7 @@ function PanoramaNodeCard({
                   const description = getTaskDescription(task);
                   return (
                     <span key={task.id} className="flex min-w-0 items-center gap-1.5 py-0.5 text-xs text-slate-600">
-                      <span className="size-1 shrink-0 rounded-full bg-indigo-400" />
+                      <span className="size-1 shrink-0 rounded-full bg-[#002fa7]" />
                       <span className="min-w-0 flex-1 truncate" title={description}>{description}</span>
                     </span>
                   );
@@ -303,7 +303,7 @@ function PanoramaNodeCard({
 
             <span className="mt-auto flex w-full items-center justify-between pt-3 text-xs text-slate-500">
               <span><strong className="font-semibold tabular-nums text-slate-800">{metrics.total}</strong> {t("任务")}</span>
-              <span><strong className="font-semibold tabular-nums text-indigo-600">{metrics.active}</strong> {t("进行中")}</span>
+              <span><strong className="font-semibold tabular-nums text-[#002fa7]">{metrics.active}</strong> {t("进行中")}</span>
               <span><strong className="font-semibold tabular-nums text-emerald-600">{metrics.completed}</strong> {t("完成")}</span>
             </span>
           </>
@@ -313,7 +313,7 @@ function PanoramaNodeCard({
       {manageMode && (
         <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
           {isRoot && onAddChild && (
-            <button type="button" onClick={onAddChild} aria-label={t("新增名称节点")} title={t("新增名称节点")} className="rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+            <button type="button" onClick={onAddChild} aria-label={t("新增名称节点")} title={t("新增名称节点")} className="rounded-md p-1.5 text-[#002fa7] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
               <FolderPlus className="size-3.5" />
             </button>
           )}
@@ -324,7 +324,7 @@ function PanoramaNodeCard({
               onClick={onEdit}
               aria-label={locked ? t("节点已有任务，不能修改") : t("修改节点")}
               title={locked ? t("节点已有任务，不能修改") : t("修改节点")}
-              className={cn("rounded-md p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400", locked ? "cursor-not-allowed text-slate-300" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800")}
+              className={cn("rounded-md p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]", locked ? "cursor-not-allowed text-slate-300" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800")}
             >
               {locked ? <LockKeyhole className="size-3.5" /> : <Pencil className="size-3.5" />}
             </button>
@@ -336,7 +336,7 @@ function PanoramaNodeCard({
               onClick={onDelete}
               aria-label={locked ? t("节点已有任务，不能删除") : t("删除节点")}
               title={locked ? t("节点已有任务，不能删除") : t("删除节点")}
-              className={cn("rounded-md p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400", locked ? "cursor-not-allowed text-slate-300" : "text-slate-500 hover:bg-red-50 hover:text-red-600")}
+              className={cn("rounded-md p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]", locked ? "cursor-not-allowed text-slate-300" : "text-slate-500 hover:bg-rose-50 hover:text-rose-600")}
             >
               <Trash2 className="size-3.5" />
             </button>
@@ -387,7 +387,6 @@ export function ProcurementSystemTree({
   onSaveCoreMaterials: (productId: string, materialIds: string[]) => Promise<void>;
 }) {
   const { t } = useI18n();
-  const shouldReduceMotion = useReducedMotion();
   const products = useProcurementProducts();
   const canEdit = usePermission("proc-task:create");
   const canDelete = usePermission("proc-task:delete");
@@ -401,12 +400,8 @@ export function ProcurementSystemTree({
   const [manageMode, setManageMode] = useState(false);
   const [editor, setEditor] = useState<TreeEditor | null>(null);
   const categoryNavRef = useRef<HTMLElement | null>(null);
-  const categoryScrollAnimationRef = useRef<{ stop: () => void } | null>(null);
   const treeRequestRef = useRef(0);
   const [categoryNavEdges, setCategoryNavEdges] = useState({ left: false, right: false });
-  const categoryTransition = shouldReduceMotion
-    ? { duration: 0 }
-    : { duration: 0.18, ease: "easeOut" as const };
 
   const taskFingerprint = useMemo(
     () => tasks
@@ -483,12 +478,22 @@ export function ProcurementSystemTree({
     [activeRootId, visibleRoots],
   );
   const visibleNodes = activeRoot ? activeRoot.children : visibleRoots;
-  const legend = useMemo(
-    () => (Object.keys(NODE_HEALTH_STYLE) as NodeHealth[]).map((health) => ({
-      count: visibleNodes.filter((node) => getNodeMetrics(node, tasksById).health === health).length,
-      health,
-    })),
+  const visibleNodeMetrics = useMemo(
+    () => new Map(visibleNodes.map((node) => [node.id, getNodeMetrics(node, tasksById)])),
     [tasksById, visibleNodes],
+  );
+  const legend = useMemo(
+    () => {
+      const counts = new Map<NodeHealth, number>();
+      for (const metrics of visibleNodeMetrics.values()) {
+        counts.set(metrics.health, (counts.get(metrics.health) ?? 0) + 1);
+      }
+      return (Object.keys(NODE_HEALTH_STYLE) as NodeHealth[]).map((health) => ({
+        count: counts.get(health) ?? 0,
+        health,
+      }));
+    },
+    [visibleNodeMetrics],
   );
 
   const updateCategoryNavEdges = useCallback(() => {
@@ -510,26 +515,13 @@ export function ProcurementSystemTree({
     return () => observer.disconnect();
   }, [updateCategoryNavEdges, visibleRoots.length]);
 
-  useEffect(() => () => categoryScrollAnimationRef.current?.stop(), []);
-
   const scrollCategoryNav = (direction: -1 | 1) => {
     const nav = categoryNavRef.current;
     if (!nav) return;
     const maxScrollLeft = Math.max(0, nav.scrollWidth - nav.clientWidth);
     const distance = Math.max(240, Math.round(nav.clientWidth * 0.6));
     const target = Math.min(maxScrollLeft, Math.max(0, nav.scrollLeft + direction * distance));
-    categoryScrollAnimationRef.current?.stop();
-    if (shouldReduceMotion) {
-      nav.scrollLeft = target;
-      return;
-    }
-    categoryScrollAnimationRef.current = animate(nav.scrollLeft, target, {
-      duration: 0.2,
-      ease: "easeOut",
-      onUpdate: (value) => {
-        nav.scrollLeft = value;
-      },
-    });
+    nav.scrollLeft = target;
   };
 
   const selectNode = (node: ProcTaskTreeNode | null) => {
@@ -573,13 +565,22 @@ export function ProcurementSystemTree({
       );
     }
     return (
-      <section className="material-card flex min-h-0 flex-1 items-center justify-center border-slate-200 bg-white shadow-sm">
+      <section className="proc-horizon-system-panorama material-card flex min-h-0 flex-1 items-center justify-center border-slate-200 bg-white shadow-sm">
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />{t("加载模块详情…")}</div>
+          <div aria-label={t("正在加载模块详情")} className="w-full max-w-2xl space-y-3 px-6">
+            <div className="h-6 w-48 rounded bg-slate-100" />
+            <div className="h-24 rounded-xl border border-slate-200 bg-slate-50" />
+            <div className="h-40 rounded-xl border border-slate-200 bg-slate-50" />
+          </div>
         ) : (
-          <div className="text-center">
-            <p className="text-sm font-medium text-slate-500">{error || t("模块不存在或已被删除")}</p>
-            <button type="button" onClick={() => onCloseModule?.()} className="mt-3 text-xs font-semibold text-indigo-600 hover:text-indigo-700">{t("返回子系统全景")}</button>
+          <div role={error ? "alert" : undefined} className="max-w-lg px-4 text-center">
+            <AlertTriangle className={cn("mx-auto size-7", error ? "text-rose-500" : "text-slate-300")} />
+            <p className={cn("mt-2 text-sm font-semibold", error ? "text-rose-700" : "text-slate-600")}>{error ? t("模块详情加载失败") : t("模块不存在或已被删除")}</p>
+            {error ? <p className="mt-1 text-pretty text-xs text-rose-600">{error}</p> : null}
+            <div className="mt-3 flex items-center justify-center gap-2">
+              {error ? <button type="button" onClick={() => void loadTree()} className="material-button-secondary px-3 py-1.5 text-xs">{t("重新加载")}</button> : null}
+              <button type="button" onClick={() => onCloseModule?.()} className="material-button-secondary px-3 py-1.5 text-xs">{t("返回子系统全景")}</button>
+            </div>
           </div>
         )}
       </section>
@@ -587,14 +588,14 @@ export function ProcurementSystemTree({
   }
 
   return (
-    <section className="material-card flex min-h-0 flex-1 flex-col overflow-hidden border-slate-200 bg-white shadow-sm">
+    <section className="proc-horizon-system-panorama material-card flex min-h-0 flex-1 flex-col overflow-hidden border-slate-200 bg-white shadow-sm">
       <header className="flex flex-wrap items-start justify-between gap-4 px-5 pb-4 pt-5">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
           {onShowTasks && (
             <button
               type="button"
               onClick={() => onShowTasks(activeProductId)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#cbd8f6] bg-[#eef3ff] px-3 text-xs font-semibold text-[#002fa7] hover:bg-[#e3ebff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]"
             >
               <LayoutDashboard className="size-3.5" />
               {t("返回任务驾驶舱")}
@@ -602,11 +603,11 @@ export function ProcurementSystemTree({
           )}
           <Tabs value={coreMode ? "core" : "panorama"} onValueChange={(value) => onCoreModeChange(value === "core")}>
             <TabsList aria-label={t("子系统全景视图")} className="h-9 rounded-lg bg-slate-100 p-1">
-            <TabsTrigger value="panorama" className="h-7 gap-1.5 rounded-md px-3 text-xs font-semibold text-slate-500 data-[state=active]:text-indigo-700">
+            <TabsTrigger value="panorama" className="h-7 gap-1.5 rounded-md px-3 text-xs font-semibold text-slate-500 data-[state=active]:text-[#002fa7]">
               <Layers3 className="size-3.5" />
               {t("分类全景")}
             </TabsTrigger>
-            <TabsTrigger value="core" className="h-7 gap-1.5 rounded-md px-3 text-xs font-semibold text-slate-500 data-[state=active]:text-indigo-700">
+            <TabsTrigger value="core" className="h-7 gap-1.5 rounded-md px-3 text-xs font-semibold text-slate-500 data-[state=active]:text-[#002fa7]">
               <PackageSearch className="size-3.5" />
               {t("核心配件")}
             </TabsTrigger>
@@ -629,16 +630,17 @@ export function ProcurementSystemTree({
               })}
             </div>
           )}
-          {!coreMode && <div className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-100">
+          {!coreMode && <div className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 focus-within:border-[#8fa9e8] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#dce5fa]">
             <Search className="size-3.5 text-slate-400" />
             <Input
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
+              aria-label={t("搜索采购分类与名称节点")}
               placeholder={t("搜索分类 / 名称 / 编码")}
               className="h-7 w-32 border-0 bg-transparent p-0 text-xs shadow-none outline-none focus-visible:ring-0 xl:w-36"
             />
             {keyword && (
-              <button type="button" onClick={() => setKeyword("")} aria-label={t("清空搜索")} className="rounded text-slate-400 hover:text-slate-700">
+              <button type="button" onClick={() => setKeyword("")} aria-label={t("清空搜索")} className="flex size-6 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
                 <X className="size-3" />
               </button>
             )}
@@ -646,7 +648,7 @@ export function ProcurementSystemTree({
           {!coreMode && canManage && (
             <>
               {manageMode && canEdit && (
-                <button type="button" onClick={() => setEditor({ mode: "add-root" })} className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100">
+                <button type="button" onClick={() => setEditor({ mode: "add-root" })} className="inline-flex items-center gap-1.5 rounded-lg border border-[#cbd8f6] bg-[#eef3ff] px-3 py-1.5 text-xs font-semibold text-[#002fa7] hover:bg-[#e3ebff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
                   <Plus className="size-3.5" />
                   {t("新增分类")}
                 </button>
@@ -655,8 +657,8 @@ export function ProcurementSystemTree({
                 type="button"
                 onClick={() => setManageMode((current) => !current)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold",
-                  manageMode ? "border-indigo-200 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-indigo-200 hover:text-indigo-700",
+                  "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
+                  manageMode ? "border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7]" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-[#cbd8f6] hover:text-[#002fa7]",
                 )}
               >
                 <Settings2 className="size-3.5" />
@@ -678,26 +680,19 @@ export function ProcurementSystemTree({
                 ? "bg-amber-500"
                 : product.status === "archived"
                   ? "bg-slate-400"
-                  : "bg-indigo-500";
+                  : "bg-[#002fa7]";
             return (
               <TabsTrigger
                 key={product.id}
                 value={product.id}
                 className={cn(
                   "relative h-12 flex-none gap-2 rounded-none border-0 bg-transparent px-4 text-sm font-semibold shadow-none data-[state=active]:bg-transparent data-[state=active]:shadow-none",
-                  isActive ? "text-indigo-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800",
+                  isActive ? "text-[#002fa7]" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800",
                 )}
               >
                 <span className={cn("size-2 rounded-full", dot)} />
                 <span className="max-w-56 truncate">{t(product.name)}</span>
-                {isActive && (
-                  <motion.span
-                    layoutId="procurement-product-active"
-                    aria-hidden="true"
-                    className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-indigo-500"
-                    transition={categoryTransition}
-                  />
-                )}
+                {isActive && <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[#002fa7]" />}
               </TabsTrigger>
             );
           })}
@@ -711,7 +706,7 @@ export function ProcurementSystemTree({
           onClick={() => scrollCategoryNav(-1)}
           disabled={!categoryNavEdges.left}
           aria-label={t("向左浏览采购分类")}
-          className="absolute left-2 top-1/2 z-10 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition-opacity duration-150 hover:border-indigo-200 hover:text-indigo-700 disabled:pointer-events-none disabled:opacity-30"
+          className="absolute left-2 top-1/2 z-10 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-[#cbd8f6] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8] disabled:pointer-events-none disabled:opacity-30"
         >
           <ChevronLeft className="size-4" />
         </button>
@@ -719,34 +714,26 @@ export function ProcurementSystemTree({
         <nav
           ref={categoryNavRef}
           onScroll={updateCategoryNavEdges}
-          onPointerDown={() => categoryScrollAnimationRef.current?.stop()}
-          onWheel={() => categoryScrollAnimationRef.current?.stop()}
           className="flex gap-1.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           aria-label={t("采购分类")}
         >
           <button
             type="button"
+            aria-pressed={!activeRoot}
             onClick={() => selectNode(null)}
             className={cn(
-              "relative isolate flex shrink-0 items-center rounded-lg border border-transparent px-3 py-1.5 text-xs font-semibold",
+              "relative isolate flex shrink-0 items-center rounded-lg border border-transparent px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
               !activeRoot
-                ? "text-indigo-700"
+                ? "text-[#002fa7]"
                 : "text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900",
             )}
           >
-            {!activeRoot && (
-              <motion.span
-                layoutId="procurement-category-active"
-                aria-hidden="true"
-                className="absolute inset-0 z-0 rounded-lg border border-indigo-200 bg-white shadow-sm"
-                transition={categoryTransition}
-              />
-            )}
+            {!activeRoot && <span aria-hidden="true" className="absolute inset-0 z-0 rounded-lg border border-[#cbd8f6] bg-white shadow-sm" />}
             <span className="relative z-10 flex items-center gap-2">
               {t("全部分类")}
               <span className={cn(
                 "rounded-full px-1.5 text-[11px] tabular-nums",
-                !activeRoot ? "bg-indigo-50 text-indigo-600" : "bg-slate-200/70 text-slate-500",
+                !activeRoot ? "bg-[#eef3ff] text-[#002fa7]" : "bg-slate-200/70 text-slate-500",
               )}>
                 {visibleRoots.length}
               </span>
@@ -758,28 +745,22 @@ export function ProcurementSystemTree({
               <button
                 key={root.id}
                 type="button"
+                aria-pressed={isActive}
                 onClick={() => selectNode(root)}
                 className={cn(
-                  "relative isolate flex shrink-0 items-center rounded-lg border border-transparent px-3 py-1.5 text-xs font-semibold",
+                  "relative isolate flex shrink-0 items-center rounded-lg border border-transparent px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
                   isActive
-                    ? "text-indigo-700"
+                    ? "text-[#002fa7]"
                     : "text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900",
                 )}
               >
-                {isActive && (
-                  <motion.span
-                    layoutId="procurement-category-active"
-                    aria-hidden="true"
-                    className="absolute inset-0 z-0 rounded-lg border border-indigo-200 bg-white shadow-sm"
-                    transition={categoryTransition}
-                  />
-                )}
+                {isActive && <span aria-hidden="true" className="absolute inset-0 z-0 rounded-lg border border-[#cbd8f6] bg-white shadow-sm" />}
                 <span className="relative z-10 flex items-center gap-2">
-                  <span className={cn("size-1.5 rounded-full", root.taskCount > 0 ? "bg-indigo-500" : "bg-slate-300")} />
+                  <span className={cn("size-1.5 rounded-full", root.taskCount > 0 ? "bg-[#002fa7]" : "bg-slate-300")} />
                   <span className="max-w-40 truncate">{root.name}</span>
                   <span className={cn(
                     "rounded-full px-1.5 text-[11px] tabular-nums",
-                    isActive ? "bg-indigo-50 text-indigo-600" : "bg-slate-200/70 text-slate-500",
+                    isActive ? "bg-[#eef3ff] text-[#002fa7]" : "bg-slate-200/70 text-slate-500",
                   )}>
                     {root.taskCount}
                   </span>
@@ -794,7 +775,7 @@ export function ProcurementSystemTree({
           onClick={() => scrollCategoryNav(1)}
           disabled={!categoryNavEdges.right}
           aria-label={t("向右浏览采购分类")}
-          className="absolute right-2 top-1/2 z-10 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition-opacity duration-150 hover:border-indigo-200 hover:text-indigo-700 disabled:pointer-events-none disabled:opacity-30"
+          className="absolute right-2 top-1/2 z-10 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-[#cbd8f6] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8] disabled:pointer-events-none disabled:opacity-30"
         >
           <ChevronRight className="size-4" />
         </button>
@@ -817,15 +798,15 @@ export function ProcurementSystemTree({
           />
         ) : <>
         {activeRoot && canManage && manageMode && (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#dce5fa] bg-[#eef3ff] px-3 py-2">
             <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-indigo-900">{activeRoot.name}</p>
-              <p className="text-[11px] text-indigo-600">{t("当前分类 · {count} 个名称节点", { count: activeRoot.children.length })}</p>
+              <p className="truncate text-xs font-semibold text-[#001f73]">{activeRoot.name}</p>
+              <p className="text-[11px] tabular-nums text-[#002fa7]">{t("当前分类 · {count} 个名称节点", { count: activeRoot.children.length })}</p>
             </div>
             <div className="flex items-center gap-1">
               {canEdit && (
                 <>
-                  <button type="button" onClick={() => setEditor({ mode: "add-child", parent: activeRoot })} className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1.5 text-[11px] font-semibold text-indigo-700 shadow-sm hover:bg-indigo-50">
+                  <button type="button" onClick={() => setEditor({ mode: "add-child", parent: activeRoot })} className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1.5 text-[11px] font-semibold text-[#002fa7] shadow-sm hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
                     <FolderPlus className="size-3.5" />
                     {t("新增名称")}
                   </button>
@@ -835,7 +816,7 @@ export function ProcurementSystemTree({
                     onClick={() => activeRoot.taskCount === 0 && setEditor({ mode: "edit", node: activeRoot })}
                     aria-label={activeRoot.taskCount > 0 ? t("节点已有任务，不能修改") : t("修改分类")}
                     title={activeRoot.taskCount > 0 ? t("节点已有任务，不能修改") : t("修改分类")}
-                    className={cn("rounded-md bg-white p-1.5 shadow-sm", activeRoot.taskCount > 0 ? "cursor-not-allowed text-slate-300" : "text-slate-500 hover:text-slate-800")}
+                    className={cn("rounded-md bg-white p-1.5 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]", activeRoot.taskCount > 0 ? "cursor-not-allowed text-slate-300" : "text-slate-500 hover:text-slate-800")}
                   >
                     {activeRoot.taskCount > 0 ? <LockKeyhole className="size-3.5" /> : <Pencil className="size-3.5" />}
                   </button>
@@ -848,7 +829,7 @@ export function ProcurementSystemTree({
                   onClick={() => activeRoot.taskCount === 0 && setEditor({ mode: "delete", node: activeRoot })}
                   aria-label={activeRoot.taskCount > 0 ? t("节点已有任务，不能删除") : t("删除分类")}
                   title={activeRoot.taskCount > 0 ? t("节点已有任务，不能删除") : t("删除分类")}
-                  className={cn("rounded-md bg-white p-1.5 shadow-sm", activeRoot.taskCount > 0 ? "cursor-not-allowed text-slate-300" : "text-slate-500 hover:text-red-600")}
+                  className={cn("rounded-md bg-white p-1.5 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]", activeRoot.taskCount > 0 ? "cursor-not-allowed text-slate-300" : "text-slate-500 hover:text-rose-600")}
                 >
                   <Trash2 className="size-3.5" />
                 </button>
@@ -857,47 +838,54 @@ export function ProcurementSystemTree({
           </div>
         )}
         {loading && roots.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 py-12 text-xs text-slate-400"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />{t("加载系统全景…")}</div>
+          <div aria-label={t("正在加载系统全景")} className="proc-horizon-system-grid grid gap-3">
+            {[0, 1, 2].map((item) => (
+              <div key={item} className="min-h-44 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center gap-3"><span className="size-8 rounded-lg bg-slate-100" /><span className="h-4 w-32 rounded bg-slate-100" /></div>
+                <div className="mt-5 h-8 w-20 rounded bg-slate-100" />
+                <div className="mt-3 h-2 w-full rounded bg-slate-100" />
+                <div className="mt-6 h-4 w-2/3 rounded bg-slate-100" />
+              </div>
+            ))}
+          </div>
         ) : error ? (
-          <button type="button" onClick={() => void loadTree()} className="w-full rounded-lg border border-dashed border-red-200 bg-red-50 px-3 py-8 text-xs text-red-600">{error}<span className="mt-1 block font-semibold">{t("点击重试")}</span></button>
+          <div role="alert" className="flex flex-col items-center rounded-lg border border-dashed border-rose-200 bg-rose-50 px-4 py-8 text-center">
+            <AlertTriangle className="size-7 text-rose-500" />
+            <p className="mt-2 text-sm font-semibold text-rose-700">{t("系统全景加载失败")}</p>
+            <p className="mt-1 max-w-xl text-pretty text-xs text-rose-600">{error}</p>
+            <button type="button" onClick={() => void loadTree()} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("重新加载")}</button>
+          </div>
         ) : visibleNodes.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center">
             <Layers3 className="mb-2 size-7 text-slate-300" />
             <p className="text-sm font-medium text-slate-500">{normalizedKeyword ? t("没有匹配的节点") : activeRoot ? t("该分类暂无名称节点") : t("暂无采购分类")}</p>
-            {canEdit && !normalizedKeyword && (
-              <button type="button" onClick={() => setEditor(activeRoot ? { mode: "add-child", parent: activeRoot } : { mode: "add-root" })} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50">
+            {normalizedKeyword ? (
+              <button type="button" onClick={() => setKeyword("")} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("清空搜索")}</button>
+            ) : canEdit ? (
+              <button type="button" onClick={() => setEditor(activeRoot ? { mode: "add-child", parent: activeRoot } : { mode: "add-root" })} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-[#cbd8f6] bg-white px-3 py-1.5 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
                 <Plus className="size-3.5" />
                 {activeRoot ? t("新增名称节点") : t("新增分类")}
               </button>
-            )}
+            ) : null}
           </div>
         ) : (
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={activeRoot?.id ?? "all-categories"}
-              initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4 }}
-              transition={categoryTransition}
-              className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
-            >
-              {visibleNodes.map((node) => (
+          <div key={activeRoot?.id ?? "all-categories"} className="proc-horizon-system-grid grid gap-3">
+            {visibleNodes.map((node) => (
                 <PanoramaNodeCard
                   key={node.id}
                   node={node}
+                  metrics={visibleNodeMetrics.get(node.id)!}
                   isRoot={!activeRoot}
                   isSelected={selected?.id === node.id}
                   manageMode={canManage && manageMode}
                   materialsById={materialsById}
-                  tasksById={tasksById}
                   onSelect={() => selectNode(node)}
                   onAddChild={canEdit && !activeRoot ? () => setEditor({ mode: "add-child", parent: node }) : undefined}
                   onEdit={canEdit ? () => node.taskCount === 0 && setEditor({ mode: "edit", node }) : undefined}
                   onDelete={canDelete ? () => node.taskCount === 0 && setEditor({ mode: "delete", node }) : undefined}
                 />
-              ))}
-            </motion.div>
-          </AnimatePresence>
+            ))}
+          </div>
         )}
         </>}
       </div>
@@ -907,11 +895,11 @@ export function ProcurementSystemTree({
         {!coreMode && selected && (
           <div className="flex items-center gap-3">
             {onShowTasks && (
-              <button type="button" onClick={() => onShowTasks(activeProductId)} className="cursor-pointer rounded-md bg-indigo-600 px-2.5 py-1 font-semibold text-white transition-colors duration-200 hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+              <button type="button" onClick={() => onShowTasks(activeProductId)} className="cursor-pointer rounded-md bg-[#002fa7] px-2.5 py-1 font-semibold text-white hover:bg-[#001f73] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
                 {t("查看筛选任务")} · {selected.taskCount}
               </button>
             )}
-            <button type="button" onClick={() => selectNode(null)} className="cursor-pointer font-semibold text-indigo-600 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+            <button type="button" onClick={() => selectNode(null)} className="cursor-pointer font-semibold text-[#002fa7] hover:text-[#001f73] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
               {t("清除筛选")}
             </button>
           </div>
@@ -958,7 +946,13 @@ function TreeEditorDialog({
   const [materialId, setMaterialId] = useState(target?.materialId ?? "");
   const [materialQuery, setMaterialQuery] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const deferredMaterialQuery = useDeferredValue(materialQuery.trim().toLowerCase());
+
+  const materialById = useMemo(
+    () => new Map(materials.map((material) => [material.id, material])),
+    [materials],
+  );
 
   const sortedMaterials = useMemo(
     () => [...materials].sort((a, b) => `${a.erpCode} ${a.name}`.localeCompare(`${b.erpCode} ${b.name}`, "zh-CN")),
@@ -974,12 +968,12 @@ function TreeEditorDialog({
       ].some((value) => value?.toLowerCase().includes(deferredMaterialQuery)))
       : sortedMaterials;
     const options = matches.slice(0, MATERIAL_SELECT_LIMIT);
-    const selectedMaterial = materialId ? materials.find((material) => material.id === materialId) : null;
+    const selectedMaterial = materialId ? materialById.get(materialId) : null;
     if (selectedMaterial && !options.some((material) => material.id === selectedMaterial.id)) {
       options.unshift(selectedMaterial);
     }
     return { materialMatchCount: matches.length, materialOptions: options };
-  }, [deferredMaterialQuery, materialId, materials, sortedMaterials]);
+  }, [deferredMaterialQuery, materialById, materialId, sortedMaterials]);
 
   const title = editor.mode === "add-root" ? t("新增采购分类")
     : editor.mode === "add-child" ? t("在「{name}」下新增名称", { name: editor.parent.name })
@@ -987,11 +981,15 @@ function TreeEditorDialog({
     : isRoot ? t("修改采购分类") : t("修改名称节点");
 
   const submit = async () => {
+    if (saving) return;
     if (editor.mode !== "delete" && !name.trim()) {
-      toast.error(t("名称不能为空"));
+      const message = t("名称不能为空");
+      setSaveError(message);
+      toast.error(message);
       return;
     }
     setSaving(true);
+    setSaveError(null);
     try {
       if (editor.mode === "delete") {
         await deleteProcTaskTreeNode(editor.node.id);
@@ -1023,7 +1021,9 @@ function TreeEditorDialog({
         await onSaved(node);
       }
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : t("保存失败"));
+      const message = cause instanceof Error ? cause.message : t("保存失败");
+      setSaveError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -1033,9 +1033,9 @@ function TreeEditorDialog({
     const deletingNode = editor.node;
     return (
       <AlertDialog open onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
-        <AlertDialogContent className="sm:max-w-md">
+        <AlertDialogContent className="horizon-theme horizon-portal proc-horizon-overlay sm:max-w-md">
           <AlertDialogHeader>
-            <span className="mb-1 flex size-10 items-center justify-center rounded-xl bg-red-50 text-red-600">
+            <span className="mb-1 flex size-10 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
               <Trash2 className="size-4" />
             </span>
             <AlertDialogTitle className="text-balance text-base text-slate-950">{t("删除节点")}</AlertDialogTitle>
@@ -1049,6 +1049,7 @@ function TreeEditorDialog({
             </p>
           )}
           <p className="text-pretty text-xs text-slate-400">{t("服务端会再次检查任务数量；只要存在任务，删除就会被拒绝。")}</p>
+          {saveError ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700">{saveError}</p> : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={saving}>{t("取消")}</AlertDialogCancel>
             <AlertDialogAction
@@ -1057,7 +1058,7 @@ function TreeEditorDialog({
                 event.preventDefault();
                 void submit();
               }}
-              className="bg-red-600 text-white hover:bg-red-700"
+              className="bg-rose-600 text-white hover:bg-rose-700"
             >
               {saving && <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />}
               {t("确认删除")}
@@ -1070,10 +1071,10 @@ function TreeEditorDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
-      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0 sm:max-w-md">
+      <DialogContent className="horizon-theme horizon-portal proc-horizon-overlay flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0 sm:max-w-md">
         <DialogHeader className="shrink-0 border-b border-slate-100 px-5 py-4 pr-12">
           <div className="flex items-center gap-2.5">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+            <span className="flex size-9 items-center justify-center rounded-xl bg-[#eef3ff] text-[#002fa7]">
               {editor.mode === "edit" ? <Pencil className="size-4" /> : <FolderPlus className="size-4" />}
             </span>
             <div>
@@ -1095,7 +1096,7 @@ function TreeEditorDialog({
                   onChange={(event) => setMaterialQuery(event.target.value)}
                   placeholder={t("输入物料编码、名称或规格")}
                   autoComplete="off"
-                  className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
                 />
               </div>
               <label htmlFor="proc-system-material" className="mb-1.5 block text-xs font-medium text-slate-700">{t("关联物料（可选）")}</label>
@@ -1104,7 +1105,7 @@ function TreeEditorDialog({
                 onValueChange={(value) => {
                   const id = value === NO_MATERIAL_OPTION ? "" : value;
                   setMaterialId(id);
-                  const material = materials.find((item) => item.id === id);
+                  const material = materialById.get(id);
                   if (material) {
                     setName(material.name);
                     setCode(material.tpInventoryCode || material.erpCode || "");
@@ -1114,11 +1115,11 @@ function TreeEditorDialog({
               >
                 <SelectTrigger
                   id="proc-system-material"
-                  className="h-10 w-full rounded-lg border-slate-200 bg-white px-3 text-sm text-slate-700 focus-visible:border-indigo-300 focus-visible:ring-2 focus-visible:ring-indigo-100"
+                  className="h-10 w-full rounded-lg border-slate-200 bg-white px-3 text-sm text-slate-700 focus-visible:border-[#8fa9e8] focus-visible:ring-2 focus-visible:ring-[#dce5fa]"
                 >
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="z-[100] max-h-[min(18rem,var(--radix-select-content-available-height))] max-w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-1 shadow-xl motion-reduce:animate-none motion-reduce:transition-none">
+                <SelectContent className="z-50 max-h-[min(18rem,var(--radix-select-content-available-height))] max-w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-1 shadow-xl motion-reduce:animate-none motion-reduce:transition-none">
                   <SelectItem value={NO_MATERIAL_OPTION}>{t("不关联物料，仅创建目录节点")}</SelectItem>
                   {materialOptions.map((material) => (
                     <SelectItem key={material.id} value={material.id}>
@@ -1127,7 +1128,7 @@ function TreeEditorDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="mt-1.5 text-[11px] text-slate-500" aria-live="polite">
+              <p className="mt-1.5 text-[11px] tabular-nums text-slate-500" aria-live="polite">
                 {materialMatchCount > MATERIAL_SELECT_LIMIT
                   ? t("匹配 {count} 条，当前显示前 {limit} 条，请继续输入以缩小范围", { count: materialMatchCount, limit: MATERIAL_SELECT_LIMIT })
                   : t("匹配 {count} 条物料", { count: materialMatchCount })}
@@ -1136,19 +1137,21 @@ function TreeEditorDialog({
           )}
           <div>
             <label htmlFor="proc-system-node-name" className="mb-1.5 block text-xs font-medium text-slate-700">{isRoot ? t("分类名称") : t("节点名称")}</label>
-            <Input id="proc-system-node-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" />
+            <Input id="proc-system-node-name" autoFocus required aria-invalid={Boolean(saveError && !name.trim())} disabled={saving} value={name} onChange={(event) => { setName(event.target.value); if (saveError) setSaveError(null); }} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]" />
           </div>
           {!isRoot && (
             <div className="grid grid-cols-2 gap-3">
-              <div><label htmlFor="proc-system-code" className="mb-1.5 block text-xs font-medium text-slate-700">{t("物料编码")}</label><Input id="proc-system-code" value={code} onChange={(event) => setCode(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" /></div>
-              <div><label htmlFor="proc-system-spec" className="mb-1.5 block text-xs font-medium text-slate-700">{t("材质 / 型号")}</label><Input id="proc-system-spec" value={spec} onChange={(event) => setSpec(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" /></div>
+              <div><label htmlFor="proc-system-code" className="mb-1.5 block text-xs font-medium text-slate-700">{t("物料编码")}</label><Input id="proc-system-code" value={code} onChange={(event) => setCode(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm tabular-nums outline-none focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]" /></div>
+              <div><label htmlFor="proc-system-spec" className="mb-1.5 block text-xs font-medium text-slate-700">{t("材质 / 型号")}</label><Input id="proc-system-spec" value={spec} onChange={(event) => setSpec(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]" /></div>
             </div>
           )}
         </div>
 
+        {saveError ? <p role="alert" className="mx-5 mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700">{saveError}</p> : null}
+
         <DialogFooter className="shrink-0 border-t border-slate-100 bg-slate-50 px-5 py-3">
-          <button type="button" disabled={saving} onClick={onClose} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{t("取消")}</button>
-          <button type="button" disabled={saving} onClick={() => void submit()} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50">
+          <button type="button" disabled={saving} onClick={onClose} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8] disabled:opacity-50">{t("取消")}</button>
+          <button type="button" disabled={saving} onClick={() => void submit()} className="inline-flex items-center gap-1.5 rounded-lg bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#001f73] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8] disabled:opacity-50">
             {saving && <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />}
             {t("保存")}
           </button>

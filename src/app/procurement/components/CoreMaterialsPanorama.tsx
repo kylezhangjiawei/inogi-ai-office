@@ -96,7 +96,7 @@ function CoreInventoryTable({ items, preview = false }: { items: CoreMaterialCan
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
                   <AutoTranslatedText as="span" text={material.name} className="truncate text-sm font-semibold text-slate-800" />
-                  {preview ? <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600">{t("建议")}</span> : null}
+                  {preview ? <span className="shrink-0 rounded bg-[#eef3ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#002fa7]">{t("建议")}</span> : null}
                   <span className="shrink-0 text-[11px] text-slate-400">{material.spec || material.tpInventoryCode}</span>
                 </div>
                 <AutoTranslatedText as="p" text={paths.join("；")} className="mt-0.5 truncate text-[11px] text-slate-400" />
@@ -143,6 +143,7 @@ function InventoryFilterBar({
         <Input
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
+          aria-label={t("搜索核心配件库存")}
           placeholder={t("搜索名称、编码或子系统路径")}
           className="h-8 pl-9 text-xs"
         />
@@ -153,7 +154,7 @@ function InventoryFilterBar({
             key={filter.value}
             value={filter.value}
             size="sm"
-            className="h-8 flex-none rounded-lg px-2.5 text-xs font-semibold text-slate-500 data-[state=on]:bg-indigo-50 data-[state=on]:text-indigo-700"
+            className="h-8 flex-none rounded-lg px-2.5 text-xs font-semibold text-slate-500 data-[state=on]:bg-[#eef3ff] data-[state=on]:text-[#002fa7]"
           >
             {t(filter.label)}
           </ToggleGroupItem>
@@ -178,7 +179,7 @@ function InventoryPagination({
   const { t } = useI18n();
   return (
     <div className="flex items-center justify-between gap-3 px-1 py-1 text-xs text-slate-500">
-      <span>{t("共 {count} 项", { count: totalItems })}</span>
+      <span className="tabular-nums">{t("共 {count} 项", { count: totalItems })}</span>
       <Pagination className="mx-0 w-auto">
         <PaginationContent>
         <PaginationItem>
@@ -189,7 +190,7 @@ function InventoryPagination({
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
           aria-label={t("上一页")}
-          className="size-7 rounded-lg border-slate-200 text-slate-500 hover:border-indigo-200 hover:text-indigo-700"
+          className="size-7 rounded-lg border-slate-200 text-slate-500 hover:border-[#002fa7]/25 hover:text-[#002fa7]"
         >
           <ChevronLeft className="size-4" />
         </Button>
@@ -205,7 +206,7 @@ function InventoryPagination({
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
           aria-label={t("下一页")}
-          className="size-7 rounded-lg border-slate-200 text-slate-500 hover:border-indigo-200 hover:text-indigo-700"
+          className="size-7 rounded-lg border-slate-200 text-slate-500 hover:border-[#002fa7]/25 hover:text-[#002fa7]"
         >
           <ChevronRight className="size-4" />
         </Button>
@@ -253,6 +254,7 @@ export function CoreMaterialsPanorama({
   const [inventoryPage, setInventoryPage] = useState(1);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const candidates = useMemo(() => {
     const pathsByMaterialId = new Map<string, Set<string>>();
@@ -356,20 +358,20 @@ export function CoreMaterialsPanorama({
   };
 
   const toggleMaterial = (materialId: string, checked: boolean) => {
-    if (checked && !selectedIds.includes(materialId) && selectedIds.length >= maxItems) {
+    if (checked && !selectedIdSet.has(materialId) && selectedIds.length >= maxItems) {
       setSaveError(t("每个产品最多配置 {count} 个核心配件", { count: maxItems }));
       return;
     }
     setSaveError(null);
     setSelectedIds((current) => {
       if (!checked) return current.filter((id) => id !== materialId);
-      if (current.includes(materialId)) return current;
+      if (selectedIdSet.has(materialId)) return current;
       return [...current, materialId];
     });
   };
 
   const currentPageIds = configRows.map(({ material }) => material.id);
-  const currentPageSelectedCount = currentPageIds.filter((id) => selectedIds.includes(id)).length;
+  const currentPageSelectedCount = currentPageIds.filter((id) => selectedIdSet.has(id)).length;
   const allCurrentPageSelected = currentPageIds.length > 0 && currentPageSelectedCount === currentPageIds.length;
   const someCurrentPageSelected = currentPageSelectedCount > 0 && !allCurrentPageSelected;
 
@@ -380,7 +382,7 @@ export function CoreMaterialsPanorama({
       setSelectedIds((current) => current.filter((id) => !pageIdSet.has(id)));
       return;
     }
-    const unselectedPageIds = currentPageIds.filter((id) => !selectedIds.includes(id));
+    const unselectedPageIds = currentPageIds.filter((id) => !selectedIdSet.has(id));
     const remaining = Math.max(0, maxItems - selectedIds.length);
     const acceptedIds = unselectedPageIds.slice(0, remaining);
     if (acceptedIds.length < unselectedPageIds.length) {
@@ -389,7 +391,21 @@ export function CoreMaterialsPanorama({
         remaining: unselectedPageIds.length - acceptedIds.length,
       }));
     }
-    setSelectedIds((current) => [...current, ...acceptedIds.filter((id) => !current.includes(id))]);
+    setSelectedIds((current) => [...current, ...acceptedIds.filter((id) => !selectedIdSet.has(id))]);
+  };
+
+  const hasInventoryFilters = Boolean(inventorySearch.trim() || inventoryFilter !== "all");
+  const clearInventoryFilters = () => {
+    setInventorySearch("");
+    setInventoryFilter("all");
+    setInventoryPage(1);
+  };
+  const hasConfigFilters = Boolean(search.trim() || configSystem !== "all" || configTone !== "all");
+  const clearConfigFilters = () => {
+    setSearch("");
+    setConfigSystem("all");
+    setConfigTone("all");
+    setConfigPage(1);
   };
 
   const saveConfig = async () => {
@@ -413,15 +429,17 @@ export function CoreMaterialsPanorama({
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-balance text-base font-bold text-slate-900">{t("核心长周期配件")}</h2>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600">
-              {configured.length}/{maxItems}
+              {t("已配置")} {configured.length}/{maxItems}
             </span>
             {summary.shortage > 0 ? (
-              <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-rose-700">
+              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-rose-700">
+                <AlertTriangle className="size-3" />
                 {t("缺货")} {summary.shortage}
               </span>
             ) : null}
             {summary.low > 0 ? (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-700">
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-700">
+                <AlertTriangle className="size-3" />
                 {t("偏低")} {summary.low}
               </span>
             ) : null}
@@ -462,7 +480,7 @@ export function CoreMaterialsPanorama({
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <PackageSearch className="size-5 text-indigo-500" />
+                    <PackageSearch className="size-5 text-[#002fa7]" />
                     <h3 className="text-balance text-sm font-bold text-slate-800">{t("当前还没有正式监控项")}</h3>
                   </div>
                   <p className="mt-1 max-w-2xl text-pretty text-xs leading-5 text-slate-500">
@@ -484,7 +502,7 @@ export function CoreMaterialsPanorama({
                   { step: "3", title: t("持续看数量"), detail: t("正式列表持续显示可用、现存、在途、安全库存和异常状态。") },
                 ].map((item) => (
                   <div key={item.step} className="flex gap-3 rounded-lg border border-slate-200 bg-white p-3">
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-xs font-bold tabular-nums text-indigo-700">{item.step}</span>
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#eef3ff] text-xs font-bold tabular-nums text-[#002fa7]">{item.step}</span>
                     <span className="min-w-0">
                       <span className="block text-xs font-bold text-slate-700">{item.title}</span>
                       <span className="mt-0.5 block text-pretty text-[11px] leading-4 text-slate-500">{item.detail}</span>
@@ -503,7 +521,7 @@ export function CoreMaterialsPanorama({
                       {t("依据压缩机、主控板、分子筛、电磁阀和动力电芯等关注方向，从真实叶子物料中初步识别；这不是自动保存结果。")}
                     </p>
                   </div>
-                  <span className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-semibold tabular-nums text-indigo-700">{previewItems.length} {t("项待确认")}</span>
+                  <span className="rounded-full bg-[#eef3ff] px-2 py-1 text-xs font-semibold tabular-nums text-[#002fa7]">{previewItems.length} {t("项待确认")}</span>
                 </div>
                 <div className="space-y-2">
                   <InventoryFilterBar
@@ -519,7 +537,10 @@ export function CoreMaterialsPanorama({
                       <CoreInventoryTable items={pagedInventoryItems} preview />
                     </div>
                   ) : (
-                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">{t("没有符合当前筛选条件的核心配件")}</div>
+                    <div className="flex flex-col items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                      <p>{t("没有符合当前筛选条件的核心配件")}</p>
+                      {hasInventoryFilters ? <button type="button" onClick={clearInventoryFilters} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("清除筛选")}</button> : null}
+                    </div>
                   )}
                   <InventoryPagination
                     page={currentInventoryPage}
@@ -552,7 +573,10 @@ export function CoreMaterialsPanorama({
                 <CoreInventoryTable items={pagedInventoryItems} />
               </div>
             ) : (
-              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">{t("没有符合当前筛选条件的核心配件")}</div>
+              <div className="flex flex-col items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                <p>{t("没有符合当前筛选条件的核心配件")}</p>
+                {hasInventoryFilters ? <button type="button" onClick={clearInventoryFilters} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("清除筛选")}</button> : null}
+              </div>
             )}
             <InventoryPagination
               page={currentInventoryPage}
@@ -565,7 +589,7 @@ export function CoreMaterialsPanorama({
       </div>
 
       <Dialog open={editorOpen} onOpenChange={(open) => { if (!saving) setEditorOpen(open); }}>
-        <DialogContent className="flex max-h-[85dvh] max-w-3xl flex-col overflow-hidden">
+        <DialogContent className="horizon-theme horizon-portal proc-horizon-overlay flex max-h-[85dvh] max-w-3xl flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle className="text-balance">{t("配置 {product} 核心配件", { product: productName })}</DialogTitle>
             <DialogDescription className="text-pretty">
@@ -579,6 +603,7 @@ export function CoreMaterialsPanorama({
               <Input
                 value={search}
                 onChange={(event) => { setSearch(event.target.value); setConfigPage(1); }}
+                aria-label={t("搜索核心配件候选")}
                 placeholder={t("搜索配件名称、规格、编码或子系统")}
                 className="h-9 pl-9 text-xs"
               />
@@ -626,7 +651,7 @@ export function CoreMaterialsPanorama({
 
           <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-slate-200">
             {configRows.map(({ material, paths }) => {
-              const checked = selectedIds.includes(material.id);
+              const checked = selectedIdSet.has(material.id);
               const tone = inventoryTone(material);
               const style = TONE_STYLE[tone];
               return (
@@ -652,6 +677,8 @@ export function CoreMaterialsPanorama({
                 </p>
                 {candidates.length === 0 ? (
                   <p className="mt-1 text-pretty text-xs text-slate-400">{t("请先完成叶子节点物料关联及 T+ 库存同步。")}</p>
+                ) : hasConfigFilters ? (
+                  <button type="button" onClick={clearConfigFilters} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("清除筛选")}</button>
                 ) : null}
               </div>
             ) : null}

@@ -193,7 +193,7 @@ export function Header() {
       ref={headerRef}
       data-immersive={immersive}
       className={cn(
-        "relative z-40 border-b border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.82),rgba(255,255,255,0.72))] px-6 backdrop-blur-xl transition-[max-height,padding,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+        "relative z-40 border-b border-slate-200 bg-white px-5 transition-[max-height,padding,opacity] duration-200",
         immersive
           ? "pointer-events-none max-h-0 overflow-hidden border-b-0 py-0 opacity-0"
           : "max-h-[400px] py-4 opacity-100",
@@ -202,7 +202,7 @@ export function Header() {
     >
       <div className="rd-horizon-header-row flex flex-col gap-4 xl:flex-row xl:items-center">
         <div className="rd-horizon-header-heading flex min-w-0 items-start gap-4">
-          <div className="rd-horizon-header-rail hidden h-14 w-1 rounded-full bg-[linear-gradient(180deg,#42a5f5_0%,#1976d2_100%)] xl:block" />
+          <div className="rd-horizon-header-rail hidden h-14 w-1 rounded-[2px] bg-[#002fa7] xl:block" />
           <div className="rd-horizon-header-heading-copy min-w-0 space-y-2">
             <div className="rd-horizon-header-breadcrumb flex min-w-0 items-center gap-2 text-sm text-slate-500">
               <span>{t(breadcrumb[0])}</span>
@@ -210,7 +210,7 @@ export function Header() {
               <span className="rd-horizon-header-breadcrumb-current truncate font-medium text-slate-700">{t(breadcrumb[1])}</span>
             </div>
             <div>
-              <h1 className="rd-horizon-header-title truncate text-[1.65rem] font-bold tracking-tight text-slate-900">{t(title)}</h1>
+              <h1 className="rd-horizon-header-title truncate text-[1.65rem] font-bold text-slate-900">{t(title)}</h1>
             </div>
           </div>
         </div>
@@ -236,8 +236,8 @@ export function Header() {
           </div>
 
           <div className="rd-horizon-header-tools flex min-w-0 flex-wrap items-center gap-3 xl:shrink-0 xl:flex-nowrap">
-            <div className="rd-horizon-header-date rounded-[20px] bg-white/85 px-4 py-2 text-right">
-              <div className="rd-horizon-header-date-label text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-400">Today</div>
+            <div className="rd-horizon-header-date rounded-[4px] border border-slate-200 bg-slate-50 px-4 py-2 text-right">
+              <div className="rd-horizon-header-date-label text-[10px] font-semibold text-slate-500">Today</div>
               <div className="rd-horizon-header-date-value text-sm font-semibold text-slate-700">{today}</div>
             </div>
 
@@ -247,9 +247,9 @@ export function Header() {
               onClick={() => void setI18nLang(lang === "en" ? "zh" : "en")}
               title={lang === "en" ? "Switch to Chinese" : "切换为英文界面"}
               aria-label={lang === "en" ? "Switch to Chinese" : "切换为英文界面"}
-              className="rd-horizon-header-control rd-horizon-header-language flex h-11 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white/92 px-3 text-xs font-bold tracking-wide text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:text-primary"
+              className="rd-horizon-header-control rd-horizon-header-language flex h-11 items-center justify-center gap-1.5 rounded-[4px] border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 transition-colors hover:border-[#8fa8df] hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
             >
-              <Languages className="h-4 w-4" />
+              <Languages className="h-4 w-4" aria-hidden="true" />
               {lang === "en" ? "中文" : "EN"}
             </button>
 
@@ -257,10 +257,11 @@ export function Header() {
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="rd-horizon-header-control rd-horizon-header-notification-trigger relative flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/92 text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:text-primary"
+                  className="rd-horizon-header-control rd-horizon-header-notification-trigger relative flex h-11 w-11 items-center justify-center rounded-[4px] border border-slate-200 bg-white text-slate-600 transition-colors hover:border-[#8fa8df] hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
                   aria-label={lang === "en" ? "Open notification preview" : "打开通知预览"}
+                  title={lang === "en" ? "Open notification preview" : "打开通知预览"}
                 >
-                  <Bell className="h-5 w-5" />
+                  <Bell className="h-5 w-5" aria-hidden="true" />
                   {unreadCount > 0 && (
                     <span className="rd-horizon-header-unread absolute right-2 top-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">
                       {unreadCount > 99 ? "99+" : unreadCount}
@@ -277,7 +278,7 @@ export function Header() {
                 onCloseAutoFocus={(event) => {
                   if (immersive) event.preventDefault();
                 }}
-                className="rd-horizon-header-notifications rd-horizon-header-notifications--horizon w-[min(24rem,calc(100vw-24px))] max-h-[min(30rem,72vh)] overflow-y-auto rounded-[20px] border border-slate-200 bg-white p-5 shadow-[0_24px_54px_rgba(15,23,42,0.18)]"
+                className="horizon-theme horizon-portal rd-horizon-header-notifications rd-horizon-header-notifications--horizon w-[min(24rem,calc(100vw-24px))] max-h-[min(30rem,72vh)] overflow-y-auto rounded-[4px] border border-slate-200 bg-white p-4 shadow-lg"
               >
                 <div className="mb-3 flex items-center justify-between">
                   <span className="text-sm font-semibold text-slate-900">
@@ -302,7 +303,7 @@ export function Header() {
                           setOpen(false);
                           navigate("/message-center");
                         }}
-                        className="rd-horizon-header-notification-item flex w-full cursor-pointer items-start gap-2 rounded-2xl bg-slate-50/80 px-4 py-3 text-left text-sm leading-6 text-slate-600 transition hover:bg-blue-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                        className="rd-horizon-header-notification-item flex w-full cursor-pointer items-start gap-2 rounded-[4px] bg-slate-50 px-3 py-2.5 text-left text-sm leading-6 text-slate-600 transition-colors hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
                       >
                         <span
                           className={[
@@ -329,7 +330,7 @@ export function Header() {
                     setOpen(false);
                     navigate("/message-center");
                   }}
-                  className="rd-horizon-header-view-all mt-3 w-full cursor-pointer rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                  className="rd-horizon-header-view-all mt-3 w-full cursor-pointer rounded-[4px] border border-[#b8c8ec] bg-[#eef3ff] px-3 py-2 text-sm font-semibold text-[#002fa7] transition-colors hover:bg-[#dfe8ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
                 >
                   {t("查看全部消息")}
                 </button>
@@ -340,7 +341,7 @@ export function Header() {
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="rd-horizon-header-user flex min-w-0 cursor-pointer items-center gap-3 rounded-[4px] border border-slate-200 bg-white/94 px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                  className="rd-horizon-header-user flex min-w-0 cursor-pointer items-center gap-3 rounded-[4px] border border-slate-200 bg-white px-3 py-2 transition-colors hover:border-[#8fa8df] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
                   aria-label={lang === "en" ? "Open user menu" : "打开用户菜单"}
                 >
                   <div className="rd-horizon-header-avatar h-11 w-11 overflow-hidden rounded-[4px] ring-2 ring-blue-50">
@@ -360,18 +361,18 @@ export function Header() {
                   <ChevronDown className="rd-horizon-header-user-chevron h-4 w-4 text-slate-400" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" sideOffset={10} className="rd-horizon-header-menu w-72 rounded-[4px] border-slate-200 bg-white/98 p-2 shadow-[0_18px_42px_rgba(15,23,42,0.16)] backdrop-blur-xl">
-                <DropdownMenuItem className="rd-horizon-header-menu-item cursor-pointer rounded-xl px-3 py-2.5 text-slate-700 focus:bg-blue-50 focus:text-blue-700" onSelect={() => navigate("/profile")}>
+              <DropdownMenuContent align="end" sideOffset={10} className="horizon-theme horizon-portal rd-horizon-header-menu w-72 rounded-[4px] border-slate-200 bg-white p-2 shadow-lg">
+                <DropdownMenuItem className="rd-horizon-header-menu-item cursor-pointer rounded-[4px] px-3 py-2.5 text-slate-700 focus:bg-[#eef3ff] focus:text-[#002fa7]" onSelect={() => navigate("/profile")}>
                   <UserRound className="h-4 w-4" />
                   <span>{t("个人中心")}</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem className="rd-horizon-header-menu-item cursor-pointer rounded-xl px-3 py-2.5 text-slate-700 focus:bg-blue-50 focus:text-blue-700" onSelect={() => navigate("/message-center")}>
+                <DropdownMenuItem className="rd-horizon-header-menu-item cursor-pointer rounded-[4px] px-3 py-2.5 text-slate-700 focus:bg-[#eef3ff] focus:text-[#002fa7]" onSelect={() => navigate("/message-center")}>
                   <MessageSquareText className="h-4 w-4" />
                   <span>{t("消息中心")}</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-slate-100" />
                 <DropdownMenuItem
-                  className="rd-horizon-header-menu-danger cursor-pointer rounded-xl px-3 py-2.5 text-red-600 focus:bg-red-50 focus:text-red-700"
+                  className="rd-horizon-header-menu-danger cursor-pointer rounded-[4px] px-3 py-2.5 text-red-600 focus:bg-red-50 focus:text-red-700"
                   onSelect={async () => {
                     await logout();
                     navigate("/login", { replace: true });

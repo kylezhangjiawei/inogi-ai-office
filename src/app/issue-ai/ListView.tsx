@@ -14,11 +14,16 @@ import {
   Database,
   ListChecks,
   Plus,
+  ScanSearch,
   Search,
-  Sparkles,
   X,
-  type LucideIcon,
 } from "lucide-react";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+} from "../components/horizon/HorizonPage";
 import { cn } from "../components/ui/utils";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -54,9 +59,7 @@ const STATUS_GROUP_ORDER: StatusGroupKey[] = [
 ];
 
 const cardClass =
-  "rounded-lg border border-slate-200/80 bg-white/95 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_rgba(15,23,42,0.06)] dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-[0_2px_8px_rgba(0,0,0,0.32)]";
-const panelClass =
-  "rounded-lg border border-slate-200/80 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-slate-700/80 dark:bg-slate-900/90";
+  "rounded-xl border border-slate-200 bg-white shadow-sm";
 
 /**
  * 创建人头像：有真实头像 URL（src）则显示照片，否则用姓名首字占位。
@@ -71,7 +74,7 @@ function InitialAvatar({ name, src, className }: { name: string; src?: string | 
     <span
       aria-hidden
       className={cn(
-        "rd-horizon-issue-avatar flex shrink-0 items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300",
+        "rd-horizon-issue-avatar flex shrink-0 items-center justify-center rounded-full bg-[#eef3ff] font-semibold text-[#002fa7]",
         className,
       )}
     >
@@ -80,100 +83,22 @@ function InitialAvatar({ name, src, className }: { name: string; src?: string | 
   );
 }
 
-type StatTone = "slate" | "amber" | "emerald" | "indigo" | "sky";
-
-const statToneClass: Record<StatTone, { shell: string; icon: string; value: string }> = {
-  slate: {
-    shell: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
-    icon: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300",
-    value: "text-slate-800 dark:text-slate-100",
-  },
-  amber: {
-    shell: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
-    icon: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-    value: "text-amber-800 dark:text-amber-200",
-  },
-  emerald: {
-    shell: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
-    icon: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
-    value: "text-emerald-800 dark:text-emerald-200",
-  },
-  indigo: {
-    shell: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
-    icon: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300",
-    value: "text-indigo-800 dark:text-indigo-200",
-  },
-  sky: {
-    shell: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
-    icon: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
-    value: "text-sky-800 dark:text-sky-200",
-  },
-};
-
 // ────────────────────────────────────────────────────────────────────────────
 // 概览统计带
 // ────────────────────────────────────────────────────────────────────────────
-function StatTile({
-  label,
-  value,
-  suffix,
-  icon: Icon,
-  tone = "slate",
-}: {
-  label: string;
-  value: React.ReactNode;
-  suffix?: string;
-  icon: LucideIcon;
-  tone?: StatTone;
-}) {
-  const toneClass = statToneClass[tone];
-  return (
-    <div
-      data-tone={tone}
-      className={cn(
-        "rd-horizon-issue-stat flex min-h-[4.75rem] min-w-0 items-center gap-3 rounded-lg border px-3.5 py-3 transition-colors duration-200",
-        "shadow-[0_1px_2px_rgba(15,23,42,0.035)]",
-        toneClass.shell,
-      )}
-    >
-      <span className={cn("rd-horizon-issue-stat-icon flex size-9 shrink-0 items-center justify-center rounded-md", toneClass.icon)}>
-        <Icon className="size-4" />
-      </span>
-      <div className="min-w-0">
-        <span className="rd-horizon-issue-stat-label block truncate text-xs text-slate-500 dark:text-slate-400">{label}</span>
-        <span className={cn("rd-horizon-issue-stat-value mt-1 block text-2xl font-semibold leading-none", toneClass.value)}>
-          <Mono>{value}</Mono>
-          {suffix ? <span className="ml-0.5 text-sm font-normal text-slate-400">{suffix}</span> : null}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 function StatsBand({ stats }: { stats: IssueStats | null }) {
-  if (!stats) {
-    return (
-      <div className="rd-horizon-issue-stats grid grid-cols-2 gap-2 lg:grid-cols-5" data-surface="stats" aria-busy="true">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div
-            key={i}
-            className="rd-horizon-issue-stat rd-horizon-issue-stat--loading h-[4.75rem] animate-pulse rounded-lg border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-slate-700/80 dark:bg-slate-900"
-          />
-        ))}
-      </div>
-    );
-  }
-  const reusePct = Math.round(stats.reuseRate * 100);
-  const avg = stats.avgLocateHours;
-  const avgStr = Number.isInteger(avg) ? String(avg) : avg.toFixed(1);
+  const loadingNote = t("正在读取统计数据");
+  const reusePct = stats ? Math.round(stats.reuseRate * 100) : null;
+  const avg = stats?.avgLocateHours;
+  const avgStr = avg == null ? null : Number.isInteger(avg) ? String(avg) : avg.toFixed(1);
   return (
-    <div className="rd-horizon-issue-stats grid grid-cols-2 gap-2 lg:grid-cols-5" data-surface="stats">
-      <StatTile label={t("问题总数")} value={stats.total} icon={Database} />
-      <StatTile label={t("待处理")} value={stats.pending} icon={ClipboardList} tone="amber" />
-      <StatTile label={t("已解决")} value={stats.solved} icon={ListChecks} tone="emerald" />
-      <StatTile label={t("方案复用率")} value={reusePct} suffix="%" icon={Archive} tone="indigo" />
-      <StatTile label={t("平均定位时长")} value={avgStr} suffix="h" icon={Clock3} tone="sky" />
-    </div>
+    <HorizonMetricGrid className="!grid-cols-2 lg:!grid-cols-5">
+      <HorizonMetric Icon={Database} label={t("问题总数")} value={stats?.total ?? "—"} note={stats ? t("问题记录累计总量") : loadingNote} />
+      <HorizonMetric Icon={ClipboardList} label={t("待处理")} value={stats?.pending ?? "—"} note={stats ? t("等待定位或处理") : loadingNote} tone="warning" />
+      <HorizonMetric Icon={ListChecks} label={t("已解决")} value={stats?.solved ?? "—"} note={stats ? t("已完成闭环的问题") : loadingNote} tone="success" />
+      <HorizonMetric Icon={Archive} label={t("方案复用率")} value={reusePct == null ? "—" : `${reusePct}%`} note={stats ? t("已沉淀方案复用占比") : loadingNote} tone="brand" />
+      <HorizonMetric Icon={Clock3} label={t("平均定位时长")} value={avgStr == null ? "—" : `${avgStr}h`} note={stats ? t("问题根因平均定位耗时") : loadingNote} />
+    </HorizonMetricGrid>
   );
 }
 
@@ -188,13 +113,13 @@ function ActiveTag({
   onClear: () => void;
 }) {
   return (
-    <span className="rd-horizon-issue-active-filter inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 py-0.5 pl-2 pr-1 text-xs text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
+    <span className="rd-horizon-issue-active-filter inline-flex items-center gap-1 rounded-md border border-[#002fa7]/20 bg-[#eef3ff] py-0.5 pl-2 pr-1 text-xs text-[#002fa7]">
       {label}
       <button
         type="button"
         onClick={onClear}
         aria-label={t("清除该筛选")}
-        className="cursor-pointer rounded-sm p-0.5 hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:bg-indigo-500/20"
+        className="cursor-pointer rounded-sm p-0.5 hover:bg-[#e4ebff] focus-visible:outline-none"
       >
         <X className="size-3" />
       </button>
@@ -229,7 +154,7 @@ function IssueList({
           data-severity={it.severity}
           className={cn(
             cardClass,
-            "rd-horizon-issue-row group grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-all duration-200 hover:border-indigo-300 hover:bg-white hover:shadow-[0_10px_28px_rgba(79,70,229,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50 dark:hover:bg-slate-900",
+            "rd-horizon-issue-row group grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors duration-150 hover:border-[#002fa7]/30 hover:bg-[#fbfcff] focus-visible:outline-none",
           )}
         >
           {/* 头像（创建人，最前）：本人显示真实头像，其余首字 */}
@@ -241,11 +166,11 @@ function IssueList({
               <Mono className="text-[11px] font-semibold text-slate-400">{it.id}</Mono>
               <SourceTag value={it.source} />
             </div>
-            <div className="mt-1 truncate text-sm font-semibold text-slate-800 group-hover:text-indigo-700 dark:text-slate-100 dark:group-hover:text-indigo-300">
+            <div className="mt-1 truncate text-sm font-semibold text-slate-800 group-hover:text-[#002fa7]">
               {it.title}
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
-              <span className="truncate font-medium text-slate-600 dark:text-slate-300">{it.createdBy}</span>
+            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-500">
+              <span className="truncate font-medium text-slate-600">{it.createdBy}</span>
               {it.product ? (
                 <>
                   <span aria-hidden>·</span>
@@ -315,28 +240,28 @@ function ReusableCards({
             data-severity={it.severity}
             className={cn(
               cardClass,
-              "rd-horizon-issue-reusable-card flex min-h-[12rem] cursor-pointer flex-col gap-2 p-4 text-left transition-all duration-200 hover:border-indigo-300 hover:bg-white hover:shadow-[0_10px_28px_rgba(79,70,229,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50 dark:hover:bg-slate-900",
+              "rd-horizon-issue-reusable-card flex min-h-[12rem] cursor-pointer flex-col gap-2 p-4 text-left transition-colors duration-150 hover:border-[#002fa7]/30 hover:bg-[#fbfcff] focus-visible:outline-none",
             )}
           >
             <div className="flex items-start justify-between gap-2">
               <Mono className="text-xs text-slate-400">{it.id}</Mono>
-              <span className="rd-horizon-issue-reusable-badge inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
+              <span className="rd-horizon-issue-reusable-badge inline-flex items-center gap-1 rounded-md border border-[#002fa7]/20 bg-[#eef3ff] px-2 py-0.5 text-xs font-medium text-[#002fa7]">
                 {t("可复用")}
               </span>
             </div>
-            <div className="rd-horizon-issue-reusable-title line-clamp-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+            <div className="rd-horizon-issue-reusable-title line-clamp-2 text-sm font-medium text-slate-800">
               {it.title}
             </div>
-            <div className="rd-horizon-issue-reuse-suggestion mt-1 rounded-lg border border-slate-100 bg-slate-50/70 p-2.5 dark:border-slate-700 dark:bg-slate-800/50">
+            <div className="rd-horizon-issue-reuse-suggestion mt-1 rounded-lg border border-slate-100 bg-slate-50/70 p-2.5">
               <div className="mb-1 flex items-center gap-1.5">
-                <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
+                <span className="text-xs font-medium text-[#002fa7]">
                   {t("采纳方案")}
                 </span>
                 {adoptedSolution ? (
                   <SolutionTypeBadge value={adoptedSolution.type} />
                 ) : null}
               </div>
-              <p className="line-clamp-3 text-xs text-slate-600 dark:text-slate-300">
+              <p className="line-clamp-3 text-pretty text-xs text-slate-600">
                 {summary}
               </p>
             </div>
@@ -378,7 +303,7 @@ function Pagination({
 
   return (
     <div className="rd-horizon-issue-pagination flex flex-wrap items-center justify-between gap-3 px-1">
-      <span className="text-xs text-slate-500 dark:text-slate-400">
+      <span className="text-xs text-slate-500">
         {t("共")} <Mono>{total}</Mono> {t("条 · 第")} <Mono>{from}</Mono>–<Mono>{to}</Mono> {t("条")}
       </span>
       <div className="flex items-center gap-1">
@@ -386,7 +311,7 @@ function Pagination({
           type="button"
           disabled={page <= 1}
           onClick={() => onPage(page - 1)}
-          className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md border border-slate-200 px-2 text-xs text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 transition-colors duration-150 hover:border-[#002fa7]/25 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none"
         >
           <ChevronLeft className="size-3.5" />
           {t("上一页")}
@@ -398,10 +323,10 @@ function Pagination({
             onClick={() => onPage(p)}
             aria-current={p === page ? "page" : undefined}
             className={cn(
-              "inline-flex h-7 min-w-7 cursor-pointer items-center justify-center rounded-md border px-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60",
+              "inline-flex h-7 min-w-7 cursor-pointer items-center justify-center rounded-md border px-1.5 text-xs transition-colors duration-150 focus-visible:outline-none",
               p === page
-                ? "border-indigo-300 bg-indigo-50 font-medium text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300"
-                : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
+                ? "border-[#002fa7]/30 bg-[#eef3ff] font-medium text-[#002fa7]"
+                : "border-slate-200 bg-white text-slate-600 hover:border-[#002fa7]/25 hover:text-[#002fa7]",
             )}
           >
             <Mono>{p}</Mono>
@@ -411,7 +336,7 @@ function Pagination({
           type="button"
           disabled={page >= totalPages}
           onClick={() => onPage(page + 1)}
-          className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md border border-slate-200 px-2 text-xs text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 transition-colors duration-150 hover:border-[#002fa7]/25 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none"
         >
           {t("下一页")}
           <ChevronRight className="size-3.5" />
@@ -438,7 +363,7 @@ export function ListView({
   useI18n();
   const canCreate = usePermission("issue:create");
   const pageRef = React.useRef<HTMLDivElement | null>(null);
-  const pageHeadingRef = React.useRef<HTMLHeadingElement | null>(null);
+  const pageHeadingRef = React.useRef<HTMLSpanElement | null>(null);
   const restoredIssueIdRef = React.useRef<string | null>(null);
   const [stats, setStats] = React.useState<IssueStats | null>(null);
 
@@ -451,6 +376,12 @@ export function ListView({
   const [loading, setLoading] = React.useState(false);
   const [searchText, setSearchText] = React.useState("");
   const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const drawerOpenerRef = React.useRef<HTMLButtonElement | null>(null);
+
+  const openDrawer = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    drawerOpenerRef.current = event.currentTarget;
+    setDrawerOpen(true);
+  }, []);
 
   // 稳定的 patch：变更任意筛选都回到第 1 页。
   const patchQuery = React.useCallback((patch: Partial<IssueQuery>) => {
@@ -484,20 +415,30 @@ export function ListView({
   const statusGroup = query.statusGroup ?? "all";
   const isReusableView = statusGroup === "reusable";
 
-  const hasExtraFilter = !!query.search;
+  const hasSearchFilter = Boolean(query.search);
+  const hasActiveFilter = statusGroup !== "all" || hasSearchFilter;
 
   const applySearch = () => {
     const v = searchText.trim();
     patchQuery({ search: v || undefined });
   };
 
-  const clearAll = () => {
+  const clearSearchFilter = () => {
     setSearchText("");
     setQuery((q) => ({
       statusGroup: q.statusGroup,
       page: 1,
       pageSize: PAGE_SIZE,
     }));
+  };
+
+  const resetFilters = () => {
+    setSearchText("");
+    setQuery({ statusGroup: "all", page: 1, pageSize: PAGE_SIZE });
+  };
+
+  const reloadList = () => {
+    setQuery((current) => ({ ...current }));
   };
 
   const items = paged?.items ?? [];
@@ -523,42 +464,47 @@ export function ListView({
   }, [loading, onFocusRestored, paged, restoreFocusIssueId]);
 
   return (
-    <div ref={pageRef} className="rd-horizon-module rd-horizon-issue-list-page flex flex-col gap-4" data-page="issue-ai-list">
-      <header className="rd-horizon-issue-context flex flex-wrap items-end justify-between gap-4" data-surface="context">
-        <div className="min-w-0">
-          <span className="rd-horizon-issue-context-kicker inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
-            <Sparkles className="size-3.5" />
-            {t("AI 根因定位")}
-          </span>
-          <h2
-            ref={pageHeadingRef}
-            tabIndex={-1}
-            className="rd-horizon-issue-context-title mt-2 rounded-sm text-[1.65rem] font-semibold leading-tight text-slate-950 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 focus-visible:ring-offset-2 dark:text-white"
-          >
+    <div
+      ref={pageRef}
+      className="horizon-theme hz-page rd-horizon-issue-list-page flex min-w-0 flex-col gap-4"
+      data-page="issue-ai-list"
+    >
+      <HorizonPageHeader
+        Icon={ScanSearch}
+        eyebrow={t("质量闭环 / AI 根因定位")}
+        title={(
+          <span ref={pageHeadingRef} tabIndex={-1} className="rounded-sm outline-none">
             {t("问题记录与 AI 定位")}
-          </h2>
-          <p className="rd-horizon-issue-context-copy mt-1 max-w-3xl text-sm leading-6 text-slate-500 dark:text-slate-400">
-            {t("面向研发与生产异常的质量闭环工作台，统一记录、相似复用、根因分析与处理留痕。")}
-          </p>
-        </div>
-        {canCreate && (
-          <Button size="sm" onClick={() => setDrawerOpen(true)} className="rd-horizon-issue-primary-action cursor-pointer shadow-sm">
+          </span>
+        )}
+        description={t("统一记录研发与生产异常，复用历史方案，并通过 AI 根因分析形成可追溯的处理闭环。")}
+        meta={t("清单、相似复用、分析版本与处理留痕使用同一问题数据源")}
+        actions={canCreate ? (
+          <Button
+            size="sm"
+            onClick={openDrawer}
+            className="hz-primary-action rd-horizon-issue-primary-action cursor-pointer"
+          >
             <Plus className="size-4" />
             {t("新建问题")}
           </Button>
-        )}
-      </header>
+        ) : undefined}
+      />
 
       {/* 1) 概览统计带 */}
-      <div className="rd-horizon-issue-stats-region shrink-0">
+      <div className="shrink-0" aria-busy={!stats}>
         <StatsBand stats={stats} />
       </div>
 
       {/* 2) 工具栏 / 筛选 */}
-      <section className={cn(panelClass, "rd-horizon-issue-filters flex shrink-0 flex-col gap-3 p-3")} data-surface="filters">
-        <div className="flex flex-wrap items-center gap-2">
+      <section className="hz-surface rd-horizon-issue-filters shrink-0 overflow-hidden" data-surface="filters">
+        <div className="hz-toolbar flex flex-wrap items-center gap-2 border-b border-slate-200/70 p-3">
           {/* 状态分段 */}
-          <div className="rd-horizon-issue-status-tabs inline-flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/40" role="group" aria-label={t("状态筛选")}>
+          <div
+            className="rd-horizon-issue-status-tabs inline-flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1"
+            role="group"
+            aria-label={t("状态筛选")}
+          >
             {STATUS_GROUP_ORDER.map((key) => {
               const active = statusGroup === key;
               return (
@@ -570,10 +516,10 @@ export function ListView({
                   data-active={active || undefined}
                   aria-pressed={active}
                   className={cn(
-                    "cursor-pointer rounded-md px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60",
+                    "h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors duration-150 focus-visible:outline-none",
                     active
-                      ? "bg-white text-indigo-700 shadow-sm dark:bg-slate-900 dark:text-indigo-300"
-                      : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200",
+                      ? "bg-[#002fa7] text-white shadow-sm"
+                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800",
                   )}
                 >
                   {t(STATUS_GROUP_LABEL[key])}
@@ -594,14 +540,14 @@ export function ListView({
               }}
               placeholder={t("搜索标题 / 编号 / 产品 / 描述")}
               aria-label={t("搜索标题 / 编号 / 产品 / 描述")}
-              className="h-9 border-slate-300 bg-white pl-8 text-xs shadow-sm focus-visible:border-indigo-400 dark:border-slate-600 dark:bg-slate-900"
+              className="h-9 border-slate-300 bg-white pl-8 text-xs shadow-sm focus-visible:border-[#002fa7]"
             />
           </div>
         </div>
 
         {/* 活动搜索标签 */}
-        {hasExtraFilter && (
-          <div className="flex flex-wrap items-center gap-2">
+        {hasSearchFilter ? (
+          <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
             {query.search ? (
               <ActiveTag
                 label={<>{t("搜索：")}{query.search}</>}
@@ -613,13 +559,13 @@ export function ListView({
             ) : null}
             <button
               type="button"
-              onClick={clearAll}
-              className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:text-slate-400 dark:hover:text-slate-200"
+              onClick={clearSearchFilter}
+              className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-slate-500 underline-offset-2 hover:text-[#002fa7] hover:underline focus-visible:outline-none"
             >
               {t("清除筛选")}
             </button>
           </div>
-        )}
+        ) : null}
       </section>
 
       {/* 3) 列表主体 + 分页：内容自然流动（列表项卡片，数据少不撑空），分页紧跟列表 */}
@@ -630,18 +576,37 @@ export function ListView({
         aria-busy={loading}
       >
         {loading && !paged ? (
-          <div className={cn(cardClass, "rd-horizon-issue-list-state flex items-center justify-center py-16 text-sm text-slate-400")} role="status" aria-live="polite">
-            {t("加载中…")}
+          <div className={cn(cardClass, "rd-horizon-issue-list-state")} role="status" aria-live="polite">
+            <HorizonEmptyState
+              Icon={Database}
+              title={t("正在加载问题记录")}
+              description={t("正在同步问题清单与当前筛选结果，请稍候。")}
+            />
           </div>
         ) : total === 0 ? (
-          <div className={cn(cardClass, "rd-horizon-issue-list-state flex flex-col items-center justify-center gap-1 py-16 text-center")} role="status" aria-live="polite">
-            <p className="text-sm text-slate-500 dark:text-slate-400">{t("未找到匹配的问题")}</p>
-            <p className="text-xs text-slate-400">
-              {hasExtraFilter ? t("试试调整或清除筛选条件") : t("点击「新建问题」开始记录")}
-            </p>
+          <div className={cn(cardClass, "rd-horizon-issue-list-state")} role="status" aria-live="polite">
+            <HorizonEmptyState
+              Icon={isReusableView ? Archive : Search}
+              title={t("未找到匹配的问题")}
+              description={hasActiveFilter ? t("调整或清除筛选条件，查看其他问题记录。") : t("当前还没有问题记录，可以从现场异常开始建立第一条闭环。")}
+              action={hasActiveFilter ? (
+                <Button type="button" size="sm" variant="outline" onClick={resetFilters}>
+                  {t("清除筛选")}
+                </Button>
+              ) : canCreate ? (
+                <Button type="button" size="sm" className="hz-primary-action" onClick={openDrawer}>
+                  <Plus className="size-4" />
+                  {t("新建问题")}
+                </Button>
+              ) : (
+                <Button type="button" size="sm" variant="outline" onClick={reloadList}>
+                  {t("刷新列表")}
+                </Button>
+              )}
+            />
           </div>
         ) : (
-          <div className={cn("flex flex-col gap-3", loading && "opacity-60 transition-opacity")}>
+          <div className={cn("flex flex-col gap-3", loading && "opacity-60")}>
             {isReusableView ? (
               <ReusableCards items={items} onOpen={onOpen} />
             ) : (
@@ -661,6 +626,7 @@ export function ListView({
       <NewIssueDrawer
         service={service}
         open={drawerOpen}
+        returnFocusRef={drawerOpenerRef}
         onClose={() => {
           setDrawerOpen(false);
           loadAux();

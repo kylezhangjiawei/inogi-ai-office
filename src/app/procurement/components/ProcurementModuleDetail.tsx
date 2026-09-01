@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   Boxes,
   ClipboardList,
@@ -126,7 +127,7 @@ export function ProcurementModuleDetail({
             type="button"
             onClick={onBack}
             aria-label={t("返回子系统全景")}
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-indigo-200 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-[#002fa7]/25 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
           >
             <ArrowLeft className="size-4" />
           </button>
@@ -134,10 +135,10 @@ export function ProcurementModuleDetail({
             <p className="truncate text-xs text-slate-400">
               {t(productName)}{parentName ? ` / ${parentName}` : ""}
             </p>
-            <h2 className="mt-0.5 truncate text-balance text-lg font-semibold text-slate-950">
+            <h2 className="mt-0.5 line-clamp-2 break-words text-balance text-lg font-semibold text-slate-950">
               <AutoTranslatedText text={node.name} />
             </h2>
-            <p className="mt-0.5 truncate text-pretty text-xs text-slate-500">
+            <p className="mt-0.5 line-clamp-2 text-pretty text-xs text-slate-500">
               {[node.code, node.spec].filter(Boolean).join(" · ") || t("模块库存与采购任务详情")}
             </p>
           </div>
@@ -147,7 +148,7 @@ export function ProcurementModuleDetail({
             <Boxes className="size-3.5 text-slate-400" />
             {t("库存")} <strong className="tabular-nums text-slate-900">{formatQuantity(totalStock)}</strong>
           </span>
-          <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-indigo-50 px-3 text-xs text-indigo-700">
+          <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#eef3ff] px-3 text-xs text-[#002fa7]">
             <ClipboardList className="size-3.5" />
             {t("任务")} <strong className="tabular-nums">{moduleTasks.length}</strong>
           </span>
@@ -178,7 +179,7 @@ export function ProcurementModuleDetail({
                 type="button"
                 onClick={retryInventory}
                 disabled={inventoryLoading}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8] disabled:opacity-50"
               >
                 <RefreshCw className={cn("size-3.5", inventoryLoading && "animate-spin motion-reduce:animate-none")} />
                 {t("刷新")}
@@ -192,15 +193,17 @@ export function ProcurementModuleDetail({
                 {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-lg bg-slate-100 motion-reduce:animate-none" />)}
               </div>
             ) : inventoryError ? (
-              <div className="m-4 rounded-lg border border-dashed border-amber-200 bg-amber-50 px-4 py-6 text-center text-xs text-amber-700">
-                <p>{inventoryError}</p>
-                <button type="button" onClick={retryInventory} className="mt-2 font-semibold underline underline-offset-2">{t("重新加载")}</button>
+              <div role="alert" className="m-4 flex flex-col items-center rounded-lg border border-dashed border-rose-200 bg-rose-50 px-4 py-6 text-center text-xs text-rose-700">
+                <AlertTriangle className="size-6 text-rose-500" />
+                <p className="mt-2 font-semibold">{t("仓库库存加载失败")}</p>
+                <p className="mt-1 max-w-lg text-pretty text-rose-600">{inventoryError}</p>
+                <button type="button" onClick={retryInventory} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("重新加载")}</button>
               </div>
             ) : !inventoryCode || !item ? (
               <div className="m-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
                 <Warehouse className="mx-auto size-7 text-slate-300" />
                 <p className="mt-2 text-sm font-medium text-slate-500">{t("暂无仓库库存明细")}</p>
-                <p className="mt-1 text-xs text-slate-400">{t("请先关联 T+ 存货编码并执行库存同步")}</p>
+                <p className="mt-1 text-pretty text-xs text-slate-400">{t("下一步：前往物料库关联 T+ 存货编码，并执行一次库存同步。")}</p>
               </div>
             ) : (
               <div className="p-4">
@@ -214,10 +217,10 @@ export function ProcurementModuleDetail({
                   <table className="w-full min-w-[640px] text-left text-xs">
                     <thead className="bg-slate-50 text-slate-500">
                       <tr>
-                        <th className="px-3 py-2.5 font-medium">{t("仓库")}</th>
-                        <th className="px-3 py-2.5 text-right font-medium">{t("现存量")}</th>
-                        <th className="px-3 py-2.5 text-right font-medium">{t("可用量")}</th>
-                        <th className="px-3 py-2.5 text-right font-medium">{t("在途量")}</th>
+                        <th scope="col" className="px-3 py-2.5 font-medium">{t("仓库")}</th>
+                        <th scope="col" className="px-3 py-2.5 text-right font-medium">{t("现存量")}</th>
+                        <th scope="col" className="px-3 py-2.5 text-right font-medium">{t("可用量")}</th>
+                        <th scope="col" className="px-3 py-2.5 text-right font-medium">{t("在途量")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -232,7 +235,7 @@ export function ProcurementModuleDetail({
                     </tbody>
                   </table>
                 </div>
-                {item.syncedAt && <p className="mt-2 text-right text-[11px] text-slate-500">{t("库存同步时间")}：{new Date(item.syncedAt).toLocaleString("zh-CN")}</p>}
+                {item.syncedAt && <p className="mt-2 text-right text-[11px] tabular-nums text-slate-500">{t("库存同步时间")}：{new Date(item.syncedAt).toLocaleString("zh-CN")}</p>}
               </div>
             )}
           </div>
@@ -252,7 +255,7 @@ export function ProcurementModuleDetail({
               <div>
                 <ClipboardList className="mx-auto size-7 text-slate-300" />
                 <p className="mt-2 text-sm font-medium text-slate-500">{t("该模块暂无采购任务")}</p>
-                {canCreate && <button type="button" onClick={() => setNewTaskOpen(true)} className="mt-3 rounded text-xs font-semibold text-indigo-600 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t("创建第一条任务")}</button>}
+                {canCreate && <button type="button" onClick={() => setNewTaskOpen(true)} className="mt-3 rounded text-xs font-semibold text-[#002fa7] hover:text-[#002581] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30">{t("创建第一条任务")}</button>}
               </div>
             </div>
           ) : (
@@ -260,19 +263,19 @@ export function ProcurementModuleDetail({
               <table className="w-full min-w-[840px] text-left text-xs">
                 <thead className="sticky top-0 z-10 bg-slate-50 text-slate-500">
                   <tr>
-                    <th className="px-4 py-2.5 font-medium">{t("任务")}</th>
-                    <th className="px-3 py-2.5 font-medium">{t("状态")}</th>
-                    <th className="px-3 py-2.5 text-right font-medium">{t("数量")}</th>
-                    <th className="px-3 py-2.5 font-medium">{t("负责人")}</th>
-                    <th className="px-3 py-2.5 font-medium">{t("创建时间")}</th>
-                    <th className="px-4 py-2.5 text-right font-medium">{t("操作")}</th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">{t("任务")}</th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">{t("状态")}</th>
+                    <th scope="col" className="px-3 py-2.5 text-right font-medium">{t("数量")}</th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">{t("负责人")}</th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">{t("创建时间")}</th>
+                    <th scope="col" className="px-4 py-2.5 text-right font-medium">{t("操作")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {moduleTasks.map((task) => (
                     <tr key={task.id} className="text-slate-600 hover:bg-slate-50/70">
                       <td className="max-w-md px-4 py-3">
-                        <button type="button" onClick={() => setOpenTask(task)} className="block max-w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+                        <button type="button" onClick={() => setOpenTask(task)} className="block max-w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30">
                           <span className="block font-semibold text-slate-900">{task.code}</span>
                           <span className="mt-0.5 block truncate text-xs text-slate-500" title={taskDescription(task)}>{taskDescription(task)}</span>
                         </button>
@@ -352,8 +355,8 @@ function TaskActionButton({
       aria-label={label}
       title={label}
       className={cn(
-        "flex size-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
-        danger && "hover:bg-red-50 hover:text-red-600",
+        "flex size-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
+        danger && "hover:bg-rose-50 hover:text-rose-600",
       )}
     >
       <Icon className="size-3.5" />

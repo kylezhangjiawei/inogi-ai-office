@@ -1,8 +1,42 @@
 import React, { useMemo, useState } from "react";
-import { motion } from "motion/react";
+import type { LucideIcon } from "lucide-react";
+import {
+  Activity,
+  AlertCircle,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  Filter,
+  Headphones,
+  MoreHorizontal,
+  Plus,
+  RefreshCw,
+  Search,
+  TriangleAlert,
+  User,
+  Users,
+} from "lucide-react";
 import { Link } from "react-router";
-import { Plus, Search, Filter, MoreHorizontal, ChevronRight, Clock, AlertCircle, CheckCircle2, User, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import { Button } from "./components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
 import { cn } from "./components/ui/utils";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath, subRoutePath } from "./lib/routePaths";
@@ -17,27 +51,27 @@ const initialTickets = [
   { id: "CS-2024-0886", customer: "Medline International", product: "OC-5", sn: "20240205019", issue: "不出氧", priority: "P2", status: "已关闭", assignee: "王工", date: "2024-03-25", updated: "2周前" },
 ];
 
-const statusConfig: Record<string, { label: string; className: string; icon: React.FC<any> }> = {
-  待处理: { label: "待处理", className: "bg-red-50 text-red-600 border-red-100", icon: AlertCircle },
-  处理中: { label: "处理中", className: "bg-blue-50 text-[#1976D2] border-blue-100", icon: RefreshCw },
-  待客户: { label: "待客户", className: "bg-amber-50 text-amber-600 border-amber-100", icon: Clock },
-  已完成: { label: "已完成", className: "bg-green-50 text-green-600 border-green-100", icon: CheckCircle2 },
-  已关闭: { label: "已关闭", className: "bg-gray-50 text-gray-400 border-gray-100", icon: CheckCircle2 },
+const statusConfig: Record<string, { className: string; icon: LucideIcon }> = {
+  待处理: { className: "border-red-100 bg-red-50 text-red-700", icon: AlertCircle },
+  处理中: { className: "border-blue-100 bg-blue-50 text-[#002fa7]", icon: RefreshCw },
+  待客户: { className: "border-amber-100 bg-amber-50 text-amber-700", icon: Clock },
+  已完成: { className: "border-emerald-100 bg-emerald-50 text-emerald-700", icon: CheckCircle2 },
+  已关闭: { className: "border-slate-200 bg-slate-50 text-slate-500", icon: CheckCircle2 },
 };
 
 const priorityConfig: Record<string, string> = {
-  P1: "bg-red-500 text-white",
-  P2: "bg-orange-400 text-white",
-  P3: "bg-gray-200 text-gray-600",
+  P1: "border-red-200 bg-red-50 text-red-700",
+  P2: "border-amber-200 bg-amber-50 text-amber-700",
+  P3: "border-slate-200 bg-slate-50 text-slate-600",
 };
 
 const filterTabs = ["全部", "待处理", "处理中", "待客户", "已完成"];
 const pageSize = 5;
 
 const queueInsights = [
-  { title: "高优先级工单", value: "2", helper: "建议今天内完成初步诊断", tone: "bg-rose-50 text-rose-700" },
-  { title: "客户待反馈", value: "1", helper: "可补发视频采集指引", tone: "bg-amber-50 text-amber-700" },
-  { title: "跨部门协同", value: "3", helper: "已同步研发、法规与质量", tone: "bg-blue-50 text-blue-700" },
+  { title: "高优先级工单", value: "2", helper: "建议今天内完成初步诊断", tone: "text-red-700" },
+  { title: "客户待反馈", value: "1", helper: "可补发视频采集指引", tone: "text-amber-700" },
+  { title: "跨部门协同", value: "3", helper: "已同步研发、法规与质量", tone: "text-[#002fa7]" },
 ];
 
 const collaborationFeed = [
@@ -66,390 +100,156 @@ export function AfterSalesList() {
   const [assigneeFilter, setAssigneeFilter] = useState("全部");
 
   const filtered = useMemo(
-    () =>
-      tickets.filter((ticket) => {
-        const matchStatus = activeFilter === "全部" || ticket.status === activeFilter;
-        const matchSearch =
-          !search ||
-          ticket.id.includes(search) ||
-          ticket.customer.toLowerCase().includes(search.toLowerCase()) ||
-          ticket.sn.includes(search) ||
-          ticket.product.toLowerCase().includes(search.toLowerCase());
-        const matchPriority = priorityFilter === "全部" || ticket.priority === priorityFilter;
-        const matchAssignee = assigneeFilter === "全部" || ticket.assignee === assigneeFilter;
-        return matchStatus && matchSearch && matchPriority && matchAssignee;
-      }),
+    () => tickets.filter((ticket) => {
+      const query = search.toLowerCase();
+      const matchStatus = activeFilter === "全部" || ticket.status === activeFilter;
+      const matchSearch = !search || ticket.id.toLowerCase().includes(query) || ticket.customer.toLowerCase().includes(query) || ticket.sn.includes(search) || ticket.product.toLowerCase().includes(query);
+      const matchPriority = priorityFilter === "全部" || ticket.priority === priorityFilter;
+      const matchAssignee = assigneeFilter === "全部" || ticket.assignee === assigneeFilter;
+      return matchStatus && matchSearch && matchPriority && matchAssignee;
+    }),
     [activeFilter, assigneeFilter, priorityFilter, search, tickets],
   );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pagedTickets = filtered.slice((page - 1) * pageSize, page * pageSize);
   const selectedTicket = tickets.find((ticket) => ticket.id === selectedTicketId) ?? tickets[0];
+  const pendingCount = tickets.filter((ticket) => ticket.status === "待处理").length;
+  const processingCount = tickets.filter((ticket) => ticket.status === "处理中").length;
+  const waitingCount = tickets.filter((ticket) => ticket.status === "待客户").length;
+  const completedCount = tickets.filter((ticket) => ticket.status === "已完成").length;
+  const hasAdvancedFilters = priorityFilter !== "全部" || assigneeFilter !== "全部";
+
+  function resetFilters() {
+    setActiveFilter("全部");
+    setPriorityFilter("全部");
+    setAssigneeFilter("全部");
+    setSearch("");
+    setPage(1);
+  }
 
   function advanceTicket(id: string) {
-    setTickets((prev) =>
-      prev.map((ticket) =>
-        ticket.id === id ? { ...ticket, status: nextStatus(ticket.status), updated: "刚刚更新" } : ticket,
-      ),
-    );
+    setTickets((prev) => prev.map((ticket) => ticket.id === id ? { ...ticket, status: nextStatus(ticket.status), updated: "刚刚更新" } : ticket));
     toast.success(`工单 ${id} 状态已推进`);
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-gray-800">售后工单</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            共 {tickets.length} 条工单，{tickets.filter((ticket) => ticket.status === "待处理").length} 条待处理
-          </p>
-        </div>
-        <Link
-          to={subRoutePath("page:after-sales", "/after-sales", "new")}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1976D2] text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-900/10 hover:shadow-xl hover:-translate-y-0.5 transition-all"
-        >
-          <Plus className="w-4 h-4" />
-          新建工单
-        </Link>
-      </div>
+    <div className="horizon-theme hz-page mx-auto flex min-h-full max-w-[1600px] min-w-0 flex-col gap-4 px-3 py-4 sm:p-5 lg:p-6">
+      <HorizonPageHeader
+        Icon={Headphones}
+        eyebrow="售后服务 · Case 管理"
+        title="售后工单"
+        description="统一查看客户问题、响应时效与跨部门处理进度。"
+        meta={<><span>共 {tickets.length} 条工单</span><span aria-hidden="true">·</span><span>{pendingCount} 条等待受理</span></>}
+        actions={
+          <Button asChild className="hz-primary-action">
+            <Link to={subRoutePath("page:after-sales", "/after-sales", "new")}><Plus className="size-4" />新建工单</Link>
+          </Button>
+        }
+      />
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: "待处理", count: tickets.filter((ticket) => ticket.status === "待处理").length, color: "text-red-600", bg: "bg-red-50" },
-          { label: "处理中", count: tickets.filter((ticket) => ticket.status === "处理中").length, color: "text-blue-600", bg: "bg-blue-50" },
-          { label: "待客户", count: tickets.filter((ticket) => ticket.status === "待客户").length, color: "text-amber-600", bg: "bg-amber-50" },
-          { label: "已完成", count: tickets.filter((ticket) => ticket.status === "已完成").length, color: "text-green-600", bg: "bg-green-50" },
-        ].map((stat, index) => (
-          <motion.div key={stat.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-center gap-4">
-            <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", stat.bg)}>
-              <span className={cn("text-lg font-bold", stat.color)}>{stat.count}</span>
-            </div>
-            <span className="text-sm text-gray-500 font-medium">{stat.label}</span>
-          </motion.div>
-        ))}
-      </div>
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={TriangleAlert} label="待处理" value={pendingCount} note="需尽快完成首次响应" tone="danger" />
+        <HorizonMetric Icon={Activity} label="处理中" value={processingCount} note="技术团队正在跟进" tone="brand" />
+        <HorizonMetric Icon={Clock} label="待客户" value={waitingCount} note="等待客户补充或确认" tone="warning" />
+        <HorizonMetric Icon={CheckCircle2} label="已完成" value={completedCount} note="本周期已完成处理" tone="success" />
+      </HorizonMetricGrid>
 
-      <section className="grid grid-cols-12 gap-6">
-        <div className="col-span-12 xl:col-span-8">
-          <div className="material-card p-6">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h3 className="text-slate-900">队列摘要</h3>
-                <p className="mt-1 text-sm text-slate-500">让售后列表页先看到当前最需要处理的信号，而不只是表格。</p>
-              </div>
-              <span className="material-chip bg-slate-100 text-slate-600">Service Pulse</span>
-            </div>
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
-              {queueInsights.map((item) => (
-                <div key={item.title} className="material-panel">
-                  <span className={cn("material-chip", item.tone)}>{item.title}</span>
-                  <div className="mt-3 text-3xl font-bold tracking-tight text-slate-900">{item.value}</div>
-                  <div className="mt-2 text-sm text-slate-600">{item.helper}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+      <section className="hz-surface min-w-0 overflow-hidden">
+        <HorizonSectionHeader Icon={Headphones} title="Case 处理队列" description="按状态、客户、设备和负责人快速定位当前工单。" trailing={<span className="text-xs text-slate-500 tabular-nums">当前结果 {filtered.length} 条</span>} />
 
-        <div className="col-span-12 xl:col-span-4">
-          <div className="material-card p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-slate-900">协同动态</h3>
-                <p className="mt-1 text-sm text-slate-500">补上售后与其他模块的联动记录。</p>
-              </div>
-              <span className="material-chip bg-blue-50 text-blue-700">Live</span>
-            </div>
-            <div className="mt-5 space-y-3">
-              {collaborationFeed.map((item) => (
-                <div key={item.id} className="material-panel">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-slate-800">{item.title}</div>
-                    <span className="material-chip bg-white text-slate-500">{item.time}</span>
-                  </div>
-                  <div className="mt-2 text-sm text-slate-600">{item.helper}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 border-b border-gray-50 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <div className="flex items-center gap-2 flex-1 flex-wrap">
+        <div className="hz-toolbar flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-2" role="tablist" aria-label="工单状态筛选">
             {filterTabs.map((tab) => (
-              <button
-                key={tab}
-                onClick={() => {
-                  setActiveFilter(tab);
-                  setPage(1);
-                }}
-                className={cn("px-3 py-1.5 rounded-lg text-xs font-bold transition-all", activeFilter === tab ? "bg-[#1976D2] text-white shadow-sm" : "text-gray-500 hover:bg-gray-50")}
-              >
+              <Button key={tab} type="button" size="sm" variant={activeFilter === tab ? "default" : "ghost"} role="tab" aria-selected={activeFilter === tab} className={cn(activeFilter === tab && "bg-[#002fa7] hover:bg-[#002581]")} onClick={() => { setActiveFilter(tab); setPage(1); }}>
                 {tab}
-              </button>
+              </Button>
             ))}
           </div>
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="搜索工单号/客户/SN..."
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value);
-                setPage(1);
-              }}
-              className="w-full rounded-xl border border-transparent bg-gray-50 py-2 pl-9 pr-4 text-xs font-medium outline-none transition-all focus:border-blue-200 focus:bg-white sm:w-52"
-            />
+          <div className="flex w-full min-w-0 items-center gap-2 xl:w-auto">
+            <div className="relative min-w-0 flex-1 xl:w-72 xl:flex-none">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Input type="search" aria-label="搜索工单" placeholder="搜索工单号、客户、型号或 SN" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} className="h-10 rounded-xl bg-white pl-9" />
+            </div>
+            <Button type="button" variant="outline" className={cn("h-10 rounded-xl", hasAdvancedFilters && "border-[#002fa7] text-[#002fa7]")} onClick={() => setShowFilterDialog(true)}>
+              <Filter className="size-4" />筛选{hasAdvancedFilters ? "（已应用）" : ""}
+            </Button>
           </div>
-          <button className="p-2 rounded-xl border border-gray-100 text-gray-400 hover:bg-gray-50 transition-colors" onClick={() => setShowFilterDialog(true)}>
-            <Filter className="w-4 h-4" />
-          </button>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-[980px] text-left">
-            <thead>
-              <tr className="bg-gray-50/60">
-                {["工单编号", "客户", "产品/SN", "问题类型", "优先级", "负责人", "状态", "更新时间", "操作"].map((header) => (
-                  <th key={header} className="px-5 py-3.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
-                    {header}
-                  </th>
-                ))}
-              </tr>
+          <div className="min-w-0 overflow-x-auto">
+            <table className="w-full min-w-[980px] text-left">
+              <caption className="sr-only">售后 Case 处理队列，包含工单编号、客户、设备、优先级、负责人、状态与更新时间</caption>
+              <thead className="bg-slate-50/80">
+              <tr>{["工单编号", "客户", "产品 / SN", "问题类型", "优先级", "负责人", "状态", "更新时间", "操作"].map((header) => <th key={header} scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-slate-500">{header}</th>)}</tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
-              {pagedTickets.map((ticket, index) => {
+            <tbody className="divide-y divide-slate-100">
+              {pagedTickets.map((ticket) => {
                 const statusCfg = statusConfig[ticket.status];
                 const StatusIcon = statusCfg.icon;
                 return (
-                  <motion.tr key={ticket.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: index * 0.03 }} className="hover:bg-blue-50/20 transition-colors group">
-                    <td className="px-5 py-4">
-                      <Link to={`${routePath("page:after-sales", "/after-sales")}/${ticket.id}`} onMouseEnter={() => setSelectedTicketId(ticket.id)} className="font-mono text-sm font-bold text-[#1976D2] hover:underline">
-                        {ticket.id}
-                      </Link>
-                    </td>
-                    <td className="px-5 py-4 text-sm font-medium text-gray-700 whitespace-nowrap">{ticket.customer}</td>
-                    <td className="px-5 py-4">
-                      <p className="text-xs font-bold text-gray-700">{ticket.product}</p>
-                      <p className="text-[10px] font-mono text-gray-400">{ticket.sn}</p>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="px-2 py-1 bg-gray-50 text-gray-600 rounded-lg text-[11px] font-bold border border-gray-100">{ticket.issue}</span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className={cn("px-2 py-1 rounded text-[10px] font-bold", priorityConfig[ticket.priority])}>{ticket.priority}</span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center">
-                          <User className="w-3 h-3 text-gray-400" />
-                        </div>
-                        <span className="text-xs text-gray-600 font-medium">{ticket.assignee}</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border", statusCfg.className)}>
-                        <StatusIcon className={cn("w-3 h-3", ticket.status === "处理中" ? "animate-spin" : "")} />
-                        {statusCfg.label}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-[11px] text-gray-400 font-medium whitespace-nowrap">{ticket.updated}</td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2">
-                        <button className="rounded-lg border border-gray-100 px-2.5 py-1.5 text-[11px] font-bold text-gray-500 hover:bg-gray-50" onClick={() => advanceTicket(ticket.id)}>
-                          推进一步
-                        </button>
-                        <Link to={`${routePath("page:after-sales", "/after-sales")}/${ticket.id}`} className="p-1.5 hover:bg-gray-100 rounded-lg inline-flex">
-                          <ChevronRight className="w-4 h-4 text-gray-400" />
-                        </Link>
-                      </div>
-                    </td>
-                  </motion.tr>
+                  <tr key={ticket.id} className="bg-white hover:bg-[#f7f9ff]" onMouseEnter={() => setSelectedTicketId(ticket.id)}>
+                    <td className="px-4 py-3.5"><Link to={`${routePath("page:after-sales", "/after-sales")}/${ticket.id}`} className="font-mono text-sm font-semibold text-[#002fa7] hover:underline">{ticket.id}</Link></td>
+                    <td className="max-w-48 px-4 py-3.5 text-sm font-medium text-slate-700"><span className="block truncate" title={ticket.customer}>{ticket.customer}</span></td>
+                    <td className="px-4 py-3.5"><p className="text-sm font-semibold text-slate-700">{ticket.product}</p><p className="mt-0.5 font-mono text-xs text-slate-500 tabular-nums">{ticket.sn}</p></td>
+                    <td className="px-4 py-3.5 text-sm text-slate-600">{ticket.issue}</td>
+                    <td className="px-4 py-3.5"><span className={cn("inline-flex rounded-full border px-2 py-1 text-xs font-semibold tabular-nums", priorityConfig[ticket.priority])}>{ticket.priority}</span></td>
+                    <td className="px-4 py-3.5"><div className="flex items-center gap-2 text-sm text-slate-600"><span className="flex size-7 items-center justify-center rounded-full bg-slate-100" aria-hidden="true"><User className="size-3.5 text-slate-500" /></span>{ticket.assignee}</div></td>
+                    <td className="px-4 py-3.5"><span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold", statusCfg.className)}><StatusIcon className="size-3.5" aria-hidden="true" />{ticket.status}</span></td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-xs text-slate-500 tabular-nums">{ticket.updated}</td>
+                    <td className="px-4 py-3.5"><div className="flex items-center gap-1"><Button type="button" variant="outline" size="sm" onClick={() => advanceTicket(ticket.id)}>推进一步</Button><Button asChild variant="ghost" size="icon"><Link to={`${routePath("page:after-sales", "/after-sales")}/${ticket.id}`} aria-label={`查看工单 ${ticket.id}`}><ChevronRight className="size-4" /></Link></Button></div></td>
+                  </tr>
                 );
               })}
             </tbody>
           </table>
-          {filtered.length === 0 ? (
-            <div className="py-16 text-center text-gray-400">
-              <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
-              <p className="text-sm font-medium">未找到匹配的工单</p>
-            </div>
-          ) : null}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-50 px-5 py-4">
-          <div className="text-xs font-medium text-gray-400">第 {page} / {totalPages} 页</div>
-          <div className="flex items-center gap-2">
-            <button className="rounded-lg border border-gray-100 px-3 py-1.5 text-xs font-bold text-gray-500 hover:bg-gray-50 disabled:opacity-40" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1}>
-              上一页
-            </button>
-            <button className="rounded-lg border border-gray-100 px-3 py-1.5 text-xs font-bold text-gray-500 hover:bg-gray-50 disabled:opacity-40" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={page === totalPages}>
-              下一页
-            </button>
-            <button className="rounded-lg border border-gray-100 p-2 text-gray-400 hover:bg-gray-50" onClick={() => setShowActionsDialog(true)}>
-              <MoreHorizontal className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
+        {filtered.length === 0 ? <HorizonEmptyState Icon={Search} title="没有找到匹配工单" description="请调整搜索词或清除筛选条件后重试。" action={<Button type="button" variant="outline" onClick={resetFilters}>清除筛选</Button>} /> : null}
 
-      <section className="grid grid-cols-12 gap-6">
-        <div className="col-span-12 xl:col-span-7">
-          <div className="material-card p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-slate-900">当前聚焦工单</h3>
-                <p className="mt-1 text-sm text-slate-500">通过列表 hover 快速切换下方摘要，减少频繁跳详情页的成本。</p>
-              </div>
-              <span className="material-chip bg-slate-100 text-slate-600">{selectedTicket.priority}</span>
-            </div>
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="material-panel">
-                <div className="text-xs uppercase tracking-[0.14em] text-slate-400">Ticket</div>
-                <div className="mt-3 text-lg font-semibold text-slate-900">{selectedTicket.id}</div>
-                <div className="mt-2 text-sm text-slate-600">{selectedTicket.customer}</div>
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-slate-600">
-                  <div>
-                    <div className="text-xs text-slate-400">产品</div>
-                    <div className="mt-1">{selectedTicket.product}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-400">SN</div>
-                    <div className="mt-1 font-mono">{selectedTicket.sn}</div>
-                  </div>
-                </div>
-              </div>
-              <div className="material-panel">
-                <div className="text-xs uppercase tracking-[0.14em] text-slate-400">Process</div>
-                <div className="mt-3 text-sm font-semibold text-slate-800">问题类型：{selectedTicket.issue}</div>
-                <div className="mt-2 text-sm text-slate-600">负责人：{selectedTicket.assignee}</div>
-                <div className="mt-2 text-sm text-slate-600">最近更新时间：{selectedTicket.updated}</div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <span className={cn("material-chip", statusConfig[selectedTicket.status].className)}>{selectedTicket.status}</span>
-                  <span className="material-chip bg-slate-100 text-slate-600">建议下一步：推进诊断</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="col-span-12 xl:col-span-5">
-          <div className="material-card p-6">
-            <h3 className="text-slate-900">处理建议</h3>
-            <div className="mt-4 space-y-3">
-              {[
-                "高优先级工单建议先补齐客户现场图片、视频和运行日志。",
-                "若问题涉及异常噪音或硬件失效，可直接同步研发问题分流。",
-                "涉及对外投诉风险的案例建议同时抄送法规与质量模块留痕。",
-              ].map((item) => (
-                <div key={item} className="material-panel text-sm text-slate-700">
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
+          <div className="text-xs text-slate-500 tabular-nums">第 {page} / {totalPages} 页</div>
+          <div className="flex items-center gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1}>上一页</Button><Button type="button" variant="outline" size="sm" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={page === totalPages}>下一页</Button><Button type="button" variant="ghost" size="icon" aria-label="打开列表更多操作" onClick={() => setShowActionsDialog(true)}><MoreHorizontal className="size-4" /></Button></div>
         </div>
       </section>
 
-      {showFilterDialog ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4">
-          <div className="material-card w-full max-w-xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-slate-900">高级筛选</h3>
-                <p className="mt-1 text-sm text-slate-500">按优先级和负责人进一步筛选当前工单列表。</p>
-              </div>
-              <button type="button" className="material-button-secondary px-3 py-2" onClick={() => setShowFilterDialog(false)}>
-                关闭
-              </button>
-            </div>
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <label className="space-y-2">
-                <span className="text-sm font-medium text-slate-600">优先级</span>
-                <select className="material-input" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}>
-                  {["全部", "P1", "P2", "P3"].map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium text-slate-600">负责人</span>
-                <select className="material-input" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
-                  {["全部", ...Array.from(new Set(initialTickets.map((item) => item.assignee)))].map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="mt-6 flex items-center justify-between">
-              <div className="text-sm text-slate-500">当前结果：{filtered.length} 条工单</div>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  className="material-button-secondary"
-                  onClick={() => {
-                    setPriorityFilter("全部");
-                    setAssigneeFilter("全部");
-                    setPage(1);
-                  }}
-                >
-                  重置
-                </button>
-                <button
-                  type="button"
-                  className="material-button-primary"
-                  onClick={() => {
-                    setPage(1);
-                    setShowFilterDialog(false);
-                    toast.success("高级筛选已应用");
-                  }}
-                >
-                  应用筛选
-                </button>
-              </div>
-            </div>
+      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)]">
+        <div className="hz-surface min-w-0 overflow-hidden">
+          <HorizonSectionHeader Icon={Activity} title="当前聚焦工单" description="将鼠标移到列表行即可更新摘要。" trailing={<span className={cn("rounded-full border px-2 py-1 text-xs font-semibold", priorityConfig[selectedTicket.priority])}>{selectedTicket.priority}</span>} />
+          <div className="grid gap-4 p-4 sm:grid-cols-2">
+            <div className="min-w-0 border-b border-slate-100 pb-4 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-4"><div className="text-xs font-semibold text-slate-500">客户与设备</div><div className="mt-2 font-mono text-base font-semibold text-[#002fa7] tabular-nums">{selectedTicket.id}</div><p className="mt-1 truncate text-sm font-medium text-slate-800">{selectedTicket.customer}</p><p className="mt-2 text-sm text-slate-600">{selectedTicket.product} · <span className="font-mono tabular-nums">{selectedTicket.sn}</span></p></div>
+            <div className="min-w-0"><div className="text-xs font-semibold text-slate-500">处理状态</div><p className="mt-2 text-sm font-semibold text-slate-800">{selectedTicket.issue} · {selectedTicket.assignee}</p><p className="mt-1 text-sm text-slate-600">最近更新：<span className="tabular-nums">{selectedTicket.updated}</span></p><div className="mt-3 flex flex-wrap gap-2"><span className={cn("rounded-full border px-2.5 py-1 text-xs font-semibold", statusConfig[selectedTicket.status].className)}>{selectedTicket.status}</span><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">下一步：推进诊断</span></div></div>
           </div>
         </div>
-      ) : null}
+        <div className="hz-surface min-w-0 overflow-hidden">
+          <HorizonSectionHeader Icon={Users} title="队列信号" description="今日需要优先关注的服务信号。" />
+          <div className="divide-y divide-slate-100 px-4">{queueInsights.map((item) => <div key={item.title} className="flex items-start justify-between gap-4 py-3"><div className="min-w-0"><div className="text-sm font-semibold text-slate-800">{item.title}</div><p className="mt-1 text-xs text-pretty text-slate-500">{item.helper}</p></div><span className={cn("text-lg font-semibold tabular-nums", item.tone)}>{item.value}</span></div>)}</div>
+        </div>
+      </section>
 
-      {showActionsDialog ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4">
-          <div className="material-card w-full max-w-lg p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-slate-900">列表动作</h3>
-                <p className="mt-1 text-sm text-slate-500">把原来占位的“更多”改成可操作弹窗。</p>
-              </div>
-              <button type="button" className="material-button-secondary px-3 py-2" onClick={() => setShowActionsDialog(false)}>
-                关闭
-              </button>
-            </div>
-            <div className="mt-5 space-y-3">
-              {[
-                "导出当前筛选结果",
-                "批量提醒负责人更新工单",
-                "同步高优先级工单到首页待办",
-              ].map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  className="material-panel w-full text-left text-sm text-slate-700 transition hover:border-blue-200"
-                  onClick={() => toast.success(`${item} 已触发`)}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
+      <div className="hz-surface min-w-0 overflow-hidden">
+        <HorizonSectionHeader Icon={Users} title="协同动态" description="售后与研发、法规、质量模块的最新联动。" />
+        <div className="grid divide-y divide-slate-100 px-4 lg:grid-cols-3 lg:divide-x lg:divide-y-0 lg:px-0">{collaborationFeed.map((item) => <div key={item.id} className="min-w-0 py-3 lg:px-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0 text-sm font-semibold text-slate-800">{item.title}</div><time className="shrink-0 text-xs text-slate-500 tabular-nums">{item.time}</time></div><p className="mt-1 text-xs text-pretty text-slate-500">{item.helper}</p></div>)}</div>
+      </div>
+
+      <Dialog open={showFilterDialog} onOpenChange={setShowFilterDialog}>
+        <DialogContent className="horizon-portal sm:max-w-xl">
+          <DialogHeader><DialogTitle className="text-balance text-slate-900">高级筛选</DialogTitle><DialogDescription className="text-pretty">按优先级和负责人进一步缩小工单范围。</DialogDescription></DialogHeader>
+          <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <div className="space-y-2"><Label htmlFor="after-sales-priority">优先级</Label><select id="after-sales-priority" className="material-input" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}>{["全部", "P1", "P2", "P3"].map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
+            <div className="space-y-2"><Label htmlFor="after-sales-assignee">负责人</Label><select id="after-sales-assignee" className="material-input" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>{["全部", ...Array.from(new Set(initialTickets.map((item) => item.assignee)))].map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
           </div>
-        </div>
-      ) : null}
+          <div className="text-sm text-slate-500 tabular-nums">当前结果：{filtered.length} 条工单</div>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => { setPriorityFilter("全部"); setAssigneeFilter("全部"); setPage(1); }}>重置</Button><Button type="button" className="bg-[#002fa7] hover:bg-[#002581]" onClick={() => { setPage(1); setShowFilterDialog(false); toast.success("高级筛选已应用"); }}>应用筛选</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showActionsDialog} onOpenChange={setShowActionsDialog}>
+        <DialogContent className="horizon-portal sm:max-w-lg">
+          <DialogHeader><DialogTitle className="text-balance text-slate-900">列表操作</DialogTitle><DialogDescription className="text-pretty">对当前筛选结果执行批量协同操作。</DialogDescription></DialogHeader>
+          <div className="space-y-2 py-1">{["导出当前筛选结果", "批量提醒负责人更新工单", "同步高优先级工单到首页待办"].map((item) => <Button key={item} type="button" variant="outline" className="h-auto w-full justify-start whitespace-normal rounded-xl px-4 py-3 text-left" onClick={() => { setShowActionsDialog(false); toast.success(`${item} 已触发`); }}>{item}</Button>)}</div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,30 +1,51 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
-  Clock,
+  Clock3,
   FileText,
   FolderOpen,
   History,
   Plus,
   RotateCcw,
+  Search,
   Shield,
-  ThumbsDown,
   ThumbsUp,
   XCircle,
 } from "lucide-react";
 import { Link } from "react-router";
 import { toast } from "sonner";
+
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { cn } from "./components/ui/utils";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
 
-// ─── Mock Data ────────────────────────────────────────────────────────────────
-
 type DocStatus = "草稿" | "审核中" | "已批准" | "已作废";
 type ApprovalStep = "起草" | "审核" | "评审" | "批准" | "受控分发";
+type ApprovalAction = "pass" | "reject" | "approve" | "deny";
 
 interface VersionRecord {
   version: string;
@@ -48,7 +69,6 @@ interface QualityDoc {
 }
 
 const mockDocs: QualityDoc[] = [
-  // 程序文件
   {
     id: "q1",
     code: "SOP-001",
@@ -76,10 +96,9 @@ const mockDocs: QualityDoc[] = [
     currentStep: "审核",
     history: [
       { version: "V2.0", editor: "陈远", date: "2026-04-10", reason: "增加风险评估步骤", summary: "新增变更风险矩阵，更新影响评估表单" },
-      { version: "V1.5", editor: "陈远", date: "2025-11-20", reason: "合规整改", summary: "按MDR要求补充变更通知条款" },
+      { version: "V1.5", editor: "陈远", date: "2025-11-20", reason: "合规整改", summary: "按 MDR 要求补充变更通知条款" },
     ],
   },
-  // 记录表单
   {
     id: "q3",
     code: "JL-014",
@@ -120,7 +139,6 @@ const mockDocs: QualityDoc[] = [
       { version: "V1.0", editor: "林娜", date: "2025-06-10", reason: "初版发布", summary: "新建设备校准记录格式" },
     ],
   },
-  // 作业指导书
   {
     id: "q6",
     code: "WI-022",
@@ -147,10 +165,9 @@ const mockDocs: QualityDoc[] = [
     approver: "孙验证",
     currentStep: "受控分发",
     history: [
-      { version: "V1.3", editor: "林娜", date: "2026-03-05", reason: "更新灭菌参数", summary: "根据验证报告V-2026-02更新温度曲线" },
+      { version: "V1.3", editor: "林娜", date: "2026-03-05", reason: "更新灭菌参数", summary: "根据验证报告 V-2026-02 更新温度曲线" },
     ],
   },
-  // 说明书
   {
     id: "q8",
     code: "IFU-001",
@@ -159,11 +176,11 @@ const mockDocs: QualityDoc[] = [
     status: "已批准",
     category: "说明书",
     updatedAt: "2026-04-02",
-    approver: "何RA",
+    approver: "何 RA",
     currentStep: "受控分发",
     history: [
-      { version: "V4.0", editor: "何丽", date: "2026-04-02", reason: "年度更新+法规符合性", summary: "更新警示语，增加QR码，符合GB9706要求" },
-      { version: "V3.8", editor: "何丽", date: "2025-09-18", reason: "勘误", summary: "修正第3章操作步骤顺序错误" },
+      { version: "V4.0", editor: "何丽", date: "2026-04-02", reason: "年度更新与法规符合性", summary: "更新警示语，增加 QR 码，符合 GB 9706 要求" },
+      { version: "V3.8", editor: "何丽", date: "2025-09-18", reason: "勘误", summary: "修正第 3 章操作步骤顺序错误" },
     ],
   },
   {
@@ -183,415 +200,422 @@ const mockDocs: QualityDoc[] = [
 const categories = ["程序文件", "记录表单", "作业指导书", "说明书"];
 
 const statusConfig: Record<DocStatus, { label: string; cls: string }> = {
-  草稿: { label: "草稿", cls: "bg-gray-100 text-gray-600" },
-  审核中: { label: "审核中", cls: "bg-amber-100 text-amber-700" },
-  已批准: { label: "已批准", cls: "bg-green-100 text-green-700" },
-  已作废: { label: "已作废", cls: "bg-red-100 text-red-500" },
+  草稿: { label: "草稿", cls: "border-slate-200 bg-slate-100 text-slate-600" },
+  审核中: { label: "审核中", cls: "border-amber-100 bg-amber-50 text-amber-700" },
+  已批准: { label: "已批准", cls: "border-emerald-100 bg-emerald-50 text-emerald-700" },
+  已作废: { label: "已作废", cls: "border-red-100 bg-red-50 text-red-600" },
 };
 
 const approvalSteps: ApprovalStep[] = ["起草", "审核", "评审", "批准", "受控分发"];
-
 const stepIndex = (step: ApprovalStep) => approvalSteps.indexOf(step);
 
-// ─── Component ────────────────────────────────────────────────────────────────
+const actionLabels: Record<ApprovalAction, string> = {
+  pass: "审核通过",
+  reject: "打回修改",
+  approve: "批准文件",
+  deny: "驳回文件",
+};
 
 export function QualityDMSPage() {
   const [docs, setDocs] = useState<QualityDoc[]>(mockDocs);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string>("q2");
   const [activeTab, setActiveTab] = useState<"approval" | "history">("approval");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [pendingAction, setPendingAction] = useState<ApprovalAction | null>(null);
 
-  const filteredDocs = selectedCategory
-    ? docs.filter((d) => d.category === selectedCategory)
-    : docs;
+  const filteredDocs = useMemo(() => {
+    const keyword = searchQuery.trim().toLowerCase();
+    return docs.filter((doc) => {
+      const matchesCategory = !selectedCategory || doc.category === selectedCategory;
+      const matchesKeyword =
+        !keyword ||
+        [doc.code, doc.name, doc.version, doc.status, doc.category, doc.approver].some((value) =>
+          value.toLowerCase().includes(keyword),
+        );
+      return matchesCategory && matchesKeyword;
+    });
+  }, [docs, searchQuery, selectedCategory]);
 
-  const selected = docs.find((d) => d.id === selectedId) ?? docs[0];
+  const selected = docs.find((doc) => doc.id === selectedId) ?? docs[0];
+  const reviewCount = docs.filter((doc) => doc.status === "审核中").length;
+  const approvedCount = docs.filter((doc) => doc.status === "已批准").length;
+  const draftCount = docs.filter((doc) => doc.status === "草稿").length;
 
-  const handleAction = (action: "pass" | "reject" | "approve" | "deny") => {
-    const labels: Record<string, string> = {
-      pass: "审核通过",
-      reject: "打回修改",
-      approve: "批准",
-      deny: "驳回",
-    };
-    toast.success(`操作：${labels[action]}（模拟电子签名已记录）`);
+  function handleAction(action: ApprovalAction) {
+    toast.success(`操作：${actionLabels[action]}（模拟电子签名已记录）`);
     if (action === "pass") {
-      setDocs((prev) =>
-        prev.map((d) =>
-          d.id === selectedId
-            ? {
-                ...d,
-                currentStep: approvalSteps[stepIndex(d.currentStep) + 1] ?? d.currentStep,
-              }
-            : d,
+      setDocs((current) =>
+        current.map((doc) =>
+          doc.id === selectedId
+            ? { ...doc, currentStep: approvalSteps[stepIndex(doc.currentStep) + 1] ?? doc.currentStep }
+            : doc,
         ),
       );
     }
-  };
+  }
 
-  const categoryCount = (cat: string) => docs.filter((d) => d.category === cat).length;
+  function confirmAction() {
+    if (pendingAction) handleAction(pendingAction);
+    setPendingAction(null);
+  }
+
+  const categoryCount = (category: string) => docs.filter((doc) => doc.category === category).length;
+  const negativeAction = pendingAction === "reject" || pendingAction === "deny";
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col bg-gray-50 lg:h-full">
-      <div className="border-b border-gray-200 bg-white px-4 py-4 sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <Shield className="h-5 w-5 text-indigo-600" />
-            <h1 className="truncate text-lg font-semibold text-gray-900">质量文件管理系统（DMS）</h1>
-          </div>
-          <Link to={routePath("page:qa-traceability", "/qa-traceability")} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100">
-            去全链路追溯
-          </Link>
-        </div>
-      </div>
+    <div className="horizon-theme hz-page min-w-0 space-y-3 px-3 py-3 sm:px-4 lg:px-5">
+      <HorizonPageHeader
+        Icon={Shield}
+        eyebrow="质量体系 / DOCUMENT CONTROL"
+        title="质量文件管理系统"
+        description="集中维护受控文件、版本历史与审批状态，形成可审计的文件全生命周期工作区。"
+        meta={
+          <>
+            <span>文件库更新至 2026-04-14</span>
+            <span aria-hidden="true">·</span>
+            <span>共 {categories.length} 个文件类别</span>
+          </>
+        }
+        actions={
+          <>
+            <Button asChild variant="outline">
+              <Link to={routePath("page:qa-traceability", "/qa-traceability")}>
+                全链路追溯
+                <ChevronRight aria-hidden="true" />
+              </Link>
+            </Button>
+            <Button className="hz-primary-action" onClick={() => toast.info("新建文件（模拟）")}>
+              <Plus aria-hidden="true" />
+              新建文件
+            </Button>
+          </>
+        }
+      />
 
-      <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-visible p-3 lg:flex-row lg:gap-0 lg:overflow-hidden lg:p-0">
-        {/* Left: Category Tree */}
-        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[20%] lg:border-y-0 lg:border-l-0 lg:border-r">
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-            <span className="text-sm font-medium text-gray-700">文件类别</span>
-            <button
-              onClick={() => toast.info("新建文件（模拟）")}
-              className="flex items-center gap-1 rounded-lg bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-700"
-            >
-              <Plus className="h-3 w-3" />
-              新建
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            <button
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={FileText} label="受控文件" value={docs.length} note="含草稿与历史作废版本" tone="brand" />
+        <HorizonMetric Icon={Clock3} label="审核中" value={reviewCount} note="等待审核或评审" tone="warning" />
+        <HorizonMetric Icon={CheckCircle2} label="已批准" value={approvedCount} note="可受控分发" tone="success" />
+        <HorizonMetric Icon={ClipboardList} label="草稿" value={draftCount} note="尚未进入审批流程" tone="neutral" />
+      </HorizonMetricGrid>
+
+      <div className="grid min-w-0 gap-3 xl:grid-cols-[13.5rem_minmax(0,1fr)] 2xl:grid-cols-[13.5rem_minmax(0,1fr)_20rem]">
+        <aside className="hz-surface min-w-0 overflow-hidden">
+          <HorizonSectionHeader Icon={FolderOpen} title="文件类别" description="按体系类型筛选文件库。" />
+          <nav className="space-y-1 p-2" aria-label="质量文件类别">
+            <CategoryButton
+              label="全部文件"
+              count={docs.length}
+              active={!selectedCategory}
+              Icon={FolderOpen}
               onClick={() => setSelectedCategory(null)}
-              className={cn(
-                "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors",
-                !selectedCategory
-                  ? "bg-indigo-50 text-indigo-700 font-medium"
-                  : "text-gray-600 hover:bg-gray-50",
-              )}
-            >
-              <span className="flex items-center gap-2">
-                <FolderOpen className="h-4 w-4" />
-                全部文件
-              </span>
-              <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-xs text-gray-600">
-                {docs.length}
-              </span>
-            </button>
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat === selectedCategory ? null : cat)}
-                className={cn(
-                  "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors",
-                  selectedCategory === cat
-                    ? "bg-indigo-50 text-indigo-700 font-medium"
-                    : "text-gray-600 hover:bg-gray-50",
-                )}
-              >
-                <span className="flex items-center gap-2">
-                  <ChevronRight className="h-3.5 w-3.5" />
-                  {cat}
-                </span>
-                <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-xs text-gray-600">
-                  {categoryCount(cat)}
-                </span>
-              </button>
+            />
+            {categories.map((category) => (
+              <CategoryButton
+                key={category}
+                label={category}
+                count={categoryCount(category)}
+                active={selectedCategory === category}
+                Icon={ChevronRight}
+                onClick={() => setSelectedCategory(category === selectedCategory ? null : category)}
+              />
             ))}
+          </nav>
+          <div className="mx-3 mb-3 rounded-xl border border-blue-100 bg-[#f7f9ff] p-3">
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#002fa7]">
+              <Shield className="size-3.5" aria-hidden="true" />
+              受控提醒
+            </div>
+            <p className="mt-1.5 text-pretty text-xs leading-5 text-slate-500">审批完成后按受控分发范围使用最新有效版本。</p>
           </div>
-        </div>
+        </aside>
 
-        {/* Center: Document List */}
-        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[45%] lg:border-y-0 lg:border-l-0 lg:border-r">
-          <div className="border-b border-gray-100 px-4 py-3">
-            <span className="text-sm font-medium text-gray-700">
-              {selectedCategory ?? "全部文件"}（{filteredDocs.length}）
-            </span>
+        <section className="hz-surface min-w-0 overflow-hidden">
+          <HorizonSectionHeader
+            Icon={FileText}
+            title={selectedCategory ?? "全部文件"}
+            description="选择文件后查看审批步骤与版本变更证据。"
+            trailing={<span className="text-xs tabular-nums text-slate-500">{filteredDocs.length} 项</span>}
+          />
+          <div className="hz-toolbar border-b p-3">
+            <Label htmlFor="dms-search" className="sr-only">搜索质量文件</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Input
+                id="dms-search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                className="bg-white pl-9"
+                placeholder="搜索编号、名称、版本或审批人"
+              />
+            </div>
           </div>
-          <div className="flex-1 overflow-x-auto overflow-y-auto">
-            <table className="min-w-[720px] text-xs lg:w-full">
-              <thead className="sticky top-0 bg-gray-50 text-gray-500">
+          <div className="min-w-0 overflow-x-auto">
+            <table className="w-full min-w-[680px] text-sm">
+              <caption className="sr-only">质量文件库及当前版本状态</caption>
+              <thead className="bg-slate-50 text-left text-xs text-slate-500">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium">文件编号</th>
-                  <th className="px-2 py-2 text-left font-medium">文件名</th>
-                  <th className="px-2 py-2 text-left font-medium">版本</th>
-                  <th className="px-2 py-2 text-left font-medium">状态</th>
-                  <th className="px-2 py-2 text-left font-medium">修改日</th>
-                  <th className="px-2 py-2 text-left font-medium">审批人</th>
+                  <th scope="col" className="px-3 py-2.5 font-semibold">文件编号</th>
+                  <th scope="col" className="px-3 py-2.5 font-semibold">文件名称</th>
+                  <th scope="col" className="px-3 py-2.5 font-semibold">版本</th>
+                  <th scope="col" className="px-3 py-2.5 font-semibold">状态</th>
+                  <th scope="col" className="px-3 py-2.5 font-semibold">修改日期</th>
+                  <th scope="col" className="px-3 py-2.5 font-semibold">审批人</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
-                {filteredDocs.map((doc) => {
-                  const isVoid = doc.status === "已作废";
-                  return (
-                    <tr
-                      key={doc.id}
-                      onClick={() => setSelectedId(doc.id)}
-                      className={cn(
-                        "cursor-pointer transition-colors",
-                        isVoid ? "opacity-50" : "",
-                        selectedId === doc.id ? "bg-indigo-50" : "hover:bg-gray-50",
-                      )}
-                    >
-                      <td className="px-3 py-2.5 font-mono text-gray-600">{doc.code}</td>
-                      <td className="px-2 py-2.5">
-                        <div className="flex items-center gap-1.5">
-                          <FileText className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-                          <span className={cn("font-medium text-gray-800", isVoid && "line-through text-gray-400")}>
-                            {doc.name}
+              <tbody className="divide-y divide-slate-100">
+                {filteredDocs.length ? (
+                  filteredDocs.map((doc) => {
+                    const selectedRow = selectedId === doc.id;
+                    const isVoid = doc.status === "已作废";
+                    return (
+                      <tr key={doc.id} className={cn(selectedRow && "bg-[#f7f9ff]", isVoid && "text-slate-400")}>
+                        <td className="px-3 py-2.5 font-mono text-xs tabular-nums">{doc.code}</td>
+                        <td className="px-3 py-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-auto max-w-64 justify-start rounded-lg px-2 py-1.5 text-left"
+                            onClick={() => setSelectedId(doc.id)}
+                            aria-current={selectedRow ? "true" : undefined}
+                          >
+                            <FileText className="size-4 shrink-0 text-slate-400" aria-hidden="true" />
+                            <span className={cn("truncate font-semibold text-slate-800", isVoid && "line-through text-slate-400")}>{doc.name}</span>
+                          </Button>
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-xs tabular-nums text-slate-600">{doc.version}</td>
+                        <td className="px-3 py-2.5">
+                          <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold", statusConfig[doc.status].cls)}>
+                            {statusConfig[doc.status].label}
                           </span>
-                        </div>
-                      </td>
-                      <td className="px-2 py-2.5">
-                        <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-gray-600">
-                          {doc.version}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2.5">
-                        <span
-                          className={cn(
-                            "rounded-full px-2 py-0.5 text-xs font-medium",
-                            statusConfig[doc.status].cls,
-                          )}
-                        >
-                          {statusConfig[doc.status].label}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2.5 text-gray-400">{doc.updatedAt}</td>
-                      <td className="px-2 py-2.5 text-gray-500">{doc.approver}</td>
-                    </tr>
-                  );
-                })}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs tabular-nums text-slate-500">{doc.updatedAt}</td>
+                        <td className="px-3 py-2.5 text-xs text-slate-600">{doc.approver}</td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={6}>
+                      <HorizonEmptyState
+                        Icon={Search}
+                        title="未找到匹配文件"
+                        description="调整搜索词或清除当前类别筛选。"
+                        action={<Button type="button" variant="outline" size="sm" onClick={() => { setSearchQuery(""); setSelectedCategory(null); }}>清除筛选</Button>}
+                      />
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
 
-        {/* Right: Approval Panel */}
-        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[35%] lg:border-0">
-          {selected && (
-            <>
-              {/* Header */}
-              <div className="border-b border-gray-100 px-4 py-3">
-                <p className="text-xs text-gray-400 font-mono">{selected.code}</p>
-                <p className="text-sm font-semibold text-gray-900">{selected.name}</p>
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-600">
-                    {selected.version}
+        <aside className="hz-surface min-w-0 overflow-hidden xl:col-start-2 2xl:col-start-auto">
+          {selected ? (
+            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "approval" | "history")} className="gap-0">
+              <div className="border-b border-slate-100 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs tabular-nums text-slate-500">{selected.code}</span>
+                  <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold", statusConfig[selected.status].cls)}>
+                    {selected.status}
                   </span>
-                  <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", statusConfig[selected.status].cls)}>
-                    {statusConfig[selected.status].label}
-                  </span>
+                </div>
+                <h2 className="mt-2 text-balance text-base font-semibold text-slate-900">{selected.name}</h2>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                  <span className="font-mono tabular-nums">{selected.version}</span>
+                  <span>审批人：{selected.approver}</span>
                 </div>
               </div>
 
-              {/* Tabs */}
-              <div className="flex border-b border-gray-100">
-                {[
-                  { key: "approval", label: "审批流程" },
-                  { key: "history", label: "版本历史" },
-                ].map((tab) => (
-                  <button
-                    key={tab.key}
-                    onClick={() => setActiveTab(tab.key as "approval" | "history")}
-                    className={cn(
-                      "flex-1 py-2 text-xs font-medium transition-colors",
-                      activeTab === tab.key
-                        ? "border-b-2 border-indigo-600 text-indigo-600"
-                        : "text-gray-500 hover:text-gray-700",
-                    )}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+              <TabsList className="mx-3 mt-3 grid w-auto grid-cols-2 bg-slate-100">
+                <TabsTrigger value="approval">审批流程</TabsTrigger>
+                <TabsTrigger value="history">版本历史</TabsTrigger>
+              </TabsList>
 
-              {activeTab === "approval" && (
-                <div className="flex-1 overflow-y-auto p-4">
-                  {/* Step bar */}
-                  <div className="mb-6">
-                    <div className="flex items-center">
-                      {approvalSteps.map((step, i) => {
-                        const current = stepIndex(selected.currentStep);
-                        const isDone = i < current;
-                        const isActive = i === current;
-                        return (
-                          <React.Fragment key={step}>
-                            <div className="flex flex-col items-center">
-                              <div
-                                className={cn(
-                                  "flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold",
-                                  isDone
-                                    ? "bg-green-500 text-white"
-                                    : isActive
-                                      ? "bg-indigo-600 text-white ring-2 ring-indigo-200"
-                                      : "bg-gray-200 text-gray-400",
-                                )}
-                              >
-                                {isDone ? <CheckCircle2 className="h-4 w-4" /> : i + 1}
-                              </div>
-                              <span
-                                className={cn(
-                                  "mt-1 text-xs",
-                                  isActive ? "font-semibold text-indigo-600" : isDone ? "text-green-600" : "text-gray-400",
-                                )}
-                              >
-                                {step}
-                              </span>
-                            </div>
-                            {i < approvalSteps.length - 1 && (
-                              <div
-                                className={cn(
-                                  "mx-1 mb-4 h-0.5 flex-1",
-                                  i < current ? "bg-green-400" : "bg-gray-200",
-                                )}
-                              />
-                            )}
-                          </React.Fragment>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Current step info */}
-                  <div className="mb-4 rounded-xl bg-indigo-50 p-3">
-                    <p className="text-xs font-medium text-indigo-700">
-                      当前步骤：{selected.currentStep}
-                    </p>
-                    <p className="mt-0.5 text-xs text-indigo-500">
-                      审批人：{selected.approver}
-                    </p>
-                  </div>
-
-                  {/* Action buttons */}
-                  {selected.status === "审核中" && (
-                    <div className="space-y-2">
-                      {selected.currentStep === "审核" && (
-                        <>
-                          <p className="text-xs font-medium text-gray-500 mb-2">审核人操作</p>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleAction("pass")}
-                              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-green-600 py-2.5 text-sm font-medium text-white hover:bg-green-700"
-                            >
-                              <ThumbsUp className="h-4 w-4" />
-                              通过
-                            </button>
-                            <button
-                              onClick={() => handleAction("reject")}
-                              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-orange-300 py-2.5 text-sm font-medium text-orange-600 hover:bg-orange-50"
-                            >
-                              <RotateCcw className="h-4 w-4" />
-                              打回修改
-                            </button>
-                          </div>
-                        </>
-                      )}
-                      {selected.currentStep === "评审" && (
-                        <>
-                          <p className="text-xs font-medium text-gray-500 mb-2">评审人操作</p>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleAction("pass")}
-                              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-green-600 py-2.5 text-sm font-medium text-white hover:bg-green-700"
-                            >
-                              <ThumbsUp className="h-4 w-4" />
-                              通过
-                            </button>
-                            <button
-                              onClick={() => handleAction("reject")}
-                              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-orange-300 py-2.5 text-sm font-medium text-orange-600 hover:bg-orange-50"
-                            >
-                              <RotateCcw className="h-4 w-4" />
-                              打回修改
-                            </button>
-                          </div>
-                        </>
-                      )}
-                      {selected.currentStep === "批准" && (
-                        <>
-                          <p className="text-xs font-medium text-gray-500 mb-2">批准人操作</p>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleAction("approve")}
-                              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-indigo-600 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
-                            >
-                              <CheckCircle2 className="h-4 w-4" />
-                              批准
-                            </button>
-                            <button
-                              onClick={() => handleAction("deny")}
-                              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-300 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
-                            >
-                              <XCircle className="h-4 w-4" />
-                              驳回
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {selected.status !== "审核中" && (
-                    <div className="rounded-xl bg-gray-50 p-3 text-center">
-                      <p className="text-xs text-gray-400">
-                        {selected.status === "已批准"
-                          ? "文件已批准，审批流程完成"
-                          : selected.status === "草稿"
-                            ? "草稿阶段，提交审核后开始流程"
-                            : "文件已作废"}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* E-signature note */}
-                  <div className="mt-4 rounded-xl border border-dashed border-gray-200 p-3">
-                    <div className="flex items-start gap-2">
-                      <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" />
-                      <p className="text-xs text-gray-400">
-                        所有审批操作均记录电子签名，具有法律效力，不可篡改。
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === "history" && (
-                <div className="flex-1 overflow-y-auto p-4">
-                  {selected.history.length === 0 ? (
-                    <div className="rounded-xl bg-gray-50 p-6 text-center">
-                      <p className="text-xs text-gray-400">暂无版本历史</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {selected.history.map((h, i) => (
-                        <div
-                          key={i}
-                          className="rounded-xl border border-gray-100 bg-gray-50 p-3"
+              <TabsContent value="approval" className="p-4">
+                <ol aria-label="文件审批流程" className="space-y-0">
+                  {approvalSteps.map((step, index) => {
+                    const current = stepIndex(selected.currentStep);
+                    const done = index < current;
+                    const active = index === current;
+                    return (
+                      <li key={step} className="relative flex min-h-12 gap-3">
+                        {index < approvalSteps.length - 1 ? (
+                          <span className={cn("absolute left-[13px] top-7 h-[calc(100%-4px)] w-px", done ? "bg-emerald-300" : "bg-slate-200")} aria-hidden="true" />
+                        ) : null}
+                        <span
+                          className={cn(
+                            "relative z-10 flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums",
+                            done && "border-emerald-500 bg-emerald-500 text-white",
+                            active && "border-[#002fa7] bg-[#002fa7] text-white",
+                            !done && !active && "border-slate-200 bg-white text-slate-400",
+                          )}
+                          aria-current={active ? "step" : undefined}
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="rounded bg-indigo-100 px-2 py-0.5 font-mono text-xs font-semibold text-indigo-700">
-                              {h.version}
-                            </span>
-                            <span className="text-xs text-gray-400">{h.date}</span>
-                          </div>
-                          <div className="mt-1.5 grid grid-cols-2 gap-1 text-xs">
-                            <span className="text-gray-400">修改人：</span>
-                            <span className="text-gray-700">{h.editor}</span>
-                            <span className="text-gray-400">修改原因：</span>
-                            <span className="text-gray-700">{h.reason}</span>
-                          </div>
-                          <p className="mt-1.5 text-xs text-gray-500 bg-white rounded-lg px-2 py-1.5 border border-gray-100">
-                            {h.summary}
-                          </p>
+                          {done ? <CheckCircle2 className="size-4" aria-hidden="true" /> : index + 1}
+                        </span>
+                        <div className="min-w-0 pb-3 pt-1">
+                          <div className={cn("text-sm font-semibold", active ? "text-[#002fa7]" : done ? "text-emerald-700" : "text-slate-500")}>{step}</div>
+                          {active ? <div className="mt-0.5 text-xs text-slate-500">当前节点 · {selected.approver}</div> : null}
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      </li>
+                    );
+                  })}
+                </ol>
+
+                <ApprovalActions selected={selected} onRequest={setPendingAction} />
+
+                <div className="mt-4 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <Shield className="mt-0.5 size-4 shrink-0 text-[#002fa7]" aria-hidden="true" />
+                  <p className="text-pretty text-xs leading-5 text-slate-500">当前为模拟审批操作；正式电子签名效力与审计要求以已配置的受控系统为准。</p>
                 </div>
-              )}
-            </>
+              </TabsContent>
+
+              <TabsContent value="history" className="p-4">
+                {selected.history.length ? (
+                  <ol className="space-y-3" aria-label="文件版本历史">
+                    {selected.history.map((record) => (
+                      <li key={`${record.version}-${record.date}`} className="rounded-xl border border-slate-200 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-mono text-sm font-semibold tabular-nums text-[#002fa7]">{record.version}</span>
+                          <time className="text-xs tabular-nums text-slate-500">{record.date}</time>
+                        </div>
+                        <dl className="mt-3 grid grid-cols-[4rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 text-xs">
+                          <dt className="text-slate-400">修改人</dt>
+                          <dd className="text-slate-700">{record.editor}</dd>
+                          <dt className="text-slate-400">修改原因</dt>
+                          <dd className="text-slate-700">{record.reason}</dd>
+                        </dl>
+                        <p className="mt-3 text-pretty text-xs leading-5 text-slate-500">{record.summary}</p>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <HorizonEmptyState
+                    Icon={History}
+                    title="暂无版本历史"
+                    description="当前草稿还没有已发布的历史版本。"
+                    action={<Button type="button" variant="outline" size="sm" onClick={() => toast.info("创建修订（模拟）")}>创建修订</Button>}
+                  />
+                )}
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <HorizonEmptyState Icon={FileText} title="选择文件查看详情" description="从文件库选择一项以查看审批状态和版本历史。" />
           )}
+        </aside>
+      </div>
+
+      <AlertDialog open={Boolean(pendingAction)} onOpenChange={(open) => !open && setPendingAction(null)}>
+        <AlertDialogContent className="horizon-portal">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-balance">确认{pendingAction ? actionLabels[pendingAction] : "审批操作"}？</AlertDialogTitle>
+            <AlertDialogDescription className="text-pretty">
+              {negativeAction
+                ? `该操作会中止当前文件的审批流转，请确认已核对 ${selected?.code ?? "当前文件"} 的问题与修改要求。`
+                : `该操作会推进 ${selected?.code ?? "当前文件"} 的审批流程，并记录当前模拟审批信息。`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction className={cn(negativeAction ? "bg-red-600 text-white hover:bg-red-700" : "bg-[#002fa7] text-white hover:bg-[#002581]")} onClick={confirmAction}>
+              确认{pendingAction ? actionLabels[pendingAction] : "操作"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+function CategoryButton({
+  label,
+  count,
+  active,
+  Icon,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  Icon: React.ComponentType<{ className?: string }>;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      className={cn(
+        "h-9 w-full justify-between rounded-lg px-3",
+        active ? "bg-[#eef3ff] text-[#002fa7] hover:bg-[#eef3ff]" : "text-slate-600 hover:bg-slate-50",
+      )}
+      onClick={onClick}
+      aria-pressed={active}
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <Icon className="size-4 shrink-0" aria-hidden="true" />
+        <span className="truncate">{label}</span>
+      </span>
+      <span className="rounded-full bg-white px-1.5 py-0.5 text-xs tabular-nums text-slate-500">{count}</span>
+    </Button>
+  );
+}
+
+function ApprovalActions({ selected, onRequest }: { selected: QualityDoc; onRequest: (action: ApprovalAction) => void }) {
+  if (selected.status !== "审核中") {
+    return (
+      <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-center text-xs text-slate-500">
+        {selected.status === "已批准"
+          ? "文件已批准，审批流程完成。"
+          : selected.status === "草稿"
+            ? "草稿提交审核后将进入审批流程。"
+            : "文件已作废，不再参与审批流转。"}
+      </div>
+    );
+  }
+
+  if (selected.currentStep === "审核" || selected.currentStep === "评审") {
+    return (
+      <div className="mt-3 space-y-2">
+        <div className="text-xs font-semibold text-slate-500">{selected.currentStep}人操作</div>
+        <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-1">
+          <Button type="button" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => onRequest("pass")}>
+            <ThumbsUp aria-hidden="true" />
+            通过
+          </Button>
+          <Button type="button" variant="outline" className="border-amber-200 text-amber-700 hover:bg-amber-50" onClick={() => onRequest("reject")}>
+            <RotateCcw aria-hidden="true" />
+            打回修改
+          </Button>
         </div>
       </div>
+    );
+  }
+
+  if (selected.currentStep === "批准") {
+    return (
+      <div className="mt-3 space-y-2">
+        <div className="text-xs font-semibold text-slate-500">批准人操作</div>
+        <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-1">
+          <Button type="button" className="bg-[#002fa7] text-white hover:bg-[#002581]" onClick={() => onRequest("approve")}>
+            <CheckCircle2 aria-hidden="true" />
+            批准
+          </Button>
+          <Button type="button" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => onRequest("deny")}>
+            <XCircle aria-hidden="true" />
+            驳回
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 p-3 text-amber-800">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <p className="text-pretty text-xs leading-5">当前节点无需人工审批操作。</p>
     </div>
   );
 }

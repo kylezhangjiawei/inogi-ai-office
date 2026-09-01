@@ -1,7 +1,35 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Clock3, FileText, Filter, GitBranch, Plus, Send } from "lucide-react";
-import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  Archive,
+  Check,
+  Clock3,
+  FileText,
+  Filter,
+  GitBranch,
+  Plus,
+  Search,
+  Send,
+} from "lucide-react";
 import { toast } from "sonner";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import { Button } from "./components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
 import { cn } from "./components/ui/utils";
 
 const changes = [
@@ -38,16 +66,17 @@ export function DesignChangesPage() {
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [page, setPage] = useState(1);
+  const deferredKeyword = useDeferredValue(keyword);
 
   const filtered = useMemo(() => {
     return changes.filter((item) => {
-      const matchKeyword = !keyword || [item.id, item.title, item.type, item.owner].join(" ").toLowerCase().includes(keyword.toLowerCase());
+      const matchKeyword = !deferredKeyword || [item.id, item.title, item.type, item.owner].join(" ").toLowerCase().includes(deferredKeyword.toLowerCase());
       const matchStatus = status === "全部" || item.status === status;
       const matchImpact = impactFilter === "全部" || item.impact === impactFilter;
       const matchStage = stageFilter === "全部" || item.stage === stageFilter;
       return matchKeyword && matchStatus && matchImpact && matchStage;
     });
-  }, [impactFilter, keyword, stageFilter, status]);
+  }, [deferredKeyword, impactFilter, stageFilter, status]);
 
   useEffect(() => {
     setPage(1);
@@ -71,348 +100,187 @@ export function DesignChangesPage() {
 
   const closeDialog = () => setDialogMode(null);
 
+  const dialogTitle: Record<Exclude<DialogMode, null>, string> = {
+    filter: "高级筛选",
+    create: "新建设计变更",
+    review: "发起评审",
+    impact: "生成影响评估",
+    dhf: "导出 DHF 摘要",
+    calendar: "安排评审会",
+  };
+
+  const dialogDescription: Record<Exclude<DialogMode, null>, string> = {
+    filter: "按影响等级与所属阶段缩小变更清单范围。",
+    create: "创建一条待提交的 ECO 草稿，后续可继续补充影响项。",
+    review: "将所选变更同步给研发、质量和注册进行会签。",
+    impact: "基于当前变更生成影响范围与建议动作。",
+    dhf: "汇总影响项、版本、会签结果和归档要求。",
+    calendar: "为当前变更安排跨部门评审会议。",
+  };
+
+  const confirmLabel: Record<Exclude<DialogMode, null>, string> = {
+    filter: "应用筛选",
+    create: "创建草稿",
+    review: "确认发起",
+    impact: "确认生成",
+    dhf: "导出摘要",
+    calendar: "加入日历",
+  };
+
+  const handleDialogConfirm = () => {
+    if (!dialogMode) return;
+    const message: Record<Exclude<DialogMode, null>, string> = {
+      filter: "筛选条件已应用",
+      create: "新的设计变更草稿已创建",
+      review: "评审任务已推送",
+      impact: "影响评估已生成",
+      dhf: "DHF 摘要已导出",
+      calendar: "评审会议已加入日历",
+    };
+    closeDialog();
+    toast.success(message[dialogMode]);
+  };
+
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-4 sm:p-6 md:p-8">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <span className="material-chip bg-indigo-50 text-indigo-700">DHF Workspace</span>
-            <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">设计开发变更</h2>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">把 ECO 申请、影响评估、DHF 版本和流转动作放在一页里，方便研发、质量和注册一起跟踪。</p>
-          </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:gap-3">
-            <button type="button" onClick={() => setDialogMode("create")} className="material-button-primary w-full justify-center sm:w-auto">
-              <Plus className="h-4 w-4" />
-              新建变更
-            </button>
-            <button type="button" onClick={() => setDialogMode("review")} className="material-button-secondary w-full justify-center sm:w-auto">
-              <Send className="h-4 w-4" />
-              发起评审
-            </button>
-          </div>
-        </div>
-      </section>
+    <div className="horizon-theme hz-page mx-auto flex min-h-full max-w-[1600px] flex-col gap-4 px-3 py-4 sm:p-5 lg:p-6">
+      <HorizonPageHeader
+        Icon={GitBranch}
+        eyebrow="DESIGN CONTROL · ECO"
+        title="设计开发变更"
+        description="把 ECO 申请、影响评估、DHF 版本和流转动作集中在一个可追溯工作台。"
+        meta={<><span>{changes.length} 条变更</span><span aria-hidden="true">·</span><span>{changes.filter((item) => item.status === "评审中").length} 条正在评审</span></>}
+        actions={(
+          <>
+            <Button type="button" className="hz-primary-action" onClick={() => setDialogMode("create")}><Plus className="size-4" />新建变更</Button>
+            <Button type="button" variant="outline" onClick={() => setDialogMode("review")}><Send className="size-4" />发起评审</Button>
+          </>
+        )}
+      />
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          ["本月变更", "18", "高影响 3 项"],
-          ["待评审", "6", "跨部门会签"],
-          ["已归档", "12", "DHF 已同步"],
-          ["待补材料", "2", "需注册确认"],
-        ].map(([label, value, helper]) => (
-          <div key={label} className="material-card-flat min-w-0 p-4 sm:p-5">
-            <div className="text-sm text-slate-500">{label}</div>
-            <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{value}</div>
-            <div className="mt-2 text-sm text-slate-500">{helper}</div>
-          </div>
-        ))}
-      </section>
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={FileText} label="变更总数" value={changes.length} note="当前变更台账" />
+        <HorizonMetric Icon={Clock3} label="评审中" value={changes.filter((item) => item.status === "评审中").length} note="等待跨部门会签" tone="warning" />
+        <HorizonMetric Icon={AlertTriangle} label="高影响" value={changes.filter((item) => item.impact === "高").length} note="需要优先完成评估" tone="danger" />
+        <HorizonMetric Icon={Archive} label="已完成" value={changes.filter((item) => item.status === "已完成").length} note="DHF 记录可归档" tone="success" />
+      </HorizonMetricGrid>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="material-card min-w-0 p-4 sm:p-6">
-          <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-              <div className="relative flex-1">
-                <input
-                  value={keyword}
-                  onChange={(event) => setKeyword(event.target.value)}
-                  placeholder="搜索 ECO 编号、标题、负责人"
-                  className="material-input"
-                />
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="hz-surface min-w-0 overflow-hidden" aria-label="设计开发变更清单">
+          <HorizonSectionHeader Icon={FileText} title="变更清单" description="筛选、勾选并进入当前 ECO 记录" trailing={<span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600 tabular-nums">{filtered.length} 条</span>} />
+          <div className="hz-toolbar border-b px-4 py-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 flex-1 gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <Label htmlFor="design-change-search" className="sr-only">搜索设计变更</Label>
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                  <Input id="design-change-search" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索 ECO 编号、标题或负责人" className="pl-9" />
+                </div>
+                <Button type="button" variant="outline" onClick={() => setDialogMode("filter")}><Filter className="size-4" />筛选</Button>
               </div>
-              <button type="button" className="material-button-secondary" onClick={() => setDialogMode("filter")}>
-                <Filter className="h-4 w-4" />
-                筛选
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {["全部", "评审中", "待提交", "已完成"].map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setStatus(item)}
-                  className={cn(
-                    "rounded-full border px-4 py-2 text-sm font-semibold transition",
-                    status === item ? "border-indigo-200 bg-indigo-50 text-primary" : "border-slate-200 bg-white text-slate-500",
-                  )}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {selectedCount > 0 ? (
-            <div className="mb-4 rounded-[22px] border border-indigo-100 bg-indigo-50/60 p-4 text-sm text-slate-700">
-              已选 {selectedCount} 条，可批量发起评审或同步 DHF。
-            </div>
-          ) : null}
-
-          <div className="material-scrollbar overflow-x-auto rounded-[24px] border border-slate-100">
-            <table className="min-w-[720px] text-left">
-              <thead className="bg-slate-50">
-                <tr>
-                  {["选择", "编号", "标题", "类型", "负责人", "影响", "状态", "版本"].map((title) => (
-                    <th key={title} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      {title}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {pagedChanges.map((item) => (
-                  <tr key={item.id} className="cursor-pointer hover:bg-slate-50/70" onClick={() => setSelectedId(item.id)}>
-                    <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
-                      <button type="button" onClick={() => toggleRow(item.id)} className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-slate-500">
-                        {selectedRows[item.id] ? "✓" : "+"}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-sm font-semibold text-slate-700">{item.id}</td>
-                    <td className="px-4 py-3 text-sm text-slate-700">{item.title}</td>
-                    <td className="px-4 py-3 text-sm text-slate-500">{item.type}</td>
-                    <td className="px-4 py-3 text-sm text-slate-500">{item.owner}</td>
-                    <td className="px-4 py-3">
-                      <span className={cn("material-chip", impactTone[item.impact])}>{item.impact}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn("material-chip", statusTone[item.status])}>{item.status}</span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-500">{item.version}</td>
-                  </tr>
+              <div className="flex flex-wrap gap-2" aria-label="按状态筛选">
+                {["全部", "评审中", "待提交", "已完成"].map((item) => (
+                  <Button key={item} type="button" size="sm" variant="outline" aria-pressed={status === item} className={cn("rounded-lg", status === item && "border-[#002fa7] bg-[#eef3ff] text-[#002fa7]")} onClick={() => setStatus(item)}>{item}</Button>
                 ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-sm text-slate-500">
-              共 {filtered.length} 条，当前第 {page}/{totalPages} 页
-            </div>
-            <div className="flex gap-2">
-              <button type="button" className="material-button-secondary !px-3 !py-2 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1}>
-                上一页
-              </button>
-              <button type="button" className="material-button-secondary !px-3 !py-2 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={page === totalPages}>
-                下一页
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <aside className="min-w-0 space-y-6">
-          <section className="material-card p-4 sm:p-6">
-            <h3 className="text-slate-900">变更详情</h3>
-            {selected ? (
-              <div className="mt-4 space-y-4">
-                <div className="rounded-[24px] bg-[linear-gradient(135deg,#edf5ff_0%,#ffffff_58%,#eef9f7_100%)] p-5">
-                  <div className="text-lg font-semibold text-slate-900">{selected.title}</div>
-                  <div className="mt-3 space-y-2 text-sm text-slate-600">
-                    <div>编号：{selected.id}</div>
-                    <div>负责人：{selected.owner}</div>
-                    <div>日期：{selected.date}</div>
-                    <div>版本：{selected.version}</div>
-                  </div>
-                </div>
-                <div className="grid gap-3">
-                  {[
-                    ["影响评估", "涉及电源主板、验证报告和说明书同步。"],
-                    ["会签部门", "研发、质量、注册"],
-                    ["下一步", "完成评审后同步到 BOM 与 DMS"],
-                  ].map(([label, value]) => (
-                    <div key={label} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                      <div className="text-xs uppercase tracking-[0.14em] text-slate-400">{label}</div>
-                      <div className="mt-2 text-sm text-slate-700">{value}</div>
-                    </div>
-                  ))}
-                </div>
               </div>
-            ) : null}
-          </section>
-          <section className="material-card p-4 sm:p-6">
-            <div className="space-y-3">
-              <button type="button" onClick={() => setDialogMode("impact")} className="material-button-primary w-full justify-center">
-                <GitBranch className="h-4 w-4" />
-                生成影响评估
-              </button>
-              <button type="button" onClick={() => setDialogMode("dhf")} className="material-button-secondary w-full justify-center">
-                <FileText className="h-4 w-4" />
-                导出 DHF 摘要
-              </button>
-              <button type="button" onClick={() => setDialogMode("calendar")} className="material-button-secondary w-full justify-center">
-                <Clock3 className="h-4 w-4" />
-                安排评审会
-              </button>
             </div>
-          </section>
+          </div>
+
+          <div className="p-4">
+            {selectedCount > 0 ? <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#dce4f8] bg-[#f4f7fe] px-4 py-3 text-sm text-slate-700"><span>已选 <strong className="tabular-nums">{selectedCount}</strong> 条，可批量发起评审或同步 DHF。</span><Button type="button" size="sm" variant="outline" onClick={() => setSelectedRows({})}>清除选择</Button></div> : null}
+
+            {pagedChanges.length > 0 ? (
+              <div className="material-scrollbar overflow-x-auto rounded-xl border border-[#e9edf7]">
+                <table className="w-full min-w-[760px] text-left text-sm">
+                  <caption className="sr-only">设计开发变更清单，包含编号、标题、类型、负责人、影响、状态和版本</caption>
+                  <thead className="bg-slate-50 text-xs text-slate-600">
+                    <tr>
+                      {["选择", "编号", "标题", "状态", "影响", "负责人", "类型", "版本"].map((title) => <th key={title} scope="col" className="px-4 py-3 font-semibold">{title}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#e9edf7]">
+                    {pagedChanges.map((item) => {
+                      const active = selected?.id === item.id;
+                      return (
+                        <tr key={item.id} aria-selected={active} className={cn("hover:bg-slate-50", active && "bg-[#f4f7fe]")}>
+                          <td className="px-4 py-3">
+                            <button type="button" aria-label={`${selectedRows[item.id] ? "取消选择" : "选择"} ${item.id}`} aria-pressed={Boolean(selectedRows[item.id])} onClick={() => toggleRow(item.id)} className={cn("flex size-8 items-center justify-center rounded-lg border transition-colors", selectedRows[item.id] ? "border-[#002fa7] bg-[#002fa7] text-white" : "border-slate-200 bg-white text-slate-500 hover:border-[#002fa7]")}>{selectedRows[item.id] ? <Check className="size-4" /> : <Plus className="size-4" />}</button>
+                          </td>
+                          <td className="px-4 py-3"><button type="button" aria-current={active ? "true" : undefined} aria-label={`查看 ${item.id} ${item.title}`} onClick={() => setSelectedId(item.id)} className="font-semibold text-[#1b2559] underline-offset-4 hover:text-[#002fa7] hover:underline tabular-nums">{item.id}</button></td>
+                          <td className="max-w-[18rem] px-4 py-3 font-medium text-slate-800"><span className="line-clamp-2">{item.title}</span></td>
+                          <td className="px-4 py-3"><span className={cn("rounded-full px-2 py-1 text-xs font-semibold", statusTone[item.status])}>{item.status}</span></td>
+                          <td className="px-4 py-3"><span className={cn("rounded-full px-2 py-1 text-xs font-semibold", impactTone[item.impact])}>{item.impact}</span></td>
+                          <td className="px-4 py-3 text-slate-600">{item.owner}</td>
+                          <td className="px-4 py-3 text-slate-600">{item.type}</td>
+                          <td className="px-4 py-3 text-slate-600 tabular-nums">{item.version}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <HorizonEmptyState Icon={Search} title="没有匹配的变更记录" description="调整搜索词或清除筛选条件后重试。" action={<Button type="button" variant="outline" onClick={() => { setKeyword(""); setStatus("全部"); setImpactFilter("全部"); setStageFilter("全部"); }}>清除筛选</Button>} />
+            )}
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-slate-500 tabular-nums">共 {filtered.length} 条 · 第 {page}/{totalPages} 页</div>
+              <div className="flex gap-2"><Button type="button" size="sm" variant="outline" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1}>上一页</Button><Button type="button" size="sm" variant="outline" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={page === totalPages}>下一页</Button></div>
+            </div>
+          </div>
+        </section>
+
+        <aside className="hz-surface min-w-0 overflow-hidden" aria-label="当前设计变更">
+          <HorizonSectionHeader Icon={GitBranch} title="当前变更" description="影响范围与下一步动作" />
+          {selected ? (
+            <div className="space-y-4 p-4">
+              <div className="rounded-xl border border-[#dce4f8] bg-[#f4f7fe] p-4">
+                <div className="flex flex-wrap items-center gap-2"><span className="font-semibold text-[#002fa7] tabular-nums">{selected.id}</span><span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusTone[selected.status])}>{selected.status}</span></div>
+                <h2 className="mt-2 text-balance text-base font-semibold text-[#1b2559]">{selected.title}</h2>
+                <dl className="mt-4 grid grid-cols-2 gap-3 text-sm"><div><dt className="text-xs text-slate-500">负责人</dt><dd className="mt-1 font-medium text-slate-800">{selected.owner}</dd></div><div><dt className="text-xs text-slate-500">版本</dt><dd className="mt-1 font-medium text-slate-800 tabular-nums">{selected.version}</dd></div><div><dt className="text-xs text-slate-500">所属阶段</dt><dd className="mt-1 font-medium text-slate-800">{selected.stage}</dd></div><div><dt className="text-xs text-slate-500">申请日期</dt><dd className="mt-1 font-medium text-slate-800 tabular-nums">{selected.date}</dd></div></dl>
+              </div>
+              <dl className="divide-y divide-[#e9edf7] rounded-xl border border-[#e9edf7] px-4">
+                {[
+                  ["影响评估", "涉及电源主板、验证报告和说明书同步。"],
+                  ["会签部门", "研发、质量、注册"],
+                  ["下一步", "完成评审后同步到 BOM 与 DMS"],
+                ].map(([label, value]) => <div key={label} className="py-3"><dt className="text-xs font-semibold text-slate-500">{label}</dt><dd className="mt-1 text-pretty text-sm leading-6 text-slate-700">{value}</dd></div>)}
+              </dl>
+              <div className="space-y-2"><Button type="button" className="hz-primary-action w-full" onClick={() => setDialogMode("impact")}><GitBranch className="size-4" />生成影响评估</Button><Button type="button" variant="outline" className="w-full" onClick={() => setDialogMode("dhf")}><FileText className="size-4" />导出 DHF 摘要</Button><Button type="button" variant="outline" className="w-full" onClick={() => setDialogMode("calendar")}><Clock3 className="size-4" />安排评审会</Button></div>
+            </div>
+          ) : <HorizonEmptyState Icon={FileText} title="请选择一条变更" description="从左侧清单选择 ECO 后查看影响范围。" />}
         </aside>
-      </section>
+      </div>
 
-      <Dialog open={dialogMode === "filter"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>高级筛选</DialogTitle>
-        <DialogContent dividers>
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-2 text-sm text-slate-600">
-              <span>影响等级</span>
-              <select className="material-input" value={impactFilter} onChange={(event) => setImpactFilter(event.target.value)}>
-                {["全部", "高", "中", "低"].map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-2 text-sm text-slate-600">
-              <span>所属阶段</span>
-              <select className="material-input" value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>
-                {["全部", "研发", "验证", "结构", "软件", "注册"].map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-            </label>
-          </div>
+      <Dialog open={dialogMode !== null} onOpenChange={(open) => { if (!open) closeDialog(); }}>
+        <DialogContent className="horizon-portal gap-0 overflow-hidden p-0 sm:max-w-lg">
+          {dialogMode ? (
+            <>
+              <DialogHeader className="border-b border-[#e9edf7] px-5 py-4 text-left"><DialogTitle className="text-balance text-[#1b2559]">{dialogTitle[dialogMode]}</DialogTitle><DialogDescription className="text-pretty">{dialogDescription[dialogMode]}</DialogDescription></DialogHeader>
+              <div className="px-5 py-5">
+                {dialogMode === "filter" ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5"><Label htmlFor="design-impact-filter">影响等级</Label><select id="design-impact-filter" className="material-input" value={impactFilter} onChange={(event) => setImpactFilter(event.target.value)}>{["全部", "高", "中", "低"].map((item) => <option key={item}>{item}</option>)}</select></div>
+                    <div className="space-y-1.5"><Label htmlFor="design-stage-filter">所属阶段</Label><select id="design-stage-filter" className="material-input" value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>{["全部", "研发", "验证", "结构", "软件", "注册"].map((item) => <option key={item}>{item}</option>)}</select></div>
+                  </div>
+                ) : dialogMode === "create" ? (
+                  <dl className="grid gap-3 rounded-xl bg-[#f4f7fe] p-4 text-sm"><div><dt className="text-xs text-slate-500">默认标题</dt><dd className="mt-1 font-medium text-slate-800">压缩机启动阈值优化</dd></div><div><dt className="text-xs text-slate-500">默认负责人</dt><dd className="mt-1 font-medium text-slate-800">王宁</dd></div><div><dt className="text-xs text-slate-500">初始状态</dt><dd className="mt-1 font-medium text-slate-800">待提交</dd></div></dl>
+                ) : dialogMode === "review" ? (
+                  <div className="space-y-3"><p className="text-pretty text-sm leading-6 text-slate-700">已选择 <strong className="tabular-nums">{selectedCount || 1}</strong> 条变更单，准备同步给研发、质量和注册进行会签。</p><div className="rounded-xl border border-[#dce4f8] bg-[#f4f7fe] p-3 text-sm text-slate-700">预计 2 个工作日内完成；完成后自动回写 DHF 版本记录。</div></div>
+                ) : dialogMode === "impact" ? (
+                  <dl className="grid gap-3 text-sm"><div><dt className="text-xs text-slate-500">预计影响</dt><dd className="mt-1 text-slate-800">BOM、验证方案、IFU 说明书</dd></div><div><dt className="text-xs text-slate-500">风险等级</dt><dd className="mt-1 text-slate-800">{selected?.impact ?? "中"}</dd></div><div><dt className="text-xs text-slate-500">建议动作</dt><dd className="mt-1 text-slate-800">补充验证，并同步注册评估</dd></div></dl>
+                ) : dialogMode === "dhf" ? (
+                  <p className="text-pretty text-sm leading-7 text-slate-700">将导出当前变更对应的影响项、版本号、会签结果和归档要求，方便归档或注册审阅。</p>
+                ) : (
+                  <dl className="grid gap-3 text-sm"><div><dt className="text-xs text-slate-500">会议主题</dt><dd className="mt-1 text-slate-800">{selected?.id ?? "ECO"} 设计变更评审</dd></div><div><dt className="text-xs text-slate-500">默认参会</dt><dd className="mt-1 text-slate-800">研发、质量、注册</dd></div><div><dt className="text-xs text-slate-500">建议时间</dt><dd className="mt-1 text-slate-800 tabular-nums">2026-04-18 14:00</dd></div></dl>
+                )}
+              </div>
+              <DialogFooter className="border-t border-[#e9edf7] bg-slate-50 px-5 py-4">
+                {dialogMode === "filter" ? <Button type="button" variant="outline" onClick={() => { setImpactFilter("全部"); setStageFilter("全部"); }}>重置</Button> : <Button type="button" variant="outline" onClick={closeDialog}>取消</Button>}
+                <Button type="button" className="hz-primary-action" onClick={handleDialogConfirm}>{confirmLabel[dialogMode]}</Button>
+              </DialogFooter>
+            </>
+          ) : null}
         </DialogContent>
-        <DialogActions>
-          <button
-            type="button"
-            className="material-button-secondary"
-            onClick={() => {
-              setImpactFilter("全部");
-              setStageFilter("全部");
-              toast.success("筛选条件已重置");
-            }}
-          >
-            重置
-          </button>
-          <button type="button" className="material-button-primary" onClick={closeDialog}>
-            完成
-          </button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={dialogMode === "create"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>新建设计变更</DialogTitle>
-        <DialogContent dividers>
-          <div className="space-y-4 text-sm text-slate-600">
-            <p>这里先补上演示流程需要的创建弹窗，确认后会生成一条待提交的 ECO 草稿。</p>
-            <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-              <div>默认标题：压缩机启动阈值优化</div>
-              <div className="mt-2">默认负责人：王宁</div>
-              <div className="mt-2">默认状态：待提交</div>
-            </div>
-          </div>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog}>
-            取消
-          </button>
-          <button
-            type="button"
-            className="material-button-primary"
-            onClick={() => {
-              closeDialog();
-              toast.success("新的设计变更草稿已创建");
-            }}
-          >
-            创建草稿
-          </button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={dialogMode === "review"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>发起评审</DialogTitle>
-        <DialogContent dividers>
-          <div className="space-y-3 text-sm text-slate-600">
-            <p>已选择 {selectedCount || 1} 条变更单，准备同步给研发、质量和注册进行会签。</p>
-            <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 text-slate-700">会签预计在 2 个工作日内完成，完成后将自动回写 DHF 版本记录。</div>
-          </div>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog}>
-            取消
-          </button>
-          <button
-            type="button"
-            className="material-button-primary"
-            onClick={() => {
-              closeDialog();
-              toast.success("评审任务已推送");
-            }}
-          >
-            确认发起
-          </button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={dialogMode === "impact"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>影响评估</DialogTitle>
-        <DialogContent dividers>
-          <div className="space-y-2 text-sm text-slate-600">
-            <div>预计影响：BOM、验证方案、IFU 说明书</div>
-            <div>风险等级：{selected?.impact ?? "中"}</div>
-            <div>建议动作：补充验证 + 注册同步评估</div>
-          </div>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog}>
-            关闭
-          </button>
-          <button
-            type="button"
-            className="material-button-primary"
-            onClick={() => {
-              closeDialog();
-              toast.success("影响评估已生成");
-            }}
-          >
-            确认生成
-          </button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={dialogMode === "dhf"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>DHF 摘要导出</DialogTitle>
-        <DialogContent dividers>
-          <p className="text-sm leading-7 text-slate-600">将导出当前变更对应的影响项、版本号、会签结果和归档要求，方便归档或注册审阅。</p>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog}>
-            关闭
-          </button>
-          <button
-            type="button"
-            className="material-button-primary"
-            onClick={() => {
-              closeDialog();
-              toast.success("DHF 摘要已导出");
-            }}
-          >
-            导出
-          </button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={dialogMode === "calendar"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>安排评审会</DialogTitle>
-        <DialogContent dividers>
-          <div className="space-y-2 text-sm text-slate-600">
-            <div>会议主题：{selected?.id ?? "ECO"} 设计变更评审</div>
-            <div>默认参会：研发、质量、注册</div>
-            <div>建议时间：2026-04-18 14:00</div>
-          </div>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog}>
-            取消
-          </button>
-          <button
-            type="button"
-            className="material-button-primary"
-            onClick={() => {
-              closeDialog();
-              toast.success("评审会议已加入日历");
-            }}
-          >
-            加入日历
-          </button>
-        </DialogActions>
       </Dialog>
     </div>
   );

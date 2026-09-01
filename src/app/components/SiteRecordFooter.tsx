@@ -4,7 +4,14 @@ const ICP_RECORD_URL = "https://beian.miit.gov.cn/#/Integrated/index";
 const PUBLIC_SECURITY_RECORD_CODE = "32011202001840";
 const PUBLIC_SECURITY_RECORD_URL = `https://www.beian.gov.cn/portal/registerSystemInfo?recordcode=${PUBLIC_SECURITY_RECORD_CODE}`;
 
-export function SiteRecordFooter({ className }: { className?: string }) {
+export function SiteRecordFooter({ className, tone = "light" }: { className?: string; tone?: "light" | "dark" }) {
+  const linkClassName = cn(
+    "rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-2",
+    tone === "dark"
+      ? "hover:text-blue-100 focus-visible:ring-blue-200"
+      : "hover:text-[#002fa7] focus-visible:ring-[#8cb4ff]",
+  );
+
   return (
     <footer
       className={cn(
@@ -16,7 +23,7 @@ export function SiteRecordFooter({ className }: { className?: string }) {
         href={ICP_RECORD_URL}
         target="_blank"
         rel="noopener noreferrer"
-        className="rounded-sm transition-colors hover:text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+        className={linkClassName}
       >
         苏ICP备2021046412号-3
       </a>
@@ -24,7 +31,7 @@ export function SiteRecordFooter({ className }: { className?: string }) {
         href={PUBLIC_SECURITY_RECORD_URL}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 rounded-sm transition-colors hover:text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+        className={cn("inline-flex items-center gap-1.5", linkClassName)}
       >
         <img src="/gongan.png" alt="公安备案图标" width={18} height={18} className="shrink-0" />
         <span>苏公网安备32011202001840号</span>

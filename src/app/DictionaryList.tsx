@@ -1,9 +1,51 @@
-import React, { useEffect, useState } from "react";
-import { Pencil, Plus, Search, Trash2 } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  BookOpen,
+  Database,
+  Eye,
+  EyeOff,
+  ListTree,
+  Mail,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Rows3,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
-import { cn } from "./components/ui/utils";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
+import { Button } from "./components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
+import { Skeleton } from "./components/ui/skeleton";
+import { cn } from "./components/ui/utils";
 import {
   DictionaryType,
   EmailDictionaryItem,
@@ -12,93 +54,8 @@ import {
 } from "./lib/dictionaryApi";
 
 const PAGE_SIZE = 5;
-const TABLE_HEADER_CLASS = "px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap";
-const TABLE_CELL_CLASS = "px-5 py-4 align-middle text-sm text-slate-700";
-const SELECT_TRIGGER_CLASS = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm outline-none transition focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50";
-
-function ActionIconButton({
-  children,
-  className,
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { children: React.ReactNode }) {
-  return (
-    <button
-      className={cn(
-        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50",
-        className,
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ModalShell({
-  title,
-  children,
-  footer,
-  maxWidth = "max-w-lg",
-}: {
-  title: React.ReactNode;
-  children: React.ReactNode;
-  footer: React.ReactNode;
-  maxWidth?: string;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4" role="dialog" aria-modal="true">
-      <div className={cn("w-full overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200", maxWidth)}>
-        <div className="px-6 py-4 text-base font-bold text-slate-900">{title}</div>
-        <div className="max-h-[70vh] overflow-y-auto border-y border-slate-100 px-6 py-5">{children}</div>
-        <div className="flex justify-end gap-2 px-6 py-4">{footer}</div>
-      </div>
-    </div>
-  );
-}
-
-function SelectControl({
-  value,
-  onValueChange,
-  options,
-  disabled,
-  className,
-}: {
-  value: string;
-  onValueChange: (value: string) => void;
-  options: Array<{ label: string; value: string }>;
-  disabled?: boolean;
-  className?: string;
-}) {
-  return (
-    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
-      <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, className)}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-        {options.map((option) => (
-          <SelectItem key={option.value} value={option.value} className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700">
-            {option.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
-}
+const TABLE_HEADER_CLASS = "whitespace-nowrap px-4 py-3 text-left text-xs font-semibold text-slate-600";
+const TABLE_CELL_CLASS = "px-4 py-3.5 align-middle text-sm text-slate-700";
 
 type DialogMode =
   | "add-type"
@@ -111,6 +68,64 @@ type DialogMode =
   | "delete-row"
   | null;
 
+type FormErrors = Partial<Record<"typeLabel" | "account" | "password" | "code" | "label", string>>;
+
+function formatDate(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function dictionaryItemName(item: EmailDictionaryItem | GenericDictionaryItem | null) {
+  if (!item) return "当前条目";
+  return item.kind === "email" ? item.account : item.label;
+}
+
+function ActionIconButton({
+  label,
+  children,
+  className,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string; children: React.ReactNode }) {
+  return (
+    <Button
+      {...props}
+      type={props.type ?? "button"}
+      variant="outline"
+      size="icon"
+      className={cn("size-9 rounded-lg text-slate-600", className)}
+      aria-label={label}
+      title={label}
+    >
+      {children}
+    </Button>
+  );
+}
+
+function TableLoadingRows({ columns }: { columns: number }) {
+  return (
+    <>
+      {Array.from({ length: 3 }, (_, rowIndex) => (
+        <tr key={rowIndex}>
+          {Array.from({ length: columns }, (_, columnIndex) => (
+            <td key={columnIndex} className={TABLE_CELL_CLASS}>
+              <Skeleton className={cn("h-4", columnIndex === columns - 1 ? "ml-auto w-16" : "w-full max-w-36")} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
+
 export function DictionaryList() {
   const [dictTypes, setDictTypes] = useState<DictionaryType[]>([]);
   const [activeTypeId, setActiveTypeId] = useState("");
@@ -122,6 +137,8 @@ export function DictionaryList() {
 
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [loadingItems, setLoadingItems] = useState(false);
+  const [loadTypesError, setLoadTypesError] = useState("");
+  const [loadItemsError, setLoadItemsError] = useState("");
   const [savingType, setSavingType] = useState(false);
   const [savingItem, setSavingItem] = useState(false);
   const [deletingType, setDeletingType] = useState(false);
@@ -133,6 +150,8 @@ export function DictionaryList() {
   const [jumpInput, setJumpInput] = useState("");
 
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
+  const [dialogError, setDialogError] = useState("");
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [editTypeId, setEditTypeId] = useState<string | null>(null);
   const [editEmailId, setEditEmailId] = useState<string | null>(null);
   const [editGenericId, setEditGenericId] = useState<string | null>(null);
@@ -146,24 +165,43 @@ export function DictionaryList() {
   const [fLabel, setFLabel] = useState("");
   const [fRemark, setFRemark] = useState("");
 
+  const dialogTriggerRef = useRef<HTMLElement | null>(null);
+  const stableTypeFocusRef = useRef<HTMLButtonElement | null>(null);
+  const stableItemFocusRef = useRef<HTMLInputElement | null>(null);
+  const typeLabelRef = useRef<HTMLInputElement | null>(null);
+  const accountRef = useRef<HTMLInputElement | null>(null);
+  const passwordRef = useRef<HTMLInputElement | null>(null);
+  const codeRef = useRef<HTMLInputElement | null>(null);
+  const labelRef = useRef<HTMLInputElement | null>(null);
+  const typesRequestRef = useRef(0);
+  const itemsRequestRef = useRef(0);
+
   const activeType = dictTypes.find((item) => item.id === activeTypeId) ?? null;
-  const emailRows = (items as EmailDictionaryItem[]) ?? [];
-  const genericRows = (items as GenericDictionaryItem[]) ?? [];
+  const emailRows = activeType?.kind === "email" ? (items as EmailDictionaryItem[]) : [];
+  const genericRows = activeType?.kind === "generic" ? (items as GenericDictionaryItem[]) : [];
   const emailTypeCount = dictTypes.filter((item) => item.kind === "email").length;
   const genericTypeCount = dictTypes.length - emailTypeCount;
+  const safeTotalPages = Math.max(1, totalPages);
+  const safePage = Math.min(page, safeTotalPages);
+  const hasActiveFilters = Boolean(keyword.trim()) || operatorFilter !== "ALL";
+  const formDialogOpen = ["add-type", "edit-type", "add-email", "edit-email", "add-generic", "edit-generic"].includes(dialogMode ?? "");
+  const deleteDialogOpen = dialogMode === "delete-type" || dialogMode === "delete-row";
+  const deleteTargetType = dictTypes.find((item) => item.id === deleteTypeId) ?? null;
+  const deleteTargetRow = items.find((item) => item.id === deleteRowId) ?? null;
+  const dialogBusy = savingType || savingItem;
+  const deleteBusy = deletingType || deletingItem;
 
-  async function loadTypes(preferredTypeId?: string | null) {
+  const loadTypes = useCallback(async (preferredTypeId?: string | null) => {
+    const requestId = ++typesRequestRef.current;
     setLoadingTypes(true);
+    setLoadTypesError("");
     try {
       const response = await dictionaryApi.listTypes();
+      if (requestId !== typesRequestRef.current) return;
       setDictTypes(response);
       setActiveTypeId((current) => {
-        if (preferredTypeId && response.some((item) => item.id === preferredTypeId)) {
-          return preferredTypeId;
-        }
-        if (current && response.some((item) => item.id === current)) {
-          return current;
-        }
+        if (preferredTypeId && response.some((item) => item.id === preferredTypeId)) return preferredTypeId;
+        if (current && response.some((item) => item.id === current)) return current;
         return response[0]?.id ?? "";
       });
       if (!response.length) {
@@ -173,22 +211,28 @@ export function DictionaryList() {
         setOperators([]);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "读取字典类型失败");
+      if (requestId !== typesRequestRef.current) return;
+      const message = error instanceof Error ? error.message : "读取字典类型失败";
+      setLoadTypesError(message);
+      toast.error(message);
     } finally {
-      setLoadingTypes(false);
+      if (requestId === typesRequestRef.current) setLoadingTypes(false);
     }
-  }
+  }, []);
 
-  async function loadItems(targetTypeId = activeTypeId, targetPage = page) {
+  const loadItems = useCallback(async (targetTypeId = activeTypeId, targetPage = page) => {
+    const requestId = ++itemsRequestRef.current;
     if (!targetTypeId) {
       setItems([]);
       setTotal(0);
       setTotalPages(1);
       setOperators([]);
+      setLoadItemsError("");
+      setLoadingItems(false);
       return;
     }
-
     setLoadingItems(true);
+    setLoadItemsError("");
     try {
       const response = await dictionaryApi.listItems(targetTypeId, {
         page: targetPage,
@@ -196,24 +240,24 @@ export function DictionaryList() {
         keyword,
         operator: operatorFilter,
       });
+      if (requestId !== itemsRequestRef.current) return;
+      const nextTotalPages = Math.max(1, response.total_pages);
       setItems(response.items);
       setTotal(response.total);
-      setTotalPages(response.total_pages);
+      setTotalPages(nextTotalPages);
       setOperators(response.operators);
-      if (targetPage > response.total_pages) {
-        setPage(response.total_pages);
-      }
+      if (targetPage > nextTotalPages) setPage(nextTotalPages);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "读取字典条目失败");
+      if (requestId !== itemsRequestRef.current) return;
+      const message = error instanceof Error ? error.message : "读取字典条目失败";
+      setLoadItemsError(message);
+      toast.error(message);
     } finally {
-      setLoadingItems(false);
+      if (requestId === itemsRequestRef.current) setLoadingItems(false);
     }
-  }
+  }, [activeTypeId, keyword, operatorFilter, page]);
 
-  useEffect(() => {
-    void loadTypes();
-  }, []);
-
+  useEffect(() => { void loadTypes(); }, [loadTypes]);
   useEffect(() => {
     setKeyword("");
     setOperatorFilter("ALL");
@@ -221,95 +265,60 @@ export function DictionaryList() {
     setJumpInput("");
     setShowPwd({});
   }, [activeTypeId]);
+  useEffect(() => { setPage(1); }, [keyword, operatorFilter]);
+  useEffect(() => { void loadItems(); }, [loadItems]);
+  useEffect(() => { if (page !== safePage) setPage(safePage); }, [page, safePage]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [keyword, operatorFilter]);
-
-  useEffect(() => {
-    void loadItems();
-  }, [activeTypeId, page, keyword, operatorFilter]);
+  function rememberTrigger(trigger: HTMLElement) {
+    dialogTriggerRef.current = trigger;
+    setDialogError("");
+    setFormErrors({});
+  }
 
   function closeDialog() {
     setDialogMode(null);
+    setDialogError("");
+    setFormErrors({});
   }
 
-  function openAddType() {
+  function openAddType(event: React.MouseEvent<HTMLButtonElement>) {
+    rememberTrigger(event.currentTarget);
     setFTypeLabel("");
     setEditTypeId(null);
     setDialogMode("add-type");
   }
 
-  function openEditType(type: DictionaryType, event: React.MouseEvent) {
-    event.stopPropagation();
+  function openEditType(type: DictionaryType, event: React.MouseEvent<HTMLButtonElement>) {
+    rememberTrigger(event.currentTarget);
     setEditTypeId(type.id);
     setFTypeLabel(type.label);
     setDialogMode("edit-type");
   }
 
-  function openDeleteType(typeId: string, event: React.MouseEvent) {
-    event.stopPropagation();
+  function openDeleteType(typeId: string, event: React.MouseEvent<HTMLButtonElement>) {
+    rememberTrigger(event.currentTarget);
     setDeleteTypeId(typeId);
     setDialogMode("delete-type");
   }
 
-  async function submitType() {
-    const label = fTypeLabel.trim();
-    if (!label) return;
-
-    setSavingType(true);
-    try {
-      const saved = await dictionaryApi.saveType({
-        id: editTypeId ?? undefined,
-        label,
-      });
-      toast.success(editTypeId ? "字典类型已更新" : "字典类型已新增");
-      closeDialog();
-      await loadTypes(saved.id);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存字典类型失败");
-    } finally {
-      setSavingType(false);
-    }
-  }
-
-  async function confirmDeleteType() {
-    if (!deleteTypeId) return;
-
-    const currentIndex = dictTypes.findIndex((item) => item.id === deleteTypeId);
-    const fallbackTypeId =
-      dictTypes[currentIndex + 1]?.id ??
-      dictTypes[currentIndex - 1]?.id ??
-      "";
-
-    setDeletingType(true);
-    try {
-      await dictionaryApi.deleteType(deleteTypeId);
-      toast.success("字典类型已删除");
-      closeDialog();
-      await loadTypes(fallbackTypeId);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除字典类型失败");
-    } finally {
-      setDeletingType(false);
-    }
-  }
-
-  function openAddEmail() {
+  function openAddEmail(event: React.MouseEvent<HTMLButtonElement>) {
+    rememberTrigger(event.currentTarget);
     setFAccount("");
     setFPassword("");
     setEditEmailId(null);
     setDialogMode("add-email");
   }
 
-  function openEditEmail(row: EmailDictionaryItem) {
+  function openEditEmail(row: EmailDictionaryItem, event: React.MouseEvent<HTMLButtonElement>) {
+    rememberTrigger(event.currentTarget);
     setFAccount(row.account);
     setFPassword(row.password);
     setEditEmailId(row.id);
     setDialogMode("edit-email");
   }
 
-  function openAddGeneric() {
+  function openAddGeneric(event: React.MouseEvent<HTMLButtonElement>) {
+    rememberTrigger(event.currentTarget);
     setFCode("");
     setFLabel("");
     setFRemark("");
@@ -317,7 +326,8 @@ export function DictionaryList() {
     setDialogMode("add-generic");
   }
 
-  function openEditGeneric(row: GenericDictionaryItem) {
+  function openEditGeneric(row: GenericDictionaryItem, event: React.MouseEvent<HTMLButtonElement>) {
+    rememberTrigger(event.currentTarget);
     setFCode(row.code);
     setFLabel(row.label);
     setFRemark(row.remark);
@@ -325,30 +335,65 @@ export function DictionaryList() {
     setDialogMode("edit-generic");
   }
 
-  function openDeleteRow(itemId: string) {
+  function openDeleteRow(itemId: string, event: React.MouseEvent<HTMLButtonElement>) {
+    rememberTrigger(event.currentTarget);
     setDeleteRowId(itemId);
     setDialogMode("delete-row");
   }
 
+  function focusFirstInvalid(errors: FormErrors) {
+    const first = ([
+      ["typeLabel", typeLabelRef],
+      ["account", accountRef],
+      ["password", passwordRef],
+      ["code", codeRef],
+      ["label", labelRef],
+    ] as const).find(([key]) => Boolean(errors[key]));
+    window.requestAnimationFrame(() => first?.[1].current?.focus());
+  }
+
+  async function submitType() {
+    const errors: FormErrors = {};
+    if (!fTypeLabel.trim()) errors.typeLabel = "请输入类型名称";
+    if (Object.keys(errors).length) {
+      setFormErrors(errors);
+      focusFirstInvalid(errors);
+      return;
+    }
+    setSavingType(true);
+    setDialogError("");
+    try {
+      const saved = await dictionaryApi.saveType({ id: editTypeId ?? undefined, label: fTypeLabel.trim() });
+      toast.success(editTypeId ? "字典类型已更新" : "字典类型已新增");
+      closeDialog();
+      await loadTypes(saved.id);
+    } catch (error) {
+      setDialogError(error instanceof Error ? error.message : "保存字典类型失败");
+    } finally {
+      setSavingType(false);
+    }
+  }
+
   async function submitEmail() {
     if (!activeTypeId) return;
-
+    const errors: FormErrors = {};
+    if (!fAccount.trim()) errors.account = "请输入邮箱账号";
+    if (!fPassword) errors.password = "请输入邮箱密码";
+    if (Object.keys(errors).length) {
+      setFormErrors(errors);
+      focusFirstInvalid(errors);
+      return;
+    }
     setSavingItem(true);
+    setDialogError("");
     try {
-      await dictionaryApi.saveItem(activeTypeId, {
-        id: editEmailId ?? undefined,
-        account: fAccount.trim(),
-        password: fPassword,
-      });
+      await dictionaryApi.saveItem(activeTypeId, { id: editEmailId ?? undefined, account: fAccount.trim(), password: fPassword });
       toast.success(editEmailId ? "邮箱账号已更新" : "邮箱账号已新增");
       closeDialog();
-      if (page !== 1) {
-        setPage(1);
-      } else {
-        await loadItems(activeTypeId, 1);
-      }
+      if (page !== 1) setPage(1);
+      else await loadItems(activeTypeId, 1);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存邮箱账号失败");
+      setDialogError(error instanceof Error ? error.message : "保存邮箱账号失败");
     } finally {
       setSavingItem(false);
     }
@@ -356,8 +401,16 @@ export function DictionaryList() {
 
   async function submitGeneric() {
     if (!activeTypeId) return;
-
+    const errors: FormErrors = {};
+    if (!fCode.trim()) errors.code = "请输入条目编码";
+    if (!fLabel.trim()) errors.label = "请输入显示标签";
+    if (Object.keys(errors).length) {
+      setFormErrors(errors);
+      focusFirstInvalid(errors);
+      return;
+    }
     setSavingItem(true);
+    setDialogError("");
     try {
       await dictionaryApi.saveItem(activeTypeId, {
         id: editGenericId ?? undefined,
@@ -367,29 +420,46 @@ export function DictionaryList() {
       });
       toast.success(editGenericId ? "字典条目已更新" : "字典条目已新增");
       closeDialog();
-      if (page !== 1) {
-        setPage(1);
-      } else {
-        await loadItems(activeTypeId, 1);
-      }
+      if (page !== 1) setPage(1);
+      else await loadItems(activeTypeId, 1);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存字典条目失败");
+      setDialogError(error instanceof Error ? error.message : "保存字典条目失败");
     } finally {
       setSavingItem(false);
     }
   }
 
+  async function confirmDeleteType() {
+    if (!deleteTypeId) return;
+    const currentIndex = dictTypes.findIndex((item) => item.id === deleteTypeId);
+    const fallbackTypeId = dictTypes[currentIndex + 1]?.id ?? dictTypes[currentIndex - 1]?.id ?? "";
+    setDeletingType(true);
+    setDialogError("");
+    try {
+      await dictionaryApi.deleteType(deleteTypeId);
+      toast.success("字典类型已删除");
+      dialogTriggerRef.current = stableTypeFocusRef.current;
+      closeDialog();
+      await loadTypes(fallbackTypeId);
+    } catch (error) {
+      setDialogError(error instanceof Error ? error.message : "删除字典类型失败");
+    } finally {
+      setDeletingType(false);
+    }
+  }
+
   async function confirmDeleteRow() {
     if (!deleteRowId) return;
-
     setDeletingItem(true);
+    setDialogError("");
     try {
       await dictionaryApi.deleteItem(deleteRowId);
-      toast.success("已删除");
+      toast.success("字典条目已删除");
+      dialogTriggerRef.current = stableItemFocusRef.current;
       closeDialog();
       await loadItems();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除字典条目失败");
+      setDialogError(error instanceof Error ? error.message : "删除字典条目失败");
     } finally {
       setDeletingItem(false);
     }
@@ -401,429 +471,399 @@ export function DictionaryList() {
       setJumpInput("");
       return;
     }
-    setPage(Math.min(totalPages, Math.max(1, value)));
+    setPage(Math.min(safeTotalPages, Math.max(1, value)));
     setJumpInput("");
   }
 
+  function clearFilters() {
+    setKeyword("");
+    setOperatorFilter("ALL");
+  }
+
+  const formDialogTitle = dialogMode === "add-type"
+    ? "新增字典类型"
+    : dialogMode === "edit-type"
+      ? "编辑字典类型"
+      : dialogMode === "add-email"
+        ? "新增邮箱账号"
+        : dialogMode === "edit-email"
+          ? "编辑邮箱账号"
+          : dialogMode === "add-generic"
+            ? `新增 · ${activeType?.label ?? "字典条目"}`
+            : `编辑 · ${activeType?.label ?? "字典条目"}`;
+
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-6 md:p-8">
-        <span className="material-chip bg-blue-50 text-blue-700">Data Dictionary</span>
-        <h2 className="mt-3 text-[2rem] font-bold tracking-tight text-slate-900">字典列表</h2>
-        <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">维护系统全局枚举字典，左侧选择字典类型，右侧管理对应条目。</p>
-      </section>
+    <div className="horizon-theme hz-page">
+      <div className="hz-page-inner space-y-3">
+        <HorizonPageHeader
+          Icon={Database}
+          eyebrow="SYSTEM MANAGEMENT · DATA DICTIONARY"
+          title="字典列表"
+          description="集中维护全局枚举、邮箱账号与业务基础数据；先选择左侧类型，再管理对应条目。"
+          meta={(
+            <>
+              <span>每页 <span className="tabular-nums">{PAGE_SIZE}</span> 条</span>
+              <span>当前类型：{activeType?.label ?? "未选择"}</span>
+            </>
+          )}
+          actions={(
+            <>
+              <Button type="button" variant="outline" onClick={() => void loadTypes()} disabled={loadingTypes}>
+                <RefreshCw className={cn("size-4", loadingTypes && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
+                刷新类型
+              </Button>
+              <Button type="button" className="hz-primary-action" onClick={openAddType} disabled={savingType}>
+                <Plus className="size-4" aria-hidden="true" />
+                新增类型
+              </Button>
+            </>
+          )}
+        />
 
-      <section className="grid gap-4 md:grid-cols-4">
-        {[
-          ["字典类型", dictTypes.length],
-          ["通用字典", genericTypeCount],
-          ["邮箱字典", emailTypeCount],
-          ["当前条目", total],
-        ].map(([label, value]) => (
-          <div key={label} className="material-card p-5">
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</div>
-            <div className="mt-3 text-3xl font-bold text-slate-900">{value}</div>
-          </div>
-        ))}
-      </section>
+        <HorizonMetricGrid>
+          <HorizonMetric Icon={ListTree} label="字典类型" value={dictTypes.length} note="全部可维护类型" />
+          <HorizonMetric Icon={BookOpen} label="通用类型" value={genericTypeCount} note="编码、标签与备注" tone="brand" />
+          <HorizonMetric Icon={Mail} label="邮箱类型" value={emailTypeCount} note="受控账号与凭据" tone="warning" />
+          <HorizonMetric Icon={Rows3} label="当前条目" value={total} note={activeType?.label ?? "请选择类型"} tone="success" />
+        </HorizonMetricGrid>
 
-      <section className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-6">
-        <div className="material-card overflow-hidden">
-          <div className="px-3 py-3">
-            <button
-              type="button"
-              className="material-button-secondary w-full justify-center gap-1.5"
-              onClick={openAddType}
-              disabled={savingType}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              新增类型
-            </button>
-          </div>
-          <div className="py-1">
-            {loadingTypes && !dictTypes.length ? (
-              <div className="px-3 py-6 text-center text-sm text-slate-400">正在加载类型...</div>
-            ) : dictTypes.length === 0 ? (
-              <div className="px-3 py-6 text-center text-sm text-slate-400">暂无字典类型</div>
-            ) : (
-              dictTypes.map((type) => (
-                <div
-                  key={type.id}
-                  className={cn(
-                    "group mx-2 flex cursor-pointer items-center justify-between rounded-2xl border px-3 py-2.5 text-sm transition-colors",
-                    activeTypeId === type.id
-                      ? "border-indigo-100 bg-indigo-50 font-semibold text-primary shadow-[0_8px_18px_rgba(79,70,229,0.14)]"
-                      : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-white/85",
-                  )}
-                  onClick={() => setActiveTypeId(type.id)}
-                >
-                  <span className="truncate">{type.label}</span>
-                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <section className="grid min-w-0 gap-3 xl:grid-cols-[260px_minmax(0,1fr)]">
+          <aside className="hz-surface min-w-0 overflow-hidden">
+            <HorizonSectionHeader
+              Icon={ListTree}
+              title="字典类型"
+              description="选择类型后查看对应条目"
+              trailing={(
+                <Button ref={stableTypeFocusRef} type="button" variant="outline" size="sm" onClick={openAddType}>
+                  <Plus className="size-4" aria-hidden="true" />
+                  新增
+                </Button>
+              )}
+            />
+            <div className="space-y-1 p-2">
+              {loadingTypes && dictTypes.length === 0 ? (
+                Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-11 w-full rounded-xl" />)
+              ) : loadTypesError && dictTypes.length === 0 ? (
+                <HorizonEmptyState
+                  Icon={Database}
+                  title="字典类型加载失败"
+                  description={loadTypesError}
+                  action={<Button type="button" variant="outline" size="sm" onClick={() => void loadTypes()}>重新加载</Button>}
+                />
+              ) : dictTypes.length === 0 ? (
+                <HorizonEmptyState
+                  Icon={ListTree}
+                  title="暂无字典类型"
+                  description="创建第一个类型后即可维护业务条目。"
+                  action={<Button type="button" size="sm" className="hz-primary-action" onClick={openAddType}>新增类型</Button>}
+                />
+              ) : (
+                dictTypes.map((type) => (
+                  <div
+                    key={type.id}
+                    className={cn(
+                      "flex min-w-0 items-center gap-1 rounded-xl border px-1.5 py-1",
+                      activeTypeId === type.id ? "border-blue-200 bg-blue-50" : "border-transparent hover:border-slate-200 hover:bg-slate-50",
+                    )}
+                  >
                     <button
                       type="button"
-                      className="rounded p-1 hover:bg-slate-200/70"
-                      onClick={(event) => openEditType(type, event)}
+                      className={cn(
+                        "min-w-0 flex-1 rounded-lg px-2 py-2 text-left text-sm focus-visible:outline-none",
+                        activeTypeId === type.id ? "font-semibold text-[#002fa7]" : "text-slate-700",
+                      )}
+                      aria-pressed={activeTypeId === type.id}
+                      onClick={() => setActiveTypeId(type.id)}
                     >
-                      <Pencil className="h-3 w-3 text-slate-500" />
+                      <span className="block truncate">{type.label}</span>
+                      <span className="mt-0.5 block text-xs font-normal text-slate-500">{type.kind === "email" ? "邮箱账号" : "通用枚举"}</span>
                     </button>
-                    {type.key !== "ai_provider" && (
-                      <button
-                        type="button"
-                        className="rounded p-1 hover:bg-red-100"
-                        onClick={(event) => openDeleteType(type.id, event)}
-                      >
-                        <Trash2 className="h-3 w-3 text-red-400" />
-                      </button>
-                    )}
+                    <ActionIconButton label={`编辑类型：${type.label}`} className="border-transparent bg-transparent" onClick={(event) => openEditType(type, event)}>
+                      <Pencil className="size-4" aria-hidden="true" />
+                    </ActionIconButton>
+                    {type.key !== "ai_provider" ? (
+                      <ActionIconButton label={`删除类型：${type.label}`} className="border-transparent bg-transparent text-red-600 hover:bg-red-50 hover:text-red-700" onClick={(event) => openDeleteType(type.id, event)}>
+                        <Trash2 className="size-4" aria-hidden="true" />
+                      </ActionIconButton>
+                    ) : null}
                   </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="material-card min-w-0 p-4 sm:p-6">
-          <div className="mb-5 flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-slate-900">{activeType?.label ?? "请选择字典类型"}</h3>
-              <button
-                className="material-button-primary"
-                disabled={!activeType}
-                onClick={() => {
-                  if (!activeType) return;
-                  if (activeType.kind === "email") {
-                    openAddEmail();
-                    return;
-                  }
-                  openAddGeneric();
-                }}
-              >
-                <Plus className="h-4 w-4" />
-                新增
-              </button>
+                ))
+              )}
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="relative w-full sm:max-w-xs">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  className="material-input pl-11"
-                  placeholder={activeType?.kind === "email" ? "搜索账号、操作人..." : "搜索编码、标签、备注..."}
+          </aside>
+
+          <section className="hz-surface min-w-0 overflow-hidden">
+            <HorizonSectionHeader
+              Icon={activeType?.kind === "email" ? Mail : Rows3}
+              title={activeType?.label ?? "字典条目"}
+              description={activeType ? `${activeType.kind === "email" ? "邮箱账号" : "通用枚举"} · 共 ${total} 条` : "请先选择或创建一个字典类型"}
+              trailing={activeType ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="hz-primary-action"
+                  onClick={(event) => activeType.kind === "email" ? openAddEmail(event) : openAddGeneric(event)}
+                >
+                  <Plus className="size-4" aria-hidden="true" />
+                  新增条目
+                </Button>
+              ) : null}
+            />
+
+            <div className="hz-toolbar flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="relative w-full sm:max-w-sm">
+                <Label htmlFor="dictionary-search" className="sr-only">搜索字典条目</Label>
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Input
+                  ref={stableItemFocusRef}
+                  id="dictionary-search"
+                  type="search"
+                  className="pl-9"
+                  placeholder={activeType?.kind === "email" ? "搜索账号或操作人" : "搜索编码、标签或备注"}
                   value={keyword}
                   onChange={(event) => setKeyword(event.target.value)}
                   disabled={!activeType}
                 />
               </div>
-              <SelectControl
-                value={operatorFilter}
-                onValueChange={setOperatorFilter}
-                disabled={!activeType}
-                options={[
-                  { label: "全部操作人", value: "ALL" },
-                  ...operators.map((operator) => ({ label: operator, value: operator })),
-                ]}
-                className="min-w-[160px]"
-              />
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Label htmlFor="dictionary-operator-filter" className="sr-only">按操作人筛选</Label>
+                <Select value={operatorFilter} onValueChange={setOperatorFilter} disabled={!activeType}>
+                  <SelectTrigger id="dictionary-operator-filter" className="w-full sm:w-44" aria-label="按操作人筛选">
+                    <SelectValue placeholder="全部操作人" />
+                  </SelectTrigger>
+                  <SelectContent className="horizon-portal">
+                    <SelectItem value="ALL">全部操作人</SelectItem>
+                    {operators.map((operator) => <SelectItem key={operator} value={operator}>{operator}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {hasActiveFilters ? <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>清除筛选</Button> : null}
+              </div>
             </div>
-          </div>
 
-          {!activeType ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-16 text-center text-sm text-slate-400">
-              先在左侧创建一个字典类型，再维护条目。
-            </div>
-          ) : (
-            <>
-              <div className="overflow-hidden rounded-2xl border border-slate-200">
-                <div className="overflow-x-auto">
-                {activeType.kind === "email" ? (
-                  <table className="w-full min-w-[900px] table-fixed text-left">
-                    <colgroup>
-                      <col className="w-[240px]" />
-                      <col className="w-[190px]" />
-                      <col className="w-[190px]" />
-                      <col className="w-[160px]" />
-                      <col className="w-[120px]" />
-                    </colgroup>
-                    <thead className="bg-slate-50/90">
-                      <tr>
-                        {["账号", "密码", "操作时间", "操作人", "操作"].map((header) => (
-                          <th key={header} className={cn(TABLE_HEADER_CLASS, header === "操作" && "text-right")}>
-                            {header}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {loadingItems ? (
+            {!activeType ? (
+              <HorizonEmptyState Icon={ListTree} title="请选择字典类型" description="从左侧选择现有类型，或新建类型后再添加条目。" />
+            ) : loadItemsError && !loadingItems ? (
+              <HorizonEmptyState Icon={Database} title="条目加载失败" description={loadItemsError} action={<Button type="button" variant="outline" size="sm" onClick={() => void loadItems()}>重新加载</Button>} />
+            ) : (
+              <>
+                <div className="min-w-0 overflow-x-auto">
+                  {activeType.kind === "email" ? (
+                    <table className="w-full min-w-[820px] border-collapse text-left">
+                      <caption className="sr-only">{activeType.label}邮箱账号列表</caption>
+                      <thead className="border-b border-slate-200 bg-slate-50">
                         <tr>
-                          <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">
-                            正在加载数据...
-                          </td>
+                          <th scope="col" className={TABLE_HEADER_CLASS}>账号</th>
+                          <th scope="col" className={TABLE_HEADER_CLASS}>密码</th>
+                          <th scope="col" className={TABLE_HEADER_CLASS}>操作时间</th>
+                          <th scope="col" className={TABLE_HEADER_CLASS}>操作人</th>
+                          <th scope="col" className={cn(TABLE_HEADER_CLASS, "text-right")}>操作</th>
                         </tr>
-                      ) : emailRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">
-                            暂无数据
-                          </td>
-                        </tr>
-                      ) : (
-                        emailRows.map((row) => (
-                          <tr key={row.id} className="h-[72px] transition hover:bg-blue-50/25">
-                            <td className={TABLE_CELL_CLASS}><div className="truncate font-medium text-slate-800">{row.account}</div></td>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {loadingItems ? <TableLoadingRows columns={5} /> : emailRows.length === 0 ? (
+                          <tr><td colSpan={5}><HorizonEmptyState
+                            Icon={Mail}
+                            title={hasActiveFilters ? "没有匹配的邮箱账号" : "暂无邮箱账号"}
+                            description={hasActiveFilters ? "调整搜索或操作人筛选后重试。" : "新增账号后会显示在这里。"}
+                            action={hasActiveFilters
+                              ? <Button type="button" variant="outline" size="sm" onClick={clearFilters}>清除筛选</Button>
+                              : <Button type="button" size="sm" className="hz-primary-action" onClick={openAddEmail}>新增账号</Button>}
+                          /></td></tr>
+                        ) : emailRows.map((row) => (
+                          <tr key={row.id} className="hover:bg-slate-50">
+                            <td className={TABLE_CELL_CLASS}><div className="max-w-64 truncate font-medium text-slate-900">{row.account}</div></td>
                             <td className={TABLE_CELL_CLASS}>
-                              <span className="font-mono">{showPwd[row.id] ? row.password : "••••••••"}</span>
-                              <button
-                                type="button"
-                                className="ml-2 text-xs text-slate-400 hover:text-slate-600"
-                                onClick={() => setShowPwd((current) => ({ ...current, [row.id]: !current[row.id] }))}
-                              >
-                                {showPwd[row.id] ? "隐藏" : "显示"}
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <span className="max-w-40 truncate font-mono text-xs">{showPwd[row.id] ? row.password : "••••••••"}</span>
+                                <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg" aria-label={`${showPwd[row.id] ? "隐藏" : "显示"}${row.account}的密码`} aria-pressed={Boolean(showPwd[row.id])} onClick={() => setShowPwd((current) => ({ ...current, [row.id]: !current[row.id] }))}>
+                                  {showPwd[row.id] ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+                                </Button>
+                              </div>
                             </td>
-                            <td className={TABLE_CELL_CLASS}>{formatDate(row.updated_at)}</td>
-                            <td className={TABLE_CELL_CLASS}><div className="truncate">{row.updated_by}</div></td>
+                            <td className={cn(TABLE_CELL_CLASS, "whitespace-nowrap tabular-nums text-slate-500")}>{formatDate(row.updated_at)}</td>
+                            <td className={TABLE_CELL_CLASS}><div className="max-w-40 truncate">{row.updated_by || "—"}</div></td>
                             <td className={cn(TABLE_CELL_CLASS, "text-right")}>
                               <div className="flex justify-end gap-2">
-                                <ActionIconButton onClick={() => openEditEmail(row)} title="编辑">
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </ActionIconButton>
-                                <ActionIconButton
-                                  className="hover:border-red-200 hover:bg-red-50"
-                                  onClick={() => openDeleteRow(row.id)}
-                                  title="删除"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </ActionIconButton>
+                                <ActionIconButton label={`编辑邮箱账号：${row.account}`} onClick={(event) => openEditEmail(row, event)}><Pencil className="size-4" aria-hidden="true" /></ActionIconButton>
+                                <ActionIconButton label={`删除邮箱账号：${row.account}`} className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={(event) => openDeleteRow(row.id, event)}><Trash2 className="size-4" aria-hidden="true" /></ActionIconButton>
                               </div>
                             </td>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                ) : (
-                  <table className="w-full min-w-[1020px] table-fixed text-left">
-                    <colgroup>
-                      <col className="w-[170px]" />
-                      <col className="w-[220px]" />
-                      <col className="w-[250px]" />
-                      <col className="w-[180px]" />
-                      <col className="w-[140px]" />
-                      <col className="w-[120px]" />
-                    </colgroup>
-                    <thead className="bg-slate-50/90">
-                      <tr>
-                        {["编码", "标签", "备注", "操作时间", "操作人", "操作"].map((header) => (
-                          <th key={header} className={cn(TABLE_HEADER_CLASS, header === "操作" && "text-right")}>
-                            {header}
-                          </th>
                         ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {loadingItems ? (
+                      </tbody>
+                    </table>
+                  ) : (
+                    <table className="w-full min-w-[920px] border-collapse text-left">
+                      <caption className="sr-only">{activeType.label}通用字典条目列表</caption>
+                      <thead className="border-b border-slate-200 bg-slate-50">
                         <tr>
-                          <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
-                            正在加载数据...
-                          </td>
+                          <th scope="col" className={TABLE_HEADER_CLASS}>编码</th>
+                          <th scope="col" className={TABLE_HEADER_CLASS}>标签</th>
+                          <th scope="col" className={TABLE_HEADER_CLASS}>备注</th>
+                          <th scope="col" className={TABLE_HEADER_CLASS}>操作时间</th>
+                          <th scope="col" className={TABLE_HEADER_CLASS}>操作人</th>
+                          <th scope="col" className={cn(TABLE_HEADER_CLASS, "text-right")}>操作</th>
                         </tr>
-                      ) : genericRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
-                            暂无数据
-                          </td>
-                        </tr>
-                      ) : (
-                        genericRows.map((row) => (
-                          <tr key={row.id} className="h-[72px] transition hover:bg-blue-50/25">
-                            <td className={cn(TABLE_CELL_CLASS, "font-mono text-xs text-slate-500")}><div className="truncate">{row.code}</div></td>
-                            <td className={TABLE_CELL_CLASS}><div className="truncate font-medium text-slate-800">{row.label}</div></td>
-                            <td className={TABLE_CELL_CLASS}><div className="truncate text-slate-500">{row.remark || "—"}</div></td>
-                            <td className={TABLE_CELL_CLASS}>{formatDate(row.updated_at)}</td>
-                            <td className={TABLE_CELL_CLASS}><div className="truncate">{row.updated_by}</div></td>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {loadingItems ? <TableLoadingRows columns={6} /> : genericRows.length === 0 ? (
+                          <tr><td colSpan={6}><HorizonEmptyState
+                            Icon={Rows3}
+                            title={hasActiveFilters ? "没有匹配的字典条目" : "暂无字典条目"}
+                            description={hasActiveFilters ? "调整搜索或操作人筛选后重试。" : "新增条目后会显示在这里。"}
+                            action={hasActiveFilters
+                              ? <Button type="button" variant="outline" size="sm" onClick={clearFilters}>清除筛选</Button>
+                              : <Button type="button" size="sm" className="hz-primary-action" onClick={openAddGeneric}>新增条目</Button>}
+                          /></td></tr>
+                        ) : genericRows.map((row) => (
+                          <tr key={row.id} className="hover:bg-slate-50">
+                            <td className={cn(TABLE_CELL_CLASS, "font-mono text-xs text-slate-600")}><div className="max-w-40 truncate">{row.code}</div></td>
+                            <td className={TABLE_CELL_CLASS}><div className="max-w-56 truncate font-medium text-slate-900">{row.label}</div></td>
+                            <td className={TABLE_CELL_CLASS}><div className="max-w-64 truncate text-slate-500">{row.remark || "—"}</div></td>
+                            <td className={cn(TABLE_CELL_CLASS, "whitespace-nowrap tabular-nums text-slate-500")}>{formatDate(row.updated_at)}</td>
+                            <td className={TABLE_CELL_CLASS}><div className="max-w-40 truncate">{row.updated_by || "—"}</div></td>
                             <td className={cn(TABLE_CELL_CLASS, "text-right")}>
                               <div className="flex justify-end gap-2">
-                                <ActionIconButton onClick={() => openEditGeneric(row)} title="编辑">
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </ActionIconButton>
-                                <ActionIconButton
-                                  className="hover:border-red-200 hover:bg-red-50"
-                                  onClick={() => openDeleteRow(row.id)}
-                                  title="删除"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </ActionIconButton>
+                                <ActionIconButton label={`编辑字典条目：${row.label}`} onClick={(event) => openEditGeneric(row, event)}><Pencil className="size-4" aria-hidden="true" /></ActionIconButton>
+                                <ActionIconButton label={`删除字典条目：${row.label}`} className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={(event) => openDeleteRow(row.id, event)}><Trash2 className="size-4" aria-hidden="true" /></ActionIconButton>
                               </div>
                             </td>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                )}
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+                  <div>共 <span className="tabular-nums font-semibold text-slate-700">{total}</span> 条，第 <span className="tabular-nums">{safePage} / {safeTotalPages}</span> 页</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setPage(Math.max(1, safePage - 1))} disabled={safePage === 1 || loadingItems}>上一页</Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => setPage(Math.min(safeTotalPages, safePage + 1))} disabled={safePage === safeTotalPages || loadingItems}>下一页</Button>
+                    <Label htmlFor="dictionary-page-jump" className="text-sm font-normal text-slate-500">跳转</Label>
+                    <Input id="dictionary-page-jump" inputMode="numeric" className="h-8 w-16 text-center tabular-nums" value={jumpInput} onChange={(event) => setJumpInput(event.target.value.replace(/\D/g, ""))} onKeyDown={(event) => { if (event.key === "Enter") handleJump(); }} placeholder={String(safePage)} />
+                    <Button type="button" variant="outline" size="sm" onClick={handleJump} disabled={loadingItems}>前往</Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </section>
+        </section>
+      </div>
+
+      <Dialog open={formDialogOpen} onOpenChange={(open) => { if (!open && !dialogBusy) closeDialog(); }}>
+        <DialogContent
+          className="horizon-portal max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = dialogTriggerRef.current;
+            dialogTriggerRef.current = null;
+            if (trigger?.isConnected) trigger.focus();
+          }}
+        >
+          <form
+            className="space-y-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (dialogMode === "add-type" || dialogMode === "edit-type") void submitType();
+              else if (dialogMode === "add-email" || dialogMode === "edit-email") void submitEmail();
+              else void submitGeneric();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle className="text-balance text-slate-900">{formDialogTitle}</DialogTitle>
+              <DialogDescription className="text-pretty">
+                {dialogMode === "add-type" || dialogMode === "edit-type"
+                  ? "类型名称会出现在左侧目录中。"
+                  : dialogMode === "add-email" || dialogMode === "edit-email"
+                    ? "维护邮箱账号与访问凭据，请确认信息来源和使用范围。"
+                    : "编码用于系统识别，标签用于界面展示。"}
+              </DialogDescription>
+            </DialogHeader>
+
+            {dialogError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{dialogError}</p> : null}
+
+            {dialogMode === "add-type" || dialogMode === "edit-type" ? (
+              <div>
+                <Label htmlFor="dictionary-type-label" className="mb-1.5 block text-sm font-semibold text-slate-700">类型名称 <span className="text-red-600">*</span></Label>
+                <Input ref={typeLabelRef} id="dictionary-type-label" autoFocus placeholder="例如：产品系列" value={fTypeLabel} onChange={(event) => { setFTypeLabel(event.target.value); if (formErrors.typeLabel) setFormErrors((current) => ({ ...current, typeLabel: undefined })); }} aria-invalid={Boolean(formErrors.typeLabel)} aria-describedby={formErrors.typeLabel ? "dictionary-type-label-error" : undefined} />
+                {formErrors.typeLabel ? <p id="dictionary-type-label-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{formErrors.typeLabel}</p> : null}
+              </div>
+            ) : dialogMode === "add-email" || dialogMode === "edit-email" ? (
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="dictionary-email-account" className="mb-1.5 block text-sm font-semibold text-slate-700">账号 <span className="text-red-600">*</span></Label>
+                  <Input ref={accountRef} id="dictionary-email-account" autoFocus autoComplete="off" placeholder="example@domain.com" value={fAccount} onChange={(event) => { setFAccount(event.target.value); if (formErrors.account) setFormErrors((current) => ({ ...current, account: undefined })); }} aria-invalid={Boolean(formErrors.account)} aria-describedby={formErrors.account ? "dictionary-email-account-error" : undefined} />
+                  {formErrors.account ? <p id="dictionary-email-account-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{formErrors.account}</p> : null}
+                </div>
+                <div>
+                  <Label htmlFor="dictionary-email-password" className="mb-1.5 block text-sm font-semibold text-slate-700">密码 <span className="text-red-600">*</span></Label>
+                  <Input ref={passwordRef} id="dictionary-email-password" type="password" autoComplete="new-password" placeholder="输入密码" value={fPassword} onChange={(event) => { setFPassword(event.target.value); if (formErrors.password) setFormErrors((current) => ({ ...current, password: undefined })); }} aria-invalid={Boolean(formErrors.password)} aria-describedby={formErrors.password ? "dictionary-email-password-error" : undefined} />
+                  {formErrors.password ? <p id="dictionary-email-password-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{formErrors.password}</p> : null}
                 </div>
               </div>
-
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-                <div className="text-sm text-slate-500">
-                  共 {total} 条，第 {page} / {totalPages} 页
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="dictionary-item-code" className="mb-1.5 block text-sm font-semibold text-slate-700">编码 <span className="text-red-600">*</span></Label>
+                  <Input ref={codeRef} id="dictionary-item-code" autoFocus className="font-mono" placeholder="例如：XX-001" value={fCode} onChange={(event) => { setFCode(event.target.value); if (formErrors.code) setFormErrors((current) => ({ ...current, code: undefined })); }} aria-invalid={Boolean(formErrors.code)} aria-describedby={formErrors.code ? "dictionary-item-code-error" : undefined} />
+                  {formErrors.code ? <p id="dictionary-item-code-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{formErrors.code}</p> : null}
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    className="material-button-secondary !px-3 !py-2"
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
-                    disabled={page === 1 || loadingItems}
-                  >
-                    上一页
-                  </button>
-                  <button
-                    className="material-button-secondary !px-3 !py-2"
-                    onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                    disabled={page === totalPages || loadingItems}
-                  >
-                    下一页
-                  </button>
-                  <span className="flex items-center gap-1.5 text-sm text-slate-500">
-                    跳转
-                    <input
-                      className="material-input w-14 text-center"
-                      value={jumpInput}
-                      onChange={(event) => setJumpInput(event.target.value)}
-                      onKeyDown={(event) => event.key === "Enter" && handleJump()}
-                      placeholder={String(page)}
-                    />
-                    页
-                    <button className="material-button-secondary !px-3 !py-2" onClick={handleJump} disabled={loadingItems}>
-                      GO
-                    </button>
-                  </span>
+                <div>
+                  <Label htmlFor="dictionary-item-label" className="mb-1.5 block text-sm font-semibold text-slate-700">标签 <span className="text-red-600">*</span></Label>
+                  <Input ref={labelRef} id="dictionary-item-label" placeholder="显示名称" value={fLabel} onChange={(event) => { setFLabel(event.target.value); if (formErrors.label) setFormErrors((current) => ({ ...current, label: undefined })); }} aria-invalid={Boolean(formErrors.label)} aria-describedby={formErrors.label ? "dictionary-item-label-error" : undefined} />
+                  {formErrors.label ? <p id="dictionary-item-label-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{formErrors.label}</p> : null}
+                </div>
+                <div>
+                  <Label htmlFor="dictionary-item-remark" className="mb-1.5 block text-sm font-semibold text-slate-700">备注</Label>
+                  <Input id="dictionary-item-remark" placeholder="可选" value={fRemark} onChange={(event) => setFRemark(event.target.value)} />
                 </div>
               </div>
-            </>
-          )}
-        </div>
-      </section>
+            )}
 
-      {(dialogMode === "add-type" || dialogMode === "edit-type") && (
-        <ModalShell
-          title={editTypeId === null ? "新增字典类型" : "编辑字典类型"}
-          maxWidth="max-w-md"
-          footer={
-            <>
-              <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={savingType}>
-                取消
-              </button>
-              <button type="button" className="material-button-primary" onClick={submitType} disabled={savingType || !fTypeLabel.trim()}>
-                确认
-              </button>
-            </>
-          }
-        >
-          <div className="space-y-4 pt-1">
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">类型名称</label>
-              <input className="material-input w-full" placeholder="如：产品系列" value={fTypeLabel} onChange={(event) => setFTypeLabel(event.target.value)} />
-            </div>
-          </div>
-        </ModalShell>
-      )}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeDialog} disabled={dialogBusy}>取消</Button>
+              <Button type="submit" className="hz-primary-action" disabled={dialogBusy}>{dialogBusy ? "保存中…" : "保存"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
-      {dialogMode === "delete-type" && (
-        <ModalShell
-          title="删除字典类型"
-          maxWidth="max-w-md"
-          footer={
-            <>
-              <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={deletingType}>
-                取消
-              </button>
-              <button type="button" className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50" onClick={confirmDeleteType} disabled={deletingType}>
-                删除
-              </button>
-            </>
-          }
+      <AlertDialog open={deleteDialogOpen} onOpenChange={(open) => { if (!open && !deleteBusy) closeDialog(); }}>
+        <AlertDialogContent
+          className="horizon-portal sm:max-w-md"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = dialogTriggerRef.current;
+            dialogTriggerRef.current = null;
+            if (trigger?.isConnected) trigger.focus();
+          }}
         >
-          <p className="text-sm text-slate-600">删除后该类型下所有条目将一并移除，此操作不可撤销。</p>
-        </ModalShell>
-      )}
-
-      {(dialogMode === "add-email" || dialogMode === "edit-email") && (
-        <ModalShell
-          title={editEmailId === null ? "新增邮箱账号" : "编辑邮箱账号"}
-          maxWidth="max-w-xl"
-          footer={
-            <>
-              <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={savingItem}>
-                取消
-              </button>
-              <button type="button" className="material-button-primary" onClick={submitEmail} disabled={savingItem || !fAccount.trim() || !fPassword}>
-                确认
-              </button>
-            </>
-          }
-        >
-          <div className="space-y-4 pt-1">
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">账号</label>
-              <input className="material-input w-full" placeholder="example@domain.com" value={fAccount} onChange={(event) => setFAccount(event.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">密码</label>
-              <input className="material-input w-full" type="password" placeholder="输入密码" value={fPassword} onChange={(event) => setFPassword(event.target.value)} />
-            </div>
-          </div>
-        </ModalShell>
-      )}
-
-      {(dialogMode === "add-generic" || dialogMode === "edit-generic") && (
-        <ModalShell
-          title={editGenericId === null ? `新增 · ${activeType?.label ?? ""}` : `编辑 · ${activeType?.label ?? ""}`}
-          maxWidth="max-w-xl"
-          footer={
-            <>
-              <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={savingItem}>
-                取消
-              </button>
-              <button type="button" className="material-button-primary" onClick={submitGeneric} disabled={savingItem || !fCode.trim() || !fLabel.trim()}>
-                确认
-              </button>
-            </>
-          }
-        >
-          <div className="space-y-4 pt-1">
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">编码</label>
-              <input className="material-input w-full font-mono" placeholder="如 XX-001" value={fCode} onChange={(event) => setFCode(event.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">标签</label>
-              <input className="material-input w-full" placeholder="显示名称" value={fLabel} onChange={(event) => setFLabel(event.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">备注</label>
-              <input className="material-input w-full" placeholder="（可选）" value={fRemark} onChange={(event) => setFRemark(event.target.value)} />
-            </div>
-          </div>
-        </ModalShell>
-      )}
-
-      {dialogMode === "delete-row" && (
-        <ModalShell
-          title="确认删除"
-          maxWidth="max-w-md"
-          footer={
-            <>
-              <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={deletingItem}>
-                取消
-              </button>
-              <button type="button" className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50" onClick={confirmDeleteRow} disabled={deletingItem}>
-                删除
-              </button>
-            </>
-          }
-        >
-          <p className="text-sm text-slate-600">此操作不可撤销，确定要删除这条记录吗？</p>
-        </ModalShell>
-      )}
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-balance text-slate-900">{dialogMode === "delete-type" ? "确认删除字典类型？" : "确认删除字典条目？"}</AlertDialogTitle>
+            <AlertDialogDescription className="text-pretty leading-6">
+              {dialogMode === "delete-type"
+                ? `将删除“${deleteTargetType?.label ?? "当前类型"}”及其全部条目。此操作不可恢复。`
+                : `将删除“${dictionaryItemName(deleteTargetRow)}”。此操作不可恢复。`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {dialogError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{dialogError}</p> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteBusy}>保留</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
+              disabled={deleteBusy}
+              onClick={(event) => {
+                event.preventDefault();
+                if (dialogMode === "delete-type") void confirmDeleteType();
+                else void confirmDeleteRow();
+              }}
+            >
+              {deleteBusy ? "删除中…" : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

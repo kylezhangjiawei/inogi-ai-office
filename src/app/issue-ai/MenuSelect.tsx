@@ -123,10 +123,10 @@ export function MenuSelect<T extends string>({
         data-state={open ? "open" : "closed"}
         className={cn(
           "inline-flex h-9 w-[9.5rem] items-center justify-between gap-2 rounded-lg border px-3 text-xs shadow-sm transition-colors outline-none",
-          "focus-visible:ring-2 focus-visible:ring-indigo-500/30 data-[state=open]:ring-2 data-[state=open]:ring-indigo-500/25",
+          "focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 data-[state=open]:ring-2 data-[state=open]:ring-[#002fa7]/25",
           active
-            ? "border-indigo-300 bg-indigo-50 font-medium text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300"
-            : "border-slate-300 bg-white text-slate-600 hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/40",
+            ? "border-[#002fa7]/30 bg-[#eef3ff] font-medium text-[#002fa7]"
+            : "border-slate-300 bg-white text-slate-600 hover:border-[#002fa7]/30 hover:bg-[#eef3ff]",
           triggerClassName,
         )}
       >
@@ -138,7 +138,7 @@ export function MenuSelect<T extends string>({
           ref={listRef}
           role="listbox"
           className={cn(
-            "absolute top-full z-50 mt-1 max-h-64 min-w-full overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900",
+            "absolute top-full z-50 mt-1 max-h-64 min-w-full overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 text-xs shadow-lg",
             align === "end" ? "right-0" : "left-0",
             "animate-in fade-in-0 zoom-in-95 duration-100",
           )}
@@ -156,12 +156,12 @@ export function MenuSelect<T extends string>({
                 className={cn(
                   "relative flex w-full cursor-pointer select-none items-center rounded-md py-1.5 pl-7 pr-3 text-left outline-none transition-colors",
                   idx === activeIdx
-                    ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-                    : "text-slate-700 dark:text-slate-200",
+                    ? "bg-[#eef3ff] text-[#002fa7]"
+                    : "text-slate-700",
                 )}
               >
                 {isSel ? (
-                  <Check className="absolute left-2 size-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <Check className="absolute left-2 size-3.5 text-[#002fa7]" />
                 ) : null}
                 {t(it.label)}
               </button>

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { CloudUpload, FileVideo, ImagePlus, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Button } from "./ui/button";
 import { cn } from "./ui/utils";
 import { ModalShell } from "./MediaCategorySidebar";
 import { uploadResourceFile, type ResourceBusinessType } from "../lib/resourceUpload";
@@ -146,6 +147,7 @@ export function MediaUploadDialog({
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [dragging, setDragging] = useState(false);
+  const [selectionError, setSelectionError] = useState("");
 
   const pendingCount = rows.filter((row) => row.status === "pending" || row.status === "error").length;
 
@@ -154,7 +156,11 @@ export function MediaUploadDialog({
     const incoming = Array.from(fileList);
     const tooLarge = incoming.filter((file) => file.size > config.maxBytes);
     if (tooLarge.length > 0) {
-      toast.error(`${tooLarge.length} 个文件超过 ${formatSize(config.maxBytes)}，已跳过`);
+      const message = `${tooLarge.length} 个文件超过 ${formatSize(config.maxBytes)}，已跳过`;
+      setSelectionError(message);
+      toast.error(message);
+    } else {
+      setSelectionError("");
     }
     const accepted = incoming
       .filter((file) => file.size <= config.maxBytes)
@@ -211,8 +217,9 @@ export function MediaUploadDialog({
     <ModalShell
       title={`上传${config.label}`}
       description={config.hint}
-      onClose={uploading ? () => undefined : onClose}
-      widthClass="max-w-lg"
+      onClose={onClose}
+      dismissible={!uploading}
+      widthClass="sm:max-w-lg"
     >
       <div
         className="flex-1 space-y-4 overflow-y-auto px-5 py-4"
@@ -220,6 +227,10 @@ export function MediaUploadDialog({
         onDrop={(event) => event.preventDefault()}
       >
         <div
+          role="button"
+          tabIndex={uploading ? -1 : 0}
+          aria-disabled={uploading}
+          aria-describedby="media-upload-format-hint"
           onDragOver={(event) => {
             event.preventDefault();
             if (!uploading) setDragging(true);
@@ -234,34 +245,42 @@ export function MediaUploadDialog({
           onClick={() => {
             if (!uploading) inputRef.current?.click();
           }}
+          onKeyDown={(event) => {
+            if (!uploading && (event.key === "Enter" || event.key === " ")) {
+              event.preventDefault();
+              inputRef.current?.click();
+            }
+          }}
           className={cn(
-            "flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center transition",
+            "flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
             uploading
               ? "cursor-not-allowed border-slate-200 bg-slate-50/60 opacity-60"
               : dragging
-                ? "cursor-pointer border-indigo-400 bg-indigo-50/60"
-                : "cursor-pointer border-slate-300 bg-slate-50/60 hover:border-indigo-300",
+                ? "cursor-pointer border-blue-500 bg-blue-50"
+                : "cursor-pointer border-slate-300 bg-slate-50 hover:border-blue-400",
           )}
         >
-          <div className="flex h-11 w-11 items-center justify-center rounded-[14px] bg-primary-container text-on-primary-container">
-            {kind === "image" ? <ImagePlus className="h-5 w-5" /> : <FileVideo className="h-5 w-5" />}
+          <div className="flex size-11 items-center justify-center rounded-xl bg-primary-container text-on-primary-container">
+            {kind === "image" ? <ImagePlus className="size-5" /> : <FileVideo className="size-5" />}
           </div>
           <p className="text-xs font-semibold text-slate-700">
             点击选择，或把{config.label}拖到这里（可一次多个）
           </p>
-          <p className="text-[11px] text-slate-400">{config.hint}</p>
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            accept={config.accept}
-            className="hidden"
-            onChange={(event) => {
-              addFiles(event.target.files);
-              event.target.value = "";
-            }}
-          />
+          <p id="media-upload-format-hint" className="text-pretty text-[11px] text-slate-500">{config.hint}</p>
         </div>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept={config.accept}
+          className="hidden"
+          aria-label={`选择要上传的${config.label}`}
+          onChange={(event) => {
+            addFiles(event.target.files);
+            event.target.value = "";
+          }}
+        />
+        {selectionError ? <p role="alert" className="text-pretty text-xs text-rose-700">{selectionError}</p> : null}
 
         <div className="space-y-1.5">
           <label htmlFor="media-upload-category" className="text-xs font-semibold text-slate-600">
@@ -288,18 +307,18 @@ export function MediaUploadDialog({
             {rows.map((row) => (
               <div
                 key={row.localId}
-                className="flex items-center gap-2 rounded-md border border-slate-200/70 bg-white px-3 py-2 text-xs"
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"
               >
                 <span className="min-w-0 flex-1 truncate font-medium text-slate-700" title={row.file.name}>
                   {row.file.name}
                 </span>
                 <span className="shrink-0 tabular-nums text-[11px] text-slate-400">{formatSize(row.file.size)}</span>
                 {row.status === "uploading" ? (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-indigo-500" />
+                  <Loader2 className="size-3.5 shrink-0 animate-spin text-[#002fa7] motion-reduce:animate-none" />
                 ) : row.status === "done" ? (
                   <span className="shrink-0 text-[11px] font-semibold text-emerald-600">已入库</span>
                 ) : row.status === "error" ? (
-                  <span className="shrink-0 text-[11px] font-semibold text-rose-600" title={row.error}>
+                  <span className="shrink-0 text-[11px] font-semibold text-rose-700">
                     失败
                   </span>
                 ) : (
@@ -307,39 +326,42 @@ export function MediaUploadDialog({
                     type="button"
                     onClick={() => setRows((current) => current.filter((item) => item.localId !== row.localId))}
                     aria-label={`移除 ${row.file.name}`}
-                    className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                    className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="size-3.5" />
                   </button>
                 )}
+                {row.status === "error" && row.error ? <p role="alert" className="basis-full text-pretty text-[11px] text-rose-700">{row.error}</p> : null}
               </div>
             ))}
           </div>
         ) : null}
       </div>
 
+      {uploading ? (
+        <div className="border-t border-slate-100 bg-blue-50 px-5 py-2 text-xs font-medium tabular-nums text-[#002fa7]" role="status" aria-live="polite">
+          正在上传 {progress.done}/{progress.total}，请勿关闭窗口。
+        </div>
+      ) : null}
+
       <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={uploading}
-          className="inline-flex h-9 cursor-pointer items-center rounded-md border border-slate-200 px-3.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-60"
-        >
+        <Button type="button" size="sm" variant="outline" onClick={onClose} disabled={uploading}>
           {rows.some((row) => row.status === "done") ? "关闭" : "取消"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          size="sm"
           onClick={() => void handleUpload()}
           disabled={uploading || pendingCount === 0}
-          className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3.5 text-xs font-semibold text-primary-foreground transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
+          className="hz-primary-action"
         >
-          {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudUpload className="h-3.5 w-3.5" />}
+          {uploading ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <CloudUpload className="size-3.5" />}
           {uploading
             ? `上传中 ${Math.min(progress.done + 1, progress.total)}/${progress.total}…`
             : pendingCount > 0
               ? `开始上传（${pendingCount}）`
               : "开始上传"}
-        </button>
+        </Button>
       </div>
     </ModalShell>
   );
@@ -356,16 +378,16 @@ export function MediaUploadButton({
   className?: string;
 }) {
   return (
-    <button
+    <Button
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-[14px] bg-primary px-3.5 text-xs font-semibold text-primary-foreground transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+        "hz-primary-action h-10 shrink-0 text-xs",
         className,
       )}
     >
-      <CloudUpload className="h-4 w-4" />
+      <CloudUpload className="size-4" />
       上传{KIND_CONFIG[kind].label}
-    </button>
+    </Button>
   );
 }

@@ -13,7 +13,6 @@ import {
   Send,
   Sparkles,
   Timer,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -30,6 +29,8 @@ import {
 } from "recharts";
 import { toast } from "sonner";
 
+import { Button } from "./components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./components/ui/dialog";
 import { cn } from "./components/ui/utils";
 import { MobileZoomableImage } from "./components/MobileZoomableImage";
 import { authFetch, readErrorMessage } from "./lib/authSession";
@@ -814,7 +815,7 @@ export function ArtworkCard({
   const cumulativeCost = item.cumulativeEstimatedCostUsd ?? item.estimatedCostUsd ?? 0;
 
   return (
-    <article className="group overflow-hidden rounded-[10px] border border-border/80 bg-surface-container-lowest shadow-[0_16px_34px_rgba(15,23,42,0.055)] ring-1 ring-white/70 transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_24px_48px_rgba(15,23,42,0.1)]">
+    <article className="group overflow-hidden rounded-[10px] border border-border/80 bg-surface-container-lowest shadow-[0_16px_34px_rgba(15,23,42,0.055)] ring-1 ring-white/70 transition duration-200 hover:border-primary/30 hover:shadow-[0_24px_48px_rgba(15,23,42,0.1)]">
       <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
         <img
           src={item.thumbnailUrl || item.imageUrl || item.imageData}
@@ -823,7 +824,7 @@ export function ArtworkCard({
           decoding="async"
           className="h-full w-full object-cover"
         />
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.04)_0%,transparent_42%,rgba(15,23,42,0.2)_100%)] opacity-80 transition group-hover:opacity-60" />
+        <div className="pointer-events-none absolute inset-0 bg-slate-950/10 opacity-80 transition-opacity group-hover:opacity-50" />
         <div className="absolute left-4 top-4 rounded-[8px] border border-white/25 bg-slate-950/68 px-3 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md">
           {String(index + 1).padStart(2, "0")}
         </div>
@@ -859,7 +860,7 @@ export function ArtworkCard({
         </div>
       </div>
       <div className="px-5 py-4">
-        <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-5 tracking-tight text-slate-950">{title}</h3>
+        <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-5 text-slate-950">{title}</h3>
         <p className="mt-2 truncate text-xs leading-5 text-slate-500">{description}</p>
         <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-[8px] border border-border bg-surface-container-low px-3 py-2 text-[11px] text-slate-500">
           <span className="font-mono font-semibold tabular-nums text-slate-900">{formatImageCost(item)}</span>
@@ -876,7 +877,7 @@ export function ArtworkCard({
 export function GeneratingImageCard() {
   return (
     <div className="relative min-h-[260px] overflow-hidden rounded-[10px] border border-primary/15 bg-surface-container-lowest shadow-[0_14px_34px_rgba(15,23,42,0.06)]">
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,var(--surface-container-lowest)_0%,var(--surface-container-low)_100%)]" />
+      <div className="absolute inset-0 bg-surface-container-low" />
       <div className="absolute inset-x-0 top-0 h-1 animate-pulse bg-primary motion-reduce:animate-none" />
       <div className="absolute inset-x-5 top-5 flex items-center justify-between">
         <span className="rounded-[8px] border border-primary/15 bg-white/86 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
@@ -925,31 +926,19 @@ export async function downloadGeneratedImage(item: GeneratedImage) {
 
 export function ImagePreviewModal({ item, onClose }: { item: GeneratedImage; onClose: () => void }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/48 p-3 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-    >
-      <div
-        className="relative flex h-[70dvh] w-[70dvw] max-w-[calc(100vw-32px)] items-center justify-center overflow-hidden rounded-[18px] border border-white/15 bg-slate-950 shadow-[0_28px_80px_rgba(15,23,42,0.42)]"
-        onClick={(event) => event.stopPropagation()}
-      >
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="horizon-portal h-[70dvh] w-[calc(100vw-2rem)] gap-0 overflow-hidden border-white/15 bg-slate-950 p-0 shadow-xl sm:w-[70dvw] sm:max-w-[70dvw] [&>button]:right-3 [&>button]:top-3 [&>button]:z-10 [&>button]:bg-white [&>button]:p-2 [&>button]:text-slate-700 [&>button]:opacity-100">
+        <DialogHeader className="sr-only">
+          <DialogTitle>图片预览</DialogTitle>
+          <DialogDescription>{item.prompt || "查看当前生成图片的高清预览。"}</DialogDescription>
+        </DialogHeader>
         <MobileZoomableImage
           src={item.imageUrl || item.imageData || ""}
           alt={item.prompt}
           className="h-full w-full"
         />
-        <button
-          className="absolute right-3 top-3 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white/92 text-slate-600 shadow-sm transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-          type="button"
-          onClick={onClose}
-          aria-label="关闭图片预览"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1049,18 +1038,18 @@ export function ImageEditModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/48 p-3 backdrop-blur-sm md:p-4 xl:p-8" role="dialog" aria-modal="true">
-      <div className="flex max-h-[calc(100vh-24px)] w-full max-w-7xl flex-col overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_32px_90px_rgba(15,23,42,0.35)] xl:max-h-[calc(100vh-64px)]">
-        <div className="flex shrink-0 flex-col gap-3 border-b border-slate-200/70 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-5">
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="horizon-portal flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden border-slate-200 bg-white p-0 shadow-xl sm:max-w-7xl [&>button]:right-4 [&>button]:top-4 [&>button]:z-10 [&>button]:bg-slate-100 [&>button]:p-2 [&>button]:text-slate-600 [&>button]:opacity-100">
+        <DialogHeader className="flex shrink-0 flex-col gap-3 border-b border-slate-200/70 px-4 py-4 pr-14 text-left md:flex-row md:items-center md:justify-between md:px-5 md:pr-14">
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-slate-950">图片修改</div>
-            <div className="mt-1 max-w-2xl truncate text-xs text-slate-500">{current.prompt}</div>
+            <DialogTitle className="text-balance text-base text-slate-950">图片修改</DialogTitle>
+            <DialogDescription className="mt-1 max-w-2xl truncate text-xs text-slate-500">{current.prompt || "基于当前图片继续生成新版本。"}</DialogDescription>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-600">
-              <span className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1">成本 {formatImageCost(current)}</span>
-              <span className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1">
+              <span className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1 tabular-nums">成本 {formatImageCost(current)}</span>
+              <span className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1 tabular-nums">
                 output {(current.outputTokens ?? 0) > 0 ? (current.outputTokens ?? 0).toLocaleString("zh-CN") : "-"}
               </span>
-              <span className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1">
+              <span className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1 tabular-nums">
                 调用 {current.upstreamCallCount ?? 0}
                 {(current.upstreamRetryCount ?? 0) > 0 ? ` · 重试 ${current.upstreamRetryCount}` : ""}
               </span>
@@ -1068,15 +1057,12 @@ export function ImageEditModal({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {onReuse ? (
-              <button className="h-9 cursor-pointer rounded-[14px] border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300" type="button" onClick={() => onReuse(current)}>
+              <Button variant="outline" size="sm" type="button" onClick={() => onReuse(current)}>
                 复用提示词
-              </button>
+              </Button>
             ) : null}
-            <button className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-[14px] border border-slate-200 bg-slate-50 text-slate-500 transition hover:border-indigo-200 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300" type="button" onClick={onClose} aria-label="关闭图片修改">
-              <X className="h-4 w-4" />
-            </button>
           </div>
-        </div>
+        </DialogHeader>
         <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="relative min-h-[260px] bg-slate-100 md:min-h-0">
             <img src={current.imageUrl || current.imageData} alt={current.prompt} className="h-full w-full object-contain" />
@@ -1084,17 +1070,17 @@ export function ImageEditModal({
           <aside className="flex min-h-0 max-h-[46vh] flex-col border-t border-slate-200/70 bg-white md:max-h-none md:border-l md:border-t-0">
             <div className="shrink-0 border-b border-slate-200/70 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-                <MessageSquare className="h-4 w-4 text-indigo-500" />
+                <MessageSquare className="size-4 text-[#002fa7]" />
                 AI 修改对话
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
                 <div className="rounded-2xl border border-slate-200 bg-white/70 px-3 py-2">
                   <div className="text-slate-500">当前版本</div>
-                  <div className="mt-1 font-semibold text-slate-900">v{(current.editDepth ?? 0) + 1}</div>
+                  <div className="mt-1 font-semibold tabular-nums text-slate-900">v{(current.editDepth ?? 0) + 1}</div>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white/70 px-3 py-2">
                   <div className="text-slate-500">累计费用</div>
-                  <div className="mt-1 font-semibold text-slate-900">
+                  <div className="mt-1 font-semibold tabular-nums text-slate-900">
                     {formatUsd(conversation?.summary.estimatedCostUsd ?? current.cumulativeEstimatedCostUsd ?? current.estimatedCostUsd ?? 0)}
                   </div>
                 </div>
@@ -1102,8 +1088,8 @@ export function ImageEditModal({
             </div>
             <div className="material-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
               {conversationLoading ? (
-                <div className="flex h-24 items-center justify-center text-xs font-semibold text-slate-500">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
+                <div className="flex h-24 items-center justify-center text-xs font-semibold text-slate-500" role="status">
+                  <Loader2 className="mr-2 size-4 animate-spin motion-reduce:animate-none" />
                   正在加载对话...
                 </div>
               ) : conversation?.messages.length ? (
@@ -1118,7 +1104,7 @@ export function ImageEditModal({
                     <div>{message.content}</div>
                     {message.role === "assistant" ? (
                       <div className="mt-1 text-[11px] text-slate-500">
-                        本次 {message.estimatedCostUsd > 0 ? formatUsd(message.estimatedCostUsd) : "未返回用量"} · 累计 {formatUsd(message.cumulativeEstimatedCostUsd)}
+                        本次 <span className="tabular-nums">{message.estimatedCostUsd > 0 ? formatUsd(message.estimatedCostUsd) : "未返回用量"}</span> · 累计 <span className="tabular-nums">{formatUsd(message.cumulativeEstimatedCostUsd)}</span>
                       </div>
                     ) : null}
                   </div>
@@ -1130,27 +1116,29 @@ export function ImageEditModal({
               )}
             </div>
             <div className="shrink-0 border-t border-slate-200/70 p-4">
+              <label htmlFor="image-edit-instruction" className="sr-only">图片修改要求</label>
               <textarea
-                className="h-24 w-full resize-none rounded-[16px] border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100"
+                id="image-edit-instruction"
+                className="h-24 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                 value={editInstruction}
                 onChange={(event) => setEditInstruction(event.target.value)}
                 maxLength={MAX_PROMPT_LENGTH}
                 placeholder="告诉 AI 如何修改当前图片..."
               />
-              <button
+              <Button
                 type="button"
-                className="mt-3 flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-[16px] bg-indigo-600 text-sm font-semibold text-white transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
+                className="hz-primary-action mt-3 w-full"
                 disabled={editingImage || !editInstruction.trim()}
                 onClick={() => void handleEditImage()}
               >
-                {editingImage ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Send className="h-4 w-4" />}
+                {editingImage ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> : <Send className="size-4" />}
                 {editingImage ? "正在修改..." : "发送并生成新版本"}
-              </button>
+              </Button>
             </div>
           </aside>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

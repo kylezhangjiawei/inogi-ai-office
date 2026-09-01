@@ -1,12 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
+  Copy,
   Crown,
   FileText,
   MousePointerClick,
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Shield,
   Sparkles,
   Trash2,
@@ -19,6 +21,13 @@ import { authFetch } from "./lib/authSession";
 import { cn } from "./components/ui/utils";
 import { PermissionGuard } from "./components/PermissionGuard";
 import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import {
   type PermissionCatalogGroup,
   type PermissionCatalogPermission,
   permissionCatalogApi,
@@ -30,15 +39,25 @@ import { Label } from "./components/ui/label";
 import { Badge } from "./components/ui/badge";
 import { Checkbox } from "./components/ui/checkbox";
 import { Progress } from "./components/ui/progress";
-import { Separator } from "./components/ui/separator";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "./components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -310,11 +329,19 @@ function PermissionMatrix({
   onChange,
   isWildcard,
   groups,
+  idPrefix,
+  onReload,
+  disabled = false,
+  readOnly = false,
 }: {
   selected: string[];
   onChange: (permissions: string[]) => void;
   isWildcard: boolean;
   groups: PermissionCatalogGroup[];
+  idPrefix: string;
+  onReload?: () => void;
+  disabled?: boolean;
+  readOnly?: boolean;
 }) {
   // 展示层注入中美协同共享操作码分组（勾选与研发分组同码联动）
   const displayGroups = useMemo(() => withUsCollabActionGroup(groups), [groups]);
@@ -361,6 +388,7 @@ function PermissionMatrix({
   }
 
   function togglePermission(code: string) {
+    if (readOnly || disabled || isWildcard) return;
     if (selectedSet.has(code)) {
       onChange(selected.filter((p) => p !== code));
     } else {
@@ -369,6 +397,7 @@ function PermissionMatrix({
   }
 
   function toggleGroupAll(codes: string[]) {
+    if (readOnly || disabled || isWildcard || codes.length === 0) return;
     const allSelected = codes.every((c) => selectedSet.has(c));
     if (allSelected) {
       onChange(selected.filter((p) => !codes.includes(p)));
@@ -377,11 +406,31 @@ function PermissionMatrix({
     }
   }
 
+  if (orderedModules.length === 0) {
+    return (
+      <HorizonEmptyState
+        Icon={Shield}
+        title="权限目录暂无可配置项"
+        description="请重新读取权限目录；若仍为空，请先在权限目录中启用权限项。"
+        action={onReload ? (
+          <Button type="button" variant="outline" onClick={onReload}>
+            <RefreshCw className="size-4" aria-hidden="true" />
+            重新读取
+          </Button>
+        ) : undefined}
+      />
+    );
+  }
+
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-4">
+      <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-pretty text-xs leading-5 text-slate-500">
-          权限按模块和页面归档，展开页面即可配置对应的页面访问、按钮与功能权限。
+          {readOnly
+            ? "当前账号仅可查看授权范围。权限按模块与页面归档。"
+            : disabled
+              ? "权限正在保存，请稍候。"
+              : "权限按模块和页面归档，展开页面即可配置对应的页面访问、按钮与功能权限。"}
         </p>
         <div className="flex shrink-0 items-center gap-1">
           <Button type="button" variant="ghost" size="sm" onClick={() => setAllCollapsed(false)}>
@@ -392,16 +441,21 @@ function PermissionMatrix({
           </Button>
         </div>
       </div>
-      {orderedModules.map((mod) => {
+      {orderedModules.map((mod, moduleIndex) => {
         const modCodes = uniqueCodes(mod.groups.flatMap((group) => group.permissions));
         const modSelected = isWildcard
           ? modCodes.length
           : modCodes.filter((c) => selectedSet.has(c)).length;
+        const moduleHeadingId = `${idPrefix}-permission-module-${moduleIndex}`;
         return (
-          <section key={mod.name} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/60">
+          <section
+            key={mod.name}
+            aria-labelledby={moduleHeadingId}
+            className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+          >
             <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
-              <span className="h-3.5 w-1 shrink-0 rounded-full bg-indigo-400" />
-              <span className="text-balance text-sm font-bold text-slate-900">{mod.name}</span>
+              <span className="h-3.5 w-1 shrink-0 rounded-full bg-[#002fa7]" aria-hidden="true" />
+              <h3 id={moduleHeadingId} className="text-balance text-sm font-bold text-slate-900">{mod.name}</h3>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 tabular-nums">
                 {mod.groups.filter((group) => group.kind === "page").length} 个页面
               </span>
@@ -410,165 +464,138 @@ function PermissionMatrix({
               </span>
               <span className="h-px flex-1 bg-slate-100" />
             </div>
-            <div className="space-y-2 p-3">
-              {mod.groups.map((group) => {
-        const groupCodes = uniqueCodes(group.permissions);
-        const selectedCount = isWildcard
-          ? groupCodes.length
-          : groupCodes.filter((c) => selectedSet.has(c)).length;
-        const allSelected = selectedCount === groupCodes.length;
-        const noneSelected = selectedCount === 0;
-        const isOpen = !collapsed[group.key];
-        const Icon = group.kind === "shared" ? MousePointerClick : FileText;
-        const progress = groupCodes.length === 0 ? 0 : (selectedCount / groupCodes.length) * 100;
+            <div className="space-y-2 bg-slate-50/70 p-3">
+              {mod.groups.map((group, groupIndex) => {
+                const groupCodes = uniqueCodes(group.permissions);
+                const selectedCount = isWildcard
+                  ? groupCodes.length
+                  : groupCodes.filter((c) => selectedSet.has(c)).length;
+                const allSelected = groupCodes.length > 0 && selectedCount === groupCodes.length;
+                const noneSelected = selectedCount === 0;
+                const isOpen = !collapsed[group.key];
+                const Icon = group.kind === "shared" ? MousePointerClick : FileText;
+                const progress = groupCodes.length === 0 ? 0 : (selectedCount / groupCodes.length) * 100;
+                const panelId = `${idPrefix}-permission-group-${moduleIndex}-${groupIndex}`;
 
-        return (
-          <div
-            key={group.key}
-            className={cn(
-              "overflow-hidden rounded-lg border transition-colors duration-200",
-              allSelected
-                ? "border-indigo-200 bg-indigo-50/60"
-                : !noneSelected
-                  ? "border-indigo-200 bg-indigo-50/30"
-                  : "border-slate-200 bg-white",
-            )}
-          >
-            {/* Group header */}
-            <div className="group/grp flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50/50">
-              <Checkbox
-                checked={allSelected ? true : selectedCount > 0 ? "indeterminate" : false}
-                disabled={isWildcard}
-                onCheckedChange={() => {
-                  if (!isWildcard) toggleGroupAll(groupCodes);
-                }}
-                onClick={(e) => e.stopPropagation()}
-                className={cn(
-                  "shrink-0",
-                  allSelected && "data-[state=checked]:border-indigo-600 data-[state=checked]:bg-indigo-600",
-                )}
-              />
-              <button
-                type="button"
-                onClick={() => toggleGroup(group.key)}
-                className="flex min-w-0 flex-1 items-center gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
-              >
-                <span
-                  className={cn(
-                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
-                    allSelected
-                      ? "bg-indigo-100 text-indigo-600"
-                      : !noneSelected
-                        ? "bg-indigo-100 text-indigo-600"
-                        : "bg-slate-100 text-slate-400",
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-slate-800">{group.label}</span>
-                  {group.routePath ? (
-                    <span className="mt-0.5 block truncate font-mono text-[10px] text-slate-400">
-                      {group.routePath}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
-
-              {/* Progress + count */}
-              <div className="flex items-center gap-2.5 shrink-0">
-                <span
-                  className={cn(
-                    "text-xs tabular-nums font-medium",
-                    allSelected
-                      ? "text-indigo-600"
-                      : !noneSelected
-                        ? "text-indigo-600"
-                        : "text-slate-400",
-                  )}
-                >
-                  {selectedCount}/{groupCodes.length}
-                </span>
-                <Progress
-                  value={progress}
-                  className={cn(
-                    "w-16 h-1.5 transition-colors",
-                    allSelected ? "bg-indigo-100 [&>[data-slot=progress-indicator]]:bg-indigo-600" :
-                      !noneSelected ? "bg-indigo-100 [&>[data-slot=progress-indicator]]:bg-indigo-500" :
-                        "bg-slate-100 [&>[data-slot=progress-indicator]]:bg-slate-400",
-                  )}
-                />
-                <button
-                  type="button"
-                  onClick={() => toggleGroup(group.key)}
-                  aria-label={`${isOpen ? "收起" : "展开"}${group.label}`}
-                  className="rounded-sm p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
-                >
-                <ChevronDown
-                  className={cn(
-                    "h-4 w-4 text-slate-400 transition-transform duration-200 ease-out",
-                    isOpen && "rotate-180",
-                  )}
-                />
-                </button>
-              </div>
-            </div>
-
-            {isOpen ? (
-              <div className="border-t border-slate-100 bg-white">
-                  <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2 md:grid-cols-3">
-                    {group.permissions.map((perm) => {
-                      const checked = isWildcard || selectedSet.has(perm.code);
-                      const ItemIcon = perm.type === "action" ? MousePointerClick : FileText;
-                      return (
-                        <label
-                          key={perm.code}
+                return (
+                  <div
+                    key={group.key}
+                    className={cn(
+                      "overflow-hidden rounded-xl border bg-white",
+                      noneSelected ? "border-slate-200" : "border-blue-200",
+                    )}
+                  >
+                    <div className="flex w-full items-center gap-3 px-4 py-3 text-left">
+                      <Checkbox
+                        checked={allSelected ? true : selectedCount > 0 ? "indeterminate" : false}
+                        disabled={isWildcard || readOnly || disabled}
+                        aria-label={`选择${group.label}全部权限`}
+                        onCheckedChange={() => toggleGroupAll(groupCodes)}
+                        className={cn(
+                          "shrink-0",
+                          allSelected && "data-[state=checked]:border-[#002fa7] data-[state=checked]:bg-[#002fa7]",
+                        )}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(group.key)}
+                        aria-expanded={isOpen}
+                        aria-controls={panelId}
+                        className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                      >
+                        <span
                           className={cn(
-                            "group/perm flex cursor-pointer items-start gap-2.5 rounded-md border p-2.5 text-sm transition-colors duration-150",
-                            checked
-                              ? "border-indigo-200 bg-indigo-50/70 hover:border-indigo-300"
-                              : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
-                            isWildcard && "cursor-default opacity-70",
+                            "flex size-7 shrink-0 items-center justify-center rounded-lg",
+                            noneSelected ? "bg-slate-100 text-slate-500" : "bg-blue-50 text-[#002fa7]",
                           )}
+                          aria-hidden="true"
                         >
-                          <Checkbox
-                            checked={checked}
-                            disabled={isWildcard}
-                            onCheckedChange={() => {
-                              if (!isWildcard) togglePermission(perm.code);
-                            }}
-                            className="mt-0.5 shrink-0"
-                          />
-                          <ItemIcon
-                            className={cn(
-                              "mt-0.5 h-3.5 w-3.5 shrink-0 transition-colors",
-                              checked ? "text-indigo-500" : "text-slate-300 group-hover/perm:text-slate-400",
-                            )}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="mb-1 text-[10px] font-medium text-slate-400">
-                              {perm.type === "action" ? "按钮 / 功能权限" : "页面访问权限"}
-                            </div>
-                            <div className={cn(
-                              "text-sm font-medium transition-colors leading-tight",
-                              checked ? "text-indigo-800" : "text-slate-700",
-                            )}>
-                              {perm.label}
-                            </div>
-                            {perm.description && (
-                              <div className="mt-0.5 text-[11px] text-slate-400 line-clamp-2 leading-snug">
-                                {perm.description}
+                          <Icon className="size-3.5" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-slate-800">{group.label}</span>
+                          {group.routePath ? (
+                            <span className="mt-0.5 block truncate font-mono text-[10px] text-slate-500">
+                              {group.routePath}
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
+
+                      <div className="flex shrink-0 items-center gap-2.5">
+                        <span className={cn("text-xs font-medium tabular-nums", noneSelected ? "text-slate-500" : "text-[#002fa7]")}>
+                          {selectedCount}/{groupCodes.length}
+                        </span>
+                        <Progress
+                          value={progress}
+                          aria-label={`${group.label}授权进度`}
+                          className={cn(
+                            "hidden h-1.5 w-16 sm:block",
+                            noneSelected
+                              ? "bg-slate-100 [&>[data-slot=progress-indicator]]:bg-slate-400"
+                              : "bg-blue-100 [&>[data-slot=progress-indicator]]:bg-[#002fa7]",
+                          )}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(group.key)}
+                          aria-expanded={isOpen}
+                          aria-controls={panelId}
+                          aria-label={`${isOpen ? "收起" : "展开"}${group.label}`}
+                          className="rounded-md p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                        >
+                          <ChevronDown className={cn("size-4 text-slate-500", isOpen && "rotate-180")} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {isOpen ? (
+                      <div id={panelId} className="border-t border-slate-100 bg-white">
+                        <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2 2xl:grid-cols-3">
+                          {group.permissions.map((perm) => {
+                            const checked = isWildcard || selectedSet.has(perm.code);
+                            const ItemIcon = perm.type === "action" ? MousePointerClick : FileText;
+                            return (
+                              <div
+                                key={perm.code}
+                                className={cn(
+                                  "flex items-start gap-2.5 rounded-lg border p-2.5 text-sm",
+                                  checked ? "border-blue-200 bg-blue-50/70" : "border-slate-200 bg-white",
+                                  (isWildcard || readOnly || disabled) && "opacity-75",
+                                )}
+                              >
+                                <Checkbox
+                                  checked={checked}
+                                  disabled={isWildcard || readOnly || disabled}
+                                  aria-label={`${checked ? "取消" : "授予"}权限：${perm.label}`}
+                                  onCheckedChange={() => togglePermission(perm.code)}
+                                  className="mt-0.5 shrink-0"
+                                />
+                                <ItemIcon
+                                  className={cn("mt-0.5 size-3.5 shrink-0", checked ? "text-[#002fa7]" : "text-slate-400")}
+                                  aria-hidden="true"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="mb-1 text-[10px] font-medium text-slate-500">
+                                    {perm.type === "action" ? "按钮 / 功能权限" : "页面访问权限"}
+                                  </div>
+                                  <div className={cn("text-sm font-medium leading-tight", checked ? "text-blue-900" : "text-slate-700")}>
+                                    {perm.label}
+                                  </div>
+                                  {perm.description ? (
+                                    <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500">
+                                      {perm.description}
+                                    </div>
+                                  ) : null}
+                                </div>
                               </div>
-                            )}
-                          </div>
-                        </label>
-                      );
-                    })}
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-              </div>
-            ) : null}
-          </div>
-        );
+                );
               })}
             </div>
           </section>
@@ -580,68 +607,156 @@ function PermissionMatrix({
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-type DialogMode = "create" | "edit" | "deleteConfirm" | null;
+type DialogMode = "create" | "copy" | "edit" | "deleteConfirm" | null;
+type RoleFilter = "ALL" | "SUPER" | "CONFIGURED" | "EMPTY";
+type FormErrors = Partial<Record<"name", string>>;
+
+const ROLE_PAGE_SIZE = 8;
+const ROLE_FILTER_TRIGGER_CLASS =
+  "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100";
 
 export function RoleManagement() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissionGroups, setPermissionGroups] = useState<PermissionCatalogGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [activeRoleId, setActiveRoleId] = useState<string | null>(null);
+  const [keyword, setKeyword] = useState("");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("ALL");
+  const [page, setPage] = useState(1);
 
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [form, setForm] = useState<RoleFormData>(EMPTY_FORM);
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
+  const [dialogError, setDialogError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [permissionSavingRoleId, setPermissionSavingRoleId] = useState<string | null>(null);
+  const dialogTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const rolesRequestRef = useRef(0);
 
   const loadRoles = useCallback(async () => {
+    const requestId = ++rolesRequestRef.current;
     setLoading(true);
+    setLoadError("");
     try {
       const [data, groups] = await Promise.all([
         apiListRoles(),
         permissionCatalogApi.listGroups(),
       ]);
+      if (requestId !== rolesRequestRef.current) return;
       setRoles(data);
       setPermissionGroups(groups);
-      if (!activeRoleId && data.length > 0) {
-        setActiveRoleId(data[0].id);
-      }
+      setActiveRoleId((current) =>
+        current && data.some((role) => role.id === current) ? current : (data[0]?.id ?? null),
+      );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "数据加载失败");
+      if (requestId !== rolesRequestRef.current) return;
+      const message = err instanceof Error ? err.message : "数据加载失败";
+      setLoadError(message);
+      toast.error(message);
     } finally {
-      setLoading(false);
+      if (requestId === rolesRequestRef.current) setLoading(false);
     }
-  }, [activeRoleId]);
+  }, []);
 
   useEffect(() => {
     void loadRoles();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => { rolesRequestRef.current += 1; };
+  }, [loadRoles]);
 
-  const activeRole = roles.find((r) => r.id === activeRoleId) ?? roles[0] ?? null;
-  const isWildcard = activeRole?.permissions.includes("*") ?? false;
+  function invalidatePendingRoleLoads() {
+    rolesRequestRef.current += 1;
+    setLoading(false);
+  }
 
   const totalPermissions = useMemo(
-    () => permissionGroups.reduce((sum, g) => sum + g.permissions.length, 0),
+    () => permissionGroups.reduce((sum, group) => sum + group.permissions.length, 0),
     [permissionGroups],
   );
+  const assignedUsers = useMemo(
+    () => roles.reduce((sum, role) => sum + (role._count?.users ?? 0), 0),
+    [roles],
+  );
+  const wildcardRoleCount = useMemo(
+    () => roles.filter((role) => role.permissions.includes("*")).length,
+    [roles],
+  );
 
-  function openCreate() {
-    setForm(EMPTY_FORM);
+  const filteredRoles = useMemo(() => {
+    const query = keyword.trim().toLowerCase();
+    return roles.filter((role) => {
+      const matchesQuery =
+        !query ||
+        role.name.toLowerCase().includes(query) ||
+        (role.description ?? "").toLowerCase().includes(query);
+      const hasWildcard = role.permissions.includes("*");
+      const matchesFilter =
+        roleFilter === "ALL" ||
+        (roleFilter === "SUPER" && hasWildcard) ||
+        (roleFilter === "CONFIGURED" && !hasWildcard && role.permissions.length > 0) ||
+        (roleFilter === "EMPTY" && !hasWildcard && role.permissions.length === 0);
+      return matchesQuery && matchesFilter;
+    });
+  }, [keyword, roleFilter, roles]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [keyword, roleFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRoles.length / ROLE_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedRoles = filteredRoles.slice(
+    (safePage - 1) * ROLE_PAGE_SIZE,
+    safePage * ROLE_PAGE_SIZE,
+  );
+  const activeRole =
+    pagedRoles.find((role) => role.id === activeRoleId) ?? pagedRoles[0] ?? null;
+  const isWildcard = activeRole?.permissions.includes("*") ?? false;
+  const hasActiveFilters = Boolean(keyword.trim()) || roleFilter !== "ALL";
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
+  function prepareDialog(trigger?: HTMLButtonElement | null) {
+    dialogTriggerRef.current = trigger ?? null;
+    setFormErrors({});
+    setDialogError("");
+  }
+
+  function openCreate(trigger?: HTMLButtonElement | null) {
+    prepareDialog(trigger);
+    setSelectedRole(null);
+    setForm({ ...EMPTY_FORM });
     setDialogMode("create");
   }
 
-  function openEdit(role: Role) {
+  function openCopy(role: Role, trigger?: HTMLButtonElement | null) {
+    prepareDialog(trigger);
+    setSelectedRole(role);
+    setForm({
+      name: role.name + " 副本",
+      description: role.description ?? "",
+      permissions: [...role.permissions],
+    });
+    setDialogMode("copy");
+  }
+
+  function openEdit(role: Role, trigger?: HTMLButtonElement | null) {
+    prepareDialog(trigger);
     setSelectedRole(role);
     setForm({
       id: role.id,
       name: role.name,
       description: role.description ?? "",
-      permissions: role.permissions,
+      permissions: [...role.permissions],
     });
     setDialogMode("edit");
   }
 
-  function openDelete(role: Role) {
+  function openDelete(role: Role, trigger?: HTMLButtonElement | null) {
+    prepareDialog(trigger);
     setSelectedRole(role);
     setDialogMode("deleteConfirm");
   }
@@ -649,36 +764,54 @@ export function RoleManagement() {
   function closeDialog() {
     setDialogMode(null);
     setSelectedRole(null);
+    setFormErrors({});
+    setDialogError("");
   }
 
   async function handleSaveRole() {
-    if (!form.name.trim()) {
-      toast.error("角色名称不能为空");
+    const nextErrors: FormErrors = {};
+    if (!form.name.trim()) nextErrors.name = "请输入角色名称。";
+    setFormErrors(nextErrors);
+    if (nextErrors.name) {
+      document.getElementById("role-name")?.focus();
       return;
     }
+
+    const successMode = dialogMode;
+    invalidatePendingRoleLoads();
+    setDialogError("");
     setSaving(true);
     try {
-      const saved = await apiSaveRole(form);
-      setRoles((prev) => {
-        const idx = prev.findIndex((r) => r.id === saved.id);
-        if (idx >= 0) {
-          const next = [...prev];
-          next[idx] = { ...next[idx], ...saved };
+      const saved = await apiSaveRole({ ...form, name: form.name.trim() });
+      setRoles((current) => {
+        const index = current.findIndex((role) => role.id === saved.id);
+        if (index >= 0) {
+          const next = [...current];
+          next[index] = { ...next[index], ...saved };
           return next;
         }
-        return [saved, ...prev];
+        return [saved, ...current];
       });
+      setKeyword("");
+      setRoleFilter("ALL");
+      setPage(1);
       setActiveRoleId(saved.id);
-      toast.success(form.id ? "角色已更新" : "角色已创建");
+      toast.success(
+        form.id ? "角色已更新" : successMode === "copy" ? "角色副本已创建" : "角色已创建",
+      );
       closeDialog();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存失败");
+      const message = err instanceof Error ? err.message : "保存失败";
+      setDialogError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
   }
 
   async function handleQuickSavePermissions(role: Role, permissions: string[]) {
+    invalidatePendingRoleLoads();
+    setPermissionSavingRoleId(role.id);
     try {
       const saved = await apiSaveRole({
         id: role.id,
@@ -686,400 +819,671 @@ export function RoleManagement() {
         description: role.description ?? "",
         permissions,
       });
-      setRoles((prev) => prev.map((r) => (r.id === saved.id ? { ...r, ...saved } : r)));
+      setRoles((current) =>
+        current.map((item) => (item.id === saved.id ? { ...item, ...saved } : item)),
+      );
       toast.success("权限已保存");
+      await loadRoles();
     } catch (err) {
+      setRoles((current) =>
+        current.map((item) =>
+          item.id === role.id ? { ...item, permissions: role.permissions } : item,
+        ),
+      );
       toast.error(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setPermissionSavingRoleId((current) => (current === role.id ? null : current));
     }
   }
 
   async function handleDeleteRole() {
     if (!selectedRole) return;
+    invalidatePendingRoleLoads();
+    setDialogError("");
     setSaving(true);
     try {
       await apiDeleteRole(selectedRole.id);
-      setRoles((prev) => prev.filter((r) => r.id !== selectedRole.id));
+      setRoles((current) => current.filter((role) => role.id !== selectedRole.id));
       setActiveRoleId(null);
       toast.success("角色已删除");
       closeDialog();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "删除失败");
+      const message = err instanceof Error ? err.message : "删除失败";
+      setDialogError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
   }
 
+  function clearFilters() {
+    setKeyword("");
+    setRoleFilter("ALL");
+  }
+
+  const dialogTitle =
+    dialogMode === "edit" ? "编辑角色" : dialogMode === "copy" ? "复制角色" : "新建角色";
+
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-5 xl:h-full xl:min-h-0 xl:overflow-hidden">
-      {/* ── Header ──────────────────────────────────────────────────── */}
-      <section className="material-card shrink-0 overflow-hidden">
-        <div className="h-0.5 bg-indigo-600" />
-        <div className="flex flex-col gap-4 p-6 lg:flex-row lg:items-center lg:justify-between md:p-8">
-          <div className="min-w-0">
-            <span className="material-chip bg-indigo-50 text-xs text-indigo-700">
-              Permission Matrix
-            </span>
-            <h2 className="mt-3 text-balance text-2xl font-bold text-slate-950 sm:text-[1.75rem]">
-              角色与权限
-            </h2>
-            <p className="mt-2 max-w-2xl text-pretty text-sm leading-6 text-slate-500">
-              配置角色的页面访问权限与操作权限。权限变更实时生效——用户下次刷新 Token 后即可感知。
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs">
-              <Users className="h-3.5 w-3.5 text-slate-400" />
-              <span className="text-slate-500">角色</span>
-              <span className="font-bold text-slate-800">{roles.length}</span>
-              <Separator orientation="vertical" className="mx-1.5 h-3.5" />
-              <Shield className="h-3.5 w-3.5 text-slate-400" />
-              <span className="text-slate-500">权限项</span>
-              <span className="font-bold text-slate-800">{totalPermissions}</span>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void loadRoles()}
-              disabled={loading}
-              className="gap-1.5"
-            >
-              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-              刷新
-            </Button>
-            <PermissionGuard permission="role:create">
-              <Button size="sm" onClick={openCreate} className="gap-1.5">
-                <Plus className="h-3.5 w-3.5" />
-                新建角色
-              </Button>
-            </PermissionGuard>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[300px_minmax(0,1fr)] xl:gap-5 xl:overflow-hidden">
-        {/* ── Role list ──────────────────────────────────────────── */}
-        <div className="material-card min-h-0 overflow-hidden xl:flex xl:flex-col">
-          <div className="material-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-400">
-              <RefreshCw className="h-5 w-5 animate-spin" />
-              <span className="text-sm">加载中…</span>
-            </div>
-          ) : roles.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-400">
-              <Users className="h-6 w-6 text-slate-200" />
-              <span className="text-sm">暂无角色</span>
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              {roles.map((role) => {
-                const isActive = activeRoleId === role.id;
-                const isSuper = role.permissions.includes("*");
-                const userCount = role._count?.users ?? 0;
-                const RoleIcon = isSuper ? Crown : User;
-
-                return (
-                  <div
-                    key={role.id}
-                    onClick={() => setActiveRoleId(role.id)}
-                    className={cn(
-                      "group/role relative flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors duration-150",
-                      isActive
-                        ? "border-indigo-200 bg-indigo-50 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60",
-                    )}
-                  >
-                    {/* Left active accent */}
-                    {isActive && (
-                      <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r bg-indigo-600" />
-                    )}
-
-                    {/* Role icon */}
-                    <span
-                      className={cn(
-                        "flex size-8 shrink-0 items-center justify-center rounded-md transition-colors",
-                        isSuper
-                          ? "bg-amber-100 text-amber-600 ring-1 ring-amber-200"
-                          : isActive
-                            ? "bg-indigo-100 text-indigo-600 ring-1 ring-indigo-200"
-                            : "bg-slate-100 text-slate-500 ring-1 ring-slate-200 group-hover/role:bg-slate-200",
-                      )}
-                    >
-                      <RoleIcon className="h-4 w-4" />
-                    </span>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={cn(
-                            "truncate text-sm font-semibold",
-                            isActive ? "text-indigo-700" : "text-slate-800",
-                          )}
-                        >
-                          {role.name}
-                        </span>
-                        {isSuper && (
-                          <Badge className="h-4 shrink-0 gap-0.5 border-0 bg-amber-500 px-1 text-[10px] font-bold text-white hover:bg-amber-600">
-                            <Sparkles className="h-2 w-2" />
-                            超级
-                          </Badge>
-                        )}
-                      </div>
-                      {role.description && (
-                        <div className="mt-0.5 text-xs text-slate-400 line-clamp-2 leading-snug">
-                          {role.description}
-                        </div>
-                      )}
-                      <div className="mt-1.5 flex items-center gap-2 text-[11px] text-slate-500">
-                        <span className="flex items-center gap-0.5">
-                          <Users className="h-2.5 w-2.5" />
-                          {userCount}
-                        </span>
-                        <span className="text-slate-300">·</span>
-                        <span>
-                          {isSuper ? "全部权限" : `${role.permissions.length} 项`}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Actions (hover) */}
-                    {!isSuper && (
-                      <div className="ml-1 flex shrink-0 gap-0.5 opacity-0 transition-opacity duration-150 group-hover/role:opacity-100">
-                        <PermissionGuard permission="role:edit">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                aria-label={`编辑角色 ${role.name}`}
-                                className="size-6 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openEdit(role);
-                                }}
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" sideOffset={4}>编辑</TooltipContent>
-                          </Tooltip>
-                        </PermissionGuard>
-                        <PermissionGuard permission="role:delete">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                aria-label={`删除角色 ${role.name}`}
-                                className="size-6 text-slate-400 hover:bg-red-50 hover:text-red-500"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openDelete(role);
-                                }}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" sideOffset={4}>删除</TooltipContent>
-                          </Tooltip>
-                        </PermissionGuard>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          </div>
-        </div>
-
-        {/* ── Permission matrix for active role ────────────────── */}
-        <div className="material-card min-h-0 min-w-0 overflow-hidden xl:flex xl:flex-col">
-          {!activeRole ? (
-            <div className="flex h-48 flex-col items-center justify-center gap-2 p-6 text-slate-400 xl:h-full">
-              <Shield className="h-8 w-8 text-slate-200" />
-              <span className="text-sm">请从左侧选择角色</span>
-            </div>
-          ) : (
+    <div className="horizon-theme hz-page">
+      <div className="hz-page-inner space-y-3">
+        <HorizonPageHeader
+          Icon={Shield}
+          eyebrow="SYSTEM GOVERNANCE · ACCESS CONTROL"
+          title="角色与权限"
+          description="集中维护角色目录和页面、按钮级授权范围。权限修改即时保存，用户刷新登录状态后生效。"
+          meta={(
             <>
-              <div className="shrink-0 p-4 pb-0 sm:p-6 sm:pb-0">
-              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={cn(
-                        "flex size-9 shrink-0 items-center justify-center rounded-lg",
-                        isWildcard
-                          ? "bg-amber-100 text-amber-600 ring-1 ring-amber-200"
-                          : "bg-indigo-100 text-indigo-600 ring-1 ring-indigo-200",
-                      )}
-                    >
-                      {isWildcard ? <Crown className="h-4 w-4" /> : <User className="h-4 w-4" />}
-                    </span>
-                    <h3 className="text-lg font-bold text-slate-900">{activeRole.name}</h3>
-                    {isWildcard && (
-                      <Badge className="h-5 gap-0.5 border-0 bg-amber-500 px-1.5 text-[11px] font-bold text-white">
-                        <Sparkles className="h-2.5 w-2.5" />
-                        超级权限
-                      </Badge>
-                    )}
-                  </div>
-                  {activeRole.description && (
-                    <p className="mt-1.5 text-sm text-slate-500 leading-6">{activeRole.description}</p>
-                  )}
-                  {isWildcard && (
-                    <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 leading-5">
-                      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      <span>该角色拥有超级权限（*），可访问所有功能。若要限制权限，请编辑角色并手动指定权限列表。</span>
-                    </div>
-                  )}
-                </div>
-                {!isWildcard && (
-                  <PermissionGuard permission="role:edit">
-                    <Button size="sm" onClick={() => openEdit(activeRole)} className="shrink-0 gap-1.5">
-                      <Pencil className="h-3.5 w-3.5" />
-                      编辑角色
-                    </Button>
-                  </PermissionGuard>
-                )}
-              </div>
-
-              <Separator className="mb-4" />
-              </div>
-
-              <div className="material-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 pt-0 sm:p-6 sm:pt-0">
-              <PermissionMatrix
-                key={activeRole.id}
-                selected={activeRole.permissions}
-                isWildcard={isWildcard}
-                groups={permissionGroups}
-                onChange={(permissions) => {
-                  setRoles((prev) =>
-                    prev.map((r) =>
-                      r.id === activeRole.id ? { ...r, permissions } : r,
-                    ),
-                  );
-                  void handleQuickSavePermissions(activeRole, permissions);
-                }}
-              />
-              </div>
+              <span>权限目录</span>
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums">
+                {loading ? "正在同步" : loadError ? "同步异常" : roles.length + " 个角色"}
+              </span>
             </>
           )}
-        </div>
-      </section>
+          actions={(
+            <>
+              <Button type="button" variant="outline" onClick={() => void loadRoles()} disabled={loading}>
+                <RefreshCw
+                  className={cn("size-4", loading && "animate-spin motion-reduce:animate-none")}
+                  aria-hidden="true"
+                />
+                {loading ? "读取中…" : "刷新"}
+              </Button>
+              <PermissionGuard permission="role:create">
+                <Button
+                  type="button"
+                  className="hz-primary-action"
+                  onClick={(event) => openCreate(event.currentTarget)}
+                >
+                  <Plus className="size-4" aria-hidden="true" />
+                  新建角色
+                </Button>
+              </PermissionGuard>
+            </>
+          )}
+        />
 
-      {/* ── Create / Edit Dialog ─────────────────────────────────── */}
-      <Dialog
-        open={dialogMode === "create" || dialogMode === "edit"}
-        onOpenChange={(open) => !open && closeDialog()}
-      >
-        <DialogContent className="material-scrollbar sm:max-w-[50vw] max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {dialogMode === "edit" ? (
-                <><Pencil className="h-4 w-4 text-indigo-500" />编辑角色</>
-              ) : (
-                <><Plus className="h-4 w-4 text-indigo-500" />新建角色</>
+        <HorizonMetricGrid className="!grid-cols-2 xl:!grid-cols-4">
+          <HorizonMetric
+            Icon={Users}
+            label="角色总数"
+            value={loading && roles.length === 0 ? "—" : roles.length}
+            note={(roles.length - wildcardRoleCount) + " 个常规角色"}
+            tone="brand"
+          />
+          <HorizonMetric
+            Icon={User}
+            label="已分配用户"
+            value={loading && roles.length === 0 ? "—" : assignedUsers}
+            note="各角色关联账号合计"
+            tone={assignedUsers > 0 ? "success" : "neutral"}
+          />
+          <HorizonMetric
+            Icon={Crown}
+            label="超级角色"
+            value={loading && roles.length === 0 ? "—" : wildcardRoleCount}
+            note="拥有全部权限的角色"
+            tone={wildcardRoleCount > 0 ? "warning" : "neutral"}
+          />
+          <HorizonMetric
+            Icon={Shield}
+            label="权限目录"
+            value={loading && permissionGroups.length === 0 ? "—" : totalPermissions}
+            note={permissionGroups.length + " 个目录分组"}
+            tone="brand"
+          />
+        </HorizonMetricGrid>
+
+        <section
+          className="grid min-w-0 gap-3 xl:grid-cols-[360px_minmax(0,1fr)]"
+          aria-label="角色与权限工作台"
+        >
+          <div className="hz-surface min-w-0 overflow-hidden">
+            <HorizonSectionHeader
+              Icon={Users}
+              title="角色目录"
+              description="检索角色并选择需要查看或授权的对象。"
+              trailing={(
+                <span className="text-xs text-slate-500">
+                  显示 <span className="font-semibold tabular-nums text-slate-700">{filteredRoles.length}</span> / {roles.length}
+                </span>
               )}
-            </DialogTitle>
-          </DialogHeader>
+            />
 
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-[1fr_2fr]">
-              <div className="space-y-1.5">
-                <Label htmlFor="role-name">
-                  角色名称 <span className="text-red-500">*</span>
+            <div className="space-y-3 border-b border-slate-200 p-4">
+              <div>
+                <Label htmlFor="role-search" className="mb-1.5 block text-xs font-semibold text-slate-700">
+                  搜索角色
+                </Label>
+                <div className="relative">
+                  <Search
+                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+                    aria-hidden="true"
+                  />
+                  <Input
+                    id="role-search"
+                    className="pl-9"
+                    value={keyword}
+                    onChange={(event) => setKeyword(event.target.value)}
+                    placeholder="角色名称或职责说明"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <Select value={roleFilter} onValueChange={(value) => setRoleFilter(value as RoleFilter)}>
+                  <SelectTrigger
+                    aria-label="筛选角色授权类型"
+                    className={ROLE_FILTER_TRIGGER_CLASS}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                    <SelectItem value="ALL">全部角色</SelectItem>
+                    <SelectItem value="SUPER">超级角色</SelectItem>
+                    <SelectItem value="CONFIGURED">已配置权限</SelectItem>
+                    <SelectItem value="EMPTY">未配置权限</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button type="button" variant="outline" onClick={clearFilters} disabled={!hasActiveFilters}>
+                  清除
+                </Button>
+              </div>
+            </div>
+
+            {loadError && roles.length > 0 ? (
+              <p role="alert" className="mx-4 mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {loadError}
+              </p>
+            ) : null}
+
+            <div className="p-3">
+              {loading && roles.length === 0 ? (
+                <div className="space-y-2" aria-label="正在加载角色目录">
+                  {Array.from({ length: 5 }, (_, index) => (
+                    <div key={index} className="h-20 rounded-xl border border-slate-200 bg-slate-100" aria-hidden="true" />
+                  ))}
+                </div>
+              ) : pagedRoles.length === 0 ? (
+                <HorizonEmptyState
+                  Icon={hasActiveFilters ? Search : Users}
+                  title={
+                    hasActiveFilters
+                      ? "没有匹配的角色"
+                      : loadError
+                        ? "角色目录加载失败"
+                        : "尚未创建角色"
+                  }
+                  description={
+                    hasActiveFilters
+                      ? "调整检索条件或清除筛选后重试。"
+                      : loadError
+                        ? loadError
+                        : "新建首个角色，并为其配置页面与操作权限。"
+                  }
+                  action={
+                    hasActiveFilters ? (
+                      <Button type="button" variant="outline" onClick={clearFilters}>清除筛选</Button>
+                    ) : loadError ? (
+                      <Button type="button" variant="outline" onClick={() => void loadRoles()}>
+                        <RefreshCw className="size-4" aria-hidden="true" />
+                        重新读取
+                      </Button>
+                    ) : (
+                      <PermissionGuard permission="role:create">
+                        <Button
+                          type="button"
+                          className="hz-primary-action"
+                          onClick={(event) => openCreate(event.currentTarget)}
+                        >
+                          <Plus className="size-4" aria-hidden="true" />
+                          新建角色
+                        </Button>
+                      </PermissionGuard>
+                    )
+                  }
+                />
+              ) : (
+                <ul className="space-y-2" aria-label="角色列表">
+                  {pagedRoles.map((role) => {
+                    const selected = activeRole?.id === role.id;
+                    const superRole = role.permissions.includes("*");
+                    const userCount = role._count?.users ?? 0;
+                    const RoleIcon = superRole ? Crown : User;
+
+                    return (
+                      <li
+                        key={role.id}
+                        className={cn(
+                          "rounded-xl border bg-white",
+                          selected ? "border-blue-300 bg-blue-50/50" : "border-slate-200",
+                        )}
+                      >
+                        <div className="flex items-start gap-1 p-2">
+                          <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-start gap-3 rounded-lg p-2 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                            onClick={() => setActiveRoleId(role.id)}
+                            aria-pressed={selected}
+                          >
+                            <span
+                              className={cn(
+                                "flex size-9 shrink-0 items-center justify-center rounded-xl",
+                                superRole
+                                  ? "bg-amber-50 text-amber-700"
+                                  : selected
+                                    ? "bg-blue-100 text-[#002fa7]"
+                                    : "bg-slate-100 text-slate-600",
+                              )}
+                              aria-hidden="true"
+                            >
+                              <RoleIcon className="size-4" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span className="truncate text-sm font-semibold text-slate-900">{role.name}</span>
+                                {superRole ? (
+                                  <Badge className="shrink-0 border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50">
+                                    <Sparkles className="size-3" aria-hidden="true" />
+                                    超级
+                                  </Badge>
+                                ) : null}
+                              </span>
+                              <span className="mt-1 line-clamp-2 block text-pretty text-xs leading-5 text-slate-500">
+                                {role.description || "暂未填写角色职责说明"}
+                              </span>
+                              <span className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                                <span><span className="font-semibold tabular-nums text-slate-700">{userCount}</span> 名用户</span>
+                                <span>{superRole ? "全部权限" : role.permissions.length + " 项权限"}</span>
+                              </span>
+                            </span>
+                          </button>
+
+                          {!superRole ? (
+                            <div className="flex shrink-0 flex-col gap-1">
+                              <PermissionGuard permission="role:create">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={(event) => openCopy(role, event.currentTarget)}
+                                  aria-label={"复制角色 " + role.name}
+                                  title="复制角色"
+                                >
+                                  <Copy className="size-4" aria-hidden="true" />
+                                </Button>
+                              </PermissionGuard>
+                              <PermissionGuard permission="role:edit">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={(event) => openEdit(role, event.currentTarget)}
+                                  aria-label={"编辑角色 " + role.name}
+                                  title="编辑角色"
+                                >
+                                  <Pencil className="size-4" aria-hidden="true" />
+                                </Button>
+                              </PermissionGuard>
+                              <PermissionGuard permission="role:delete">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                  onClick={(event) => openDelete(role, event.currentTarget)}
+                                  aria-label={"删除角色 " + role.name}
+                                  title="删除角色"
+                                >
+                                  <Trash2 className="size-4" aria-hidden="true" />
+                                </Button>
+                              </PermissionGuard>
+                            </div>
+                          ) : null}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                共 <span className="font-semibold tabular-nums text-slate-700">{filteredRoles.length}</span> 条，
+                第 <span className="tabular-nums">{safePage} / {totalPages}</span> 页
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(Math.max(1, safePage - 1))}
+                  disabled={safePage === 1}
+                >
+                  上一页
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage(Math.min(totalPages, safePage + 1))}
+                  disabled={safePage === totalPages}
+                >
+                  下一页
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="hz-surface min-w-0 overflow-hidden">
+            {loading && roles.length === 0 ? (
+              <div className="space-y-3 p-5" aria-label="正在加载权限详情">
+                <div className="h-10 w-2/3 rounded-xl bg-slate-100" aria-hidden="true" />
+                <div className="h-24 rounded-xl bg-slate-100" aria-hidden="true" />
+                <div className="h-48 rounded-xl bg-slate-100" aria-hidden="true" />
+              </div>
+            ) : !activeRole ? (
+              <HorizonEmptyState
+                Icon={Shield}
+                title={hasActiveFilters ? "当前筛选下没有可授权角色" : "请选择角色"}
+                description={
+                  hasActiveFilters
+                    ? "清除筛选或调整检索条件后，再选择需要维护的角色。"
+                    : "从左侧角色目录选择一个角色，查看其权限范围。"
+                }
+                action={
+                  hasActiveFilters ? (
+                    <Button type="button" variant="outline" onClick={clearFilters}>清除筛选</Button>
+                  ) : undefined
+                }
+              />
+            ) : (
+              <>
+                <HorizonSectionHeader
+                  Icon={isWildcard ? Crown : Shield}
+                  title={activeRole.name}
+                  description={activeRole.description || "暂未填写角色职责说明。"}
+                  trailing={(
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {permissionSavingRoleId === activeRole.id ? (
+                        <span role="status" className="text-xs text-slate-500">权限保存中…</span>
+                      ) : null}
+                      {!isWildcard ? (
+                        <>
+                          <PermissionGuard permission="role:create">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={(event) => openCopy(activeRole, event.currentTarget)}
+                            >
+                              <Copy className="size-4" aria-hidden="true" />
+                              复制
+                            </Button>
+                          </PermissionGuard>
+                          <PermissionGuard permission="role:edit">
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="hz-primary-action"
+                              onClick={(event) => openEdit(activeRole, event.currentTarget)}
+                            >
+                              <Pencil className="size-4" aria-hidden="true" />
+                              编辑角色
+                            </Button>
+                          </PermissionGuard>
+                        </>
+                      ) : null}
+                    </div>
+                  )}
+                />
+
+                <div className="grid gap-px border-b border-slate-200 bg-slate-200 sm:grid-cols-3">
+                  <div className="bg-white px-4 py-3">
+                    <div className="text-xs text-slate-500">授权方式</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-800">
+                      {isWildcard ? "超级权限" : "精细授权"}
+                    </div>
+                  </div>
+                  <div className="bg-white px-4 py-3">
+                    <div className="text-xs text-slate-500">已授予权限</div>
+                    <div className="mt-1 text-sm font-semibold tabular-nums text-slate-800">
+                      {isWildcard ? "全部" : activeRole.permissions.length + " 项"}
+                    </div>
+                  </div>
+                  <div className="bg-white px-4 py-3">
+                    <div className="text-xs text-slate-500">关联用户</div>
+                    <div className="mt-1 text-sm font-semibold tabular-nums text-slate-800">
+                      {(activeRole._count?.users ?? 0) + " 名"}
+                    </div>
+                  </div>
+                </div>
+
+                {isWildcard ? (
+                  <div className="mx-4 mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm leading-6 text-amber-800">
+                    <Sparkles className="mt-1 size-4 shrink-0" aria-hidden="true" />
+                    <p className="text-pretty">
+                      该角色拥有超级权限（*），可访问全部功能。超级角色在此页保持只读，避免误改核心访问边界。
+                    </p>
+                  </div>
+                ) : null}
+
+                <div className="p-4">
+                  <PermissionGuard
+                    permission="role:edit"
+                    fallback={(
+                      <PermissionMatrix
+                        key={"readonly-" + activeRole.id}
+                        idPrefix="role-detail-readonly"
+                        selected={activeRole.permissions}
+                        isWildcard={isWildcard}
+                        groups={permissionGroups}
+                        onReload={() => void loadRoles()}
+                        readOnly
+                        onChange={() => undefined}
+                      />
+                    )}
+                  >
+                    <PermissionMatrix
+                      key={"editable-" + activeRole.id}
+                      idPrefix="role-detail-editable"
+                      selected={activeRole.permissions}
+                      isWildcard={isWildcard}
+                      groups={permissionGroups}
+                      onReload={() => void loadRoles()}
+                      disabled={permissionSavingRoleId === activeRole.id}
+                      onChange={(permissions) => {
+                        setRoles((current) =>
+                          current.map((role) =>
+                            role.id === activeRole.id ? { ...role, permissions } : role,
+                          ),
+                        );
+                        void handleQuickSavePermissions(activeRole, permissions);
+                      }}
+                    />
+                  </PermissionGuard>
+                </div>
+              </>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <Dialog
+        open={dialogMode === "create" || dialogMode === "copy" || dialogMode === "edit"}
+        onOpenChange={(open) => {
+          if (!open && !saving) closeDialog();
+        }}
+      >
+        <DialogContent
+          className="horizon-portal max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-4xl"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = dialogTriggerRef.current;
+            dialogTriggerRef.current = null;
+            if (trigger?.isConnected) trigger.focus();
+            else document.getElementById("role-search")?.focus();
+          }}
+        >
+          <form
+            className="space-y-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSaveRole();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle className="text-balance text-slate-900">{dialogTitle}</DialogTitle>
+              <DialogDescription className="text-pretty">
+                {dialogMode === "copy"
+                  ? "已复制“" + (selectedRole?.name ?? "当前角色") + "”的授权范围，请确认新角色名称与权限。"
+                  : dialogMode === "edit"
+                    ? "更新角色职责说明和页面、按钮级授权范围。"
+                    : "创建角色并配置其页面访问与操作权限。"}
+              </DialogDescription>
+            </DialogHeader>
+
+            {dialogError ? (
+              <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {dialogError}
+              </p>
+            ) : null}
+
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+              <div>
+                <Label htmlFor="role-name" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  角色名称 <span className="text-red-600">*</span>
                 </Label>
                 <Input
                   id="role-name"
+                  autoFocus
                   value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  onChange={(event) => {
+                    setForm((current) => ({ ...current, name: event.target.value }));
+                    if (formErrors.name) {
+                      setFormErrors((current) => ({ ...current, name: undefined }));
+                    }
+                  }}
                   placeholder="请输入角色名称"
+                  aria-invalid={Boolean(formErrors.name)}
+                  aria-describedby={formErrors.name ? "role-name-error" : undefined}
                 />
+                {formErrors.name ? (
+                  <p id="role-name-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">
+                    {formErrors.name}
+                  </p>
+                ) : null}
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="role-desc">角色说明</Label>
+              <div>
+                <Label htmlFor="role-desc" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  角色说明
+                </Label>
                 <Textarea
                   id="role-desc"
-                  rows={1}
+                  rows={2}
                   value={form.description}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, description: event.target.value }))
+                  }
                   placeholder="简要说明该角色的职责范围"
-                  className="min-h-9"
                 />
               </div>
             </div>
 
-            <Separator />
-
-            <div className="flex items-center justify-between">
-              <Label className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
-                <Shield className="h-3.5 w-3.5 text-slate-400" />
-                权限配置
-              </Label>
-              <span className="text-xs text-slate-400">
-                已选 <strong className="text-slate-700 tabular-nums">{form.permissions.filter((p) => p !== "*").length}</strong> 项 / 共 {totalPermissions} 项
-              </span>
-            </div>
-
-            <PermissionMatrix
-              selected={form.permissions}
-              isWildcard={form.permissions.includes("*")}
-              groups={permissionGroups}
-              onChange={(permissions) => setForm((f) => ({ ...f, permissions }))}
-            />
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog} disabled={saving}>
-              取消
-            </Button>
-            <Button onClick={() => void handleSaveRole()} disabled={saving} className="gap-1.5">
-              {saving && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
-              {saving ? "保存中…" : "保存角色"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Delete Confirm ───────────────────────────────────────── */}
-      <Dialog open={dialogMode === "deleteConfirm"} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Trash2 className="h-4 w-4 text-red-500" />
-              确认删除角色
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm leading-6 text-slate-600">
-              即将永久删除角色「<strong className="text-slate-900">{selectedRole?.name}</strong>」。
-            </p>
-            {(selectedRole?._count?.users ?? 0) > 0 && (
-              <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 leading-5">
-                <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>
-                  该角色下仍有 <strong>{selectedRole?._count?.users}</strong> 名用户，请先移除或重新分配后再删除。
+            <section className="border-t border-slate-200 pt-4" aria-labelledby="role-permissions-heading">
+              <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 id="role-permissions-heading" className="flex items-center gap-2 text-balance text-sm font-semibold text-slate-800">
+                    <Shield className="size-4 text-[#002fa7]" aria-hidden="true" />
+                    权限配置
+                  </h3>
+                  <p className="mt-1 text-pretty text-xs text-slate-500">
+                    选择该角色可访问的页面，以及页面内允许执行的操作。
+                  </p>
+                </div>
+                <span className="text-xs text-slate-500">
+                  已选 <strong className="font-semibold tabular-nums text-slate-700">
+                    {form.permissions.filter((permission) => permission !== "*").length}
+                  </strong> 项 / 共 {totalPermissions} 项
                 </span>
               </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog} disabled={saving}>
-              取消
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => void handleDeleteRole()}
-              disabled={saving || (selectedRole?._count?.users ?? 0) > 0}
-              className="gap-1.5"
-            >
-              {saving && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
-              {saving ? "删除中…" : "确认删除"}
-            </Button>
-          </DialogFooter>
+
+              <PermissionMatrix
+                idPrefix="role-form"
+                selected={form.permissions}
+                isWildcard={form.permissions.includes("*")}
+                groups={permissionGroups}
+                onReload={() => void loadRoles()}
+                onChange={(permissions) =>
+                  setForm((current) => ({ ...current, permissions }))
+                }
+              />
+            </section>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeDialog} disabled={saving}>
+                取消
+              </Button>
+              <Button type="submit" className="hz-primary-action" disabled={saving}>
+                {saving ? "保存中…" : dialogMode === "copy" ? "创建副本" : "保存角色"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={dialogMode === "deleteConfirm"}
+        onOpenChange={(open) => {
+          if (!open && !saving) closeDialog();
+        }}
+      >
+        <AlertDialogContent
+          className="horizon-portal sm:max-w-md"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = dialogTriggerRef.current;
+            dialogTriggerRef.current = null;
+            if (trigger?.isConnected) trigger.focus();
+            else document.getElementById("role-search")?.focus();
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-balance text-slate-900">确认删除角色？</AlertDialogTitle>
+            <AlertDialogDescription className="text-pretty leading-6">
+              即将永久删除角色“{selectedRole?.name ?? "当前角色"}”。此操作不可恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {(selectedRole?._count?.users ?? 0) > 0 ? (
+            <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              该角色仍关联 <span className="font-semibold tabular-nums">{selectedRole?._count?.users}</span> 名用户，
+              请先移除或重新分配后再删除。
+            </p>
+          ) : null}
+
+          {dialogError ? (
+            <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {dialogError}
+            </p>
+          ) : null}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>保留角色</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
+              disabled={saving || (selectedRole?._count?.users ?? 0) > 0}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteRole();
+              }}
+            >
+              {saving ? "删除中…" : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

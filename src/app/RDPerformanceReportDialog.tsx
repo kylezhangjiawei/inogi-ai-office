@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-import { Award, Download, Loader2, RefreshCw, Sparkles, UserCheck, X } from "lucide-react";
+import { Award, Download, Loader2, RefreshCw, Sparkles, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
 import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
 import {
   createRdPerformanceReport,
@@ -208,7 +214,7 @@ function PerformanceBody({ report }: { report: RdPerformanceReport }) {
   const cells: Array<{ label: string; value: string | number; accent?: string }> = [
     { label: "任务总数", value: m.total_tasks },
     { label: "本月完成", value: m.completed, accent: "text-emerald-600" },
-    { label: "完成率", value: `${m.completion_rate}%`, accent: "text-indigo-600" },
+    { label: "完成率", value: `${m.completion_rate}%`, accent: "text-[#002fa7]" },
     { label: "进行中", value: m.in_progress, accent: "text-blue-600" },
     { label: "阻塞", value: m.blocked, accent: "text-red-600" },
     { label: "停滞", value: m.stalled, accent: "text-amber-600" },
@@ -218,12 +224,12 @@ function PerformanceBody({ report }: { report: RdPerformanceReport }) {
   ];
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 px-4 py-3 ring-1 ring-amber-100">
+      <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#dce6ff] bg-[#eef3ff] px-4 py-3">
         <div>
           <div className="text-[11px] text-slate-500">综合评分</div>
-          <div className="text-3xl font-bold tabular-nums text-amber-600">
+          <div className="text-3xl font-bold tabular-nums text-[#002fa7]">
             {s.score}
-            <span className="ml-0.5 text-base font-medium text-amber-400">分</span>
+            <span className="ml-0.5 text-base font-medium text-[#002fa7]/65">分</span>
           </div>
         </div>
         <span className={cn("inline-flex items-center rounded-full px-3.5 py-1 text-sm font-bold ring-1", gradeCls)}>
@@ -238,7 +244,7 @@ function PerformanceBody({ report }: { report: RdPerformanceReport }) {
           </div>
         ))}
       </div>
-      <pre className="whitespace-pre-wrap break-words rounded-xl bg-white px-4 py-3 font-sans text-[13px] leading-7 text-slate-700 ring-1 ring-slate-100">
+      <pre className="whitespace-pre-wrap break-words rounded-xl bg-white px-4 py-3 font-sans text-pretty text-[13px] leading-7 text-slate-700 ring-1 ring-slate-100">
         {s.text}
       </pre>
       <PerformanceAssessmentView report={report} />
@@ -270,7 +276,7 @@ function PerformanceAssessmentView({ report }: { report: RdPerformanceReport }) 
           <tr className="text-slate-400">
             <th className="px-4 py-1.5 text-left font-medium">考核项</th>
             <th className="px-2 py-1.5 text-center font-medium text-slate-400">权重</th>
-            <th className="px-2 py-1.5 text-center font-medium text-violet-600">个人自评</th>
+            <th className="px-2 py-1.5 text-center font-medium text-[#002fa7]">个人自评</th>
             <th className="px-2 py-1.5 text-center font-medium text-amber-600">直接领导</th>
           </tr>
         </thead>
@@ -285,15 +291,15 @@ function PerformanceAssessmentView({ report }: { report: RdPerformanceReport }) 
           ))}
           <tr className="border-t border-slate-100 bg-slate-50/60">
             <td className="px-4 py-1.5 font-semibold text-slate-600" colSpan={2}>总计</td>
-            <td className="px-2 py-1.5 text-center font-bold tabular-nums text-violet-700">{sum(self) ?? "—"}</td>
+            <td className="px-2 py-1.5 text-center font-bold tabular-nums text-[#002fa7]">{sum(self) ?? "—"}</td>
             <td className="px-2 py-1.5 text-center font-bold tabular-nums text-amber-700">{sum(supervisor) ?? "—"}</td>
           </tr>
         </tbody>
       </table>
       {(self?.comment?.trim() || supervisor?.comment?.trim()) && (
-        <div className="space-y-2 px-4 py-2.5 text-[12px] leading-6 text-slate-600">
+        <div className="space-y-2 px-4 py-2.5 text-pretty text-[12px] leading-6 text-slate-600">
           {self?.comment?.trim() && (
-            <div><span className="font-semibold text-violet-600">自评说明：</span>{self.comment}</div>
+            <div><span className="font-semibold text-[#002fa7]">自评说明：</span>{self.comment}</div>
           )}
           {supervisor?.comment?.trim() && (
             <div><span className="font-semibold text-amber-600">主管评语：</span>{supervisor.comment}</div>
@@ -368,41 +374,25 @@ export function RDPerformanceReportDialog({
     }
   }, [userId, userName, month]);
 
-  if (!open) return null;
-
-  // 挂载到 document.body，避免祖先元素的 transform/filter 把 fixed 定位困在面板内导致弹窗错位。
-  return createPortal(
+  return (
     <>
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
+      <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
+        <DialogContent className="horizon-portal flex max-h-[88dvh] flex-col gap-0 overflow-hidden border-slate-200 bg-white p-0 sm:max-w-2xl">
+          <DialogHeader className="border-b border-slate-200 px-5 py-3.5 pr-12 text-left">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500 text-white shadow-sm">
-              <Award className="h-4 w-4" />
+            <span className="flex size-9 items-center justify-center rounded-xl bg-[#eef3ff] text-[#002fa7] ring-1 ring-[#dce6ff]">
+              <Award className="size-4" />
             </span>
             <div>
-              <h3 className="text-sm font-bold text-slate-800">月度绩效报表</h3>
-              <p className="text-[11px] text-slate-400">
+              <DialogTitle className="text-balance text-sm font-bold text-[#1b2559]">月度绩效报表</DialogTitle>
+              <DialogDescription className="mt-1 text-pretty text-[11px] tabular-nums text-slate-500">
                 {userName} · {month}
-              </p>
+              </DialogDescription>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+          </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {loading ? (
             <div className="flex items-center justify-center py-16 text-sm text-slate-400">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -411,8 +401,8 @@ export function RDPerformanceReportDialog({
           ) : report ? (
             <PerformanceBody report={report} />
           ) : (
-            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-              <p className="text-sm text-slate-500">
+            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50/70 py-16 text-center">
+              <p className="text-pretty text-sm text-slate-500">
                 {loaded ? "该成员本月尚未生成绩效报表。" : ""}
               </p>
               {canGenerate ? (
@@ -420,7 +410,7 @@ export function RDPerformanceReportDialog({
                   type="button"
                   onClick={generate}
                   disabled={generating || !userId}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-60"
+                  className="hz-primary-action inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
                 >
                   {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                   {generating ? "AI 评估中…" : "生成绩效报表"}
@@ -432,19 +422,19 @@ export function RDPerformanceReportDialog({
           )}
         </div>
 
-        {report && (
-          <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-5 py-3">
-            <span className="text-[11px] text-slate-400">
+          {report && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-5 py-3">
+            <span className="text-[11px] tabular-nums text-slate-500">
               {report.summary.generated_by === "ai" ? "AI 生成" : "本地生成"} ·{" "}
               {new Date(report.created_at).toLocaleString("zh-CN")}
             </span>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {canGenerate && (
                 <button
                   type="button"
                   onClick={generate}
                   disabled={generating}
-                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
                 >
                   {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                   重新生成
@@ -454,7 +444,7 @@ export function RDPerformanceReportDialog({
                 <button
                   type="button"
                   onClick={() => setScoringOpen(true)}
-                  className="inline-flex items-center gap-1 rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-50"
+                  className="inline-flex items-center gap-1 rounded-full border border-[#dce6ff] bg-white px-3 py-1.5 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff]"
                 >
                   <UserCheck className="h-3.5 w-3.5" />
                   {report.summary.supervisor_assessment ? "修改主管评分" : "主管评分"}
@@ -467,16 +457,16 @@ export function RDPerformanceReportDialog({
                     toast.error(err instanceof Error ? err.message : "导出失败"),
                   );
                 }}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-amber-600"
+                className="hz-primary-action inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm"
               >
                 <Download className="h-3.5 w-3.5" />
                 下载正式绩效文件
               </button>
             </div>
           </div>
-        )}
-      </div>
-    </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <RDPerformanceScoreDialog
         open={scoringOpen}
@@ -485,7 +475,6 @@ export function RDPerformanceReportDialog({
         mode="supervisor"
         onSubmitted={(updated) => setReport(updated)}
       />
-    </>,
-    document.body,
+    </>
   );
 }

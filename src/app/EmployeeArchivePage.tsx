@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -31,13 +30,38 @@ import {
   Trash2,
   Upload,
   Users,
-  X,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import badgeInternTemplate from "../assets/employee-archive/badge-intern.jpeg";
 import badgeLaborTemplate from "../assets/employee-archive/badge-labor.jpeg";
 import badgeOfficialTemplate from "../assets/employee-archive/badge-official.jpeg";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+} from "./components/horizon/HorizonPage";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
+import { Button } from "./components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
 import { cn } from "./components/ui/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { subscribeDepartmentChanges, useDepartmentDirectory } from "./lib/departmentDirectory";
@@ -104,35 +128,6 @@ interface EmployeeArchiveEditDraft extends EmployeeArchive {
   bankAccount: string;
   emergencyPhoneNumber: string;
   socialSecurityNumber: string;
-}
-
-let activeBodyPortalCount = 0;
-let previousBodyOverflow = "";
-let previousBodyPaddingRight = "";
-
-function BodyPortal({ children }: { children: React.ReactNode }) {
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    if (activeBodyPortalCount === 0) {
-      previousBodyOverflow = document.body.style.overflow;
-      previousBodyPaddingRight = document.body.style.paddingRight;
-      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
-      document.body.style.overflow = "hidden";
-      if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`;
-    }
-    activeBodyPortalCount += 1;
-
-    return () => {
-      activeBodyPortalCount = Math.max(0, activeBodyPortalCount - 1);
-      if (activeBodyPortalCount === 0) {
-        document.body.style.overflow = previousBodyOverflow;
-        document.body.style.paddingRight = previousBodyPaddingRight;
-      }
-    };
-  }, []);
-
-  if (typeof document === "undefined") return null;
-  return createPortal(children, document.body);
 }
 
 interface EmployeeEditField {
@@ -1444,17 +1439,7 @@ function drawDefaultBadgeAvatar(
   height: number,
 ) {
   const isFemale = employee.gender === "女";
-  const gradient = context.createLinearGradient(x, y, x + width, y + height);
-  if (isFemale) {
-    gradient.addColorStop(0, "#fff7fb");
-    gradient.addColorStop(0.5, "#fce7f3");
-    gradient.addColorStop(1, "#dbeafe");
-  } else {
-    gradient.addColorStop(0, "#eff6ff");
-    gradient.addColorStop(0.5, "#e0f2fe");
-    gradient.addColorStop(1, "#f1f5f9");
-  }
-  context.fillStyle = gradient;
+  context.fillStyle = isFemale ? "#fff1f2" : "#eff6ff";
   context.fillRect(x, y, width, height);
 
   const centerX = x + width / 2;
@@ -1613,7 +1598,7 @@ function downloadBadgeBlob(blob: Blob, employee: EmployeeArchive, template: Badg
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
 
-const TABLE_HEADER_CLASS = "px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap";
+const TABLE_HEADER_CLASS = "px-5 py-3 text-xs font-semibold text-slate-500 whitespace-nowrap";
 const TABLE_CELL_CLASS = "px-5 py-3 align-middle text-sm text-slate-700";
 const EMPLOYEE_PAGE_SIZE = 10;
 const EMPLOYEE_ACTION_COLUMN_WIDTH = 250;
@@ -1662,15 +1647,18 @@ function ActionIconButton({
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { children: React.ReactNode }) {
   return (
-    <button
+    <Button
+      type="button"
+      size="icon"
+      variant="outline"
       className={cn(
-        "inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50",
+        "size-9 shrink-0 rounded-xl border-slate-200 bg-white text-slate-600 shadow-sm hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700",
         className,
       )}
       {...props}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -1697,30 +1685,32 @@ function ArchiveActions({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <button
+      <Button
         type="button"
         onClick={onCreate}
-        className={cn("material-button-primary justify-center", compact && "px-3 py-2 text-xs")}
+        className={cn("hz-primary-action", compact && "h-8 px-3 text-xs")}
       >
-        <Plus className="h-4 w-4" />
+        <Plus aria-hidden="true" />
         {translate("新增人员")}
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
+        variant="outline"
         onClick={onImport}
-        className={cn("material-button-secondary justify-center", compact && "px-3 py-2 text-xs")}
+        className={cn(compact && "h-8 px-3 text-xs")}
       >
-        <Upload className="h-4 w-4" />
+        <Upload aria-hidden="true" />
         {translate("导入花名册")}
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
+        variant="outline"
         onClick={onExport}
-        className={cn("material-button-secondary justify-center", compact && "px-3 py-2 text-xs")}
+        className={cn(compact && "h-8 px-3 text-xs")}
       >
-        <Download className="h-4 w-4" />
+        <Download aria-hidden="true" />
         {translate("导出人员名单")}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -1741,9 +1731,7 @@ function GenderDefaultAvatar({
       aria-label={translate("{name}默认头像", { name: employee.name })}
       className={cn(
         "relative isolate shrink-0 overflow-hidden rounded-2xl border border-white/80 shadow-inner",
-        isFemale
-          ? "bg-[linear-gradient(145deg,#fff7fb_0%,#fce7f3_48%,#dbeafe_100%)]"
-          : "bg-[linear-gradient(145deg,#eff6ff_0%,#e0f2fe_48%,#f1f5f9_100%)]",
+        isFemale ? "bg-rose-50" : "bg-blue-50",
         className,
       )}
     >
@@ -1797,7 +1785,7 @@ function ResumeFieldGrid({ employee, fields }: { employee: EmployeeArchive; fiel
         return (
           <div key={field.label} className="min-w-0 border-b border-slate-100 pb-2.5">
             <div className="flex min-w-0 items-center gap-1.5">
-              <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+              <p className="truncate text-[11px] font-semibold text-slate-400">
                 {translate(field.label)}
               </p>
               {field.sensitive ? <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-slate-300" /> : null}
@@ -1816,6 +1804,7 @@ function EmployeeArchiveEditor({
   draft,
   mode,
   saving,
+  error,
   departmentOptions,
   onChange,
   onDocumentsChange,
@@ -1825,20 +1814,14 @@ function EmployeeArchiveEditor({
   draft: EmployeeArchiveEditDraft;
   mode: "create" | "edit";
   saving: boolean;
+  error: string;
   departmentOptions: string[];
   onChange: (key: keyof EmployeeArchiveEditDraft, value: string) => void;
   onDocumentsChange: (documents: DocItem[]) => void;
   onCancel: () => void;
   onSave: () => void;
 }) {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !saving) onCancel();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel, saving]);
-
+  const [pendingDocumentIndex, setPendingDocumentIndex] = useState<number | null>(null);
   const currentSensitiveValue = (key: keyof EmployeeArchiveEditDraft) => {
     if (key === "identityNumber") return draft.idNoMasked;
     if (key === "phoneNumber") return draft.phoneMasked;
@@ -1857,63 +1840,47 @@ function EmployeeArchiveEditor({
   };
 
   return (
-    <BodyPortal>
-      <div
-        className="fixed inset-0 z-[80] flex min-h-[100dvh] items-center justify-center bg-slate-950/35 p-3 backdrop-blur-sm sm:p-6"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="employee-archive-editor-title"
-        onMouseDown={(event) => {
-          if (event.target === event.currentTarget && !saving) onCancel();
-        }}
-      >
+    <Dialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
+      <DialogContent className="horizon-portal flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
         <form
-        className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-2xl"
+        className="flex min-h-0 w-full flex-col overflow-hidden"
+        aria-describedby={error ? "employee-archive-editor-error" : undefined}
         onSubmit={(event) => {
           event.preventDefault();
           onSave();
         }}
       >
-        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 bg-slate-50/80 px-5 py-4 sm:px-6">
-          <div className="min-w-0">
+        <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-5 py-4 pr-14 sm:px-6">
+          <div className="min-w-0 text-left">
             <div className="flex items-center gap-2">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#002fa7] text-white">
                 <Pencil className="h-4 w-4" />
               </span>
               <div className="min-w-0">
-                <h2 id="employee-archive-editor-title" className="truncate text-lg font-semibold text-slate-950">
+                <DialogTitle className="truncate text-balance text-lg font-semibold text-slate-950">
                   {translate(mode === "create" ? "新增人员" : "编辑人员信息")}
-                </h2>
-                <p className="mt-0.5 truncate text-xs text-slate-500">
+                </DialogTitle>
+                <DialogDescription className="mt-0.5 truncate text-pretty text-xs text-slate-500">
                   {mode === "create"
                     ? translate("建立人员主档，保存后同步到服务端")
                     : translate("{name} · {number}，保存后同步更新服务端档案", { name: draft.name, number: draft.rosterNo })}
-                </p>
+                </DialogDescription>
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            aria-label={translate("关闭编辑")}
-            disabled={saving}
-            onClick={onCancel}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-800 disabled:opacity-50"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </header>
+        </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
-          <div className="mb-5 flex flex-col gap-2 rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-sm text-indigo-900 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-5 flex flex-col gap-2 rounded-2xl border border-blue-100 bg-[#f7f9ff] px-4 py-3 text-sm text-slate-800 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="font-semibold">{translate("必填规则已按当前花名册确认")}</p>
-              <p className="mt-0.5 text-xs leading-5 text-indigo-700">
+              <p className="mt-0.5 text-pretty text-xs leading-5 text-slate-600">
                 {translate("红色 * 为归档必备；结算日期不归档，社保号、社保首月日期为选填。司龄、出生月日、生肖、星座、年龄由系统自动计算。")}
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-1.5">
               {[draft.tenure ? translateTenure(draft.tenure) : translate("司龄"), draft.birthMonthDay || translate("出生月日"), translate(draft.zodiac || "生肖"), translate(getEmployeeConstellationDisplay(draft)), draft.age ? translate("{age}岁", { age: draft.age }) : translate("年龄")].map((value) => (
-                <span key={value} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-100">
+                <span key={value} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#002fa7] ring-1 ring-blue-100">
                   {value}
                 </span>
               ))}
@@ -1942,8 +1909,8 @@ function EmployeeArchiveEditor({
                     );
                     const requiredInput = Boolean(field.required && (!field.sensitive || !hasCurrentSensitiveValue));
                     const commonClassName = cn(
-                      "mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-400",
-                      field.sensitive && "font-mono tracking-wide",
+                      "mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-400",
+                      field.sensitive && "font-mono",
                     );
                     return (
                       <label key={String(field.key)} className={cn("min-w-0", field.fullWidth && "md:col-span-2 xl:col-span-3")}>
@@ -1963,7 +1930,7 @@ function EmployeeArchiveEditor({
                             <SelectTrigger className={cn(commonClassName, "h-auto data-[size=default]:h-auto")}>
                               <SelectValue placeholder={translate("请选择")} />
                             </SelectTrigger>
-                            <SelectContent className="z-[100] rounded-xl border-slate-200">
+                            <SelectContent className="rounded-xl border-slate-200">
                               {Array.from(new Set([...departmentOptions, ...(value ? [value] : [])])).map((option) => (
                                 <SelectItem key={option} value={option}>
                                   {translate(option)}
@@ -1997,8 +1964,7 @@ function EmployeeArchiveEditor({
                             >
                               <SelectValue placeholder={translate("请选择")} />
                             </SelectTrigger>
-                            {/* 编辑弹窗是 z-[80]，SelectContent 默认 z-50 会被整个遮住（下拉是开的但看不见） */}
-                            <SelectContent className="z-[100] rounded-xl border-slate-200">
+                            <SelectContent className="rounded-xl border-slate-200">
                               {field.options?.filter(Boolean).map((option) => (
                                 <SelectItem key={option} value={option}>
                                   {translate(option)}
@@ -2086,7 +2052,7 @@ function EmployeeArchiveEditor({
                               required
                               disabled={saving}
                               onChange={(event) => updateDocument({ title: event.target.value })}
-                              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                             />
                           </label>
                           <label className="min-w-0 text-xs font-semibold text-slate-600">
@@ -2095,7 +2061,7 @@ function EmployeeArchiveEditor({
                               value={document.source}
                               disabled={saving}
                               onChange={(event) => updateDocument({ source: event.target.value })}
-                              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                             />
                           </label>
                           <label className="min-w-0 text-xs font-semibold text-slate-600">
@@ -2105,10 +2071,10 @@ function EmployeeArchiveEditor({
                               disabled={saving}
                               onValueChange={(next) => updateDocument({ status: next as DocStatus })}
                             >
-                              <SelectTrigger className="mt-1.5 h-auto w-full rounded-xl border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-indigo-400 data-[size=default]:h-auto">
+                              <SelectTrigger className="mt-1.5 h-auto w-full rounded-xl border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-blue-500 data-[size=default]:h-auto">
                                 <SelectValue />
                               </SelectTrigger>
-                              <SelectContent className="z-[100] rounded-xl border-slate-200">
+                              <SelectContent className="rounded-xl border-slate-200">
                                 <SelectItem value="done">{translate("已归档")}</SelectItem>
                                 <SelectItem value="review">{translate("待复核")}</SelectItem>
                                 <SelectItem value="missing">{translate("待补充")}</SelectItem>
@@ -2122,7 +2088,7 @@ function EmployeeArchiveEditor({
                               value={document.updatedAt}
                               disabled={saving}
                               onChange={(event) => updateDocument({ updatedAt: event.target.value })}
-                              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                             />
                           </label>
                           <button
@@ -2130,7 +2096,7 @@ function EmployeeArchiveEditor({
                             title={translate("删除材料")}
                             aria-label={translate("删除材料")}
                             disabled={saving}
-                            onClick={() => onDocumentsChange(draft.docs.filter((_, itemIndex) => itemIndex !== index))}
+                            onClick={() => setPendingDocumentIndex(index)}
                             className="mt-5 flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-white text-red-500 transition hover:bg-red-50 disabled:opacity-50"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -2143,7 +2109,7 @@ function EmployeeArchiveEditor({
                             value={document.detail}
                             disabled={saving}
                             onChange={(event) => updateDocument({ detail: event.target.value })}
-                            className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                            className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                           />
                         </label>
                       </div>
@@ -2156,7 +2122,11 @@ function EmployeeArchiveEditor({
         </div>
 
         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-4 sm:px-6">
-          <p className="hidden text-xs text-slate-400 sm:block">{translate("保存后将重新计算归档完整度和缺失字段")}</p>
+          {error ? (
+            <p id="employee-archive-editor-error" className="text-pretty text-xs font-medium text-red-600" role="alert">{error}</p>
+          ) : (
+            <p className="hidden text-pretty text-xs text-slate-400 sm:block">{translate("保存后将重新计算归档完整度和缺失字段")}</p>
+          )}
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
@@ -2177,8 +2147,32 @@ function EmployeeArchiveEditor({
           </div>
         </footer>
         </form>
-      </div>
-    </BodyPortal>
+        <AlertDialog open={pendingDocumentIndex !== null} onOpenChange={(open) => { if (!open) setPendingDocumentIndex(null); }}>
+          <AlertDialogContent className="horizon-portal">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-balance">{translate("删除材料记录？")}</AlertDialogTitle>
+              <AlertDialogDescription className="text-pretty">
+                {translate("该材料记录将从当前编辑草稿中移除，保存人员档案后生效。")}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{translate("取消")}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-red-600 text-white hover:bg-red-700"
+                onClick={() => {
+                  if (pendingDocumentIndex !== null) {
+                    onDocumentsChange(draft.docs.filter((_, itemIndex) => itemIndex !== pendingDocumentIndex));
+                  }
+                  setPendingDocumentIndex(null);
+                }}
+              >
+                {translate("确认删除")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2194,37 +2188,34 @@ function EmployeeDeleteDialog({
   onConfirm: () => void;
 }) {
   return (
-    <BodyPortal>
-      <div className="fixed inset-0 z-[90] flex min-h-[100dvh] items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={translate("删除人员档案")}>
-        <section className="w-full max-w-md rounded-3xl border border-white/80 bg-white p-5 shadow-2xl">
-        <div className="flex items-start gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-600 ring-1 ring-red-100">
-            <Trash2 className="h-5 w-5" />
-          </span>
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-slate-950">{translate("删除人员档案")}</h2>
-            <p className="mt-1 text-sm leading-6 text-slate-500">
-              {translate("确认删除 {name}（{number}）吗？人员信息、材料记录和胸牌配置会一并删除。", { name: employee.name, number: employee.rosterNo })}
-            </p>
+    <AlertDialog open onOpenChange={(open) => { if (!open && !deleting) onCancel(); }}>
+      <AlertDialogContent className="horizon-portal">
+        <AlertDialogHeader>
+          <div className="flex items-start gap-3 text-left">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600">
+              <Trash2 className="size-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <AlertDialogTitle className="text-balance">{translate("删除人员档案")}</AlertDialogTitle>
+              <AlertDialogDescription className="mt-1 text-pretty leading-6">
+                {translate("确认删除 {name}（{number}）吗？人员信息、材料记录和胸牌配置会一并删除。", { name: employee.name, number: employee.rosterNo })}
+              </AlertDialogDescription>
+            </div>
           </div>
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" disabled={deleting} onClick={onCancel} className="material-button-secondary px-4 py-2.5 text-sm disabled:opacity-50">
-            {translate("取消")}
-          </button>
-          <button
-            type="button"
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleting} onClick={onCancel}>{translate("取消")}</AlertDialogCancel>
+          <AlertDialogAction
             disabled={deleting}
-            onClick={onConfirm}
-            className="inline-flex min-w-28 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
+            className="min-w-28 bg-red-600 text-white hover:bg-red-700"
+            onClick={(event) => { event.preventDefault(); onConfirm(); }}
           >
-            {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            {deleting ? <Loader2 className="motion-safe:animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Trash2 aria-hidden="true" />}
             {translate(deleting ? "删除中" : "确认删除")}
-          </button>
-        </div>
-        </section>
-      </div>
-    </BodyPortal>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -2256,29 +2247,23 @@ function EmployeeRegularizationDialog({
   );
 
   return (
-    <BodyPortal>
-      <div
-        className="fixed inset-0 z-[90] flex min-h-[100dvh] items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="employee-regularization-title"
-      >
-        <section className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/80 bg-white shadow-2xl">
-          <div className="border-b border-slate-100 bg-[linear-gradient(135deg,#ecfdf5_0%,#ffffff_70%)] p-5">
+    <AlertDialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
+      <AlertDialogContent className="horizon-portal gap-0 overflow-hidden p-0 sm:max-w-lg">
+          <AlertDialogHeader className="border-b border-slate-100 bg-emerald-50 p-5 text-left">
             <div className="flex items-start gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200">
-                <BadgeCheck className="h-5 w-5" />
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                <BadgeCheck className="size-5" aria-hidden="true" />
               </span>
               <div className="min-w-0">
-                <h2 id="employee-regularization-title" className="text-lg font-semibold text-slate-950">
+                <AlertDialogTitle className="text-balance text-lg font-semibold text-slate-950">
                   {translate("确认员工转正")}
-                </h2>
-                <p className="mt-1 text-sm leading-6 text-slate-500">
+                </AlertDialogTitle>
+                <AlertDialogDescription className="mt-1 text-pretty text-sm leading-6 text-slate-600">
                   {translate("确认后将更新员工状态，并保存实际转正日期。")}
-                </p>
+                </AlertDialogDescription>
               </div>
             </div>
-          </div>
+          </AlertDialogHeader>
 
           <div className="space-y-4 p-5">
             <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-3.5">
@@ -2295,18 +2280,20 @@ function EmployeeRegularizationDialog({
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold text-slate-600">{translate("实际转正日期")}</span>
-                <input
+              <div className="space-y-1.5">
+                <Label htmlFor="employee-regularization-date" className="text-xs text-slate-600">{translate("实际转正日期")}</Label>
+                <Input
+                  id="employee-regularization-date"
                   type="date"
                   value={regularizationDate}
                   min={employee.hireDate || undefined}
                   max={today}
                   onChange={(event) => setRegularizationDate(event.target.value)}
-                  className="material-input h-11"
                   autoFocus
+                  aria-invalid={!isValidDate}
+                  aria-describedby={!isValidDate ? "employee-regularization-error" : undefined}
                 />
-              </label>
+              </div>
               <div className="rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5">
                 <p className="text-xs font-semibold text-slate-500">{translate("预计转正日期")}</p>
                 <p className="mt-1 text-sm font-semibold text-slate-950">{expectedDate || translate("待补充")}</p>
@@ -2328,32 +2315,25 @@ function EmployeeRegularizationDialog({
             )}
 
             {!isValidDate ? (
-              <p className="text-xs font-medium text-red-600">{translate("转正日期须介于入职日期和今天之间。")}</p>
+              <p id="employee-regularization-error" className="text-pretty text-xs font-medium text-red-600" role="alert">{translate("转正日期须介于入职日期和今天之间。")}</p>
             ) : null}
           </div>
 
-          <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-4">
-            <button
-              type="button"
-              disabled={saving}
-              onClick={onCancel}
-              className="material-button-secondary px-4 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-            >
+          <AlertDialogFooter className="border-t border-slate-100 bg-slate-50 px-5 py-4">
+            <AlertDialogCancel disabled={saving} onClick={onCancel}>
               {translate("取消")}
-            </button>
-            <button
-              type="button"
+            </AlertDialogCancel>
+            <AlertDialogAction
               disabled={saving || !isValidDate}
-              onClick={() => onConfirm(regularizationDate)}
-              className="inline-flex min-w-32 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={(event) => { event.preventDefault(); onConfirm(regularizationDate); }}
+              className="min-w-32 bg-emerald-600 text-white hover:bg-emerald-700"
             >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}
+              {saving ? <Loader2 className="motion-safe:animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <BadgeCheck aria-hidden="true" />}
               {translate(saving ? "转正处理中" : "确认转正")}
-            </button>
-          </div>
-        </section>
-      </div>
-    </BodyPortal>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -2515,7 +2495,7 @@ function BadgePreview({
             onPointerCancel={endDrag}
           >
             {editLabel("姓名")}
-            <div className="truncate text-[1.18rem] font-bold leading-tight tracking-wide">{employee.name}</div>
+            <div className="truncate text-[1.18rem] font-bold leading-tight">{employee.name}</div>
           </div>
         ) : null}
 
@@ -2621,7 +2601,7 @@ function BadgePreview({
             {editLabel("编号")}
             <div className="absolute inset-0 bg-white" />
             <div
-              className="absolute left-0 top-[7%] text-[0.86rem] font-black leading-none tracking-[0.08em]"
+              className="absolute left-0 top-[7%] text-[0.86rem] font-black leading-none"
               style={{ color: template.primary }}
             >
               {badgeId}
@@ -2896,6 +2876,7 @@ export function EmployeeArchivePage() {
   const [employeeEditDraft, setEmployeeEditDraft] = useState<EmployeeArchiveEditDraft | null>(null);
   const [employeeEditMode, setEmployeeEditMode] = useState<"create" | "edit">("edit");
   const [isEmployeeSaving, setIsEmployeeSaving] = useState(false);
+  const [employeeEditError, setEmployeeEditError] = useState("");
   const [employeePendingDelete, setEmployeePendingDelete] = useState<EmployeeArchive | null>(null);
   const [isEmployeeDeleting, setIsEmployeeDeleting] = useState(false);
   const [employeePendingRegularization, setEmployeePendingRegularization] = useState<EmployeeArchive | null>(null);
@@ -3062,6 +3043,7 @@ export function EmployeeArchivePage() {
   }, [selected.id]);
 
   const startEmployeeEdit = (employee: EmployeeArchive = selected) => {
+    setEmployeeEditError("");
     setSelectedId(employee.id);
     setEmployeeEditMode("edit");
     setEmployeeEditDraft({
@@ -3078,6 +3060,7 @@ export function EmployeeArchivePage() {
   };
 
   const startEmployeeCreate = () => {
+    setEmployeeEditError("");
     const employee = createEmptyEmployeeArchive(`emp-${Date.now()}`);
     setEmployeeEditMode("create");
     setEmployeeEditDraft({
@@ -3110,6 +3093,7 @@ export function EmployeeArchivePage() {
   };
 
   const updateEmployeeEditDraft = (key: keyof EmployeeArchiveEditDraft, value: string) => {
+    if (employeeEditError) setEmployeeEditError("");
     setEmployeeEditDraft((current) => current ? { ...current, [key]: value } : current);
   };
 
@@ -3120,10 +3104,11 @@ export function EmployeeArchivePage() {
   const saveEmployeeEdit = async () => {
     if (!employeeEditDraft) return;
     if (!employeeEditDraft.name.trim() || !employeeEditDraft.rosterNo.trim()) {
-      toast.error(translate("姓名和序号不能为空"));
+      setEmployeeEditError(translate("姓名和序号不能为空"));
       return;
     }
 
+    setEmployeeEditError("");
     setIsEmployeeSaving(true);
     try {
       const {
@@ -3151,11 +3136,14 @@ export function EmployeeArchivePage() {
       saveStoredEmployees(nextEmployees);
       setSelectedId(updated.id);
       setEmployeeEditDraft(null);
+      setEmployeeEditError("");
       setView("detail");
       void refreshArchiveMeta();
       toast.success(employeeEditMode === "create" ? translate("{name} 已新增", { name: updated.name }) : translate("{name} 的人员信息已保存", { name: updated.name }));
     } catch (error) {
-      toast.error(error instanceof Error ? translate("保存失败：{message}", { message: error.message }) : translate("保存失败，请稍后重试"));
+      const message = error instanceof Error ? translate("保存失败：{message}", { message: error.message }) : translate("保存失败，请稍后重试");
+      setEmployeeEditError(message);
+      toast.error(message);
     } finally {
       setIsEmployeeSaving(false);
     }
@@ -3642,12 +3630,13 @@ export function EmployeeArchivePage() {
   };
 
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col gap-3 animate-rd-fade-in">
+    <div className="horizon-theme hz-page flex h-full min-h-0 w-full min-w-0 flex-col gap-3 px-3 py-3 sm:px-4 lg:px-5">
       <input
         ref={avatarInputRef}
         type="file"
         accept="image/*"
         className="hidden"
+        aria-label={translate("上传胸牌头像")}
         onChange={handleBadgeAvatarFileChange}
       />
       <input
@@ -3655,6 +3644,7 @@ export function EmployeeArchivePage() {
         type="file"
         accept=".xlsx,.xls"
         className="hidden"
+        aria-label={translate("导入花名册文件")}
         onChange={handleRosterImport}
       />
       {employeeEditDraft ? (
@@ -3662,10 +3652,11 @@ export function EmployeeArchivePage() {
           draft={employeeEditDraft}
           mode={employeeEditMode}
           saving={isEmployeeSaving}
+          error={employeeEditError}
           departmentOptions={departmentDirectory.filter((item) => item.enabled).map((item) => item.name)}
           onChange={updateEmployeeEditDraft}
           onDocumentsChange={updateEmployeeEditDocuments}
-          onCancel={() => setEmployeeEditDraft(null)}
+          onCancel={() => { setEmployeeEditDraft(null); setEmployeeEditError(""); }}
           onSave={saveEmployeeEdit}
         />
       ) : null}
@@ -3685,78 +3676,62 @@ export function EmployeeArchivePage() {
           onConfirm={confirmEmployeeRegularization}
         />
       ) : null}
+
+      <HorizonPageHeader
+        Icon={Users}
+        eyebrow="人事运营 / EMPLOYEE ARCHIVE"
+        title={translate("员工档案与入职管理")}
+        description={translate("集中维护员工主档、入职材料、归档完整度、转正提醒与胸牌配置。")}
+        meta={
+          <>
+            <span>{translate("共 {count} 名员工", { count: stats.total })}</span>
+            <span aria-hidden="true">·</span>
+            <span>{translate("数据与组织目录同步")}</span>
+          </>
+        }
+        actions={
+          <ArchiveActions
+            onCreate={startEmployeeCreate}
+            onImport={() => rosterInputRef.current?.click()}
+            onExport={handleRosterExport}
+          />
+        }
+      />
+
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={Users} label={translate("花名册人员")} value={stats.total} note={translate("{count} 人已完成", { count: stats.completed })} tone="brand" />
+        <HorizonMetric Icon={FileCheck2} label={translate("已完成归档")} value={stats.completed} note={translate("字段与材料均已核对")} tone="success" />
+        <HorizonMetric Icon={AlertTriangle} label={translate("待处理归档")} value={stats.needsAction} note={translate("缺项 / 复核 / 入职中")} tone="warning" />
+        <HorizonMetric Icon={BadgeCheck} label={translate("转正提醒")} value={probationReminderCount} note={translate("最后一个月提醒")} tone="warning" />
+        <HorizonMetric Icon={CakeSlice} label={translate("本月生日")} value={birthdayReminderCount} note={translate("{month} 月生日人员", { month: currentMonth })} tone="neutral" />
+        <HorizonMetric Icon={XCircle} label={translate("字段缺口")} value={stats.missing} note={translate("来自 {count} 个必备字段", { count: REQUIRED_COLUMN_COUNT })} tone="danger" />
+      </HorizonMetricGrid>
+
       {view === "list" ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3">
-            <section className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-6">
-              {[
-                { label: translate("花名册人员"), value: stats.total, helper: translate("{count} 人已完成", { count: stats.completed }) },
-                { label: translate("已完成归档"), value: stats.completed, helper: translate("字段与材料均已核对") },
-                { label: translate("待处理归档"), value: stats.needsAction, helper: translate("缺项 / 复核 / 入职中") },
-                { label: translate("转正提醒"), value: probationReminderCount, helper: translate("最后一个月提醒") },
-                {
-                  label: translate("本月生日"),
-                  value: birthdayReminderCount,
-                  helper: translate("{month} 月生日人员", { month: currentMonth }),
-                  tone: "birthday" as const,
-                },
-                { label: translate("字段缺口"), value: stats.missing, helper: translate("来自 {count} 个必备字段", { count: REQUIRED_COLUMN_COUNT }) },
-            ].map((item) => (
-              <div
-                key={item.label}
-                className={cn(
-                  "material-card-flat flex min-w-0 items-center justify-between gap-3 px-4 py-3",
-                  item.tone === "birthday" && "border-amber-200 bg-amber-50/70",
-                )}
-              >
-                <div className="min-w-0">
-                  <div className={cn(
-                    "flex items-center gap-1.5 truncate text-xs font-semibold",
-                    item.tone === "birthday" ? "text-amber-800" : "text-slate-500",
-                  )}>
-                    {item.tone === "birthday" ? <CakeSlice className="size-3.5 shrink-0" /> : null}
-                    <span className="truncate">{item.label}</span>
-                  </div>
-                  <div className={cn(
-                    "mt-1 truncate text-xs",
-                    item.tone === "birthday" ? "text-amber-700" : "text-slate-500",
-                  )}>{item.helper}</div>
-                </div>
-                <div className={cn(
-                  "shrink-0 text-2xl font-bold tabular-nums",
-                  item.tone === "birthday" ? "text-amber-900" : "text-slate-900",
-                )}>{item.value}</div>
-              </div>
-            ))}
-          </section>
-
           <section className="flex min-h-0 flex-1">
-            <main className="material-card flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              <div className="shrink-0 border-b border-slate-100 bg-slate-50/60 px-5 py-3">
+            <main className="hz-surface flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <div className="hz-toolbar shrink-0 border-b px-5 py-3">
                 <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
                   <div className="min-w-0">
-                    <h3 className="text-slate-900">{translate("花名册列表")}</h3>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <h2 className="text-balance font-semibold text-slate-900">{translate("员工与流程队列")}</h2>
+                    <p className="mt-1 text-pretty text-sm text-slate-500">
                       {translate("共 {count} 条记录，点击详情再展开字段与材料。", { count: filteredEmployees.length })}
                     </p>
                   </div>
 
                   <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center">
                     <div className="relative w-full lg:w-72">
+                      <Label htmlFor="employee-archive-search" className="sr-only">{translate("搜索花名册")}</Label>
                       <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                      <input
+                      <Input
+                        id="employee-archive-search"
                         value={search}
                         onChange={(event) => setSearch(event.target.value)}
-                        aria-label={translate("搜索花名册")}
                         placeholder={translate("搜索姓名、工号、部门、岗位...")}
-                        className="material-input pl-11"
+                        className="bg-white pl-11"
                       />
                     </div>
-                    <ArchiveActions
-                      compact
-                      onCreate={startEmployeeCreate}
-                      onImport={() => rosterInputRef.current?.click()}
-                      onExport={handleRosterExport}
-                    />
 
                     <details className="relative shrink-0">
                       <summary className="material-button-secondary cursor-pointer list-none px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">
@@ -3769,7 +3744,7 @@ export function EmployeeArchivePage() {
                           <button
                             type="button"
                             onClick={resetListColumns}
-                            className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800"
+                            className="text-[11px] font-semibold text-[#002fa7] hover:text-[#002581]"
                           >
                             {translate("恢复默认")}
                           </button>
@@ -3791,7 +3766,7 @@ export function EmployeeArchivePage() {
                                   checked={listColumnVisibility[column.key]}
                                   disabled={isLastVisible}
                                   onChange={() => toggleListColumn(column.key)}
-                                  className="h-4 w-4 rounded border-slate-300 accent-indigo-600 disabled:cursor-not-allowed"
+                                  className="size-4 rounded border-slate-300 accent-[#002fa7] disabled:cursor-not-allowed"
                                 />
                               </label>
                             );
@@ -3804,11 +3779,13 @@ export function EmployeeArchivePage() {
                     {/* 隶属筛选：用 Radix Select，避免原生 <select> 下拉在各浏览器/系统下
                         渲染成系统样式（蓝底高亮），与站内其余控件割裂 */}
                     <div className="relative w-full shrink-0 sm:w-36">
+                      <Label htmlFor="employee-company-filter" className="sr-only">{translate("隶属")}</Label>
                       <Building2 className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-400" />
                       <Select value={companyFilter} onValueChange={setCompanyFilter}>
                         <SelectTrigger
+                          id="employee-company-filter"
                           aria-label={translate("隶属")}
-                          className="h-10 w-full cursor-pointer rounded-full border-slate-200 bg-white pl-9 pr-3 text-sm font-semibold text-slate-600 transition-colors hover:border-slate-300 focus:border-indigo-300 data-[size=default]:h-10"
+                          className="h-10 w-full cursor-pointer rounded-full border-slate-200 bg-white pl-9 pr-3 text-sm font-semibold text-slate-600 transition-colors hover:border-slate-300 focus:border-blue-500 data-[size=default]:h-10"
                         >
                           <SelectValue />
                         </SelectTrigger>
@@ -3831,6 +3808,7 @@ export function EmployeeArchivePage() {
                       key={filter.key}
                       type="button"
                       onClick={() => setStatusFilter(filter.key)}
+                      aria-pressed={statusFilter === filter.key}
                       className={cn(
                         "cursor-pointer rounded-full border px-3.5 py-1.5 text-xs font-semibold transition",
                         statusFilter === filter.key
@@ -3871,20 +3849,22 @@ export function EmployeeArchivePage() {
                     )}px`,
                   }}
                 >
+                  <caption className="sr-only">{translate("员工花名册与归档流程状态")}</caption>
                   <colgroup>
                     {EMPLOYEE_LIST_COLUMNS.filter((column) => listColumnVisibility[column.key]).map((column) => (
                       <col key={column.key} style={{ width: `${column.width}px` }} />
                     ))}
                     <col style={{ width: `${EMPLOYEE_ACTION_COLUMN_WIDTH}px` }} />
                   </colgroup>
-                  <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur">
+                  <thead className="sticky top-0 z-10 bg-slate-50">
                     <tr>
                       {EMPLOYEE_LIST_COLUMNS.filter((column) => listColumnVisibility[column.key]).map((column) => (
-                        <th key={column.key} className={TABLE_HEADER_CLASS}>
+                        <th key={column.key} scope="col" className={TABLE_HEADER_CLASS}>
                           {translate(column.label)}
                         </th>
                       ))}
                       <th
+                        scope="col"
                         className={cn(
                           TABLE_HEADER_CLASS,
                           "sticky right-0 z-20 bg-slate-50/95 text-right shadow-[-10px_0_14px_-14px_rgba(15,23,42,0.55)]",
@@ -3899,9 +3879,18 @@ export function EmployeeArchivePage() {
                       <tr>
                         <td
                           colSpan={EMPLOYEE_LIST_COLUMNS.filter((column) => listColumnVisibility[column.key]).length + 1}
-                          className="py-14 text-center text-sm text-slate-400"
+                          className="p-0"
                         >
-                          {translate("暂无匹配的花名册记录")}
+                          <HorizonEmptyState
+                            Icon={Users}
+                            title={translate("暂无匹配的花名册记录")}
+                            description={translate("调整搜索或筛选条件，或者新增员工档案。")}
+                            action={
+                              <Button type="button" size="sm" variant="outline" onClick={() => { setSearch(""); setCompanyFilter("全部"); setStatusFilter("全部"); setBirthdayOnly(false); }}>
+                                {translate("清除筛选")}
+                              </Button>
+                            }
+                          />
                         </td>
                       </tr>
                     ) : (
@@ -3930,7 +3919,7 @@ export function EmployeeArchivePage() {
                               </span>
                               <div className="min-w-0">
                                 <div className="truncate font-semibold text-slate-900">{employee.name}</div>
-                                <div className="mt-0.5 truncate text-xs text-slate-400">
+                                <div className="mt-0.5 truncate text-xs tabular-nums text-slate-400">
                                   {translate("序号 {number}", { number: employee.rosterNo })}
                                 </div>
                               </div>
@@ -3961,7 +3950,7 @@ export function EmployeeArchivePage() {
                               ) : null}
                               <span className={cn(
                                 "material-chip",
-                                employeeConstellation ? "bg-violet-50 text-violet-700" : "bg-amber-50 text-amber-700",
+                                employeeConstellation ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700",
                               )}>
                                 {translate(employeeConstellation || "缺少出生日期")}
                               </span>
@@ -3978,7 +3967,7 @@ export function EmployeeArchivePage() {
                             <span className="material-chip mt-1 bg-blue-50 text-blue-700">{translate(employee.status)}</span>
                           </td> : null}
                           {listColumnVisibility.employment ? <td className={TABLE_CELL_CLASS}>
-                            <div className="font-medium text-slate-800">{employee.hireDate}</div>
+                            <div className="font-medium tabular-nums text-slate-800">{employee.hireDate}</div>
                             {employeeIsRegularized ? (
                               <div
                                 data-regularization-date={employee.id}
@@ -4029,7 +4018,7 @@ export function EmployeeArchivePage() {
                                   style={{ width: `${employee.archiveScore}%` }}
                                 />
                               </div>
-                              <span className="text-sm font-bold text-slate-900">{employee.archiveScore}%</span>
+                              <span className="text-sm font-bold tabular-nums text-slate-900">{employee.archiveScore}%</span>
                             </div>
                             <div className="mt-2">
                               <StatusBadge status={employee.archiveStatus} />
@@ -4161,7 +4150,7 @@ export function EmployeeArchivePage() {
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          <div className="sticky top-0 z-20 mb-3 rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+          <div className="hz-surface sticky top-0 z-20 mb-3 px-4 py-3">
             <div className="grid gap-3 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center">
               <button
                 type="button"
@@ -4176,7 +4165,7 @@ export function EmployeeArchivePage() {
                 <GenderDefaultAvatar employee={selected} className="h-11 w-11 rounded-xl" />
                 <div className="min-w-0">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <h2 className="truncate text-lg font-semibold tracking-tight text-slate-950">{selected.name}</h2>
+                    <h2 className="truncate text-balance text-lg font-semibold text-slate-950">{selected.name}</h2>
                     <StatusBadge status={selected.archiveStatus} />
                     <span className="material-chip bg-slate-50 text-slate-600">{badgeEmployeeId}</span>
                     {selectedBirthdayReminder ? (
@@ -4196,7 +4185,7 @@ export function EmployeeArchivePage() {
                       </span>
                     ) : null}
                   </div>
-                  <p className="mt-0.5 truncate text-sm text-slate-500">
+                  <p className="mt-0.5 truncate text-pretty text-sm text-slate-500">
                     {selected.company} · {selected.workLocation} · {selected.department} · {selected.title}
                   </p>
                 </div>
@@ -4235,12 +4224,12 @@ export function EmployeeArchivePage() {
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px] 2xl:grid-cols-[minmax(0,1fr)_320px]">
             <main className="min-w-0">
-              <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-sm">
+              <section className="hz-surface overflow-hidden">
                 <div className="border-b border-slate-100 px-5 py-4">
                   <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Employee Archive</p>
-                      <h3 className="mt-1 text-xl font-semibold text-slate-950">{translate("员工档案")}</h3>
+                      <p className="text-xs font-semibold text-[#002fa7]">EMPLOYEE ARCHIVE</p>
+                      <h3 className="mt-1 text-balance text-xl font-semibold text-slate-950">{translate("当前员工档案")}</h3>
                     </div>
                     <div className="grid gap-2 sm:grid-cols-5 lg:min-w-[700px]">
                       {[
@@ -4258,7 +4247,7 @@ export function EmployeeArchivePage() {
                       ].map((item) => (
                         <div key={item.label} className="min-w-0 border-l border-slate-200 pl-3">
                           <p className="text-[11px] font-semibold text-slate-400">{item.label}</p>
-                          <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">{item.value}</p>
+                          <p className="mt-0.5 truncate text-sm font-semibold tabular-nums text-slate-900">{item.value}</p>
                         </div>
                       ))}
                     </div>
@@ -4305,7 +4294,7 @@ export function EmployeeArchivePage() {
                     </div>
 
                     <div className="overflow-hidden rounded-xl border border-slate-200">
-                      <div className="hidden grid-cols-[minmax(0,1.05fr)_minmax(0,1.45fr)_96px_82px] gap-3 bg-slate-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 md:grid">
+                      <div className="hidden grid-cols-[minmax(0,1.05fr)_minmax(0,1.45fr)_96px_82px] gap-3 bg-slate-50 px-4 py-2 text-[11px] font-semibold text-slate-500 md:grid">
                         <span>{translate("材料")}</span>
                         <span>{translate("核对说明")}</span>
                         <span>{translate("更新")}</span>
@@ -4329,7 +4318,7 @@ export function EmployeeArchivePage() {
                                 </div>
                               </div>
                               <p className="text-sm leading-5 text-slate-600">{doc.detail}</p>
-                              <p className="text-xs text-slate-400">{doc.updatedAt}</p>
+                              <p className="text-xs tabular-nums text-slate-400">{doc.updatedAt}</p>
                               <div className="md:text-right">
                                 <span className={cn("material-chip", meta.className)}>{translate(meta.label)}</span>
                               </div>
@@ -4366,31 +4355,31 @@ export function EmployeeArchivePage() {
             </main>
 
             <aside className="space-y-3 xl:sticky xl:top-[88px] xl:self-start">
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <section className="hz-surface p-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-slate-900">{translate("归档完成度")}</p>
-                  <span className="text-2xl font-bold text-slate-950">{selected.archiveScore}%</span>
+                  <span className="text-2xl font-bold tabular-nums text-slate-950">{selected.archiveScore}%</span>
                 </div>
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-                  <div className="h-full rounded-full bg-gradient-primary" style={{ width: `${selected.archiveScore}%` }} />
+                  <div className="h-full rounded-full bg-[#002fa7]" style={{ width: `${selected.archiveScore}%` }} />
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <div className="rounded-xl bg-slate-50 px-2 py-2 text-center">
-                    <p className="text-base font-bold text-slate-950">{selected.docs.length}</p>
+                    <p className="text-base font-bold tabular-nums text-slate-950">{selected.docs.length}</p>
                     <p className="text-[11px] font-semibold text-slate-400">{translate("材料")}</p>
                   </div>
                   <div className="rounded-xl bg-red-50 px-2 py-2 text-center">
-                    <p className="text-base font-bold text-red-700">{selected.missingFields.length}</p>
+                    <p className="text-base font-bold tabular-nums text-red-700">{selected.missingFields.length}</p>
                     <p className="text-[11px] font-semibold text-red-400">{translate("缺项")}</p>
                   </div>
                   <div className="rounded-xl bg-amber-50 px-2 py-2 text-center">
-                    <p className="text-base font-bold text-amber-700">{reviewDocCount + badgeWarningItems.length}</p>
+                    <p className="text-base font-bold tabular-nums text-amber-700">{reviewDocCount + badgeWarningItems.length}</p>
                     <p className="text-[11px] font-semibold text-amber-500">{translate("复核")}</p>
                   </div>
                 </div>
               </section>
 
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <section className="hz-surface p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-amber-600" />
@@ -4446,7 +4435,7 @@ export function EmployeeArchivePage() {
                 </div>
               </section>
 
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <section className="hz-surface p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{translate("胸牌")}</p>
@@ -4486,6 +4475,7 @@ export function EmployeeArchivePage() {
                         key={template.key}
                         type="button"
                         onClick={() => setBadgeTemplateKey(template.key)}
+                        aria-pressed={active}
                         className={cn(
                           "flex min-w-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-semibold transition",
                           active ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:bg-white/70",
@@ -4521,22 +4511,18 @@ export function EmployeeArchivePage() {
           </div>
 
           {isBadgeEditorOpen ? (
-            <BodyPortal>
-              <div className="fixed inset-0 z-[80] flex min-h-[100dvh] justify-end bg-slate-950/40 p-3 backdrop-blur-sm">
-                <section className="flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-                <div className="flex min-w-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+            <Dialog open onOpenChange={(open) => { if (!open) closeBadgeEditor(); }}>
+              <DialogContent className="horizon-portal flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
+                <DialogHeader className="min-w-0 border-b border-slate-100 px-5 py-4 pr-14 text-left">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-semibold text-slate-950">{translate("胸牌定制")}</h3>
+                      <DialogTitle className="text-balance text-lg font-semibold text-slate-950">{translate("胸牌定制")}</DialogTitle>
                       <span className="material-chip bg-slate-50 text-slate-600">{translate(activeBadgeTemplate.name)}</span>
                       <span className="material-chip bg-slate-50 text-slate-600">{BADGE_PRINT_SIZE}</span>
                     </div>
-                    <p className="mt-1 text-sm text-slate-500">{selected.name} · {selected.department} · {selected.title}</p>
+                    <DialogDescription className="mt-1 text-pretty text-sm text-slate-500">{selected.name} · {selected.department} · {selected.title}</DialogDescription>
                   </div>
-                  <ActionIconButton type="button" onClick={closeBadgeEditor} title={translate("关闭胸牌编辑")} aria-label={translate("关闭胸牌编辑")}>
-                    <XCircle className="h-4 w-4" />
-                  </ActionIconButton>
-                </div>
+                </DialogHeader>
 
                 <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[340px_minmax(0,1fr)]">
                   <aside className="min-h-0 overflow-y-auto border-b border-slate-100 bg-slate-50/70 p-4 lg:border-b-0 lg:border-r">
@@ -4548,6 +4534,7 @@ export function EmployeeArchivePage() {
                             key={template.key}
                             type="button"
                             onClick={() => setBadgeTemplateKey(template.key)}
+                            aria-pressed={active}
                             className={cn(
                               "flex min-w-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-semibold transition",
                               active ? "bg-slate-50 text-slate-900 shadow-sm" : "text-slate-500 hover:bg-slate-50",
@@ -4564,6 +4551,7 @@ export function EmployeeArchivePage() {
                       <button
                         type="button"
                         onClick={toggleBadgePositionEditing}
+                        aria-pressed={isBadgePositionEditing}
                         className={cn(
                           "inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition",
                           isBadgePositionEditing
@@ -4652,7 +4640,7 @@ export function EmployeeArchivePage() {
                           ].map((item) => (
                             <div key={item.label} className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2">
                               <p className="truncate text-xs font-semibold text-slate-500">{item.label}</p>
-                              <div className={cn("mt-0.5 text-lg font-bold tracking-tight", item.tone)}>{item.value}</div>
+                              <div className={cn("mt-0.5 text-lg font-bold tabular-nums", item.tone)}>{item.value}</div>
                               <p className="mt-1 truncate text-xs text-slate-500">{item.helper}</p>
                             </div>
                           ))}
@@ -4690,7 +4678,7 @@ export function EmployeeArchivePage() {
                               { label: "员工编号", value: badgeEmployeeId },
                             ].map((item) => (
                               <div key={item.label} className="min-w-0 border-b border-slate-200 pb-2">
-                                <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">{translate(item.label)}</p>
+                                <p className="truncate text-[11px] font-semibold text-slate-400">{translate(item.label)}</p>
                                 <p className="mt-1 truncate text-sm font-semibold text-slate-900">{item.value}</p>
                               </div>
                             ))}
@@ -4746,9 +4734,8 @@ export function EmployeeArchivePage() {
                     </div>
                   </main>
                 </div>
-                </section>
-              </div>
-            </BodyPortal>
+              </DialogContent>
+            </Dialog>
           ) : null}
         </div>
       )}

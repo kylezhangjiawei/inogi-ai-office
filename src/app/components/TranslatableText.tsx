@@ -184,7 +184,7 @@ export function TranslatableText({
           disabled={loading}
           className={cn(
             "mt-1 inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors",
-            showTranslated ? "text-slate-400 hover:text-slate-600" : "text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700",
+            showTranslated ? "text-slate-400 hover:text-slate-600" : "text-[#002fa7] hover:bg-[#eef3ff] hover:text-[#002fa7]",
           )}
         >
           {loading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Languages className="h-2.5 w-2.5" />}

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -19,6 +19,13 @@ import {
 } from "lucide-react";
 import { cn } from "./components/ui/utils";
 import { Calendar } from "./components/ui/calendar";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./components/ui/dialog";
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
@@ -28,9 +35,12 @@ import { usePermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { toast } from "sonner";
 import {
+  type ApprovalFlow,
   ApprovalNode,
+  DEFAULT_PROJECT_FLOW,
   effectiveNodePool,
   fetchApprovalPoolsApi,
+  fetchFlowsApi,
   getActiveFlow,
   getPoolForPermission,
   PoolMember,
@@ -39,7 +49,7 @@ import {
 import { PERMISSIONS } from "./lib/permissions";
 import {
   createRdSubtasks,
-  createRdTask,
+  createRdTasksBatch,
   ensureRdProposalTarget,
   fetchRdDirectorDashboard,
   extractRdTasksFromFile,
@@ -139,7 +149,7 @@ const DEFAULT_TASK_TYPE_FOR_CATEGORY = "研发任务";
 /** 主产品 id：立项默认归属此产品；其分类树存主库 rd.taskCategories，其它产品存 rd.productTaskCategories[pid]。 */
 const MAIN_PRODUCT_ID = "prod-portable-o2";
 const REVIEW_SELECT_TRIGGER_CLASS =
-  "h-11 rounded-md border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-none outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 data-[placeholder]:text-slate-400";
+  "h-11 rounded-md border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-none outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15 data-[placeholder]:text-slate-400";
 
 type OwnerOption = {
   value: string;
@@ -489,25 +499,18 @@ function TaskDueDatePicker({
 }
 
 /**
- * Returns the approval nodes applicable to this user role.
- * - director: no review nodes (can direct-dispatch)
- * - admin: skips the L1 review (only L2+ left)
- * - user: all nodes from configured flow
+ * 当前后端按“一阶段审核”执行：直接立项角色无需审核，其余角色只展示并校验首个生效节点。
+ * 后续节点保留为流程设计草稿，不在此处伪装成已经落地的串行审批。
  */
-function getApplicableNodes(userRole: UserRole): ApprovalNode[] {
-  const flow = getActiveFlow("project_proposal");
+function getApplicableNodes(userRole: UserRole, flow: ApprovalFlow): ApprovalNode[] {
   if (userRole === "director") return [];
-  if (userRole === "admin") {
-    // Admins skip review-l1 (they ARE the L1 reviewers), only L2+ apply
-    return flow.nodes.filter((n) => n.permission_code !== "rd-project:review-l1");
-  }
-  return flow.nodes;
+  return flow.nodes.slice(0, 1);
 }
 
 const MODE_LABEL: Record<"single" | "any" | "all", { label: string; text: string; bg: string }> = {
   single: { label: "单人审", text: "text-slate-700", bg: "bg-slate-100" },
-  any: { label: "任一审", text: "text-blue-700", bg: "bg-blue-100" },
-  all: { label: "全员审", text: "text-violet-700", bg: "bg-violet-100" },
+  any: { label: "任一审", text: "text-[#002fa7]", bg: "bg-[#eef3ff]" },
+  all: { label: "全员审", text: "text-[#002fa7]", bg: "bg-[#eef3ff]" },
 };
 
 function createProposalId(): string {
@@ -721,10 +724,7 @@ function mockSuggestProject(description: string, categories: RdCategory[]): stri
 // ─── Avatar helper ───────────────────────────────────────────────────────────
 
 function hashColor(name: string): string {
-  const colors = ["bg-blue-500", "bg-emerald-500", "bg-violet-500", "bg-amber-500", "bg-pink-500", "bg-cyan-500", "bg-indigo-500", "bg-rose-500", "bg-teal-500"];
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return colors[h % colors.length];
+  return name ? "bg-[#002fa7]" : "bg-slate-500";
 }
 
 function MiniAvatar({ name, size = "sm" }: { name: string; size?: "xs" | "sm" }) {
@@ -926,7 +926,7 @@ function StepInput({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder={t("例：电磁阀工艺升级 v2.1")}
-          className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+          className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15"
         />
       </div>
 
@@ -953,7 +953,7 @@ function StepInput({
       )}
 
       {/* Banner: explain the either-or rule */}
-      <div className="flex items-start gap-2 rounded-md border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-[11px] text-indigo-700">
+      <div className="flex items-start gap-2 rounded-md border border-[#002fa7]/15 bg-[#eef3ff] px-3 py-2 text-[11px] text-[#002fa7]">
         <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
         <span>
           <span className="font-semibold">{t("立项描述")}</span> {t("与")} <span className="font-semibold">{t("附件")}</span> {t("二选其一即可，提供任一项 AI 都能开始解析；同时提供则 AI 会综合两者。")}
@@ -966,7 +966,7 @@ function StepInput({
           <label className="text-xs font-medium text-slate-700">
             {t("立项描述")}
             {hasDescription && (
-              <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-indigo-600">
+              <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-[#002fa7]">
                 <CheckCircle2 className="h-3 w-3" />
                 {t("已填写")}
               </span>
@@ -981,14 +981,14 @@ function StepInput({
           onChange={(e) => setDescription(e.target.value)}
           rows={5}
           placeholder={t("粘贴会议纪要、邮件正文，或直接描述立项目标、范围与关键节点。")}
-          className="w-full resize-none rounded-md border border-slate-200 bg-slate-50/40 px-3 py-2.5 text-sm leading-relaxed outline-none transition-all focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+          className="w-full resize-none rounded-md border border-slate-200 bg-slate-50/40 px-3 py-2.5 text-sm leading-relaxed outline-none focus:border-[#002fa7] focus:bg-white focus:ring-2 focus:ring-[#002fa7]/15"
         />
       </div>
 
       {/* OR divider */}
       <div className="relative flex items-center">
         <div className="flex-1 border-t border-dashed border-slate-200" />
-        <span className="mx-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        <span className="mx-3 text-[10px] font-semibold text-slate-500">
           {t("或")}
         </span>
         <div className="flex-1 border-t border-dashed border-slate-200" />
@@ -1000,7 +1000,7 @@ function StepInput({
           <label className="text-xs font-medium text-slate-700">
             {t("上传附件")}
             {hasFiles && (
-              <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-indigo-600">
+              <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-[#002fa7]">
                 <CheckCircle2 className="h-3 w-3" />
                 {t("已选")} {files.length}
               </span>
@@ -1012,10 +1012,10 @@ function StepInput({
         </div>
         <label
           className={cn(
-            "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-4 py-3 text-sm transition-all",
+            "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-4 py-3 text-sm",
             dragActive
-              ? "border-indigo-400 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-100"
-              : "border-slate-300 bg-slate-50/40 text-slate-500 hover:border-indigo-300 hover:bg-indigo-50/30 hover:text-indigo-600",
+              ? "border-[#002fa7] bg-[#eef3ff] text-[#002fa7] ring-2 ring-[#002fa7]/15"
+              : "border-slate-300 bg-slate-50/40 text-slate-500 hover:border-[#002fa7]/40 hover:bg-[#eef3ff] hover:text-[#002fa7]",
           )}
           onDragEnter={handleFileDrag}
           onDragOver={handleFileDrag}
@@ -1034,7 +1034,7 @@ function StepInput({
             onChange={handleFileInputChange}
           />
         </label>
-        <p className="mt-1.5 text-[10px] text-slate-400">
+        <p className="mt-1.5 text-pretty text-[10px] text-slate-400">
           {t("支持 Excel / Word / PDF / 图片 / zip、rar、7z 压缩包；拖入后会显示在下方列表。")}
         </p>
         {hasFiles && (
@@ -1045,7 +1045,7 @@ function StepInput({
                 className="flex items-center justify-between gap-3 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600"
               >
                 <span className="min-w-0 truncate">{f.name}</span>
-                <span className="shrink-0 text-[10px] text-slate-400">{describeAttachment(f)}</span>
+                <span className="shrink-0 tabular-nums text-[10px] text-slate-400">{describeAttachment(f)}</span>
                 <button
                   type="button"
                   onClick={() => setFiles(files.filter((_, i) => i !== idx))}
@@ -1074,7 +1074,7 @@ function StepInput({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98]"
+            className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             {t("取消")}
           </button>
@@ -1082,7 +1082,7 @@ function StepInput({
             type="button"
             disabled={!canSubmit || catLoading}
             onClick={onNext}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.22)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+            className="hz-primary-action inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-4 py-2 text-sm font-semibold text-white hover:bg-[#002581] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Sparkles className="h-3.5 w-3.5" />
             {catLoading ? t("加载分类中…") : t("AI 解析")}
@@ -1099,20 +1099,19 @@ function StepInput({
 function StepProcessing({ progress, label }: { progress: number; label: string }) {
   return (
     <div className="flex min-h-[320px] flex-col items-center justify-center gap-5 px-6 py-10">
-      <div className="relative flex h-16 w-16 items-center justify-center">
-        <span className="absolute inset-0 animate-ping rounded-full bg-indigo-200/60" />
-        <span className="relative inline-flex h-16 w-16 items-center justify-center rounded-full bg-indigo-600 text-white shadow-[0_12px_32px_rgba(79,70,229,0.3)]">
+      <div className="relative flex size-16 items-center justify-center">
+        <span className="relative inline-flex size-16 items-center justify-center rounded-full bg-[#002fa7] text-white shadow-md">
           <Sparkles className="h-7 w-7" />
         </span>
       </div>
       <div className="text-center">
-        <h3 className="text-base font-semibold text-slate-900">{t("AI 正在解析您的立项")}</h3>
-        <p className="mt-1 text-xs text-slate-500">{label}</p>
+        <h3 className="text-balance text-base font-semibold text-slate-900">{t("AI 正在解析您的立项")}</h3>
+        <p className="mt-1 text-pretty text-xs text-slate-500">{label}</p>
       </div>
       <div className="w-full max-w-xs">
         <div className="h-1 overflow-hidden rounded-full bg-slate-100">
           <div
-            className="h-full rounded-full bg-indigo-600 transition-all duration-300"
+            className="h-full rounded-full bg-[#002fa7]"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -1155,7 +1154,7 @@ function TaskEditRow({
   }, ownerOptions);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white transition-all hover:border-slate-300 hover:shadow-[0_4px_12px_rgba(15,23,42,0.05)]">
+    <div className="rounded-lg border border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm">
       <div className="flex items-start gap-3 px-3.5 py-3">
         {onSelectedChange && (
           <input
@@ -1163,17 +1162,17 @@ function TaskEditRow({
             checked={selected}
             onChange={(event) => onSelectedChange(event.target.checked)}
             onClick={(event) => event.stopPropagation()}
-            className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-violet-600 focus:ring-violet-200"
+            className="mt-1 size-4 shrink-0 rounded border-slate-300 text-[#002fa7] focus:ring-[#002fa7]/20"
             aria-label={t("选择任务 {title}", { title: task.title })}
           />
         )}
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+          className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
           aria-label={expanded ? t("收起") : t("展开")}
         >
-          <ChevronRight className={cn("h-3.5 w-3.5 transition-transform duration-200", expanded && "rotate-90")} />
+          <ChevronRight className={cn("size-3.5", expanded && "rotate-90")} />
         </button>
 
         <div className="min-w-0 flex-1 space-y-2">
@@ -1203,10 +1202,10 @@ function TaskEditRow({
             <span className="flex items-center gap-1" title={task.duration_basis}>
               {task.ai_estimated_days !== undefined && task.ai_estimated_days !== task.estimated_days ? (
                 <>
-                  <span className="rounded bg-violet-100 px-1 py-0.5 text-[10px] font-semibold text-violet-600">
+                  <span className="rounded bg-[#eef3ff] px-1 py-0.5 text-[10px] font-semibold text-[#002fa7] tabular-nums">
                     AI {t("{n} 天", { n: task.ai_estimated_days })}
                   </span>
-                  <span className="font-semibold text-slate-700">{t("{n} 天", { n: task.estimated_days })}</span>
+                  <span className="font-semibold text-slate-700 tabular-nums">{t("{n} 天", { n: task.estimated_days })}</span>
                 </>
               ) : (
                 <span>{t("预估 {n} 天", { n: task.estimated_days })}</span>
@@ -1220,8 +1219,9 @@ function TaskEditRow({
             <button
               type="button"
               onClick={onRequestAiHelp}
-              className="rounded p-1.5 text-slate-400 transition-colors hover:bg-violet-50 hover:text-violet-600"
+              className="rounded p-1.5 text-slate-400 transition-colors hover:bg-[#eef3ff] hover:text-[#002fa7]"
               title={t("请 AI 微调此任务")}
+              aria-label={t("请 AI 微调此任务")}
             >
               <Sparkles className="h-3.5 w-3.5" />
             </button>
@@ -1231,6 +1231,7 @@ function TaskEditRow({
             onClick={onDelete}
             className="rounded p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
             title={t("删除")}
+            aria-label={t("删除任务 {title}", { title: task.title })}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -1245,17 +1246,17 @@ function TaskEditRow({
               value={task.description ?? ""}
               onChange={(e) => onChange({ ...task, description: e.target.value })}
               rows={2}
-              className="w-full resize-none rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-100"
+              className="w-full resize-none rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-[#002fa7] focus:ring-1 focus:ring-[#002fa7]/15"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-[11px] font-medium text-slate-500">
-                {t("主责人")}{ownerLocked && <span className="ml-1 text-[10px] text-indigo-500">· {t("已锁定为本人")}</span>}
+                {t("主责人")}{ownerLocked && <span className="ml-1 text-[10px] text-[#002fa7]">· {t("已锁定为本人")}</span>}
               </label>
               {ownerLocked ? (
                 <div
-                  className="flex h-9 w-full items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50/60 px-3 text-sm text-indigo-700"
+                  className="flex h-9 w-full items-center gap-2 rounded-md border border-[#002fa7]/20 bg-[#eef3ff] px-3 text-sm text-[#002fa7]"
                   title={t("个人工作台立项：所有任务强制绑定到当前账号")}
                 >
                   <MiniAvatar name={task.owner} size="xs" />
@@ -1389,7 +1390,7 @@ function TaskEditRow({
                               collaborators: (task.collaborators ?? []).filter((n) => n !== name),
                             })
                           }
-                          className="ml-0.5 -mr-0.5 flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          className="ml-0.5 -mr-0.5 flex size-4 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
                           aria-label={t("移除协作人 {name}", { name })}
                         >
                           ×
@@ -1438,7 +1439,7 @@ function TaskEditRow({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-[11px] font-medium text-slate-500">{t("AI 建议工时（天）")}</label>
-              <div className="flex h-11 items-center rounded border border-slate-100 bg-slate-100/60 px-3 text-sm text-slate-400">
+              <div className="flex h-11 items-center rounded border border-slate-100 bg-slate-100/60 px-3 text-sm text-slate-400 tabular-nums">
                 {task.ai_estimated_days ?? "—"}
                 <span className="ml-1 text-[11px]">{t("天")}</span>
               </div>
@@ -1465,16 +1466,16 @@ function TaskEditRow({
                       onChange({ ...task, estimated_days: task.ai_estimated_days ?? 5 });
                     }
                   }}
-                  className="h-11 w-full rounded border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  className="h-11 w-full rounded border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15 tabular-nums"
                 />
                 <span className="shrink-0 text-xs text-slate-400">{t("天")}</span>
               </div>
             </div>
           </div>
-          <div className="rounded border border-indigo-100 bg-indigo-50/40 px-2.5 py-2 text-[11px] leading-relaxed text-indigo-700">
+          <div className="rounded border border-[#002fa7]/15 bg-[#eef3ff] px-2.5 py-2 text-pretty text-[11px] leading-relaxed text-[#002fa7]">
             <span className="font-semibold">{t("AI 推荐理由：")}</span>
             {task.owner_reason}
-            <div className="mt-0.5 text-indigo-600/80">{t("工期依据：")}{task.duration_basis}</div>
+            <div className="mt-0.5 text-[#002fa7]/80">{t("工期依据：")}{task.duration_basis}</div>
           </div>
         </div>
       )}
@@ -1527,10 +1528,10 @@ function CapacityPanel({
   return (
     <section className="space-y-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-xs font-semibold text-slate-700">{t("人力容量预估")}</h4>
-        <div className="flex items-center gap-3 text-[11px] text-slate-500">
+        <h4 className="text-balance text-xs font-semibold text-slate-700">{t("人力容量预估")}</h4>
+        <div className="flex items-center gap-3 text-[11px] text-slate-500 tabular-nums">
           <span>
-            {t("AI 建议合计：")}<span className="font-semibold text-violet-600">{t("{n} 天", { n: totalAiDays })}</span>
+            {t("AI 建议合计：")}<span className="font-semibold text-[#002fa7]">{t("{n} 天", { n: totalAiDays })}</span>
           </span>
           <span className="text-slate-300">|</span>
           <span>
@@ -1557,7 +1558,7 @@ function CapacityPanel({
               </div>
               <div className="flex items-center gap-2">
                 {aiDiffers && (
-                  <span className="text-violet-500">AI {t("{n} 天", { n: aiDays })}</span>
+                  <span className="text-[#002fa7] tabular-nums">AI {t("{n} 天", { n: aiDays })}</span>
                 )}
                 <span className={cn("font-semibold tabular-nums", textColor)}>
                   {manualDays} / {t("{n} 天", { n: capacityDays })}
@@ -1568,7 +1569,7 @@ function CapacityPanel({
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
               <div
-                className={cn("h-full rounded-full transition-all", barColor)}
+                className={cn("h-full rounded-full", barColor)}
                 style={{ width: `${Math.min(100, ratio * 100).toFixed(1)}%` }}
               />
             </div>
@@ -1792,7 +1793,7 @@ function StepReview({
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15"
             />
           </div>
 
@@ -1806,7 +1807,7 @@ function StepReview({
                 value={productId}
                 onChange={(e) => onProductChange(e.target.value)}
                 disabled={catLoading}
-                className="w-full cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -1828,7 +1829,7 @@ function StepReview({
               value={parentProjectId}
               onChange={(e) => setParentProjectId(e.target.value as string | "new")}
               disabled={catLoading}
-              className="w-full cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <option value="new">{t("+ 创建新项目节点")}</option>
               {categoriesToOptions(categories).map((p) => (
@@ -1842,10 +1843,10 @@ function StepReview({
                 value={newProjectName}
                 onChange={(e) => setNewProjectName(e.target.value)}
                 placeholder={t("新项目名称（例：电磁阀工艺升级 v2.1）")}
-                className="mt-2 w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                className="mt-2 w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15"
               />
             )}
-            <p className="mt-1 text-[11px] text-slate-400">
+            <p className="mt-1 text-pretty text-[11px] text-slate-400">
               {parentProjectId === "new"
                 ? t("AI 未找到合适的现有项目，将创建新节点；任务按各自分类路径散落到分类树。")
                 : t("任务将归属到此项目下，仍按各自分类路径散落到分类树。")}
@@ -1855,11 +1856,11 @@ function StepReview({
         </section>
 
         {/* AI refine */}
-        <section className="space-y-3 rounded-xl border border-violet-100 bg-violet-50/40 p-4">
+        <section className="space-y-3 rounded-xl border border-[#002fa7]/15 bg-[#eef3ff] p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h4 className="text-xs font-semibold text-slate-800">{t("AI 微调立项草稿")}</h4>
-              <p className="mt-0.5 text-[11px] text-slate-500">
+              <h4 className="text-balance text-xs font-semibold text-slate-800">{t("AI 微调立项草稿")}</h4>
+              <p className="mt-0.5 text-pretty text-[11px] text-slate-500">
                 {t("先生成预览，确认后再应用；已手工调整的内容不会被立即覆盖。")}
               </p>
             </div>
@@ -1867,7 +1868,7 @@ function StepReview({
               <button
                 type="button"
                 onClick={undoLastRefine}
-                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all hover:bg-slate-50 active:scale-95"
+                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
               >
                 <RefreshCw className="h-3 w-3" />
                 {t("撤回上次应用")}
@@ -1880,14 +1881,14 @@ function StepReview({
             onChange={(event) => setRefineInstruction(event.target.value)}
             rows={3}
             placeholder={t("例如：把测试类任务拆得更细；优先安排给低负载人员；把交付日期压缩到 6 月 10 日前；不要改动采购跟进任务。")}
-            className="w-full resize-none rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+            className="w-full resize-none rounded-lg border border-[#002fa7]/15 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15"
           />
 
           <div className="flex flex-wrap items-center gap-2">
             <NativeSelect
               value={refineScope}
               onChange={(event) => setRefineScope(event.target.value as RdAiProposalRefineScope)}
-              className="h-9 min-w-36 cursor-pointer rounded-md border border-violet-100 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+              className="h-9 min-w-36 cursor-pointer rounded-md border border-[#002fa7]/15 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15"
             >
               <option value="all">{t("微调全部任务")}</option>
               <option value="selected">{t("只微调已选任务")}</option>
@@ -1901,18 +1902,18 @@ function StepReview({
                 (refineScope === "selected" && selectedCount === 0)
               }
               onClick={() => void runAiRefine()}
-              className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-2 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(124,58,237,0.18)] transition-all hover:bg-violet-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
+              className="hz-primary-action inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-3 py-2 text-xs font-semibold text-white hover:bg-[#002581] disabled:cursor-not-allowed disabled:opacity-45"
             >
               {refining ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               {t("生成微调预览")}
             </button>
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[11px] text-slate-500 tabular-nums">
               {t("已选")} {selectedCount} / {tasks.length}
             </span>
           </div>
 
           {refinePreview && previewDiff && (
-            <div className="rounded-lg border border-violet-100 bg-white p-3 shadow-sm">
+            <div className="rounded-lg border border-[#002fa7]/15 bg-white p-3 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-xs font-semibold text-slate-800">{t("微调预览")}</div>
                 <div className="text-[11px] text-slate-400">
@@ -1949,14 +1950,14 @@ function StepReview({
                 <button
                   type="button"
                   onClick={() => setRefinePreview(null)}
-                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-all hover:bg-slate-50 active:scale-95"
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                 >
                   {t("放弃预览")}
                 </button>
                 <button
                   type="button"
                   onClick={applyRefinePreview}
-                  className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-slate-800 active:scale-95"
+                  className="rounded-md bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#002581]"
                 >
                   {t("应用这次微调")}
                 </button>
@@ -1972,10 +1973,10 @@ function StepReview({
         <section>
           <div className="mb-3 flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-slate-900">
+              <h3 className="text-balance text-sm font-semibold text-slate-900">
                 {t("AI 解析出 {n} 个任务", { n: tasks.length })}
               </h3>
-              <p className="mt-0.5 text-[11px] text-slate-500">
+              <p className="mt-0.5 text-pretty text-[11px] text-slate-500">
                 {t("点击行展开编辑 · 可调整人工工时 · 已选 {n} 个用于局部微调", { n: selectedCount })}
               </p>
             </div>
@@ -1984,7 +1985,7 @@ function StepReview({
                 type="button"
                 disabled={refining || !refineInstruction.trim() || tasks.length === 0}
                 onClick={requestAiOptimizeAll}
-                className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-all hover:-translate-y-0.5 hover:bg-violet-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
+                className="inline-flex items-center gap-1 rounded-md border border-[#002fa7]/20 bg-[#eef3ff] px-2.5 py-1 text-xs font-medium text-[#002fa7] hover:bg-[#e4ebff] disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Sparkles className="h-3 w-3" />
                 {t("请 AI 微调全部")}
@@ -1992,7 +1993,7 @@ function StepReview({
               <button
                 type="button"
                 onClick={addTask}
-                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all hover:-translate-y-0.5 hover:bg-slate-50 active:scale-95"
+                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
               >
                 <Plus className="h-3 w-3" />
                 {t("手动添加")}
@@ -2035,9 +2036,9 @@ function StepReview({
         <button
           type="button"
           onClick={onBack}
-          className="group inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98]"
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
-          <ChevronLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+          <ChevronLeft className="size-3.5" />
           {t("返回修改")}
         </button>
         <div className="flex items-center gap-2">
@@ -2045,7 +2046,7 @@ function StepReview({
             type="button"
             disabled={tasks.length === 0 || submitting || catLoading}
             onClick={onNext}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {t("手动审核流程")}
             <ArrowRight className="h-3.5 w-3.5" />
@@ -2056,7 +2057,7 @@ function StepReview({
               disabled={tasks.length === 0 || quickSubmitDisabled || submitting || catLoading}
               onClick={onQuickSubmit}
               title={t("跳过审核流程预览，直接按 AI 建议立项")}
-              className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.24)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+              className="hz-primary-action inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-4 py-2 text-sm font-semibold text-white hover:bg-[#002581] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               {quickSubmitLabel}
@@ -2086,6 +2087,10 @@ function StepSubmit({
   onDirectDispatch,
   canSubmitProposal,
   canDirectProject,
+  approvalFlow,
+  approvalFlowLoading,
+  approvalFlowError,
+  onRetryApprovalFlow,
   parentTask,
 }: {
   userRole: UserRole;
@@ -2103,13 +2108,18 @@ function StepSubmit({
   onDirectDispatch: () => void;
   canSubmitProposal: boolean;
   canDirectProject: boolean;
+  approvalFlow: ApprovalFlow;
+  approvalFlowLoading: boolean;
+  approvalFlowError: string | null;
+  onRetryApprovalFlow: () => void;
   /** 节点级立项时用于摘要展示，并关闭脱离父节点上下文的草稿能力。 */
   parentTask?: RdProposalParentTask;
 }) {
-  const reviewNodes = useMemo(() => getApplicableNodes(userRole), [userRole]);
+  const reviewNodes = useMemo(() => getApplicableNodes(userRole, approvalFlow), [approvalFlow, userRole]);
   const [approvalPools, setApprovalPools] = useState<Record<string, PoolMember[]>>({});
   const canDirect = canDirectProject;
   const directOnly = userRole === "director" && canDirectProject;
+  const approvalModeUnsupported = reviewNodes[0]?.mode === "all";
 
   useEffect(() => {
     const permissionCodes = Array.from(new Set(reviewNodes.map((node) => node.permission_code)));
@@ -2142,8 +2152,8 @@ function StepSubmit({
         {/* Summary */}
         <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
           <div className="mb-2 text-xs font-medium text-slate-500">{t("立项摘要")}</div>
-          <h3 className="text-base font-semibold text-slate-900">{title || t("未命名立项")}</h3>
-          <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+          <h3 className="text-balance text-base font-semibold text-slate-900">{title || t("未命名立项")}</h3>
+          <div className="mt-3 grid grid-cols-2 gap-3 text-xs tabular-nums">
             <div>
               <div className="text-slate-500">{parentTask ? t("父任务") : t("归属项目")}</div>
               <div className="mt-0.5 font-medium text-slate-800">{t(projectName)}</div>
@@ -2158,15 +2168,36 @@ function StepSubmit({
         {/* Review chain — driven by configured approval flow */}
         <section>
           <div className="mb-2 flex items-center justify-between">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              {directOnly ? t("审批流程") : t("审核流程")}
+            <h4 className="text-balance text-xs font-semibold text-slate-600">
+              {directOnly ? t("立项方式") : t("当前审核节点")}
             </h4>
             {!directOnly && reviewNodes.length > 0 && (
-              <span className="text-[10px] text-slate-400">
-                {t("来自审批流配置 · 共 {n} 级", { n: reviewNodes.length })}
+              <span className="text-[10px] text-slate-400 tabular-nums">
+                {t("来自审批流配置 · 一阶段审核")}
               </span>
             )}
           </div>
+
+          {approvalFlowLoading ? (
+            <div className="mb-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600" role="status" aria-live="polite">
+              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              {t("正在读取当前审批流…")}
+            </div>
+          ) : approvalFlowError ? (
+            <div className="mb-2 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700" role="alert">
+              <span className="text-pretty">{t("审批流校验失败，暂不能提交审核：{message}", { message: approvalFlowError })}</span>
+              <button type="button" className="shrink-0 font-semibold text-[#002fa7] hover:underline" onClick={onRetryApprovalFlow}>
+                {t("重试")}
+              </button>
+            </div>
+          ) : approvalModeUnsupported ? (
+            <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800" role="alert">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span className="text-pretty">
+                {t("当前版本尚未实现会签的逐人完成状态，暂不能按“全员审”提交。请管理员将首个生效节点调整为“单人审”或“任一审”。")}
+              </span>
+            </div>
+          ) : null}
 
           {reviewNodes.length === 0 ? (
             <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2.5 text-xs text-emerald-700">
@@ -2196,7 +2227,7 @@ function StepSubmit({
                     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">
+                          <span className="flex size-5 items-center justify-center rounded-full bg-[#002fa7] text-[10px] font-bold text-white tabular-nums">
                             {idx + 1}
                           </span>
                           <span className="text-xs font-semibold text-slate-800">{t(node.label)}</span>
@@ -2210,7 +2241,7 @@ function StepSubmit({
                             {t(modeCfg.label)}
                           </span>
                         </div>
-                        <span className="text-[10px] text-slate-400">
+                        <span className="text-[10px] text-slate-400 tabular-nums">
                           {pool.length > 0 ? t("{n} 人审核组", { n: pool.length }) : t("暂无候选人")}
                         </span>
                       </div>
@@ -2238,7 +2269,7 @@ function StepSubmit({
                         </div>
                       )}
                       {node.description && (
-                        <p className="mt-1.5 text-[10px] text-slate-400">{node.description}</p>
+                        <p className="mt-1.5 text-pretty text-[10px] text-slate-400">{node.description}</p>
                       )}
                     </div>
                   </React.Fragment>
@@ -2250,16 +2281,16 @@ function StepSubmit({
               </div>
               <div className="flex items-center justify-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-emerald-700">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                <span className="text-xs font-semibold">{t("通过 · 任务自动分配")}</span>
+                <span className="text-xs font-semibold">{t("审核通过 · 任务自动分配")}</span>
               </div>
             </div>
           )}
-          <p className="mt-1.5 text-[11px] text-slate-400">
+          <p className="mt-1.5 text-pretty text-[11px] text-slate-400">
             {directOnly
               ? t("研发主管可直接立项，无需审核")
               : canDirect
                 ? t("你有「直接立项」权限，可选择跳过审核（适用于紧急/已对齐过的立项）")
-                : t("提交后进入审核队列。或签模式下任一审核人通过即转下一级，会签则需池内全部通过")}
+                : t("提交后进入当前生效节点的一阶段审核队列；后续预留节点不会在本次提交中串行执行。")}
           </p>
         </section>
 
@@ -2273,7 +2304,7 @@ function StepSubmit({
             onChange={(e) => setComment(e.target.value)}
             rows={3}
             placeholder={t("例：本立项已与研发主管口头对齐，关键节点请尽快推进。")}
-            className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+            className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15"
           />
         </section>
 
@@ -2293,9 +2324,9 @@ function StepSubmit({
           type="button"
           onClick={onBack}
           disabled={submitting}
-          className="group inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
         >
-          <ChevronLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+          <ChevronLeft className="size-3.5" />
           {t("返回")}
         </button>
         <div className="flex items-center gap-2">
@@ -2304,7 +2335,7 @@ function StepSubmit({
               type="button"
               onClick={onSaveDraft}
               disabled={submitting}
-              className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40"
+              className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
               {t("保存草稿")}
             </button>
@@ -2313,8 +2344,8 @@ function StepSubmit({
             <button
               type="button"
               onClick={onSubmit}
-              disabled={submitting}
-              className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.22)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={submitting || approvalFlowLoading || Boolean(approvalFlowError) || approvalModeUnsupported}
+              className="hz-primary-action inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-4 py-2 text-sm font-semibold text-white hover:bg-[#002581] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
               {t("提交审核")}
@@ -2325,7 +2356,7 @@ function StepSubmit({
               type="button"
               onClick={onDirectDispatch}
               disabled={submitting}
-              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.25)] transition-all hover:bg-emerald-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+              className="hz-primary-action inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-4 py-2 text-sm font-semibold text-white hover:bg-[#002581] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               {directOnly ? t("立项并分配") : t("直接立项并分配")}
@@ -2378,8 +2409,16 @@ export function RDProjectProposalDialog({
   const [peopleNames, setPeopleNames] = useState<string[]>([]);
   const [peopleProfiles, setPeopleProfiles] = useState<RdAiPersonContext[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const [approvalFlow, setApprovalFlow] = useState<ApprovalFlow>(() => getActiveFlow("project_proposal"));
+  const [approvalFlowLoading, setApprovalFlowLoading] = useState(false);
+  const [approvalFlowError, setApprovalFlowError] = useState<string | null>(null);
+  const parseSeqRef = useRef(0);
+  const approvalFlowRequestRef = useRef(0);
+  const openSessionRef = useRef(0);
+  const openRef = useRef(open);
+  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { user } = useAuth();
   const canSubmitProposal = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
@@ -2387,14 +2426,74 @@ export function RDProjectProposalDialog({
   const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
   const effectiveUserRole: UserRole = canDirectProject
     ? "director"
-    : canReviewProjectL1 || canReviewProjectL2
-      ? "admin"
-      : userRole;
+    : canSubmitProposal
+      ? "user"
+      : canReviewProjectL1 || canReviewProjectL2
+        ? "admin"
+        : userRole;
+  const approvalModeUnsupported = effectiveUserRole !== "director"
+    && approvalFlow.nodes[0]?.mode === "all";
   // 个人工作台模式下需要把 owner 锁到当前用户。优先用 name，没有则回退 email/username
   const forcedOwnerName = forceOwnerToCurrentUser
     ? (user?.name?.trim() || user?.email || user?.username || "")
     : "";
   const ownerLocked = forceOwnerToCurrentUser && !!forcedOwnerName;
+
+  const clearParseTimers = useCallback(() => {
+    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+    if (stepTimerRef.current) clearTimeout(stepTimerRef.current);
+    progressTimerRef.current = null;
+    stepTimerRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    openRef.current = open;
+    openSessionRef.current += 1;
+    if (open) {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
+    } else {
+      parseSeqRef.current += 1;
+      clearParseTimers();
+    }
+  }, [clearParseTimers, open]);
+
+  useEffect(() => () => {
+    clearParseTimers();
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+  }, [clearParseTimers]);
+
+  const loadApprovalFlow = useCallback(async () => {
+    const requestId = ++approvalFlowRequestRef.current;
+    setApprovalFlowLoading(true);
+    setApprovalFlowError(null);
+    try {
+      const flows = await fetchFlowsApi();
+      if (requestId !== approvalFlowRequestRef.current) return;
+      setApprovalFlow(
+        flows.find((flow) => flow.scope === "project_proposal" && flow.is_default)
+          ?? flows.find((flow) => flow.scope === "project_proposal")
+          ?? DEFAULT_PROJECT_FLOW,
+      );
+    } catch (error) {
+      if (requestId !== approvalFlowRequestRef.current) return;
+      setApprovalFlow(getActiveFlow("project_proposal"));
+      setApprovalFlowError(error instanceof Error ? error.message : t("读取审批流失败"));
+    } finally {
+      if (requestId === approvalFlowRequestRef.current) setApprovalFlowLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      approvalFlowRequestRef.current += 1;
+      return;
+    }
+    void loadApprovalFlow();
+    return () => {
+      approvalFlowRequestRef.current += 1;
+    };
+  }, [loadApprovalFlow, open]);
 
   useEffect(() => {
     if (open) {
@@ -2464,45 +2563,16 @@ export function RDProjectProposalDialog({
   };
 
   const handleClose = () => {
+    parseSeqRef.current += 1;
+    openSessionRef.current += 1;
+    openRef.current = false;
+    clearParseTimers();
     onClose();
-    setTimeout(reset, 200); // wait for close animation
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const frame = window.requestAnimationFrame(() => dialogRef.current?.focus());
-    return () => {
-      window.cancelAnimationFrame(frame);
-      returnFocusRef.current?.focus();
-      returnFocusRef.current = null;
-    };
-  }, [open]);
-
-  const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape" && !submitting) {
-      event.preventDefault();
-      handleClose();
-      return;
-    }
-    if (event.key !== "Tab" || !dialogRef.current) return;
-    const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    )].filter((element) => !element.hasAttribute("hidden") && element.offsetParent !== null);
-    if (focusable.length === 0) {
-      event.preventDefault();
-      dialogRef.current.focus();
-      return;
-    }
-    const first = focusable[0]!;
-    const last = focusable[focusable.length - 1]!;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = setTimeout(() => {
+      resetTimerRef.current = null;
+      if (!openRef.current) reset();
+    }, 200); // wait for close animation; reopening cancels this reset
   };
 
   const notifyCompleted = async () => {
@@ -2540,6 +2610,12 @@ export function RDProjectProposalDialog({
 
   // Real AI parsing: text or file → backend AI → structured tasks
   const runAiParse = () => {
+    clearParseTimers();
+    const parseSeq = ++parseSeqRef.current;
+    const openSession = openSessionRef.current;
+    const isCurrentParse = () => openRef.current
+      && parseSeqRef.current === parseSeq
+      && openSessionRef.current === openSession;
 
     setStep(2);
     setAiProgress(0);
@@ -2549,12 +2625,18 @@ export function RDProjectProposalDialog({
     let currentProgress = 0;
     setAiLabel(files.length > 0 ? t("上传并读取文件…") : t("调用 AI 模型解析…"));
     const progressTimer = setInterval(() => {
+      if (!isCurrentParse()) {
+        clearInterval(progressTimer);
+        if (progressTimerRef.current === progressTimer) progressTimerRef.current = null;
+        return;
+      }
       currentProgress = Math.min(90, currentProgress + (currentProgress < 50 ? 3 : currentProgress < 80 ? 1.5 : 0.4));
       setAiProgress(Math.round(currentProgress));
       if (currentProgress >= 50 && currentProgress < 60) setAiLabel(t("AI 模型分析中…"));
       else if (currentProgress >= 60 && currentProgress < 80) setAiLabel(t("提取任务条目…"));
       else if (currentProgress >= 80) setAiLabel(t("整理字段与优先级…"));
     }, 200);
+    progressTimerRef.current = progressTimer;
 
     const categoryLabels = categories.map((c) => c.label);
 
@@ -2581,6 +2663,7 @@ export function RDProjectProposalDialog({
 
     aiCall
       .then((result) => {
+        if (!isCurrentParse()) return;
         const drafted = (result.tasks ?? []).map((draft, idx) => ({
           ...aiDraftToProposedTask(draft, idx),
           duration_basis: result.provider === "local" ? "本地规则解析" : "由 AI 估算",
@@ -2622,9 +2705,13 @@ export function RDProjectProposalDialog({
             description: t("如需模型增强抽取，请在 AI 模型管理中配置可用模型。"),
           });
         }
-        setTimeout(() => setStep(3), 250);
+        stepTimerRef.current = setTimeout(() => {
+          stepTimerRef.current = null;
+          if (isCurrentParse()) setStep(3);
+        }, 250);
       })
       .catch(async (err: unknown) => {
+        if (!isCurrentParse()) return;
         const message = err instanceof Error ? err.message : "AI 解析失败";
         const isConfigMissing = isAiConfigurationError(message);
 
@@ -2632,6 +2719,7 @@ export function RDProjectProposalDialog({
           // 未配置 AI 模型 — 本地兜底解析，让用户仍可继续流程
           try {
             const attachmentText = await extractProposalAttachmentParseText(files);
+            if (!isCurrentParse()) return;
             const localText = [description.trim(), attachmentText].filter(Boolean).join("\n\n");
             if (!localText.trim()) throw new Error("No local parseable content");
             const drafted = parseTasksFromContent(title, localText).map((task, idx) => ({
@@ -2649,7 +2737,10 @@ export function RDProjectProposalDialog({
               toast.warning(t("AI 未配置，已使用本地文件解析继续立项"), {
                 description: t("如需 AI 增强抽取，请在「AI 模型管理」中配置可用模型。"),
               });
-              setTimeout(() => setStep(3), 250);
+              stepTimerRef.current = setTimeout(() => {
+                stepTimerRef.current = null;
+                if (isCurrentParse()) setStep(3);
+              }, 250);
               return;
             }
           } catch {
@@ -2671,6 +2762,7 @@ export function RDProjectProposalDialog({
       })
       .finally(() => {
         clearInterval(progressTimer);
+        if (progressTimerRef.current === progressTimer) progressTimerRef.current = null;
       });
   };
 
@@ -2744,7 +2836,7 @@ export function RDProjectProposalDialog({
     // 并继承其产品、系统、子项和 category_path。普通立项仍走原分类解析流程。
     let workingCategories = parentTask ? [] : await ensurePersistentCategoryTree();
     let fallbackTarget: { categoryId: string; subProjectId: string } | null = null;
-    const createdTasks: Awaited<ReturnType<typeof createRdTask>>[] = [];
+    const topLevelPayloads: Parameters<typeof createRdTasksBatch>[0] = [];
     const childPayloads: Parameters<typeof createRdSubtasks>[1] = [];
 
     const getFallbackTarget = async () => {
@@ -2757,7 +2849,7 @@ export function RDProjectProposalDialog({
       return fallbackTarget;
     };
 
-    for (const task of tasks) {
+    for (const [taskIndex, task] of tasks.entries()) {
       const target = parentTask
         ? null
         : usCollab
@@ -2776,7 +2868,7 @@ export function RDProjectProposalDialog({
         .map((name) => {
           const profile = peopleProfiles.find((p) => p.name === name);
           return {
-            id: profile?.user_id ?? `collab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            id: profile?.user_id ?? `collab:${proposalId}:${taskIndex}:${name}`,
             name,
             role: profile?.position || "协作人",
             user_id: profile?.user_id ?? null,
@@ -2806,12 +2898,12 @@ export function RDProjectProposalDialog({
         ...(status === "pending_review" ? { pending_review_type: "proposal" } : {}),
       };
       if (parentTask) childPayloads.push(taskPayload);
-      else createdTasks.push(await createRdTask(taskPayload));
+      else topLevelPayloads.push(taskPayload);
     }
 
     return parentTask
       ? createRdSubtasks(parentTask.task_id, childPayloads, proposalId)
-      : createdTasks;
+      : createRdTasksBatch(topLevelPayloads, proposalId);
   };
 
   const handleSubmit = async () => {
@@ -2821,6 +2913,14 @@ export function RDProjectProposalDialog({
     }
     if (!canSubmitProposal) {
       toast.error(t("当前账号没有立项申请权限"));
+      return;
+    }
+    if (approvalFlowLoading || approvalFlowError) {
+      toast.error(t("请先成功读取当前审批流，再提交审核"));
+      return;
+    }
+    if (approvalModeUnsupported) {
+      toast.error(t("当前版本暂不支持会签，请先将首个生效节点调整为“单人审”或“任一审”"));
       return;
     }
     setSubmitting(true);
@@ -2892,68 +2992,78 @@ export function RDProjectProposalDialog({
     }
   };
 
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in"
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !submitting) handleClose();
+      }}
     >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="rd-project-proposal-dialog-title"
-        tabIndex={-1}
-        onKeyDown={handleDialogKeyDown}
-        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] outline-none animate-rd-scale-in"
+      <DialogContent
+        className="horizon-portal rd-horizon-project-proposal flex max-h-[calc(100dvh-2rem)] w-full flex-col gap-0 overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-xl sm:max-w-2xl [&>button]:hidden"
+        onEscapeKeyDown={(event) => {
+          if (submitting) event.preventDefault();
+        }}
+        onPointerDownOutside={(event) => event.preventDefault()}
       >
         {/* Header */}
         <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_8px_18px_rgba(79,70,229,0.25)]">
+            <span className="flex size-9 items-center justify-center rounded-xl bg-[#002fa7] text-white shadow-sm">
               <Sparkles className="h-4 w-4" />
             </span>
             <div>
-              <h2 id="rd-project-proposal-dialog-title" className="text-base font-semibold text-slate-900">{parentTask ? t("节点立项") : t("AI 立项")}</h2>
-              <p className="mt-0.5 text-xs text-slate-500">
+              <DialogTitle id="rd-project-proposal-dialog-title" className="text-balance text-base font-semibold text-slate-900">
+                {parentTask ? t("节点立项") : t("AI 立项")}
+              </DialogTitle>
+              <DialogDescription className="mt-0.5 text-pretty text-xs text-slate-500">
                 {t("第 {step} / 4 步", { step })} · {STEP_LABELS[step]}
-              </p>
+              </DialogDescription>
             </div>
           </div>
-          <button
-            onClick={handleClose}
-            type="button"
-            className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-            aria-label={t("关闭")}
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <DialogClose asChild>
+            <button
+              type="button"
+              disabled={submitting}
+              className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label={t("关闭")}
+            >
+              <X className="size-4" />
+            </button>
+          </DialogClose>
         </header>
 
         {/* Step progress bar */}
-        <div className="flex h-1 bg-slate-100">
+        <div
+          className="flex h-1 bg-slate-100"
+          role="progressbar"
+          aria-label={t("立项进度")}
+          aria-valuemin={1}
+          aria-valuemax={4}
+          aria-valuenow={step}
+        >
           {[1, 2, 3, 4].map((s) => (
             <div
               key={s}
               className={cn(
-                "flex-1 transition-all duration-300",
-                s <= step ? "bg-indigo-600" : "bg-transparent",
+                "flex-1",
+                s <= step ? "bg-[#002fa7]" : "bg-transparent",
               )}
             />
           ))}
         </div>
 
         {parentTask && (
-          <div className="mx-6 mt-4 flex items-start gap-2.5 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3.5 py-3 text-xs text-indigo-800">
-            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-white text-indigo-600 shadow-sm">
+          <div className="mx-6 mt-4 flex items-start gap-2.5 rounded-xl border border-[#002fa7]/15 bg-[#eef3ff] px-3.5 py-3 text-xs text-[#002fa7]">
+            <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-lg bg-white text-[#002fa7] shadow-sm">
               <GitBranch className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0">
               <div className="font-semibold">{t("当前节点立项")}</div>
-              <div className="mt-0.5 truncate text-[11px] text-indigo-600" title={parentTask.title}>
+              <div className="mt-0.5 truncate text-[11px] text-[#002fa7] tabular-nums" title={parentTask.title}>
                 {parentTask.title} · {parentTask.task_id}
               </div>
-              <p className="mt-1 text-[11px] leading-relaxed text-indigo-700/80">
+              <p className="mt-1 text-pretty text-[11px] leading-relaxed text-[#002fa7]/80">
                 {t("本次创建的任务将作为当前节点的直接子任务，并自动继承其产品与分类。")}
               </p>
             </div>
@@ -3017,7 +3127,7 @@ export function RDProjectProposalDialog({
                   ? t("AI 一键提交审核")
                   : undefined
             }
-            quickSubmitDisabled={tasks.some((t) => !t.title.trim())}
+            quickSubmitDisabled={tasks.some((t) => !t.title.trim()) || (!canDirectProject && (approvalFlowLoading || Boolean(approvalFlowError) || approvalModeUnsupported))}
           />
         )}
         {step === 4 && (
@@ -3037,12 +3147,16 @@ export function RDProjectProposalDialog({
             onDirectDispatch={handleDirectDispatch}
             canSubmitProposal={canSubmitProposal}
             canDirectProject={canDirectProject}
+            approvalFlow={approvalFlow}
+            approvalFlowLoading={approvalFlowLoading}
+            approvalFlowError={approvalFlowError}
+            onRetryApprovalFlow={() => void loadApprovalFlow()}
             parentTask={parentTask}
           />
         )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -6,18 +6,27 @@ import {
   ArrowUp,
   Bug,
   CheckCircle2,
-  ChevronDown,
   ChevronUp,
   FileText,
   GitBranch,
   Link2,
   Plus,
-  TrendingDown,
   TrendingUp,
   Upload,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
+import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
@@ -117,9 +126,19 @@ const versionRecords: VersionRecord[] = [
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function TrendIcon({ trend }: { trend: "up" | "down" | "stable" }) {
-  if (trend === "up") return <ArrowUp className="h-4 w-4 text-rose-500" />;
-  if (trend === "down") return <ArrowDown className="h-4 w-4 text-emerald-500" />;
-  return <ArrowRight className="h-4 w-4 text-slate-400" />;
+  const trendConfig = {
+    up: { Icon: ArrowUp, label: "上升", className: "text-rose-600" },
+    down: { Icon: ArrowDown, label: "下降", className: "text-emerald-600" },
+    stable: { Icon: ArrowRight, label: "稳定", className: "text-slate-500" },
+  } as const;
+  const { Icon, label, className } = trendConfig[trend];
+
+  return (
+    <span className={cn("inline-flex items-center justify-center", className)}>
+      <Icon className="h-4 w-4" aria-hidden="true" />
+      <span className="sr-only">{label}</span>
+    </span>
+  );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -129,31 +148,10 @@ export function BugLogPage() {
   const [showAddVersion, setShowAddVersion] = useState(false);
   const [versions, setVersions] = useState<VersionRecord[]>(versionRecords);
   const [newVersion, setNewVersion] = useState({ date: "", version: "", module: "", summary: "" });
+  const [versionError, setVersionError] = useState("");
   const [isUploading, setIsUploading] = useState(false);
 
-  const selectedLog = logFiles.find((l) => l.id === selectedLogId) ?? logFiles[0];
   const analysis = logAnalyses[selectedLogId];
-
-  const kpis: Array<{
-    label: string;
-    value: string;
-    helper: string;
-    icon: typeof FileText;
-    color: string;
-    trend?: "up" | "down";
-  }> = [
-    { label: "已处理日志数", value: "128", helper: "本月累计", icon: FileText, color: "text-blue-600" },
-    {
-      label: "今日异常数",
-      value: "14",
-      trend: "up" as const,
-      helper: "较昨日 +3",
-      icon: AlertTriangle,
-      color: "text-rose-600",
-    },
-    { label: "本周最频发错误码", value: "ERR_SENSOR_TIMEOUT", helper: "出现 47 次", icon: Bug, color: "text-amber-600" },
-    { label: "未解决问题数", value: "7", helper: "需跟进处理", icon: GitBranch, color: "text-slate-600" },
-  ];
 
   const handleUpload = () => {
     setIsUploading(true);
@@ -167,9 +165,10 @@ export function BugLogPage() {
     toast.info("已关联最近 3 个版本变更记录");
   };
 
-  const handleAddVersion = () => {
+  const handleAddVersion = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     if (!newVersion.date || !newVersion.version || !newVersion.module || !newVersion.summary) {
-      toast.error("请填写完整版本信息");
+      setVersionError("请填写完整的发版日期、版本号、变更模块和变更摘要。");
       return;
     }
     const record: VersionRecord = {
@@ -182,302 +181,378 @@ export function BugLogPage() {
     };
     setVersions((prev) => [record, ...prev]);
     setNewVersion({ date: "", version: "", module: "", summary: "" });
+    setVersionError("");
     setShowAddVersion(false);
     toast.success("版本记录已新增");
   };
 
+  const updateVersionField = (field: keyof typeof newVersion, value: string) => {
+    setNewVersion((current) => ({ ...current, [field]: value }));
+    if (versionError) setVersionError("");
+  };
+
   return (
-    <div className="mx-auto max-w-[1600px] space-y-5 px-3 py-4 sm:p-5 lg:space-y-6 lg:p-6">
-      {/* Header */}
-      <div className="flex min-w-0 items-start gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white">
-          <Bug className="h-5 w-5" />
-        </div>
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">软件 BUG 日志分析</h1>
-          <p className="text-sm text-slate-500">AI 异常根因分析 · 版本变更追踪</p>
-        </div>
-      </div>
-
-      {/* KPI Bar */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
-        {kpis.map((kpi) => (
-          <div key={kpi.label} className="min-w-0 rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-500">{kpi.label}</span>
-              <kpi.icon className={cn("h-5 w-5", kpi.color)} />
-            </div>
-            <div className="mt-3 flex items-end gap-2">
-              <span className="text-2xl font-bold leading-none text-slate-900">{kpi.value}</span>
-              {kpi.trend === "up" && <TrendingUp className="mb-0.5 h-4 w-4 text-rose-500" />}
-              {kpi.trend === "down" && <TrendingDown className="mb-0.5 h-4 w-4 text-emerald-500" />}
-            </div>
-            <div className="mt-2 text-xs text-slate-400">{kpi.helper}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Three-column layout */}
-      <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[25%_45%_30%]">
-        {/* Left: Log File List */}
-        <div className="min-w-0 rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-semibold text-slate-800">日志文件列表</h2>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{logFiles.length} 个文件</span>
-          </div>
-
-          <div className="space-y-3">
-            {logFiles.map((log) => (
-              <button
-                key={log.id}
-                type="button"
-                onClick={() => setSelectedLogId(log.id)}
-                className={cn(
-                  "w-full rounded-xl border p-4 text-left transition-colors",
-                  selectedLogId === log.id
-                    ? "border-indigo-200 bg-indigo-50"
-                    : "border-slate-100 bg-slate-50 hover:border-slate-200 hover:bg-slate-100",
-                )}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-sm font-semibold text-slate-800">{log.deviceId}</span>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
-                      log.hasAnomaly ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700",
-                    )}
-                  >
-                    {log.hasAnomaly ? "发现异常" : "正常"}
-                  </span>
-                </div>
-                <div className="mt-2 space-y-0.5 text-xs text-slate-500">
-                  <div>{log.uploadTime}</div>
-                  <div className="flex items-center gap-1">
-                    <FileText className="h-3 w-3" />
-                    {log.fileSize}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-
-          <button
+    <div className="horizon-theme hz-page mx-auto flex min-h-full max-w-[1600px] flex-col gap-4 px-3 py-4 sm:p-5 lg:p-6">
+      <HorizonPageHeader
+        Icon={Bug}
+        eyebrow="软件质量 / 异常诊断"
+        title="软件 BUG 日志分析"
+        description="聚合设备运行日志、AI 根因判断与版本变更记录，缩短异常定位路径。"
+        meta={
+          <span role="status" aria-live="polite">
+            {isUploading ? "日志上传中，完成后将自动启动 AI 分析。" : `已载入 ${logFiles.length} 份设备日志`}
+          </span>
+        }
+        actions={
+          <Button
             type="button"
             onClick={handleUpload}
             disabled={isUploading}
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-100 disabled:opacity-60"
+            aria-busy={isUploading}
+            className="hz-primary-action"
           >
             {isUploading ? (
               <>
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
+                <span
+                  className="h-4 w-4 animate-spin rounded-full border-2 border-white/50 border-t-white motion-reduce:animate-none"
+                  aria-hidden="true"
+                />
                 上传中…
               </>
             ) : (
               <>
-                <Upload className="h-4 w-4" />
+                <Upload aria-hidden="true" />
                 上传日志文件
               </>
             )}
-          </button>
-        </div>
+          </Button>
+        }
+      />
 
-        {/* Center: AI Analysis */}
-        <div className="min-w-0 rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
-          <div className="mb-4">
-            <div className="flex items-center gap-2">
-              <Bug className="h-4 w-4 text-indigo-600" />
-              <h2 className="font-semibold text-slate-800">AI 异常分析</h2>
-            </div>
-            {analysis && (
-              <div className="mt-2 text-sm text-slate-500">
-                <span className="font-medium text-slate-700">{analysis.deviceId}</span>
-                <span className="mx-2 text-slate-300">|</span>
-                {analysis.timeRange}
-              </div>
-            )}
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={FileText} label="已处理日志数" value="128" note="本月累计" tone="brand" />
+        <HorizonMetric
+          Icon={AlertTriangle}
+          label="今日异常数"
+          value={
+            <span className="inline-flex items-center gap-1.5">
+              14
+              <TrendingUp className="size-4 text-rose-600" aria-hidden="true" />
+              <span className="sr-only">较昨日上升</span>
+            </span>
+          }
+          note="较昨日 +3"
+          tone="danger"
+        />
+        <HorizonMetric
+          Icon={Bug}
+          label="本周最频发错误码"
+          value={<span className="block break-all font-mono text-sm sm:text-base">ERR_SENSOR_TIMEOUT</span>}
+          note="出现 47 次"
+          tone="warning"
+        />
+        <HorizonMetric Icon={GitBranch} label="未解决问题数" value="7" note="需跟进处理" tone="neutral" />
+      </HorizonMetricGrid>
+
+      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)_320px]">
+        <section className="hz-surface min-w-0 overflow-hidden">
+          <HorizonSectionHeader
+            Icon={FileText}
+            title="日志文件"
+            description="选择设备日志查看诊断结果"
+            trailing={
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 tabular-nums">
+                {logFiles.length} 份
+              </span>
+            }
+          />
+          <div className="space-y-2 p-3">
+            {logFiles.map((log) => {
+              const isSelected = selectedLogId === log.id;
+              return (
+                <button
+                  key={log.id}
+                  type="button"
+                  onClick={() => setSelectedLogId(log.id)}
+                  aria-pressed={isSelected}
+                  className={cn(
+                    "w-full rounded-xl border p-3.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 focus-visible:ring-offset-2",
+                    isSelected
+                      ? "border-[#002fa7]/25 bg-[#eef3ff]"
+                      : "border-slate-200 bg-white hover:border-[#002fa7]/20 hover:bg-slate-50",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className={cn("text-sm font-semibold", isSelected ? "text-[#002fa7]" : "text-slate-800")}>
+                      {log.deviceId}
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
+                        log.hasAnomaly ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700",
+                      )}
+                    >
+                      {log.hasAnomaly ? "发现异常" : "正常"}
+                    </span>
+                  </div>
+                  <div className="mt-2 space-y-1 text-xs text-slate-500">
+                    <time className="block tabular-nums">{log.uploadTime}</time>
+                    <span className="flex items-center gap-1.5 tabular-nums">
+                      <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                      {log.fileSize}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
+        </section>
+
+        <section className="hz-surface min-w-0 overflow-hidden xl:min-h-[34rem]">
+          <HorizonSectionHeader
+            Icon={Bug}
+            title="AI 异常分析"
+            description={analysis ? `${analysis.deviceId} · ${analysis.timeRange}` : "选择一份日志开始分析"}
+          />
 
           {analysis && analysis.errors.length > 0 ? (
-            <>
-              {/* Error Code Table */}
-              <div className="material-scrollbar mb-5 overflow-x-auto rounded-xl border border-slate-100">
-                <table className="min-w-[560px] text-sm sm:min-w-[620px]">
+            <div className="p-4 sm:p-5">
+              <div className="material-scrollbar overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full min-w-[600px] text-sm">
+                  <caption className="sr-only">{analysis.deviceId} 的异常错误码、出现频次、时间范围和变化趋势</caption>
                   <thead>
-                    <tr className="bg-slate-50 text-xs text-slate-500">
-                      <th className="px-4 py-3 text-left font-medium">错误码</th>
-                      <th className="px-3 py-3 text-center font-medium">频次</th>
-                      <th className="px-3 py-3 text-center font-medium">首次出现</th>
-                      <th className="px-3 py-3 text-center font-medium">末次出现</th>
-                      <th className="px-3 py-3 text-center font-medium">趋势</th>
+                    <tr className="bg-slate-50 text-xs text-slate-600">
+                      <th scope="col" className="px-4 py-3 text-left font-semibold">错误码</th>
+                      <th scope="col" className="px-3 py-3 text-center font-semibold">频次</th>
+                      <th scope="col" className="px-3 py-3 text-center font-semibold">首次出现</th>
+                      <th scope="col" className="px-3 py-3 text-center font-semibold">末次出现</th>
+                      <th scope="col" className="px-3 py-3 text-center font-semibold">趋势</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50">
+                  <tbody className="divide-y divide-slate-100">
                     {analysis.errors.map((err) => (
-                      <tr key={err.code} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">{err.code}</td>
-                        <td className="px-3 py-3 text-center">
+                      <tr key={err.code} className="hover:bg-slate-50/80">
+                        <th scope="row" className="px-4 py-3 text-left font-mono text-xs font-semibold text-slate-800">
+                          {err.code}
+                        </th>
+                        <td className="px-3 py-3 text-center tabular-nums">
                           <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-700">
                             {err.frequency}
                           </span>
                         </td>
-                        <td className="px-3 py-3 text-center text-xs text-slate-500">{err.firstSeen}</td>
-                        <td className="px-3 py-3 text-center text-xs text-slate-500">{err.lastSeen}</td>
-                        <td className="px-3 py-3 text-center">
-                          <div className="flex justify-center">
-                            <TrendIcon trend={err.trend} />
-                          </div>
-                        </td>
+                        <td className="px-3 py-3 text-center text-xs text-slate-500 tabular-nums">{err.firstSeen}</td>
+                        <td className="px-3 py-3 text-center text-xs text-slate-500 tabular-nums">{err.lastSeen}</td>
+                        <td className="px-3 py-3 text-center"><TrendIcon trend={err.trend} /></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              {/* AI Root Cause Card */}
-              <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-5">
-                <div className="mb-3 flex items-center gap-2">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-white">
-                    <Bug className="h-3 w-3" />
-                  </div>
-                  <span className="text-sm font-semibold text-indigo-800">AI 根因分析</span>
+              <div className="mt-4 rounded-xl border border-[#002fa7]/10 bg-[#f7f9ff] p-4 sm:p-5">
+                <div className="mb-2.5 flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#002fa7] text-white" aria-hidden="true">
+                    <Bug className="h-3.5 w-3.5" />
+                  </span>
+                  <h3 className="text-sm font-semibold text-[#1b2559]">AI 根因判断</h3>
                 </div>
-                <p className="text-sm leading-7 text-slate-700">{analysis.aiRootCause}</p>
+                <p className="text-pretty text-sm leading-7 text-slate-700">{analysis.aiRootCause}</p>
                 {analysis.responsibility.length > 0 && (
                   <div className="mt-4 flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-slate-500">可能责任范围：</span>
-                    {analysis.responsibility.map((r) => (
-                      <span key={r.label} className={cn("rounded-full px-3 py-1 text-xs font-medium", r.color)}>
-                        {r.label}
+                    <span className="text-xs text-slate-500">可能责任范围</span>
+                    {analysis.responsibility.map((responsibility) => (
+                      <span
+                        key={responsibility.label}
+                        className={cn("rounded-full px-3 py-1 text-xs font-medium", responsibility.color)}
+                      >
+                        {responsibility.label}
                       </span>
                     ))}
                   </div>
                 )}
               </div>
 
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={handleLinkVersion}
-                className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-700"
+                className="mt-4 w-full rounded-xl border-[#002fa7]/20 text-[#002fa7] hover:bg-[#eef3ff] hover:text-[#002fa7]"
               >
-                <Link2 className="h-4 w-4" />
+                <Link2 aria-hidden="true" />
                 关联最近版本变更
-              </button>
-            </>
+              </Button>
+            </div>
           ) : (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 py-16">
-              <CheckCircle2 className="mb-3 h-10 w-10 text-emerald-400" />
-              <p className="text-sm font-medium text-slate-600">未发现异常错误码</p>
-              <p className="mt-1 text-xs text-slate-400">设备运行状态正常</p>
-            </div>
+            <HorizonEmptyState
+              Icon={CheckCircle2}
+              title="未发现异常错误码"
+              description="当前设备运行状态正常，可继续查看其他日志或上传新的日志文件。"
+            />
           )}
-        </div>
+        </section>
 
-        {/* Right: Version Change Log */}
-        <div className="min-w-0 rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <GitBranch className="h-4 w-4 text-slate-600" />
-              <h2 className="font-semibold text-slate-800">版本变更日志</h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowAddVersion((v) => !v)}
-              className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-            >
-              {showAddVersion ? <ChevronUp className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-              新增版本记录
-            </button>
-          </div>
+        <section className="hz-surface min-w-0 overflow-hidden xl:col-span-2 2xl:col-span-1">
+          <HorizonSectionHeader
+            Icon={GitBranch}
+            title="版本变更日志"
+            description="将异常波动与近期发版记录放在同一时间线上核对"
+            trailing={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setShowAddVersion((current) => !current);
+                  setVersionError("");
+                }}
+                aria-expanded={showAddVersion}
+                aria-controls="add-version-form"
+                className="border-slate-200 text-slate-700"
+              >
+                {showAddVersion ? <ChevronUp aria-hidden="true" /> : <Plus aria-hidden="true" />}
+                新增版本
+              </Button>
+            }
+          />
 
-          {/* Inline Add Form */}
           {showAddVersion && (
-            <div className="mb-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-xs font-semibold text-indigo-700">新增版本记录</span>
-                <button type="button" onClick={() => setShowAddVersion(false)}>
-                  <X className="h-4 w-4 text-slate-400 hover:text-slate-600" />
-                </button>
+            <form
+              id="add-version-form"
+              className="m-3 rounded-xl border border-[#002fa7]/15 bg-[#f7f9ff] p-4"
+              onSubmit={handleAddVersion}
+              noValidate
+            >
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#1b2559]">新增版本记录</h3>
+                  <p className="mt-1 text-xs text-slate-500">记录本次发版内容，便于后续异常关联。</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    setShowAddVersion(false);
+                    setVersionError("");
+                  }}
+                  aria-label="关闭新增版本表单"
+                  className="h-8 w-8 text-slate-500"
+                >
+                  <X aria-hidden="true" />
+                </Button>
               </div>
-              <div className="space-y-2">
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <input
+
+              <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-1">
+                <div className="space-y-1.5">
+                  <Label htmlFor="version-date">发版日期</Label>
+                  <Input
+                    id="version-date"
+                    name="date"
                     type="date"
                     value={newVersion.date}
-                    onChange={(e) => setNewVersion((v) => ({ ...v, date: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
-                    placeholder="发版日期"
-                  />
-                  <input
-                    value={newVersion.version}
-                    onChange={(e) => setNewVersion((v) => ({ ...v, version: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
-                    placeholder="版本号 (如 v2.5.0)"
+                    onChange={(event) => updateVersionField("date", event.target.value)}
+                    aria-required="true"
+                    aria-invalid={Boolean(versionError && !newVersion.date)}
+                    aria-describedby={versionError ? "version-form-error" : undefined}
+                    className="bg-white"
                   />
                 </div>
-                <input
-                  value={newVersion.module}
-                  onChange={(e) => setNewVersion((v) => ({ ...v, module: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
-                  placeholder="变更模块"
-                />
-                <textarea
-                  value={newVersion.summary}
-                  onChange={(e) => setNewVersion((v) => ({ ...v, summary: e.target.value }))}
-                  rows={2}
-                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
-                  placeholder="变更内容摘要"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddVersion}
-                  className="w-full rounded-lg bg-indigo-600 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
-                >
-                  确认新增
-                </button>
+                <div className="space-y-1.5">
+                  <Label htmlFor="version-number">版本号</Label>
+                  <Input
+                    id="version-number"
+                    name="version"
+                    value={newVersion.version}
+                    onChange={(event) => updateVersionField("version", event.target.value)}
+                    placeholder="例如 v2.5.0"
+                    aria-required="true"
+                    aria-invalid={Boolean(versionError && !newVersion.version)}
+                    aria-describedby={versionError ? "version-form-error" : undefined}
+                    className="bg-white"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2 2xl:col-span-1">
+                  <Label htmlFor="version-module">变更模块</Label>
+                  <Input
+                    id="version-module"
+                    name="module"
+                    value={newVersion.module}
+                    onChange={(event) => updateVersionField("module", event.target.value)}
+                    placeholder="例如传感器驱动"
+                    aria-required="true"
+                    aria-invalid={Boolean(versionError && !newVersion.module)}
+                    aria-describedby={versionError ? "version-form-error" : undefined}
+                    className="bg-white"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2 2xl:col-span-1">
+                  <Label htmlFor="version-summary">变更摘要</Label>
+                  <Textarea
+                    id="version-summary"
+                    name="summary"
+                    value={newVersion.summary}
+                    onChange={(event) => updateVersionField("summary", event.target.value)}
+                    rows={3}
+                    placeholder="简要说明本次版本变更内容"
+                    aria-required="true"
+                    aria-invalid={Boolean(versionError && !newVersion.summary)}
+                    aria-describedby={versionError ? "version-form-error" : undefined}
+                    className="bg-white"
+                  />
+                </div>
               </div>
-            </div>
+
+              {versionError && (
+                <p id="version-form-error" role="alert" className="mt-3 text-sm font-medium text-rose-700">
+                  {versionError}
+                </p>
+              )}
+
+              <Button type="submit" className="hz-primary-action mt-4 w-full sm:w-auto">
+                确认新增
+              </Button>
+            </form>
           )}
 
-          {/* Version Table */}
-          <div className="space-y-2 overflow-y-auto" style={{ maxHeight: "calc(100vh - 340px)" }}>
-            {versions.map((ver) => (
-              <div
-                key={ver.id}
+          <div className="grid gap-2 p-3 sm:grid-cols-2 2xl:grid-cols-1">
+            {versions.map((versionRecord) => (
+              <article
+                key={versionRecord.id}
                 className={cn(
                   "rounded-xl border p-4",
-                  ver.anomalyCount > 5
-                    ? "border-orange-200 bg-orange-50"
-                    : "border-slate-100 bg-slate-50",
+                  versionRecord.anomalyCount > 5
+                    ? "border-amber-200 bg-amber-50"
+                    : "border-slate-200 bg-white",
                 )}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="rounded-md bg-slate-800 px-2 py-0.5 font-mono text-xs font-bold text-white">
-                        {ver.version}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-md bg-[#1b2559] px-2 py-0.5 font-mono text-xs font-bold text-white">
+                        {versionRecord.version}
                       </span>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{ver.module}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                        {versionRecord.module}
+                      </span>
                     </div>
-                    <p className="mt-2 text-xs leading-5 text-slate-600">{ver.summary}</p>
-                    <div className="mt-2 text-xs text-slate-400">{ver.date}</div>
+                    <p className="mt-2 text-pretty text-xs leading-5 text-slate-600">{versionRecord.summary}</p>
+                    <time className="mt-2 block text-xs text-slate-500 tabular-nums">{versionRecord.date}</time>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-xs font-bold",
-                        ver.anomalyCount > 5
-                          ? "bg-orange-200 text-orange-800"
-                          : "bg-slate-100 text-slate-600",
-                      )}
-                    >
-                      {ver.anomalyCount} 异常
-                    </span>
-                  </div>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums",
+                      versionRecord.anomalyCount > 5
+                        ? "bg-amber-200 text-amber-900"
+                        : "bg-slate-100 text-slate-600",
+                    )}
+                  >
+                    {versionRecord.anomalyCount} 异常
+                  </span>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

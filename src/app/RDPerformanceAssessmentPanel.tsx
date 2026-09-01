@@ -8,9 +8,9 @@ import {
   RefreshCw,
   TrendingDown,
   TrendingUp,
-  Trophy,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
+import { Button } from "./components/ui/button";
 import { cn } from "./components/ui/utils";
 import { getGradeTone, type TaskCompletionGrade } from "./lib/taskCompletionScore";
 import {
@@ -113,8 +113,8 @@ function Sparkline({ points }: { points: number[] }) {
   }
   if (points.length === 1) {
     return (
-      <svg width={w} height={h} className="overflow-visible">
-        <circle cx={w / 2} cy={h / 2} r={2.5} className="fill-indigo-500" />
+      <svg width={w} height={h} className="overflow-visible" aria-hidden="true">
+        <circle cx={w / 2} cy={h / 2} r={2.5} className="fill-[#002fa7]" />
       </svg>
     );
   }
@@ -130,9 +130,9 @@ function Sparkline({ points }: { points: number[] }) {
   const d = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   const last = coords[coords.length - 1];
   return (
-    <svg width={w} height={h} className="overflow-visible">
-      <path d={d} fill="none" className="stroke-indigo-400" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={last[0]} cy={last[1]} r={2} className="fill-indigo-500" />
+    <svg width={w} height={h} className="overflow-visible" aria-hidden="true">
+      <path d={d} fill="none" className="stroke-[#466ac5]" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={last[0]} cy={last[1]} r={2} className="fill-[#002fa7]" />
     </svg>
   );
 }
@@ -166,7 +166,7 @@ function CompositeBreakdown({
     },
   ];
   return (
-    <div className="w-72 space-y-2 text-xs">
+    <div className="w-full min-w-0 space-y-2 text-xs">
       <div className="font-semibold text-slate-800">{t("综合分构成")} · {row.name}</div>
       {items.map((it) => (
         <div key={it.label} className="rounded-lg border border-slate-100 bg-slate-50/60 p-2">
@@ -197,7 +197,7 @@ function CompositeBreakdown({
                   <span className="w-20 shrink-0 text-[11px] text-slate-600">{t(dim.label)}</span>
                   <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
                     <div
-                      className="h-full rounded-full bg-indigo-400"
+                      className="h-full rounded-full bg-[#466ac5]"
                       style={{ width: `${Math.min(100, (v / 25) * 100)}%` }}
                     />
                   </div>
@@ -227,7 +227,7 @@ function MonthlyBars({ months }: { months: RdPerformanceAssessment["team"]["scor
           <span className="text-[9px] tabular-nums text-slate-400">{fmt(m.avg)}</span>
           <div className="flex h-12 w-5 items-end rounded bg-slate-100">
             <div
-              className="w-full rounded bg-indigo-400"
+              className="w-full rounded bg-[#466ac5]"
               style={{ height: `${Math.max(8, (m.avg / max) * 100)}%` }}
             />
           </div>
@@ -263,30 +263,37 @@ export function RDPerformanceAssessmentPanel() {
   const [data, setData] = useState<RdPerformanceAssessment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  const requestRef = useRef(0);
 
   const load = useCallback(() => {
+    const requestId = ++requestRef.current;
     setLoading(true);
     setError(null);
     fetchRdPerformanceAssessment()
       .then((payload) => {
-        if (mountedRef.current) setData(payload);
+        if (requestId === requestRef.current) setData(payload);
       })
       .catch((err: unknown) => {
-        if (mountedRef.current) {
+        if (requestId === requestRef.current) {
           setError(err instanceof Error ? err.message : t("绩效考核数据读取失败"));
         }
       })
       .finally(() => {
-        if (mountedRef.current) setLoading(false);
+        if (requestId === requestRef.current) setLoading(false);
       });
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    return () => { requestRef.current += 1; };
+  }, [load]);
 
-  const rankedRows = useMemo(() => (data?.rows ?? []).filter((r) => r.composite !== null), [data]);
-  const unrankedRows = useMemo(() => (data?.rows ?? []).filter((r) => r.composite === null), [data]);
+  const { rankedRows, unrankedRows } = useMemo(() => {
+    const ranked: RdPerformanceRow[] = [];
+    const unranked: RdPerformanceRow[] = [];
+    for (const row of data?.rows ?? []) (row.composite === null ? unranked : ranked).push(row);
+    return { rankedRows: ranked, unrankedRows: unranked };
+  }, [data?.rows]);
 
   const renderRow = (row: RdPerformanceRow) => {
     const ranked = row.composite !== null;
@@ -309,19 +316,19 @@ export function RDPerformanceAssessmentPanel() {
                       : "text-slate-500",
               )}
             >
-              {row.rank <= 3 ? <Trophy className="h-3.5 w-3.5" /> : row.rank}
+              {row.rank}
             </span>
           ) : (
             <span className="text-xs text-slate-300">—</span>
           )}
         </td>
         {/* 成员 */}
-        <td className="px-3 py-3">
+        <th scope="row" className="px-3 py-3 text-left">
           <div className="font-semibold text-slate-800">{row.name}</div>
           <div className="text-[11px] text-slate-400">
             {[row.position, row.department].filter(Boolean).join(" · ") || t("研发成员")}
           </div>
-        </td>
+        </th>
         {/* 综合分 */}
         <td className="px-3 py-3 text-center">
           {ranked && compositeGrade ? (
@@ -341,7 +348,7 @@ export function RDPerformanceAssessmentPanel() {
                   <Info className="h-3 w-3 opacity-60" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="center" className="w-auto p-3">
+              <PopoverContent align="center" className="w-[calc(100vw-2rem)] max-w-80 p-3">
                 {data ? <CompositeBreakdown row={row} weights={data.weights} /> : null}
               </PopoverContent>
             </Popover>
@@ -372,8 +379,8 @@ export function RDPerformanceAssessmentPanel() {
         </td>
         {/* AI 活跃度 */}
         <td className="px-3 py-3 text-center">
-          <span className="inline-flex items-center gap-1 text-sm font-semibold tabular-nums text-violet-700">
-            <MessageSquare className="h-3.5 w-3.5 text-violet-400" />
+          <span className="inline-flex items-center gap-1 text-sm font-semibold tabular-nums text-[#002fa7]">
+            <MessageSquare className="size-3.5 text-[#466ac5]" aria-hidden="true" />
             {row.chat_total}
           </span>
           <div className="text-[10px] text-slate-400">{t("近 30 天")} {row.chat_recent}</div>
@@ -390,15 +397,15 @@ export function RDPerformanceAssessmentPanel() {
   };
 
   return (
-    <section className="mt-5 rounded-2xl border border-white bg-white/70 p-5 shadow-sm">
+    <section className="mt-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-labelledby="rd-performance-assessment-title" aria-busy={loading}>
       {/* 头部 */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-            <BarChart3 className="h-5 w-5" />
+          <span className="flex size-9 items-center justify-center rounded-lg bg-[#eef3ff] text-[#002fa7]" aria-hidden="true">
+            <BarChart3 className="size-5" />
           </span>
           <div>
-            <h2 className="flex items-center gap-2 text-base font-bold text-slate-900">
+            <h2 id="rd-performance-assessment-title" className="flex items-center gap-2 text-balance text-base font-bold text-slate-900">
               {t("团队绩效考核")}
               {data ? (
                 <Popover>
@@ -411,13 +418,13 @@ export function RDPerformanceAssessmentPanel() {
                       <Info className="h-3 w-3" /> {t("考核口径")}
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="w-96 p-3">
+                  <PopoverContent align="start" className="w-[calc(100vw-2rem)] max-w-96 p-3">
                     <div className="mb-1.5 text-sm font-semibold text-slate-800">{t("考核口径说明")}</div>
                     <ul className="space-y-1.5 text-xs leading-relaxed text-slate-600">
                       {data.notes.map((n, i) => (
                         <li key={i} className="flex gap-1.5">
-                          <span className="text-indigo-400">·</span>
-                          <span>{t(n)}</span>
+                          <span className="text-[#466ac5]" aria-hidden="true">·</span>
+                          <span className="text-pretty">{t(n)}</span>
                         </li>
                       ))}
                     </ul>
@@ -425,7 +432,7 @@ export function RDPerformanceAssessmentPanel() {
                 </Popover>
               ) : null}
             </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
+            <p className="mt-0.5 text-pretty text-xs text-slate-600">
               {t("交付质量 + 吞吐 + MateChat 活跃度 · 综合分与相对排名 · 近 {days} 天趋势", { days: data?.window_days ?? 30 })}
             </p>
           </div>
@@ -436,28 +443,23 @@ export function RDPerformanceAssessmentPanel() {
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("正在统计")}
             </span>
           ) : null}
-          <button
-            type="button"
-            onClick={load}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> {t("刷新")}
-          </button>
+          <Button type="button" variant="outline" size="sm" onClick={load} disabled={loading}>
+            <RefreshCw className={cn("size-3.5", loading && "animate-spin")} aria-hidden="true" /> {t("刷新")}
+          </Button>
         </div>
       </div>
 
       {error && !loading ? (
-        <button
-          type="button"
-          onClick={load}
-          className="w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100"
-        >
-          {error} · {t("点击重试")}
-        </button>
+        <div className="mb-4 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between" role="alert">
+          <div className="min-w-0">
+            <p className="font-semibold text-amber-900">{data ? t("绩效数据刷新失败") : t("绩效考核数据读取失败")}</p>
+            <p className="mt-1 break-words text-pretty text-xs text-amber-800">{error}{data ? ` · ${t("当前继续显示上一次成功结果。")}` : ""}</p>
+          </div>
+          <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={load}>{t("重新统计")}</Button>
+        </div>
       ) : null}
 
-      {!error && data ? (
+      {data ? (
         <>
           {/* 团队概览 */}
           <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
@@ -465,7 +467,7 @@ export function RDPerformanceAssessmentPanel() {
               label={t("参与排名")}
               value={t("{count} 人", { count: data.team.ranked_people })}
               sub={t("≥1 已评分完成任务")}
-              tone="text-indigo-600"
+              tone="text-[#002fa7]"
             />
             <SummaryStat label={t("综合分均值")} value={fmt(data.team.avg_composite)} tone="text-slate-800" />
             <SummaryStat
@@ -483,7 +485,7 @@ export function RDPerformanceAssessmentPanel() {
               label={t("MateChat 发言")}
               value={String(data.team.chat_total)}
               sub={t("全员累计")}
-              tone="text-violet-600"
+              tone="text-[#002fa7]"
             />
             <div className="col-span-2 rounded-xl border border-slate-100 bg-white px-3 py-2 shadow-sm sm:col-span-1 lg:col-span-1">
               <div className="mb-1 text-[10px] font-medium text-slate-500">{t("团队月度均分")}</div>
@@ -493,21 +495,23 @@ export function RDPerformanceAssessmentPanel() {
 
           {/* 排名表 */}
           {data.rows.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-10 text-center text-sm text-slate-500">
-              {t("暂无可考核的成员数据。当主管在「成果审核」通过任务后，系统会自动评分并计入考核。")}
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-600" role="status">
+              <p className="mx-auto max-w-xl text-pretty">{t("暂无可考核的成员数据。当主管在「成果审核」通过任务后，系统会自动评分并计入考核。")}</p>
+              <Button type="button" variant="outline" size="sm" className="mt-4" onClick={load}>{t("重新统计")}</Button>
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-slate-100">
               <table className="w-full min-w-[820px] text-left">
+                <caption className="sr-only">{t("研发团队绩效排名与评分明细")}</caption>
                 <thead>
-                  <tr className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="px-3 py-2.5 text-center">{t("排名")}</th>
-                    <th className="px-3 py-2.5">{t("成员")}</th>
-                    <th className="px-3 py-2.5 text-center">{t("综合分")}</th>
-                    <th className="px-3 py-2.5">{t("交付质量 / 等级分布")}</th>
-                    <th className="px-3 py-2.5 text-center">{t("完成数")}</th>
-                    <th className="px-3 py-2.5 text-center">{t("AI 活跃度")}</th>
-                    <th className="px-3 py-2.5">{t("近 30 天趋势")}</th>
+                  <tr className="bg-slate-50 text-[11px] font-semibold text-slate-600">
+                    <th scope="col" className="px-3 py-2.5 text-center">{t("排名")}</th>
+                    <th scope="col" className="px-3 py-2.5">{t("成员")}</th>
+                    <th scope="col" className="px-3 py-2.5 text-center">{t("综合分")}</th>
+                    <th scope="col" className="px-3 py-2.5">{t("交付质量 / 等级分布")}</th>
+                    <th scope="col" className="px-3 py-2.5 text-center">{t("完成数")}</th>
+                    <th scope="col" className="px-3 py-2.5 text-center">{t("AI 活跃度")}</th>
+                    <th scope="col" className="px-3 py-2.5">{t("近 30 天趋势")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -535,9 +539,9 @@ export function RDPerformanceAssessmentPanel() {
         </>
       ) : null}
 
-      {!error && !data && loading ? (
-        <div className="flex items-center justify-center py-10 text-sm text-slate-400">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t("正在加载绩效数据…")}
+      {!data && loading ? (
+        <div className="grid gap-3 py-4 sm:grid-cols-2 lg:grid-cols-4" role="status" aria-label={t("正在加载绩效数据")}>
+          {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-20 rounded-lg border border-slate-200 bg-slate-50" aria-hidden="true" />)}
         </div>
       ) : null}
     </section>

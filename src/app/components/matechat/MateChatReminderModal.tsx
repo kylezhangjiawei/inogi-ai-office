@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Flame, Sparkles, X } from 'lucide-react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { Flame, Sparkles } from 'lucide-react';
 import { useLocation } from 'react-router';
 
 import { useAuth } from '../../auth';
 import { chatStreakApi, type MateChatStreak } from '../../lib/chatStreakApi';
 import { useI18n } from '../../lib/i18n';
 import { openMateChat } from './openMateChat';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 
 type Period = 'am' | 'pm';
 
@@ -39,7 +39,6 @@ export function MateChatReminderModal() {
   const { lang, t } = useI18n();
   const { user } = useAuth();
   const location = useLocation();
-  const reduce = useReducedMotion();
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<MateChatStreak | null>(null);
   const checkingRef = useRef(false);
@@ -122,15 +121,6 @@ export function MateChatReminderModal() {
 
   const close = useCallback(() => setOpen(false), []);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, close]);
-
   const goChat = () => {
     openMateChat();
     close();
@@ -139,108 +129,53 @@ export function MateChatReminderModal() {
   const streak = data?.currentStreak ?? 0;
 
   return (
-    <AnimatePresence>
-      {open && data && (
-        <motion.div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="matechat-reminder-title"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={close}
-        >
-          <motion.div
-            className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl"
-            initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.85, y: 28 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.9, y: 14 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* 头图：复用当天吉祥物场景图，融入白色内容区 */}
-            <div className="relative h-44 overflow-hidden">
-              {data.mascotUrl ? (
-                <motion.img
-                  src={data.mascotUrl}
-                  alt=""
-                  className="absolute inset-0 h-full w-full object-cover"
-                  initial={reduce ? false : { scale: 1.12, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ duration: 0.6, ease: 'easeOut' }}
-                />
-              ) : (
-                <div className="absolute inset-0 bg-gradient-to-br from-indigo-600 via-blue-700 to-[#026fc2]" />
-              )}
-              <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-white via-white/70 to-transparent" />
-              <motion.div
-                className="absolute left-4 top-4 flex items-center gap-1.5 rounded-full bg-black/35 px-3 py-1 text-white backdrop-brightness-95"
-                initial={reduce ? false : { opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-              >
-                <motion.span
-                  animate={reduce ? undefined : { scale: [1, 1.15, 1] }}
-                  transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-                >
-                  <Flame className="h-4 w-4 fill-amber-400 text-amber-300" />
-                </motion.span>
-                <span className="text-sm font-bold tabular-nums">{t('{n} 天', { n: streak })}</span>
-              </motion.div>
+    <Dialog open={open && Boolean(data)} onOpenChange={(nextOpen) => { if (!nextOpen) close(); }}>
+      {data && (
+        <DialogContent className="horizon-theme matechat-reminder-horizon gap-0 overflow-hidden border-[#e9edf7] bg-white p-0 shadow-xl sm:max-w-sm [&>button.absolute]:bg-white [&>button.absolute]:text-slate-600 [&>button.absolute]:opacity-100">
+          {/* 头图：复用当天吉祥物场景图；无图时使用 Klein Blue 纯色底。 */}
+          <div className="relative h-44 overflow-hidden border-b border-[#e9edf7] bg-[#002fa7]">
+            {data.mascotUrl ? (
+              <img
+                src={data.mascotUrl}
+                alt=""
+                className="absolute inset-0 size-full object-cover"
+              />
+            ) : null}
+            <div className="absolute inset-0 bg-slate-950/40" />
+            <div className="absolute left-4 top-4 flex items-center gap-1.5 rounded-full bg-slate-950/60 px-3 py-1 text-white">
+              <Flame className="size-4 fill-amber-400 text-amber-300" />
+              <span className="text-sm font-bold tabular-nums">{t('{n} 天', { n: streak })}</span>
             </div>
+          </div>
 
+          <DialogHeader className="px-6 pb-1 pt-5 text-center sm:text-center">
+            <DialogTitle className="text-balance text-lg font-bold text-slate-900">
+              {streak > 0 ? t('别断了连续 {n} 天！', { n: streak }) : t('今天还没用 MateChat 哦')}
+            </DialogTitle>
+            <DialogDescription className="mt-2 flex items-start justify-center gap-1.5 text-pretty text-sm leading-6 text-slate-600">
+              <Sparkles className="mt-0.5 size-4 shrink-0 text-[#002fa7]" />
+              <span>{lang === 'en' ? t('今天也用 MateChat 保持连续记录吧！') : data.message}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-2 px-6 pb-6 pt-4">
+            <button
+              type="button"
+              onClick={goChat}
+              className="w-full rounded-xl bg-[#002fa7] px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#001f73]"
+            >
+              {t('立即去用 MateChat')}
+            </button>
             <button
               type="button"
               onClick={close}
-              aria-label={t('关闭')}
-              className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/25 text-white transition-colors hover:bg-black/40"
+              className="w-full rounded-xl px-4 py-2 text-sm font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700"
             >
-              <X className="h-4 w-4" />
+              {t('稍后再说')}
             </button>
-
-            {/* 内容 */}
-            <div className="px-6 pb-6 pt-1 text-center">
-              <motion.h2
-                id="matechat-reminder-title"
-                className="text-lg font-bold text-slate-900"
-                initial={reduce ? false : { opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.15 }}
-              >
-                {streak > 0 ? t('别断了连续 {n} 天！', { n: streak }) : t('今天还没用 MateChat 哦')}
-              </motion.h2>
-              <motion.p
-                className="mt-2 flex items-start justify-center gap-1.5 text-sm leading-6 text-slate-600"
-                initial={reduce ? false : { opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.22 }}
-              >
-                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
-                <span>{lang === 'en' ? t('今天也用 MateChat 保持连续记录吧！') : data.message}</span>
-              </motion.p>
-              <div className="mt-5 flex flex-col gap-2">
-                <motion.button
-                  type="button"
-                  onClick={goChat}
-                  whileHover={reduce ? undefined : { scale: 1.02 }}
-                  whileTap={reduce ? undefined : { scale: 0.98 }}
-                  className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-700"
-                >
-                  {t('立即去用 MateChat')}
-                </motion.button>
-                <button
-                  type="button"
-                  onClick={close}
-                  className="w-full rounded-xl px-4 py-2 text-sm font-medium text-slate-400 transition-colors hover:text-slate-600"
-                >
-                  {t('稍后再说')}
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        </motion.div>
+          </div>
+        </DialogContent>
       )}
-    </AnimatePresence>
+    </Dialog>
   );
 }

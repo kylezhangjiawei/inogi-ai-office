@@ -110,6 +110,16 @@ import {
   DialogTitle,
 } from "./components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -169,7 +179,7 @@ import { backfillKbToRag } from "./lib/ragApi";
 // 用 Context 把 kbId 下发给所有子组件（缩略图 / 预览 / 编辑 / 上传弹窗），避免逐层 prop 透传。
 const KbScopeContext = React.createContext<string | undefined>(undefined);
 const useKbId = () => React.useContext(KbScopeContext);
-/** Portal 弹层仍保留 React Context；借此只给原生研发实例挂 Horizon 类。 */
+/** Portal 弹层仍保留 React Context；研发、部门与协同实例统一继承 Horizon 类。 */
 const KbHorizonVariantContext = React.createContext(false);
 const useKbHorizonVariant = () => React.useContext(KbHorizonVariantContext);
 
@@ -2582,7 +2592,7 @@ export function RDKnowledgeBasePage({
   kbScope?: KbScope;
   /** 插在工具条最前面的额外控件（知识库统一入口用它放「切换库」下拉）。 */
   toolbarLeading?: React.ReactNode;
-  /** 仅原生研发知识库显式启用的 Horizon 视觉；部门库与协同库不得继承。 */
+  /** 显式启用知识库 Horizon 视觉；适用于研发库与带 kbId 的 scoped 知识库。 */
   visualVariant?: "rd-horizon";
 } = {}) {
   useI18n(); // 订阅语言切换（工具栏/上传按钮等文案已 t() 化）
@@ -2590,7 +2600,7 @@ export function RDKnowledgeBasePage({
 
   // 作用域：研发库 kbId=undefined（rd-kb:* 权限 + /knowledge 接口）；部门库 kbId=部门 id（dept-kb:* 权限 + /dept-knowledge 接口）
   const kbId = kbScope?.kbId;
-  const horizonVariant = visualVariant === "rd-horizon" && !kbId;
+  const horizonVariant = visualVariant === "rd-horizon";
   const userPerms = user?.permissions ?? [];
   // 按作用域选用的一套权限码：研发库用 rd-kb:*，部门库用共用的 dept-kb:*
   const P = kbId
@@ -2745,9 +2755,13 @@ export function RDKnowledgeBasePage({
   // KB→RAG 一键回填：把知识库全部条目重新灌入向量索引，让 MateChat 能检索内部资料。
   // 适用场景：首次开启 RAG / 切换 Embedding 模型后 / 清理脏数据后。重复执行安全（幂等覆盖）。
   const [backfillingRag, setBackfillingRag] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showRagConfirm, setShowRagConfirm] = useState(false);
+  const [ragBackfillError, setRagBackfillError] = useState<string | null>(null);
+  const ragMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const handleBackfillRag = useCallback(async () => {
     if (backfillingRag) return;
-    if (!window.confirm('将把知识库全部条目重新同步到 RAG 向量索引（按条调用 Embedding 模型，条目较多时可能耗时）。确定现在执行吗？')) return;
+    setRagBackfillError(null);
     setBackfillingRag(true);
     try {
       const res = await backfillKbToRag();
@@ -2756,8 +2770,11 @@ export function RDKnowledgeBasePage({
           ? `RAG 回填完成：成功索引 ${res.succeeded}/${res.total} 条，失败 ${res.failed} 条`
           : `RAG 回填完成：已索引 ${res.succeeded}/${res.total} 条知识库条目`,
       );
+      setShowRagConfirm(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'RAG 回填失败，请稍后重试');
+      const message = err instanceof Error ? err.message : 'RAG 回填失败，请稍后重试';
+      setRagBackfillError(message);
+      toast.error(message);
     } finally {
       setBackfillingRag(false);
     }
@@ -3015,7 +3032,7 @@ export function RDKnowledgeBasePage({
     <div
       className={cn(
         "relative h-full overflow-hidden bg-slate-50/30 flex flex-col text-slate-900",
-        horizonVariant && "rd-horizon-module rd-horizon-kb",
+        horizonVariant && "horizon-theme hz-page rd-horizon-module rd-horizon-kb",
       )}
       onDragEnter={handlePageDragEnter}
       onDragOver={handlePageDragOver}
@@ -3133,34 +3150,90 @@ export function RDKnowledgeBasePage({
 
           {/* 更多：修复文件名 / RAG 回填（仅研发库管理员） */}
           {!kbId && canManage && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="rd-kb-toolbar-action h-9 w-9 rounded-lg border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200"
-                  title={t("更多操作")}
+            <AlertDialog
+              open={showRagConfirm}
+              onOpenChange={(open) => {
+                if (!open && backfillingRag) return;
+                setShowRagConfirm(open);
+                setRagBackfillError(null);
+              }}
+            >
+              <DropdownMenu open={showMoreMenu} onOpenChange={setShowMoreMenu}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    ref={ragMenuTriggerRef}
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="rd-kb-toolbar-action h-9 w-9 rounded-lg border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200"
+                    title={t("更多操作")}
+                    aria-label={t("更多操作")}
+                  >
+                    <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className={cn("w-48", horizonVariant && "rd-horizon-kb-menu")}
                 >
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className={cn("w-48", horizonVariant && "rd-horizon-kb-menu")}
-              >
-                <DropdownMenuItem onClick={handleRepairFilenames} disabled={repairing} className="gap-2">
-                  <Wrench className={cn('h-4 w-4', repairing && 'animate-spin')} />
-                  {repairing ? t("修复中…") : t("修复文件名乱码")}
-                </DropdownMenuItem>
-                {hasLegacyManage && (
-                  <DropdownMenuItem onClick={handleBackfillRag} disabled={backfillingRag} className="gap-2">
-                    <DatabaseZap className={cn('h-4 w-4', backfillingRag && 'animate-pulse')} />
-                    {backfillingRag ? t("RAG 回填中…") : t("RAG 回填")}
+                  <DropdownMenuItem onClick={handleRepairFilenames} disabled={repairing} className="gap-2">
+                    <Wrench className={cn('h-4 w-4', repairing && 'animate-spin')} aria-hidden="true" />
+                    {repairing ? t("修复中…") : t("修复文件名乱码")}
                   </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  {hasLegacyManage && (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        setShowMoreMenu(false);
+                        setRagBackfillError(null);
+                        setShowRagConfirm(true);
+                      }}
+                      disabled={backfillingRag}
+                      className="gap-2"
+                    >
+                      <DatabaseZap className="h-4 w-4" aria-hidden="true" />
+                      {t("RAG 回填")}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <AlertDialogContent
+                className={cn("horizon-portal max-w-lg", horizonVariant && "rd-horizon-kb-dialog")}
+                onCloseAutoFocus={(event) => {
+                  event.preventDefault();
+                  window.requestAnimationFrame(() => ragMenuTriggerRef.current?.focus());
+                }}
+              >
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="text-balance">{t("重新同步 RAG 向量索引？")}</AlertDialogTitle>
+                  <AlertDialogDescription className="text-pretty leading-6">
+                    {t("将把知识库全部条目重新同步到 RAG 向量索引，并按条调用 Embedding 模型。条目较多时可能耗时，执行期间请勿重复提交。")}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                {ragBackfillError ? (
+                  <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-pretty text-sm text-red-700">
+                    {ragBackfillError}
+                  </div>
+                ) : null}
+                <AlertDialogFooter>
+                  <AlertDialogCancel type="button" disabled={backfillingRag}>
+                    {t("取消")}
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    type="button"
+                    disabled={backfillingRag}
+                    className="hz-primary-action"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void handleBackfillRag();
+                    }}
+                  >
+                    {backfillingRag ? t("RAG 回填中…") : t("确认重新同步")}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
 
           {/* 成员权限分值（仅分值过滤启用的部门库 + 库管理员） */}

@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, PackageSearch, ShieldCheck, Truck } from "lucide-react";
+import { useDeferredValue, useId, useMemo, useState, type ReactNode } from "react";
+import { AlertTriangle, PackageSearch, ShieldCheck, Truck, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { AutoTranslatedText } from "../../components/TranslatableText";
@@ -62,18 +62,20 @@ function stockState(material: Material): { tone: StockTone; label: string } {
 }
 
 const TONE_CLASS: Record<StockTone, { badge: string; value: string; icon: typeof ShieldCheck }> = {
-  normal: { badge: "bg-emerald-50 text-emerald-700", value: "text-emerald-700", icon: ShieldCheck },
-  low: { badge: "bg-amber-50 text-amber-700", value: "text-amber-700", icon: AlertTriangle },
-  shortage: { badge: "bg-rose-50 text-rose-700", value: "text-rose-700", icon: AlertTriangle },
-  missing: { badge: "bg-slate-100 text-slate-500", value: "text-slate-500", icon: PackageSearch },
+  normal: { badge: "border-emerald-200 bg-emerald-50 text-emerald-700", value: "text-emerald-700", icon: ShieldCheck },
+  low: { badge: "border-amber-200 bg-amber-50 text-amber-700", value: "text-amber-700", icon: AlertTriangle },
+  shortage: { badge: "border-rose-200 bg-rose-50 text-rose-700", value: "text-rose-700", icon: AlertTriangle },
+  missing: { badge: "border-slate-200 bg-slate-100 text-slate-600", value: "text-slate-600", icon: PackageSearch },
 };
 
 export function TaskCriticalMaterials({
   task,
   materials,
+  compact = false,
 }: {
   task: ProcurementTask;
   materials: Material[];
+  compact?: boolean;
 }) {
   const { t } = useI18n();
   const configured = useMemo(() => {
@@ -87,10 +89,37 @@ export function TaskCriticalMaterials({
 
   if (configured.length === 0) return null;
 
+  if (compact) {
+    const states = configured.map(({ material }) => stockState(material));
+    const shortages = states.filter((state) => state.tone === "shortage").length;
+    const lows = states.filter((state) => state.tone === "low").length;
+    const missing = states.filter((state) => state.tone === "missing").length;
+    const tone: StockTone = shortages > 0 ? "shortage" : lows > 0 ? "low" : missing > 0 ? "missing" : "normal";
+    const ToneIcon = TONE_CLASS[tone].icon;
+    const summary = shortages > 0
+      ? t("{count} 项缺货", { count: shortages })
+      : lows > 0
+        ? t("{count} 项库存偏低", { count: lows })
+        : missing > 0
+          ? t("{count} 项待同步", { count: missing })
+          : t("库存正常");
+
+    return (
+      <div className="proc-horizon-critical-summary flex min-w-0 items-center gap-2 border-y border-slate-100 py-2 text-[10px]">
+        <PackageSearch aria-hidden="true" className="size-3.5 shrink-0 text-[#002fa7]" />
+        <span className="font-semibold text-slate-500">{t("重点库存")}</span>
+        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 tabular-nums text-slate-500">{configured.length}</span>
+        <span className={cn("ml-auto inline-flex shrink-0 items-center gap-1 font-semibold", TONE_CLASS[tone].value)}>
+          <ToneIcon aria-hidden="true" className="size-3" />{summary}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500">
-        <PackageSearch className="size-3.5 text-indigo-500" />
+        <PackageSearch aria-hidden="true" className="size-3.5 text-[#002fa7]" />
         {t("重点库存")}
         <span className="rounded-full bg-white px-1.5 py-0.5 tabular-nums text-slate-500">
           {configured.length}
@@ -104,12 +133,12 @@ export function TaskCriticalMaterials({
           const StateIcon = tone.icon;
           const hasInventory = Boolean(material.tpInventoryCode && material.inventorySyncedAt);
           return (
-            <div key={material.id} className="flex min-w-0 items-center gap-1.5 rounded-md bg-white px-2 py-1.5 text-[10px]">
+            <div key={material.id} className="flex min-w-0 items-center gap-1.5 rounded-md border border-slate-100 bg-white px-2 py-1.5 text-[10px]" data-stock-state={state.tone}>
               <span className="min-w-0 flex-1 truncate font-semibold text-slate-700">
                 <AutoTranslatedText as="span" text={material.name} />
               </span>
-              <span className={cn("inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 font-semibold", tone.badge)}>
-                <StateIcon className="size-2.5" />
+              <span className={cn("inline-flex shrink-0 items-center gap-0.5 rounded border px-1 py-0.5 font-semibold", tone.badge)}>
+                <StateIcon aria-hidden="true" className="size-2.5" />
                 {t(state.label)}
               </span>
               <span className={cn("shrink-0 tabular-nums", tone.value)}>
@@ -119,7 +148,7 @@ export function TaskCriticalMaterials({
                 {t("安全")} {formatQuantity(material.safeStock)}
               </span>
               <span className="hidden shrink-0 tabular-nums text-slate-500 xl:inline">
-                <Truck className="mr-0.5 inline size-2.5" />{t("在途")} {formatQuantity(material.inTransitQty)}
+                <Truck aria-hidden="true" className="mr-0.5 inline size-2.5" />{t("在途")} {formatQuantity(material.inTransitQty)}
               </span>
               {setting.leadTimeDays != null ? (
                 <span className="shrink-0 tabular-nums text-slate-400">
@@ -150,11 +179,15 @@ export function TaskCriticalMaterialsEditor({
   const [leadTimeById, setLeadTimeById] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const searchId = useId();
+  const normalizedSearch = search.trim().toLowerCase();
+  const deferredSearch = useDeferredValue(normalizedSearch);
+  const searchPending = deferredSearch !== normalizedSearch;
 
   const configRows = useMemo(() => {
     if (!editorOpen) return [];
     const materialById = syncedMaterialIndex(materials);
-    const keyword = search.trim().toLowerCase();
+    const keyword = deferredSearch;
     const selectedSet = new Set(selectedIds);
     const selected = selectedIds.flatMap((id) => {
       const material = materialById.get(id);
@@ -169,7 +202,7 @@ export function TaskCriticalMaterialsEditor({
       if (matches.length < CONFIG_ROW_LIMIT) matches.push(material);
     }
     return [...selected, ...matches];
-  }, [editorOpen, materials, search, selectedIds]);
+  }, [deferredSearch, editorOpen, materials, selectedIds]);
 
   const openEditor = () => {
     const materialById = syncedMaterialIndex(materials);
@@ -232,7 +265,7 @@ export function TaskCriticalMaterialsEditor({
 
       <Dialog open={editorOpen} onOpenChange={(open) => { if (!saving) setEditorOpen(open); }}>
         <DialogContent
-          className="flex max-h-[85dvh] max-w-2xl flex-col overflow-hidden"
+          className="horizon-theme horizon-portal proc-horizon-overlay flex max-h-[85dvh] max-w-2xl flex-col overflow-hidden"
           onClick={(event) => event.stopPropagation()}
         >
           <DialogHeader>
@@ -246,15 +279,31 @@ export function TaskCriticalMaterialsEditor({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex items-center gap-3">
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={t("搜索物料名称、规格或编码")}
-              aria-label={t("搜索任务重点物料")}
-            />
-            <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-500">
-              {t("已选")} {selectedIds.length}/{MAX_TASK_CRITICAL_MATERIALS}
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
+            <label htmlFor={searchId} className="min-w-0">
+              <span className="mb-1 block text-[11px] font-semibold text-slate-600">{t("搜索重点物料")}</span>
+              <span className="relative block">
+                <Input
+                  id={searchId}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder={t("物料名称、规格、ERP 或 T+ 编码")}
+                  className="pr-9"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    aria-label={t("清空重点物料搜索")}
+                    onClick={() => setSearch("")}
+                    className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  >
+                    <X aria-hidden="true" className="size-3.5" />
+                  </button>
+                )}
+              </span>
+            </label>
+            <span aria-live="polite" aria-busy={searchPending} className="mb-2 shrink-0 text-xs font-semibold tabular-nums text-slate-500">
+              {searchPending ? t("筛选中") : `${t("已选")} ${selectedIds.length}/${MAX_TASK_CRITICAL_MATERIALS}`}
             </span>
           </div>
 
@@ -299,11 +348,18 @@ export function TaskCriticalMaterialsEditor({
                 </div>
               );
             })}
-            {configRows.length === 0 ? (
-              <div className="px-4 py-10 text-center text-sm text-slate-400">
-                {t(search.trim()
-                  ? "没有匹配的物料"
-                  : "没有可配置的物料，请先到物料库完成 T+ 关联和库存同步")}
+            {!searchPending && configRows.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+                <p className="max-w-md text-pretty text-sm text-slate-500">
+                  {t(search.trim()
+                    ? "没有匹配的物料，可清除搜索查看全部候选"
+                    : "没有可配置的物料，请先到物料库完成 T+ 关联和库存同步")}
+                </p>
+                {search.trim() && (
+                  <button type="button" onClick={() => setSearch("")} className="material-button-secondary px-3 py-2 text-xs">
+                    {t("清除搜索")}
+                  </button>
+                )}
               </div>
             ) : null}
           </div>

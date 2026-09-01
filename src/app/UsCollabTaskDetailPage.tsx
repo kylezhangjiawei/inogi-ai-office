@@ -14,6 +14,7 @@ import {
   MessageCircleMore,
   Pencil,
   RefreshCw,
+  ShieldAlert,
   Moon,
   Sparkles,
   Sun,
@@ -23,7 +24,14 @@ import { toast } from "sonner";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "./components/ui/utils";
 import { Button } from "./components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
 import { Progress } from "./components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
@@ -32,6 +40,7 @@ import { useAnyPermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
+import { HorizonEmptyState, HorizonPageHeader } from "./components/horizon/HorizonPage";
 import { PERMISSIONS } from "./lib/permissions";
 import { t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
@@ -180,6 +189,11 @@ export default function UsCollabTaskDetailPage() {
   const [composerItemId, setComposerItemId] = useState("");
   const [sendingNote, setSendingNote] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const editTaskButtonRef = useRef<HTMLButtonElement>(null);
+  const closeEditInfo = useCallback(() => {
+    setShowEditInfo(false);
+    window.requestAnimationFrame(() => editTaskButtonRef.current?.focus());
+  }, []);
   const mentionCandidates = useMemo<MentionCandidate[]>(() => {
     const seen = new Set<string>();
     const out: MentionCandidate[] = [];
@@ -204,12 +218,12 @@ export default function UsCollabTaskDetailPage() {
   );
 
   // 视口内布局的可用高度：实测容器到视口顶的距离（覆盖全局顶栏/面包屑/内边距的任意组合），
-  // 不猜固定偏移。lg 以下返回 null 走自然文档流。
+  // 不猜固定偏移。xl 以下仍是单列，返回 null 走自然文档流，避免 1024–1279px 被固定高度裁切。
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   useEffect(() => {
     const measure = () => {
-      if (!rootRef.current || window.innerWidth < 1024) {
+      if (!rootRef.current || window.innerWidth < 1280) {
         setViewportHeight(null);
         return;
       }
@@ -403,9 +417,10 @@ export default function UsCollabTaskDetailPage() {
       return;
     }
     const changes: { field: string; before: string; after: string }[] = [];
-    const titleChanged = title !== task.title;
+    const currentTitle = task.title ?? "";
+    const titleChanged = title !== currentTitle;
     const descChanged = nextDescription !== (task.description ?? "");
-    if (titleChanged) changes.push({ field: "title", before: task.title, after: title });
+    if (titleChanged) changes.push({ field: "title", before: currentTitle, after: title });
     if (descChanged) {
       // 从首个差异处截取摘要：长描述只改结尾时，头 120 字相同会记出 before===after 的无效 diff
       const before = task.description ?? "";
@@ -416,7 +431,7 @@ export default function UsCollabTaskDetailPage() {
       changes.push({ field: "description", before: clip(before), after: clip(nextDescription) });
     }
     if (changes.length === 0) {
-      setShowEditInfo(false);
+      closeEditInfo();
       return;
     }
     // 只提交实际变更的字段，避免把 undefined 描述静默覆写成空串
@@ -426,7 +441,7 @@ export default function UsCollabTaskDetailPage() {
     });
     setTask((prev) => (prev ? { ...prev, title, description: nextDescription } : prev));
     setAllTasks((prev) => prev.map((item) => (item.task_id === task.task_id ? { ...item, title, description: nextDescription } : item)));
-    setShowEditInfo(false);
+    closeEditInfo();
     toast.success(t("任务信息已更新"));
   };
 
@@ -577,16 +592,25 @@ export default function UsCollabTaskDetailPage() {
 
   if (!canView) {
     return (
-      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
-        <div className="text-4xl">🔒</div>
-        <p className="text-base font-medium">{t("您没有访问此页面的权限")}</p>
+      <div className="horizon-theme hz-page mx-auto flex min-h-[40vh] w-full max-w-[1500px] items-center justify-center px-4 py-6" role="alert">
+        <HorizonEmptyState
+          Icon={ShieldAlert}
+          title={t("您没有访问此页面的权限")}
+          description={t("如需查看协同任务档案，请联系管理员开通协同驾驶舱或协同工作台权限。")}
+          action={(
+            <Button type="button" variant="outline" onClick={() => navigate(cockpitReturnPath)}>
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              {t("返回驾驶舱")}
+            </Button>
+          )}
+        />
       </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center gap-2 text-sm text-slate-400">
+      <div className="horizon-theme hz-page mx-auto flex min-h-[40vh] w-full max-w-[1500px] items-center justify-center gap-2 px-4 py-6 text-sm text-slate-500" role="status" aria-live="polite">
         <Loader2 className="h-4 w-4 animate-spin" />
         {t("正在加载任务…")}
       </div>
@@ -595,16 +619,24 @@ export default function UsCollabTaskDetailPage() {
 
   if (!task) {
     return (
-      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
-        <AlertTriangle className="h-8 w-8 text-amber-400" />
-        <p className="text-sm">{loadError || t("任务不存在")}</p>
-        <button
-          type="button"
-          onClick={() => navigate(cockpitReturnPath)}
-          className="cursor-pointer rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
-        >
-          {t("返回驾驶舱")}
-        </button>
+      <div className="horizon-theme hz-page mx-auto flex min-h-[40vh] w-full max-w-[1500px] items-center justify-center px-4 py-6">
+        <HorizonEmptyState
+          Icon={AlertTriangle}
+          title={t("无法打开协同任务")}
+          description={loadError || t("任务不存在，可能已被归档或移除。")}
+          action={(
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button type="button" variant="outline" onClick={() => void loadTask()}>
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                {t("重新加载")}
+              </Button>
+              <Button type="button" onClick={() => navigate(cockpitReturnPath)}>
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                {t("返回驾驶舱")}
+              </Button>
+            </div>
+          )}
+        />
       </div>
     );
   }
@@ -613,8 +645,9 @@ export default function UsCollabTaskDetailPage() {
   const pCfg = PRIORITY_CONFIG[task.final_priority] ?? PRIORITY_CONFIG.medium;
   const blockedDays = blockedDaysOf(task);
   const workItems = task.work_items ?? [];
+  const displayTaskTitle = task.title?.trim() || t("未命名协同任务");
 
-  // 大屏（lg+）视口内布局：整页不滚，AI 小结/时间线各自内滚；窄屏维持自然文档流
+  // 大屏（xl+）视口内布局：整页不滚，AI 小结/时间线各自内滚；窄屏维持自然文档流
   return (
     <TaskImageGalleryScope notes={notes}>
       <motion.div
@@ -623,93 +656,95 @@ export default function UsCollabTaskDetailPage() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       style={viewportHeight ? { height: viewportHeight } : undefined}
-      className="mx-auto flex max-w-[1200px] flex-col gap-4 px-2 pt-4 sm:px-4"
+      className="horizon-theme hz-page rd-horizon-module rd-horizon-us-detail mx-auto flex w-full max-w-[1500px] min-w-0 flex-col gap-4 overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5"
     >
-      {/* ── 顶部：返回 + 标题 + 徽章 ── */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3">
-        {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
-        <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)} className="gap-1">
-          <ArrowLeft className="h-3.5 w-3.5" />
-          {t("返回")}
-        </Button>
-        {/* 序列导航：按驾驶舱同口径顺序穿行任务（j/k 快捷键同效） */}
-        {seqIndex >= 0 && taskSeq.length > 1 && (
-          <div className="flex items-center gap-0.5">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => gotoSeq(-1)}
-              disabled={seqIndex <= 0}
-              title={t("上一条任务（k）")}
-              className="h-8 w-8 p-0"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="px-1 text-xs tabular-nums text-slate-400">{seqIndex + 1} / {taskSeq.length}</span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => gotoSeq(1)}
-              disabled={seqIndex >= taskSeq.length - 1}
-              title={t("下一条任务（j）")}
-              className="h-8 w-8 p-0"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+      <HorizonPageHeader
+        Icon={MessageCircleMore}
+        eyebrow={t("中美协同 · 任务档案")}
+        title={<AutoTranslatedText text={displayTaskTitle} />}
+        description={t("集中查看跨时区协作责任、工作项、进展证据与任务讨论。")}
+        className="rd-horizon-us-detail-command shrink-0"
+        meta={(
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="rounded-md border border-slate-200 bg-white px-2 py-1 font-mono text-[11px] text-slate-500">{task.task_id}</span>
+            <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>
+              <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
+              {t(sCfg.label)}
+            </span>
+            {canManage && !task.archived && task.status !== "completed" ? (
+              <Select value={task.final_priority} disabled={savingPriority} onValueChange={(value) => void savePriority(value as RdPriority)}>
+                <SelectTrigger
+                  className={cn(
+                    "w-auto shrink-0 gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold shadow-none",
+                    "min-h-0 data-[size=default]:h-auto data-[size=sm]:h-auto [&_svg:not([class*='size-'])]:size-3 [&_svg:not([class*='text-'])]:text-current",
+                    pCfg.bg,
+                    pCfg.text,
+                  )}
+                  aria-label={t("调整任务优先级")}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                  <SelectItem value="high">{t("高优先")}</SelectItem>
+                  <SelectItem value="medium">{t("中优先")}</SelectItem>
+                  <SelectItem value="low">{t("低优先")}</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold", pCfg.bg, pCfg.text)}>
+                {t(`${pCfg.label}优先`)}
+              </span>
+            )}
           </div>
         )}
-        <span className="font-mono text-xs text-slate-400">{task.task_id}</span>
-        <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-slate-900">
-          <AutoTranslatedText text={task.title} />
-          {canManage && !task.archived && (
-            <button
-              type="button"
-              onClick={() => setShowEditInfo(true)}
-              title={t("编辑标题与描述")}
-              className="ml-2 inline-flex cursor-pointer items-center rounded p-1 align-middle text-slate-300 transition-colors hover:bg-slate-100 hover:text-slate-600"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </h1>
-        <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>
-          <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
-          {t(sCfg.label)}
-        </span>
-        {canManage && !task.archived && task.status !== "completed" ? (
-          <Select value={task.final_priority} disabled={savingPriority} onValueChange={(value) => void savePriority(value as RdPriority)}>
-            <SelectTrigger
-              className={cn(
-                // 与旁边的状态胶囊完全同构：覆盖 shadcn 默认的 h-9/px-3/text-sm/size-4 箭头
-                "w-auto shrink-0 gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold shadow-none",
-                "min-h-0 data-[size=default]:h-auto data-[size=sm]:h-auto [&_svg:not([class*='size-'])]:size-3 [&_svg:not([class*='text-'])]:text-current",
-                pCfg.bg,
-                pCfg.text,
-              )}
-              title={t("调整任务优先级")}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-              <SelectItem value="high">{t("高优先")}</SelectItem>
-              <SelectItem value="medium">{t("中优先")}</SelectItem>
-              <SelectItem value="low">{t("低优先")}</SelectItem>
-            </SelectContent>
-          </Select>
-        ) : (
-          <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold", pCfg.bg, pCfg.text)}>
-            {t(`${pCfg.label}优先`)}
-          </span>
+        actions={(
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)}>
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("返回驾驶舱")}
+            </Button>
+            {seqIndex >= 0 && taskSeq.length > 1 ? (
+              <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1" role="group" aria-label={t("任务序列导航")}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => gotoSeq(-1)}
+                  disabled={seqIndex <= 0}
+                  aria-label={t("上一条任务（k）")}
+                  className="h-7 w-7 p-0"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="min-w-12 text-center text-xs tabular-nums text-slate-500">{seqIndex + 1} / {taskSeq.length}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => gotoSeq(1)}
+                  disabled={seqIndex >= taskSeq.length - 1}
+                  aria-label={t("下一条任务（j）")}
+                  className="h-7 w-7 p-0"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : null}
+            {canManage && !task.archived ? (
+              <Button ref={editTaskButtonRef} type="button" size="sm" onClick={() => setShowEditInfo(true)}>
+                <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                {t("编辑任务")}
+              </Button>
+            ) : null}
+          </div>
         )}
-      </div>
+      />
 
       {/* 美式 content-first 布局：主内容（描述/工作项/时间线）居左，Properties 侧栏居右（GitHub issue / Linear 范式） */}
       <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
         {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔；超高自身内滚）══ */}
         <div className="cockpit-scroll min-h-0 xl:order-2 xl:overflow-y-auto">
-        <div className="material-card divide-y divide-slate-100">
+        <div className="hz-surface overflow-hidden border divide-y divide-slate-100">
           {/* 字段节 */}
           <div className="space-y-2.5 px-4 py-3.5">
             {[
@@ -754,7 +789,7 @@ export default function UsCollabTaskDetailPage() {
                 <button
                   type="button"
                   onClick={() => setShowAddCollab(true)}
-                  className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50"
+                  className="cursor-pointer rounded-md px-1.5 py-1 text-[11px] font-semibold text-[#002fa7] transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
                 >
                   + {t("添加协作人")}
                 </button>
@@ -812,7 +847,7 @@ export default function UsCollabTaskDetailPage() {
             {/* 审批：待审核任务的通过/驳回（协同侧唯一审批入口——驾驶舱直达本页，抽屉不再打开） */}
             {canManage && task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) && (
               <>
-                <div className="rounded-lg bg-purple-50 px-3 py-2 text-xs text-purple-700">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
                   {t("待审核")}：{t(getReviewTypeMeta(task.pending_review_type)!.label)}
                 </div>
                 <Button
@@ -864,9 +899,9 @@ export default function UsCollabTaskDetailPage() {
         <div className="flex min-h-0 min-w-0 flex-col gap-4 xl:order-1">
           {/* AI 小结卡：限最大高度，超出内滚 */}
           {brief && (
-            <div className="shrink-0 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
+            <div className="shrink-0 rounded-xl border border-blue-200 bg-blue-50/70 px-4 py-3">
               <div className="mb-1 flex items-center justify-between">
-                <span className="flex items-center gap-1 text-xs font-semibold text-indigo-700">
+                <span className="flex items-center gap-1 text-xs font-semibold text-[#002fa7]">
                   <Sparkles className="h-3.5 w-3.5" />
                   {t("任务小结")}{brief.source === "local" ? t("（AI 未配置，基础事实版）") : ""}
                 </span>
@@ -874,7 +909,7 @@ export default function UsCollabTaskDetailPage() {
                   type="button"
                   onClick={() => setBrief(null)}
                   aria-label={t("关闭任务小结")}
-                  className="cursor-pointer rounded p-0.5 text-indigo-300 hover:bg-indigo-100 hover:text-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                  className="cursor-pointer rounded p-0.5 text-blue-400 transition-colors hover:bg-blue-100 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -889,7 +924,7 @@ export default function UsCollabTaskDetailPage() {
 
           {/* 任务描述 */}
           {task.description && (
-            <div className="shrink-0 material-card px-4 py-3">
+            <div className="hz-surface shrink-0 border px-4 py-3">
               <div className="mb-1.5 text-xs font-semibold text-slate-500">{t("任务描述")}</div>
               <AutoTranslatedText
                 as="p"
@@ -910,7 +945,7 @@ export default function UsCollabTaskDetailPage() {
           </div>
 
           {/* Tab：进度留痕 / 任务讨论 / 操作记录 / 附件库 —— 卡片吃掉主列剩余高度，内容区各自内滚 */}
-          <div className="material-card flex min-h-0 flex-1 flex-col overflow-hidden p-0 lg:min-h-[280px]">
+          <div className="hz-surface flex min-h-0 flex-1 flex-col overflow-hidden border p-0 lg:min-h-[280px]">
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col">
               <TabsList className="cockpit-scroll h-auto w-full shrink-0 justify-start gap-3 overflow-x-auto rounded-none border-b border-slate-200/80 bg-transparent p-0 px-3 sm:gap-5 sm:px-4">
                 {([
@@ -922,9 +957,9 @@ export default function UsCollabTaskDetailPage() {
                   <TabsTrigger
                     key={tabItem.key}
                     value={tabItem.key}
-                    className="-mb-px flex-none cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-3.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
+                    className="-mb-px flex-none cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-3.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-[#002fa7] data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
                   >
-                    {tabItem.key === "conversation" && <MessageCircleMore className="h-3.5 w-3.5 text-indigo-500" />}
+                    {tabItem.key === "conversation" && <MessageCircleMore className="h-3.5 w-3.5 text-[#002fa7]" />}
                     {tabItem.label}
                     {tabItem.count != null && tabItem.count > 0 && (
                       <span className={cn(
@@ -940,7 +975,7 @@ export default function UsCollabTaskDetailPage() {
                 <RDTaskConversation
                   key={`progress-${task.task_id}`}
                   taskId={task.task_id}
-                  taskTitle={task.title}
+                  taskTitle={displayTaskTitle}
                   notes={filteredNotes}
                   mode="progress"
                   variant="desktop"
@@ -956,7 +991,7 @@ export default function UsCollabTaskDetailPage() {
                 <RDTaskConversation
                   key={`conversation-${task.task_id}`}
                   taskId={task.task_id}
-                  taskTitle={task.title}
+                  taskTitle={displayTaskTitle}
                   notes={notes}
                   mode="task"
                   variant="desktop"
@@ -1003,7 +1038,7 @@ export default function UsCollabTaskDetailPage() {
                                   download={att.name}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#002fa7] hover:text-blue-800"
                                 >
                                   <Download className="h-3 w-3" />
                                   {t("下载")}
@@ -1134,16 +1169,16 @@ export default function UsCollabTaskDetailPage() {
       {/* ── 管理弹窗 ── */}
       {showEditInfo && (
         <EditTaskInfoDialog
-          initialTitle={task.title}
+          initialTitle={task.title ?? ""}
           initialDescription={task.description ?? ""}
           onConfirm={handleEditInfo}
-          onCancel={() => setShowEditInfo(false)}
+          onCancel={closeEditInfo}
         />
       )}
       {showHandover && (
         <HandoverDialog
           taskId={task.task_id}
-          taskTitle={task.title}
+          taskTitle={displayTaskTitle}
           currentOwner={task.primary_owner}
           people={people}
           onConfirm={handleHandover}
@@ -1152,7 +1187,7 @@ export default function UsCollabTaskDetailPage() {
       )}
       {showAddCollab && (
         <AddCollaboratorsDialog
-          taskTitle={task.title}
+          taskTitle={displayTaskTitle}
           currentOwner={task.primary_owner}
           existingCollaborators={task.collaborators ?? []}
           people={people}
@@ -1162,7 +1197,7 @@ export default function UsCollabTaskDetailPage() {
       )}
       {showComplete && (
         <CompleteConfirmDialog
-          taskTitle={task.title}
+          taskTitle={displayTaskTitle}
           submitting={submitting}
           onConfirm={() => void handleDirectComplete()}
           onCancel={() => setShowComplete(false)}
@@ -1180,7 +1215,7 @@ export default function UsCollabTaskDetailPage() {
 
       {/* 人员名下任务弹层（Radix Dialog）：点任务跳转到该任务的详情页 */}
       <Dialog open={Boolean(personTasksFor)} onOpenChange={(open) => { if (!open) setPersonTasksFor(null); }}>
-        <DialogContent className="max-w-md rounded-2xl border-slate-200 bg-white p-5 shadow-2xl">
+        <DialogContent className="horizon-theme horizon-portal rounded-2xl border-slate-200 bg-white p-5 shadow-2xl sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-slate-800">
               {personTasksFor && <OwnerAvatar name={personTasksFor} size="sm" />}
@@ -1204,7 +1239,7 @@ export default function UsCollabTaskDetailPage() {
                       setPersonTasksFor(null);
                       if (t.task_id !== taskId) navigate(taskDetailPath(t.task_id));
                     }}
-                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40"
+                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition-colors hover:border-blue-200 hover:bg-blue-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/20"
                   >
                     <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", tCfg.dot)} />
                     <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{t.title}</span>
@@ -1251,56 +1286,63 @@ function EditTaskInfoDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={saving ? undefined : onCancel}>
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
-            <Pencil className="h-4 w-4" />
-          </div>
-          <h3 className="text-base font-semibold text-slate-900">{t("编辑任务信息")}</h3>
-        </div>
-        <div className="space-y-4 px-6 py-5">
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("任务标题")} <span className="text-red-500">*</span></label>
+    <Dialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
+      <DialogContent
+        className="horizon-theme horizon-portal rd-horizon-us-detail-dialog sm:max-w-md"
+        onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
+        onInteractOutside={(event) => { if (saving) event.preventDefault(); }}
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-slate-950">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#002fa7]" aria-hidden="true">
+              <Pencil className="h-4 w-4" />
+            </span>
+            {t("编辑任务信息")}
+          </DialogTitle>
+          <DialogDescription>{t("更新协同任务的标题与说明，保存后将同步到任务驾驶舱。")}</DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!saving && title.trim()) void handleSave();
+          }}
+        >
+          <div className="space-y-1.5">
+            <label htmlFor="us-collab-task-title" className="block text-xs font-medium text-slate-700">{t("任务标题")} <span className="text-red-500">*</span></label>
             <Input
+              id="us-collab-task-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={120}
               autoFocus
-              className="h-9 rounded-lg border-slate-200 text-sm"
+              required
+              aria-required="true"
+              className="h-10 rounded-lg border-slate-200 text-base sm:text-sm"
             />
           </div>
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("任务描述")}</label>
+          <div className="space-y-1.5">
+            <label htmlFor="us-collab-task-description" className="block text-xs font-medium text-slate-700">{t("任务描述")}</label>
             <Textarea
+              id="us-collab-task-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={5}
               placeholder={t("补充任务背景、目标与交付要求…")}
-              className="cockpit-scroll w-full resize-none rounded-lg border-slate-200 text-sm"
+              className="cockpit-scroll w-full resize-none rounded-lg border-slate-200 text-base sm:text-sm"
             />
           </div>
-        </div>
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
-          <button
-            type="button"
-            disabled={saving}
-            onClick={onCancel}
-            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          >
-            {t("取消")}
-          </button>
-          <button
-            type="button"
-            disabled={saving || !title.trim()}
-            onClick={() => void handleSave()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
-          >
-            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-            {t("保存")}
-          </button>
-        </div>
-      </div>
-    </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>
+              {t("取消")}
+            </Button>
+            <Button type="submit" disabled={saving || !title.trim()} className="bg-[#002fa7] text-white hover:bg-[#002787]">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {saving ? t("保存中…") : t("保存")}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

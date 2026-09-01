@@ -15,7 +15,7 @@ import { useI18n } from '../../lib/i18n';
 import { openMateChat } from './openMateChat';
 
 const DAY_LABELS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-const CONFETTI_COLORS = ['#fbbf24', '#34d399', '#60a5fa', '#f472b6', '#a78bfa', '#f97316'];
+const CONFETTI_COLORS = ['#002fa7', '#9db6f5', '#ffffff', '#fbbf24'];
 
 function todayWeekIndex(): number {
   // 周一=0 ... 周日=6
@@ -82,7 +82,7 @@ function Confetti() {
   );
 }
 
-/** 每日 AI 卡通动物图，作为整卡背景铺满；叠加可读性遮罩保证白字对比。加载失败自动隐藏（回退卡片自带渐变）。 */
+/** 每日 AI 卡通动物图，作为整卡背景铺满；叠加可读性遮罩保证白字对比。 */
 function CardBackground({ url }: { url: string | null }) {
   const reduce = useReducedMotion();
   const [failed, setFailed] = useState(false);
@@ -95,9 +95,8 @@ function CardBackground({ url }: { url: string | null }) {
       transition={{ duration: 0.7, ease: 'easeOut' }}
     >
       <img src={url} alt="" onError={() => setFailed(true)} className="h-full w-full object-cover" />
-      {/* 可读性遮罩：整体压深 + 底部（文字/CTA 区）加重，保证白字在任意图片上都清晰，同时保留背景图可见 */}
-      <div className="absolute inset-0 bg-indigo-950/45" />
-      <div className="absolute inset-0 bg-gradient-to-t from-indigo-950/92 via-indigo-950/55 to-indigo-950/35" />
+      {/* 单色遮罩保证白字在任意图片上都清晰。 */}
+      <div className="absolute inset-0 bg-slate-950/65" />
     </motion.div>
   );
 }
@@ -122,9 +121,9 @@ function WeekStrip({ weekActivity, todayDone }: { weekActivity: boolean[]; today
               animate={{ scale: 1, opacity: 1 }}
               transition={{ delay: 0.15 + i * 0.05, type: 'spring', stiffness: 500, damping: 22 }}
               className={cn(
-                'flex h-7 w-7 items-center justify-center rounded-full text-white',
+                'flex size-7 items-center justify-center rounded-full text-white',
                 done
-                  ? 'bg-gradient-to-b from-amber-300 to-orange-500 shadow-[0_2px_8px_rgba(249,115,22,0.5)]'
+                  ? 'bg-amber-400 text-slate-950 shadow-sm'
                   : pendingToday
                     ? 'border-2 border-dashed border-amber-300/90 bg-white/5'
                     : isFuture
@@ -177,12 +176,12 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
         onClick={goChat}
         aria-label={t('MateChat 连续使用 {n} 天，点击去使用', { n: streak })}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-gradient-to-r from-amber-50 to-orange-50 px-3 py-1 text-sm font-semibold text-orange-600 transition-transform hover:scale-[1.03]',
+          'matechat-streak-horizon inline-flex items-center gap-1.5 rounded-full border border-[#bfd0fa] bg-[#eef3ff] px-3 py-1 text-sm font-semibold tabular-nums text-[#002fa7]',
           className,
         )}
       >
-        <Flame className={cn('h-4 w-4', active ? 'fill-orange-500 text-orange-500' : 'text-slate-400')} />
-        {loading ? <span className="text-orange-300">…</span> : <span>{streak} {t('天')}</span>}
+        <Flame className={cn('size-4', active ? 'fill-amber-500 text-amber-500' : 'text-slate-400')} />
+        {loading ? <span className="text-[#9db6f5]">…</span> : <span>{streak} {t('天')}</span>}
       </button>
     );
   }
@@ -190,15 +189,13 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
   return (
     <section
       className={cn(
-        'relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 via-blue-700 to-[#026fc2] p-5 text-white shadow-[0_12px_32px_rgba(30,27,75,0.35)]',
+        'matechat-streak-horizon relative overflow-hidden rounded-2xl border border-[#00267f] bg-[#002fa7] p-5 text-white shadow-md',
         className,
       )}
+      aria-label={t('MateChat 连续使用 {n} 天，点击去使用', { n: streak })}
     >
-      {/* 每日 AI 卡通动物作为整卡背景（无图时用上面的渐变兜底） */}
+      {/* 每日 AI 卡通动物作为整卡背景。 */}
       <CardBackground url={data?.mascotUrl ?? null} />
-      {/* 背景光晕 */}
-      <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-      <div className="pointer-events-none absolute -bottom-12 -left-8 h-36 w-36 rounded-full bg-amber-300/10 blur-2xl" />
 
       {data?.milestone && <Confetti />}
 
@@ -211,21 +208,18 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
             className="relative"
           >
             <Flame
-              className={cn(
-                'h-10 w-10',
-                active ? 'fill-amber-400 text-amber-300 drop-shadow-[0_0_10px_rgba(251,191,36,0.7)]' : 'text-white/40',
-              )}
+              className={cn('size-10', active ? 'fill-amber-400 text-amber-300' : 'text-white/40')}
               strokeWidth={1.5}
             />
           </motion.div>
           <div>
             <div className="flex items-end gap-1.5">
-              <span className="text-4xl font-black leading-none tracking-tight tabular-nums">
+              <span className="text-4xl font-black leading-none tabular-nums">
                 {loading ? '–' : <AnimatedNumber value={streak} />}
               </span>
               <span className="mb-0.5 text-base font-semibold text-white/90">{t('天')}</span>
             </div>
-            <p className="mt-1 text-xs font-medium text-white/80">
+            <p className="mt-1 text-pretty text-xs font-medium text-white/80">
               {t('连续使用 MateChat')}{data && data.bestStreak > 0 ? <> · {t('最长 {n} 天', { n: data.bestStreak })}</> : null}
             </p>
           </div>
@@ -248,7 +242,7 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
               key={data.message}
               initial={reduce ? false : { opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
-              className="flex items-start gap-1.5 text-sm font-medium leading-5 text-white/95"
+              className="flex items-start gap-1.5 text-pretty text-sm font-medium leading-5 text-white/95"
             >
               <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
               <span>{lang === 'en' ? t('今天也用 MateChat 保持连续记录吧！') : data.message}</span>
@@ -261,21 +255,10 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
       <motion.button
         type="button"
         onClick={goChat}
-        whileHover={reduce ? undefined : { scale: 1.02 }}
-        whileTap={reduce ? undefined : { scale: 0.98 }}
-        className="group relative mt-4 flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-white/95 px-4 py-2.5 text-sm font-bold text-indigo-700 shadow-sm"
+        className="relative mt-4 flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-[#002fa7] shadow-sm"
       >
-        {/* 流光 */}
-        {!reduce && (
-          <motion.span
-            aria-hidden
-            className="absolute inset-y-0 -left-1/3 w-1/3 skew-x-[-20deg] bg-gradient-to-r from-transparent via-white/70 to-transparent"
-            animate={{ left: ['-33%', '133%'] }}
-            transition={{ duration: 2.2, repeat: Infinity, repeatDelay: 1.4, ease: 'easeInOut' }}
-          />
-        )}
         <span className="relative">{data?.todayDone ? t('再问 MateChat 一个问题') : t('立即去用 MateChat')}</span>
-        <ArrowRight className="relative h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+        <ArrowRight className="relative size-4" />
       </motion.button>
     </section>
   );

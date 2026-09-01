@@ -1,5 +1,4 @@
 import type { LucideIcon } from "lucide-react";
-import { motion } from "motion/react";
 
 import { Progress } from "../../../app/components/ui/progress";
 import { cn } from "../../../app/components/ui/utils";
@@ -18,13 +17,12 @@ export function KPICard({ title, value, icon: Icon, trend, badge, progress, onCl
   const Comp = onClick ? "button" : "div";
 
   return (
-    <motion.div className="h-full" whileHover={{ y: onClick ? -3 : -1 }} transition={{ duration: 0.18 }}>
     <Comp
       type={onClick ? "button" : undefined}
       onClick={onClick}
       className={cn(
-        "material-panel flex h-full min-h-[120px] w-full flex-col justify-between px-4 py-3 text-left",
-        onClick ? "cursor-pointer transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-[0_14px_30px_rgba(30,64,175,0.10)]" : "",
+        "material-panel flex h-full min-h-[120px] w-full flex-col justify-between rounded-[4px] px-4 py-3 text-left",
+        onClick ? "cursor-pointer transition-colors hover:border-[#8fa8df] hover:bg-[#f8faff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25" : "",
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -32,8 +30,8 @@ export function KPICard({ title, value, icon: Icon, trend, badge, progress, onCl
           <div className="truncate text-xs font-semibold text-slate-500">{title}</div>
           <div className="mt-1 truncate text-2xl font-bold text-slate-950">{value}</div>
         </div>
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--m3-shape-medium)] border border-blue-200 bg-[linear-gradient(135deg,#ffffff,var(--primary-container))] text-blue-700 shadow-[0_6px_14px_rgba(30,64,175,0.09)]">
-          <Icon className="h-4 w-4" />
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[4px] border border-[#b8c8ec] bg-[#eef3ff] text-[#002fa7]">
+          <Icon className="h-4 w-4" aria-hidden="true" />
         </div>
       </div>
       <div className="mt-3 flex min-h-[22px] items-end">
@@ -44,12 +42,11 @@ export function KPICard({ title, value, icon: Icon, trend, badge, progress, onCl
             {badge}
           </span>
         ) : trend ? (
-          <div className="truncate text-xs font-medium text-blue-700">{trend}</div>
+          <div className="truncate text-xs font-medium text-[#002fa7]">{trend}</div>
         ) : (
           <span className="h-[1px]" />
         )}
       </div>
     </Comp>
-    </motion.div>
   );
 }

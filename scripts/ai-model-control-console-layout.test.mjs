@@ -13,7 +13,7 @@ test("AI 模型页使用与 INOGI 一致的浅色内嵌控制台，而不是独�
   assert.match(source, /<Tabs value=\{workspaceTab\}/);
   assert.match(source, /<TabsList className="relative flex h-auto w-full/);
   assert.match(source, /bg-slate-50\/80/);
-  assert.match(source, /data-\[state=active\]:border-indigo-200/);
+  assert.match(source, /data-\[state=active\]:border-blue-200/);
   assert.doesNotMatch(source, /bg-\[#090d13\]/);
   assert.doesNotMatch(source, /text-\[2rem\].*AI 模型与路由控制台/);
   assert.doesNotMatch(source, /sm:grid-cols-2 xl:grid-cols-4" aria-label="AI 控制台工作区"/);
@@ -40,11 +40,11 @@ test("AI 模型连接支持受控并发的全部连通性测试", () => {
   assert.match(source, /成功 \$\{succeededCount\}，失败 \$\{failures\.length\}/);
 });
 
-test("运行监控与路由工作区复用浅色材质卡片和靛蓝交互色", () => {
+test("运行监控与路由工作区复用浅色材质卡片和 Horizon 蓝色交互语义", () => {
   assert.ok((source.match(/border border-slate-200 bg-white/g) ?? []).length >= 8);
   assert.match(source, /Gateway Pulse/);
   assert.match(source, /space-y-3/);
-  assert.match(source, /data-\[state=checked\]:bg-indigo-600/);
+  assert.match(source, /data-\[state=checked\]:bg-blue-700/);
   assert.doesNotMatch(source, /bg-\[#111720\]/);
 });
 

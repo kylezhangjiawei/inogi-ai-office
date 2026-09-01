@@ -1,0 +1,239 @@
+/* Shared Horizon primitives. Business-specific layouts stay in their modules. */
+.horizon-theme,
+.horizon-portal {
+  --hz-primary: #002fa7;
+  --hz-primary-hover: #002581;
+  --hz-ink: #1b2559;
+  --hz-body: #42526f;
+  --hz-muted: #64748b;
+  --hz-subtle: #8f9bba;
+  --hz-canvas: #f4f7fe;
+  --hz-surface: #ffffff;
+  --hz-soft-blue: #eef3ff;
+  --hz-line: #e9edf7;
+  --hz-line-strong: #e0e5f2;
+  --hz-shadow-card: 0 8px 24px rgba(112, 144, 176, 0.065);
+  --hz-shadow-focal: 0 14px 36px rgba(112, 144, 176, 0.1);
+  color: var(--hz-body);
+}
+
+.hz-page {
+  position: relative;
+  min-width: 0;
+  background: transparent;
+}
+
+.hz-command {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 1rem;
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  padding: 1.15rem 1.25rem;
+  background: var(--hz-surface);
+  box-shadow: var(--hz-shadow-focal);
+}
+
+.hz-command-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.hz-command-mark {
+  display: inline-flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: #fff;
+  background: var(--hz-primary);
+  box-shadow: 0 9px 18px -12px rgba(0, 47, 167, 0.66);
+}
+
+.hz-eyebrow {
+  color: var(--hz-primary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.hz-title {
+  margin-top: 0.15rem;
+  color: var(--hz-ink);
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.hz-description,
+.hz-meta {
+  margin-top: 0.2rem;
+  color: var(--hz-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.hz-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--hz-subtle);
+}
+
+.hz-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.hz-actions :is(button, [data-slot="button"]) {
+  min-height: 2.5rem;
+  border-radius: 11px !important;
+  box-shadow: none !important;
+}
+
+.hz-primary-action {
+  border-color: var(--hz-primary) !important;
+  color: #fff !important;
+  background: var(--hz-primary) !important;
+  box-shadow: 0 13px 26px -15px rgba(0, 47, 167, 0.75) !important;
+}
+
+.hz-primary-action:hover { border-color: var(--hz-primary-hover) !important; background: var(--hz-primary-hover) !important; }
+
+.hz-stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 18px;
+  padding: 0.45rem;
+  background: var(--hz-surface);
+  box-shadow: var(--hz-shadow-card);
+}
+
+.hz-stat {
+  display: flex;
+  min-width: 0;
+  min-height: 4.25rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-radius: 12px;
+  padding: 0.6rem 0.75rem;
+}
+
+.hz-stat + .hz-stat { border-left: 1px solid var(--hz-line); }
+.hz-stat-label { overflow: hidden; color: var(--hz-muted); font-size: 0.72rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.hz-stat-value { margin-top: 0.2rem; color: var(--hz-ink); font-size: 1.28rem; font-weight: 700; line-height: 1.15; }
+.hz-stat-note { margin-top: 0.15rem; color: var(--hz-subtle); font-size: 0.65rem; line-height: 1.35; }
+
+.hz-stat-icon,
+.hz-empty-icon {
+  display: inline-flex;
+  width: 1.9rem;
+  height: 1.9rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: var(--hz-primary);
+  background: var(--hz-soft-blue);
+  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.08);
+}
+
+.hz-stat[data-tone="success"] .hz-stat-value,
+.hz-stat[data-tone="success"] .hz-stat-icon { color: #018f5b; }
+.hz-stat[data-tone="success"] .hz-stat-icon { background: #e7f9f2; }
+.hz-stat[data-tone="warning"] .hz-stat-value,
+.hz-stat[data-tone="warning"] .hz-stat-icon { color: #a66300; }
+.hz-stat[data-tone="warning"] .hz-stat-icon { background: #fff6da; }
+.hz-stat[data-tone="danger"] .hz-stat-value,
+.hz-stat[data-tone="danger"] .hz-stat-icon { color: #d51b1b; }
+.hz-stat[data-tone="danger"] .hz-stat-icon { background: #feefee; }
+
+.hz-surface {
+  border-color: transparent !important;
+  border-radius: 20px !important;
+  background: var(--hz-surface) !important;
+  box-shadow: var(--hz-shadow-card) !important;
+}
+
+.hz-toolbar {
+  border-bottom-color: var(--hz-line) !important;
+  background: rgba(244, 247, 254, 0.72) !important;
+}
+
+.hz-section-header {
+  display: flex;
+  min-height: 3.5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--hz-line);
+  padding: 0.75rem 1rem;
+}
+
+.hz-section-header h2 { color: var(--hz-ink); font-size: 0.9rem; font-weight: 700; }
+.hz-section-header p { color: var(--hz-muted); font-size: 0.7rem; line-height: 1.45; }
+
+.hz-empty {
+  display: flex;
+  min-height: 9rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1.5rem;
+  color: var(--hz-muted);
+  text-align: center;
+}
+
+.hz-empty-icon { width: 2.5rem; height: 2.5rem; border-radius: 12px; }
+.hz-empty p { font-size: 0.75rem; }
+
+.horizon-portal {
+  --primary: #002fa7;
+  --ring: #002fa7;
+  border-color: var(--hz-line) !important;
+  color: var(--hz-body) !important;
+  background: #fff !important;
+  box-shadow: 0 20px 56px rgba(27, 37, 89, 0.16) !important;
+}
+
+.horizon-theme :where(button, input, select, textarea, a[href], [role="button"], [tabindex]):focus-visible,
+.horizon-portal :where(button, input, select, textarea, a[href], [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+}
+
+@media (max-width: 1320px) {
+  .hz-command { grid-template-columns: minmax(0, 1fr); }
+  .hz-actions { justify-content: flex-start; }
+}
+
+@media (max-width: 1100px) {
+  .hz-stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hz-stat + .hz-stat { border-left: 0; }
+  .hz-stat:nth-child(even) { border-left: 1px solid var(--hz-line); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .horizon-theme *,
+  .horizon-portal * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

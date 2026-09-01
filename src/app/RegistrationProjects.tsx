@@ -6,9 +6,28 @@ import {
   CheckCircle2,
   Clock3,
   FileWarning,
+  Flag,
   FolderOpen,
+  Landmark,
+  RotateCcw,
   ShieldCheck,
 } from "lucide-react";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import { Button } from "./components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
 import { cn } from "./components/ui/utils";
 
 type Market = "FDA" | "CE" | "NMPA";
@@ -125,12 +144,6 @@ const projects: Project[] = [
   },
 ];
 
-const marketHighlights = [
-  { label: "本周待跟进", value: "2", helper: "CE 与 NMPA 项目更紧急" },
-  { label: "资料缺口", value: "4", helper: "主要集中在软件验证与生物相容性" },
-  { label: "提醒已发出", value: "6", helper: "已同步法规、质量与研发负责人" },
-];
-
 function marketTone(market: Market) {
   if (market === "FDA") return "bg-blue-50 text-blue-700";
   if (market === "CE") return "bg-emerald-50 text-emerald-700";
@@ -158,307 +171,259 @@ export function RegistrationProjects() {
 
   const staleWarning = selected.staleDays >= 14;
   const missingDocs = selected.docs.filter((item) => item.status !== "已有");
+  const urgentProjects = projects.filter((item) => item.remainingDays <= 9).length;
+  const totalMissingDocs = projects.reduce(
+    (total, project) => total + project.docs.filter((item) => item.status !== "已有").length,
+    0,
+  );
+  const totalReminders = projects.reduce((total, project) => total + project.reminders.length, 0);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-4 sm:p-6 md:p-8">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div className="min-w-0 space-y-3">
-            <span className="material-chip bg-blue-50 text-blue-700">Milestone Dashboard</span>
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">注册项目里程碑</h2>
-              <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-                这页已经从通用占位升级成独立业务页面，包含项目卡片、里程碑步骤、资料缺口检查和提醒日志，符合你文档里“注册项目看板”的流程要求。
-              </p>
-            </div>
-          </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:gap-3">
-            <div className="material-button-secondary w-full justify-center sm:w-auto">
-              <FolderOpen className="h-4 w-4" />
-              项目总数 {projects.length}
-            </div>
-            <div className="material-button-secondary w-full justify-center sm:w-auto">
-              <CalendarClock className="h-4 w-4" />
-              本周待跟进 2 项
-            </div>
-          </div>
-        </div>
-      </section>
+    <div className="horizon-theme hz-page flex min-h-0 flex-col gap-3 overflow-x-hidden px-5 py-4">
+      <HorizonPageHeader
+        Icon={Landmark}
+        eyebrow="法规注册 · 里程碑控制"
+        title="注册项目里程碑"
+        description="集中跟踪各市场注册项目的当前阶段、临期节点、资料缺口与跨部门提醒。"
+        meta={<><span>{projects.length} 个在管项目</span><span>·</span><span>数据更新至 2026-04-15</span></>}
+        actions={(
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setMarketFilter("全部");
+              setPage(1);
+            }}
+          >
+            <FolderOpen className="size-4" />
+            查看全部项目
+          </Button>
+        )}
+      />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <div className="md:col-span-2 xl:col-span-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={FolderOpen} label="在管项目" value={projects.length} note="FDA、CE 与 NMPA" tone="brand" />
+        <HorizonMetric Icon={CalendarClock} label="9 天内到期" value={urgentProjects} note="需要优先排定责任人" tone="danger" />
+        <HorizonMetric Icon={FileWarning} label="资料缺口" value={totalMissingDocs} note="缺失或等待更新" tone="warning" />
+        <HorizonMetric Icon={BellRing} label="提醒已发出" value={totalReminders} note="覆盖法规、质量与研发" tone="success" />
+      </HorizonMetricGrid>
+
+      <section className="grid min-w-0 gap-3 xl:grid-cols-[288px_minmax(0,1fr)]">
+        <aside className="hz-surface min-w-0 overflow-hidden border bg-white">
+          <HorizonSectionHeader
+            Icon={FolderOpen}
+            title="项目清单"
+            description={`共 ${filteredProjects.length} 个项目 · 第 ${page}/${totalPages} 页`}
+          />
+          <div className="hz-toolbar flex flex-wrap gap-1.5 border-b p-3">
             {(["全部", "FDA", "CE", "NMPA"] as const).map((item) => (
-              <button
+              <Button
                 key={item}
                 type="button"
+                size="sm"
+                variant={marketFilter === item ? "default" : "outline"}
+                aria-pressed={marketFilter === item}
+                className={cn(marketFilter === item && "hz-primary-action")}
                 onClick={() => {
                   setMarketFilter(item);
                   setPage(1);
                 }}
-                className={cn(
-                  "rounded-full border px-4 py-2 text-sm font-semibold transition",
-                  marketFilter === item ? "border-blue-200 bg-blue-50 text-primary" : "border-slate-200 bg-white text-slate-500",
-                )}
               >
                 {item}
-              </button>
+              </Button>
             ))}
           </div>
-          <div className="text-sm text-slate-500">
-            共 {filteredProjects.length} 个项目，当前第 {page}/{totalPages} 页
-          </div>
-        </div>
-        {pagedProjects.map((project) => (
-          <button
-            key={project.id}
-            onClick={() => setSelectedId(project.id)}
-            className={cn(
-              "material-card-flat space-y-4 p-5 text-left transition hover:-translate-y-0.5",
-              selected.id === project.id ? "ring-2 ring-blue-200" : "",
+
+          <div className="space-y-2 p-3">
+            {pagedProjects.length ? pagedProjects.map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                aria-pressed={selected.id === project.id}
+                onClick={() => setSelectedId(project.id)}
+                className={cn(
+                  "w-full rounded-xl border p-3 text-left transition-colors duration-150",
+                  selected.id === project.id
+                    ? "border-[#002fa7] bg-[#eef3ff]"
+                    : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50",
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-[#1b2559]">{project.name}</div>
+                    <div className="mt-1 text-xs text-slate-500">{project.id} · {project.owner}</div>
+                  </div>
+                  <span className={cn("shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold", marketTone(project.market))}>
+                    {project.market}
+                  </span>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-2 text-xs text-slate-500">
+                  <span className="truncate">当前：{stages[project.stageIndex]}</span>
+                  <span className={cn("shrink-0 font-semibold tabular-nums", project.remainingDays <= 7 ? "text-red-600" : "text-slate-700")}>
+                    {project.remainingDays > 0 ? `${project.remainingDays} 天` : "已超期"}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-5 gap-1" aria-label={`已完成 ${project.stageIndex + 1} 个阶段，共 ${stages.length} 个阶段`}>
+                  {stages.map((stage, index) => (
+                    <span key={stage} className={cn("h-1.5 rounded-full", index <= project.stageIndex ? "bg-[#002fa7]" : "bg-slate-200")} />
+                  ))}
+                </div>
+              </button>
+            )) : (
+              <HorizonEmptyState
+                Icon={FolderOpen}
+                title="没有匹配项目"
+                description="清除市场筛选后可查看全部注册项目。"
+                action={<Button type="button" size="sm" variant="outline" onClick={() => setMarketFilter("全部")}><RotateCcw className="size-4" />清除筛选</Button>}
+              />
             )}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-lg font-semibold text-slate-900">{project.name}</div>
-                <div className="mt-1 text-sm text-slate-500">负责人：{project.owner}</div>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-slate-100 px-3 py-3">
+            <Button type="button" size="sm" variant="outline" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1}>
+              上一页
+            </Button>
+            <span className="text-xs text-slate-500 tabular-nums">{page} / {totalPages}</span>
+            <Button type="button" size="sm" variant="outline" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages}>
+              下一页
+            </Button>
+          </div>
+        </aside>
+
+        <div className="min-w-0 space-y-3">
+          <section className="hz-surface min-w-0 overflow-hidden border bg-white">
+            <div className="flex flex-col gap-4 border-b border-slate-100 px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-balance text-lg font-bold text-[#1b2559]">{selected.name}</h2>
+                  <span className={cn("rounded-full px-2 py-1 text-[11px] font-semibold", marketTone(selected.market))}>{selected.market}</span>
+                  <span className={cn("rounded-full px-2 py-1 text-[11px] font-semibold", staleWarning ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>
+                    {staleWarning ? "需要跟进" : "进度正常"}
+                  </span>
+                </div>
+                <p className="mt-1 text-pretty text-sm text-slate-500">负责人 {selected.owner} · 截止 {selected.deadline} · 已停滞 {selected.staleDays} 天</p>
               </div>
-              <span className={cn("material-chip", marketTone(project.market))}>{project.market}</span>
+              <div className="grid shrink-0 grid-cols-2 gap-2 text-right text-xs text-slate-500">
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <div>剩余时间</div>
+                  <div className={cn("mt-1 text-base font-bold tabular-nums", selected.remainingDays <= 7 ? "text-red-600" : "text-[#1b2559]")}>{selected.remainingDays} 天</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2">
+                  <div>阶段进度</div>
+                  <div className="mt-1 text-base font-bold text-[#1b2559] tabular-nums">{selected.stageIndex + 1}/{stages.length}</div>
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-sm text-slate-500">
-                <span>截止日期 {project.deadline}</span>
-                <span className={cn("font-semibold", project.remainingDays <= 7 ? "text-red-600" : "text-slate-700")}>
-                  {project.remainingDays > 0 ? `${project.remainingDays} 天` : "已超期"}
-                </span>
+            {staleWarning ? (
+              <div className="flex items-start gap-3 border-b border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                <p className="text-pretty">该项目已超过 14 天未更新，建议今天内确认当前里程碑，并同步资料责任人。</p>
               </div>
+            ) : null}
 
-              <div className="flex gap-2">
+            <div className="p-4">
+              <div className="grid grid-cols-5 gap-1.5">
                 {stages.map((stage, index) => (
-                  <div key={stage} className="flex-1 space-y-2">
-                    <div className={cn("h-2 rounded-full", index <= project.stageIndex ? "bg-blue-500" : "bg-slate-200")} />
-                    <div className="text-[10px] text-slate-400">{stage}</div>
+                  <div key={stage} className="min-w-0">
+                    <div className={cn("h-2 rounded-full", index <= selected.stageIndex ? "bg-[#002fa7]" : "bg-slate-200")} />
+                    <div className={cn("mt-2 truncate text-center text-[11px]", index === selected.stageIndex ? "font-semibold text-[#002fa7]" : "text-slate-500")}>{stage}</div>
                   </div>
                 ))}
               </div>
             </div>
-          </button>
-        ))}
-      </section>
+          </section>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {marketHighlights.map((item) => (
-          <div key={item.label} className="material-card-flat p-5">
-            <div className="text-sm text-slate-500">{item.label}</div>
-            <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{item.value}</div>
-            <div className="mt-2 text-sm text-slate-500">{item.helper}</div>
-          </div>
-        ))}
-      </section>
-
-      {staleWarning ? (
-        <section className="rounded-[24px] border border-amber-100 bg-amber-50/80 px-5 py-4 text-sm text-amber-700">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="h-5 w-5" />
-            <div>
-              当前选中项目已经超过 14 天未更新，请尽快推进里程碑并同步资料状态。
-            </div>
-          </div>
-        </section>
-      ) : null}
-
-      <section className="grid grid-cols-12 gap-6">
-        <div className="col-span-12 xl:col-span-5">
-          <div className="material-card h-full min-w-0 p-4 sm:p-6">
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-slate-900">里程碑时间线</h3>
-                <p className="mt-1 text-sm text-slate-500">展示当前项目从资料提交到获批归档的完整阶段。</p>
-              </div>
-              <span className={cn("material-chip", marketTone(selected.market))}>{selected.market}</span>
-            </div>
-
-            <div className="space-y-4">
-              {selected.milestones.map((item) => (
-                <div key={item.title} className="flex gap-4 rounded-[20px] border border-slate-100 bg-slate-50/70 p-4">
-                  <div className="pt-0.5">
-                    {item.status === "done" ? (
-                      <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                    ) : item.status === "current" ? (
-                      <Clock3 className="h-5 w-5 text-blue-600" />
-                    ) : (
-                      <div className="h-5 w-5 rounded-full border-2 border-slate-200" />
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    <div className="text-sm font-semibold text-slate-800">{item.title}</div>
-                    <div className="text-sm text-slate-500">负责人：{item.owner}</div>
-                    <div className="text-sm text-slate-400">{item.date}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="col-span-12 xl:col-span-4">
-          <div className="material-card h-full min-w-0 p-4 sm:p-6">
-            <div className="mb-5">
-              <h3 className="text-slate-900">资料缺口检查</h3>
-              <p className="mt-1 text-sm text-slate-500">自动生成所选市场需要的核心资料，并标记已有、缺失和待更新状态。</p>
-            </div>
-
-            <div className="space-y-3">
-              {selected.docs.map((item) => (
-                <div key={item.name} className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-slate-100 bg-slate-50/70 px-4 py-4">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className={cn("flex h-10 w-10 items-center justify-center rounded-2xl", item.status === "已有" ? "bg-emerald-50 text-emerald-600" : item.status === "缺失" ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600")}>
-                      {item.status === "已有" ? <ShieldCheck className="h-5 w-5" /> : <FileWarning className="h-5 w-5" />}
+          <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(250px,.9fr)]">
+            <section className="hz-surface min-w-0 overflow-hidden border bg-white">
+              <HorizonSectionHeader Icon={Flag} title="关键里程碑" description="从资料提交到获批归档的责任人与计划节点。" trailing={<span className="text-xs text-slate-500 tabular-nums">{selected.stageIndex + 1}/{stages.length}</span>} />
+              <div className="divide-y divide-slate-100 px-4">
+                {selected.milestones.map((item, index) => (
+                  <div key={item.title} className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-3 py-3">
+                    <div className="pt-0.5">
+                      {item.status === "done" ? <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" /> : item.status === "current" ? <Clock3 className="size-4 text-[#002fa7]" aria-hidden="true" /> : <span className="block size-4 rounded-full border-2 border-slate-300" aria-hidden="true" />}
                     </div>
-                    <div className="min-w-0 text-sm font-medium text-slate-700">{item.name}</div>
-                  </div>
-                  <span className={cn("material-chip", docTone(item.status))}>{item.status}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="col-span-12 xl:col-span-3">
-          <div className="material-card h-full min-w-0 p-4 sm:p-6">
-            <div className="mb-5 flex items-center gap-2">
-              <BellRing className="h-5 w-5 text-primary" />
-              <div>
-                <h3 className="text-slate-900">提醒日志</h3>
-                <p className="mt-1 text-sm text-slate-500">展示最近发出的提醒与通知记录。</p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {selected.reminders.map((item) => (
-                <button
-                  type="button"
-                  key={`${item.time}-${item.recipient}`}
-                  onClick={() => setActiveReminder(item)}
-                  className="w-full rounded-[20px] border border-slate-100 bg-slate-50/70 p-4 text-left transition hover:border-blue-200"
-                >
-                  <div className="text-sm font-semibold text-slate-800">{item.recipient}</div>
-                  <div className="mt-2 text-sm leading-6 text-slate-500">{item.message}</div>
-                  <div className="mt-3 text-xs text-slate-400">{item.time}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-sm text-slate-500">切换分页后会保留市场筛选条件。</div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setPage((current) => Math.max(1, current - 1))}
-            disabled={page === 1}
-            className="material-button-secondary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            上一页
-          </button>
-          <button
-            type="button"
-            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-            disabled={page === totalPages}
-            className="material-button-secondary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            下一页
-          </button>
-        </div>
-      </section>
-
-      <section className="grid grid-cols-12 gap-6">
-        <div className="col-span-12 xl:col-span-7">
-          <div className="material-card min-w-0 p-4 sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-slate-900">项目风险与缺口</h3>
-                <p className="mt-1 text-sm text-slate-500">把当前项目最需要补齐的内容直接聚合出来。</p>
-              </div>
-              <span className={cn("material-chip", staleWarning ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>
-                {staleWarning ? "Need Follow-up" : "On Track"}
-              </span>
-            </div>
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="material-panel">
-                <div className="text-sm font-semibold text-slate-800">当前风险判断</div>
-                <div className="mt-3 space-y-3 text-sm text-slate-600">
-                  <div>项目：{selected.name}</div>
-                  <div>剩余时长：{selected.remainingDays} 天</div>
-                  <div>停滞时长：{selected.staleDays} 天</div>
-                  <div>{staleWarning ? "建议今天内更新里程碑并同步缺失资料责任人。" : "当前节奏可控，建议继续跟进现阶段节点。"}</div>
-                </div>
-              </div>
-              <div className="material-panel">
-                <div className="text-sm font-semibold text-slate-800">待补资料</div>
-                <div className="mt-3 space-y-3">
-                  {missingDocs.map((item) => (
-                    <div key={item.name} className="rounded-2xl bg-white px-4 py-3 shadow-sm">
-                      <div className="text-sm font-medium text-slate-800">{item.name}</div>
-                      <div className="mt-1 text-xs text-slate-500">状态：{item.status}</div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-slate-800">{index + 1}. {item.title}</div>
+                      <div className="mt-1 truncate text-xs text-slate-500">负责人：{item.owner}</div>
                     </div>
-                  ))}
-                </div>
+                    <div className="text-right text-xs text-slate-500 tabular-nums">{item.date}</div>
+                  </div>
+                ))}
               </div>
-            </div>
-          </div>
-        </div>
+            </section>
 
-        <div className="col-span-12 xl:col-span-5">
-          <div className="material-card min-w-0 p-4 sm:p-6">
-            <h3 className="text-slate-900">协作建议</h3>
-            <div className="mt-4 space-y-3">
-              {[
-                "法规负责人建议每次提醒后同步一条项目纪要，方便跨部门追踪。",
-                "若资料缺失超过 2 项，可直接发起专项补件任务而不是单条催办。",
-                "接近截止日期的项目建议联动质量与研发负责人共同确认闭环路径。",
-              ].map((item) => (
-                <div key={item} className="material-panel text-sm text-slate-700">
-                  {item}
-                </div>
-              ))}
-            </div>
+            <section className="hz-surface min-w-0 overflow-hidden border bg-white">
+              <HorizonSectionHeader Icon={FileWarning} title="资料完整性" description="当前市场核心资料及缺口状态。" trailing={<span className={cn("rounded-full px-2 py-1 text-[11px] font-semibold", missingDocs.length ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}>{missingDocs.length} 项待处理</span>} />
+              <div className="divide-y divide-slate-100 px-4">
+                {selected.docs.length ? selected.docs.map((item) => (
+                  <div key={item.name} className="flex items-center justify-between gap-3 py-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {item.status === "已有" ? <ShieldCheck className="size-4 shrink-0 text-emerald-600" aria-hidden="true" /> : <FileWarning className={cn("size-4 shrink-0", item.status === "缺失" ? "text-red-600" : "text-amber-600")} aria-hidden="true" />}
+                      <span className="truncate text-sm text-slate-700">{item.name}</span>
+                    </div>
+                    <span className={cn("shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold", docTone(item.status))}>{item.status}</span>
+                  </div>
+                )) : (
+                  <HorizonEmptyState Icon={ShieldCheck} title="暂无资料清单" description="先为当前项目配置申报资料模板。" action={<Button type="button" size="sm" variant="outline">配置模板</Button>} />
+                )}
+              </div>
+            </section>
           </div>
+
+          <section className="hz-surface min-w-0 overflow-hidden border bg-white">
+            <HorizonSectionHeader Icon={BellRing} title="提醒与协作记录" description="点击记录查看完整通知内容和发送时间。" trailing={<span className="text-xs text-slate-500 tabular-nums">{selected.reminders.length} 条记录</span>} />
+            {selected.reminders.length ? (
+              <div className="grid gap-2 p-3 md:grid-cols-2">
+                {selected.reminders.map((item) => (
+                  <button
+                    type="button"
+                    key={`${item.time}-${item.recipient}`}
+                    onClick={() => setActiveReminder(item)}
+                    className="rounded-xl border border-slate-200 bg-white p-3 text-left transition-colors duration-150 hover:border-blue-200 hover:bg-slate-50"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="truncate text-sm font-semibold text-slate-800">{item.recipient}</span>
+                      <span className="shrink-0 text-xs text-slate-400 tabular-nums">{item.time}</span>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-pretty text-xs leading-5 text-slate-500">{item.message}</p>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <HorizonEmptyState Icon={BellRing} title="暂无提醒记录" description="当前项目无需催办；临近节点时可发起提醒。" action={<Button type="button" size="sm" variant="outline">创建提醒</Button>} />
+            )}
+          </section>
         </div>
       </section>
 
-      {activeReminder ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4">
-          <div className="material-card w-full max-w-xl p-4 sm:p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-slate-900">提醒详情</h3>
-                <p className="mt-1 text-sm text-slate-500">把列表提醒改成可点击的详情弹窗。</p>
+      <Dialog open={Boolean(activeReminder)} onOpenChange={(open) => { if (!open) setActiveReminder(null); }}>
+        <DialogContent className="horizon-portal sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="text-balance text-[#1b2559]">提醒详情</DialogTitle>
+            <DialogDescription className="text-pretty">查看提醒对象、通知内容和系统发送时间。</DialogDescription>
+          </DialogHeader>
+          {activeReminder ? (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-semibold text-slate-500">接收对象</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{activeReminder.recipient}</div>
               </div>
-              <button type="button" className="material-button-secondary px-3 py-2" onClick={() => setActiveReminder(null)}>
-                关闭
-              </button>
-            </div>
-            <div className="mt-5 space-y-4">
-              <div className="material-panel">
-                <div className="text-xs uppercase tracking-[0.14em] text-slate-400">Recipient</div>
-                <div className="mt-2 text-base font-semibold text-slate-900">{activeReminder.recipient}</div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-semibold text-slate-500">提醒内容</div>
+                <p className="mt-1 text-pretty text-sm leading-6 text-slate-700">{activeReminder.message}</p>
               </div>
-              <div className="material-panel">
-                <div className="text-xs uppercase tracking-[0.14em] text-slate-400">Message</div>
-                <div className="mt-2 text-sm leading-6 text-slate-700">{activeReminder.message}</div>
-              </div>
-              <div className="material-panel">
-                <div className="text-xs uppercase tracking-[0.14em] text-slate-400">Time</div>
-                <div className="mt-2 text-sm text-slate-700">{activeReminder.time}</div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-semibold text-slate-500">发送时间</div>
+                <div className="mt-1 text-sm text-slate-700 tabular-nums">{activeReminder.time}</div>
               </div>
             </div>
-          </div>
-        </div>
-      ) : null}
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setActiveReminder(null)}>关闭</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

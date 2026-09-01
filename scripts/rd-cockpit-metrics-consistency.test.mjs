@@ -228,13 +228,24 @@ test("驾驶舱「活跃任务」排除已完成，与工作台同口径", () =>
 
 test("成员页签把主责与协助分段，主责优先、协助折叠", () => {
   // 驾驶舱是给领导看「谁在负责什么」的：主责占第一屏，协助是下钻上下文
-  const map = cockpitSource.match(/const personTasksMap = useMemo\(\(\) => \{[\s\S]*?\}, \[personLoads, allTasks, sortByUpdatedDesc, matchesKpiFilter, cockpitSearch\]\);/);
+  const filtered = cockpitSource.match(/const filteredTasks = useMemo\(\(\) => \{[\s\S]*?\}, \[allTasks, deferredCockpitSearch, matchesKpiFilter, sortByUpdatedDesc\]\);/);
+  assert.ok(filtered, "未找到成员页签共用的 filteredTasks");
+  assert.match(filtered[0], /!task\.archived/);
+  assert.match(filtered[0], /matchesKpiFilter\(task\)/);
+  assert.match(filtered[0], /taskMatches\(task, deferredCockpitSearch/);
+  assert.match(filtered[0], /sortByUpdatedDesc/);
+
+  const map = cockpitSource.match(/const personTasksMap = useMemo\(\(\) => \{[\s\S]*?\}, \[filteredTasks, personLoads\]\);/);
   assert.ok(map, "未找到 personTasksMap");
   assert.match(map[0], /\{ primary: Task\[\]; collaborating: Task\[\] \}/);
-  assert.match(map[0], /memberIdentityKey\(task\.primary_owner, task\.primary_owner_user_id\) === p\.key/);
-  assert.match(map[0], /task\.collaborators\.some\(\(c\) => memberIdentityKey\(c\.name, c\.user_id\) === p\.key\)/);
-  // 两段应用同一套 KPI 筛选与搜索
-  assert.match(map[0], /!matchesKpiFilter\(task\) \|\| !taskMatches\(task, cockpitSearch/);
+  assert.match(map[0], /for \(const person of personLoads\)/);
+  assert.match(map[0], /for \(const task of filteredTasks\)/);
+  assert.match(map[0], /map\.get\(ownerKey\)\?\.primary\.push\(task\)/);
+  assert.match(map[0], /const collaboratorKeys = new Set/);
+  assert.match(map[0], /collaboratorKeys\.delete\(ownerKey\)/);
+  assert.match(map[0], /map\.get\(collaboratorKey\)\?\.collaborating\.push\(task\)/);
+  // 人员分组只遍历一次已筛选任务，不再做“人员 × 任务”的嵌套扫描
+  assert.doesNotMatch(map[0], /personLoads\.map\([^)]*=>[\s\S]*filteredTasks\.filter/);
   // 协助段默认折叠
   assert.match(cockpitSource, /const \[expandedCollabTabs, setExpandedCollabTabs\] = useState<Set<string>>\(\(\) => new Set\(\)\);/);
   assert.match(cockpitSource, /const collabExpanded = expandedCollabTabs\.has\(p\.key\);/);

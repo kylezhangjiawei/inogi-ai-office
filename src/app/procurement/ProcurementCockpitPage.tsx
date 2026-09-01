@@ -6,8 +6,15 @@ import { Button } from "../components/ui/button";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
 import { useNavigate, useSearchParams } from "react-router";
-import { Activity, AlertTriangle, ClipboardList, Download, FolderTree, Layers3, PackageCheck, PackageSearch, Plus, Search, Truck, UserCog, Users } from "lucide-react";
+import { Activity, AlertTriangle, ClipboardList, Download, FolderTree, Layers3, MoreHorizontal, PackageCheck, PackageSearch, Plus, Search, Truck, UserCog, Users, X } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
@@ -30,6 +37,20 @@ const TRANSIT_STATUSES: ProcStatus[] = ["in_transit", "partial_arrival"];
 const WATERFALL_PAGE_SIZE = 9;
 
 type StatKey = "inprogress" | "pending" | "inquiring" | "transit" | "overdue" | "week";
+
+const STAT_LABELS: Record<StatKey, string> = {
+  inprogress: "进行中",
+  pending: "待处理",
+  inquiring: "询价中",
+  transit: "在途",
+  overdue: "逾期",
+  week: "本周到货",
+};
+
+function isProcurementTaskArrivingThisWeek(task: ProcurementTask) {
+  const days = daysFromToday(task.expectedArrivalDate);
+  return TRANSIT_STATUSES.includes(task.status) && days != null && days >= 0 && days <= 7;
+}
 
 export function ProcurementCockpitPage() {
   const { t } = useI18n();
@@ -159,8 +180,6 @@ export function ProcurementCockpitPage() {
     setOpen((cur) => (cur ? tasks.find((x) => x.id === cur.id) ?? null : cur));
   }, [tasks]);
 
-  const isThisWeek = (t: ProcurementTask) => { const d = daysFromToday(t.expectedArrivalDate); return TRANSIT_STATUSES.includes(t.status) && d != null && d >= 0 && d <= 7; };
-
   // Tab 数量徽标按全量任务计，作用域内数据一律用 lineTasks
   const lineTasks = useMemo(() => (line === "all" ? tasks : tasks.filter((t) => t.businessLine === line)), [tasks, line]);
   const lineCounts = useMemo(() => ({
@@ -182,7 +201,7 @@ export function ProcurementCockpitPage() {
     inquiring: treeScopedTasks.filter((t) => t.status === "inquiring").length,
     transit: treeScopedTasks.filter((t) => TRANSIT_STATUSES.includes(t.status)).length,
     overdue: treeScopedTasks.filter(isProcurementTaskOverdue).length,
-    week: treeScopedTasks.filter(isThisWeek).length,
+    week: treeScopedTasks.filter(isProcurementTaskArrivingThisWeek).length,
   }), [treeScopedTasks]);
 
   const coreInventorySummary = useMemo(() => {
@@ -217,6 +236,11 @@ export function ProcurementCockpitPage() {
       .sort((a, b) => b.taskCount - a.taskCount || a.name.localeCompare(b.name, "zh-CN"));
   }, [procurementDepartmentUsers, treeScopedTasks]);
 
+  const buyerNameById = useMemo(
+    () => new Map(procurementDepartmentUsers.map((user) => [user.id, user.name])),
+    [procurementDepartmentUsers],
+  );
+
   useEffect(() => {
     if (buyerUserId && !procurementDepartmentUsers.some((user) => user.id === buyerUserId)) {
       setBuyerUserId(null);
@@ -231,14 +255,14 @@ export function ProcurementCockpitPage() {
       if (stat === "inquiring") return t.status === "inquiring";
       if (stat === "transit") return TRANSIT_STATUSES.includes(t.status);
       if (stat === "overdue") return isProcurementTaskOverdue(t);
-      if (stat === "week") return isThisWeek(t);
+      if (stat === "week") return isProcurementTaskArrivingThisWeek(t);
       return true;
     });
     if (buyerUserId) {
-      const buyer = procurementDepartmentUsers.find((user) => user.id === buyerUserId);
+      const buyerName = buyerNameById.get(buyerUserId);
       list = list.filter((task) =>
         task.buyerUserId === buyerUserId
-        || (!task.buyerUserId && Boolean(buyer) && task.buyer === buyer!.name),
+        || (!task.buyerUserId && Boolean(buyerName) && task.buyer === buyerName),
       );
     }
     if (materialParam) list = list.filter((t) => t.materialName === materialParam);
@@ -251,7 +275,7 @@ export function ProcurementCockpitPage() {
       const db = taskMainDate(b).date ?? "9999";
       return da.localeCompare(db);
     });
-  }, [treeScopedTasks, stat, buyerUserId, procurementDepartmentUsers, materialParam, kw]);
+  }, [treeScopedTasks, stat, buyerUserId, buyerNameById, materialParam, kw]);
 
   const toggleStat = (k: StatKey) => setStat((cur) => (cur === k ? null : k));
 
@@ -273,67 +297,103 @@ export function ProcurementCockpitPage() {
     observer.observe(el);
     return () => observer.disconnect();
   }, [visibleCount, filtered.length]);
-  const visibleTasks = filtered.slice(0, visibleCount);
+  const visibleTasks = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+  const hasActiveFilters = line !== "all" || Boolean(stat || buyerUserId || treeNode || materialParam || kw.trim());
+  const clearFilters = () => {
+    setStat(null);
+    setBuyerUserId(null);
+    setTreeNode(null);
+    setKw("");
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("line");
+      next.delete("material");
+      return next;
+    }, { replace: true });
+  };
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col p-3 lg:p-4">
-      {/* 页头（业务线 Tab + 操作按钮）/ 统计条 / 人员泳道 */}
+    <div className="proc-horizon mx-auto h-full w-full max-w-[1600px] p-3 lg:p-4">
+      <div className="proc-horizon-layout flex h-full min-h-0 flex-col">
+      {/* Horizon 指挥区：业务范围、全局操作与 KPI 共用一个信息焦点。 */}
       {view === "tasks" && (
-        <div className="material-card mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2">
-          <Tabs value={line} onValueChange={(value) => setLine(value as "all" | "rd" | "production")}>
-            <TabsList aria-label={t("采购业务线")} className="h-9 rounded-lg bg-slate-100 p-1">
-            {([["all", "全部"], ["production", "生产"], ["rd", "研发"]] as const).map(([k, lbl]) => (
-              <TabsTrigger key={k} value={k} className="h-7 gap-1.5 rounded-md px-4 text-sm text-slate-500 data-[state=active]:font-semibold data-[state=active]:text-indigo-700">
-                {t(lbl)}
-                <span className={cn("rounded-full px-1.5 text-[11px] font-medium tabular-nums", line === k ? "bg-indigo-50 text-indigo-600" : "bg-slate-200/70 text-slate-500")}>{lineCounts[k]}</span>
-              </TabsTrigger>
-            ))}
-            </TabsList>
-          </Tabs>
-          <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setView("systems")}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-600 transition-colors duration-200 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
-          >
-            <Layers3 className="size-4" />
-            {t("子系统全景")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setCoreMode(true)}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-600 transition-colors duration-200 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
-          >
-            <PackageSearch className="size-4" />
-            {t("核心配件")}
-            <span className="rounded-full bg-slate-100 px-1.5 text-[11px] tabular-nums text-slate-500">
-              {coreConfigLoading ? "—" : coreInventorySummary.total}
-            </span>
-            {coreInventorySummary.abnormal > 0 ? (
-              <span className="rounded-full bg-rose-50 px-1.5 text-[11px] tabular-nums text-rose-700">
-                {t("异常")} {coreInventorySummary.abnormal}
-              </span>
-            ) : null}
-          </button>
-            <>
+        <section className="proc-horizon-command proc-horizon-command-cockpit mb-3">
+          <div className="proc-horizon-command-layout">
+            <div className="proc-horizon-command-heading">
+              <span className="proc-horizon-command-mark"><ClipboardList className="size-5" /></span>
+              <div className="proc-horizon-command-copy">
+                <h2 className="text-balance">{t("采购任务指挥台")}</h2>
+                <p className="text-pretty">
+                  {treeNode
+                    ? t("当前聚焦「{name}」，共 {count} 个任务", { name: treeNode.name, count: treeScopedTasks.length })
+                    : t("汇总需求、询价、下单与到货进度，共 {count} 个任务", { count: treeScopedTasks.length })}
+                </p>
+                <Tabs value={line} className="proc-horizon-scope-tabs" onValueChange={(value) => setLine(value as "all" | "rd" | "production")}>
+                  <TabsList aria-label={t("采购业务线")} className="h-10 rounded-lg bg-slate-100 p-1">
+                  {([["all", "全部"], ["production", "生产"], ["rd", "研发"]] as const).map(([k, lbl]) => (
+                    <TabsTrigger key={k} value={k} className="h-8 gap-1.5 rounded-md px-4 text-sm text-slate-500 data-[state=active]:font-semibold data-[state=active]:text-[#002fa7]">
+                      {t(lbl)}
+                      <span className={cn("rounded-full px-1.5 text-[10px] font-medium tabular-nums", line === k ? "bg-[#eef3ff] text-[#002fa7]" : "bg-slate-200/70 text-slate-500")}>{lineCounts[k]}</span>
+                    </TabsTrigger>
+                  ))}
+                  </TabsList>
+                </Tabs>
+              </div>
+            </div>
+
+            <div className="proc-horizon-actions">
+              <button type="button" aria-label={t("子系统全景")} title={t("子系统全景")} onClick={() => setView("systems")} className="material-button-secondary inline-flex items-center gap-1.5 text-xs">
+                <Layers3 className="size-4" /><span className="proc-horizon-action-label">{t("子系统全景")}</span>
+              </button>
               <button
                 type="button"
-                title={t('导出当前筛选下的任务列表（Excel）')}
-                onClick={() => {
-                  void exportProcTasksXlsx(filtered)
-                    .then((count) => toast.success(t('已导出 {count} 个任务', { count })))
-                    .catch((err) => toast.error(err instanceof Error ? err.message : t('导出失败')));
-                }}
-                className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"
-              ><Download className="h-4 w-4" />{t('导出')}</button>
-              {canOrder && <button type="button" onClick={() => setPoMatchOpen(true)} title={t('确认 T+ 采购单与任务的匹配建议，任务自动转入在途')} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Truck className="h-4 w-4" />{t('单据匹配')}</button>}
-              {canReassign && <button type="button" onClick={() => setBatchOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Users className="h-4 w-4" />{t('批量转派')}</button>}
-              {(canCreate || canReassign) && <button type="button" onClick={() => setBatchMoveOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><FolderTree className="h-4 w-4" />{t('批量归类')}</button>}
-              <button type="button" onClick={() => navigate('/proc-people-management')} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><UserCog className="h-4 w-4" />{t('人员管理')}</button>
-              {canCreate && <button type="button" onClick={() => setNewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Plus className="h-4 w-4" />{t('新建需求')}</button>}
-            </>
+                aria-label={coreConfigError ? t("核心配件配置加载失败，打开查看详情") : t("核心配件")}
+                title={coreConfigError ? t("核心配件配置加载失败，打开后可重试") : t("核心配件")}
+                onClick={() => setCoreMode(true)}
+                className="material-button-secondary inline-flex items-center gap-1.5 text-xs"
+              >
+                <PackageSearch className="size-4" /><span className="proc-horizon-action-label">{t("核心配件")}</span>
+                <span className="rounded-full bg-slate-100 px-1.5 text-[10px] tabular-nums text-slate-500">{coreConfigLoading ? "—" : coreInventorySummary.total}</span>
+                {coreConfigError ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 text-[10px] font-semibold text-rose-700"><AlertTriangle className="size-3" />{t("配置异常")}</span>
+                ) : coreInventorySummary.abnormal > 0 ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-1.5 text-[10px] tabular-nums text-rose-700"><AlertTriangle className="size-3" />{t("异常")} {coreInventorySummary.abnormal}</span>
+                ) : null}
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="material-button-secondary inline-flex items-center gap-1.5 text-xs">
+                    <MoreHorizontal className="size-4" />{t("更多")}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="proc-horizon-menu min-w-48 rounded-xl border-slate-200 p-1.5 shadow-lg data-[state=open]:animate-none data-[state=closed]:animate-none">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      void exportProcTasksXlsx(filtered)
+                        .then((count) => toast.success(t('已导出 {count} 个任务', { count })))
+                        .catch((err) => toast.error(err instanceof Error ? err.message : t('导出失败')));
+                    }}
+                  ><Download className="size-4" />{t('导出当前列表')}</DropdownMenuItem>
+                  {canOrder && <DropdownMenuItem onSelect={() => setPoMatchOpen(true)}><Truck className="size-4" />{t('单据匹配')}</DropdownMenuItem>}
+                  {(canOrder || canReassign || canCreate) && <DropdownMenuSeparator />}
+                  {canReassign && <DropdownMenuItem onSelect={() => setBatchOpen(true)}><Users className="size-4" />{t('批量转派')}</DropdownMenuItem>}
+                  {(canCreate || canReassign) && <DropdownMenuItem onSelect={() => setBatchMoveOpen(true)}><FolderTree className="size-4" />{t('批量归类')}</DropdownMenuItem>}
+                  <DropdownMenuItem onSelect={() => navigate('/proc-people-management')}><UserCog className="size-4" />{t('人员管理')}</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {canCreate && <button type="button" onClick={() => setNewOpen(true)} className="proc-horizon-primary-action inline-flex items-center gap-1.5 text-xs"><Plus className="size-4" />{t('新建需求')}</button>}
+            </div>
+
+            <div className="proc-horizon-kpi-grid">
+              <StatCell label={t('进行中')} value={counts.inprogress} Icon={Activity} active={stat === "inprogress"} onClick={() => toggleStat("inprogress")} />
+              <StatCell label={t('待处理')} value={counts.pending} tone={counts.pending > 0 ? "red" : "slate"} badge={counts.pending > 0} Icon={ClipboardList} active={stat === "pending"} onClick={() => toggleStat("pending")} />
+              <StatCell label={t('询价中')} value={counts.inquiring} tone="indigo" Icon={Search} active={stat === "inquiring"} onClick={() => toggleStat("inquiring")} />
+              <StatCell label={t('在途')} value={counts.transit} tone="indigo" Icon={Truck} active={stat === "transit"} onClick={() => toggleStat("transit")} />
+              <StatCell label={t('逾期')} value={counts.overdue} tone="red" Icon={AlertTriangle} active={stat === "overdue"} onClick={() => toggleStat("overdue")} />
+              <StatCell label={t('本周到货')} value={counts.week} tone="emerald" Icon={PackageCheck} active={stat === "week"} onClick={() => toggleStat("week")} />
+            </div>
           </div>
-        </div>
+        </section>
       )}
 
       {view === "systems" ? (
@@ -360,86 +420,107 @@ export function ProcurementCockpitPage() {
           />
         </div>
       ) : (
-        /* 统计条 */
         <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 lg:gap-3">
-        <StatCell label={t('进行中')} value={counts.inprogress} Icon={Activity} active={stat === "inprogress"} onClick={() => toggleStat("inprogress")} />
-        <StatCell label={t('待处理')} value={counts.pending} tone={counts.pending > 0 ? "red" : "slate"} badge={counts.pending > 0} Icon={ClipboardList} active={stat === "pending"} onClick={() => toggleStat("pending")} />
-        <StatCell label={t('询价中')} value={counts.inquiring} tone="indigo" Icon={Search} active={stat === "inquiring"} onClick={() => toggleStat("inquiring")} />
-        <StatCell label={t('在途')} value={counts.transit} tone="violet" Icon={Truck} active={stat === "transit"} onClick={() => toggleStat("transit")} />
-        <StatCell label={t('逾期')} value={counts.overdue} tone="red" Icon={AlertTriangle} active={stat === "overdue"} onClick={() => toggleStat("overdue")} />
-        <StatCell label={t('本周到货')} value={counts.week} tone="emerald" Icon={PackageCheck} active={stat === "week"} onClick={() => toggleStat("week")} />
-      </div>
-
+        <section className="proc-horizon-task-stream flex min-h-0 min-w-0 flex-1 flex-col">
       {/* 人员泳道 */}
-      <div className="material-card mb-3 flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-4 sm:py-3">
-        <span className="mr-1 text-xs text-slate-400">{t('采购负责人')}</span>
+      <div className="proc-horizon-people-nav">
+        <span className="proc-horizon-people-label"><Users className="size-3.5" />{t('采购负责人')}</span>
         <ToggleGroup
           type="single"
           value={buyerUserId ?? "all"}
           onValueChange={(value) => setBuyerUserId(!value || value === "all" ? null : value)}
           aria-label={t("按采购负责人筛选")}
-          className="flex flex-wrap gap-1.5"
+          className="proc-horizon-people-list"
         >
-          {/*
-            这一排是彼此独立的圆形筛选芯片，不是 ToggleGroupItem 默认的连体分段控件，
-            所以要把分段控件的三处默认样式让开：
-            1. 不传 variant="outline"：否则 data-[variant=outline]:border-l-0 会把除首项外
-               所有芯片的左边框吃掉（该规则带属性选择器，优先级高于 border，改类名没用）；
-               边框颜色改为显式 slate-200——outline 变体用的 border-input 在浅色主题下是
-               transparent，等于没有描边。
-            2. rounded-full!：first:rounded-l-md / last:rounded-r-md 在样式表里排在
-               rounded-full 之后，会把首项左侧、末项右侧压成 12px 直角，一排芯片左右不对称。
-            3. 去掉 py-0.5：h-7 减去 1px 边框和 2px 内边距只剩 22px，装不下 h-6（24px）的
-               头像，头像会顶出芯片上下沿。
-          */}
-          <ToggleGroupItem value="all" size="sm" className="h-7 flex-none rounded-full! border border-slate-200 px-2.5 text-xs hover:bg-slate-50 data-[state=on]:border-indigo-300 data-[state=on]:bg-indigo-50 data-[state=on]:text-indigo-600">{t('全部')}</ToggleGroupItem>
-          {people.map((buyer) => (
-          <ToggleGroupItem key={buyer.id} value={buyer.id} size="sm" className="h-7 flex-none gap-1.5 rounded-full! border border-slate-200 pl-0.5 pr-2 text-xs hover:bg-slate-50 data-[state=on]:border-indigo-300 data-[state=on]:bg-indigo-50 data-[state=on]:text-indigo-600">
-            <PersonAvatar name={buyer.name} size="xs" />
-            {buyer.name}
-            <span className="rounded-full bg-slate-100 px-1.5 text-[11px] text-slate-500">{buyer.taskCount}</span>
+          <ToggleGroupItem value="all" size="sm" className="proc-horizon-person-tab">
+            <span className="proc-horizon-avatar-ring">
+              <span className="proc-horizon-avatar-core"><Users className="size-4" /></span>
+              <span className="proc-horizon-person-count tabular-nums" data-empty={treeScopedTasks.length === 0}>{treeScopedTasks.length}</span>
+            </span>
+            <span className="proc-horizon-person-name">{t('全部')}</span>
           </ToggleGroupItem>
+          {people.map((buyer) => (
+            <ToggleGroupItem key={buyer.id} value={buyer.id} size="sm" className="proc-horizon-person-tab">
+              <span className="proc-horizon-avatar-ring">
+                <span className="proc-horizon-avatar-core"><PersonAvatar name={buyer.name} size="md" /></span>
+                <span className="proc-horizon-person-count tabular-nums" data-empty={buyer.taskCount === 0}>{buyer.taskCount}</span>
+              </span>
+              <span className="proc-horizon-person-name">{buyer.name}</span>
+            </ToggleGroupItem>
           ))}
         </ToggleGroup>
-        {treeNode && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setTreeNode(null)}
-            className="h-7 rounded-full border-indigo-200 bg-indigo-50 px-2 text-xs text-indigo-600 hover:bg-indigo-100"
-          >
-            {t("系统")}：<AutoTranslatedText text={treeNode.name} /> ×
-          </Button>
-        )}
-        {materialParam && (
-          <button type="button" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete("material"); return n; }, { replace: true })} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600">{t('物料')}：<AutoTranslatedText text={materialParam} /> ✕</button>
-        )}
-        <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1 text-xs focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 sm:flex-none">
-            <Search className="h-3.5 w-3.5 text-slate-400" />
-            <Input value={kw} onChange={(e) => setKw(e.target.value)} placeholder={t('搜索单号 / 物料 / 人员')} className="h-7 min-w-0 flex-1 border-0 bg-transparent p-0 shadow-none outline-none placeholder:text-slate-400 focus-visible:ring-0 sm:w-40 sm:flex-none" />
-            {kw && <button type="button" aria-label={t('清空搜索')} onClick={() => setKw("")} className="rounded text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">✕</button>}
-          </div>
-          <span className="shrink-0 text-xs tabular-nums text-slate-400">{filtered.length} {t('个任务')}</span>
+        <div className="proc-horizon-search ml-2">
+          <Search className="pointer-events-none absolute left-3 top-1/2 z-10 size-3.5 -translate-y-1/2 text-slate-400" />
+          <Input aria-label={t('搜索采购任务')} value={kw} onChange={(e) => setKw(e.target.value)} placeholder={t('搜索单号 / 物料 / 人员')} className="pl-8 pr-8 text-xs placeholder:text-slate-400" />
+          {kw && (
+            <button type="button" aria-label={t('清空搜索')} onClick={() => setKw("")} className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
+              <X className="size-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
+      <div className="proc-horizon-task-feed flex min-h-0 flex-1 flex-col">
+      <div className="proc-horizon-filter-bar">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span className="font-semibold text-slate-500">{t("当前任务流")}</span>
+          {stat && (
+            <button type="button" onClick={() => setStat(null)} aria-label={t("移除状态筛选：{status}", { status: t(STAT_LABELS[stat]) })} className="proc-horizon-filter-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
+              {t(STAT_LABELS[stat])} ×
+            </button>
+          )}
+          {treeNode && (
+            <Button type="button" variant="outline" size="sm" onClick={() => setTreeNode(null)} className="proc-horizon-filter-chip h-auto">
+              {t("系统")}：<AutoTranslatedText text={treeNode.name} /> ×
+            </Button>
+          )}
+          {materialParam && (
+            <button type="button" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete("material"); return n; }, { replace: true })} aria-label={t("移除物料筛选：{material}", { material: materialParam })} className="proc-horizon-filter-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
+              {t('物料')}：<AutoTranslatedText text={materialParam} /> ×
+            </button>
+          )}
+        </div>
+        <span className="shrink-0 font-semibold tabular-nums text-slate-500">{t("显示 {count} 个任务", { count: filtered.length })}</span>
+      </div>
+
       {/* 任务展示区 */}
-      <ScrollArea className="min-h-0 flex-1 pr-2">
-        <div>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="proc-horizon-task-scroll">
           {error ? (
-            <div className="rounded-xl border border-dashed border-red-200 bg-red-50/40 py-12 text-center text-sm text-red-500">{error}</div>
+            <div role="alert" className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-rose-200 bg-rose-50/40 px-4 py-12 text-center text-sm text-rose-700">
+              <AlertTriangle className="size-7 text-rose-500" />
+              <div>
+                <p className="font-semibold">{t("采购任务加载失败")}</p>
+                <p className="mt-1 max-w-xl text-pretty text-xs text-rose-600">{error}</p>
+              </div>
+              <button type="button" onClick={() => void refreshProcurement()} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</button>
+            </div>
           ) : loading && tasks.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-400">{t('加载中')}…</div>
+            <div aria-label={t("正在加载采购任务")} className="columns-1 gap-3 lg:columns-2 xl:columns-3">
+              {[0, 1, 2].map((item) => (
+                <div key={item} className="mb-3 min-h-52 break-inside-avoid rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex gap-2"><span className="h-5 w-16 rounded bg-slate-100" /><span className="h-5 w-20 rounded bg-slate-100" /></div>
+                  <div className="mt-4 h-5 w-3/4 rounded bg-slate-100" />
+                  <div className="mt-3 h-4 w-full rounded bg-slate-100" />
+                  <div className="mt-2 h-4 w-2/3 rounded bg-slate-100" />
+                  <div className="mt-8 h-2 w-full rounded bg-slate-100" />
+                </div>
+              ))}
+            </div>
           ) : filtered.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-400">{t('没有符合条件的任务')}</div>
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-200 py-12 text-center">
+              <ClipboardList className="size-7 text-slate-300" />
+              <p className="text-pretty text-sm font-medium text-slate-600">{t(hasActiveFilters ? '没有符合条件的任务' : '当前还没有采购任务')}</p>
+              {hasActiveFilters ? (
+                <button type="button" onClick={clearFilters} className="material-button-secondary px-3 py-2 text-xs">{t("清除筛选")}</button>
+              ) : canCreate ? (
+                <button type="button" onClick={() => setNewOpen(true)} className="material-button-primary px-3 py-2 text-xs">{t("新建需求")}</button>
+              ) : null}
+            </div>
           ) : (
               <>
                 {/* 瀑布流：CSS 多列实现（待处理置顶项落在第一列顶部）；分批渲染 + 滚动加载更多 */}
-                <div className="columns-1 gap-3 lg:columns-2 xl:columns-3">
+                <div className="proc-horizon-masonry columns-1 gap-3 lg:columns-2 xl:columns-3">
                   {visibleTasks.map((t) => (
                     <div key={t.id} className="mb-3 break-inside-avoid">
                       <ProcurementTaskCard
@@ -455,7 +536,7 @@ export function ProcurementCockpitPage() {
                 </div>
                 {visibleCount < filtered.length ? (
                   <div ref={sentinelRef} className="flex items-center justify-center gap-2 py-4 text-xs text-slate-400">
-                    <span className="size-3 animate-spin rounded-full border-2 border-slate-300 border-t-indigo-500 motion-reduce:animate-none" />
+                    <span className="size-3 animate-spin rounded-full border-2 border-slate-300 border-t-[#002fa7] motion-reduce:animate-none" />
                     {t('下拉加载更多')}（{visibleCount} / {filtered.length}）
                   </div>
                 ) : filtered.length > WATERFALL_PAGE_SIZE ? (
@@ -466,6 +547,7 @@ export function ProcurementCockpitPage() {
         </div>
 
       </ScrollArea>
+      </div>
 
         </section>
       </div>
@@ -484,6 +566,7 @@ export function ProcurementCockpitPage() {
         />
       )}
       {poMatchOpen && <PoMatchModal onClose={() => setPoMatchOpen(false)} />}
+      </div>
     </div>
   );
 }

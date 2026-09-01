@@ -173,7 +173,7 @@ test("任务类型预设：前后端两份清单锁死，详情页可人工纠�
   // 详情页只改 category_path 第三段：前两段是分类归属，归属变更走「移动归类」
   assert.match(detail, /const saveTaskType = async/);
   assert.match(detail, /withTaskType\(task\.category_path, value\)/);
-  assert.match(detail, /updateRdTask\(task\.task_id, \{ category_path: nextPath \}\)/);
+  assert.match(detail, /const expectedTaskId = task\.task_id;[\s\S]{0,700}updateRdTask\(expectedTaskId, \{ category_path: nextPath \}\)/);
   // 预设之外允许自定义，否则清单外的新类型改不了
   assert.match(detail, /CUSTOM_TASK_TYPE_OPTION/);
   // task 与 allTasks 双源同步，否则人员任务弹层等派生视图仍显示旧 tag

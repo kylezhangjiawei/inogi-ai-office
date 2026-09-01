@@ -73,10 +73,12 @@ test("重点库存候选只允许已关联 T+ 且完成库存同步的物料，�
 
 test("已配置的重点库存显示在付款到货信息条下方", () => {
   const paymentIndex = card.indexOf('t("未付款")');
-  const inventoryIndex = card.indexOf("<TaskCriticalMaterials task={task} materials={materials} />");
+  const inventoryIndex = card.indexOf("<TaskCriticalMaterials task={task} materials={materials} compact />");
   assert.ok(paymentIndex >= 0, "任务卡应包含付款到货信息条");
   assert.ok(inventoryIndex > paymentIndex, "重点库存应位于付款到货信息条下方");
-  assert.equal(inventoryIndex, card.lastIndexOf("<TaskCriticalMaterials task={task} materials={materials} />"));
+  assert.equal(inventoryIndex, card.lastIndexOf("<TaskCriticalMaterials task={task} materials={materials} compact />"));
+  assert.match(taskInventory, /compact\?: boolean/);
+  assert.match(taskInventory, /proc-horizon-critical-summary/);
 });
 
 test("采购任务详情复用同一份重点库存数据和过滤口径", () => {
@@ -148,8 +150,8 @@ test("采购驾驶舱和个人工作台共用研发式任务卡", () => {
   assert.doesNotMatch(card, /role="button"/);
   assert.match(card, /aria-label=\{t\("查看任务"\)\}/);
   assert.match(card, /rounded-2xl border border-slate-200\/80 bg-white/);
-  assert.match(card, /hover:-translate-y-0\.5/);
-  assert.match(card, /line-clamp-2 text-\[15px\] font-bold/);
+  assert.doesNotMatch(card, /hover:-translate-y-0\.5|group-hover\/attachment:scale/);
+  assert.match(card, /line-clamp-2 text-balance text-\[15px\] font-bold/);
   assert.match(card, /DropdownMenu/);
   assert.match(card, /tabular-nums/);
   assert.doesNotMatch(card, /material-card relative w-full overflow-hidden p-4/);
@@ -282,8 +284,8 @@ test("物料关联任务按 materialId 匹配，同名不同 ID 的物料不互�
   assert.match(procData, /export function isTaskOfMaterial\(/);
   assert.match(procData, /task\.materialId \? task\.materialId === material\.id : task\.materialName === material\.name/);
   // materialAggregates 收物料对象而不是名字，调用方无法只传名称
-  assert.doesNotMatch(procData, /materialName: string,\n\): \{ inTransit/);
-  assert.match(procData, /material: Pick<Material, "id" \| "name">,\n\): \{ inTransit/);
+  assert.doesNotMatch(procData, /materialName: string,\r?\n\): \{ inTransit/);
+  assert.match(procData, /material: Pick<Material, "id" \| "name">,\r?\n\): \{ inTransit/);
   // 两个调用点都改为传物料对象
   assert.match(drawer, /materialAggregates\(tasks, material\)/);
   assert.match(table, /materialAggregates\(tasks, m\)/);

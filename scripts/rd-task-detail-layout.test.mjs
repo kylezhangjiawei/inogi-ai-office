@@ -133,8 +133,8 @@ test("returning from a member-scoped task restores the selected cockpit member",
 test("the all-tasks lane is labeled as admin view and keeps the unscoped detail rules", () => {
   assert.match(managementSource, /\{t\("管理员视角"\)\}/);
   // 成员页签改按身份主键索引后，activeMember 为空即「全部」视角，activityActor 仍为 undefined
-  assert.match(managementSource, /const activeMember = activeTab === "all"\s*\? undefined/);
-  assert.match(managementSource, /const activityActor = activeMember\s*\?\s*\{ id: activeMember\.user_id, name: activeMember\.name \}\s*: undefined;/);
+  assert.match(managementSource, /const activeMember = useMemo\([\s\S]{0,180}activeTab === "all" \? undefined/);
+  assert.match(managementSource, /const activityActor = useMemo\([\s\S]{0,180}activeMember \? \{ id: activeMember\.user_id, name: activeMember\.name \} : undefined/);
   assert.match(managementSource, /const scopeLabel = activeTab === "all"\s*\? t\("管理员视角"\)/);
 });
 
@@ -145,7 +145,7 @@ test("task fullscreen stays active at the first row and explicit exit keeps auto
   assert.match(managementSource, /onClick=\{\(\) => setHeaderCollapsed\(false\)\}/);
   assert.doesNotMatch(managementSource, /onClick=\{\(\) => \{ setHeaderPinned\(true\); setHeaderCollapsed\(false\); \}\}/);
   assert.match(managementSource, /createPortal\([\s\S]*document\.body/);
-  assert.match(managementSource, /className="fixed right-4 top-4 z-40 inline-flex h-10/);
+  assert.match(managementSource, /"horizon-portal fixed right-4 top-4 z-40 inline-flex min-h-11/);
   assert.doesNotMatch(managementSource, /t\("顶部概览已收起"\)/);
   assert.match(managementSource, /\{t\("退出大屏"\)\}/);
 });

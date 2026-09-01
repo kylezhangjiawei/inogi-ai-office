@@ -14,8 +14,14 @@ import {
   X,
 } from "lucide-react";
 
-import { useModalFocus } from "../hooks/useModalFocus";
 import { getExternalDocumentVersionPreviewContent } from "../lib/externalDocsApi";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./ui/dialog";
 import { cn } from "./ui/utils";
 import { MobileZoomableImage } from "./MobileZoomableImage";
 
@@ -172,9 +178,10 @@ function DocxPageRenderer({
             onClick={() => scrollToPage(currentPage - 1)}
             disabled={rendering || currentPage <= 1}
             aria-label="上一页"
+            title="上一页"
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-default disabled:opacity-35"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
           </button>
           <span className="min-w-[72px] text-center text-[11px] font-semibold tabular-nums text-slate-600">
             第 {currentPage} / {pageCount} 页
@@ -184,9 +191,10 @@ function DocxPageRenderer({
             onClick={() => scrollToPage(currentPage + 1)}
             disabled={rendering || currentPage >= pageCount}
             aria-label="下一页"
+            title="下一页"
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-default disabled:opacity-35"
           >
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
@@ -201,9 +209,10 @@ function DocxPageRenderer({
             onClick={() => adjustZoom(-1)}
             disabled={zoom === ZOOM_STEPS[0]}
             aria-label="缩小页面"
+            title="缩小页面"
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-default disabled:opacity-35"
           >
-            <Minus className="h-3.5 w-3.5" />
+            <Minus className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
           <span className="w-9 text-center text-[10px] font-semibold tabular-nums text-slate-500">
             {Math.round(zoom * 100)}%
@@ -213,19 +222,20 @@ function DocxPageRenderer({
             onClick={() => adjustZoom(1)}
             disabled={zoom === ZOOM_STEPS[ZOOM_STEPS.length - 1]}
             aria-label="放大页面"
+            title="放大页面"
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-default disabled:opacity-35"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
       </div>
 
       <div
         ref={viewportRef}
-        className="material-scrollbar relative min-h-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_top,#e7edf5_0,#dce4ee_45%,#d5dee9_100%)]"
+        className="material-scrollbar relative min-h-0 flex-1 overflow-auto bg-slate-200"
       >
         {rendering && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-100/90 text-slate-500 backdrop-blur-sm">
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-100/95 text-slate-500">
             <Loader2 className="h-7 w-7 animate-spin text-blue-700" />
             <p className="mt-3 text-xs font-semibold">正在还原 Word 页面…</p>
             <p className="mt-1 text-[11px] text-slate-400">表格、图片与特殊符号均在浏览器本地解析</p>
@@ -306,7 +316,7 @@ function VersionEvidencePanel({
               )}>
                 {version.version}
               </span>
-              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+              <span className="text-[10px] font-semibold text-slate-500">
                 {side === "baseline" ? "基准原文" : "候选原文"}
               </span>
             </div>
@@ -318,14 +328,14 @@ function VersionEvidencePanel({
             type="button"
             onClick={() => blob && downloadBlob(blob, version.fileName)}
             disabled={!blob}
-            className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:text-blue-700 disabled:cursor-wait disabled:opacity-45"
+            className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-[4px] border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-[#8fa8df] hover:text-[#002fa7] disabled:cursor-wait disabled:opacity-45"
           >
             <Download className="h-3.5 w-3.5" />
             下载原文件
           </button>
         </div>
         <div className={cn(
-          "mt-2 rounded-lg border px-3 py-2",
+          "mt-2 rounded-[4px] border px-3 py-2",
           side === "baseline" ? "border-rose-100 bg-rose-50/55" : "border-emerald-100 bg-emerald-50/60",
         )}>
           <p className="line-clamp-2 text-[11px] leading-5 text-slate-600" title={excerpt}>
@@ -381,55 +391,38 @@ export function ExternalDocumentEvidenceViewer({
 }: EvidenceViewerProps) {
   const baselineLine = lineNumberForSide(difference.location, "baseline");
   const candidateLine = lineNumberForSide(difference.location, "candidate");
-  const dialogRef = useModalFocus<HTMLElement>(true, onClose);
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, []);
 
   return (
-    <div
-      className="fixed inset-0 z-[90] flex bg-slate-950/55 p-2 backdrop-blur-sm lg:p-4"
-      role="presentation"
-      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
-    >
-      <section
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="external-evidence-title"
-        tabIndex={-1}
-        className="flex min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-white/70 bg-slate-100 shadow-[0_28px_90px_rgba(15,23,42,0.34)]"
+    <Dialog open onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
+      <DialogContent
+        className="horizon-theme horizon-portal z-[90] flex h-[calc(100vh-16px)] w-[calc(100vw-16px)] max-w-none flex-col gap-0 overflow-hidden rounded-[4px] border border-slate-200 bg-slate-100 p-0 shadow-xl sm:max-w-none [&>button.absolute]:hidden"
       >
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-3.5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700 ring-1 ring-inset ring-blue-200">
-                <ShieldCheck className="h-3.5 w-3.5" />
+              <span className="inline-flex items-center gap-1.5 rounded-[4px] border border-[#b8c8ec] bg-[#eef3ff] px-2.5 py-1 text-[10px] font-bold text-[#002fa7]">
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                 受控原文视觉证据
               </span>
               <span className="text-[11px] text-slate-400">{difference.id} · {difference.location}</span>
             </div>
-            <h2 id="external-evidence-title" className="mt-2 truncate text-base font-semibold text-slate-950">
+            <DialogTitle id="external-evidence-title" className="mt-2 truncate text-base font-semibold text-slate-950">
               {difference.title}
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
+            </DialogTitle>
+            <DialogDescription className="mt-0.5 text-xs text-slate-500">
               两个版本均在浏览器本地还原；建议页为辅助定位，最终以原文件及 SHA256 固化记录为准。
-            </p>
+            </DialogDescription>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            data-dialog-autofocus
-            aria-label="关闭原文视觉核对"
-            className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <DialogClose asChild>
+            <button
+              type="button"
+              aria-label="关闭原文视觉核对"
+              title="关闭原文视觉核对"
+              className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-[4px] border border-slate-200 bg-white text-slate-500 transition-colors hover:border-[#8fa8df] hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
+            >
+              <X className="h-5 w-5" aria-hidden="true" />
+            </button>
+          </DialogClose>
         </header>
 
         <div className="grid min-h-0 flex-1 grid-cols-2 gap-px bg-slate-200">
@@ -449,12 +442,12 @@ export function ExternalDocumentEvidenceViewer({
 
         <footer className="flex h-9 shrink-0 items-center justify-between border-t border-slate-200 bg-white px-4 text-[10px] text-slate-400">
           <span className="inline-flex items-center gap-1.5">
-            <Eye className="h-3.5 w-3.5" />
+            <Eye className="h-3.5 w-3.5" aria-hidden="true" />
             视觉预览用于核对复杂表格、图片、印章、特殊字体与低置信度文本
           </span>
           <span>文件未发送至第三方服务</span>
         </footer>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

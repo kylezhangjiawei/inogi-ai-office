@@ -1,14 +1,44 @@
 import React, { useState } from "react";
 import {
+  Archive,
   AlertTriangle,
   BadgeCheck,
   CheckCircle2,
+  ClipboardCheck,
   Lock,
   Plus,
   ShieldCheck,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
+import { Button } from "./components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
+import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 
 type InspectionType = "IQC" | "IPQC" | "FQC";
@@ -84,9 +114,9 @@ const mockRecords: InspectionRecord[] = [
 ];
 
 const typeColors: Record<InspectionType, string> = {
-  IQC: "bg-blue-100 text-blue-700",
-  IPQC: "bg-purple-100 text-purple-700",
-  FQC: "bg-teal-100 text-teal-700",
+  IQC: "bg-[#eef3ff] text-[#002fa7]",
+  IPQC: "bg-slate-100 text-slate-700",
+  FQC: "bg-sky-50 text-sky-700",
 };
 
 const releaseColors: Record<ReleaseStatus, string> = {
@@ -100,12 +130,13 @@ interface NewFormItem {
   name: string;
   standard: string;
   actual: string;
+  result: "合格" | "不合格" | "";
 }
 
 const defaultItems: NewFormItem[] = [
-  { name: "外观检验", standard: "无破损/划痕", actual: "" },
-  { name: "尺寸测量", standard: "标准范围内", actual: "" },
-  { name: "功能测试", standard: "全功能正常", actual: "" },
+  { name: "外观检验", standard: "无破损/划痕", actual: "", result: "" },
+  { name: "尺寸测量", standard: "标准范围内", actual: "", result: "" },
+  { name: "功能测试", standard: "全功能正常", actual: "", result: "" },
 ];
 
 export function InspectionReleasePage() {
@@ -118,23 +149,20 @@ export function InspectionReleasePage() {
   });
   const [newItems, setNewItems] = useState<NewFormItem[]>(defaultItems);
   const [rejectionReason, setRejectionReason] = useState("");
-  const [showRejectInput, setShowRejectInput] = useState(false);
+  const [formAttempted, setFormAttempted] = useState(false);
+  const [releaseConfirmOpen, setReleaseConfirmOpen] = useState(false);
+  const [rejectConfirmOpen, setRejectConfirmOpen] = useState(false);
+  const [rejectAttempted, setRejectAttempted] = useState(false);
 
   const selected = records.find((r) => r.id === selectedId)!;
 
-  const computeItemResult = (item: NewFormItem): "合格" | "不合格" | "—" => {
-    if (!item.actual) return "—";
-    if (item.actual === "合格" || item.actual === "通过") return "合格";
-    if (item.actual === "不合格" || item.actual === "不通过") return "不合格";
-    return "合格";
-  };
-
   const handleSubmitNew = () => {
-    if (!newForm.batch || !newForm.inspector) { toast.error("请填写批号和检验人"); return; }
+    setFormAttempted(true);
+    if (!newForm.batch.trim() || !newForm.inspector.trim() || newItems.some((item) => !item.actual.trim() || !item.result)) return;
     const computedItems = newItems.map((item) => ({
       ...item,
       min: 0, max: 0,
-      result: computeItemResult(item),
+      result: item.result as "合格" | "不合格",
     }));
     const overallResult: InspectionResult = computedItems.some((i) => i.result === "不合格") ? "不合格" : "合格";
     const id = `IQC-2026-${String(records.length + 40).padStart(3, "0")}`;
@@ -147,246 +175,150 @@ export function InspectionReleasePage() {
     setRecords((prev) => [newRecord, ...prev]);
     setSelectedId(id);
     setShowNewForm(false);
+    setNewForm({ batch: "", type: "IQC", date: new Date().toISOString().split("T")[0], inspector: "", supplier: "" });
+    setNewItems(defaultItems);
+    setFormAttempted(false);
     toast.success(`检验记录 ${id} 已提交`);
   };
 
   const handleRelease = () => {
     setRecords((prev) => prev.map((r) => r.id === selectedId ? { ...r, releaseStatus: "已放行" } : r));
+    setReleaseConfirmOpen(false);
     toast.success("批次已批准放行");
   };
 
   const handleReject = () => {
-    if (!rejectionReason.trim()) { toast.error("请填写拒绝原因"); return; }
+    setRejectAttempted(true);
+    if (!rejectionReason.trim()) return;
     setRecords((prev) => prev.map((r) => r.id === selectedId ? { ...r, releaseStatus: "已拒绝" } : r));
-    setShowRejectInput(false);
+    setRejectConfirmOpen(false);
     setRejectionReason("");
+    setRejectAttempted(false);
     toast.success("已拒绝放行");
   };
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col gap-4 bg-gray-50 p-3 lg:h-full lg:min-h-0 lg:flex-row lg:p-4">
-      {/* Left: IQC Form */}
-      <div className="flex min-w-0 flex-col gap-4 overflow-y-auto lg:w-80 lg:flex-shrink-0">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-teal-500" />
-              <h3 className="font-semibold text-gray-800 text-sm">检验表单</h3>
-            </div>
-            <button onClick={() => setShowNewForm(!showNewForm)}
-              className="flex items-center gap-1 text-xs text-teal-600 hover:text-teal-700 font-medium">
-              <Plus className="w-3.5 h-3.5" /> 新建
-            </button>
+    <div className="horizon-theme hz-page flex min-h-full min-w-0 flex-col gap-3 overflow-y-auto px-3 py-3 sm:px-4 xl:h-full xl:min-h-0 xl:overflow-hidden xl:px-5 xl:py-4">
+      <HorizonPageHeader
+        Icon={ShieldCheck}
+        eyebrow="QUALITY CONTROL · RELEASE"
+        title="检验与放行"
+        description="集中管理来料、过程与成品检验，确保放行动作经过明确复核。"
+        meta={<><span>{records.length} 条检验记录</span><span aria-hidden="true">·</span><span>当前批次 {selected.batch}</span></>}
+        actions={<Button type="button" className="hz-primary-action" onClick={() => setShowNewForm(true)}><Plus className="size-4" />新建检验</Button>}
+      />
+
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={ClipboardCheck} label="检验记录" value={records.length} note="全部质量记录" />
+        <HorizonMetric Icon={Lock} label="待放行" value={records.filter((record) => record.releaseStatus === "待放行").length} note="需要 QA 复核" tone="warning" />
+        <HorizonMetric Icon={BadgeCheck} label="已放行" value={records.filter((record) => record.releaseStatus === "已放行").length} note="允许进入后续流转" tone="success" />
+        <HorizonMetric Icon={XCircle} label="不合格" value={records.filter((record) => record.result === "不合格").length} note="包含待处置记录" tone="danger" />
+      </HorizonMetricGrid>
+
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <nav className="hz-surface flex min-w-0 flex-col overflow-hidden" aria-label="检验记录">
+          <HorizonSectionHeader title="检验记录" description="按批次选择并查看放行状态" trailing={<span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-600 tabular-nums">{records.length} 条</span>} />
+          <div className="flex gap-2 overflow-x-auto p-3 xl:block xl:flex-1 xl:space-y-1 xl:overflow-y-auto">
+            {records.map((record) => {
+              const selectedNow = selectedId === record.id;
+              return (
+                <button
+                  key={record.id}
+                  type="button"
+                  aria-pressed={selectedNow}
+                  aria-current={selectedNow ? "true" : undefined}
+                  onClick={() => setSelectedId(record.id)}
+                  className={cn(
+                    "relative min-w-[235px] rounded-xl border border-transparent px-3 py-3 text-left transition-colors xl:w-full xl:min-w-0",
+                    selectedNow ? "border-[#cfdafe] bg-[#eef3ff] before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-[#002fa7]" : "bg-slate-50/70 hover:bg-slate-100",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2"><span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", typeColors[record.type])}>{record.type}</span><span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", releaseColors[record.releaseStatus])}>{record.releaseStatus}</span></div>
+                  <div className="mt-2 truncate text-sm font-semibold text-[#1b2559] tabular-nums">{record.batch}</div>
+                  <div className="mt-1 flex items-center justify-between gap-2 text-xs"><span className="truncate text-slate-500 tabular-nums">{record.date} · {record.inspector}</span><span className={cn("inline-flex items-center gap-1 font-semibold", record.result === "合格" ? "text-emerald-700" : "text-rose-700")}>{record.result === "合格" ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3" />}{record.result}</span></div>
+                  {record.releaseStatus === "待放行" ? <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-500"><Lock className="size-3" />未放行，不可出库</div> : null}
+                </button>
+              );
+            })}
           </div>
+        </nav>
 
-          {showNewForm && (
-            <div className="space-y-2.5 border-t border-gray-50 pt-3">
-              {[
-                { label: "批号", key: "batch" },
-                { label: "检验人", key: "inspector" },
-                { label: "供应商", key: "supplier" },
-                { label: "检验日期", key: "date", type: "date" },
-              ].map((f) => (
-                <div key={f.key}>
-                  <label className="text-xs text-gray-400 block mb-1">{f.label}</label>
-                  <input
-                    type={f.type ?? "text"}
-                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-400"
-                    value={(newForm as Record<string, string>)[f.key]}
-                    onChange={(e) => setNewForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                  />
-                </div>
-              ))}
-              <div>
-                <label className="text-xs text-gray-400 block mb-1">检验类型</label>
-                <div className="flex gap-1">
-                  {(["IQC", "IPQC", "FQC"] as InspectionType[]).map((t) => (
-                    <button key={t} onClick={() => setNewForm((p) => ({ ...p, type: t }))}
-                      className={cn("flex-1 text-xs py-1 rounded-lg font-medium transition-colors",
-                        newForm.type === t ? "bg-teal-500 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                      )}>
-                      {t}
-                    </button>
-                  ))}
-                </div>
+        <section className="hz-surface flex min-w-0 flex-col overflow-hidden" aria-labelledby="inspection-detail-title">
+          <HorizonSectionHeader
+            Icon={Archive}
+            title={`${selected.batch} · ${selected.type}`}
+            description={`${selected.date} · 检验人 ${selected.inspector}${selected.supplier ? ` · 供应商 ${selected.supplier}` : ""}`}
+            trailing={<span className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", releaseColors[selected.releaseStatus])}>{selected.releaseStatus}</span>}
+          />
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-3"><h2 id="inspection-detail-title" className="text-sm font-semibold text-[#1b2559]">检验项目明细</h2><span className="text-xs text-slate-500 tabular-nums">{selected.items.length} 项</span></div>
+              <div className="overflow-hidden rounded-xl border border-[#e9edf7]">
+                {selected.items.map((item, index) => (
+                  <div key={`${item.name}-${index}`} className={cn("grid gap-3 border-b border-[#e9edf7] px-4 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,.45fr)_auto] sm:items-center", item.result === "不合格" && "bg-rose-50/70")}>
+                    <div className="min-w-0"><div className="text-sm font-semibold text-slate-800">{item.name}</div><div className="mt-0.5 text-xs text-slate-500">标准：{item.standard}</div></div>
+                    <div className="text-sm text-slate-700 tabular-nums"><span className="text-xs text-slate-500">实测</span><div className="mt-0.5 font-semibold">{item.actual || "—"}</div></div>
+                    <span className={cn("w-fit rounded-full px-2 py-0.5 text-xs font-semibold", item.result === "合格" ? "bg-emerald-50 text-emerald-700" : item.result === "不合格" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-500")}>{item.result}</span>
+                  </div>
+                ))}
               </div>
-
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-2">检验项目</div>
-              {newItems.map((item, i) => (
-                <div key={i} className="bg-gray-50 rounded-lg p-2.5 space-y-1.5">
-                  <div className="flex items-center justify-between text-xs text-gray-600">
-                    <span className="font-medium">{item.name}</span>
-                    <span className="text-gray-400">{item.standard}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      className="flex-1 text-sm border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-teal-400"
-                      placeholder="实测值"
-                      value={item.actual}
-                      onChange={(e) => setNewItems((prev) => prev.map((it, idx) => idx === i ? { ...it, actual: e.target.value } : it))}
-                    />
-                    {item.actual && (
-                      <span className={cn("text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0",
-                        computeItemResult(item) === "合格" ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"
-                      )}>
-                        {computeItemResult(item)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-              <button onClick={handleSubmitNew}
-                className="w-full bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium py-2 rounded-lg transition-colors mt-1">
-                提交检验记录
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Center: Record List */}
-      <div className="flex min-w-0 flex-col rounded-xl border border-gray-100 bg-white shadow-sm lg:w-72 lg:flex-shrink-0">
-        <div className="px-4 pt-4 pb-3 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-800 text-sm">检验记录</h3>
-        </div>
-        <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
-          {records.map((r) => (
-            <button key={r.id} onClick={() => setSelectedId(r.id)}
-              className={cn("w-full text-left px-4 py-3.5 hover:bg-gray-50 transition-colors", selectedId === r.id && "bg-teal-50")}>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className={cn("text-xs px-1.5 py-0.5 rounded-full font-medium", typeColors[r.type])}>{r.type}</span>
-                <span className={cn("text-xs px-1.5 py-0.5 rounded-full font-medium", releaseColors[r.releaseStatus])}>{r.releaseStatus}</span>
-              </div>
-              <div className="text-sm font-medium text-gray-800">{r.batch}</div>
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-xs text-gray-400">{r.date} · {r.inspector}</span>
-                <span className={cn("text-xs font-semibold flex items-center gap-1",
-                  r.result === "合格" ? "text-green-600" : "text-red-600"
-                )}>
-                  {r.result === "合格" ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                  {r.result}
-                </span>
-              </div>
-              {r.releaseStatus === "待放行" && (
-                <div className="flex items-center gap-1 mt-1.5">
-                  <Lock className="w-3 h-3 text-gray-400" />
-                  <span className="text-xs text-gray-400">未放行，不可出库</span>
-                </div>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Right: QA Release Panel */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
-        <div className="px-6 pt-5 pb-4 border-b border-gray-100">
-          <div className="mb-1 flex flex-wrap items-center gap-3">
-            <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", typeColors[selected.type])}>{selected.type}</span>
-            <h3 className="font-semibold text-gray-800">{selected.batch}</h3>
-            <span className={cn("ml-auto text-sm px-2.5 py-1 rounded-full font-medium", releaseColors[selected.releaseStatus])}>{selected.releaseStatus}</span>
-          </div>
-          <div className="text-xs text-gray-400">{selected.date} · 检验人：{selected.inspector}{selected.supplier && ` · 供应商：${selected.supplier}`}</div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {/* Inspection Items */}
-          <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">检验项目明细</div>
-            <div className="space-y-2">
-              {selected.items.map((item, i) => (
-                <div key={i} className={cn("flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3",
-                  item.result === "不合格" ? "border-red-100 bg-red-50" : "border-gray-100 bg-gray-50"
-                )}>
-                  <div>
-                    <div className="text-sm font-medium text-gray-800">{item.name}</div>
-                    <div className="text-xs text-gray-400 mt-0.5">标准：{item.standard}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-semibold text-gray-700">实测：{item.actual || "—"}</div>
-                    <span className={cn("text-xs px-1.5 py-0.5 rounded-full font-medium",
-                      item.result === "合格" ? "bg-green-50 text-green-600" :
-                      item.result === "不合格" ? "bg-red-50 text-red-600" : "bg-gray-100 text-gray-400"
-                    )}>
-                      {item.result}
-                    </span>
-                  </div>
-                </div>
-              ))}
+              <div className={cn("mt-3 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold", selected.result === "合格" ? "border-emerald-100 bg-emerald-50 text-emerald-700" : "border-rose-100 bg-rose-50 text-rose-700")}>{selected.result === "合格" ? <CheckCircle2 className="size-5" /> : <XCircle className="size-5" />}整体判定：{selected.result}</div>
+              {selected.ncr ? <div className="mt-2 flex items-center gap-2 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800"><AlertTriangle className="size-4" />NCR 处置方案：<strong>{selected.ncr}</strong></div> : null}
             </div>
 
-            {/* Overall result */}
-            <div className={cn("mt-3 p-3 rounded-xl flex items-center gap-2 font-semibold",
-              selected.result === "合格" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
-            )}>
-              {selected.result === "合格" ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-              整体判定：{selected.result}
-            </div>
-
-            {selected.ncr && (
-              <div className="mt-2 p-3 rounded-xl bg-orange-50 border border-orange-100 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-orange-500" />
-                <span className="text-sm text-orange-700">NCR 处置方案：<strong>{selected.ncr}</strong></span>
+            {selected.releaseStatus === "待放行" ? (
+              <div className="rounded-xl border border-[#dce4f8] bg-[#f8faff] p-4">
+                <div className="flex items-start gap-3"><span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#eef3ff] text-[#002fa7]"><BadgeCheck className="size-5" /></span><div><h3 className="text-sm font-semibold text-[#1b2559]">QA 放行审批</h3><p className="mt-1 text-pretty text-xs leading-5 text-slate-600">确认后将更新批次放行状态。请复核批号、检验结论和检验人信息。</p></div></div>
+                {selected.result === "不合格" ? <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs font-medium text-amber-800">当前整体判定为不合格；如需让步接收，请先核对 NCR 处置依据。</div> : null}
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row"><Button type="button" className="hz-primary-action sm:flex-1" onClick={() => setReleaseConfirmOpen(true)}><CheckCircle2 className="size-4" />批准放行</Button><Button type="button" variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50 sm:flex-1" onClick={() => { setRejectAttempted(false); setRejectConfirmOpen(true); }}><XCircle className="size-4" />拒绝放行</Button></div>
+              </div>
+            ) : (
+              <div className={cn("flex items-start gap-3 rounded-xl border p-4", selected.releaseStatus === "已放行" ? "border-emerald-100 bg-emerald-50" : "border-rose-100 bg-rose-50")}>
+                {selected.releaseStatus === "已放行" ? <CheckCircle2 className="size-5 shrink-0 text-emerald-700" /> : <XCircle className="size-5 shrink-0 text-rose-700" />}
+                <div><div className={cn("text-sm font-semibold", selected.releaseStatus === "已放行" ? "text-emerald-800" : "text-rose-800")}>{selected.releaseStatus === "已放行" ? "此批次已放行，可进入后续流转" : "此批次已拒绝放行，不可出库"}</div><div className="mt-1 text-xs text-slate-600">当前记录已完成状态更新；后续处理请按质量流程执行。</div></div>
               </div>
             )}
           </div>
-
-          {/* QA Release */}
-          {selected.releaseStatus === "待放行" && (
-            <div className="border border-gray-100 rounded-xl p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <BadgeCheck className="w-4 h-4 text-teal-500" />
-                <span className="text-sm font-semibold text-gray-800">QA 放行审批</span>
-              </div>
-              <div className="text-xs text-teal-600 bg-teal-50 rounded-lg p-2 font-medium">
-                ⚠ 此操作视为电子签名，具有法律效力
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <button onClick={handleRelease}
-                  className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-teal-500 hover:bg-teal-600 text-white py-2 rounded-lg font-medium transition-colors">
-                  <CheckCircle2 className="w-4 h-4" /> 批准放行
-                </button>
-                <button onClick={() => setShowRejectInput(!showRejectInput)}
-                  className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-red-50 hover:bg-red-100 text-red-600 py-2 rounded-lg font-medium border border-red-100 transition-colors">
-                  <XCircle className="w-4 h-4" /> 拒绝放行
-                </button>
-              </div>
-              {showRejectInput && (
-                <div className="space-y-2">
-                  <textarea
-                    className="w-full text-sm border border-red-200 rounded-lg px-3 py-2 h-16 resize-none focus:outline-none focus:ring-1 focus:ring-red-400"
-                    placeholder="请填写拒绝原因..."
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                  />
-                  <button onClick={handleReject}
-                    className="w-full text-sm bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg font-medium transition-colors">
-                    确认拒绝
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {selected.releaseStatus !== "待放行" && (
-            <div className={cn("p-4 rounded-xl border flex items-center gap-3",
-              selected.releaseStatus === "已放行" ? "bg-green-50 border-green-100" : "bg-red-50 border-red-100"
-            )}>
-              {selected.releaseStatus === "已放行" ? (
-                <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
-              ) : (
-                <XCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
-              )}
-              <div>
-                <div className={cn("font-semibold text-sm", selected.releaseStatus === "已放行" ? "text-green-700" : "text-red-700")}>
-                  {selected.releaseStatus === "已放行" ? "此批次已放行，可正常出库" : "此批次已拒绝放行，不可出库"}
-                </div>
-                <div className="text-xs text-gray-500 mt-0.5">已完成电子签名确认</div>
-              </div>
-            </div>
-          )}
-        </div>
+        </section>
       </div>
+
+      <Dialog open={showNewForm} onOpenChange={(open) => { setShowNewForm(open); if (!open) setFormAttempted(false); }}>
+        <DialogContent className="horizon-portal max-h-[90dvh] gap-0 overflow-y-auto p-0 sm:max-w-2xl">
+          <form onSubmit={(event) => { event.preventDefault(); handleSubmitNew(); }}>
+            <DialogHeader className="border-b border-[#e9edf7] px-5 py-4 text-left"><DialogTitle className="text-balance text-[#1b2559]">新建检验记录</DialogTitle><DialogDescription className="text-pretty">录入批次信息、检验实测值和明确判定后提交。</DialogDescription></DialogHeader>
+            <div className="space-y-5 px-5 py-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                {[
+                  { label: "批号", key: "batch", required: true },
+                  { label: "检验人", key: "inspector", required: true },
+                  { label: "供应商", key: "supplier", required: false },
+                  { label: "检验日期", key: "date", required: true, type: "date" },
+                ].map((field) => {
+                  const id = `inspection-${field.key}`;
+                  const invalid = formAttempted && field.required && !(newForm as Record<string, string>)[field.key].trim();
+                  return <div key={field.key} className="space-y-1.5"><Label htmlFor={id}>{field.label}{field.required ? <span className="text-rose-600">*</span> : null}</Label><Input id={id} type={field.type ?? "text"} required={field.required} aria-invalid={invalid} value={(newForm as Record<string, string>)[field.key]} onChange={(event) => setNewForm((prev) => ({ ...prev, [field.key]: event.target.value }))} /></div>;
+                })}
+              </div>
+              <fieldset><legend className="text-sm font-medium text-slate-800">检验类型</legend><div className="mt-2 grid grid-cols-3 gap-2">{(["IQC", "IPQC", "FQC"] as InspectionType[]).map((type) => <Button key={type} type="button" variant="outline" aria-pressed={newForm.type === type} className={cn("rounded-lg", newForm.type === type && "border-[#002fa7] bg-[#eef3ff] text-[#002fa7]")} onClick={() => setNewForm((prev) => ({ ...prev, type }))}>{type}</Button>)}</div></fieldset>
+              <fieldset className="space-y-3"><legend className="text-sm font-semibold text-[#1b2559]">检验项目</legend>{newItems.map((item, index) => {
+                const actualId = `inspection-item-${index}`;
+                const invalid = formAttempted && (!item.actual.trim() || !item.result);
+                return <div key={item.name} className="rounded-xl border border-[#e9edf7] bg-slate-50/70 p-3"><div className="flex flex-wrap items-baseline justify-between gap-2"><Label htmlFor={actualId}>{item.name}</Label><span className="text-xs text-slate-500">标准：{item.standard}</span></div><div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"><Input id={actualId} placeholder="录入实测值或观察结果" aria-invalid={invalid} value={item.actual} onChange={(event) => setNewItems((prev) => prev.map((current, itemIndex) => itemIndex === index ? { ...current, actual: event.target.value } : current))} /><div className="grid grid-cols-2 gap-1"><Button type="button" size="sm" variant="outline" aria-pressed={item.result === "合格"} className={cn("rounded-lg", item.result === "合格" && "border-emerald-300 bg-emerald-50 text-emerald-700")} onClick={() => setNewItems((prev) => prev.map((current, itemIndex) => itemIndex === index ? { ...current, result: "合格" } : current))}>合格</Button><Button type="button" size="sm" variant="outline" aria-pressed={item.result === "不合格"} className={cn("rounded-lg", item.result === "不合格" && "border-rose-300 bg-rose-50 text-rose-700")} onClick={() => setNewItems((prev) => prev.map((current, itemIndex) => itemIndex === index ? { ...current, result: "不合格" } : current))}>不合格</Button></div></div></div>;
+              })}</fieldset>
+              {formAttempted && (!newForm.batch.trim() || !newForm.inspector.trim() || newItems.some((item) => !item.actual.trim() || !item.result)) ? <p role="alert" className="text-sm text-rose-700">请填写批号、检验人及全部项目的实测值和判定。</p> : null}
+            </div>
+            <DialogFooter className="sticky bottom-0 border-t border-[#e9edf7] bg-white px-5 py-4"><Button type="button" variant="outline" onClick={() => setShowNewForm(false)}>取消</Button><Button type="submit" className="hz-primary-action">提交检验记录</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={releaseConfirmOpen} onOpenChange={setReleaseConfirmOpen}>
+        <AlertDialogContent className="horizon-portal"><AlertDialogHeader><AlertDialogTitle className="text-balance text-[#1b2559]">确认批准放行？</AlertDialogTitle><AlertDialogDescription className="text-pretty">批号 {selected.batch} · {selected.type} · 整体判定 {selected.result} · 检验人 {selected.inspector}。确认后将更新批次放行状态。</AlertDialogDescription></AlertDialogHeader>{selected.result === "不合格" ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">该记录判定为不合格，请确认已具备让步接收或其他处置依据。</div> : null}<AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction className="hz-primary-action" onClick={handleRelease}>确认放行</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={rejectConfirmOpen} onOpenChange={(open) => { setRejectConfirmOpen(open); if (!open) { setRejectAttempted(false); setRejectionReason(""); } }}>
+        <AlertDialogContent className="horizon-portal"><form onSubmit={(event) => { event.preventDefault(); handleReject(); }}><AlertDialogHeader><AlertDialogTitle className="text-balance text-[#1b2559]">拒绝批次放行</AlertDialogTitle><AlertDialogDescription className="text-pretty">批号 {selected.batch} 将保持不可出库状态，请填写可追溯的拒绝原因。</AlertDialogDescription></AlertDialogHeader><div className="mt-4 space-y-1.5"><Label htmlFor="release-rejection-reason">拒绝原因</Label><Textarea id="release-rejection-reason" value={rejectionReason} aria-invalid={rejectAttempted && !rejectionReason.trim()} placeholder="说明问题、风险或后续处置要求" onChange={(event) => setRejectionReason(event.target.value)} />{rejectAttempted && !rejectionReason.trim() ? <p role="alert" className="text-sm text-rose-700">请填写拒绝原因。</p> : null}</div><AlertDialogFooter className="mt-4"><AlertDialogCancel>取消</AlertDialogCancel><Button type="submit" variant="destructive">确认拒绝</Button></AlertDialogFooter></form></AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CalendarDays, CalendarRange } from "lucide-react";
-import { cn } from "./components/ui/utils";
+import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { RDDailyReportPanel } from "./RDDailyReportPanel";
 import { RDMonthlyReportPanel } from "./RDMonthlyReportPanel";
 import { t, useI18n } from "./lib/i18n";
@@ -21,37 +21,40 @@ export function RDReportsPanel({ canRegenerate, spacious = false }: { canRegener
   useI18n();
   const [tab, setTab] = useState<ReportTab>("daily");
 
+  const activeTabLabel = TABS.find((item) => item.key === tab)?.label ?? "日报";
+
   // Tab 注入到子面板速览卡片「内部」顶部：右侧整体即为单张卡片，顶端与左侧模块对齐。
   const tabBar = (
-    <div className="mb-3 inline-flex w-fit items-center gap-1 rounded-xl bg-white/80 p-1 shadow-sm ring-1 ring-slate-200/70">
-      {TABS.map(({ key, label, icon: Icon }) => {
-        const active = tab === key;
-        return (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            data-active={active}
-            className={cn(
-              "rd-horizon-report-tab inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all",
-              active
-                ? key === "monthly"
-                  ? "bg-amber-500 text-white shadow-sm"
-                  : "bg-violet-600 text-white shadow-sm"
-                : "text-slate-500 hover:text-slate-700",
-            )}
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {t(label)}
-          </button>
-        );
-      })}
+    <div className="mb-3 flex flex-col gap-3 border-b border-slate-100 pb-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0">
+        <h2 id="rd-report-panel-title" className="text-balance text-base font-semibold text-[#1b2559]">{t("研发工作报告")}</h2>
+        <p className="mt-1 max-w-xl text-pretty text-xs leading-5 text-slate-500">{t("按日报或月报核对研发事实、进展与历史记录。")}</p>
+      </div>
+      <Tabs value={tab} onValueChange={(value) => setTab(value as ReportTab)} className="w-full shrink-0 sm:w-fit">
+        <TabsList aria-label={t("研发汇报周期")} className="h-auto w-full gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 sm:w-auto">
+          {TABS.map(({ key, label, icon: Icon }) => (
+            <TabsTrigger
+              key={key}
+              value={key}
+              className="rd-horizon-report-tab flex-1 gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-semibold text-slate-500 shadow-none transition-colors hover:text-slate-700 data-[state=active]:bg-[#002fa7] data-[state=active]:text-white data-[state=active]:shadow-none sm:flex-none"
+            >
+              <Icon className="size-3.5" aria-hidden="true" />
+              {t(label)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+      <span className="sr-only" aria-live="polite">{t("当前报告周期：{period}", { period: t(activeTabLabel) })}</span>
     </div>
   );
 
-  return tab === "daily" ? (
-    <RDDailyReportPanel canRegenerate={canRegenerate} tabSlot={tabBar} spacious={spacious} />
-  ) : (
-    <RDMonthlyReportPanel canRegenerate={canRegenerate} tabSlot={tabBar} spacious={spacious} />
+  return (
+    <section className="horizon-theme rd-horizon-reports h-full min-w-0" aria-labelledby="rd-report-panel-title">
+      {tab === "daily" ? (
+        <RDDailyReportPanel canRegenerate={canRegenerate} tabSlot={tabBar} spacious={spacious} />
+      ) : (
+        <RDMonthlyReportPanel canRegenerate={canRegenerate} tabSlot={tabBar} spacious={spacious} />
+      )}
+    </section>
   );
 }

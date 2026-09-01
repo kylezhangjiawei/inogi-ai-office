@@ -22,15 +22,44 @@ import {
   ShieldCheck,
   Sparkles,
   Upload,
-  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   ExternalDocumentEvidenceViewer,
   type ExternalEvidenceDifference,
 } from "./components/ExternalDocumentEvidenceViewer";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "./components/ui/alert-dialog";
+import { Button } from "./components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
+import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
-import { useModalFocus } from "./hooks/useModalFocus";
 import {
   archiveExternalComparison,
   createExternalDocument,
@@ -120,7 +149,7 @@ const differenceTypeConfig: Record<DifferenceType, { label: string; className: s
   modified: { label: "修改", className: "bg-blue-50 text-blue-700 ring-blue-200" },
   added: { label: "新增", className: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
   removed: { label: "删除", className: "bg-rose-50 text-rose-700 ring-rose-200" },
-  format: { label: "版式", className: "bg-violet-50 text-violet-700 ring-violet-200" },
+  format: { label: "版式", className: "bg-slate-100 text-slate-700 ring-slate-200" },
 };
 
 const riskConfig: Record<DifferenceRisk, { label: string; className: string }> = {
@@ -222,6 +251,7 @@ export function ExternalDocsPage() {
   const [uploadCategory, setUploadCategory] = useState("产品资料");
   const [newDocumentName, setNewDocumentName] = useState("");
   const [uploadNote, setUploadNote] = useState("");
+  const [uploadError, setUploadError] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [isActionPending, setIsActionPending] = useState(false);
   const [openingVersionId, setOpeningVersionId] = useState("");
@@ -230,9 +260,6 @@ export function ExternalDocsPage() {
   const closeUploadDialog = useCallback(() => {
     if (!isUploading) setShowUpload(false);
   }, [isUploading]);
-  const uploadDialogRef = useModalFocus<HTMLElement>(showUpload, closeUploadDialog, {
-    escapeDisabled: isUploading,
-  });
 
   const selectedDocument = documents.find((item) => item.id === selectedId) ?? documents[0] ?? emptyDocument;
   const hasDocuments = documents.length > 0;
@@ -383,6 +410,7 @@ export function ExternalDocsPage() {
     setUploadMode(mode);
     setUploadFile(null);
     setUploadNote("");
+    setUploadError("");
     setNewDocumentName("");
     setUploadVersion(mode === "replaceCandidate" ? candidateVersion : mode === "newVersion" ? nextVersion(selectedDocument.currentVersion) : "V1.0");
     setUploadCategory(mode === "newDocument" ? "产品资料" : selectedDocument.category);
@@ -391,6 +419,7 @@ export function ExternalDocsPage() {
 
   const selectUploadFile = (file: File | null) => {
     setUploadFile(file);
+    if (file) setUploadError("");
     if (file && uploadMode === "newDocument" && !newDocumentName) {
       setNewDocumentName(file.name.replace(/\.[^.]+$/, ""));
     }
@@ -411,18 +440,22 @@ export function ExternalDocsPage() {
 
   const handleUpload = async () => {
     if (!uploadFile) {
+      setUploadError("请先选择需要上传的文件");
       toast.error("请先选择需要上传的文件");
       return;
     }
     if (uploadMode !== "replaceCandidate" && !uploadVersion.trim()) {
+      setUploadError("请填写版本号");
       toast.error("请填写版本号");
       return;
     }
     if (uploadMode === "newDocument" && !newDocumentName.trim()) {
+      setUploadError("请填写资料名称");
       toast.error("请填写资料名称");
       return;
     }
 
+    setUploadError("");
     setIsUploading(true);
     try {
       if (uploadMode === "newDocument") {
@@ -452,7 +485,9 @@ export function ExternalDocsPage() {
       }
       setShowUpload(false);
     } catch (error) {
-      toast.error((error as Error).message);
+      const message = (error as Error).message;
+      setUploadError(message);
+      toast.error(message);
     } finally {
       setIsUploading(false);
     }
@@ -556,38 +591,96 @@ export function ExternalDocsPage() {
   };
 
   const displayedVersions = versions;
+  const totalVersionCount = documents.reduce((total, document) => total + document.totalVersions, 0);
+  const pendingReviewCount = documents.filter((document) => document.status === "review").length;
+  const activeComparisonCount = documents.filter((document) => document.status === "comparing").length;
+  const versionUploadDisabled = !hasDocuments || selectedDocument.status === "comparing" || selectedDocument.status === "review";
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col bg-slate-50 p-3 sm:p-4 xl:h-full xl:min-h-0 xl:overflow-hidden">
+    <div className="horizon-theme hz-page flex min-h-full min-w-0 flex-col gap-3 overflow-x-hidden px-5 py-4 xl:h-full xl:min-h-0 xl:overflow-hidden">
+      <HorizonPageHeader
+        Icon={FileCheck2}
+        eyebrow="文件与知识 · 对外资料控制"
+        title="对外资料版本"
+        description="集中管理对外资料、候选版本与 AI / OCR 差异证据，在人工复核后完成受控归档。"
+        meta={(
+          <>
+            <span>AI {integration?.ai.configured ? "已配置" : "未配置"}</span>
+            <span>·</span>
+            <span>OCR {integration?.ocr.configured ? "已配置" : "未配置"}</span>
+            <span>·</span>
+            <span>{compareJobId}</span>
+          </>
+        )}
+        actions={(
+          <>
+            <Button type="button" variant="outline" onClick={() => openUploadDialog("newDocument")}>
+              <Plus className="size-4" />
+              新建资料首版
+            </Button>
+            <Button
+              type="button"
+              className={versionUploadDisabled ? "border border-slate-200 bg-slate-100 text-slate-400 opacity-100 hover:bg-slate-100 disabled:opacity-100" : "hz-primary-action"}
+              onClick={() => openUploadDialog("newVersion")}
+              disabled={versionUploadDisabled}
+            >
+              <CloudUpload className="size-4" />
+              上传新版本
+            </Button>
+          </>
+        )}
+      />
+
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={FileText} label="受控资料" value={documents.length} note="当前资料库总数" tone="brand" />
+        <HorizonMetric Icon={History} label="累计版本" value={totalVersionCount} note="保留哈希与上传记录" tone="neutral" />
+        <HorizonMetric Icon={CircleDot} label="待人工确认" value={pendingReviewCount} note="需要完成差异复核" tone={pendingReviewCount ? "warning" : "success"} />
+        <HorizonMetric Icon={FileSearch} label="比对处理中" value={activeComparisonCount} note="AI / OCR 后台任务" tone={activeComparisonCount ? "brand" : "neutral"} />
+      </HorizonMetricGrid>
+
       <div className="mx-auto flex min-h-0 w-full max-w-[1680px] flex-1 flex-col">
-        <main className="grid min-h-0 min-w-0 flex-1 gap-3 xl:grid-cols-[280px_minmax(0,1fr)] xl:overflow-hidden">
-          <aside className="flex min-h-[360px] min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40 xl:min-h-0">
-            <div className="shrink-0 border-b border-slate-200 p-3.5">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-900">资料库</h2>
-                <p className="mt-0.5 text-xs text-slate-500">{documents.length} 组受控资料</p>
-              </div>
-              <label className="relative mt-3 block">
+        <div className="grid min-h-0 min-w-0 flex-1 gap-3 xl:grid-cols-[280px_minmax(0,1fr)] xl:overflow-hidden">
+          <aside className="hz-surface flex min-h-[360px] min-w-0 flex-col overflow-hidden border bg-white xl:min-h-0">
+            <HorizonSectionHeader
+              Icon={FileText}
+              title="资料清单"
+              description="按名称、分类、负责人或版本搜索。"
+              trailing={<span className="text-xs text-slate-500 tabular-nums">{documents.length} 组</span>}
+            />
+            <div className="hz-toolbar shrink-0 border-b p-3">
+              <Label htmlFor="external-doc-search" className="sr-only">搜索对外资料</Label>
+              <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <span className="sr-only">搜索资料</span>
-                <input
+                <Input
+                  id="external-doc-search"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder="搜索资料、分类、版本…"
-                  className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                  className="h-9 rounded-xl border-slate-200 bg-white pl-9 text-xs"
                 />
-              </label>
+              </div>
             </div>
             <div className="material-scrollbar min-h-0 flex-1 space-y-1 overflow-y-auto p-2 [scrollbar-gutter:stable]">
               {isLoading && (
-                <div className="flex items-center justify-center gap-2 px-3 py-10 text-xs text-slate-500">
-                  <Loader2 className="h-4 w-4 animate-spin" />正在读取资料库…
+                <div className="space-y-2 p-1" aria-label="正在读取资料库" role="status">
+                  {[0, 1, 2].map((item) => (
+                    <div key={item} className="rounded-xl border border-slate-100 p-3">
+                      <div className="h-3 w-2/3 rounded bg-slate-200" />
+                      <div className="mt-2 h-2.5 w-1/2 rounded bg-slate-100" />
+                      <div className="mt-3 h-6 w-full rounded bg-slate-100" />
+                    </div>
+                  ))}
                 </div>
               )}
               {!isLoading && filteredDocuments.length === 0 && (
-                <div className="px-3 py-10 text-center text-xs leading-5 text-slate-500">
-                  {documents.length ? "没有匹配的资料，右侧仍显示当前已选资料" : "还没有受控资料，请新建首版"}
-                </div>
+                <HorizonEmptyState
+                  Icon={FileText}
+                  title={documents.length ? "没有匹配的资料" : "还没有受控资料"}
+                  description={documents.length ? "清除搜索条件后可继续浏览全部资料。" : "上传首版文件，建立第一份受控资料。"}
+                  action={documents.length
+                    ? <Button type="button" size="sm" variant="outline" onClick={() => setSearchQuery("")}>清除搜索</Button>
+                    : <Button type="button" size="sm" className="hz-primary-action" onClick={() => openUploadDialog("newDocument")}><Plus className="size-4" />新建首版</Button>}
+                />
               )}
               {filteredDocuments.map((document) => {
                 const selected = document.id === selectedDocument.id;
@@ -595,15 +688,16 @@ export function ExternalDocsPage() {
                   <button
                     key={document.id}
                     type="button"
+                    aria-pressed={selected}
                     onClick={() => void selectDocument(document.id)}
                     className={cn(
-                      "w-full cursor-pointer rounded-xl border px-3 py-3 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
-                      selected ? "border-blue-200 bg-blue-50/80" : "border-transparent hover:border-slate-200 hover:bg-slate-50",
+                      "w-full cursor-pointer rounded-xl border px-3 py-3 text-left transition-colors duration-150",
+                      selected ? "border-[#002fa7] bg-[#eef3ff]" : "border-transparent hover:border-slate-200 hover:bg-slate-50",
                     )}
                   >
                     <div className="flex items-start gap-3">
-                      <div className={cn("mt-0.5 rounded-lg p-2", selected ? "bg-white text-blue-700" : "bg-slate-100 text-slate-500")}>
-                        <FileText className="h-4 w-4" />
+                      <div className={cn("mt-0.5 rounded-lg p-2", selected ? "bg-white text-[#002fa7]" : "bg-slate-100 text-slate-500")}>
+                        <FileText className="size-4" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold text-slate-900">{document.name}</p>
@@ -614,7 +708,7 @@ export function ExternalDocsPage() {
                           </span>
                           <StatusBadge status={document.status} />
                         </div>
-                        <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                        <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 tabular-nums">
                           <span>{document.totalVersions} 个版本</span>
                           <span>{document.updatedAt}</span>
                         </div>
@@ -626,72 +720,58 @@ export function ExternalDocsPage() {
             </div>
           </aside>
 
-          <section className="flex min-h-[560px] min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40 xl:min-h-0">
+          <section className="hz-surface flex min-h-[560px] min-w-0 flex-col overflow-hidden border bg-white xl:min-h-0">
             <div className="shrink-0 border-b border-slate-200 px-4 py-3">
               <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="truncate text-base font-semibold text-slate-950">{selectedDocument.name}</h2>
+                    <h2 className="truncate text-balance text-base font-semibold text-[#1b2559]">{selectedDocument.name}</h2>
                     <StatusBadge status={selectedDocument.status} />
                   </div>
-                  <p className="mt-1 truncate text-xs text-slate-500">{selectedDocument.code || "尚未建档"} · {selectedDocument.owner || "—"} · {compareJobId}</p>
+                  <p className="mt-1 truncate text-pretty text-xs text-slate-500 tabular-nums">{selectedDocument.code || "尚未建档"} · {selectedDocument.owner || "—"} · {compareJobId}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openUploadDialog("newDocument")}
-                    className="inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors duration-200 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                  >
-                    <Plus className="h-4 w-4" />
-                    新建资料首版
-                  </button>
-                  <button
+                  {comparisonVisible ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => setWorkspaceTab("history")}>
+                      <History className="size-4" />
+                      版本溯源
+                    </Button>
+                  ) : null}
+                  <Button
                     type="button"
                     onClick={() => openUploadDialog("newVersion")}
-                    disabled={!hasDocuments || selectedDocument.status === "comparing" || selectedDocument.status === "review"}
-                    className="inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-blue-700 px-3.5 py-2 text-xs font-semibold text-white transition-colors duration-200 hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    disabled={versionUploadDisabled}
+                    size="sm"
+                    className={versionUploadDisabled ? "border border-slate-200 bg-slate-100 text-slate-400 opacity-100 hover:bg-slate-100 disabled:opacity-100" : "hz-primary-action"}
                   >
-                    <CloudUpload className="h-4 w-4" />
+                    <CloudUpload className="size-4" />
                     上传该资料新版本
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
 
             {!hasDocuments ? (
-              <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
-                <div className="rounded-2xl bg-blue-50 p-4 text-blue-700"><Archive className="h-8 w-8" /></div>
-                <h3 className="mt-4 text-base font-semibold text-slate-900">建立第一份受控资料</h3>
-                <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">上传首版文件后，系统会固化原文件、SHA256 哈希、上传人和解析证据。</p>
-                <button type="button" onClick={() => openUploadDialog("newDocument")} className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
-                  <Plus className="h-4 w-4" />新建资料首版
-                </button>
-              </div>
+              <HorizonEmptyState
+                Icon={Archive}
+                title="建立第一份受控资料"
+                description="上传首版文件后，系统会固化原文件、SHA256 哈希、上传人和解析证据。"
+                action={<Button type="button" className="hz-primary-action" onClick={() => openUploadDialog("newDocument")}><Plus className="size-4" />新建资料首版</Button>}
+              />
             ) : !comparisonVisible ? (
-              <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
-                <div className="rounded-2xl bg-blue-50 p-4 text-blue-700">
-                  <FileDiff className="h-8 w-8" />
-                </div>
-                <h3 className="mt-4 text-base font-semibold text-slate-900">当前没有待处理的版本比对</h3>
-                <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-                  当前有效版本为 {selectedDocument.currentVersion}。上传同一资料的新文件后，系统会自动与当前版本进行 AI / OCR 差异分析。
-                </p>
-                <button
-                  type="button"
-                  onClick={() => openUploadDialog("newVersion")}
-                  className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                >
-                  <Upload className="h-4 w-4" />
-                  上传新版本开始比对
-                </button>
-              </div>
+              <HorizonEmptyState
+                Icon={FileDiff}
+                title="当前没有待处理的版本比对"
+                description={`当前有效版本为 ${selectedDocument.currentVersion}。上传同一资料的新文件后，系统会自动与当前版本进行 AI / OCR 差异分析。`}
+                action={<Button type="button" className="hz-primary-action" onClick={() => openUploadDialog("newVersion")}><Upload className="size-4" />上传新版本开始比对</Button>}
+              />
             ) : (
               <>
                 <div className="shrink-0 border-b border-slate-200 bg-slate-50/70 p-3">
                   <div className="grid items-stretch gap-3 md:grid-cols-[1fr_auto_1fr]">
                     <div className="rounded-xl border border-slate-200 bg-white p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">当前基准版</span>
+                        <span className="text-[11px] font-semibold text-slate-500">当前基准版</span>
                         <span className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold text-slate-700">{baselineVersion}</span>
                       </div>
                       <p className="mt-2 truncate text-xs font-semibold text-slate-900">{baselineFileName}</p>
@@ -704,7 +784,7 @@ export function ExternalDocsPage() {
                     </div>
                     <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">候选新版本</span>
+                        <span className="text-[11px] font-semibold text-blue-700">候选新版本</span>
                         <span className="rounded-md bg-white px-2 py-0.5 font-mono text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-200">{candidateVersion}</span>
                       </div>
                       <p className="mt-2 truncate text-xs font-semibold text-slate-900">{candidateFileName}</p>
@@ -734,8 +814,8 @@ export function ExternalDocsPage() {
                       </div>
                       <Loader2 className="absolute -right-2 -top-2 h-6 w-6 animate-spin rounded-full bg-white p-1 text-blue-700 shadow" />
                     </div>
-                    <h3 className="mt-5 text-base font-semibold text-slate-900">AI / OCR 正在比对两个版本</h3>
-                    <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">正在解析文本、表格、图片和版面坐标，并建立可回查的证据定位。</p>
+                    <h3 className="mt-5 text-balance text-base font-semibold text-slate-900">AI / OCR 正在比对两个版本</h3>
+                    <p className="mt-2 max-w-md text-pretty text-sm leading-6 text-slate-500">正在解析文本、表格、图片和版面坐标，并建立可回查的证据定位。</p>
                     <div className="mt-5 w-full max-w-md overflow-hidden rounded-full bg-slate-100">
                       <div className="h-2 w-3/4 animate-pulse rounded-full bg-blue-600" />
                     </div>
@@ -749,38 +829,39 @@ export function ExternalDocsPage() {
                 ) : comparisonStatus === "failed" ? (
                   <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center" aria-live="polite">
                     <div className="rounded-2xl bg-rose-50 p-5 text-rose-700"><FileDiff className="h-9 w-9" /></div>
-                    <h3 className="mt-5 text-base font-semibold text-slate-900">AI / OCR 比对失败</h3>
-                    <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">{comparisonError || "比对服务暂时不可用，请检查 AI 与 OCR 配置后重试。"}</p>
-                    <button type="button" onClick={() => void handleRetry()} disabled={isActionPending} className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-800 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-                      {isActionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}重新启动比对
-                    </button>
+                    <h3 className="mt-5 text-balance text-base font-semibold text-slate-900">AI / OCR 比对失败</h3>
+                    <p className="mt-2 max-w-xl text-pretty text-sm leading-6 text-slate-500">{comparisonError || "比对服务暂时不可用，请检查 AI 与 OCR 配置后重试。"}</p>
+                    <Button type="button" onClick={() => void handleRetry()} disabled={isActionPending} className="hz-primary-action mt-5">
+                      {isActionPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}重新启动比对
+                    </Button>
                   </div>
                 ) : (
                   <>
-                    <div className="shrink-0 border-b border-slate-200 px-4 pt-3 sm:px-5">
-                      <div className="flex gap-5 overflow-x-auto">
+                    <Tabs
+                      value={workspaceTab}
+                      onValueChange={(value) => setWorkspaceTab(value as WorkspaceTab)}
+                      className="min-h-0 flex-1 gap-0 overflow-hidden"
+                    >
+                      <div className="shrink-0 overflow-x-auto border-b border-slate-200 px-4 pt-3 sm:px-5">
+                        <TabsList className="h-auto w-max gap-5 rounded-none bg-transparent p-0">
                         {([
                           ["differences", `差异清单 ${differences.length}`],
                           ["summary", "AI 变更总结"],
                           ["history", "版本溯源"],
                         ] as Array<[WorkspaceTab, string]>).map(([key, label]) => (
-                          <button
+                          <TabsTrigger
                             key={key}
-                            type="button"
-                            onClick={() => setWorkspaceTab(key)}
-                            className={cn(
-                              "cursor-pointer whitespace-nowrap border-b-2 px-1 pb-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
-                              workspaceTab === key ? "border-blue-700 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-800",
-                            )}
+                            value={key}
+                            className="h-auto rounded-none border-x-0 border-t-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-0 text-sm font-semibold text-slate-500 shadow-none data-[state=active]:border-[#002fa7] data-[state=active]:bg-transparent data-[state=active]:text-[#002fa7]"
                           >
                             {label}
-                          </button>
+                          </TabsTrigger>
                         ))}
+                        </TabsList>
                       </div>
-                    </div>
 
-                    <div className="material-scrollbar min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-                    {workspaceTab === "differences" && (
+                      <div className="material-scrollbar min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+                      <TabsContent value="differences" className="m-0">
                       <div>
                         <div className="flex flex-col justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5 lg:flex-row lg:items-center">
                           <div className="flex flex-wrap gap-1.5">
@@ -795,6 +876,7 @@ export function ExternalDocsPage() {
                               <button
                                 key={key}
                                 type="button"
+                                aria-pressed={differenceFilter === key}
                                 onClick={() => setDifferenceFilter(key)}
                                 className={cn(
                                   "cursor-pointer rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
@@ -844,15 +926,15 @@ export function ExternalDocsPage() {
                                     <span className="text-[11px] text-slate-500">{difference.location}</span>
                                     <span className="ml-auto text-[11px] text-slate-400">置信度 {difference.confidence}%</span>
                                   </div>
-                                  <h3 className="mt-2 text-sm font-semibold text-slate-900">{difference.title}</h3>
+                                  <h3 className="mt-2 text-balance text-sm font-semibold text-slate-900">{difference.title}</h3>
                                   <div className="mt-3 grid gap-2 lg:grid-cols-2">
                                     <div className="rounded-xl border border-rose-100 bg-rose-50/50 p-3">
-                                      <p className="text-[10px] font-bold uppercase tracking-wide text-rose-600">{baselineVersion} 原内容</p>
-                                      <p className="mt-1.5 break-words text-xs leading-5 text-slate-700">{difference.before}</p>
+                                      <p className="text-[10px] font-bold text-rose-600">{baselineVersion} 原内容</p>
+                                      <p className="mt-1.5 break-words text-pretty text-xs leading-5 text-slate-700">{difference.before}</p>
                                     </div>
                                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
-                                      <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">{candidateVersion} 新内容</p>
-                                      <p className="mt-1.5 break-words text-xs leading-5 text-slate-700">{difference.after}</p>
+                                      <p className="text-[10px] font-bold text-emerald-700">{candidateVersion} 新内容</p>
+                                      <p className="mt-1.5 break-words text-pretty text-xs leading-5 text-slate-700">{difference.after}</p>
                                     </div>
                                   </div>
                                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
@@ -865,12 +947,19 @@ export function ExternalDocsPage() {
                               </div>
                             </article>
                           ))}
+                          {filteredDifferences.length === 0 ? (
+                            <HorizonEmptyState
+                              Icon={FileSearch}
+                              title="当前筛选下没有差异"
+                              description="切换回全部差异，继续完成版本复核。"
+                              action={<Button type="button" size="sm" variant="outline" onClick={() => setDifferenceFilter("all")}>查看全部差异</Button>}
+                            />
+                          ) : null}
                         </div>
                       </div>
-                    )}
+                      </TabsContent>
 
-                    {workspaceTab === "summary" && (
-                      <div className="space-y-4 p-4 sm:p-5">
+                      <TabsContent value="summary" className="m-0 space-y-4 p-4 sm:p-5">
                         <div className={cn(
                           "rounded-2xl border p-4",
                           aiGenerationMode === "ai" ? "border-blue-200 bg-blue-50/60" : "border-amber-200 bg-amber-50/70",
@@ -881,7 +970,7 @@ export function ExternalDocsPage() {
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-2">
-                                <h3 className={cn("text-sm font-semibold", aiGenerationMode === "ai" ? "text-blue-950" : "text-amber-950")}>
+                                <h3 className={cn("text-balance text-sm font-semibold", aiGenerationMode === "ai" ? "text-blue-950" : "text-amber-950")}>
                                   {aiGenerationMode === "ai" ? "AI 生成的版本变更摘要" : "规则降级生成的版本变更摘要"}
                                 </h3>
                                 <span className={cn(
@@ -891,7 +980,7 @@ export function ExternalDocsPage() {
                                   {aiGenerationMode === "ai" ? "AI 已生效" : "AI 未生效"}
                                 </span>
                               </div>
-                              <p className={cn("mt-1 text-xs leading-5", aiGenerationMode === "ai" ? "text-blue-800/80" : "text-amber-900/80")}>
+                              <p className={cn("mt-1 text-pretty text-xs leading-5", aiGenerationMode === "ai" ? "text-blue-800/80" : "text-amber-900/80")}>
                                 {aiGenerationMode === "ai"
                                   ? "摘要由已配置模型生成，会随差异复核结果更新，归档前可由用户编辑补充。"
                                   : aiWarning || "AI 当前不可用，本摘要由确定性规则生成，可继续人工编辑后归档。"}
@@ -899,25 +988,26 @@ export function ExternalDocsPage() {
                             </div>
                           </div>
                         </div>
-                        <label className="block">
-                          <span className="mb-2 block text-xs font-semibold text-slate-700">归档摘要</span>
-                          <textarea
+                        <div className="space-y-2">
+                          <Label htmlFor="external-doc-summary" className="text-xs font-semibold text-slate-700">归档摘要</Label>
+                          <Textarea
+                            id="external-doc-summary"
                             value={summary}
                             onChange={(event) => setSummary(event.target.value)}
                             rows={7}
                             disabled={comparisonStatus === "archived"}
-                            className="w-full resize-none rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50"
+                            className="min-h-40 rounded-xl border-slate-200 bg-white text-sm leading-6 text-slate-700 disabled:bg-slate-50"
                           />
-                        </label>
+                        </div>
                         <div className="grid gap-3 sm:grid-cols-3">
                           {[
                             { label: "高风险变化", value: differences.filter((item) => item.risk === "high").length, helper: "需重点人工确认", tone: "text-rose-700 bg-rose-50" },
                             { label: "内容变化", value: differences.filter((item) => item.type !== "format").length, helper: "新增 / 修改 / 删除", tone: "text-blue-700 bg-blue-50" },
-                            { label: "版式变化", value: differences.filter((item) => item.type === "format").length, helper: "AI 判定为格式变化", tone: "text-violet-700 bg-violet-50" },
+                            { label: "版式变化", value: differences.filter((item) => item.type === "format").length, helper: "AI 判定为格式变化", tone: "text-slate-700 bg-slate-100" },
                           ].map((item) => (
                             <div key={item.label} className={cn("rounded-xl p-3", item.tone)}>
                               <p className="text-xs font-semibold">{item.label}</p>
-                              <p className="mt-1 text-2xl font-semibold">{item.value}</p>
+                              <p className="mt-1 text-2xl font-semibold tabular-nums">{item.value}</p>
                               <p className="text-[11px] opacity-80">{item.helper}</p>
                             </div>
                           ))}
@@ -938,11 +1028,9 @@ export function ExternalDocsPage() {
                             根据复核结果重新生成
                           </button>
                         )}
-                      </div>
-                    )}
+                      </TabsContent>
 
-                    {workspaceTab === "history" && (
-                      <div className="space-y-4 p-4 sm:p-5">
+                      <TabsContent value="history" className="m-0 space-y-4 p-4 sm:p-5">
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
                             <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800"><ShieldCheck className="h-4 w-4 text-emerald-600" />证据已固化</span>
@@ -1039,10 +1127,10 @@ export function ExternalDocsPage() {
                             ))}
                           </div>
                         </div>
-                      </div>
-                    )}
+                      </TabsContent>
 
-                    </div>
+                      </div>
+                    </Tabs>
 
                     <div className="flex shrink-0 flex-col justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
                       <div className="flex items-center gap-3">
@@ -1054,15 +1142,33 @@ export function ExternalDocsPage() {
                           <p className="mt-0.5 text-[11px] text-slate-500">全部确认后方可锁定并归档新版本</p>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleArchive()}
-                        disabled={comparisonStatus !== "review" || !allReviewed || isActionPending}
-                        className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                      >
-                        {comparisonStatus === "archived" ? <LockKeyhole className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
-                        {comparisonStatus === "archived" ? "已确认归档" : "确认差异并归档"}
-                      </button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            type="button"
+                            disabled={comparisonStatus !== "review" || !allReviewed || isActionPending}
+                            className="hz-primary-action"
+                          >
+                            {comparisonStatus === "archived" ? <LockKeyhole className="size-4" /> : <Archive className="size-4" />}
+                            {comparisonStatus === "archived" ? "已确认归档" : "确认差异并归档"}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent className="horizon-portal">
+                          <AlertDialogHeader>
+                            <AlertDialogTitle className="text-balance text-[#1b2559]">确认归档 {candidateVersion}？</AlertDialogTitle>
+                            <AlertDialogDescription className="text-pretty">
+                              归档后候选版本将设为当前有效版本，差异复核结果与摘要会被锁定。请确认所有证据已核对完成。
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>返回检查</AlertDialogCancel>
+                            <AlertDialogAction className="hz-primary-action" onClick={() => void handleArchive()}>
+                              <Archive className="size-4" />
+                              确认并归档
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   </>
                 )}
@@ -1070,7 +1176,7 @@ export function ExternalDocsPage() {
             )}
           </section>
 
-        </main>
+        </div>
       </div>
 
       {evidenceDifference && baselineRecord && candidateRecord && (
@@ -1090,31 +1196,31 @@ export function ExternalDocsPage() {
         />
       )}
 
-      {showUpload && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3 backdrop-blur-[2px]" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && closeUploadDialog()}>
-          <section ref={uploadDialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="upload-dialog-title" className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl outline-none">
-            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 sm:px-6">
-              <div>
-                <h2 id="upload-dialog-title" className="text-lg font-semibold text-slate-950">
-                  {uploadMode === "replaceCandidate" ? "纠正候选文件" : "上传资料文件"}
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {uploadMode === "replaceCandidate" ? "替换本次待比对文件，业务版本与比对任务保持不变。" : "建立首版资料，或为已有资料上传待比对的新版本。"}
-                </p>
-              </div>
-              <button type="button" onClick={closeUploadDialog} disabled={isUploading} aria-label="关闭上传窗口" data-dialog-autofocus className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      <Dialog open={showUpload} onOpenChange={(open) => { if (!open) closeUploadDialog(); }}>
+        <DialogContent
+          className="horizon-portal flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+          onEscapeKeyDown={(event) => { if (isUploading) event.preventDefault(); }}
+          onInteractOutside={(event) => { if (isUploading) event.preventDefault(); }}
+        >
+            <DialogHeader className="shrink-0 border-b border-slate-200 px-5 py-4 pr-12 sm:px-6 sm:pr-12">
+              <DialogTitle className="text-balance text-lg text-[#1b2559]">
+                {uploadMode === "replaceCandidate" ? "纠正候选文件" : "上传资料文件"}
+              </DialogTitle>
+              <DialogDescription className="text-pretty">
+                {uploadMode === "replaceCandidate" ? "替换本次待比对文件，业务版本与比对任务保持不变。" : "建立首版资料，或为已有资料上传待比对的新版本。"}
+              </DialogDescription>
+            </DialogHeader>
 
             <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
               {uploadMode !== "replaceCandidate" && <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1" aria-label="上传类型">
                 <button
                   type="button"
+                  aria-pressed={uploadMode === "newDocument"}
                   onClick={() => {
                     setUploadMode("newDocument");
                     setUploadVersion("V1.0");
                     setUploadCategory("产品资料");
+                    setUploadError("");
                   }}
                   className={cn("cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500", uploadMode === "newDocument" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800")}
                 >
@@ -1122,11 +1228,13 @@ export function ExternalDocsPage() {
                 </button>
                 <button
                   type="button"
+                  aria-pressed={uploadMode === "newVersion"}
                   onClick={() => {
                     if (!hasDocuments) return;
                     setUploadMode("newVersion");
                     setUploadVersion(nextVersion(selectedDocument.currentVersion));
                     setUploadCategory(selectedDocument.category);
+                    setUploadError("");
                   }}
                   disabled={!hasDocuments}
                   className={cn("cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500", uploadMode === "newVersion" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800")}
@@ -1165,33 +1273,34 @@ export function ExternalDocsPage() {
 
               {uploadMode !== "replaceCandidate" && <div className="grid gap-4 sm:grid-cols-2">
                 {uploadMode === "newDocument" && (
-                  <label className="block sm:col-span-2">
-                    <span className="mb-1.5 block text-xs font-semibold text-slate-700">资料名称 <span className="text-rose-600">*</span></span>
-                    <input value={newDocumentName} onChange={(event) => setNewDocumentName(event.target.value)} placeholder="例如：CPAP 产品彩页" className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
-                  </label>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="external-doc-name" className="text-xs font-semibold text-slate-700">资料名称 <span className="text-rose-600">*</span></Label>
+                    <Input id="external-doc-name" value={newDocumentName} onChange={(event) => { setNewDocumentName(event.target.value); setUploadError(""); }} placeholder="例如：CPAP 产品彩页" className="h-10 rounded-xl border-slate-200" />
+                  </div>
                 )}
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-semibold text-slate-700">版本号 <span className="text-rose-600">*</span></span>
-                  <input value={uploadVersion} onChange={(event) => setUploadVersion(event.target.value)} placeholder="例如：V3.2" className="h-10 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
-                </label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="external-doc-version" className="text-xs font-semibold text-slate-700">版本号 <span className="text-rose-600">*</span></Label>
+                  <Input id="external-doc-version" value={uploadVersion} onChange={(event) => { setUploadVersion(event.target.value); setUploadError(""); }} placeholder="例如：V3.2" className="h-10 rounded-xl border-slate-200 font-mono" />
+                </div>
                 {uploadMode === "newDocument" ? (
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs font-semibold text-slate-700">资料分类</span>
-                    <select value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value)} className="h-10 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-100">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="external-doc-category" className="text-xs font-semibold text-slate-700">资料分类</Label>
+                    <select id="external-doc-category" value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value)} className="h-10 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-blue-100">
                       <option>产品资料</option><option>技术资料</option><option>合规资质</option><option>注册资料</option><option>售前资料</option><option>未分类</option>
                     </select>
-                  </label>
+                  </div>
                 ) : (
-                  <div className="block">
-                    <span className="mb-1.5 block text-xs font-semibold text-slate-700">资料分类（沿用）</span>
-                    <div className="flex h-10 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600" aria-label="沿用当前资料分类">
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-semibold text-slate-700">资料分类（沿用）</div>
+                    <div className="flex h-10 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600" aria-label="沿用当前资料分类" role="status">
                       {selectedDocument.category}
                     </div>
                   </div>
                 )}
               </div>}
 
-              <label
+              <Label
+                htmlFor="external-doc-file"
                 className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-5 py-7 text-center transition-colors hover:border-blue-400 hover:bg-blue-50/40 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100"
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => {
@@ -1199,7 +1308,7 @@ export function ExternalDocsPage() {
                   selectUploadFile(event.dataTransfer.files?.[0] ?? null);
                 }}
               >
-                <input type="file" className="sr-only" accept=".pdf,.docx,.xls,.xlsx,.pptx,.txt,.md,.csv,.json,.xml,.png,.jpg,.jpeg,.webp,.bmp" onChange={handleFileChange} />
+                <input id="external-doc-file" type="file" className="sr-only" accept=".pdf,.docx,.xls,.xlsx,.pptx,.txt,.md,.csv,.json,.xml,.png,.jpg,.jpeg,.webp,.bmp" onChange={handleFileChange} />
                 {uploadFile ? (
                   <div className="flex items-center justify-center gap-3 text-left">
                     <div className="rounded-xl bg-emerald-100 p-2.5 text-emerald-700"><FileCheck2 className="h-6 w-6" /></div>
@@ -1215,19 +1324,20 @@ export function ExternalDocsPage() {
                     <p className="mt-1 text-xs text-slate-500">支持 PDF、DOCX、表格、PPTX、文本和图片，单文件不超过 25 MB</p>
                   </>
                 )}
-              </label>
+              </Label>
 
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold text-slate-700">{uploadMode === "replaceCandidate" ? "纠正原因" : "上传说明"}</span>
-                <textarea
+              <div className="space-y-1.5">
+                <Label htmlFor="external-doc-note" className="text-xs font-semibold text-slate-700">{uploadMode === "replaceCandidate" ? "纠正原因" : "上传说明"}</Label>
+                <Textarea
+                  id="external-doc-note"
                   value={uploadNote}
-                  onChange={(event) => setUploadNote(event.target.value)}
+                  onChange={(event) => { setUploadNote(event.target.value); setUploadError(""); }}
                   rows={3}
                   maxLength={500}
                   placeholder={uploadMode === "replaceCandidate" ? "例如：上一份文件选错，现替换为已审核的正式文件…" : "填写版本来源、修改原因或需要重点核对的内容…"}
-                  className="w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none transition-colors placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  className="min-h-24 rounded-xl border-slate-200"
                 />
-              </label>
+              </div>
 
               <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
                 <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-blue-700 text-white"><Check className="h-3.5 w-3.5" /></div>
@@ -1235,23 +1345,28 @@ export function ExternalDocsPage() {
                   <p className="text-xs font-semibold text-slate-800">
                     {uploadMode === "replaceCandidate" ? "错误文件不会被覆盖或删除" : uploadMode === "newVersion" ? "上传完成后自动启动 AI / OCR 比对" : "首版文件将直接建立受控档案"}
                   </p>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                  <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">
                     {uploadMode === "replaceCandidate" ? "旧文件、SHA256、上传人、上传时间和纠正原因会保存在版本溯源中，仍可下载核验。" : `系统保留原始文件、SHA256、上传人和时间。AI ${integration?.ai.configured ? `已配置 ${integration.ai.model || "默认模型"}` : "尚未配置"}；OCR ${integration?.ocr.configured ? "已配置腾讯 OCR" : "尚未配置"}。`}
                   </p>
                 </div>
               </div>
+
+              {uploadError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-pretty text-sm text-rose-700" role="alert">
+                  {uploadError}
+                </div>
+              ) : null}
             </div>
 
-            <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
-              <button type="button" onClick={closeUploadDialog} disabled={isUploading} className="cursor-pointer rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">取消</button>
-              <button type="button" onClick={handleUpload} disabled={isUploading} className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-800 disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
-                {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : uploadMode === "replaceCandidate" ? <RefreshCw className="h-4 w-4" /> : uploadMode === "newVersion" ? <FileDiff className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+            <DialogFooter className="shrink-0 border-t border-slate-200 bg-slate-50 px-5 py-4 sm:px-6">
+              <Button type="button" variant="outline" onClick={closeUploadDialog} disabled={isUploading}>取消</Button>
+              <Button type="button" onClick={handleUpload} disabled={isUploading} className="hz-primary-action">
+                {isUploading ? <Loader2 className="size-4 animate-spin" /> : uploadMode === "replaceCandidate" ? <RefreshCw className="size-4" /> : uploadMode === "newVersion" ? <FileDiff className="size-4" /> : <Archive className="size-4" />}
                 {isUploading ? "正在上传…" : uploadMode === "replaceCandidate" ? "替换并重新比对" : uploadMode === "newVersion" ? "上传并开始比对" : "上传并建立首版"}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
+              </Button>
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

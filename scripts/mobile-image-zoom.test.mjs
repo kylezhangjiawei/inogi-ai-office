@@ -47,8 +47,10 @@ test("shared mobile image zoom supports pinch, pan, double-tap and visible contr
   assert.match(zoomableImageSource, /export function isImagePreviewSource/);
   assert.match(zoomableImageSource, /tabIndex=/);
   assert.match(zoomableImageSource, /event\.key === "Enter"/);
-  assert.match(zoomableImageSource, /useModalFocus<HTMLDivElement>\(true, close\)/);
-  assert.match(zoomableImageSource, /data-dialog-autofocus/);
+  assert.match(zoomableImageSource, /<Dialog open onOpenChange=/);
+  assert.match(zoomableImageSource, /<DialogClose asChild>/);
+  assert.match(zoomableImageSource, /autoFocus/);
+  assert.doesNotMatch(zoomableImageSource, /useModalFocus/);
   assert.match(zoomableImageSource, /const MOBILE_IMAGE_PREVIEW_HISTORY_KEY = "__inogiImagePreview"/);
   assert.match(zoomableImageSource, /\[MOBILE_IMAGE_PREVIEW_HISTORY_KEY\]: owner/);
   assert.match(zoomableImageSource, /historyOwnerRef\.current === window\.history\.state\?\.\[MOBILE_IMAGE_PREVIEW_HISTORY_KEY\]/);

@@ -20,11 +20,31 @@ import {
   Upload,
   Users,
 } from 'lucide-react';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
 
 import { useAuth } from './auth';
 import { hasPermission } from './lib/permissions';
 import { AttendanceImportDialog } from './components/AttendanceImportDialog';
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from './components/horizon/HorizonPage';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from './components/ui/alert-dialog';
+import { Button } from './components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -56,6 +76,7 @@ import {
   type SaveAttendanceMonthPayload,
 } from './lib/attendanceApi';
 import { exportMonthlyAttendanceWorkbook } from './lib/attendanceWorkbook';
+import { routePath } from './lib/routePaths';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 
@@ -70,10 +91,10 @@ const statusMeta: Record<AttendanceStatus, { label: string; short: string; tone:
   business_trip: { label: '市内出差', short: '出差▲', tone: 'text-lime-800 bg-lime-50' },
   rest: { label: '排班轮休', short: '轮休', tone: 'text-slate-600 bg-slate-100' },
   holiday: { label: '休假', short: '休假', tone: 'text-sky-700 bg-sky-50' },
-  sick_leave: { label: '病假', short: '病假☆', tone: 'text-violet-700 bg-violet-50' },
+  sick_leave: { label: '病假', short: '病假☆', tone: 'text-cyan-800 bg-cyan-50' },
   personal_leave: { label: '事假', short: '事假○', tone: 'text-amber-700 bg-amber-50' },
   annual_leave: { label: '年假', short: '年假', tone: 'text-blue-700 bg-blue-50' },
-  paternity_leave: { label: '陪产假', short: '陪产假', tone: 'text-indigo-700 bg-indigo-50' },
+  paternity_leave: { label: '陪产假', short: '陪产假', tone: 'text-blue-700 bg-blue-50' },
   compensatory_leave: { label: '调休', short: '调休●', tone: 'text-cyan-700 bg-cyan-50' },
   study: { label: '学习', short: '学习△', tone: 'text-teal-700 bg-teal-50' },
 };
@@ -231,11 +252,9 @@ function AttendanceEditor({
   onDeleted: (record: AttendanceRecord) => void;
 }) {
   const [draft, setDraft] = useState<AttendanceDraft | null>(record ? createDraft(record) : null);
-  const [deleteArmed, setDeleteArmed] = useState(false);
 
   useEffect(() => {
     setDraft(record ? createDraft(record) : null);
-    setDeleteArmed(false);
   }, [record]);
 
   const update = <K extends keyof AttendanceDraft>(key: K, value: AttendanceDraft[K]) => {
@@ -245,7 +264,7 @@ function AttendanceEditor({
 
   return (
     <Dialog open={Boolean(record)} onOpenChange={(open) => { if (!open && !saving && !deleting) onClose(); }}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto border-slate-200 p-0 sm:max-w-2xl">
+      <DialogContent className="horizon-portal max-h-[92vh] overflow-y-auto border-slate-200 p-0 sm:max-w-2xl">
         {record && draft ? (
           <form
             onSubmit={(event) => {
@@ -329,10 +348,33 @@ function AttendanceEditor({
             <DialogFooter className="border-t border-slate-100 bg-white px-6 py-4 sm:justify-between">
               <div>
                 {record.id ? (
-                  <button type="button" disabled={saving || deleting} onClick={() => deleteArmed ? onDeleted(record) : setDeleteArmed(true)} className={cn('inline-flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition disabled:opacity-50', deleteArmed ? 'bg-red-600 text-white' : 'text-red-600 hover:bg-red-50')}>
-                    {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                    {deleting ? '清除中' : deleteArmed ? '再次点击确认清除' : '清除本日记录'}
-                  </button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button type="button" variant="ghost" disabled={saving || deleting} className="rounded-xl text-red-600 hover:bg-red-50 hover:text-red-700">
+                        {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                        {deleting ? '清除中' : '清除本日记录'}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="horizon-portal">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>确认清除本日考勤记录？</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          将清除 {record.employee.name} 在 {record.attendanceDate} 的打卡、状态与补录信息。此操作无法直接撤销。
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deleting}>保留记录</AlertDialogCancel>
+                        <AlertDialogAction
+                          disabled={deleting}
+                          onClick={() => onDeleted(record)}
+                          className="bg-red-600 text-white hover:bg-red-700"
+                        >
+                          {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                          确认清除
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 ) : null}
               </div>
               <div className="flex justify-end gap-2">
@@ -396,7 +438,7 @@ function MonthAdjustmentEditor({
 
   return (
     <Dialog open={Boolean(item)} onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
-      <DialogContent className="border-slate-200 p-0 sm:max-w-2xl">
+      <DialogContent className="horizon-portal border-slate-200 p-0 sm:max-w-2xl">
         {item && draft ? (
           <form
             onSubmit={(event) => {
@@ -420,7 +462,7 @@ function MonthAdjustmentEditor({
           >
             <DialogHeader className="border-b border-slate-100 bg-slate-50/80 px-6 py-5 pr-14">
               <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-600 text-white"><Settings2 className="h-4.5 w-4.5" /></span>
+                <span className="flex size-10 items-center justify-center rounded-2xl bg-[#002fa7] text-white"><Settings2 className="size-4" /></span>
                 <div><DialogTitle>月度结余与审核字段</DialogTitle><DialogDescription className="mt-1">{item.employee.name} · {monthLabel(month)} · 保存后同步到正式导出表</DialogDescription></div>
               </div>
             </DialogHeader>
@@ -431,7 +473,7 @@ function MonthAdjustmentEditor({
                   checked={deductsInverted}
                   onChange={(event) => setDeductsInverted(event.target.checked)}
                   disabled={saving}
-                  className="mt-0.5 h-4 w-4 cursor-pointer accent-indigo-600"
+                  className="mt-0.5 size-4 cursor-pointer accent-[#002fa7]"
                 />
                 <span className="min-w-0">
                   <span className="block text-xs font-semibold text-slate-800">参与倒挂抵扣</span>
@@ -445,18 +487,18 @@ function MonthAdjustmentEditor({
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {numberFields.map((field) => (
                   <label key={field.key} className="text-xs font-semibold text-slate-600">{field.label}
-                    <span className="relative mt-1.5 block"><input type="number" min={0} step="0.01" value={Number(draft[field.key]) || 0} onChange={(event) => updateNumber(field.key, event.target.value)} className="h-10 w-full rounded-xl border border-slate-200 px-3 pr-12 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-normal text-slate-400">{field.unit}</span></span>
+                    <span className="relative mt-1.5 block"><input type="number" min={0} step="0.01" value={Number(draft[field.key]) || 0} onChange={(event) => updateNumber(field.key, event.target.value)} className="h-10 w-full rounded-xl border border-slate-200 px-3 pr-12 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-normal text-slate-400">{field.unit}</span></span>
                     {field.hint ? <span className="mt-1 block text-[10px] font-normal leading-tight text-slate-400">{field.hint}</span> : null}
                   </label>
                 ))}
               </div>
               <label className="block text-xs font-semibold text-slate-600">员工签字
-                <input value={draft.signature} onChange={(event) => setDraft((current) => current ? { ...current, signature: event.target.value } : current)} placeholder="可留空，打印后手写" className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-indigo-400" />
+                <input value={draft.signature} onChange={(event) => setDraft((current) => current ? { ...current, signature: event.target.value } : current)} placeholder="可留空，打印后手写" className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-blue-500" />
               </label>
               <label className="block text-xs font-semibold text-slate-600">月度备注
-                <textarea rows={3} maxLength={500} value={draft.note} onChange={(event) => setDraft((current) => current ? { ...current, note: event.target.value } : current)} placeholder="结余说明、倒挂原因或其他月度备注" className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400" />
+                <textarea rows={3} maxLength={500} value={draft.note} onChange={(event) => setDraft((current) => current ? { ...current, note: event.target.value } : current)} placeholder="结余说明、倒挂原因或其他月度备注" className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
               </label>
-              <div className="rounded-xl bg-indigo-50 px-4 py-3 text-xs leading-5 text-indigo-700">年度带薪病假额度固定为 5 天。生产部门人员的工作日加班会自动抵扣剩余倒挂工时；法定节假日加班自动计入调休余额。此处只维护期初结余和人工调整。</div>
+              <div className="rounded-xl bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800">年度带薪病假额度固定为 5 天。生产部门人员的工作日加班会自动抵扣剩余倒挂工时；法定节假日加班自动计入调休余额。此处只维护期初结余和人工调整。</div>
             </div>
             <DialogFooter className="border-t border-slate-100 px-6 py-4">
               <button type="button" onClick={onClose} disabled={saving} className="material-button-secondary px-4 py-2.5 text-sm">取消</button>
@@ -502,7 +544,7 @@ function EmployeeAttendanceDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto border-slate-200 p-0 sm:max-w-5xl">
+      <DialogContent className="horizon-portal max-h-[92vh] overflow-y-auto border-slate-200 p-0 sm:max-w-5xl">
         <DialogHeader className="border-b border-slate-100 bg-slate-950 px-6 py-5 pr-14 text-white">
           <DialogTitle className="text-white">人员考勤详情</DialogTitle>
           <DialogDescription className="text-slate-300">月度考勤、加班规则、调休余额与年度病假额度集中查看</DialogDescription>
@@ -528,17 +570,17 @@ function EmployeeAttendanceDetailDialog({
               <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-semibold text-slate-500">可统计加班</p><strong className="mt-1 block text-2xl text-slate-950">{rules.countableOvertimeHours}h</strong><p className="mt-1 text-[11px] text-slate-400">已排除倒挂抵扣与调休入账</p></div>
               <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4"><p className="text-xs font-semibold text-amber-700">倒挂抵扣 / 剩余</p><strong className="mt-1 block text-2xl text-amber-950">{rules.invertedOffsetHours} / {rules.remainingInvertedHours}h</strong><p className="mt-1 text-[11px] text-amber-700/70">仅生产部门倒挂人员适用</p></div>
               <div className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4"><p className="text-xs font-semibold text-cyan-700">调休增加 / 余额</p><strong className="mt-1 block text-2xl text-cyan-950">+{rules.compTimeEarnedHours} / {rules.compTimeBalanceHours}h</strong><p className="mt-1 text-[11px] text-cyan-700/70">法定节假日加班自动入账</p></div>
-              <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-violet-700">年度带薪病假</p><HeartPulse className="h-4 w-4 text-violet-500" /></div><strong className="mt-1 block text-2xl text-violet-950">{rules.annualSickLeaveDays} / {rules.annualPaidSickLeaveAllowanceDays}天</strong><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-violet-100"><div className={cn('h-full rounded-full', rules.excessSickLeaveDays > 0 ? 'bg-red-500' : 'bg-violet-500')} style={{ width: `${sickProgress}%` }} /></div></div>
+              <div className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-cyan-800">年度带薪病假</p><HeartPulse className="size-4 text-cyan-600" /></div><strong className="mt-1 block text-2xl text-cyan-950 tabular-nums">{rules.annualSickLeaveDays} / {rules.annualPaidSickLeaveAllowanceDays}天</strong><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-cyan-100"><div className={cn('h-full rounded-full', rules.excessSickLeaveDays > 0 ? 'bg-red-500' : 'bg-cyan-600')} style={{ width: `${sickProgress}%` }} /></div></div>
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between"><div><h4 className="text-sm font-semibold text-slate-900">每日考勤</h4><p className="mt-0.5 text-xs text-slate-500">点击日期可直接补录或修改</p></div><span className="rounded-lg bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">可编辑</span></div>
+              <div className="flex items-center justify-between"><div><h4 className="text-sm font-semibold text-slate-900">每日考勤</h4><p className="mt-0.5 text-xs text-slate-500">点击日期可直接补录或修改</p></div><span className="rounded-lg bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">可编辑</span></div>
               <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-7 lg:grid-cols-10">
                 {Array.from({ length: detail.daysInMonth }, (_, index) => index + 1).map((day) => {
                   const date = dateForDay(detail.month, day);
                   const record = recordByDate.get(date);
                   const meta = record ? statusMeta[record.status] : null;
-                  return <button key={day} type="button" onClick={() => onEdit(detail.employee, day, record)} className={cn('rounded-xl border px-2 py-2 text-left transition hover:-translate-y-0.5 hover:shadow-sm', record ? 'border-transparent' : 'border-dashed border-slate-200 bg-slate-50', meta?.tone)}><span className="block text-[10px] font-semibold opacity-70">{day}日 · 周{weekdayForDay(detail.month, day)}</span><span className="mt-1 block truncate text-xs font-bold">{record ? meta?.short : '未录入'}</span><span className="mt-0.5 block truncate font-mono text-[10px] opacity-70">{record?.checkInTime || '--'} / {record?.checkOutTime || '--'}</span></button>;
+                  return <button key={day} type="button" onClick={() => onEdit(detail.employee, day, record)} className={cn('rounded-xl border px-2 py-2 text-left transition hover:border-blue-200 hover:shadow-sm', record ? 'border-transparent' : 'border-dashed border-slate-200 bg-slate-50', meta?.tone)}><span className="block text-[10px] font-semibold opacity-70">{day}日 · 周{weekdayForDay(detail.month, day)}</span><span className="mt-1 block truncate text-xs font-bold">{record ? meta?.short : '未录入'}</span><span className="mt-0.5 block truncate font-mono text-[10px] opacity-70">{record?.checkInTime || '--'} / {record?.checkOutTime || '--'}</span></button>;
                 })}
               </div>
             </section>
@@ -577,7 +619,8 @@ function OvertimeLedger({
       </section>
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <table className="w-full min-w-[1180px] text-left text-xs">
-          <thead className="bg-slate-50 text-slate-500"><tr>{['人员', '规则', '工作日加班', '倒挂抵扣', '可计工作日', '周日加班', '节假日→调休', '调休使用', '调休余额', '可统计合计', '操作'].map((label) => <th key={label} className="border-b border-slate-200 px-4 py-3 font-semibold">{label}</th>)}</tr></thead>
+          <caption className="sr-only">{monthLabel(data.month)}人员加班时长与调休结余</caption>
+          <thead className="bg-slate-50 text-slate-500"><tr>{['人员', '规则', '工作日加班', '倒挂抵扣', '可计工作日', '周日加班', '节假日→调休', '调休使用', '调休余额', '可统计合计', '操作'].map((label) => <th key={label} scope="col" className="border-b border-slate-200 px-4 py-3 font-semibold">{label}</th>)}</tr></thead>
           <tbody>{data.items.map((item) => <tr key={item.employee.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70"><td className="px-4 py-3"><p className="font-semibold text-slate-900">{item.employee.name}</p><p className="mt-0.5 text-[10px] text-slate-400">{item.employee.department} · {item.employee.title}</p></td><td className="px-4 py-3"><span className={cn('rounded-full px-2.5 py-1 text-[10px] font-semibold', item.rules.ruleType === 'production_inverted' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>{item.rules.ruleType === 'production_inverted' ? '倒挂抵扣' : '常规统计'}</span></td><td className="px-4 py-3 font-mono">{item.summary.workdayOvertimeHours}h</td><td className="px-4 py-3 font-mono text-amber-700">-{item.rules.invertedOffsetHours}h</td><td className="px-4 py-3 font-mono">{item.rules.countableWorkdayOvertimeHours}h</td><td className="px-4 py-3 font-mono">{item.rules.sundayOvertimeHours}h</td><td className="px-4 py-3 font-mono text-cyan-700">+{item.rules.compTimeEarnedHours}h</td><td className="px-4 py-3 font-mono">-{item.rules.compTimeUsedHours}h</td><td className={cn('px-4 py-3 font-mono font-semibold', item.rules.compTimeBalanceHours < 0 ? 'text-red-600' : 'text-cyan-800')}>{item.rules.compTimeBalanceHours}h</td><td className="px-4 py-3 font-mono text-sm font-bold text-slate-950">{item.rules.countableOvertimeHours}h</td><td className="px-4 py-3"><button type="button" onClick={() => onDetail(item.employee)} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 font-semibold text-slate-700 hover:bg-slate-200"><Eye className="h-3.5 w-3.5" />详情</button></td></tr>)}</tbody>
         </table>
       </div>
@@ -750,79 +793,98 @@ export function AttendancePage() {
     }
   };
 
-  const summaryCards = [
-    ['考勤人数', data.summary.employeeCount, '来自员工入职归档'],
-    ['正常出勤', `${data.summary.normalDays}天`, '含迟到/早退已打卡'],
-    ['异常待处理', data.summary.exceptionCount, '缺卡、旷工、迟到早退'],
-    ['可统计加班', `${data.summary.countableOvertimeHours}h`, '已执行倒挂与调休分流'],
-    ['调休增加', `${data.summary.compTimeEarnedHours}h`, '来自法定节假日加班'],
-    ['病假超额', data.summary.sickLeaveAlertCount, '年度带薪额度为5天'],
-  ];
   const dayColumns = Array.from({ length: data.daysInMonth }, (_, index) => index + 1);
   const rowLabels = ['上午打卡', '上午判定', '下午打卡', '下午判定', '倒挂扣时'];
 
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-[1800px] flex-col gap-3 animate-rd-fade-in">
-      <section className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        {summaryCards.map(([label, value, helper], index) => (
-          <div key={label} className="material-card-flat flex items-center gap-3 px-4 py-3.5">
-            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl', index === 0 ? 'bg-slate-900 text-white' : index === 5 ? 'bg-red-50 text-red-600' : index === 4 ? 'bg-cyan-50 text-cyan-700' : 'bg-indigo-50 text-indigo-700')}>
-              {index === 0 ? <Users className="h-4.5 w-4.5" /> : <CalendarDays className="h-4.5 w-4.5" />}
-            </span>
-            <div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-500">{label}</p><strong className="text-xl font-bold tracking-tight text-slate-950">{value}</strong><p className="truncate text-[11px] text-slate-400">{helper}</p></div>
-          </div>
-        ))}
-      </section>
+    <div className="horizon-theme hz-page mx-auto flex min-h-full w-full max-w-[1800px] min-w-0 flex-col gap-3 px-3 py-3 sm:px-4 lg:px-5 xl:h-full xl:min-h-0">
+      <HorizonPageHeader
+        Icon={CalendarDays}
+        eyebrow="HR OPERATIONS · ATTENDANCE"
+        title="人员考勤"
+        description="把月度打卡、异常补录、倒挂抵扣与调休结余集中在同一工作台。"
+        meta={<><span>{monthLabel(month)}</span><span aria-hidden="true">·</span><span>上海时区</span><span aria-hidden="true">·</span><span>{activeView === 'attendance' ? '考勤明细' : '加班核算'}</span></>}
+        actions={(
+          <>
+            <Button asChild variant="outline">
+              <Link to={routePath('page:employee-archive', '/employee-archive')}><Users className="size-4" />员工档案</Link>
+            </Button>
+            {canImport ? <Button type="button" variant="outline" onClick={() => setImportOpen(true)}><Upload className="size-4" />导入考勤数据</Button> : null}
+            <Button type="button" onClick={() => void handleExport()} disabled={exporting} className="hz-primary-action">
+              {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+              导出正式考勤表
+            </Button>
+          </>
+        )}
+      />
 
-      <section className="material-card-flat flex min-h-0 flex-1 flex-col overflow-hidden">
-        <header className="shrink-0 border-b border-slate-100 px-4 py-3.5 sm:px-5">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-white"><CalendarDays className="h-5 w-5" /></span>
-              <div className="min-w-0"><div className="flex items-center gap-2"><h2 className="text-base font-semibold text-slate-950">{activeView === 'attendance' ? '月度考勤表' : '加班时长表'}</h2>{activeView === 'attendance' ? <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">可编辑</span> : null}</div><p className="mt-0.5 text-xs text-slate-500">{activeView === 'attendance' ? '点击任意日期单元格即可补录或修正，也可查看单人完整详情' : '自动执行生产部门倒挂抵扣、节假日调休入账和常规加班统计'}</p></div>
+      <HorizonMetricGrid className="!grid-cols-2 lg:!grid-cols-3 2xl:!grid-cols-6">
+        <HorizonMetric Icon={Users} label="考勤人数" value={data.summary.employeeCount} note="来自员工入职归档" />
+        <HorizonMetric Icon={CheckCircle2} label="正常出勤" value={`${data.summary.normalDays}天`} note="含已打卡的迟到早退" tone="success" />
+        <HorizonMetric Icon={AlertTriangle} label="异常待处理" value={data.summary.exceptionCount} note="缺卡、旷工、迟到早退" tone={data.summary.exceptionCount > 0 ? 'danger' : 'success'} />
+        <HorizonMetric Icon={Clock3} label="可统计加班" value={`${data.summary.countableOvertimeHours}h`} note="倒挂与调休分流后" tone="brand" />
+        <HorizonMetric Icon={CalendarDays} label="调休增加" value={`${data.summary.compTimeEarnedHours}h`} note="来自法定节假日加班" tone="brand" />
+        <HorizonMetric Icon={HeartPulse} label="病假超额" value={data.summary.sickLeaveAlertCount} note="年度带薪额度为 5 天" tone={data.summary.sickLeaveAlertCount > 0 ? 'warning' : 'neutral'} />
+      </HorizonMetricGrid>
+
+      <section className="hz-surface flex min-h-[36rem] flex-none flex-col overflow-hidden xl:min-h-0 xl:flex-1">
+        <HorizonSectionHeader
+          Icon={activeView === 'attendance' ? Table2 : Clock3}
+          title={activeView === 'attendance' ? '月度考勤矩阵' : '加班时长核算'}
+          description={activeView === 'attendance' ? '点击日期单元格补录或修正，点击姓名查看完整人员详情。' : '自动执行生产部门倒挂抵扣、节假日调休入账和常规加班统计。'}
+          trailing={<span className="rounded-lg bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">{activeView === 'attendance' ? '可编辑' : '规则自动核算'}</span>}
+        />
+
+        <div className="hz-toolbar flex shrink-0 flex-col gap-3 border-b px-4 py-3 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
+          <div role="tablist" aria-label="考勤视图" className="flex w-fit items-center rounded-xl bg-slate-100 p-1">
+            <button type="button" role="tab" aria-selected={activeView === 'attendance'} aria-controls="attendance-view-panel" onClick={() => setActiveView('attendance')} className={cn('inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition', activeView === 'attendance' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800')}><Table2 className="size-3.5" />考勤明细</button>
+            <button type="button" role="tab" aria-selected={activeView === 'overtime'} aria-controls="attendance-view-panel" onClick={() => setActiveView('overtime')} className={cn('inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition', activeView === 'overtime' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800')}><Clock3 className="size-3.5" />加班时长</button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center rounded-xl border border-slate-200 bg-white p-1">
+              <button type="button" aria-label="查看上个月" onClick={() => setMonth(moveMonth(month, -1))} className="flex size-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"><ChevronLeft className="size-4" /></button>
+              <label htmlFor="attendance-month" className="sr-only">考勤月份</label>
+              <input id="attendance-month" type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="h-8 w-[130px] border-0 bg-transparent px-2 text-sm font-semibold text-slate-700 outline-none" />
+              <button type="button" aria-label="查看下个月" onClick={() => setMonth(moveMonth(month, 1))} className="flex size-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"><ChevronRight className="size-4" /></button>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
-                <button type="button" aria-label="上个月" onClick={() => setMonth(moveMonth(month, -1))} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"><ChevronLeft className="h-4 w-4" /></button>
-                <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="h-8 w-[130px] border-0 bg-transparent px-2 text-sm font-semibold text-slate-700 outline-none" />
-                <button type="button" aria-label="下个月" onClick={() => setMonth(moveMonth(month, 1))} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"><ChevronRight className="h-4 w-4" /></button>
-              </div>
-              {month !== currentMonth ? <button type="button" onClick={() => setMonth(currentMonth)} className="material-button-secondary px-3 py-2 text-xs">本月</button> : null}
-              <button type="button" onClick={reload} disabled={loading} className="material-button-secondary px-3 py-2 text-xs disabled:opacity-50"><RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />刷新</button>
-              {canImport ? <button type="button" onClick={() => setImportOpen(true)} className="material-button-secondary px-3 py-2 text-xs"><Upload className="h-3.5 w-3.5" />导入考勤数据</button> : null}
-              <button type="button" onClick={() => void handleExport()} disabled={exporting} className="material-button-primary px-3 py-2 text-xs disabled:opacity-60">{exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}导出正式考勤表</button>
-            </div>
+            {month !== currentMonth ? <Button type="button" size="sm" variant="outline" onClick={() => setMonth(currentMonth)}>回到本月</Button> : null}
+            <Button type="button" size="sm" variant="outline" onClick={reload} disabled={loading}><RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />刷新</Button>
           </div>
-          <div className="mt-3 flex w-fit items-center rounded-xl bg-slate-100 p-1">
-            <button type="button" onClick={() => setActiveView('attendance')} className={cn('inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition', activeView === 'attendance' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800')}><Table2 className="h-3.5 w-3.5" />考勤明细</button>
-            <button type="button" onClick={() => setActiveView('overtime')} className={cn('inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition', activeView === 'overtime' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800')}><Clock3 className="h-3.5 w-3.5" />加班时长</button>
-          </div>
-          <div className="mt-3 grid gap-2 md:grid-cols-[minmax(260px,1fr)_220px]">
-            <label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索姓名、工号、部门或岗位" className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-slate-400" /></label>
-            <select value={department} onChange={(event) => setDepartment(event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-slate-400"><option value="">全部部门</option>{data.departments.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-          </div>
-        </header>
+        </div>
+
+        <div className="grid shrink-0 gap-2 border-b border-slate-100 bg-white px-4 py-3 sm:px-5 md:grid-cols-[minmax(260px,1fr)_220px]">
+          <label className="relative block">
+            <span className="sr-only">搜索考勤人员</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索姓名、工号、部门或岗位" className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-500" />
+          </label>
+          <label className="block">
+            <span className="sr-only">筛选部门</span>
+            <select value={department} onChange={(event) => setDepartment(event.target.value)} className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-500"><option value="">全部部门</option>{data.departments.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+          </label>
+        </div>
 
         {activeView === 'overtime' ? (
-          <OvertimeLedger data={overtimeData} loading={overtimeLoading} error={overtimeError} onDetail={setDetailEmployee} />
-        ) : <div className="min-h-0 flex-1 overflow-auto">
+          <div id="attendance-view-panel" role="tabpanel" className="contents"><OvertimeLedger data={overtimeData} loading={overtimeLoading} error={overtimeError} onDetail={setDetailEmployee} /></div>
+        ) : <div id="attendance-view-panel" role="tabpanel" className="min-h-0 flex-1 overflow-auto">
           {loadError ? (
-            <div className="flex min-h-72 flex-col items-center justify-center gap-3 px-6 text-center"><AlertTriangle className="h-9 w-9 text-red-500" /><div><p className="font-semibold text-slate-900">月度考勤读取失败</p><p className="mt-1 text-sm text-slate-500">{loadError}</p></div><button type="button" onClick={reload} className="material-button-secondary px-4 py-2 text-sm">重新加载</button></div>
+            <HorizonEmptyState Icon={AlertTriangle} title="月度考勤读取失败" description={loadError} action={<Button type="button" variant="outline" onClick={reload}><RefreshCw className="size-4" />重新加载</Button>} />
           ) : loading && data.items.length === 0 ? (
             <div className="flex min-h-72 items-center justify-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />正在生成月度考勤矩阵</div>
           ) : data.items.length === 0 ? (
-            <div className="flex min-h-72 flex-col items-center justify-center gap-3 text-center"><Users className="h-10 w-10 text-slate-300" /><div><p className="font-semibold text-slate-900">暂无考勤人员</p><p className="mt-1 text-sm text-slate-500">请先在员工入职归档中维护在职人员。</p></div></div>
+            <HorizonEmptyState Icon={Users} title="暂无考勤人员" description="请先在员工入职归档中维护在职人员，再回来生成月度考勤矩阵。" action={<Button asChild variant="outline"><Link to={routePath('page:employee-archive', '/employee-archive')}>前往员工档案</Link></Button>} />
           ) : (
             <table className="border-separate border-spacing-0 text-center text-[11px]" style={{ minWidth: `${280 + data.daysInMonth * 72 + 13 * 86}px` }}>
+              <caption className="sr-only">{monthLabel(month)}人员每日考勤与月度汇总矩阵</caption>
               <thead className="sticky top-0 z-30 bg-slate-50 text-slate-600">
                 <tr>
-                  <th rowSpan={2} className="sticky left-0 z-40 w-12 min-w-12 border-b border-r border-slate-200 bg-slate-50 px-2 py-2">序号</th>
-                  <th rowSpan={2} className="sticky left-12 z-40 w-40 min-w-40 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left">姓名 / 岗位</th>
-                  <th rowSpan={2} className="sticky left-52 z-40 w-20 min-w-20 border-b border-r border-slate-200 bg-slate-50 px-2 py-2">考勤项</th>
-                  {dayColumns.map((day) => <th key={day} className={cn('min-w-[72px] border-b border-r border-slate-200 px-1 py-1.5', weekdayForDay(month, day) === '日' && 'bg-amber-50 text-amber-700')}>{day}</th>)}
-                  {['应出勤', '正常', '轮休', '休假', '病假', '事假', '年假', '旷工', '迟到早退', '陪产假', '工作日加班', '周日加班', '节假日加班'].map((label) => <th key={label} rowSpan={2} className="min-w-[86px] border-b border-r border-slate-200 px-2 py-2">{label}</th>)}
+                  <th scope="col" rowSpan={2} className="sticky left-0 z-40 w-12 min-w-12 border-b border-r border-slate-200 bg-slate-50 px-2 py-2">序号</th>
+                  <th scope="col" rowSpan={2} className="sticky left-12 z-40 w-40 min-w-40 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left">姓名 / 岗位</th>
+                  <th scope="col" rowSpan={2} className="sticky left-52 z-40 w-20 min-w-20 border-b border-r border-slate-200 bg-slate-50 px-2 py-2">考勤项</th>
+                  {dayColumns.map((day) => <th key={day} scope="col" className={cn('min-w-[72px] border-b border-r border-slate-200 px-1 py-1.5', weekdayForDay(month, day) === '日' && 'bg-amber-50 text-amber-700')}>{day}</th>)}
+                  {['应出勤', '正常', '轮休', '休假', '病假', '事假', '年假', '旷工', '迟到早退', '陪产假', '工作日加班', '周日加班', '节假日加班'].map((label) => <th key={label} scope="col" rowSpan={2} className="min-w-[86px] border-b border-r border-slate-200 px-2 py-2">{label}</th>)}
                 </tr>
-                <tr>{dayColumns.map((day) => <th key={day} className={cn('border-b border-r border-slate-200 px-1 py-1', weekdayForDay(month, day) === '日' && 'bg-amber-50 text-amber-700')}>{weekdayForDay(month, day)}</th>)}</tr>
+                <tr>{dayColumns.map((day) => <th key={day} scope="col" className={cn('border-b border-r border-slate-200 px-1 py-1', weekdayForDay(month, day) === '日' && 'bg-amber-50 text-amber-700')}>{weekdayForDay(month, day)}</th>)}</tr>
               </thead>
               <tbody className="bg-white">
                 {data.items.map((item, itemIndex) => {
@@ -839,8 +901,8 @@ export function AttendancePage() {
                       {rowLabels.map((rowLabel, rowIndex) => (
                         <tr key={rowLabel} className={cn(rowIndex === 4 && 'border-b-2 border-slate-300')}>
                           {rowIndex === 0 ? <td rowSpan={5} className="sticky left-0 z-20 border-b border-r border-slate-200 bg-white px-2 font-semibold text-slate-500">{itemIndex + 1}</td> : null}
-                          {rowIndex === 0 ? <td rowSpan={5} className="sticky left-12 z-20 border-b border-r border-slate-200 bg-white px-3 py-2 text-left"><button type="button" onClick={() => setDetailEmployee(item.employee)} className="font-semibold text-slate-900 hover:text-indigo-700 hover:underline">{item.employee.name}</button><p className="mt-1 text-[10px] text-slate-400">{item.employee.rosterNo || '未设置工号'}</p><p className="mt-0.5 text-[10px] text-slate-500">{item.employee.department} · {item.employee.title}</p>{item.rules.alerts.length > 0 ? <p className="mt-1 truncate text-[10px] font-semibold text-red-600">{item.rules.alerts[0]}</p> : null}<div className="mt-2 flex flex-wrap gap-1"><button type="button" onClick={() => setDetailEmployee(item.employee)} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-200"><Eye className="h-3 w-3" />详情</button><button type="button" onClick={() => setAdjustmentItem(item)} className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700 transition hover:bg-indigo-100"><Settings2 className="h-3 w-3" />月度结余</button>{todayClockType ? <button type="button" disabled={clockingEmployeeId === item.employee.id} onClick={() => void handleClock(item, todayClockType)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">{clockingEmployeeId === item.employee.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Fingerprint className="h-3 w-3" />}{todayClockType === 'check-in' ? '上班打卡' : '下班打卡'}</button> : null}</div></td> : null}
-                          <td className={cn('sticky left-52 z-20 border-b border-r border-slate-200 px-2 py-1.5 font-medium', rowIndex === 4 ? 'bg-amber-50 text-amber-800' : 'bg-slate-50 text-slate-600')}>{rowLabel}</td>
+                          {rowIndex === 0 ? <th scope="rowgroup" rowSpan={5} className="sticky left-12 z-20 border-b border-r border-slate-200 bg-white px-3 py-2 text-left"><button type="button" onClick={() => setDetailEmployee(item.employee)} className="font-semibold text-slate-900 hover:text-blue-700 hover:underline">{item.employee.name}</button><p className="mt-1 text-[10px] font-normal text-slate-400">{item.employee.rosterNo || '未设置工号'}</p><p className="mt-0.5 text-[10px] font-normal text-slate-500">{item.employee.department} · {item.employee.title}</p>{item.rules.alerts.length > 0 ? <p className="mt-1 truncate text-[10px] font-semibold text-red-600">{item.rules.alerts[0]}</p> : null}<div className="mt-2 flex flex-wrap gap-1"><button type="button" onClick={() => setDetailEmployee(item.employee)} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-200"><Eye className="size-3" />详情</button><button type="button" onClick={() => setAdjustmentItem(item)} className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-100"><Settings2 className="size-3" />月度结余</button>{todayClockType ? <button type="button" disabled={clockingEmployeeId === item.employee.id} onClick={() => void handleClock(item, todayClockType)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">{clockingEmployeeId === item.employee.id ? <Loader2 className="size-3 animate-spin" /> : <Fingerprint className="size-3" />}{todayClockType === 'check-in' ? '上班打卡' : '下班打卡'}</button> : null}</div></th> : null}
+                          <th scope="row" className={cn('sticky left-52 z-20 border-b border-r border-slate-200 px-2 py-1.5 font-medium', rowIndex === 4 ? 'bg-amber-50 text-amber-800' : 'bg-slate-50 text-slate-600')}>{rowLabel}</th>
                           {dayColumns.map((day) => {
                             const record = byDate.get(dateForDay(month, day));
                             const isSpecial = specialRecord(record);
@@ -848,7 +910,7 @@ export function AttendancePage() {
                             const tone = record ? statusMeta[record.status].tone : 'text-slate-300 bg-white';
                             return (
                               <td key={day} rowSpan={isSpecial ? 5 : 1} className={cn('border-b border-r border-slate-200 p-0', tone)}>
-                                <button type="button" onClick={() => openEditor(item.employee, day, record)} title={`${item.employee.name} ${dateForDay(month, day)}：${record ? statusMeta[record.status].label : '未录入'}`} className={cn('flex h-full min-h-7 w-full items-center justify-center px-1 py-1 leading-tight transition hover:ring-2 hover:ring-inset hover:ring-indigo-300', rowIndex === 0 && !isSpecial && 'font-mono font-semibold')}>
+                                <button type="button" onClick={() => openEditor(item.employee, day, record)} title={`${item.employee.name} ${dateForDay(month, day)}：${record ? statusMeta[record.status].label : '未录入'}`} className={cn('flex h-full min-h-7 w-full items-center justify-center px-1 py-1 leading-tight transition hover:ring-2 hover:ring-inset hover:ring-blue-300', rowIndex === 0 && !isSpecial && 'font-mono font-semibold')}>
                                   {isSpecial && record ? statusMeta[record.status].short : dayCellValue(record, rowIndex)}
                                 </button>
                               </td>

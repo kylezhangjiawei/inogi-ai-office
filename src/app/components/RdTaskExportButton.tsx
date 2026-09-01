@@ -4,14 +4,22 @@
  * 只读操作；导出前仍按当前研发驾驶舱配置人员目录做数据边界校验。
  */
 import * as React from "react";
-import { createPortal } from "react-dom";
-import { Download, Loader2, X } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { exportRdTasksXlsx } from "../lib/rdTaskExport";
 import { t, useI18n } from "../lib/i18n";
 import type { RdTask } from "../lib/rdApi";
 import type { RdMemberDirectoryEntry } from "../lib/rdMemberIdentity";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "./ui/dialog";
 
 function toYmd(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -64,65 +72,55 @@ export function RdTaskExportButton({
   };
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        title="按时间段导出研发驾驶舱配置人员的任务完成情况（Excel）"
-        className="group flex flex-none items-center gap-2 rounded-xl border border-sky-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700 active:translate-y-0 active:scale-[0.98]"
-      >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 ring-1 ring-sky-100">
-          <Download className="h-4 w-4" />
-        </span>
-        <span className="min-w-0">{t("导出")}</span>
-      </button>
-
-      {open && createPortal(
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-slate-900/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="导出任务完成情况"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) close();
-          }}
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      if (nextOpen) setOpen(true);
+      else close();
+    }}>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          title="按时间段导出研发驾驶舱配置人员的任务完成情况（Excel）"
+          className="group flex flex-none items-center gap-2 rounded-xl border border-[#dce6ff] bg-white px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-sm hover:border-[#002fa7]/25 hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
         >
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
-              <div>
-                <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">导出任务完成情况</h3>
-                <p className="mt-0.5 text-xs text-slate-400">选择起止日期，仅导出当前研发驾驶舱配置人员的任务与完成状态</p>
-              </div>
-              <button
-                type="button"
-                onClick={close}
-                aria-label="关闭"
-                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
-              >
-                <X className="size-5" />
-              </button>
-            </div>
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[#eef3ff] text-[#002fa7] ring-1 ring-[#dce6ff]">
+            <Download className="size-4" />
+          </span>
+          <span className="min-w-0">{t("导出")}</span>
+        </button>
+      </DialogTrigger>
 
-            <div className="space-y-4 px-5 py-4">
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">起始日期</span>
+      <DialogContent
+        className="horizon-portal gap-0 overflow-hidden border-slate-200 bg-white p-0 sm:max-w-md"
+        onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }}
+        onInteractOutside={(event) => { if (busy) event.preventDefault(); }}
+      >
+        <DialogHeader className="border-b border-slate-200 px-5 py-4 pr-12">
+          <DialogTitle className="text-balance text-base text-[#1b2559]">导出任务完成情况</DialogTitle>
+          <DialogDescription className="text-pretty text-xs leading-5 text-slate-500">
+            选择起止日期，仅导出当前研发驾驶舱配置人员的任务与完成状态
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 px-5 py-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-600">起始日期</span>
                   <input
                     type="date"
                     value={start}
                     max={end || undefined}
                     onChange={(e) => setStart(e.target.value)}
-                    className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 outline-none focus-visible:border-indigo-400 focus-visible:ring-2 focus-visible:ring-indigo-500/30 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                className="h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm tabular-nums text-slate-800 outline-none focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-[#002fa7]/20"
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">结束日期</span>
+              <span className="mb-1 block text-xs font-medium text-slate-600">结束日期</span>
                   <input
                     type="date"
                     value={end}
                     min={start || undefined}
                     onChange={(e) => setEnd(e.target.value)}
-                    className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 outline-none focus-visible:border-indigo-400 focus-visible:ring-2 focus-visible:ring-indigo-500/30 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                className="h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm tabular-nums text-slate-800 outline-none focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-[#002fa7]/20"
                   />
                 </label>
               </div>
@@ -146,23 +144,23 @@ export function RdTaskExportButton({
                         setStart(toYmd(s));
                       }
                     }}
-                    className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 transition-colors hover:border-indigo-200 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 hover:border-[#002fa7]/25 hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
                   >
                     {q.label}
                   </button>
                 ))}
               </div>
-              <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-400 dark:bg-slate-800/50">
+          <p className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-pretty text-[11px] leading-5 text-slate-500">
                 说明：含「人员汇总」与「任务明细」两个工作表；按任务最近活动时间归入时间段，非研发配置人员、离职及封存任务不计入。
               </p>
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-4 dark:border-slate-700">
+        <DialogFooter className="border-t border-slate-200 px-5 py-4">
               <button
                 type="button"
                 onClick={close}
                 disabled={busy}
-                className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
+            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
               >
                 取消
               </button>
@@ -170,16 +168,13 @@ export function RdTaskExportButton({
                 type="button"
                 onClick={run}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
+            className="hz-primary-action inline-flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
               >
                 {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
                 导出 Excel
               </button>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
-    </>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

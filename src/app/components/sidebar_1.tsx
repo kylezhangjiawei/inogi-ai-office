@@ -44,6 +44,7 @@ export function Sidebar() {
   const { immersive, sidebarCollapsed: collapsed } = useLayoutChromeState();
   const { toggleSidebar } = useLayoutChromeActions();
   const userPermissions = user?.permissions ?? [];
+  const sidebarRef = useRef<HTMLElement>(null);
   const navScrollRef = useRef<HTMLElement>(null);
 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(readCollapsedGroups);
@@ -100,6 +101,16 @@ export function Sidebar() {
     }))
     .filter((group) => group.items.length > 0);
 
+  const userInitial = user?.name?.trim().slice(0, 1) || "U";
+
+  // 沉浸模式不仅要把侧栏裁出画面，也要切断内部链接和按钮的键盘访问。
+  useEffect(() => {
+    const sidebar = sidebarRef.current;
+    if (!sidebar) return;
+    if (immersive) sidebar.setAttribute("inert", "");
+    else sidebar.removeAttribute("inert");
+  }, [immersive]);
+
   // 刷新或路由跳转后，浏览器会保留当前路由，但侧栏自身的滚动位置会回到顶部。
   // 只调整侧栏滚动容器，确保当前激活菜单可见，不影响页面主体和用户正常滚动。
   useLayoutEffect(() => {
@@ -127,223 +138,213 @@ export function Sidebar() {
   }, [collapsed, immersive, navHiddenCodes, pathname]);
 
   return (
-    // 外层只负责宽度过渡：沉浸模式整体滑出(0)、手动收起成图标轨道(76)、常态(300/324)。
-    // relative 让右缘悬浮圆钮能溢出到边线外；裁剪交给内层，避免把圆钮也裁掉。
+    // 外层只负责三态宽度：沉浸模式整体滑出(0)、手动收起成图标轨道(76)、常态(300/324)。
+    // relative 让右缘控制钮能跨在边线上；裁剪交给内层，避免把控制钮一并裁掉。
     <div
       className={cn(
-        "relative h-full shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+        "relative h-full shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
         immersive ? "w-0" : collapsed ? "w-[76px]" : "w-[300px] min-[1920px]:w-[324px]",
       )}
     >
-      {/* 裁剪层：沉浸态把侧栏内部裁掉，形成 off-canvas 滑出，不挤压主内容 */}
+      {/* 裁剪层：沉浸态把侧栏内部裁掉，不挤压主内容。 */}
       <div className="h-full w-full overflow-hidden">
-      <aside
-        className={cn(
-          "flex h-full flex-col border-r border-white/70 bg-[linear-gradient(180deg,#fcfdff_0%,#f4f8fd_100%)] py-5",
-          "transition-[width,padding]",
-          SIDEBAR_EASE,
-          collapsed ? "w-[76px] items-center px-2" : "w-[300px] px-4 min-[1920px]:w-[324px]",
-        )}
-      >
-        {/* 顶部：Logo + 标题 + 当前用户卡。收放不换 DOM——换 DOM 会让文字硬生生闪掉，
-            这里靠 logo 尺寸、文字块宽度、用户卡高度（grid 0fr→1fr）一起过渡。 */}
-        <div
+        <aside
+          ref={sidebarRef}
+          aria-hidden={immersive || undefined}
+          data-collapsed={collapsed ? "true" : "false"}
           className={cn(
-            "shrink-0 overflow-hidden transition-[margin,padding,background-color,box-shadow]",
+            "rd-horizon-global-sidebar flex h-full flex-col border-r",
+            "transition-[width,padding]",
             SIDEBAR_EASE,
-            collapsed ? "mb-4 p-0" : "material-card material-glow mb-5 p-4",
+            collapsed ? "w-[76px] items-center" : "w-[300px] min-[1920px]:w-[324px]",
           )}
         >
-          <div className={cn("flex items-center", collapsed ? "justify-center" : "gap-3")}>
+          {/* 品牌区保持单一白色表面，和 Horizon Header 共用色彩令牌。 */}
+          <div
+            className={cn(
+              "rd-horizon-sidebar-brand flex h-[86px] w-full shrink-0 items-center border-b",
+              collapsed ? "justify-center px-2" : "gap-3 px-5",
+            )}
+          >
             <img
-              className={cn("shrink-0 rounded-[4px] transition-[height,width]", SIDEBAR_EASE, collapsed ? "h-11 w-11" : "h-14 w-14")}
+              className={cn(
+                "rd-horizon-sidebar-logo shrink-0 rounded-[4px] object-contain transition-[height,width]",
+                SIDEBAR_EASE,
+                collapsed ? "size-10" : "size-11",
+              )}
               src={logo}
               alt="INOGI AI"
             />
             <div
               className={cn(
-                "min-w-0 overflow-hidden whitespace-nowrap transition-[max-width,opacity]",
+                "min-w-0 overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin]",
                 SIDEBAR_EASE,
                 collapsed ? "max-w-0 opacity-0" : "max-w-[220px] opacity-100",
               )}
             >
-              <div className="text-lg font-bold tracking-tight text-slate-900">INOGI AI</div>
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Office Console</div>
+              <div className="rd-horizon-sidebar-brand-title truncate text-base font-bold">INOGI AI</div>
+              <div className="rd-horizon-sidebar-brand-subtitle mt-0.5 truncate text-[11px] font-medium">Office Console</div>
             </div>
           </div>
 
-          {/* grid-rows 0fr→1fr：不写死高度也能让整块用户卡平滑收进去 */}
-          <div
+          <nav
+            ref={navScrollRef}
+            data-sidebar-scroll-container
+            aria-label={lang === "en" ? "Primary navigation" : "主导航"}
             className={cn(
-              "grid transition-[grid-template-rows,margin-top,opacity]",
+              "rd-horizon-sidebar-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-4",
               SIDEBAR_EASE,
-              collapsed ? "grid-rows-[0fr] opacity-0" : "mt-5 grid-rows-[1fr] opacity-100",
+              // 收起态两侧留等宽滚动条槽，否则滚动条会让图标轨道视觉偏心。
+              collapsed
+                ? "w-full space-y-3 px-2 [scrollbar-gutter:stable_both-edges]"
+                : "w-full space-y-4 px-3",
             )}
           >
-            <div className="overflow-hidden">
-              <div className="rounded-[24px] bg-[linear-gradient(145deg,#eef2ff_0%,#f9fbff_55%,#f3f0ff_100%)] px-4 py-4">
-                <div className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t("当前用户")}</div>
-                <div className="flex items-end justify-between gap-3">
-                  <div className="truncate text-sm font-bold tracking-tight text-slate-900">{user?.name ?? "—"}</div>
-                  <span className="material-chip shrink-0 bg-white/85 text-primary shadow-sm">{user?.roleName ? t(user.roleName) : t("无角色")}</span>
+            {visibleGroups.map((group, groupIndex) => {
+              // 只有一个菜单项的分组不给折叠开关；图标轨道没有分组标题，始终展开。
+              const collapsible = group.items.length > 1;
+              const groupClosed = collapsible && !collapsed && collapsedGroups.has(group.label);
+              return (
+                <div key={group.label}>
+                  {groupIndex > 0 ? (
+                    <div
+                      className={cn(
+                        "rd-horizon-sidebar-separator mx-auto h-px transition-[width,opacity,margin]",
+                        SIDEBAR_EASE,
+                        collapsed ? "mb-3 w-7 opacity-100" : "mb-0 w-0 opacity-0",
+                      )}
+                    />
+                  ) : null}
+
+                  {/* 隐藏组标题时必须同时切断视觉、指针和键盘访问。 */}
+                  <div
+                    aria-hidden={collapsed}
+                    className={cn(
+                      "grid transition-[grid-template-rows,opacity]",
+                      SIDEBAR_EASE,
+                      collapsed ? "pointer-events-none grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
+                    )}
+                  >
+                    <div className="overflow-hidden">
+                      {collapsible ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(group.label)}
+                          tabIndex={collapsed ? -1 : undefined}
+                          aria-expanded={!groupClosed}
+                          title={groupClosed
+                            ? (lang === "en" ? "Expand group" : "展开该分组")
+                            : (lang === "en" ? "Collapse group" : "收起该分组")}
+                          className="rd-horizon-sidebar-group-trigger mb-1.5 flex min-h-7 w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-2 text-[11px] font-semibold"
+                        >
+                          <span className="truncate">{t(group.label)}</span>
+                          <span className="flex shrink-0 items-center gap-1">
+                            <span
+                              className={cn(
+                                "rd-horizon-sidebar-group-count overflow-hidden rounded-full text-[10px] leading-none tabular-nums transition-[max-width,opacity,padding]",
+                                SIDEBAR_EASE,
+                                groupClosed ? "max-w-[2rem] px-1.5 py-0.5 opacity-100" : "max-w-0 px-0 py-0.5 opacity-0",
+                              )}
+                            >
+                              {group.items.length}
+                            </span>
+                            <ChevronDown
+                              className={cn(
+                                "size-3.5 transition-transform",
+                                SIDEBAR_EASE,
+                                groupClosed ? "-rotate-90" : "rotate-0",
+                              )}
+                            />
+                          </span>
+                        </button>
+                      ) : (
+                        <div className="rd-horizon-sidebar-group-label mb-1.5 flex min-h-7 items-center px-2 text-[11px] font-semibold">
+                          {t(group.label)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div
+                    aria-hidden={groupClosed}
+                    className={cn(
+                      "grid transition-[grid-template-rows,opacity]",
+                      SIDEBAR_EASE,
+                      groupClosed ? "pointer-events-none grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
+                    )}
+                  >
+                    <div className="overflow-hidden">
+                      <div className="space-y-1">
+                        {group.items.map((item) => {
+                          // 聚合入口可能落到另一地址，必须继续复用统一激活判定与 aria-current。
+                          const isActive = isNavItemActive(item, pathname);
+                          return (
+                            <Link
+                              key={item.path}
+                              to={item.path}
+                              title={collapsed ? t(item.label) : undefined}
+                              tabIndex={groupClosed ? -1 : undefined}
+                              aria-current={isActive ? "page" : undefined}
+                              data-active={isActive ? "true" : "false"}
+                              className={cn(
+                                "rd-horizon-sidebar-item group flex min-h-11 items-center rounded-xl border text-[13px] font-medium",
+                                collapsed ? "mx-auto size-11 justify-center p-0" : "w-full gap-2.5 px-2.5",
+                              )}
+                            >
+                              <span className="rd-horizon-sidebar-item-icon flex size-9 shrink-0 items-center justify-center rounded-xl">
+                                <item.icon className="size-[18px]" />
+                              </span>
+                              <span
+                                className={cn(
+                                  "min-w-0 truncate whitespace-nowrap transition-[max-width,opacity,margin]",
+                                  SIDEBAR_EASE,
+                                  collapsed ? "max-w-0 opacity-0" : "max-w-[218px] opacity-100",
+                                )}
+                              >
+                                {t(item.label)}
+                              </span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <p className="mt-2 truncate text-xs text-slate-500">{user?.email ?? ""}</p>
+              );
+            })}
+          </nav>
+
+          {/* 用户信息放到侧栏底部，保留原字段但降低其相对导航的视觉权重。 */}
+          <div className="rd-horizon-sidebar-user w-full shrink-0 border-t px-3 py-3">
+            <div
+              className={cn(
+                "flex min-w-0 items-center rounded-xl",
+                collapsed ? "mx-auto size-11 justify-center" : "gap-3 px-2 py-1",
+              )}
+              title={collapsed ? `${t("当前用户")}: ${user?.name ?? "-"}` : undefined}
+            >
+              <span className="rd-horizon-sidebar-user-avatar flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-bold">
+                {userInitial}
+              </span>
+              <div
+                className={cn(
+                  "min-w-0 overflow-hidden transition-[max-width,opacity]",
+                  SIDEBAR_EASE,
+                  collapsed ? "max-w-0 opacity-0" : "max-w-[220px] opacity-100",
+                )}
+              >
+                <div className="rd-horizon-sidebar-user-name truncate text-[13px] font-semibold">{user?.name ?? "-"}</div>
+                <div className="rd-horizon-sidebar-user-role truncate text-[11px]">
+                  {user?.roleName ? t(user.roleName) : t("无角色")}
+                </div>
+                <div className="rd-horizon-sidebar-user-email truncate text-[10px]">{user?.email ?? ""}</div>
               </div>
             </div>
           </div>
-        </div>
-
-        <nav
-          ref={navScrollRef}
-          data-sidebar-scroll-container
-          className={cn(
-            "material-scrollbar flex-1 overflow-y-auto transition-[margin,padding]",
-            SIDEBAR_EASE,
-            // 收起态两侧留等宽滚动条槽：否则滚动条只吃右边 11px，图标会整体偏左看着没对齐
-            collapsed ? "w-full space-y-2 [scrollbar-gutter:stable_both-edges]" : "-mx-1 space-y-4 px-1",
-          )}
-        >
-          {visibleGroups.map((group, groupIndex) => {
-            // 只有一个菜单项的分组（如「总览」）不给折叠开关：收起它省不下高度，只多一个噪点
-            const collapsible = group.items.length > 1;
-            // 图标轨道模式下没有分组标题，也就没法点开点收，一律按展开渲染
-            const groupClosed = collapsible && !collapsed && collapsedGroups.has(group.label);
-            return (
-            <div key={group.label}>
-              {/* 收起态用一条短分隔线代替组标题：线宽从 0 长出来，标题同时收成 0 高 */}
-              {groupIndex > 0 ? (
-                <div
-                  className={cn(
-                    "mx-auto h-px bg-slate-200/80 transition-[width,opacity,margin]",
-                    SIDEBAR_EASE,
-                    collapsed ? "mb-2 w-8 opacity-100" : "mb-0 w-0 opacity-0",
-                  )}
-                />
-              ) : null}
-              {/* 组标题：收起态高度归零并淡出。overflow-hidden 只挡住眼睛——按钮照样能 Tab
-                  聚焦、回车照样切换并写进 localStorage，展开侧栏才发现分组莫名收起了。
-                  所以同时要 aria-hidden / pointer-events-none / tabIndex=-1 三件套。 */}
-              <div
-                aria-hidden={collapsed}
-                className={cn(
-                  "grid transition-[grid-template-rows,opacity]",
-                  SIDEBAR_EASE,
-                  collapsed ? "pointer-events-none grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
-                )}
-              >
-                <div className="overflow-hidden">
-                  {collapsible ? (
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(group.label)}
-                      tabIndex={collapsed ? -1 : undefined}
-                      aria-expanded={!groupClosed}
-                      title={groupClosed
-                        ? (lang === "en" ? "Expand group" : "展开该分组")
-                        : (lang === "en" ? "Collapse group" : "收起该分组")}
-                      className="mb-2 flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 transition-colors duration-200 hover:bg-white/80 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 motion-reduce:transition-none"
-                    >
-                      <span className="truncate">{t(group.label)}</span>
-                      <span className="flex shrink-0 items-center gap-1">
-                        {/* 收起时把条目数摆出来，省得为了看有几项再展开一次 */}
-                        <span
-                          className={cn(
-                            "overflow-hidden rounded-full bg-slate-200/70 text-[10px] leading-none tabular-nums text-slate-500 transition-[max-width,opacity,padding]",
-                            SIDEBAR_EASE,
-                            groupClosed ? "max-w-[2rem] px-1.5 py-0.5 opacity-100" : "max-w-0 px-0 py-0.5 opacity-0",
-                          )}
-                        >
-                          {group.items.length}
-                        </span>
-                        <ChevronDown
-                          className={cn("h-3.5 w-3.5 transition-transform", SIDEBAR_EASE, groupClosed ? "-rotate-90" : "rotate-0")}
-                        />
-                      </span>
-                    </button>
-                  ) : (
-                    <div className="mb-2 px-2 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                      {t(group.label)}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* 分组内容：收起时高度过渡到 0 并淡出；收起后不可点、不可 Tab 进去 */}
-              <div
-                aria-hidden={groupClosed}
-                className={cn(
-                  "grid transition-[grid-template-rows,opacity]",
-                  SIDEBAR_EASE,
-                  groupClosed ? "pointer-events-none grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
-                )}
-              >
-                <div className="overflow-hidden">
-                  <div className="space-y-2">
-                    {group.items.map((item) => {
-                      // 不用 NavLink 的 isActive：聚合入口点进去可能落在别的地址（知识库→
-                      // /rd-knowledge-base），NavLink 只认自己的 to，且它会覆盖外部传入的
-                      // aria-current，补不上。改用 Link + 统一判定，高亮、无障碍、上面那段
-                      // 「滚动到激活项」共用 aria-current 这一个源。
-                      const isActive = isNavItemActive(item, pathname);
-                      return (
-                      <Link
-                        key={item.path}
-                        to={item.path}
-                        title={collapsed ? t(item.label) : undefined}
-                        tabIndex={groupClosed ? -1 : undefined}
-                        aria-current={isActive ? "page" : undefined}
-                        className={cn(
-                          "material-nav-item border transition-[background-color,border-color,box-shadow,padding]",
-                          SIDEBAR_EASE,
-                          collapsed
-                            ? "justify-center border-transparent bg-transparent px-0 py-0.5 shadow-none"
-                            : cn(
-                                "justify-between",
-                                isActive
-                                  ? "border-indigo-100 bg-[linear-gradient(135deg,#eef2ff_0%,#e0e7ff_72%,#f3f0ff_100%)] text-primary shadow-[0_10px_18px_-8px_rgba(79,70,229,0.22)]"
-                                  : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-white/85",
-                              ),
-                        )}
-                      >
-                        <div className="flex min-w-0 items-center">
-                            <div
-                              className={cn(
-                                "flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition-colors duration-200 motion-reduce:transition-none",
-                                isActive
-                                  ? "bg-white text-primary shadow-[0_6px_12px_-4px_rgba(79,70,229,0.16)]"
-                                  : "bg-slate-100/80 text-slate-500",
-                                collapsed && isActive ? "ring-1 ring-indigo-100" : "",
-                                collapsed && !isActive ? "hover:bg-white hover:text-primary" : "",
-                              )}
-                            >
-                              <item.icon className="h-5 w-5" />
-                            </div>
-                            {/* 标签常驻 DOM：收起时宽度收到 0 并淡出，展开时长回来，避免文字硬闪 */}
-                            <span
-                              className={cn(
-                                "overflow-hidden whitespace-nowrap font-medium transition-[max-width,opacity,margin]",
-                                SIDEBAR_EASE,
-                                collapsed ? "ml-0 max-w-0 opacity-0" : "ml-3 max-w-[200px] opacity-100",
-                              )}
-                            >
-                              {t(item.label)}
-                            </span>
-                        </div>
-                      </Link>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-            );
-          })}
-        </nav>
-      </aside>
+        </aside>
       </div>
 
-      {/* 收起/展开切换：悬浮在侧栏右缘、跨边线的圆钮（VS Code / Notion 风）。
-          随宽度过渡平滑滑动到新边线；沉浸态侧栏整体滑出时隐藏。 */}
+      {/* 收起/展开控制钮沿用原有契约：跨在侧栏右缘，并以侧栏全高垂直居中。 */}
       {!immersive && (
         <button
           type="button"
@@ -354,15 +355,15 @@ export function Sidebar() {
           title={collapsed
             ? (lang === "en" ? "Expand sidebar" : "展开侧边栏")
             : (lang === "en" ? "Collapse sidebar" : "收起侧边栏")}
-          className="group absolute -right-3 top-1/2 z-40 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-[0_2px_10px_rgba(15,23,42,0.12)] transition-all duration-200 hover:scale-105 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-600 hover:shadow-[0_4px_14px_rgba(79,70,229,0.28)] active:scale-90"
+          className="rd-horizon-sidebar-toggle group absolute -right-3.5 top-1/2 z-50 flex size-7 -translate-y-1/2 items-center justify-center rounded-full border transition-[color,background-color,border-color,box-shadow,transform] duration-150 active:scale-95"
         >
-          {/* 一个箭头转 180°，比换图标更能让人看出「同一个开关的两个状态」 */}
           <ChevronLeft
             className={cn(
-              "h-4 w-4 transition-transform",
+              "size-4 transition-transform",
               SIDEBAR_EASE,
-              collapsed ? "rotate-180 group-hover:translate-x-0.5" : "group-hover:-translate-x-0.5",
+              collapsed ? "rotate-180" : "rotate-0",
             )}
+            aria-hidden="true"
           />
         </button>
       )}

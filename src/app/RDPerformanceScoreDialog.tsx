@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Award, Loader2, Star, UserCheck, X } from "lucide-react";
+import { Award, Loader2, Star, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
 import {
   PERF_BEHAVIOR_KPIS,
   submitRdSelfAssessment,
@@ -118,44 +126,36 @@ export function RDPerformanceScoreDialog({
         value={scores[r.name] ?? 0}
         onChange={(e) => setScore(r, Number(e.target.value))}
         className={cn(
-          "h-7 w-16 shrink-0 rounded-md border border-slate-200 px-2 text-right text-sm font-bold tabular-nums text-slate-700 outline-none",
-          isSelf ? "focus:border-violet-300 focus:ring-2 focus:ring-violet-100" : "focus:border-amber-300 focus:ring-2 focus:ring-amber-100",
+          "h-7 w-16 shrink-0 rounded-md border border-slate-200 px-2 text-right text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15",
         )}
       />
     </div>
   );
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/50 p-4" onClick={onClose}>
-      <div
-        className="flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      if (!nextOpen && !submitting) onClose();
+    }}>
+      <DialogContent
+        className="horizon-portal flex max-h-[88dvh] flex-col gap-0 overflow-hidden border-slate-200 bg-white p-0 sm:max-w-lg"
+        onEscapeKeyDown={(event) => { if (submitting) event.preventDefault(); }}
+        onInteractOutside={(event) => { if (submitting) event.preventDefault(); }}
       >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
+        <DialogHeader className="border-b border-slate-200 px-5 py-3.5 pr-12 text-left">
           <div className="flex items-center gap-2.5">
             <span
-              className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-sm",
-                isSelf ? "bg-violet-600" : "bg-amber-500",
-              )}
+              className="flex size-9 items-center justify-center rounded-xl bg-[#eef3ff] text-[#002fa7] ring-1 ring-[#dce6ff]"
             >
-              <Icon className="h-4 w-4" />
+              <Icon className="size-4" />
             </span>
             <div>
-              <h3 className="text-sm font-bold text-slate-800">{title}</h3>
-              <p className="text-[11px] text-slate-400">
+              <DialogTitle className="text-balance text-sm font-bold text-[#1b2559]">{title}</DialogTitle>
+              <DialogDescription className="mt-1 text-pretty text-[11px] text-slate-500">
                 {report.user_name} · {report.summary.period_label}
-              </p>
+              </DialogDescription>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {/* 参考：系统评分 + AI 评价（只读） */}
@@ -166,7 +166,7 @@ export function RDPerformanceScoreDialog({
                 {report.summary.score} 分 · {report.summary.grade}
               </span>
             </div>
-            <pre className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap break-words font-sans text-[12px] leading-6 text-slate-600">
+            <pre className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap break-words font-sans text-pretty text-[12px] leading-6 text-slate-600">
               {report.summary.text}
             </pre>
           </div>
@@ -205,19 +205,18 @@ export function RDPerformanceScoreDialog({
               maxLength={2000}
               placeholder={isSelf ? "简述本月亮点、不足与改进计划…" : "对该成员本月表现的总体评价与建议…"}
               className={cn(
-                "mt-1 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none",
-                isSelf ? "focus:border-violet-300 focus:ring-2 focus:ring-violet-100" : "focus:border-amber-300 focus:ring-2 focus:ring-amber-100",
+                "mt-1 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-[#002fa7] focus:ring-2 focus:ring-[#002fa7]/15",
               )}
             />
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
+        <DialogFooter className="border-t border-slate-200 px-5 py-3">
           <button
             type="button"
             onClick={onClose}
             disabled={submitting}
-            className="rounded-lg border border-slate-200 px-3.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+            className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
           >
             取消
           </button>
@@ -225,16 +224,13 @@ export function RDPerformanceScoreDialog({
             type="button"
             onClick={submit}
             disabled={submitting}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition disabled:opacity-60",
-              isSelf ? "bg-violet-600 hover:bg-violet-700" : "bg-amber-500 hover:bg-amber-600",
-            )}
+            className="hz-primary-action inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm disabled:opacity-60"
           >
             {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Award className="h-3.5 w-3.5" />}
             {existing ? "更新评分" : "提交评分"}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

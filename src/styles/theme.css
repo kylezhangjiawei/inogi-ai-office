@@ -861,10 +861,12 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * 全局 Horizon-inspired Header
- * Header 位于页面 Outlet 之外，全站共享同一视觉与交互；页面专属搜索能力仍由组件内路由条件控制。
- * 右侧工具合并为单一控制面板，并按 Header 实际宽度而非视口宽度响应侧栏变化。
+ * 全局 Horizon-inspired Chrome
+ * Header 与 Sidebar 位于页面 Outlet 之外，共用同一套颜色、层级与交互语言。
+ * 页面专属搜索仍由 Header 内路由条件控制，Sidebar 的权限与动态路由继续由组件逻辑负责。
  * ──────────────────────────────────────────────────────────────────────────── */
+.rd-horizon-global-sidebar,
+.rd-horizon-sidebar-toggle,
 .rd-horizon-global-header,
 .rd-horizon-header-menu,
 .rd-horizon-header-notifications--horizon {
@@ -878,6 +880,169 @@
   --rdh-soft-blue: #eef3ff;
   --rdh-line: #e9edf7;
   --rdh-line-strong: #e0e5f2;
+}
+
+.rd-horizon-global-sidebar {
+  --rdh-sidebar-muted: #64748b;
+  border-color: var(--rdh-line) !important;
+  color: var(--rdh-body);
+  background: #ffffff;
+  box-shadow: 8px 0 30px rgba(112, 144, 176, 0.07);
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-brand,
+.rd-horizon-global-sidebar .rd-horizon-sidebar-user {
+  border-color: var(--rdh-line) !important;
+  background: #ffffff;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-logo {
+  box-shadow: none;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-brand-title,
+.rd-horizon-global-sidebar .rd-horizon-sidebar-user-name {
+  color: var(--rdh-ink);
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-brand-subtitle,
+.rd-horizon-global-sidebar .rd-horizon-sidebar-user-role {
+  color: var(--rdh-sidebar-muted);
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-user-email,
+.rd-horizon-global-sidebar .rd-horizon-sidebar-group-label,
+.rd-horizon-global-sidebar .rd-horizon-sidebar-group-trigger {
+  color: var(--rdh-sidebar-muted);
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-scroll {
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #d9dfeb transparent;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #d9dfeb;
+  background-clip: padding-box;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: #bcc7da;
+  background-clip: padding-box;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-separator {
+  background: var(--rdh-line);
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-group-trigger {
+  border: 1px solid transparent;
+  background: transparent;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-group-trigger:hover,
+.rd-horizon-global-sidebar .rd-horizon-sidebar-group-trigger:focus-visible {
+  color: var(--rdh-ink);
+  background: var(--rdh-canvas);
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-group-count {
+  color: var(--rdh-sidebar-muted);
+  background: var(--rdh-canvas);
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-item {
+  position: relative;
+  border-color: transparent;
+  color: var(--rdh-body);
+  background: transparent;
+  box-shadow: none;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-item::after {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 4px;
+  height: 28px;
+  border-radius: 5px;
+  background: transparent;
+  content: "";
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: background-color 160ms ease;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-item:not([data-active="true"]):hover {
+  border-color: transparent;
+  color: var(--rdh-ink);
+  background: var(--rdh-soft-blue);
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-item[data-active="true"] {
+  border-color: transparent;
+  color: var(--rdh-ink);
+  background: transparent;
+  box-shadow: none;
+  font-weight: 700;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-item[data-active="true"]::after {
+  background: var(--rdh-primary);
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-item-icon {
+  color: var(--rdh-muted);
+  background: transparent;
+  transition: color 160ms ease, background-color 160ms ease;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-item:not([data-active="true"]):hover .rd-horizon-sidebar-item-icon {
+  color: var(--rdh-primary);
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-item[data-active="true"] .rd-horizon-sidebar-item-icon {
+  color: var(--rdh-primary);
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-user-avatar {
+  color: var(--rdh-primary);
+  background: var(--rdh-soft-blue);
+  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.06);
+}
+
+.rd-horizon-global-sidebar :where(a, button):focus-visible,
+.rd-horizon-sidebar-toggle:focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-sidebar-toggle {
+  border-color: var(--rdh-line-strong);
+  color: var(--rdh-muted);
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(112, 144, 176, 0.16);
+}
+
+.rd-horizon-sidebar-toggle:hover {
+  border-color: rgba(0, 47, 167, 0.16);
+  color: var(--rdh-primary);
+  background: var(--rdh-soft-blue);
+  box-shadow: 0 6px 16px rgba(112, 144, 176, 0.2);
 }
 
 .rd-horizon-global-header {
@@ -1306,6 +1471,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .rd-horizon-global-sidebar *,
+  .rd-horizon-global-sidebar *::before,
+  .rd-horizon-global-sidebar *::after,
+  .rd-horizon-sidebar-toggle,
   .rd-horizon-global-header *,
   .rd-horizon-global-header *::before,
   .rd-horizon-global-header *::after,
@@ -2767,7 +2936,7 @@
   gap: 0.5rem;
 }
 
-.rd-horizon-task-detail .rd-horizon-detail-toolbar h1 {
+.rd-horizon-task-detail .rd-horizon-detail-toolbar h2 {
   color: var(--rd-ink) !important;
   font-size: clamp(1.5rem, 2.2cqw, 1.875rem) !important;
   line-height: 1.2 !important;
@@ -5836,11 +6005,11 @@ html.mobile-route select {
   max-width: 95rem !important;
   min-height: min(26rem, 50vh);
   margin-inline: auto;
-  border: 1px solid transparent !important;
-  border-radius: 20px !important;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 14px !important;
   color: var(--rd-muted) !important;
   background: #ffffff !important;
-  box-shadow: var(--rd-shadow-card);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .rd-horizon-ai-settings > * + * {
@@ -5853,14 +6022,14 @@ html.mobile-route select {
 .rd-horizon-ai-settings .rd-ai-ocr-panel,
 .rd-horizon-ai-settings .rd-ai-file-policy,
 .rd-horizon-ai-settings .rd-ai-disclosure {
-  border: 1px solid transparent !important;
-  border-radius: 20px !important;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 14px !important;
   background: #ffffff !important;
-  box-shadow: var(--rd-shadow-card) !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
 }
 
 .rd-horizon-ai-settings .rd-ai-command {
-  box-shadow: var(--rd-shadow-focal) !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
 }
 
 .rd-horizon-ai-settings .rd-ai-command-body {
@@ -5941,7 +6110,7 @@ html.mobile-route select {
   border-color: var(--rd-primary) !important;
   color: #ffffff !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 10px 22px -14px rgba(0, 47, 167, 0.72) !important;
+  box-shadow: none !important;
 }
 
 .rd-horizon-ai-settings .rd-ai-save:not(:disabled):hover {
@@ -5967,7 +6136,6 @@ html.mobile-route select {
   color: var(--rd-muted) !important;
   font-size: 0.6875rem !important;
   font-weight: 700 !important;
-  letter-spacing: 0.055em !important;
 }
 
 .rd-horizon-ai-settings .rd-ai-kpi > div:last-child {
@@ -6021,7 +6189,7 @@ html.mobile-route select {
   display: none !important;
 }
 
-.rd-horizon-ai-settings :where(h3) {
+.rd-horizon-ai-settings :where(h2, h3) {
   color: var(--rd-ink) !important;
   font-weight: 700 !important;
 }

@@ -30,23 +30,31 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  Table as MuiTable,
-  TableBody as MuiTableBody,
-  TableCell as MuiTableCell,
-  TableContainer as MuiTableContainer,
-  TableHead as MuiTableHead,
-  TablePagination as MuiTablePagination,
-  TableRow as MuiTableRow,
-} from "@mui/material";
 
 import { MaterialInput, MaterialSelect, MaterialTextarea } from "./components/MaterialFields";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
+import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "./components/ui/dialog";
@@ -61,6 +69,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "./components/ui/tooltip";
+import { Label } from "./components/ui/label";
 import { cn } from "./components/ui/utils";
 import { ImageWithFallback } from "./components/figma/ImageWithFallback";
 import { formatAiModelConfigLabel, getAiModelUsage } from "./lib/aiModelOptions";
@@ -191,32 +200,6 @@ const candidateScreeningPatchLabels: Record<string, string> = {
   next_step: "下一步",
 };
 
-const muiTableHeaderCellSx = {
-  height: 48,
-  px: 2,
-  py: 0,
-  background: "linear-gradient(180deg, rgba(239,246,255,0.98) 0%, rgba(219,234,254,0.96) 100%)",
-  borderBottom: "1px solid rgba(147, 197, 253, 0.64)",
-  color: "#1e3a8a",
-  fontFamily: "inherit",
-  fontSize: 12,
-  fontWeight: 700,
-  lineHeight: 1.4,
-  whiteSpace: "nowrap",
-  boxShadow: "inset 0 -1px 0 rgba(255,255,255,0.72)",
-};
-
-const muiTableBodyCellSx = {
-  height: 62,
-  px: 2,
-  py: 1.25,
-  borderBottom: "1px solid rgba(203, 213, 225, 0.68)",
-  color: "var(--on-surface)",
-  fontFamily: "inherit",
-  fontSize: 14,
-  whiteSpace: "nowrap",
-};
-
 const defaultCandidatePagination: PaginationMeta = {
   page: 1,
   page_size: 10,
@@ -248,7 +231,7 @@ function isSyncMailLoading(status?: string | null) {
 function getSyncMailStatusMeta(status?: string | null) {
   if (isSyncMailLoading(status)) {
     return {
-      className: "border-indigo-200 bg-indigo-50 text-indigo-700",
+      className: "border-blue-200 bg-blue-50 text-blue-700",
       icon: <Loader2 className="h-3.5 w-3.5 animate-spin" />,
     };
   }
@@ -617,15 +600,6 @@ function TooltipIconButton({
     >
       {children}
     </button>
-  );
-}
-
-function StatPill({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="material-neu-stat rounded-[var(--m3-shape-large)] px-3 py-2.5">
-      <div className="text-xs font-semibold text-slate-500">{label}</div>
-      <div className="mt-1 text-xl font-semibold leading-none tracking-tight text-slate-950">{value}</div>
-    </div>
   );
 }
 
@@ -2150,46 +2124,50 @@ export function ResumeScreeningPage() {
     : null;
   const candidateAiMessages = candidateAiTarget ? candidateAiMessagesById[candidateAiTarget.id] ?? [] : [];
   const candidateAiLoading = Boolean(candidateAiTarget && candidateAiLoadingId === candidateAiTarget.id);
+  const candidatePageFrom = candidatePagination.total > 0 ? candidatePage * candidateRowsPerPage + 1 : 0;
+  const candidatePageTo = Math.min((candidatePage + 1) * candidateRowsPerPage, candidatePagination.total);
 
   return (
-    <div className="resume-screening-surface mx-auto flex max-w-[1720px] flex-col gap-5 px-3 py-4 sm:px-5 sm:py-6" style={{background: 'transparent'}}>
-      <section className="resume-screening-hero material-panel material-neu-panel rounded-[var(--m3-shape-extra-large)] px-4 py-3 sm:px-5">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="resume-screening-hero-copy flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
-            <div className="flex shrink-0 flex-wrap items-center gap-3">
-              <div className="material-neu-chip inline-flex items-center gap-2 rounded-[4px] px-3 py-1 text-xs font-semibold text-indigo-800">
-                <Mail className="h-3.5 w-3.5" />
-                企业邮箱简历初筛
-              </div>
-            </div>
-            <h1 className="text-xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-2xl">
-              简历筛选工作台
-            </h1>
-            <div className="flex min-w-0 flex-wrap gap-2 text-xs font-medium text-slate-600">
-              <span className="material-neu-chip rounded-[4px] px-3 py-1.5">
-                数据源：{health?.mail_configured ? "企业邮箱已连接" : "等待邮箱配置"}
-              </span>
-              <span className="material-neu-chip rounded-[4px] px-3 py-1.5">
-                AI：{health?.openai_configured ? `${connectedAiLabel} 已连接` : "等待 AI 配置"}
-              </span>
-              <span className="material-neu-chip rounded-[4px] px-3 py-1.5">
-                数据库：{health?.ok ? "正常" : "待检查"}
-              </span>
-            </div>
-          </div>
+    <div className="horizon-theme hz-page resume-screening-surface mx-auto flex max-w-[1720px] flex-col gap-3 overflow-x-hidden px-5 py-4">
+      <HorizonPageHeader
+        Icon={Briefcase}
+        eyebrow="人事招聘 · AI 初筛"
+        title="简历筛选工作台"
+        description="汇总企业邮箱与本地上传简历，通过岗位规则和 AI 评分完成筛选、复核与候选人跟进。"
+        meta={(
+          <>
+            <span>邮箱 {health?.mail_configured ? "已连接" : "待配置"}</span>
+            <span>·</span>
+            <span>AI {health?.openai_configured ? `${connectedAiLabel} 已连接` : "待配置"}</span>
+            <span>·</span>
+            <span>数据库 {health?.ok ? "正常" : "待检查"}</span>
+          </>
+        )}
+        actions={(
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowJobRuleManager(true)}>
+              <Database className="size-4" />
+              管理岗位规则
+            </Button>
+            <Button type="button" className="hz-primary-action" onClick={() => setShowSyncSettings(true)}>
+              <Clock3 className="size-4" />
+              同步与上传
+            </Button>
+          </>
+        )}
+      />
 
-          <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[440px]">
-            <StatPill label="候选人" value={stats.total} />
-            <StatPill label="推荐" value={stats.recommend} />
-            <StatPill label="待定" value={stats.hold} />
-            <StatPill label="平均分" value={stats.average} />
-          </div>
-        </div>
-      </section>
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={UserRoundSearch} label="候选人" value={stats.total} note="当前筛选结果" tone="brand" />
+        <HorizonMetric Icon={Award} label="推荐" value={stats.recommend} note="建议进入下一步" tone="success" />
+        <HorizonMetric Icon={Clock3} label="待定" value={stats.hold} note="仍需人工核实" tone="warning" />
+        <HorizonMetric Icon={Target} label="平均分" value={stats.average} note="AI 初筛平均得分" tone="neutral" />
+      </HorizonMetricGrid>
 
       <input
         ref={uploadFolderInputRef}
         type="file"
+        aria-label="上传简历文件夹"
         multiple
         accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         className="hidden"
@@ -2198,13 +2176,21 @@ export function ResumeScreeningPage() {
       <input
         ref={uploadFilesInputRef}
         type="file"
+        aria-label="上传简历文件"
         multiple
         accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         className="hidden"
         onChange={(event) => void handleUploadResumes(event)}
       />
 
-      <section className="material-panel material-neu-panel-soft rounded-[var(--m3-shape-extra-large)] px-4 py-4 sm:px-5">
+      <section className="hz-surface overflow-hidden border bg-white">
+        <HorizonSectionHeader
+          Icon={Sparkles}
+          title="筛选与导入控制"
+          description="选择岗位、企业邮箱和 AI 模型，执行同步或上传简历。"
+          trailing={hasPendingBackgroundAnalysis ? <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 tabular-nums">处理中 {pendingBackgroundCount}</span> : null}
+        />
+        <div className="p-4 sm:px-5">
         <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.6fr)] xl:items-end">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
             <MaterialSelect
@@ -2330,27 +2316,28 @@ export function ResumeScreeningPage() {
           ) : null}
         </div>
         {hasPendingBackgroundAnalysis ? (
-          <div className="mt-3 flex items-start gap-3 rounded-[var(--m3-shape-medium)] border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-indigo-700">
+          <div className="mt-3 flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-blue-700">
             <Loader2 className="mt-0.5 h-4 w-4 flex-shrink-0 animate-spin" />
             <div className="min-w-0 leading-5">
               <p className="text-sm font-semibold">
                 正在后台筛选 {pendingBackgroundCount || lastUploadResult?.queued_for_ai || ""} 份简历…
               </p>
-              <p className="mt-0.5 text-xs text-indigo-600/80">
+              <p className="mt-0.5 text-pretty text-xs text-blue-600/80">
                 AI 正在逐条读取并打分，完成后会自动出现在下方候选人列表，无需刷新页面或重复上传。
               </p>
             </div>
           </div>
         ) : null}
+        </div>
       </section>
 
       <Dialog open={showJobRuleManager} onOpenChange={setShowJobRuleManager}>
-        <DialogContent className="resume-screening-surface material-neu-panel max-h-[90vh] w-[calc(100vw-32px)] sm:max-w-[1180px] overflow-y-auto rounded-[var(--m3-shape-extra-large)] p-6">
+        <DialogContent className="horizon-portal resume-screening-surface max-h-[90vh] w-[calc(100vw-32px)] overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 sm:max-w-[1180px]">
           <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">岗位规则</h2>
-              <p className="mt-2 text-base text-slate-400">在左侧选择规则，也可编辑当前岗位 JD 和启用状态。</p>
-            </div>
+            <DialogHeader className="space-y-0 text-left">
+              <DialogTitle className="text-balance text-2xl font-semibold text-slate-900">岗位规则</DialogTitle>
+              <DialogDescription className="mt-2 text-pretty text-base text-slate-500">在左侧选择规则，也可编辑当前岗位 JD 和启用状态。</DialogDescription>
+            </DialogHeader>
             <div className="material-neu-chip rounded-[4px] px-4 py-2 text-sm text-slate-500">
               共 {jobRules.length} 条规则
             </div>
@@ -2390,8 +2377,8 @@ export function ResumeScreeningPage() {
                         className={cn(
                           "w-full cursor-pointer rounded-lg px-4 py-4 text-left transition",
                           active
-                            ? "material-neu-inset text-indigo-900"
-                            : "material-neu-button hover:text-indigo-700",
+                            ? "border border-blue-200 bg-[#eef3ff] text-blue-950"
+                            : "border border-transparent bg-white hover:border-blue-100 hover:bg-blue-50 hover:text-blue-800",
                         )}
                       >
                         <OverflowTooltipText text={jobRule.name} className="text-base font-semibold leading-6 text-slate-900" />
@@ -2494,14 +2481,14 @@ export function ResumeScreeningPage() {
       </Dialog>
 
       <Dialog open={showSyncSettings} onOpenChange={setShowSyncSettings}>
-        <DialogContent className="resume-screening-surface material-neu-panel max-h-[90vh] w-[calc(100vw-32px)] sm:max-w-[1180px] overflow-y-auto rounded-[var(--m3-shape-extra-large)] p-6">
+        <DialogContent className="horizon-portal resume-screening-surface max-h-[90vh] w-[calc(100vw-32px)] overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 sm:max-w-[1180px]">
           <div className="flex flex-col gap-4 pr-0 sm:pr-32">
-            <div className="max-w-[560px]">
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">同步控制</h2>
-              <p className="mt-2 text-base leading-7 text-slate-400">
+            <DialogHeader className="max-w-[560px] space-y-0 text-left">
+              <DialogTitle className="text-balance text-2xl font-semibold text-slate-900">同步控制</DialogTitle>
+              <DialogDescription className="mt-2 text-pretty text-base leading-7 text-slate-500">
                 检查环境、手动同步，也可配置每天定时轮询自动抓取简历邮件。
-              </p>
-            </div>
+              </DialogDescription>
+            </DialogHeader>
             <button
               type="button"
               onClick={() => void Promise.all([loadHealth(), loadMailConfigs(), loadOpenAiConfigs(), loadSchedule(), loadCandidates()])}
@@ -2633,7 +2620,7 @@ export function ResumeScreeningPage() {
                   <div className="text-base font-semibold text-slate-900">邮件同步结果</div>
                   <div className="mt-1 text-sm text-slate-500">{lastSyncResult.message}</div>
                   {hasPendingSyncMail ? (
-                    <div className="mt-2 inline-flex items-center gap-2 rounded-[4px] border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+                    <div className="mt-2 inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       已入队 {lastSyncResult.queued_for_ai} 封，后台正在逐条筛选，候选人列表会自动刷新。
                     </div>
@@ -2711,7 +2698,7 @@ export function ResumeScreeningPage() {
                   <div className="text-base font-semibold text-slate-900">简历上传结果</div>
                   <div className="mt-1 text-sm text-slate-500">{lastUploadResult.message}</div>
                   {hasPendingUploadFile ? (
-                    <div className="mt-2 inline-flex items-center gap-2 rounded-[4px] border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+                    <div className="mt-2 inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       已入队 {lastUploadResult.queued_for_ai ?? 0} 份，后台正在逐条筛选，候选人列表会自动刷新。
                     </div>
@@ -2790,17 +2777,17 @@ export function ResumeScreeningPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="grid gap-5">
-        <section className="material-panel material-neu-panel flex flex-col overflow-hidden !px-0 !py-6">
-          <div className="flex flex-wrap items-start justify-between gap-4 px-5">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-950">候选人列表</h2>
-              <p className="mt-2 text-base text-slate-500">按筛选结论、岗位和分数查看候选人摘要。</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
+      <section className="hz-surface flex min-w-0 flex-col overflow-hidden border bg-white">
+          <HorizonSectionHeader
+            Icon={UserRoundSearch}
+            title="候选人清单"
+            description="按结论、岗位与分数收拢候选人，进入详情后完成 AI 评估复核。"
+            trailing={(
+              <div className="flex flex-wrap items-center justify-end gap-2">
               {checkedCandidateIds.size > 0 && canDeleteCandidate ? (
-                <button
+                <Button
                   type="button"
+                  variant="outline"
                   disabled={batchDeletingCandidates}
                   onClick={() =>
                     setDeleteConfirm({
@@ -2811,39 +2798,40 @@ export function ResumeScreeningPage() {
                       confirmLabel: "批量删除",
                     })
                   }
-                  className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[4px] border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
                 >
                   {batchDeletingCandidates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                  删除已选（{checkedCandidateIds.size}）
-                </button>
+                  删除已选（<span className="tabular-nums">{checkedCandidateIds.size}</span>）
+                </Button>
               ) : null}
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => void handleExportCandidates()}
                 disabled={exportingCandidates || loadingCandidates || !candidatePagination.total}
-                className="material-neu-button inline-flex h-10 cursor-pointer items-center gap-2 rounded-[4px] px-4 text-sm font-medium text-slate-700 transition disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {exportingCandidates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 导出
-              </button>
+              </Button>
               {hasActiveCandidateFilters ? (
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
                   onClick={handleResetCandidateFilters}
-                  className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-[4px] border border-slate-200 bg-white px-3 text-sm font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
                 >
                   <X className="h-4 w-4" />
                   清除筛选
-                </button>
+                </Button>
               ) : null}
-              <div className="material-neu-chip inline-flex items-center gap-2 rounded-[4px] px-4 py-2 text-sm font-medium text-slate-700">
+              <div className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700">
                 <Search className="h-4 w-4" />
-                {hasActiveCandidateFilters ? `已筛选 ${candidatePagination.total} 人` : `共 ${candidatePagination.total} 人`}
+                <span className="tabular-nums">{hasActiveCandidateFilters ? `已筛选 ${candidatePagination.total} 人` : `共 ${candidatePagination.total} 人`}</span>
               </div>
-            </div>
-          </div>
+              </div>
+            )}
+          />
 
-          <div className="mt-6 grid gap-3 px-5 md:grid-cols-3">
+          <div className="grid gap-3 border-b border-slate-200 bg-slate-50/80 px-4 py-4 md:grid-cols-3 sm:px-5">
             <MaterialInput
               label="关键词搜索"
               value={candidateKeyword}
@@ -2868,18 +2856,18 @@ export function ResumeScreeningPage() {
               className="h-13"
             />
           </div>
-          <div className="mt-3 px-5">
+          <div className="border-b border-slate-200 bg-slate-50/80 px-4 pb-4 sm:px-5">
             <button
               type="button"
               onClick={() => setShowMoreFilters((current) => !current)}
-              className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-indigo-600 transition hover:text-indigo-700"
+              className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[#002fa7] transition hover:text-blue-800"
             >
               {showMoreFilters ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               更多筛选{advancedFilterCount ? `（已设 ${advancedFilterCount} 项）` : ""}
             </button>
           </div>
           {showMoreFilters ? (
-            <div className="mt-3 grid gap-3 px-5 md:grid-cols-3">
+            <div className="grid gap-3 border-b border-slate-200 bg-slate-50/80 px-4 pb-4 md:grid-cols-3 sm:px-5">
               <MaterialInput
                 label="最低分"
                 type="number"
@@ -2912,11 +2900,11 @@ export function ResumeScreeningPage() {
             </div>
           ) : null}
 
-          <div className="material-neu-card mx-5 mt-6 rounded-[var(--m3-shape-large)] border-l-4 border-l-indigo-700 p-4">
+          <div className="mx-4 mt-4 border-l-4 border-l-[#002fa7] bg-[#f7f9ff] p-4 sm:mx-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-                  <Sparkles className="h-4 w-4 text-indigo-700" />
+                  <Sparkles className="h-4 w-4 text-[#002fa7]" />
                   AI 迭代筛选
                 </div>
                 <div className="mt-1 text-xs leading-5 text-slate-600">
@@ -2949,284 +2937,260 @@ export function ResumeScreeningPage() {
             </div>
 
             {selectedFilterSession ? (
-              <div className="material-neu-inset mt-3 rounded-[var(--m3-shape-medium)] px-3 py-2 text-xs leading-5 text-indigo-900">
+              <div className="mt-3 rounded-lg border border-blue-100 bg-white px-3 py-2 text-pretty text-xs leading-5 text-blue-950">
                 {selectedFilterSession.filter_summary || selectedFilterSession.instruction}
               </div>
             ) : null}
           </div>
 
-          <div className="material-data-table mx-3 mt-6 flex min-h-0 flex-auto flex-col overflow-hidden rounded-[var(--m3-shape-large)] sm:mx-5">
-            <MuiTableContainer
-              className="material-scrollbar"
-              sx={{
-                flex: "1 1 auto",
-                overflow: "auto",
-                scrollbarGutter: "auto",
-              }}
-            >
-              {loadingCandidates ? (
-                <div className="flex h-full flex-col items-center justify-center px-4 py-12 text-center text-sm text-slate-400">
+          <div className="mx-4 mb-5 mt-4 flex min-h-0 flex-auto flex-col overflow-hidden rounded-xl border border-slate-200 bg-white sm:mx-5">
+            {loadingCandidates ? (
+              <div className="flex min-h-56 flex-col items-center justify-center px-4 py-12 text-center text-sm text-slate-500" role="status">
+                <Loader2 className="mb-2 h-4 w-4 animate-spin" />
+                正在加载候选人...
+              </div>
+            ) : filteredCandidates.length === 0 ? (
+              hasPendingBackgroundAnalysis ? (
+                <div className="flex min-h-56 flex-col items-center justify-center px-4 py-12 text-center text-sm text-blue-700" role="status">
                   <Loader2 className="mb-2 h-4 w-4 animate-spin" />
-                  正在加载候选人...
+                  <p className="max-w-xl text-pretty">
+                    正在后台筛选 <span className="tabular-nums">{pendingBackgroundCount || lastUploadResult?.queued_for_ai || ""}</span> 份简历，完成后会自动出现在此处，无需刷新。
+                  </p>
                 </div>
-              ) : filteredCandidates.length === 0 ? (
-                hasPendingBackgroundAnalysis ? (
-                  <div className="flex h-full flex-col items-center justify-center px-4 py-12 text-center text-sm text-indigo-600">
-                    <Loader2 className="mb-2 h-4 w-4 animate-spin" />
-                    正在后台筛选 {pendingBackgroundCount || lastUploadResult?.queued_for_ai || ""} 份简历，完成后会自动出现在此处，无需刷新…
-                  </div>
-                ) : (
-                  <div className="flex h-full items-center justify-center px-4 py-12 text-center text-sm text-slate-400">
-                    暂无候选人
-                  </div>
-                )
               ) : (
-                <MuiTable
-                  stickyHeader
-                  sx={{
-                    minWidth: canDeleteCandidate ? 1248 : 1110,
-                    tableLayout: "fixed",
-                    "& .MuiTableCell-root": {
-                      boxSizing: "border-box",
-                    },
-                  }}
-                >
-                <MuiTableHead>
-                  <MuiTableRow>
-                    {canDeleteCandidate ? (
-                      <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 48, pl: 2, pr: 0 }}>
-                        <Checkbox
-                          checked={allCurrentPageChecked ? true : someCurrentPageChecked ? "indeterminate" : false}
-                          onCheckedChange={(checked) => toggleAllCurrentPageChecked(checked === true)}
-                          aria-label="全选当前页候选人"
-                          className="bg-white"
-                        />
-                      </MuiTableCell>
-                    ) : null}
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 150, pl: canDeleteCandidate ? 1 : 2.5 }}>候选人</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 190 }}>岗位</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 76 }}>分数</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 88 }}>结论</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 178 }}>基本信息</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 104 }}>状态</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 124 }}>收件时间</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: canDeleteCandidate ? 280 : 210, pr: 2.5 }}>操作</MuiTableCell>
-                  </MuiTableRow>
-                </MuiTableHead>
-                <MuiTableBody>
-                  {filteredCandidates.map((candidate) => {
-                    const candidateTitle = buildCandidateCardTitle(candidate);
-                    const jobLabels = buildCandidateJobLabels(candidate).join(" / ");
-                    const screeningStatus = candidate.screening_status ?? candidate.active_screening_status;
-                    const mappedStatus = mapScreeningStatusToMailStatus(screeningStatus, candidate.screening_error_message);
-                    const age = parseAgeFromBirthOrAge(candidate.birth_or_age);
-                    const selected = selectedCandidateId === candidate.id;
-                    const received = formatDateParts(candidate.received_at);
-                    const basicFacts = joinCandidateFacts([
-                      candidate.city,
-                      age != null ? `${age} 岁` : candidate.birth_or_age,
-                      candidate.education,
-                    ]);
-
-                    return (
-                      <MuiTableRow
-                        key={candidate.id}
-                        className="transition-colors"
-                        sx={{
-                          background: selected
-                            ? "linear-gradient(145deg, rgba(216,234,253,0.92), rgba(246,250,255,0.96))"
-                            : "rgba(255,255,255,0.72)",
-                          outline: "none",
-                          transition: "background 180ms ease, box-shadow 180ms ease",
-                          boxShadow: selected
-                            ? "inset 3px 0 0 #4f46e5, inset 4px 4px 10px rgba(79,70,229,0.1), inset -4px -4px 10px rgba(255,255,255,0.82)"
-                            : "none",
-                          "&:hover": {
-                            background: selected
-                              ? "linear-gradient(145deg, rgba(224,231,255,0.96), rgba(255,255,255,0.98))"
-                              : "linear-gradient(145deg, rgba(255,255,255,0.9), rgba(244,248,253,0.86))",
-                            boxShadow: selected
-                              ? "inset 3px 0 0 #4f46e5, inset 4px 4px 10px rgba(79,70,229,0.1), inset -4px -4px 10px rgba(255,255,255,0.82)"
-                              : "inset 0 0 0 1px rgba(255,255,255,0.78)",
-                          },
-                          "&:focus-visible": {
-                            boxShadow: selected
-                              ? "inset 3px 0 0 #4f46e5, 0 0 0 3px rgba(79,70,229,0.2)"
-                              : "0 0 0 3px rgba(79,70,229,0.2)",
-                          },
-                          "&:last-of-type .MuiTableCell-root": {
-                            borderBottom: 0,
-                          },
-                        }}
-                      >
-                        {canDeleteCandidate ? (
-                          <MuiTableCell
-                            sx={{ ...muiTableBodyCellSx, pl: 2, pr: 0 }}
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <Checkbox
-                              checked={checkedCandidateIds.has(candidate.id)}
-                              onCheckedChange={(checked) => toggleCandidateChecked(candidate.id, checked === true)}
-                              aria-label={`选择 ${candidate.name || "候选人"}`}
-                              className="bg-white"
-                            />
-                          </MuiTableCell>
-                        ) : null}
-                        <MuiTableCell sx={{ ...muiTableBodyCellSx, pl: canDeleteCandidate ? 1 : 2.5 }}>
-                          <div className="flex items-center gap-3">
-                            <div className="material-table-avatar flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[4px] text-sm font-semibold">
-                              {candidate.avatar_url ? (
-                                <ImageWithFallback
-                                  src={candidate.avatar_url}
-                                  alt={candidate.name || "候选人头像"}
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                (candidate.name || "?").slice(0, 1)
-                              )}
-                            </div>
-                            <div className="min-w-0">
-                              <OverflowTooltipText text={candidateTitle} maxChars={16} className="font-semibold text-slate-900" />
-                            </div>
-                          </div>
-                        </MuiTableCell>
-                        <MuiTableCell sx={muiTableBodyCellSx}>
-                          <OverflowTooltipText text={jobLabels} maxChars={18} className="max-w-[180px] text-slate-600" />
-                        </MuiTableCell>
-                        <MuiTableCell sx={muiTableBodyCellSx}>
-                          <span
-                            className={cn(
-                              "inline-flex min-w-[48px] items-center justify-center rounded-[4px] px-3 py-1 text-xs font-semibold",
-                              scoreTone(candidate.score),
-                            )}
-                          >
-                            {typeof candidate.score === "number" ? candidate.score : "-"}
-                          </span>
-                        </MuiTableCell>
-                        <MuiTableCell sx={muiTableBodyCellSx}>
-                          {candidate.decision ? (
-                            <span className={cn("inline-flex min-w-[56px] justify-center rounded-[4px] px-3 py-1 text-xs font-semibold whitespace-nowrap", decisionMeta[candidate.decision].classes)}>
-                              {decisionMeta[candidate.decision].label}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-400">-</span>
-                          )}
-                        </MuiTableCell>
-                        <MuiTableCell sx={{ ...muiTableBodyCellSx, color: "#475569" }}>
-                          <OverflowTooltipText text={basicFacts} maxChars={16} className="max-w-[170px] text-slate-600" />
-                        </MuiTableCell>
-                        <MuiTableCell sx={muiTableBodyCellSx}>
-                          <span className="inline-flex min-w-[64px] justify-center rounded-[4px] bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 whitespace-nowrap">
-                            {mappedStatus?.status || "待处理"}
-                          </span>
-                        </MuiTableCell>
-                        <MuiTableCell sx={{ ...muiTableBodyCellSx, color: "#94a3b8", fontSize: 12, lineHeight: 1.4 }}>
-                          <div>{received.date}</div>
-                          {received.time ? <div className="text-[11px] text-slate-400">{received.time}</div> : null}
-                        </MuiTableCell>
-                        <MuiTableCell sx={{ ...muiTableBodyCellSx, pr: 2.5 }}>
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openCandidateDetail(candidate.id);
-                              }}
-                              className="material-table-button inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[4px] px-3 text-xs font-semibold transition"
-                            >
-                              <UserRoundSearch className="h-3.5 w-3.5" />
-                              详情
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setSelectedCandidateId(candidate.id);
-                                setCandidateAiDialogId(candidate.id);
-                                setCandidateAiQuestion("");
-                              }}
-                              className="material-table-button inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[4px] px-3 text-xs font-semibold transition"
-                            >
-                              <MessageSquarePlus className="h-3.5 w-3.5" />
-                              AI 讨论
-                            </button>
-                            {canDeleteCandidate ? (
-                              <button
-                                type="button"
-                                disabled={deletingCandidateId === candidate.id}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setDeleteConfirm({
-                                    kind: "candidate",
-                                    id: candidate.id,
-                                    title: "删除该候选人？",
-                                    description: `将永久删除「${candidate.name || "未命名候选人"}」及其全部筛选记录与打点数据，该操作不可撤销。`,
-                                    confirmLabel: "删除候选人",
-                                  });
-                                }}
-                                className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[4px] px-3 text-xs font-semibold text-rose-600 ring-1 ring-inset ring-rose-200 transition hover:bg-rose-50 disabled:opacity-60"
-                              >
-                                {deletingCandidateId === candidate.id ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                )}
-                                删除
-                              </button>
-                            ) : null}
-                          </div>
-                        </MuiTableCell>
-                      </MuiTableRow>
-                    );
-                  })}
-                </MuiTableBody>
-                </MuiTable>
-              )}
-            </MuiTableContainer>
-            {candidatePagination.total > 0 ? (
-              <div className="flex justify-end overflow-x-auto border-t border-white/70 bg-white/58 px-3">
-                <MuiTablePagination
-                  component="div"
-                  count={candidatePagination.total}
-                  page={candidatePage}
-                  rowsPerPage={candidateRowsPerPage}
-                  rowsPerPageOptions={[10, 20, 50, 100]}
-                  onPageChange={(_, nextPage) => setCandidatePage(nextPage)}
-                  onRowsPerPageChange={(event) => {
-                    setCandidateRowsPerPage(Number(event.target.value));
-                    setCandidatePage(0);
-                  }}
-                  labelRowsPerPage="每页"
-                  labelDisplayedRows={({ from, to, count }) => `${from}-${to} / 共 ${count} 人`}
-                  sx={{
-                    border: 0,
-                    color: "var(--on-surface-variant)",
-                    fontFamily: "inherit",
-                    "& .MuiTablePagination-toolbar": {
-                      minHeight: 52,
-                      px: 0,
-                      flexWrap: "wrap",
-                      justifyContent: "flex-end",
-                      rowGap: 1,
-                    },
-                    "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows": {
-                      m: 0,
-                      fontFamily: "inherit",
-                      fontSize: 13,
-                    },
-                    "& .MuiTablePagination-select": {
-                      fontFamily: "inherit",
-                    },
-                    "& .MuiIconButton-root": {
-                      color: "var(--on-surface-variant)",
-                    },
-                  }}
+                <HorizonEmptyState
+                  Icon={UserRoundSearch}
+                  title={hasActiveCandidateFilters ? "没有符合当前条件的候选人" : "还没有候选人"}
+                  description={hasActiveCandidateFilters ? "调整筛选条件，或清除筛选查看全部候选人。" : "上传简历文件后，系统会自动解析并加入候选人清单。"}
+                  action={(
+                    <Button
+                      type="button"
+                      variant={hasActiveCandidateFilters ? "outline" : "default"}
+                      className={hasActiveCandidateFilters ? undefined : "hz-primary-action"}
+                      onClick={hasActiveCandidateFilters ? handleResetCandidateFilters : () => uploadFilesInputRef.current?.click()}
+                    >
+                      {hasActiveCandidateFilters ? <X className="size-4" /> : <FileUp className="size-4" />}
+                      {hasActiveCandidateFilters ? "清除筛选" : "上传简历"}
+                    </Button>
+                  )}
                 />
+              )
+            ) : (
+              <div className="material-scrollbar overflow-x-auto">
+                <table className={cn("w-full table-fixed text-left text-sm", canDeleteCandidate ? "min-w-[1248px]" : "min-w-[1110px]")}>
+                  <caption className="sr-only">候选人筛选结果及评估操作</caption>
+                  <colgroup>
+                    {canDeleteCandidate ? <col className="w-12" /> : null}
+                    <col className="w-[150px]" />
+                    <col className="w-[190px]" />
+                    <col className="w-[76px]" />
+                    <col className="w-[88px]" />
+                    <col className="w-[178px]" />
+                    <col className="w-[104px]" />
+                    <col className="w-[124px]" />
+                    <col className={canDeleteCandidate ? "w-[280px]" : "w-[210px]"} />
+                  </colgroup>
+                  <thead className="sticky top-0 z-10 bg-[#eef3ff] text-xs font-semibold text-slate-700">
+                    <tr className="border-b border-blue-100">
+                      {canDeleteCandidate ? (
+                        <th scope="col" className="px-4 py-3">
+                          <Checkbox
+                            checked={allCurrentPageChecked ? true : someCurrentPageChecked ? "indeterminate" : false}
+                            onCheckedChange={(checked) => toggleAllCurrentPageChecked(checked === true)}
+                            aria-label="全选当前页候选人"
+                            className="bg-white"
+                          />
+                        </th>
+                      ) : null}
+                      <th scope="col" className="px-3 py-3">候选人</th>
+                      <th scope="col" className="px-3 py-3">岗位</th>
+                      <th scope="col" className="px-3 py-3">分数</th>
+                      <th scope="col" className="px-3 py-3">结论</th>
+                      <th scope="col" className="px-3 py-3">基本信息</th>
+                      <th scope="col" className="px-3 py-3">状态</th>
+                      <th scope="col" className="px-3 py-3">收件时间</th>
+                      <th scope="col" className="px-4 py-3 text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredCandidates.map((candidate) => {
+                      const candidateTitle = buildCandidateCardTitle(candidate);
+                      const jobLabels = buildCandidateJobLabels(candidate).join(" / ");
+                      const screeningStatus = candidate.screening_status ?? candidate.active_screening_status;
+                      const mappedStatus = mapScreeningStatusToMailStatus(screeningStatus, candidate.screening_error_message);
+                      const age = parseAgeFromBirthOrAge(candidate.birth_or_age);
+                      const selected = selectedCandidateId === candidate.id;
+                      const received = formatDateParts(candidate.received_at);
+                      const basicFacts = joinCandidateFacts([
+                        candidate.city,
+                        age != null ? `${age} 岁` : candidate.birth_or_age,
+                        candidate.education,
+                      ]);
+
+                      return (
+                        <tr
+                          key={candidate.id}
+                          className={cn(
+                            "transition-colors",
+                            selected ? "bg-[#eef3ff] shadow-[inset_3px_0_0_#002fa7]" : "bg-white hover:bg-slate-50",
+                          )}
+                        >
+                          {canDeleteCandidate ? (
+                            <td className="px-4 py-3">
+                              <Checkbox
+                                checked={checkedCandidateIds.has(candidate.id)}
+                                onCheckedChange={(checked) => toggleCandidateChecked(candidate.id, checked === true)}
+                                aria-label={`选择 ${candidate.name || "候选人"}`}
+                                className="bg-white"
+                              />
+                            </td>
+                          ) : null}
+                          <td className="px-3 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100 text-sm font-semibold text-slate-700">
+                                {candidate.avatar_url ? (
+                                  <ImageWithFallback
+                                    src={candidate.avatar_url}
+                                    alt={candidate.name || "候选人头像"}
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  (candidate.name || "?").slice(0, 1)
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <OverflowTooltipText text={candidateTitle} maxChars={16} className="font-semibold text-slate-900" />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-3 py-3">
+                            <OverflowTooltipText text={jobLabels} maxChars={18} className="max-w-[180px] text-slate-600" />
+                          </td>
+                          <td className="px-3 py-3">
+                            <span
+                              className={cn(
+                                "inline-flex min-w-12 items-center justify-center rounded-md px-2.5 py-1 text-xs font-semibold tabular-nums",
+                                scoreTone(candidate.score),
+                              )}
+                            >
+                              {typeof candidate.score === "number" ? candidate.score : "-"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3">
+                            {candidate.decision ? (
+                              <span className={cn("inline-flex min-w-14 justify-center rounded-md px-2.5 py-1 text-xs font-semibold whitespace-nowrap", decisionMeta[candidate.decision].classes)}>
+                                {decisionMeta[candidate.decision].label}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-400">-</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3">
+                            <OverflowTooltipText text={basicFacts} maxChars={16} className="max-w-[170px] text-slate-600" />
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className="inline-flex min-w-16 justify-center rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 whitespace-nowrap">
+                              {mappedStatus?.status || "待处理"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-xs leading-5 text-slate-500 tabular-nums">
+                            <div>{received.date}</div>
+                            {received.time ? <div className="text-[11px] text-slate-400">{received.time}</div> : null}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-2">
+                              <Button type="button" variant="outline" size="sm" onClick={() => openCandidateDetail(candidate.id)}>
+                                <UserRoundSearch className="h-3.5 w-3.5" />
+                                详情
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedCandidateId(candidate.id);
+                                  setCandidateAiDialogId(candidate.id);
+                                  setCandidateAiQuestion("");
+                                }}
+                              >
+                                <MessageSquarePlus className="h-3.5 w-3.5" />
+                                AI 讨论
+                              </Button>
+                              {canDeleteCandidate ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={deletingCandidateId === candidate.id}
+                                  onClick={() =>
+                                    setDeleteConfirm({
+                                      kind: "candidate",
+                                      id: candidate.id,
+                                      title: "删除该候选人？",
+                                      description: `将永久删除「${candidate.name || "未命名候选人"}」及其全部筛选记录与打点数据，该操作不可撤销。`,
+                                      confirmLabel: "删除候选人",
+                                    })
+                                  }
+                                  className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                                >
+                                  {deletingCandidateId === candidate.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  )}
+                                  删除
+                                </Button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {candidatePagination.total > 0 ? (
+              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="candidate-rows-per-page" className="text-sm font-medium">每页</Label>
+                  <select
+                    id="candidate-rows-per-page"
+                    value={candidateRowsPerPage}
+                    onChange={(event) => {
+                      setCandidateRowsPerPage(Number(event.target.value));
+                      setCandidatePage(0);
+                    }}
+                    className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                  >
+                    {[10, 20, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
+                  </select>
+                </div>
+                <span className="tabular-nums">{candidatePageFrom}-{candidatePageTo} / 共 {candidatePagination.total} 人</span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={candidatePage <= 0 || !candidatePagination.has_previous}
+                    onClick={() => setCandidatePage((current) => Math.max(0, current - 1))}
+                  >
+                    上一页
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!candidatePagination.has_next}
+                    onClick={() => setCandidatePage((current) => current + 1)}
+                  >
+                    下一页
+                  </Button>
+                </div>
               </div>
             ) : null}
           </div>
-        </section>
-      </div>
+      </section>
 
       <Dialog
         open={candidateDetailDialogOpen}
@@ -3237,14 +3201,14 @@ export function ResumeScreeningPage() {
           }
         }}
       >
-        <DialogContent className="resume-screening-surface flex h-[88vh] w-[calc(100vw-28px)] sm:max-w-[1180px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] border border-slate-200 bg-[#f6f8fb] p-0 shadow-[0_24px_72px_rgba(15,23,42,0.22)] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-[4px] [&>button]:bg-white [&>button]:p-2 [&>button]:shadow-sm">
+        <DialogContent className="horizon-portal resume-screening-surface flex h-[88vh] w-[calc(100vw-28px)] grid-rows-none flex-col overflow-hidden rounded-xl border border-slate-200 bg-[#f6f8fb] p-0 shadow-[0_24px_72px_rgba(15,23,42,0.22)] sm:max-w-[1180px] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-md [&>button]:bg-white [&>button]:p-2 [&>button]:shadow-sm">
           <div className="border-b border-slate-200 bg-white px-5 py-4 sm:px-6">
             <div className="min-w-0 pr-12">
-              <div className="text-xs font-semibold tracking-[0.16em] text-slate-400">候选人评估报告</div>
-              <DialogTitle className="mt-1 text-xl font-semibold tracking-tight text-slate-950">
+              <div className="text-xs font-semibold text-slate-500">候选人评估报告</div>
+              <DialogTitle className="mt-1 text-balance text-xl font-semibold text-slate-950">
                 {selectedCandidateProfile?.name || "候选人详情"}
               </DialogTitle>
-              <DialogDescription className="mt-1 text-sm text-slate-500">
+              <DialogDescription className="mt-1 text-pretty text-sm text-slate-500">
                 聚合简历解析、AI 初筛结论、命中点与风险，用于快速复核是否推进下一步。
               </DialogDescription>
             </div>
@@ -3279,9 +3243,9 @@ export function ResumeScreeningPage() {
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="text-xs font-semibold tracking-[0.14em] text-slate-400">候选人画像</div>
+                        <div className="text-xs font-semibold text-slate-500">候选人画像</div>
                         <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <h2 className="truncate text-2xl font-semibold tracking-tight text-slate-950">
+                          <h2 className="truncate text-balance text-2xl font-semibold text-slate-950">
                             {selectedCandidateProfile.name || "未命名候选人"}
                           </h2>
                           <span className={cn("inline-flex rounded-[4px] border px-2.5 py-1 text-xs font-semibold", reportGradeClass)}>
@@ -3290,7 +3254,7 @@ export function ResumeScreeningPage() {
                         </div>
                         <p className="mt-1 text-sm font-semibold text-blue-700">{reportRole}</p>
                         <p className="mt-1 truncate text-xs text-slate-400">{reportCompany}</p>
-                        <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">{reportBrief}</p>
+                        <p className="mt-3 line-clamp-3 text-pretty text-sm leading-6 text-slate-600">{reportBrief}</p>
                       </div>
                     </div>
                     <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -3305,7 +3269,7 @@ export function ResumeScreeningPage() {
 
                   <section className={cn("rounded-[8px] border p-4 shadow-sm", reportActionPanelClass)}>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-semibold tracking-[0.14em] text-slate-400">当前判断</span>
+                      <span className="text-xs font-semibold text-slate-500">当前判断</span>
                       {reportDecision ? (
                         <span className={cn("inline-flex rounded-[4px] px-2.5 py-1 text-xs font-semibold", reportDecision.classes)}>
                           {reportDecision.label}
@@ -3317,33 +3281,30 @@ export function ResumeScreeningPage() {
                         </span>
                       ) : null}
                     </div>
-                    <div className={cn("mt-2 text-2xl font-semibold tracking-tight", reportActionTextClass)}>
+                    <div className={cn("mt-2 text-balance text-2xl font-semibold", reportActionTextClass)}>
                       {reportActionLabel}
                     </div>
-                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">
+                    <p className="mt-2 line-clamp-3 text-pretty text-sm leading-6 text-slate-600">
                       {activeScreening?.summary?.trim() || reportBrief}
                     </p>
                     <div className="mt-4 grid grid-cols-3 overflow-hidden rounded-[6px] border border-slate-100 bg-white/80">
                       {reportDecisionStats.map((item, index) => (
                         <div key={item.label} className={cn("px-3 py-3 text-center", index > 0 && "border-l border-slate-100")}>
-                          <div className={cn("text-xl font-semibold", item.tone)}>{item.value}</div>
+                          <div className={cn("text-xl font-semibold tabular-nums", item.tone)}>{item.value}</div>
                           <div className="mt-0.5 text-xs text-slate-400">{item.label}</div>
                           <div className="mt-1 truncate text-[11px] text-slate-400">{item.helper}</div>
                         </div>
                       ))}
                     </div>
                     <div className="mt-3 grid grid-cols-[64px_minmax(0,1fr)] items-center gap-3 rounded-[6px] bg-white/65 px-3 py-2.5">
-                      <div
-                        className="flex h-12 w-12 items-center justify-center rounded-full"
-                        style={{ background: `conic-gradient(#2563eb ${reportScore ?? 0}%, #dbeafe 0)` }}
-                      >
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-sm font-semibold text-blue-950">
+                      <div className="flex size-12 items-center justify-center rounded-full border-[6px] border-blue-100 bg-white">
+                        <div className="flex items-center justify-center text-sm font-semibold text-blue-950 tabular-nums">
                           {reportScoreTen ?? "-"}<span className="text-[10px]">/10</span>
                         </div>
                       </div>
                       <div className="min-w-0">
                         <div className="text-xs text-slate-500">综合匹配度</div>
-                        <div className="mt-0.5 text-lg font-semibold text-slate-950">{reportScore ?? "--"}</div>
+                        <div className="mt-0.5 text-lg font-semibold text-slate-950 tabular-nums">{reportScore ?? "--"}</div>
                       </div>
                     </div>
                   </section>
@@ -3729,12 +3690,12 @@ export function ResumeScreeningPage() {
       </Dialog>
 
       <Dialog open={showFilterDialog} onOpenChange={setShowFilterDialog}>
-        <DialogContent className="resume-screening-surface material-neu-panel flex h-[78vh] w-[calc(100vw-32px)] sm:max-w-[900px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] p-0">
+        <DialogContent className="horizon-portal resume-screening-surface flex h-[78vh] w-[calc(100vw-32px)] grid-rows-none flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-0 sm:max-w-[900px]">
           <div className="flex items-start justify-between gap-4 border-b border-slate-200/80 px-6 py-5">
             <div className="min-w-0">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Candidate Pool MateChat</div>
-              <DialogTitle className="mt-1 text-xl text-slate-900">AI 迭代筛选</DialogTitle>
-              <DialogDescription className="mt-1 text-sm text-slate-500">
+              <div className="text-xs font-semibold text-slate-500">候选人池 · MateChat</div>
+              <DialogTitle className="mt-1 text-balance text-xl text-slate-900">AI 迭代筛选</DialogTitle>
+              <DialogDescription className="mt-1 text-pretty text-sm text-slate-500">
                 AI 会先分析筛选意图；条件不明确时会追问，明确后才生成新的评分版本。
               </DialogDescription>
             </div>
@@ -3755,9 +3716,9 @@ export function ResumeScreeningPage() {
             </div>
           </div>
 
-          <div className="material-scrollbar flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfdff_0%,#f4f8fd_100%)] px-6 py-6">
+          <div className="material-scrollbar flex-1 overflow-y-auto bg-slate-50 px-6 py-6">
             {selectedFilterSession ? (
-              <div className="material-neu-inset mb-5 rounded-[var(--m3-shape-medium)] px-4 py-3 text-sm leading-6 text-indigo-900">
+              <div className="mb-5 rounded-lg border border-blue-100 bg-white px-4 py-3 text-pretty text-sm leading-6 text-blue-950">
                 {selectedFilterSession.filter_summary || selectedFilterSession.instruction}
               </div>
             ) : null}
@@ -3784,7 +3745,7 @@ export function ResumeScreeningPage() {
                 {filterRunning ? (
                   <div className="flex justify-start">
                     <div className="material-neu-card inline-flex items-center gap-2 rounded-xl rounded-tl-md px-4 py-3 text-sm text-slate-600">
-                      <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
+                      <Loader2 className="h-4 w-4 animate-spin text-[#002fa7]" />
                       AI 正在分析本轮筛选意图
                     </div>
                   </div>
@@ -3800,6 +3761,7 @@ export function ResumeScreeningPage() {
           <div className="border-t border-slate-200/80 bg-white/72 px-6 py-4">
             <div className="material-neu-inset rounded-xl p-3">
               <textarea
+                aria-label="输入 AI 迭代筛选偏好"
                 rows={3}
                 value={filterInstruction}
                 onChange={(event) => setFilterInstruction(event.target.value)}
@@ -3839,14 +3801,14 @@ export function ResumeScreeningPage() {
           }
         }}
       >
-        <DialogContent className="resume-screening-surface material-neu-panel flex h-[82vh] w-[calc(100vw-32px)] sm:max-w-[980px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] p-0">
+        <DialogContent className="horizon-portal resume-screening-surface flex h-[82vh] w-[calc(100vw-32px)] grid-rows-none flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-0 sm:max-w-[980px]">
           <div className="flex items-center justify-between border-b border-slate-200/80 px-6 py-5">
             <div className="min-w-0">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Candidate MateChat</div>
-              <DialogTitle className="mt-1 truncate text-xl text-slate-900">
+              <div className="text-xs font-semibold text-slate-500">候选人 · MateChat</div>
+              <DialogTitle className="mt-1 truncate text-balance text-xl text-slate-900">
                 {candidateAiTarget ? `${candidateAiProfile?.name || "未命名候选人"} · AI 讨论` : "候选人 AI 讨论"}
               </DialogTitle>
-              <DialogDescription className="mt-1 truncate text-sm text-slate-500">
+              <DialogDescription className="mt-1 truncate text-pretty text-sm text-slate-500">
                 {candidateAiTarget
                   ? `${candidateAiTarget.job_rule_name || candidateAiProfile?.target_job || "未匹配岗位"} / ${candidateAiProfile?.city || "城市未知"}`
                   : "基于候选人简历、JD 和筛选结果回答"}
@@ -3858,7 +3820,7 @@ export function ResumeScreeningPage() {
             </div>
           </div>
 
-          <div className="material-scrollbar flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfdff_0%,#f4f8fd_100%)] px-6 py-6">
+          <div className="material-scrollbar flex-1 overflow-y-auto bg-slate-50 px-6 py-6">
             {candidateAiMessages.length || candidateAiLoading ? (
               <div className="space-y-5">
                 {candidateAiMessages.map((message, index) => {
@@ -3869,9 +3831,7 @@ export function ResumeScreeningPage() {
                         <div
                           className={cn(
                             "mt-1 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[4px] shadow-sm",
-                            isUser
-                              ? "bg-[linear-gradient(135deg,#f59e90_0%,#f6c56b_58%,#a3c94c_100%)] text-sm font-semibold text-white"
-                              : "bg-white",
+                            isUser ? "bg-[#002fa7] text-sm font-semibold text-white" : "bg-white",
                           )}
                         >
                           {isUser ? candidateAiProfile?.name?.slice(0, 1) || "U" : <img src={MATECHAT_AVATAR} alt="MateChat" className="h-8 w-8 object-contain" />}
@@ -3891,7 +3851,7 @@ export function ResumeScreeningPage() {
                             ) : null}
                           </div>
                           {!isUser && message.ai_update ? (
-                            <div className="mt-2 rounded-lg border border-indigo-100 bg-white px-3 py-3 text-left shadow-sm">
+                            <div className="mt-2 rounded-lg border border-blue-100 bg-white px-3 py-3 text-left shadow-sm">
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div>
                                   <div className="text-xs font-semibold text-slate-700">可应用到详情的 AI 建议</div>
@@ -3904,7 +3864,7 @@ export function ResumeScreeningPage() {
                                     type="button"
                                     onClick={() => void handleApplyCandidateAiUpdate(candidateAiTarget.id, index, message.ai_update as CandidateAiUpdateSuggestion)}
                                     disabled={candidateAiApplyingKey === `${candidateAiTarget.id}:${index}`}
-                                    className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[4px] bg-indigo-600 px-3 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md bg-[#002fa7] px-3 text-xs font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
                                   >
                                     {candidateAiApplyingKey === `${candidateAiTarget.id}:${index}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                                     应用到详情
@@ -3982,6 +3942,7 @@ export function ResumeScreeningPage() {
           <div className="border-t border-slate-200/80 bg-white/72 px-6 py-4">
             <div className="material-neu-inset rounded-xl p-3">
               <textarea
+                aria-label="向候选人 AI 提问"
                 rows={3}
                 value={candidateAiQuestion}
                 onChange={(event) => setCandidateAiQuestion(event.target.value)}
@@ -4012,32 +3973,37 @@ export function ResumeScreeningPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(deleteConfirm)} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
-        <DialogContent className="resume-screening-surface material-neu-panel w-[calc(100vw-32px)] sm:max-w-[460px] rounded-[var(--m3-shape-extra-large)] p-6">
-          <DialogHeader>
-              <DialogTitle>{deleteConfirm?.title || "确认删除？"}</DialogTitle>
-              <DialogDescription>{deleteConfirm?.description || "该操作不可撤销。"}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="mt-6 flex-row justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setDeleteConfirm(null)}
-              className="material-neu-button inline-flex h-11 cursor-pointer items-center justify-center rounded-[4px] px-4 text-sm font-medium text-slate-500 transition"
-            >
+      <AlertDialog
+        open={Boolean(deleteConfirm)}
+        onOpenChange={(open) => {
+          if (!open && !deletingJobRuleId && !batchDeletingCandidates && !deletingCandidateId) {
+            setDeleteConfirm(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="horizon-portal w-[calc(100vw-32px)] rounded-xl border border-slate-200 bg-white sm:max-w-[460px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-balance">{deleteConfirm?.title || "确认删除？"}</AlertDialogTitle>
+            <AlertDialogDescription className="text-pretty">{deleteConfirm?.description || "该操作不可撤销。"}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(deletingJobRuleId) || batchDeletingCandidates || Boolean(deletingCandidateId)}>
               取消
-            </button>
-            <button
-              type="button"
-              onClick={() => void confirmDelete()}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmDelete();
+              }}
               disabled={Boolean(deletingJobRuleId) || batchDeletingCandidates || Boolean(deletingCandidateId)}
-              className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-[4px] bg-rose-600 px-6 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
+              className="bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-rose-600"
             >
               {deletingJobRuleId || batchDeletingCandidates || deletingCandidateId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               {deleteConfirm?.confirmLabel || "确认删除"}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

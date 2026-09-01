@@ -988,6 +988,7 @@ function TaskDetailDrawer({
 
         {drawerTab === "progress" && (
           <RDTaskConversation
+            key={`director-progress:${task.task_id}`}
             taskId={task.task_id}
             taskTitle={task.title}
             notes={progressNotes}
@@ -1002,6 +1003,7 @@ function TaskDetailDrawer({
 
         {drawerTab === "conversation" && (
           <RDTaskConversation
+            key={`director-conversation:${task.task_id}`}
             taskId={task.task_id}
             taskTitle={task.title}
             notes={progressNotes}

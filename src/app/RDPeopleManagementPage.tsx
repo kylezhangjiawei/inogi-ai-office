@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   ShieldCheck,
   Trash2,
@@ -30,6 +31,7 @@ import {
   updateRdPerson,
   type RdIdentityUser,
   type RdPersonLoad,
+  type RdPersonMutation,
 } from "./lib/rdApi";
 import { authFetch } from "./lib/authSession";
 import { t, useI18n } from "./lib/i18n";
@@ -80,6 +82,12 @@ export type Person = {
   phone?: string;
   status: PersonStatus;
   max_tasks: number;
+  task_count?: number;
+  tasks?: string[];
+  task_ids?: string[];
+  blocked_count?: number;
+  completed_this_month?: number;
+  avg_completion?: number;
   joined_at?: string;
   /** 知识库访问分值：0（完全公开）~ 100（最高权限）。成员分值 >= 文件分值时可查看。 */
   kb_level?: number;
@@ -184,15 +192,9 @@ function useDialogFocus(onClose: () => void, lockPage: boolean) {
 
 function hashColor(name: string): string {
   const colors = [
-    "bg-blue-500",
-    "bg-emerald-500",
-    "bg-violet-500",
-    "bg-amber-500",
-    "bg-pink-500",
-    "bg-cyan-500",
-    "bg-indigo-500",
-    "bg-rose-500",
-    "bg-teal-500",
+    "bg-[#002fa7]",
+    "bg-slate-600",
+    "bg-[#1747b8]",
   ];
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
@@ -217,8 +219,8 @@ function getAccessScoreConfig(score: number) {
   if (score <= 50) {
     return {
       label: "内部",
-      badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
-      sliderClass: "[&_[data-slot=slider-range]]:bg-blue-500",
+      badgeClass: "border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7]",
+      sliderClass: "[&_[data-slot=slider-range]]:bg-[#002fa7]",
       hint: "可查看常规研发资料",
     };
   }
@@ -232,8 +234,8 @@ function getAccessScoreConfig(score: number) {
   }
   return {
     label: "机密",
-    badgeClass: "border-red-200 bg-red-50 text-red-700",
-    sliderClass: "[&_[data-slot=slider-range]]:bg-red-500",
+    badgeClass: "border-rose-200 bg-rose-50 text-rose-700",
+    sliderClass: "[&_[data-slot=slider-range]]:bg-rose-500",
     hint: "最高权限，可查看全部资料",
   };
 }
@@ -264,6 +266,8 @@ function emptyPerson(): Person {
     phone: "",
     status: "active",
     max_tasks: 8,
+    task_count: 0,
+    tasks: [],
     kb_level: 20,
     kb_level_scale: "score",
   };
@@ -288,9 +292,34 @@ function personFromLoad(person: RdPersonLoad): Person {
     phone: person.phone,
     status,
     max_tasks: person.max_tasks,
+    task_count: person.task_count,
+    tasks: person.tasks,
+    task_ids: person.task_ids,
+    blocked_count: person.blocked_count,
+    completed_this_month: person.completed_this_month,
+    avg_completion: person.avg_completion,
     joined_at: person.joined_at,
     kb_level: typeof person.kb_level === "number" ? person.kb_level : undefined,
     kb_level_scale: person.kb_level_scale === "score" ? "score" : undefined,
+  };
+}
+
+function personToMutation(person: Person): RdPersonMutation {
+  return {
+    id: person.id || undefined,
+    user_id: person.user_id,
+    name: person.name,
+    position: person.position,
+    department: person.department,
+    email: person.email,
+    username: person.username,
+    user_status: person.user_status,
+    phone: person.phone,
+    status: person.status,
+    max_tasks: person.max_tasks,
+    joined_at: person.joined_at,
+    kb_level: person.kb_level,
+    kb_level_scale: person.kb_level_scale,
   };
 }
 
@@ -313,8 +342,8 @@ function Field({
     <>
       <div className="mb-1.5 flex items-baseline gap-1 text-xs font-medium text-slate-700">
         {label}
-        {required && <span className="text-red-500">*</span>}
-        {error && <span className="ml-auto text-[11px] font-normal text-red-500">{error}</span>}
+        {required && <span className="text-rose-500">*</span>}
+        {error && <span className="ml-auto text-[11px] font-normal text-rose-600">{error}</span>}
       </div>
       {children}
     </>
@@ -340,16 +369,22 @@ function Field({
 function PersonFormModal({
   person,
   users,
+  identityOptionsError,
+  onRetryIdentityOptions,
   canManageDepartments,
   visualVariant,
+  saving,
   onSave,
   onClose,
 }: {
   person: Person | null;
   users: RdIdentityUser[];
+  identityOptionsError: string | null;
+  onRetryIdentityOptions: () => void;
   canManageDepartments: boolean;
   visualVariant: RDPeopleVisualVariant;
-  onSave: (p: Person) => void;
+  saving: boolean;
+  onSave: (p: Person) => Promise<void>;
   onClose: () => void;
 }) {
   useI18n();
@@ -357,7 +392,6 @@ function PersonFormModal({
   const isHorizon = visualVariant === "rd-horizon";
   const titleId = useId();
   const descriptionId = useId();
-  const dialogRef = useDialogFocus(onClose, isHorizon);
   const [form, setForm] = useState<Person>(person ?? emptyPerson());
   const [errors, setErrors] = useState<{ name?: string; position?: string }>({});
   // 切换编辑对象 / 重新打开同一个对象时，把表单 state 同步到最新 person prop，避免显示老数据
@@ -368,12 +402,19 @@ function PersonFormModal({
 
   // 分组选项统一来自部门主数据；编辑旧记录时只额外保留该记录当前值。
   const [departments, setDepartments] = useState<string[]>([]);
+  const [departmentError, setDepartmentError] = useState<string | null>(null);
+  const [departmentReloadVersion, setDepartmentReloadVersion] = useState(0);
   const [creatingDept, setCreatingDept] = useState(false);
   const [newDeptName, setNewDeptName] = useState("");
   const [savingNewDept, setSavingNewDept] = useState(false);
+  const closeModal = () => {
+    if (!saving && !savingNewDept) onClose();
+  };
+  const dialogRef = useDialogFocus(closeModal, isHorizon);
 
   useEffect(() => {
     let cancelled = false;
+    setDepartmentError(null);
     apiListDepartmentOptions()
       .then((list) => {
         if (cancelled) return;
@@ -381,16 +422,21 @@ function PersonFormModal({
         // 确保至少含有当前 form.department，避免编辑时下拉里没有当前值
         const merged = Array.from(new Set([...names, ...(form.department ? [form.department] : [])]));
         setDepartments(merged);
+        setDepartmentError(null);
       })
-      .catch(() => {
-        if (!cancelled) setDepartments(form.department ? [form.department] : []);
+      .catch((error) => {
+        if (!cancelled) {
+          setDepartments(form.department ? [form.department] : []);
+          setDepartmentError(error instanceof Error ? error.message : t("获取分组列表失败"));
+        }
       });
     return () => { cancelled = true; };
     // 故意只在挂载时拉一次；新建后会手动 push 到 departments
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [departmentReloadVersion]);
 
   const handleCreateDepartment = async () => {
+    if (savingNewDept) return;
     const name = newDeptName.trim();
     if (!name) {
       toast.error(t("分组名称不能为空"));
@@ -415,12 +461,19 @@ function PersonFormModal({
     }
   };
 
-  const selectedUser = users.find((user) => user.id === form.user_id);
+  const userById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const selectedUser = form.user_id ? userById.get(form.user_id) : undefined;
   const kbScore = clampAccessScore(form.kb_level);
   const kbScoreConfig = getAccessScoreConfig(kbScore);
+  const dependenciesReady = !identityOptionsError && !departmentError;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
+    if (!dependenciesReady) {
+      toast.error(t("身份或分组主数据尚未读取成功，请重试后再保存"));
+      return;
+    }
     const newErrors: typeof errors = {};
     if (!form.name.trim()) newErrors.name = t("姓名不能为空");
     if (!form.position.trim()) newErrors.position = t("职位不能为空");
@@ -428,13 +481,13 @@ function PersonFormModal({
       setErrors(newErrors);
       return;
     }
-    onSave({ ...form, kb_level: kbScore, kb_level_scale: "score" });
+    await onSave({ ...form, kb_level: kbScore, kb_level_scale: "score" });
   };
 
   const dialog = (
     <div
       className={cn(
-        "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in",
+        "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4",
         isHorizon && "rd-horizon-people-dialog-overlay",
       )}
     >
@@ -446,23 +499,24 @@ function PersonFormModal({
         aria-describedby={descriptionId}
         tabIndex={-1}
         className={cn(
-          "w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in",
+          "w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)]",
           isHorizon && "rd-horizon-people-dialog rd-horizon-people-form-dialog",
         )}
       >
         <header className="rd-people-dialog-header flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
-            <h3 id={titleId} className="text-base font-semibold text-slate-900">
+            <h3 id={titleId} className="text-balance text-base font-semibold text-slate-900">
               {isEdit ? t("编辑成员") : t("新增成员")}
             </h3>
-            <p id={descriptionId} className="mt-0.5 text-xs text-slate-500">
+            <p id={descriptionId} className="mt-0.5 text-pretty text-xs text-slate-500">
               {isEdit ? t("修改 {name} 的信息", { name: person!.name }) : t("创建一个新的团队成员")}
             </p>
           </div>
           <button
-            onClick={onClose}
+            onClick={closeModal}
+            disabled={saving || savingNewDept}
             type="button"
-            className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={t("关闭")}
           >
             <X className="h-4 w-4" />
@@ -470,11 +524,24 @@ function PersonFormModal({
         </header>
 
         <form onSubmit={handleSubmit} className="rd-people-dialog-form space-y-4 px-6 py-5">
+          {identityOptionsError ? (
+            <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <span className="min-w-0 text-pretty">{t("登录用户列表读取失败，当前禁止保存身份关联。")}</span>
+              <Button type="button" variant="outline" size="sm" onClick={onRetryIdentityOptions} className="shrink-0">{t("重试")}</Button>
+            </div>
+          ) : null}
+          {departmentError ? (
+            <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <span className="min-w-0 text-pretty">{t("分组主数据读取失败，当前禁止保存组织归属。")}</span>
+              <Button type="button" variant="outline" size="sm" onClick={() => setDepartmentReloadVersion((value) => value + 1)} className="shrink-0">{t("重试")}</Button>
+            </div>
+          ) : null}
           <Field label={t("绑定登录用户")}>
             <NativeSelect
               value={form.user_id ?? ""}
+              disabled={saving || Boolean(identityOptionsError)}
               onChange={(e) => {
-                const user = users.find((item) => item.id === e.target.value);
+                const user = userById.get(e.target.value);
                 setForm((current) => ({
                   ...current,
                   user_id: user?.id ?? null,
@@ -485,7 +552,7 @@ function PersonFormModal({
                   user_status: user?.status ?? current.user_status ?? null,
                 }));
               }}
-              className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
             >
               <option value="">{t("未绑定，按姓名兼容匹配")}</option>
               {users.map((user) => (
@@ -504,14 +571,14 @@ function PersonFormModal({
             )}
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={t("姓名")} required error={errors.name}>
               <Input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 className={cn(
-                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100",
-                  errors.name ? "border-red-300" : "border-slate-200",
+                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]",
+                  errors.name ? "border-rose-300" : "border-slate-200",
                 )}
                 placeholder={t("例: 王磊")}
                 data-autofocus
@@ -523,8 +590,8 @@ function PersonFormModal({
                 value={form.position}
                 onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}
                 className={cn(
-                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100",
-                  errors.position ? "border-red-300" : "border-slate-200",
+                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]",
+                  errors.position ? "border-rose-300" : "border-slate-200",
                 )}
                 placeholder={t("硬件测试工程师")}
                 aria-invalid={Boolean(errors.position)}
@@ -532,7 +599,7 @@ function PersonFormModal({
             </Field>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={t("所属组")} group>
               {creatingDept ? (
                 <div className="flex items-center gap-1.5">
@@ -540,29 +607,31 @@ function PersonFormModal({
                     value={newDeptName}
                     onChange={(e) => setNewDeptName(e.target.value)}
                     placeholder={t("新分组名")}
+                    aria-label={t("新分组名")}
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === "Enter") { e.preventDefault(); void handleCreateDepartment(); }
-                      else if (e.key === "Escape") {
+                      else if (e.key === "Escape" && !savingNewDept) {
                         e.stopPropagation();
                         setCreatingDept(false);
                         setNewDeptName("");
                       }
                     }}
-                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
                   />
                   <button
                     type="button"
-                    disabled={savingNewDept || !newDeptName.trim()}
+                    disabled={savingNewDept || Boolean(departmentError) || !newDeptName.trim()}
                     onClick={() => void handleCreateDepartment()}
-                    className="shrink-0 rounded-md bg-indigo-600 px-2 py-2 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
+                    className="shrink-0 rounded-md bg-[#002fa7] px-2 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#001f73] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {savingNewDept ? "..." : t("保存")}
+                    {savingNewDept ? t("保存中…") : t("保存")}
                   </button>
                   <button
                     type="button"
+                    disabled={savingNewDept}
                     onClick={() => { setCreatingDept(false); setNewDeptName(""); }}
-                    className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                    className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {t("取消")}
                   </button>
@@ -571,6 +640,8 @@ function PersonFormModal({
                 <div className="flex items-center gap-1.5">
                   <NativeSelect
                     value={form.department}
+                    aria-label={t("所属组")}
+                    disabled={Boolean(departmentError)}
                     onChange={(e) => {
                       const v = e.target.value;
                       if (v === "__create__") {
@@ -579,7 +650,7 @@ function PersonFormModal({
                       }
                       setForm((f) => ({ ...f, department: v }));
                     }}
-                    className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                    className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
                   >
                     {!form.department && <option value="">{t("未指定")}</option>}
                     {departments.map((d) => (
@@ -600,7 +671,7 @@ function PersonFormModal({
                 onChange={(e) =>
                   setForm((f) => ({ ...f, status: e.target.value as PersonStatus }))
                 }
-                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
               >
                 <option value="active">{t("在岗")}</option>
                 <option value="on_leave">{t("请假中")}</option>
@@ -614,17 +685,17 @@ function PersonFormModal({
               type="email"
               value={form.email ?? ""}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
               placeholder="user@inogi.com"
             />
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={t("联系电话")}>
               <Input
                 value={form.phone ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
                 placeholder="13800000000"
               />
             </Field>
@@ -640,7 +711,7 @@ function PersonFormModal({
                     max_tasks: Math.max(1, Number(e.target.value) || 1),
                   }))
                 }
-                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm tabular-nums text-slate-900 outline-none transition-colors focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
               />
             </Field>
           </div>
@@ -650,7 +721,7 @@ function PersonFormModal({
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold tabular-nums text-slate-900">{kbScore}/100</div>
-                  <p className="mt-0.5 text-[11px] text-slate-500">{t(kbScoreConfig.hint)}</p>
+                  <p className="mt-0.5 text-pretty text-[11px] text-slate-500">{t(kbScoreConfig.hint)}</p>
                 </div>
                 <Badge className={cn("shrink-0 gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold", kbScoreConfig.badgeClass)}>
                   <ShieldCheck className="h-3 w-3" />
@@ -658,6 +729,8 @@ function PersonFormModal({
                 </Badge>
               </div>
               <Slider
+                aria-label={t("知识库访问分值")}
+                aria-valuetext={t("{score} 分，{level}", { score: kbScore, level: t(kbScoreConfig.label) })}
                 value={[kbScore]}
                 min={0}
                 max={100}
@@ -676,24 +749,27 @@ function PersonFormModal({
                 <span>{t("100 最高")}</span>
               </div>
             </div>
-            <p className="mt-1 text-[11px] text-slate-400">{t("该成员可查看“文件权限分值 ≤ 成员分值”的所有知识库文件。")}</p>
+            <p className="mt-1 text-pretty text-[11px] text-slate-400">{t("该成员可查看“文件权限分值 ≤ 成员分值”的所有知识库文件。")}</p>
           </Field>
 
           <footer className="rd-people-dialog-footer flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
             <Button
               type="button"
               variant="outline"
-              onClick={onClose}
+              onClick={closeModal}
+              disabled={saving || savingNewDept}
               className="h-9 rounded-md border-slate-200 px-4 text-sm font-medium text-slate-700"
             >
               {t("取消")}
             </Button>
             <Button
               type="submit"
-              className="rd-people-dialog-primary h-9 gap-1.5 rounded-md bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.2)] hover:bg-indigo-700"
+              disabled={saving || !dependenciesReady}
+              aria-busy={saving}
+              className="rd-people-dialog-primary h-9 gap-1.5 rounded-md bg-[#002fa7] px-4 text-sm font-semibold text-white hover:bg-[#001f73] focus-visible:ring-[#002fa7] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isEdit ? t("保存修改") : t("创建成员")}
-              <ArrowRight className="h-3.5 w-3.5" />
+              {saving ? t("保存中…") : isEdit ? t("保存修改") : t("创建成员")}
+              {!saving && <ArrowRight className="h-3.5 w-3.5" />}
             </Button>
           </footer>
         </form>
@@ -711,11 +787,13 @@ function PersonFormModal({
 function ConfirmDeleteDialog({
   person,
   visualVariant,
+  busy,
   onConfirm,
   onCancel,
 }: {
   person: Person;
   visualVariant: RDPeopleVisualVariant;
+  busy: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -727,7 +805,7 @@ function ConfirmDeleteDialog({
   const dialog = (
     <div
       className={cn(
-        "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in",
+        "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4",
         isHorizon && "rd-horizon-people-dialog-overlay",
       )}
     >
@@ -739,16 +817,16 @@ function ConfirmDeleteDialog({
         aria-describedby={descriptionId}
         tabIndex={-1}
         className={cn(
-          "w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in",
+          "w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)]",
           isHorizon && "rd-horizon-people-dialog rd-horizon-people-delete-dialog",
         )}
       >
         <div className="rd-people-delete-body px-6 pt-6">
-          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-50">
-            <AlertTriangle className="h-6 w-6 text-red-500" />
+          <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-rose-50">
+            <AlertTriangle className="size-6 text-rose-600" />
           </div>
-          <h3 id={titleId} className="text-base font-semibold text-slate-900">{t("删除 {name}?", { name: person.name })}</h3>
-          <p id={descriptionId} className="mt-1.5 text-sm leading-relaxed text-slate-500">
+          <h3 id={titleId} className="text-balance text-base font-semibold text-slate-900">{t("删除 {name}?", { name: person.name })}</h3>
+          <p id={descriptionId} className="mt-1.5 text-pretty text-sm leading-relaxed text-slate-500">
             {t("此操作将永久删除该成员的档案，关联任务将转为待指派状态。删除后无法撤销。")}
           </p>
         </div>
@@ -756,18 +834,21 @@ function ConfirmDeleteDialog({
           <button
             type="button"
             onClick={onCancel}
+            disabled={busy}
             data-autofocus
-            className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
+            className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t("取消")}
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(220,38,38,0.25)] transition-all duration-150 hover:bg-red-700 active:scale-[0.98]"
+            disabled={busy}
+            aria-busy={busy}
+            className="inline-flex items-center gap-1.5 rounded-md bg-rose-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Trash2 className="h-3.5 w-3.5" />
-            {t("确认删除")}
+            <Trash2 className="size-3.5" />
+            {busy ? t("删除中…") : t("确认删除")}
           </button>
         </footer>
       </div>
@@ -792,7 +873,6 @@ export function RDPeopleManagementPage({
 }) {
   useI18n();
   const isHorizon = visualVariant === "rd-horizon";
-  const PEOPLE_AUDIT_ACTOR = useAuditActor("研发主管");
   const [people, setPeople] = useState<Person[]>(initialPeople);
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<PersonStatus | "all">("all");
@@ -803,7 +883,11 @@ export function RDPeopleManagementPage({
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadVersion, setReloadVersion] = useState(0);
+  const [savingPerson, setSavingPerson] = useState(false);
+  const [deletingPerson, setDeletingPerson] = useState(false);
   const [systemUsers, setSystemUsers] = useState<RdIdentityUser[]>([]);
+  const [identityOptionsError, setIdentityOptionsError] = useState<string | null>(null);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
 
   useEffect(() => {
@@ -812,18 +896,33 @@ export function RDPeopleManagementPage({
       setLoading(true);
       setLoadError(null);
       try {
-        const [raw, users] = await Promise.all([
-          fetchRdPeople(),
-          canManagePeople ? fetchRdPeopleUserOptions().catch(() => []) : Promise.resolve([]),
-        ]);
+        const raw = await fetchRdPeople();
         if (cancelled) return;
-        setSystemUsers(users);
         const remotePeople = raw.map(personFromLoad);
         setPeople(remotePeople);
+        if (canManagePeople) {
+          try {
+            const users = await fetchRdPeopleUserOptions();
+            if (cancelled) return;
+            setSystemUsers(users);
+            setIdentityOptionsError(null);
+          } catch (error) {
+            if (cancelled) return;
+            setSystemUsers([]);
+            setIdentityOptionsError(error instanceof Error ? error.message : t("登录用户列表读取失败"));
+          }
+        } else {
+          setSystemUsers([]);
+          setIdentityOptionsError(null);
+        }
       } catch (error) {
         if (cancelled) return;
         setLoadError(error instanceof Error ? error.message : t("研发成员接口加载失败"));
         setPeople(initialPeople);
+        if (canManagePeople) {
+          setSystemUsers([]);
+          setIdentityOptionsError(t("研发成员数据未读取成功，无法验证登录用户关联"));
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -832,14 +931,16 @@ export function RDPeopleManagementPage({
     return () => {
       cancelled = true;
     };
-  }, [canManagePeople, initialPeople]);
+  }, [canManagePeople, initialPeople, reloadVersion]);
+
+  const deferredKeyword = useDeferredValue(keyword.trim().toLowerCase());
 
   const filtered = useMemo(() => {
     return people.filter((p) => {
       if (statusFilter !== "all" && p.status !== statusFilter) return false;
       if (deptFilter !== "all" && p.department !== deptFilter) return false;
-      if (!keyword) return true;
-      const k = keyword.toLowerCase();
+      if (!deferredKeyword) return true;
+      const k = deferredKeyword;
       return (
         p.name.toLowerCase().includes(k) ||
         p.position.toLowerCase().includes(k) ||
@@ -848,7 +949,7 @@ export function RDPeopleManagementPage({
         (p.email?.toLowerCase().includes(k) ?? false)
       );
     });
-  }, [people, keyword, statusFilter, deptFilter]);
+  }, [people, deferredKeyword, statusFilter, deptFilter]);
 
   const departmentFilters = useMemo(
     () =>
@@ -859,60 +960,69 @@ export function RDPeopleManagementPage({
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PEOPLE_PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const pagedPeople = filtered.slice(
-    (safePage - 1) * PEOPLE_PAGE_SIZE,
-    safePage * PEOPLE_PAGE_SIZE,
+  const pagedPeople = useMemo(
+    () => filtered.slice(
+      (safePage - 1) * PEOPLE_PAGE_SIZE,
+      safePage * PEOPLE_PAGE_SIZE,
+    ),
+    [filtered, safePage],
   );
   const firstItem = filtered.length === 0 ? 0 : (safePage - 1) * PEOPLE_PAGE_SIZE + 1;
   const lastItem = Math.min(safePage * PEOPLE_PAGE_SIZE, filtered.length);
 
   const stats = useMemo(() => {
-    return {
-      total: people.length,
-      active: people.filter((p) => p.status === "active").length,
-      onLeave: people.filter((p) => p.status === "on_leave").length,
-      resigned: people.filter((p) => p.status === "resigned").length,
-      departments: new Set(people.map((p) => p.department)).size,
-    };
+    const departments = new Set<string>();
+    let active = 0;
+    let onLeave = 0;
+    let resigned = 0;
+    let overloaded = 0;
+    for (const person of people) {
+      if (person.status === "active") active += 1;
+      else if (person.status === "on_leave") onLeave += 1;
+      else if (person.status === "resigned") resigned += 1;
+      if (person.department) departments.add(person.department);
+      if (person.max_tasks > 0 && (person.task_count ?? 0) > person.max_tasks) overloaded += 1;
+    }
+    return { total: people.length, active, onLeave, resigned, departments: departments.size, overloaded };
   }, [people]);
 
   const handleSave = async (p: Person) => {
+    if (savingPerson) return;
     if (!canManagePeople) {
       toast.error(t("当前账号没有管理研发人员权限"));
       return;
     }
-    if (editing) {
-      try {
-        const saved = await updateRdPerson({ ...p, id: editing.id });
+    setSavingPerson(true);
+    try {
+      if (editing) {
+        const saved = await updateRdPerson({ ...personToMutation(p), id: editing.id });
         const savedPerson = personFromLoad(saved);
         setPeople((prev) => prev.map((x) => (x.id === savedPerson.id ? savedPerson : x)));
         setEditing(null);
         toast.success(t("研发成员已保存"));
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : t("保存研发成员失败"));
-        return;
-      }
-    } else {
-      try {
-        const saved = await createRdPerson({ ...p, id: p.id || undefined });
+      } else {
+        const saved = await createRdPerson(personToMutation(p));
         const savedPerson = personFromLoad(saved);
         setPeople((prev) => [savedPerson, ...prev]);
         setCreating(false);
         toast.success(t("研发成员已创建"));
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : t("创建研发成员失败"));
-        return;
       }
+      setPage(1);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : editing ? t("保存研发成员失败") : t("创建研发成员失败"));
+    } finally {
+      setSavingPerson(false);
     }
-    setPage(1);
   };
 
   const handleDelete = async () => {
+    if (deletingPerson) return;
     if (!canManagePeople) {
       toast.error(t("当前账号没有管理研发人员权限"));
       return;
     }
     if (deleteTarget) {
+      setDeletingPerson(true);
       try {
         await deleteRdPerson(deleteTarget.id);
         setPeople((prev) => prev.filter((p) => p.id !== deleteTarget.id));
@@ -921,6 +1031,8 @@ export function RDPeopleManagementPage({
         toast.success(t("研发成员已删除"));
       } catch (error) {
         toast.error(error instanceof Error ? error.message : t("删除研发成员失败"));
+      } finally {
+        setDeletingPerson(false);
       }
     }
   };
@@ -928,7 +1040,7 @@ export function RDPeopleManagementPage({
   return (
     <div
       className={cn(
-        "rd-people-page flex min-h-full flex-col overflow-hidden bg-slate-50/40 animate-rd-fade-in",
+        "rd-people-page flex min-h-full flex-col overflow-hidden bg-slate-50/40",
         isHorizon && "rd-horizon-module rd-horizon-people",
       )}
       data-visual-variant={visualVariant}
@@ -939,9 +1051,9 @@ export function RDPeopleManagementPage({
           <button
             type="button"
             onClick={onBack}
-            className="rd-people-back group flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.96]"
+            className="rd-people-back flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
           >
-            <ChevronLeft className="h-4 w-4 transition-transform duration-200 ease-out group-hover:-translate-x-0.5" />
+            <ChevronLeft className="size-4" />
             {t("返回")}
           </button>
           <span className="text-xs text-slate-300">·</span>
@@ -953,7 +1065,7 @@ export function RDPeopleManagementPage({
           <button
             type="button"
             onClick={() => setCreating(true)}
-            className="rd-people-primary inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.2)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_24px_rgba(79,70,229,0.22)] active:scale-[0.98]"
+            className="rd-people-primary inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#001f73] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
           >
             <Plus className="h-3.5 w-3.5" />
             {t("新增成员")}
@@ -967,17 +1079,52 @@ export function RDPeopleManagementPage({
 
       <div className="rd-people-viewport flex-1 overflow-auto px-6 py-6">
         <div className="rd-people-shell mx-auto max-w-6xl space-y-5 rd-stagger-children">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-balance text-xl font-semibold text-slate-950">{t("研发人员与负载")}</h2>
+              <p className="mt-1 max-w-2xl text-pretty text-sm text-slate-500">
+                {t("查看成员归属、任务容量与阻塞风险，优先处理超负载人员。")}
+              </p>
+            </div>
+            {stats.overloaded > 0 && (
+              <div className="inline-flex items-center gap-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                <AlertTriangle className="size-4" aria-hidden="true" />
+                <span>{t("{count} 人超负载", { count: stats.overloaded })}</span>
+              </div>
+            )}
+          </div>
+
+          {loadError && (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <div className="flex min-w-0 items-start gap-2">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                <p className="text-pretty">{loadError}</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={loading}
+                onClick={() => setReloadVersion((version) => version + 1)}
+                className="shrink-0 border-amber-300 bg-white text-amber-900 focus-visible:ring-amber-600"
+              >
+                <RefreshCw className={cn("size-3.5", loading && "animate-spin")} aria-hidden="true" />
+                {loading ? t("重试中…") : t("重新加载")}
+              </Button>
+            </div>
+          )}
+
           {/* Stats strip */}
           <section className="rd-people-stats overflow-hidden rounded-xl border border-slate-100 bg-white">
-            <div className="rd-people-stats-grid grid grid-cols-2 divide-x divide-slate-100 md:grid-cols-4">
+            <div className="rd-people-stats-grid grid grid-cols-2 divide-x divide-slate-100 sm:grid-cols-3 lg:grid-cols-5">
               <div className="rd-people-stat px-6 py-4" data-tone="neutral">
-                <div className="text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
+                <div className="text-3xl font-semibold tabular-nums text-slate-900">
                   {stats.total}
                 </div>
                 <div className="mt-1 text-[11px] font-medium text-slate-500">{t("总成员数")}</div>
               </div>
               <div className="rd-people-stat px-6 py-4" data-tone="success">
-                <div className="text-3xl font-semibold tabular-nums tracking-tight text-emerald-600">
+                <div className="text-3xl font-semibold tabular-nums text-emerald-600">
                   {stats.active}
                 </div>
                 <div className="mt-1 text-[11px] font-medium text-slate-500">{t("在岗")}</div>
@@ -985,7 +1132,7 @@ export function RDPeopleManagementPage({
               <div className="rd-people-stat px-6 py-4" data-tone="warning">
                 <div
                   className={cn(
-                    "text-3xl font-semibold tabular-nums tracking-tight",
+                    "text-3xl font-semibold tabular-nums",
                     stats.onLeave > 0 ? "text-amber-600" : "text-slate-300",
                   )}
                 >
@@ -994,17 +1141,26 @@ export function RDPeopleManagementPage({
                 <div className="mt-1 text-[11px] font-medium text-slate-500">{t("请假中")}</div>
               </div>
               <div className="rd-people-stat px-6 py-4" data-tone="neutral">
-                <div className="text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
+                <div className="text-3xl font-semibold tabular-nums text-slate-900">
                   {stats.departments}
                 </div>
                 <div className="mt-1 text-[11px] font-medium text-slate-500">{t("所属组")}</div>
+              </div>
+              <div className="rd-people-stat px-6 py-4" data-tone="danger">
+                <div className={cn("text-3xl font-semibold tabular-nums", stats.overloaded > 0 ? "text-rose-600" : "text-slate-300")}>
+                  {stats.overloaded}
+                </div>
+                <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-slate-500">
+                  <AlertTriangle className="size-3" aria-hidden="true" />
+                  {t("超负载")}
+                </div>
               </div>
             </div>
           </section>
 
           {/* Filters */}
           <section className="rd-people-filters flex flex-wrap items-center gap-2 rounded-xl border border-slate-100 bg-white px-4 py-3">
-            <div className="rd-people-search flex min-w-[260px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition-all focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
+            <div className="rd-people-search flex min-w-[min(260px,100%)] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition-colors focus-within:border-[#8fa9e8] focus-within:ring-2 focus-within:ring-[#dce5fa]">
               <Search className="h-3.5 w-3.5 text-slate-400" />
               <Input
                 value={keyword}
@@ -1023,7 +1179,7 @@ export function RDPeopleManagementPage({
                     setKeyword("");
                     setPage(1);
                   }}
-                  className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]"
                   aria-label={t("清除搜索")}
                 >
                   <X className="h-3 w-3" />
@@ -1044,9 +1200,9 @@ export function RDPeopleManagementPage({
                   data-status={s}
                   data-active={statusFilter === s}
                   className={cn(
-                    "rounded border border-transparent px-2.5 py-1 text-xs font-medium transition-all duration-150 active:scale-95",
+                    "rounded border border-transparent px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-1",
                     statusFilter === s
-                      ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_6px_14px_rgba(79,70,229,0.08)] ring-1 ring-indigo-100"
+                      ? "border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7] ring-1 ring-[#dce5fa]"
                       : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
                   )}
                 >
@@ -1057,11 +1213,12 @@ export function RDPeopleManagementPage({
 
             <NativeSelect
               value={deptFilter}
+              aria-label={t("所属组筛选")}
               onChange={(e) => {
                 setDeptFilter(e.target.value);
                 setPage(1);
               }}
-              className="rd-people-department-filter cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="rd-people-department-filter cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-colors focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
             >
               <option value="all">{t("全部组")}</option>
               {departmentFilters.map((d) => (
@@ -1078,49 +1235,55 @@ export function RDPeopleManagementPage({
 
           {/* Table */}
           <section className="rd-people-table-surface overflow-hidden rounded-xl border border-slate-100 bg-white">
-            <div className="rd-people-table-scroll">
-            <table className="rd-people-table w-full">
+            <div className="rd-people-table-scroll overflow-x-auto">
+            <table className="rd-people-table w-full min-w-[1080px]">
               <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                  <th className="px-6 py-3 text-left">{t("成员")}</th>
-                  <th className="px-4 py-3 text-left">{t("登录用户")}</th>
-                  <th className="px-4 py-3 text-left">{t("职位")}</th>
-                  <th className="px-4 py-3 text-left">{t("组")}</th>
-                  <th className="px-4 py-3 text-left">{t("状态")}</th>
-                  <th className="px-4 py-3 text-left">{t("知识库等级")}</th>
-                  <th className="px-4 py-3 text-left">{t("入职日期")}</th>
-                  <th className="px-4 py-3 text-right">{t("操作")}</th>
+                <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-semibold text-slate-500">
+                  <th scope="col" className="px-6 py-3 text-left">{t("成员")}</th>
+                  <th scope="col" className="px-4 py-3 text-left">{t("登录用户")}</th>
+                  <th scope="col" className="px-4 py-3 text-left">{t("职位")}</th>
+                  <th scope="col" className="px-4 py-3 text-left">{t("组")}</th>
+                  <th scope="col" className="px-4 py-3 text-left">{t("状态")}</th>
+                  <th scope="col" className="px-4 py-3 text-left">{t("任务负载")}</th>
+                  <th scope="col" className="px-4 py-3 text-left">{t("知识库等级")}</th>
+                  <th scope="col" className="px-4 py-3 text-left">{t("入职日期")}</th>
+                  <th scope="col" className="px-4 py-3 text-right">{t("操作")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-16 text-center">
-                      <div role="status" aria-live="polite" className="text-sm font-medium text-slate-500">{t("正在加载研发成员…")}</div>
+                    <td colSpan={9} className="px-6 py-8">
+                      <div role="status" aria-live="polite" className="space-y-4">
+                        <p className="text-center text-sm font-medium text-slate-500">{t("正在加载研发成员…")}</p>
+                        {[0, 1, 2].map((item) => (
+                          <div key={item} className="flex items-center gap-4" aria-hidden="true">
+                            <span className="size-8 animate-pulse rounded-full bg-slate-200" />
+                            <span className="h-3 w-36 animate-pulse rounded bg-slate-200" />
+                            <span className="h-3 flex-1 animate-pulse rounded bg-slate-100" />
+                            <span className="h-3 w-24 animate-pulse rounded bg-slate-200" />
+                          </div>
+                        ))}
+                      </div>
                     </td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-16 text-center">
+                    <td colSpan={9} className="px-6 py-16 text-center">
                       <div role="status" className="text-sm font-semibold text-slate-600">
                         {people.length === 0 ? t("暂无研发成员") : t("没有匹配的成员")}
                       </div>
-                      <div className="mx-auto mt-1 max-w-sm text-xs leading-5 text-slate-400">
+                      <div className="mx-auto mt-1 max-w-sm text-pretty text-xs leading-5 text-slate-400">
                         {people.length === 0
                           ? t("后端当前没有人员数据。创建成员后，任务分配和人员负载会使用真实接口数据。")
                           : t("当前筛选条件下没有可显示的成员。")}
                       </div>
-                      {loadError && (
-                        <div role="alert" className="mx-auto mt-3 max-w-md rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                          {loadError}
-                        </div>
-                      )}
                       <div className="mt-4 flex items-center justify-center gap-2">
                         {people.length === 0 && canManagePeople ? (
                           <button
                             type="button"
                             onClick={() => setCreating(true)}
-                            className="rd-people-empty-primary inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-indigo-700 active:scale-[0.98]"
+                            className="rd-people-empty-primary inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#001f73] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
                           >
                             <Plus className="h-3.5 w-3.5" />
                             {t("新增成员")}
@@ -1134,17 +1297,33 @@ export function RDPeopleManagementPage({
                               setDeptFilter("all");
                               setPage(1);
                             }}
-                            className="rd-people-reset text-xs font-medium text-indigo-600 hover:underline"
+                            className="rd-people-reset rounded px-2 py-1 text-xs font-medium text-[#002fa7] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]"
                           >
                             {t("重置筛选")}
                           </button>
-                        ) : null}
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setReloadVersion((version) => version + 1)}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
+                          >
+                            <RefreshCw className="size-3.5" aria-hidden="true" />
+                            {t("刷新成员")}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
                 ) : (
                   pagedPeople.map((p) => {
                     const cfg = PERSON_STATUS_CONFIG[p.status] ?? PERSON_STATUS_CONFIG["active"];
+                    const maxTasks = Math.max(1, p.max_tasks);
+                    const taskCount = Math.max(0, p.task_count ?? 0);
+                    const ownedTasks = p.tasks ?? [];
+                    const loadPercentage = Math.min(100, Math.round((taskCount / maxTasks) * 100));
+                    const isOverloaded = taskCount > maxTasks;
+                    const isNearCapacity = !isOverloaded && loadPercentage >= 80;
+                    const loadLabel = isOverloaded ? t("超负载") : isNearCapacity ? t("接近上限") : t("可承接");
                     return (
                       <tr
                         key={p.id}
@@ -1155,7 +1334,7 @@ export function RDPeopleManagementPage({
                           <div className="flex items-center gap-3">
                             <PersonAvatar name={p.name} />
                             <div className="min-w-0">
-                              <div className="text-sm font-medium text-slate-900">{p.name}</div>
+                              <div className="max-w-40 truncate text-sm font-medium text-slate-900" title={p.name}>{p.name}</div>
                               {p.email && (
                                 <div className="mt-0.5 truncate text-[11px] text-slate-400">
                                   {p.email}
@@ -1178,7 +1357,9 @@ export function RDPeopleManagementPage({
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3.5 text-sm text-slate-700">{p.position}</td>
+                        <td className="max-w-40 px-4 py-3.5 text-sm text-slate-700">
+                          <span className="block truncate" title={p.position}>{p.position}</span>
+                        </td>
                         <td className="px-4 py-3.5">
                           <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
                             {p.department}
@@ -1192,9 +1373,44 @@ export function RDPeopleManagementPage({
                               cfg.text,
                             )}
                           >
-                            <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
+                            <span className={cn("size-1.5 rounded-full", cfg.dot)} aria-hidden="true" />
                             {t(cfg.label)}
                           </span>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="min-w-36" title={ownedTasks.length > 0 ? ownedTasks.join("、") : t("暂无归属任务")}>
+                            <div className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className={cn(
+                                "inline-flex items-center gap-1 font-semibold",
+                                isOverloaded ? "text-rose-700" : isNearCapacity ? "text-amber-700" : "text-[#002fa7]",
+                              )}>
+                                {(isOverloaded || (p.blocked_count ?? 0) > 0) && <AlertTriangle className="size-3" aria-hidden="true" />}
+                                {loadLabel}
+                              </span>
+                              <span className="tabular-nums text-slate-600">{taskCount}/{maxTasks}</span>
+                            </div>
+                            <div
+                              role="progressbar"
+                              aria-label={t("{name} 的任务负载", { name: p.name })}
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-valuenow={loadPercentage}
+                              className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100"
+                            >
+                              <span
+                                className={cn(
+                                  "block h-full rounded-full",
+                                  isOverloaded ? "bg-rose-500" : isNearCapacity ? "bg-amber-500" : "bg-[#002fa7]",
+                                )}
+                                style={{ width: `${loadPercentage}%` }}
+                              />
+                            </div>
+                            <div className="mt-1 truncate text-[10px] text-slate-400">
+                              {(p.blocked_count ?? 0) > 0
+                                ? t("{count} 项阻塞", { count: p.blocked_count ?? 0 })
+                                : ownedTasks[0] ?? t("暂无归属任务")}
+                            </div>
+                          </div>
                         </td>
                         <td className="px-4 py-3.5">
                           {(() => {
@@ -1229,12 +1445,12 @@ export function RDPeopleManagementPage({
                         </td>
                         <td className="px-4 py-3.5">
                           {canManagePeople ? (
-                            <div className="rd-people-row-actions flex items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                            <div className="rd-people-row-actions flex items-center justify-end gap-1 opacity-100 lg:opacity-0 lg:transition-opacity lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
                               <button
                                 type="button"
                                 onClick={() => setEditing(p)}
                                 data-action="edit"
-                                className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-indigo-50 hover:text-indigo-600 active:scale-90"
+                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]"
                                 aria-label={t("编辑 {name}", { name: p.name })}
                                 title={t("编辑")}
                               >
@@ -1244,7 +1460,7 @@ export function RDPeopleManagementPage({
                                 type="button"
                                 onClick={() => setDeleteTarget(p)}
                                 data-action="delete"
-                                className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-red-50 hover:text-red-600 active:scale-90"
+                                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600"
                                 aria-label={t("删除 {name}", { name: p.name })}
                                 title={t("删除")}
                               >
@@ -1277,7 +1493,7 @@ export function RDPeopleManagementPage({
                     onClick={() => setPage((current) => Math.max(1, current - 1))}
                     disabled={safePage === 1}
                     data-direction="previous"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all duration-150 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500"
+                    className="inline-flex size-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-[#cbd8f6] hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500"
                     aria-label={t("上一页")}
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -1292,10 +1508,10 @@ export function RDPeopleManagementPage({
                         aria-current={safePage === pageNumber ? "page" : undefined}
                         data-active={safePage === pageNumber}
                         className={cn(
-                          "h-8 min-w-8 rounded-md border px-2 text-xs font-semibold tabular-nums transition-all duration-150 active:scale-95",
+                          "h-8 min-w-8 rounded-md border px-2 text-xs font-semibold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]",
                           safePage === pageNumber
-                            ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_6px_14px_rgba(79,70,229,0.1)] ring-1 ring-indigo-100"
-                            : "border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600",
+                            ? "border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7] ring-1 ring-[#dce5fa]"
+                            : "border-slate-200 bg-white text-slate-500 hover:border-[#cbd8f6] hover:bg-[#eef3ff] hover:text-[#002fa7]",
                         )}
                       >
                         {pageNumber}
@@ -1307,7 +1523,7 @@ export function RDPeopleManagementPage({
                     onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                     disabled={safePage === totalPages}
                     data-direction="next"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all duration-150 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500"
+                    className="inline-flex size-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-[#cbd8f6] hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500"
                     aria-label={t("下一页")}
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -1324,10 +1540,14 @@ export function RDPeopleManagementPage({
         <PersonFormModal
           person={editing}
           users={systemUsers}
+          identityOptionsError={identityOptionsError}
+          onRetryIdentityOptions={() => setReloadVersion((version) => version + 1)}
           canManageDepartments={canManagePeople}
           visualVariant={visualVariant}
+          saving={savingPerson}
           onSave={handleSave}
           onClose={() => {
+            if (savingPerson) return;
             setEditing(null);
             setCreating(false);
           }}
@@ -1337,8 +1557,11 @@ export function RDPeopleManagementPage({
         <ConfirmDeleteDialog
           person={deleteTarget}
           visualVariant={visualVariant}
+          busy={deletingPerson}
           onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
+          onCancel={() => {
+            if (!deletingPerson) setDeleteTarget(null);
+          }}
         />
       )}
     </div>

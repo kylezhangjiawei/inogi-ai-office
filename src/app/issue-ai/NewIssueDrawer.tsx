@@ -4,16 +4,22 @@
  * 两步：①表单 → 提交时 service.create + service.findSimilar；②查相似结果。
  * 命中可「复用此方案」(adopt reuse)；可「查看详情」(打开历史问题)；
  * 都不匹配 → service.analyze(新问题) 触发完整根因分析后打开新问题详情。
- * 暗色纯遮罩（不用 backdrop-blur）；Esc 关闭；aria-modal；尊重 reduced-motion。
+ * 使用项目 Sheet 原语处理遮罩、Esc、焦点约束与关闭后的焦点归还。
  */
 import * as React from "react";
-import { createPortal } from "react-dom";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { toast } from "sonner";
 import { Loader2, Paperclip, Sparkles, X } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "../components/ui/sheet";
 import {
   type Issue,
   type IssueService,
@@ -37,15 +43,6 @@ function fileToDataUrl(file: File): Promise<string | undefined> {
 
 type Step = "form" | "similar";
 
-const FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  "textarea:not([disabled])",
-  "select:not([disabled])",
-  '[tabindex]:not([tabindex="-1"])',
-].join(",");
-
 const emptyForm = {
   title: "",
   description: "",
@@ -54,18 +51,17 @@ const emptyForm = {
 export function NewIssueDrawer({
   service,
   open,
+  returnFocusRef,
   onClose,
   onOpen,
 }: {
   service: IssueService;
   open: boolean;
+  returnFocusRef: React.RefObject<HTMLButtonElement | null>;
   onClose: () => void;
   onOpen: (id: string) => void;
 }) {
   useI18n();
-  const reduce = useReducedMotion();
-  const dialogTitleId = React.useId();
-  const dialogDescriptionId = React.useId();
 
   const [step, setStep] = React.useState<Step>("form");
   const [form, setForm] = React.useState(emptyForm);
@@ -78,15 +74,6 @@ export function NewIssueDrawer({
   const [createdIssue, setCreatedIssue] = React.useState<Issue | null>(null);
   const [matches, setMatches] = React.useState<SimilarMatch[]>([]);
   const [busyAction, setBusyAction] = React.useState<string | null>(null);
-
-  const panelRef = React.useRef<HTMLDivElement | null>(null);
-  const returnFocusRef = React.useRef<HTMLElement | null>(null);
-  const restoreFocusTimerRef = React.useRef<number | null>(null);
-  const onCloseRef = React.useRef(onClose);
-
-  React.useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
 
   // 打开时重置全部状态。
   React.useEffect(() => {
@@ -102,65 +89,6 @@ export function NewIssueDrawer({
       setBusyAction(null);
     }
   }, [open]);
-
-  // Esc 关闭、模态焦点约束与关闭后的焦点归还。
-  React.useEffect(() => {
-    if (!open) return;
-    if (restoreFocusTimerRef.current !== null) {
-      window.clearTimeout(restoreFocusTimerRef.current);
-      restoreFocusTimerRef.current = null;
-    }
-    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const appRoot = document.getElementById("root");
-    const rootWasInert = appRoot?.inert ?? false;
-    if (appRoot) appRoot.inert = true;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const panel = panelRef.current;
-      if (!panel) return;
-      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-        (node) => node.getClientRects().length > 0 && node.getAttribute("aria-hidden") !== "true",
-      );
-      if (focusable.length === 0) {
-        e.preventDefault();
-        panel.focus();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (!panel.contains(document.activeElement)) {
-        e.preventDefault();
-        first.focus();
-      } else if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    const t = window.setTimeout(() => {
-      const first = panelRef.current?.querySelector<HTMLElement>("[data-autofocus]")
-        ?? panelRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
-      (first ?? panelRef.current)?.focus();
-    }, 30);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      window.clearTimeout(t);
-      if (appRoot) appRoot.inert = rootWasInert;
-      const opener = returnFocusRef.current;
-      restoreFocusTimerRef.current = window.setTimeout(() => {
-        if (opener?.isConnected) opener.focus();
-        restoreFocusTimerRef.current = null;
-      }, reduce ? 0 : 260);
-    };
-  }, [open, reduce]);
 
   const titleOk = form.title.trim().length > 0;
   const descOk = form.description.trim().length > 0;
@@ -266,111 +194,82 @@ export function NewIssueDrawer({
     onOpen(id);
   };
 
-  if (typeof document === "undefined") return null;
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose();
+      }}
+    >
+      <SheetContent
+        side="right"
+        data-step={step}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const opener = returnFocusRef.current;
+          if (opener?.isConnected) opener.focus();
+        }}
+        className="horizon-portal rd-horizon-issue-drawer rd-horizon-issue-drawer-surface w-full gap-0 border-l border-[#e9edf7] bg-white p-0 transition-none data-[state=closed]:animate-none data-[state=open]:animate-none sm:max-w-2xl"
+      >
+        <SheetHeader className="rd-horizon-issue-drawer-header border-b border-[#e9edf7] px-5 py-4 pr-14 text-left">
+          <SheetTitle className="text-base font-semibold text-[#1b2559] text-balance">
+            {t("新建问题")}
+          </SheetTitle>
+          <SheetDescription className="text-xs text-[#64748b] text-pretty">
+            {step === "form" ? t("第 1 步 · 填写问题") : t("第 2 步 · 查相似方案")}
+          </SheetDescription>
+        </SheetHeader>
 
-  return createPortal(
-    <AnimatePresence>
-      {open && (
-        <div className="rd-horizon-issue-drawer fixed inset-0 z-50" role="presentation">
-          {/* 纯暗色遮罩，无 blur */}
-          <motion.div
-            className="rd-horizon-issue-drawer-backdrop absolute inset-0 bg-slate-900/50"
-            aria-hidden="true"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: reduce ? 0 : 0.2 }}
-            onClick={onClose}
-          />
-          <motion.div
-            ref={panelRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={dialogTitleId}
-            aria-describedby={dialogDescriptionId}
-            data-step={step}
-            tabIndex={-1}
-            className="rd-horizon-issue-drawer-surface absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col bg-white outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/60 dark:bg-slate-900"
-            initial={reduce ? { opacity: 0 } : { x: "100%" }}
-            animate={reduce ? { opacity: 1 } : { x: 0 }}
-            exit={reduce ? { opacity: 0 } : { x: "100%" }}
-            transition={{ type: "tween", duration: reduce ? 0 : 0.25, ease: "easeOut" }}
-          >
-            {/* Header */}
-            <header className="rd-horizon-issue-drawer-header flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
-              <div>
-                <h2 id={dialogTitleId} className="text-base font-semibold text-slate-800 dark:text-slate-100">
-                  {t("新建问题")}
-                </h2>
-                <p id={dialogDescriptionId} className="mt-0.5 text-xs text-slate-400">
-                  {step === "form" ? t("第 1 步 · 填写问题") : t("第 2 步 · 查相似方案")}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label={t("关闭")}
-                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:bg-slate-800"
-              >
-                <X className="size-5" />
-              </button>
-            </header>
-
-            {/* Body */}
-            <div className="rd-horizon-issue-drawer-body flex-1 overflow-y-auto px-5 py-4">
-              {step === "form" ? (
-                <FormStep
-                  form={form}
-                  setForm={setForm}
-                  attachments={attachments}
-                  setAttachments={setAttachments}
-                  uploading={uploading}
-                  invalid={touched && !formValid}
-                  dragOver={dragOver}
-                  setDragOver={setDragOver}
-                  onFiles={handleFiles}
-                />
-              ) : (
-                <SimilarStep
-                  matches={matches}
-                  busyAction={busyAction}
-                  onReuse={reuse}
-                  onViewDetail={(id) => onOpen(id)}
-                />
-              )}
-            </div>
-
-            {/* Footer */}
-            <footer className="rd-horizon-issue-drawer-footer border-t border-slate-200 px-5 py-4 dark:border-slate-700">
-              {step === "form" ? (
-                <div className="flex items-center justify-end gap-2">
-                  <Button variant="ghost" onClick={onClose}>
-                    {t("取消")}
-                  </Button>
-                  <Button onClick={goSimilar} disabled={submitting || uploading}>
-                    {submitting || uploading ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : null}
-                    {uploading ? t("附件上传中…") : t("下一步：查相似")}
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={enterDetail}
-                  disabled={!!busyAction}
-                >
-                  <Sparkles className="size-4" />
-                  {t("以上都不匹配 → 进入详情（AI 自动分析）")}
-                </Button>
-              )}
-            </footer>
-          </motion.div>
+        <div className="rd-horizon-issue-drawer-body flex-1 overflow-y-auto px-5 py-4">
+          {step === "form" ? (
+            <FormStep
+              form={form}
+              setForm={setForm}
+              attachments={attachments}
+              setAttachments={setAttachments}
+              uploading={uploading}
+              invalid={touched && !formValid}
+              dragOver={dragOver}
+              setDragOver={setDragOver}
+              onFiles={handleFiles}
+            />
+          ) : (
+            <SimilarStep
+              matches={matches}
+              busyAction={busyAction}
+              onReuse={reuse}
+              onViewDetail={(id) => onOpen(id)}
+            />
+          )}
         </div>
-      )}
-    </AnimatePresence>,
-    document.body,
+
+        <SheetFooter className="rd-horizon-issue-drawer-footer block border-t border-[#e9edf7] px-5 py-4">
+          {step === "form" ? (
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={onClose}>
+                {t("取消")}
+              </Button>
+              <Button className="hz-primary-action" onClick={goSimilar} disabled={submitting || uploading}>
+                {submitting || uploading ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : null}
+                {uploading ? t("附件上传中…") : t("下一步：查相似")}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={enterDetail}
+              disabled={!!busyAction}
+            >
+              <Sparkles className="size-4" />
+              {t("以上都不匹配 → 进入详情（AI 自动分析）")}
+            </Button>
+          )}
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -392,7 +291,7 @@ function Field({
 }) {
   const content = (
     <>
-      <span className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+      <span className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-600">
         {label}
         {required ? <span className="text-red-500">*</span> : null}
       </span>
@@ -437,8 +336,8 @@ function FormStep({
   return (
     <div className="rd-horizon-issue-drawer-form-section space-y-4">
       {/* 标题 / 描述 / 附件为「或」关系：任意其一填写即可，无需全部填写。 */}
-      <p className="rd-horizon-issue-drawer-note rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
-        {t("标题、描述、附件")} {" "}<span className="font-medium text-slate-600 dark:text-slate-300">{t("任填其一")}</span>{" "}{t("即可开始 AI 分析。")}
+      <p className="rd-horizon-issue-drawer-note rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500 text-pretty">
+        {t("标题、描述、附件")} {" "}<span className="font-medium text-slate-600">{t("任填其一")}</span>{" "}{t("即可开始 AI 分析。")}
       </p>
       {invalid ? (
         <p className="text-xs text-red-500">{t("请至少填写标题、描述，或上传附件其中之一。")}</p>
@@ -459,11 +358,7 @@ function FormStep({
           onChange={(e) => set("description", e.target.value)}
           rows={4}
           placeholder={t("现象 / 复现条件 / 影响范围…")}
-          className={cn(
-            "flex w-full rounded-md border border-input bg-input-background px-3 py-2 text-sm outline-none transition-[color,box-shadow]",
-            "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
-            "dark:bg-input/30",
-          )}
+          className="flex w-full rounded-md border border-input bg-input-background px-3 py-2 text-sm outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
         />
       </Field>
 
@@ -483,18 +378,18 @@ function FormStep({
           className={cn(
             "rd-horizon-issue-drawer-dropzone flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-4 py-5 text-center transition-colors",
             dragOver
-              ? "border-indigo-400 bg-indigo-50/60 dark:border-indigo-500/50 dark:bg-indigo-500/10"
-              : "border-slate-300 dark:border-slate-600",
+              ? "border-[#002fa7] bg-[#eef3ff]"
+              : "border-slate-300",
           )}
         >
           {uploading ? (
-            <Loader2 className="size-5 animate-spin text-indigo-500" />
+            <Loader2 className="size-5 animate-spin text-[#002fa7]" />
           ) : (
             <Paperclip className="size-5 text-slate-400" />
           )}
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-slate-500">
             {t("拖拽文件到此，或")}{" "}
-            <label className="rd-horizon-issue-file-picker ml-1 cursor-pointer font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+            <label className="rd-horizon-issue-file-picker ml-1 cursor-pointer font-medium text-[#002fa7] hover:underline">
               {t("点击选择")}
               <input
                 type="file"
@@ -517,9 +412,9 @@ function FormStep({
             {attachments.map((a, i) => (
               <li
                 key={`${a.fileName}-${i}`}
-                className="rd-horizon-issue-drawer-attachment flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800/40"
+                className="rd-horizon-issue-drawer-attachment flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs"
               >
-                <span className="truncate text-slate-600 dark:text-slate-300">
+                <span className="truncate text-slate-600">
                   {a.fileName}
                 </span>
                 <button
@@ -528,7 +423,7 @@ function FormStep({
                   onClick={() =>
                     setAttachments((cur) => cur.filter((_, idx) => idx !== i))
                   }
-                  className="rounded-sm p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:bg-slate-700"
+                  className="rounded-sm p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/60"
                 >
                   <X className="size-3.5" />
                 </button>
@@ -559,7 +454,7 @@ function ScoreRing({ score }: { score: number }) {
           r={r}
           fill="none"
           strokeWidth="4"
-          className="stroke-slate-200 dark:stroke-slate-700"
+          className="stroke-slate-200"
         />
         <circle
           cx="20"
@@ -570,11 +465,11 @@ function ScoreRing({ score }: { score: number }) {
           strokeLinecap="round"
           strokeDasharray={c}
           strokeDashoffset={offset}
-          className="stroke-indigo-500 transition-[stroke-dashoffset] duration-500"
+          className="stroke-[#002fa7]"
         />
       </svg>
       <span className="absolute inset-0 flex items-center justify-center">
-        <Mono className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+        <Mono className="text-xs font-semibold text-[#002fa7]">
           {pct}
         </Mono>
       </span>
@@ -596,8 +491,8 @@ function SimilarStep({
   if (matches.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 py-10 text-center">
-        <Sparkles className="size-7 text-slate-300 dark:text-slate-600" />
-        <p className="text-sm text-slate-500 dark:text-slate-400">
+        <Sparkles className="size-7 text-slate-300" />
+        <p className="text-sm text-slate-500">
           {t("未找到相似的历史问题")}
         </p>
         <p className="text-xs text-slate-400">
@@ -617,7 +512,7 @@ function SimilarStep({
         return (
           <div
             key={m.issue.id}
-            className="rd-horizon-issue-similar-card rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900"
+            className="rd-horizon-issue-similar-card rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
           >
             <div className="flex items-start gap-3">
               <ScoreRing score={m.score} />
@@ -626,24 +521,24 @@ function SimilarStep({
                   <Mono className="text-[11px] text-slate-400">{m.issue.id}</Mono>
                   <SourceTag value={m.issue.source} />
                 </div>
-                <div className="mt-0.5 line-clamp-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+                <div className="mt-0.5 line-clamp-2 text-sm font-medium text-slate-800">
                   {m.issue.title}
                 </div>
               </div>
             </div>
 
             {m.adoptedSolution ? (
-              <div className="rd-horizon-issue-similar-solution mt-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-2.5 dark:border-indigo-500/20 dark:bg-indigo-500/5">
+              <div className="rd-horizon-issue-similar-solution mt-2 rounded-lg border border-[#dce6ff] bg-[#eef3ff] p-2.5">
                 <div className="mb-1 flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
+                  <span className="text-xs font-medium text-[#002fa7]">
                     {t("采纳方案")}
                   </span>
                   <SolutionTypeBadge value={m.adoptedSolution.type} />
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="text-xs text-slate-500">
                   {t("根因：")}{m.adoptedSolution.cause}
                 </p>
-                <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+                <p className="mt-0.5 text-xs text-slate-600">
                   {m.adoptedSolution.action}
                 </p>
               </div>

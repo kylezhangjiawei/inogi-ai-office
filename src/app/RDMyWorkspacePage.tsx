@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
@@ -551,21 +551,49 @@ function relativeTimeLabel(iso: string | null | undefined, fallback: string): st
   return iso.slice(0, 10);
 }
 
+const REVIEW_NOTIFICATION_PATCH_RETRY_DELAYS = [0, 250, 750] as const;
+
+function isReviewAlreadySettledError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /不是待审核状态|不处于待审核状态|没有待处理的审核|请勿重复审核|已被其他审核人处理|仅「待研发审核」的转采购申请可(?:审核通过|打回)|(?:研发|采购)?任务不存在|未找到.*采购任务/.test(message);
+}
+
+async function patchReviewNotificationHandled(notificationId: string): Promise<boolean> {
+  for (const delayMs of REVIEW_NOTIFICATION_PATCH_RETRY_DELAYS) {
+    if (delayMs > 0) await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
+    try {
+      await patchRdMessage(notificationId, { handled: true, read: true });
+      return true;
+    } catch {
+      // 审核结果已生效时，通知回写是独立的收尾步骤；短暂网络失败继续有限重试。
+    }
+  }
+  return false;
+}
+
+function retryReviewNotificationHandledLater(notificationId: string): void {
+  window.setTimeout(() => {
+    void patchReviewNotificationHandled(notificationId).then((synced) => {
+      if (synced) window.dispatchEvent(new CustomEvent("rd:messages-updated"));
+    });
+  }, 3_000);
+}
+
 const PRIORITY_CONFIG: Record<Priority, { label: string; className: string }> = {
-  high: { label: "高", className: "border-red-100 bg-red-50 text-red-600" },
+  high: { label: "高", className: "border-rose-100 bg-rose-50 text-rose-600" },
   medium: { label: "中", className: "border-amber-100 bg-amber-50 text-amber-700" },
   low: { label: "低", className: "border-slate-100 bg-slate-50 text-slate-500" },
 };
 
 const STATUS_CONFIG: Record<TaskStatus, { className: string; dot: string }> = {
   draft:          { className: "bg-slate-50 text-slate-500",   dot: "bg-slate-400" },
-  in_progress:    { className: "bg-blue-50 text-blue-700",     dot: "bg-blue-500" },
-  pending_review: { className: "bg-violet-50 text-violet-700", dot: "bg-violet-500" },
+  in_progress:    { className: "bg-[#eef3ff] text-[#001f73]",     dot: "bg-[#002fa7]" },
+  pending_review: { className: "bg-[#eef3ff] text-[#001f73]", dot: "bg-[#002fa7]" },
   paused_leave:   { className: "bg-amber-50 text-amber-700",   dot: "bg-amber-500" },
-  paused_blocked: { className: "bg-red-50 text-red-700",       dot: "bg-red-500" },
+  paused_blocked: { className: "bg-rose-50 text-rose-700",       dot: "bg-rose-500" },
   on_hold:        { className: "bg-amber-50 text-amber-600",   dot: "bg-amber-400" },
   completed:      { className: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500" },
-  pending_assign: { className: "bg-violet-50 text-violet-600", dot: "bg-violet-400" },
+  pending_assign: { className: "bg-[#eef3ff] text-[#002fa7]", dot: "bg-[#5f7fd3]" },
   archived:       { className: "bg-slate-50 text-slate-400",   dot: "bg-slate-300" },
 };
 
@@ -598,7 +626,7 @@ function ProgressBar({ value }: { value: number }) {
       <div
         className={cn(
           "h-full rounded-full transition-[width] duration-300",
-          value >= 80 ? "bg-emerald-400" : value >= 45 ? "bg-blue-400" : value > 0 ? "bg-amber-400" : "bg-slate-300",
+          value >= 80 ? "bg-emerald-400" : value >= 45 ? "bg-[#5f7fd3]" : value > 0 ? "bg-amber-400" : "bg-slate-300",
         )}
         style={{ width: `${value}%` }}
       />
@@ -658,12 +686,12 @@ function ActionButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
+        "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]",
         disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-        variant === "primary" && "bg-indigo-600 text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] hover:bg-indigo-700",
+        variant === "primary" && "bg-[#002fa7] text-white shadow-[0_8px_18px_rgba(0,47,167,0.20)] hover:bg-[#001f73]",
         variant === "secondary" && "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900",
         variant === "ghost" && "text-slate-500 hover:bg-slate-100 hover:text-slate-800",
-        variant === "danger" && "border border-red-100 bg-red-50 text-red-600 hover:bg-red-100",
+        variant === "danger" && "border border-rose-100 bg-rose-50 text-rose-600 hover:bg-rose-100",
         className,
       )}
     >
@@ -685,7 +713,10 @@ function ConfirmActionModal({
   const [confirming, setConfirming] = useState(false);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
-  useWorkspaceModalLayer(surfaceRef, cancelButtonRef, onCancel);
+  const requestClose = () => {
+    if (!confirming) onCancel();
+  };
+  useWorkspaceModalLayer(surfaceRef, cancelButtonRef, requestClose);
 
   const confirm = async () => {
     if (confirming) return;
@@ -701,7 +732,7 @@ function ConfirmActionModal({
 
   return (
     <motion.div
-      className="rd-horizon-workspace-confirm-backdrop fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/35 px-4 backdrop-blur-[2px]"
+      className="rd-horizon-workspace-confirm-backdrop fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/35 px-4"
       initial={shouldReduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -711,6 +742,7 @@ function ConfirmActionModal({
         ref={surfaceRef}
         role="dialog"
         aria-modal="true"
+        aria-busy={confirming}
         aria-labelledby="rd-workspace-confirm-title"
         aria-describedby="rd-workspace-confirm-description"
         tabIndex={-1}
@@ -724,7 +756,7 @@ function ConfirmActionModal({
           <span
             className={cn(
               "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-              isDanger ? "bg-red-50 text-red-600" : "bg-indigo-50 text-indigo-600",
+              isDanger ? "bg-rose-50 text-rose-600" : "bg-[#eef3ff] text-[#002fa7]",
             )}
           >
             <Icon className="h-5 w-5" />
@@ -737,8 +769,9 @@ function ConfirmActionModal({
           </div>
           <button
             type="button"
-            onClick={onCancel}
-            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            onClick={requestClose}
+            disabled={confirming}
+            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={t("关闭确认弹窗")}
           >
             <X className="h-4 w-4" />
@@ -761,16 +794,16 @@ function ConfirmActionModal({
         )}
 
         <div className="flex items-center justify-end gap-2 px-5 py-4">
-          <ActionButton buttonRef={cancelButtonRef} onClick={onCancel}>{config.cancelLabel ?? t("取消")}</ActionButton>
+          <ActionButton buttonRef={cancelButtonRef} onClick={requestClose} disabled={confirming}>{config.cancelLabel ?? t("取消")}</ActionButton>
           <button
             type="button"
             onClick={confirm}
             disabled={confirming}
             className={cn(
-              "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60",
+              "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60",
               isDanger
-                ? "bg-red-600 hover:bg-red-700 focus-visible:ring-red-200"
-                : "bg-indigo-600 hover:bg-indigo-700 focus-visible:ring-indigo-200",
+                ? "bg-rose-600 hover:bg-rose-700 focus-visible:ring-rose-200"
+                : "bg-[#002fa7] hover:bg-[#001f73] focus-visible:ring-[#cbd8f6]",
             )}
           >
             {confirming ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
@@ -792,8 +825,8 @@ function TaskCardUI({
   return (
     <article
       className={cn(
-        "group rounded-xl border bg-white px-3 py-2.5 shadow-[0_10px_24px_rgba(15,23,42,0.035)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(15,23,42,0.07)]",
-        task.on_leave ? "border-amber-100 bg-amber-50/40" : task.status === "paused_blocked" ? "border-red-100 bg-red-50/30" : "border-slate-200/80",
+        "group rounded-xl border bg-white px-3 py-2.5 shadow-[0_10px_24px_rgba(15,23,42,0.035)] transition-colors duration-200 hover:shadow-[0_16px_34px_rgba(15,23,42,0.07)]",
+        task.on_leave ? "border-amber-100 bg-amber-50/40" : task.status === "paused_blocked" ? "border-rose-100 bg-rose-50/30" : "border-slate-200/80",
       )}
     >
       <button
@@ -807,7 +840,7 @@ function TaskCardUI({
               <span className="font-mono text-xs text-slate-400">{task.task_id}</span>
               <StatusPill task={task} />
               {task.ai_pending && (
-                <span className="inline-flex items-center gap-1 rounded-md border border-violet-100 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-600">
+                <span className="inline-flex items-center gap-1 rounded-md border border-[#dce5fa] bg-[#eef3ff] px-1.5 py-0.5 text-[10px] font-medium text-[#002fa7]">
                   <Sparkles className="h-2.5 w-2.5" />
                   {t("AI 待确认")}
                 </span>
@@ -874,7 +907,7 @@ function FlowSteps({
           key={step.label}
           className={cn(
             "rounded-lg border px-3 py-2",
-            step.state === "current" && "border-blue-200 bg-blue-50",
+            step.state === "current" && "border-[#cbd8f6] bg-[#eef3ff]",
             step.state === "done" && "border-emerald-100 bg-emerald-50",
             step.state === "todo" && "border-slate-200 bg-slate-50",
           )}
@@ -883,7 +916,7 @@ function FlowSteps({
             <span
               className={cn(
                 "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold",
-                step.state === "current" && "bg-blue-600 text-white",
+                step.state === "current" && "bg-[#002fa7] text-white",
                 step.state === "done" && "bg-emerald-500 text-white",
                 step.state === "todo" && "bg-slate-200 text-slate-500",
               )}
@@ -918,7 +951,7 @@ function DrawerShell({
   useWorkspaceModalLayer(surfaceRef, closeButtonRef, onClose);
 
   return (
-    <div className="rd-horizon-workspace-drawer-backdrop fixed inset-0 z-50 flex justify-end bg-slate-950/20 backdrop-blur-[1px]">
+    <div className="rd-horizon-workspace-drawer-backdrop fixed inset-0 z-50 flex justify-end bg-slate-950/20">
       <aside
         ref={surfaceRef}
         className="rd-horizon-workspace-drawer-surface flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl"
@@ -929,7 +962,7 @@ function DrawerShell({
       >
         <header className="rd-horizon-workspace-drawer-header flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-4">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#eef3ff] text-[#002fa7]">
               <Icon className="h-4 w-4" />
             </span>
             <div className="min-w-0">
@@ -1776,9 +1809,9 @@ function TaskOperationDrawer({
                     setReceipt(null);
                   }}
                   className={cn(
-                    "flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-all",
+                    "flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors",
                     tab === item.key
-                      ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_8px_18px_rgba(79,70,229,0.08)]"
+                      ? "border-[#cbd8f6] bg-[#eef3ff] text-[#001f73] shadow-[0_8px_18px_rgba(0,47,167,0.08)]"
                       : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800",
                   )}
                 >
@@ -1828,7 +1861,7 @@ function TaskOperationDrawer({
                         setDueDateReason("");
                         setEditingDueDate((prev) => !prev);
                       }}
-                      className="cursor-pointer text-[11px] font-semibold text-indigo-600 transition-colors hover:text-indigo-700"
+                      className="cursor-pointer text-[11px] font-semibold text-[#002fa7] transition-colors hover:text-[#001f73]"
                     >
                       {editingDueDate ? t("取消") : t("修改")}
                     </button>
@@ -1839,9 +1872,9 @@ function TaskOperationDrawer({
             </div>
 
             {editingDueDate && !dueDateChangePending && (
-              <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+              <div className="rounded-xl border border-[#cbd8f6] bg-[#eef3ff]/50 p-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                  <CalendarClock className="h-4 w-4 text-indigo-600" />
+                  <CalendarClock className="h-4 w-4 text-[#002fa7]" />
                   {t("修改截止日期")}
                 </div>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
@@ -1904,7 +1937,7 @@ function TaskOperationDrawer({
                   <button
                     type="button"
                     onClick={submitDueDateChange}
-                    className="cursor-pointer rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-700"
+                    className="cursor-pointer rounded-lg bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#001f73]"
                   >
                     {t("提交审核")}
                   </button>
@@ -1915,7 +1948,7 @@ function TaskOperationDrawer({
             <div className="rounded-xl border border-slate-200 p-4">
               <div className="mb-2 text-sm font-semibold text-slate-900">{t("任务说明")}</div>
               <AutoTranslatedText as="p" className="text-sm leading-6 text-slate-600" text={task.description} />
-              <AutoTranslatedText as="div" className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700" text={task.next_action} />
+              <AutoTranslatedText as="div" className="mt-3 rounded-lg bg-[#eef3ff] px-3 py-2 text-sm text-[#001f73]" text={task.next_action} />
             </div>
 
             {/* 工作项清单：任务内部轻量拆分（如不同类型文档各一项）。参与人直接增删勾选，无需审批。
@@ -1976,13 +2009,13 @@ function TaskOperationDrawer({
                         addWorkItem();
                       }}
                       placeholder={t("输入工作项标题，回车添加（如：用户手册 · 英文版）")}
-                      className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                      className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
                     />
                     <button
                       type="button"
                       disabled={savingWorkItems || !workItemDraft.trim()}
                       onClick={addWorkItem}
-                      className="cursor-pointer rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40"
+                      className="cursor-pointer rounded-lg bg-[#002fa7] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#001f73] disabled:opacity-40"
                     >
                       {t("添加")}
                     </button>
@@ -2010,7 +2043,7 @@ function TaskOperationDrawer({
             {/*    ) : (*/}
             {/*      <ul className="space-y-2">*/}
             {/*        {task.blockers.map((item) => (*/}
-            {/*          <li key={item} className="flex items-center gap-2 text-sm text-red-600">*/}
+            {/*          <li key={item} className="flex items-center gap-2 text-sm text-rose-600">*/}
             {/*            <AlertTriangle className="h-3.5 w-3.5" />*/}
             {/*            {item}*/}
             {/*          </li>*/}
@@ -2032,7 +2065,7 @@ function TaskOperationDrawer({
             {/*          className={cn(*/}
             {/*            "relative z-10 mt-1 h-3.5 w-3.5 rounded-full border-2 bg-white",*/}
             {/*            item.state === "done" && "border-emerald-400",*/}
-            {/*            item.state === "current" && "border-blue-500 shadow-[0_0_0_4px_rgba(37,99,235,0.10)]",*/}
+            {/*            item.state === "current" && "border-[#002fa7] shadow-[0_0_0_4px_rgba(37,99,235,0.10)]",*/}
             {/*            item.state === "todo" && "border-slate-300",*/}
             {/*          )}*/}
             {/*        />*/}
@@ -2088,7 +2121,7 @@ function TaskOperationDrawer({
                             attachmentTargetRef.current = { note };
                             addFilesInputRef.current?.click();
                           }}
-                          className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-1 text-[11px] text-slate-500 transition-colors hover:border-indigo-300 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-1 text-[11px] text-slate-500 transition-colors hover:border-[#8fa9e8] hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <UploadCloud className="h-3 w-3" />
                           {attachmentBusy ? t("处理中…") : t("添加附件")}
@@ -2106,7 +2139,7 @@ function TaskOperationDrawer({
                                   text={op.comment || "变更了附件"}
                                   className={cn(
                                     "font-medium",
-                                    op.action === "task.attachment_removed" && "text-red-500/80",
+                                    op.action === "task.attachment_removed" && "text-rose-500/80",
                                     op.action === "task.attachment_replaced" && "text-amber-600/90",
                                     op.action === "task.attachment_added" && "text-slate-500",
                                   )}
@@ -2166,7 +2199,7 @@ function TaskOperationDrawer({
                       size="sm"
                       onClick={() => void confirmDeleteAttachment()}
                       disabled={attachmentBusy}
-                      className="bg-red-600 hover:bg-red-700"
+                      className="bg-rose-600 hover:bg-rose-700"
                     >
                       {attachmentBusy ? t("删除中…") : t("确认删除")}
                     </Button>
@@ -2258,7 +2291,7 @@ function TaskOperationDrawer({
                   <button
                     type="button"
                     onClick={() => { setAttachReason(""); setAttachTargetId(""); setAttachSearch(""); setAttachOpen(true); }}
-                    className="cursor-pointer text-xs font-medium text-slate-400 underline-offset-4 transition-colors hover:text-cyan-600 hover:underline"
+                    className="cursor-pointer text-xs font-medium text-slate-400 underline-offset-4 transition-colors hover:text-[#002fa7] hover:underline"
                   >
                     {t("并入其他任务成为子任务")}
                   </button>
@@ -2280,6 +2313,7 @@ function TaskOperationDrawer({
         {tab === "discussion" && (
           <div className="h-[min(680px,calc(100dvh-220px))] min-h-[420px] overflow-hidden rounded-xl border border-slate-200">
             <RDTaskConversation
+              key={`workspace-conversation:${task.task_id}`}
               taskId={task.task_id}
               taskTitle={task.title}
               notes={progressNotes}
@@ -2292,16 +2326,16 @@ function TaskOperationDrawer({
 
         {tab === "progress" && (
           <div className="space-y-4 rounded-xl border border-slate-200 p-4">
-            <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/60 px-4 py-3 text-xs text-slate-600">
+            <div className="rounded-xl border border-dashed border-[#cbd8f6] bg-[#eef3ff]/60 px-4 py-3 text-xs text-slate-600">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <Sparkles className="h-4 w-4 text-indigo-600" />
+                <Sparkles className="h-4 w-4 text-[#002fa7]" />
                 {t("AI 综合判断当前进度")}
               </div>
               <p className="mt-1">
                 {t("在下方填写进展说明并/或上传附件（方案、测试记录、实验数据、评审纪要等），AI 会一起读取后给出建议；最终进度由人工确认。")}
               </p>
               {aiLoading && (
-                <div className="mt-2 flex items-center gap-2 rounded-lg bg-white/70 px-3 py-2 text-xs text-indigo-700 ring-1 ring-indigo-100">
+                <div className="mt-2 flex items-center gap-2 rounded-lg bg-white/70 px-3 py-2 text-xs text-[#001f73] ring-1 ring-[#dce5fa]">
                   <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                   {t("AI 正在阅读依据并判断当前任务阶段…")}
                 </div>
@@ -2362,7 +2396,7 @@ function TaskOperationDrawer({
                     )
                   )}
                 </div>
-                <span className="font-semibold tabular-nums text-indigo-700">{draftProgress}%</span>
+                <span className="font-semibold tabular-nums text-[#001f73]">{draftProgress}%</span>
               </div>
               <Input
                 type="range"
@@ -2374,7 +2408,7 @@ function TaskOperationDrawer({
                   setDraftProgress(clampProgressValue(Number(event.target.value)));
                   setReceipt(null);
                 }}
-                className="w-full accent-indigo-600"
+                className="w-full accent-[#002fa7]"
               />
               <div className="mt-1 flex justify-between text-[10px] text-slate-400">
                 <span>{t("未开始")}</span>
@@ -2431,7 +2465,7 @@ function TaskOperationDrawer({
                   onPaste={handleNotePaste}
                   rows={4}
                   placeholder={t("说明本次进度变化、上传文件依据、产出内容、仍需支持的事项（可直接 Ctrl/⌘+V 粘贴截图）")}
-                  className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition-colors focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition-colors focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
                 />
               </div>
             </label>
@@ -2450,8 +2484,8 @@ function TaskOperationDrawer({
               className={cn(
                 "rounded-xl border px-3 py-3 outline-none transition-colors",
                 noteDragOver
-                  ? "border-dashed border-indigo-400 bg-indigo-50/70 ring-2 ring-indigo-100"
-                  : "border-slate-200 bg-slate-50/60 focus-visible:border-indigo-300",
+                  ? "border-dashed border-[#5f7fd3] bg-[#eef3ff]/70 ring-2 ring-[#dce5fa]"
+                  : "border-slate-200 bg-slate-50/60 focus-visible:border-[#8fa9e8]",
               )}
             >
               <div className="flex items-center justify-between">
@@ -2461,7 +2495,7 @@ function TaskOperationDrawer({
                     "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                     savingNote || aiLoading || preparingNoteFiles
                       ? "cursor-not-allowed bg-slate-200 text-slate-500"
-                      : "cursor-pointer border border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:text-indigo-700",
+                      : "cursor-pointer border border-slate-200 bg-white text-slate-700 hover:border-[#8fa9e8] hover:text-[#001f73]",
                   )}
                 >
                   <UploadCloud className="h-3.5 w-3.5" />
@@ -2480,7 +2514,7 @@ function TaskOperationDrawer({
                 </label>
               </div>
               {noteDragOver ? (
-                <p className="mt-2 text-[11px] font-medium text-indigo-600">{t("松开鼠标即可上传到此任务")}</p>
+                <p className="mt-2 text-[11px] font-medium text-[#002fa7]">{t("松开鼠标即可上传到此任务")}</p>
               ) : noteAttachments.length === 0 ? (
                 <p className="mt-2 text-[11px] text-slate-400">{t("最多 10 个、总计 50MB；超过 8MB 的 JPG/PNG/WebP 会先自动压缩，单文件压缩后需在 25MB 内。支持选择、拖拽或 Ctrl/⌘+V 粘贴。")}</p>
               ) : (
@@ -2490,7 +2524,7 @@ function TaskOperationDrawer({
                       key={`${file.name}-${file.size}-${idx}`}
                       className="flex items-center gap-2 rounded-md bg-white px-2.5 py-1.5 text-xs text-slate-700 ring-1 ring-slate-200"
                     >
-                      <FileText className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-[#002fa7]" />
                       <span className="min-w-0 flex-1 truncate">{file.name}</span>
                       <span className="shrink-0 text-slate-400">{formatFileSize(file.size)}</span>
                       <button
@@ -2553,7 +2587,7 @@ function TaskOperationDrawer({
                           key={value}
                           className={cn(
                             "flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition-colors",
-                            checked ? "border-indigo-200 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-700 hover:border-indigo-100 hover:bg-indigo-50/50",
+                            checked ? "border-[#cbd8f6] bg-[#eef3ff] text-[#001f73]" : "border-slate-200 bg-white text-slate-700 hover:border-[#dce5fa] hover:bg-[#eef3ff]/50",
                           )}
                         >
                           <Checkbox
@@ -2566,7 +2600,7 @@ function TaskOperationDrawer({
                                 return copy;
                               });
                             }}
-                            className="mt-0.5 rounded border-slate-300 text-indigo-600"
+                            className="mt-0.5 rounded border-slate-300 text-[#002fa7]"
                           />
                           <span className="min-w-0">
                             <span className="block truncate text-sm font-semibold">{person.name}</span>
@@ -2588,7 +2622,7 @@ function TaskOperationDrawer({
                 onChange={(event) => setHandoffReason(event.target.value)}
                 rows={4}
                 placeholder={t("说明为什么需要协同、当前进展、未解决风险和期望协同人下一步动作")}
-                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
               />
             </label>
             <div className={cn(
@@ -2613,15 +2647,15 @@ function TaskOperationDrawer({
           <div className="space-y-4 rounded-xl border border-slate-200 p-4">
             {/* Already-submitted banner */}
             {task.status === "pending_review" && (
-              <div className="flex items-start gap-3 rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3">
-                <ClipboardCheck className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" />
+              <div className="flex items-start gap-3 rounded-xl border border-[#dce5fa] bg-[#eef3ff]/60 px-4 py-3">
+                <ClipboardCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#002fa7]" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-violet-700">{t("审核申请已提交，等待处理")}</div>
-                  <div className="mt-0.5 text-xs text-violet-500">{t("如审核人未收到通知，可点击「重新发送通知」再次提醒。")}</div>
+                  <div className="text-sm font-semibold text-[#001f73]">{t("审核申请已提交，等待处理")}</div>
+                  <div className="mt-0.5 text-xs text-[#5f7fd3]">{t("如审核人未收到通知，可点击「重新发送通知」再次提醒。")}</div>
                 </div>
                 <ActionButton
                   onClick={submitResult}
-                  className="shrink-0 text-violet-700 ring-violet-200 hover:bg-violet-100"
+                  className="shrink-0 text-[#001f73] ring-[#cbd8f6] hover:bg-[#dce5fa]"
                 >
                   <Send className="h-3.5 w-3.5" />
                   {t("重新发送通知")}
@@ -2633,7 +2667,7 @@ function TaskOperationDrawer({
               <div className="grid gap-2 sm:grid-cols-2">
                 {[t("交付物已上传"), t("风险已说明"), t("测试记录已补齐"), t("关联人员已同步")].map((item) => (
                   <label key={item} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600">
-                    <Checkbox className="rounded border-slate-300 text-indigo-600" />
+                    <Checkbox className="rounded border-slate-300 text-[#002fa7]" />
                     {item}
                   </label>
                 ))}
@@ -2644,7 +2678,7 @@ function TaskOperationDrawer({
               <Textarea
                 rows={4}
                 placeholder={t("补充本次提交的结论、已知风险和需要审核人关注的重点")}
-                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
               />
             </label>
             <div className="flex items-center justify-end gap-2">
@@ -2667,7 +2701,7 @@ function TaskOperationDrawer({
           z-[80] 盖在抽屉(z-50)之上。弹窗本身即审慎确认面，故不再二次确认。 */}
       {abandonOpen && (
         <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-[2px]"
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 px-4"
           onClick={abandonSubmitting ? undefined : () => setAbandonOpen(false)}
         >
           <div
@@ -2730,7 +2764,7 @@ function TaskOperationDrawer({
           本任务及其全部下级完整保留，仅改变整棵任务树的位置。 */}
       {attachOpen && (
         <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-[2px]"
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 px-4"
           onClick={attachSubmitting ? undefined : () => setAttachOpen(false)}
         >
           <div
@@ -2740,8 +2774,8 @@ function TaskOperationDrawer({
             aria-modal="true"
             aria-labelledby="workspace-attach-title"
           >
-            <div className="flex items-start gap-3 border-b border-cyan-100 bg-cyan-50/70 px-6 py-5">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700">
+            <div className="flex items-start gap-3 border-b border-[#dce5fa] bg-[#eef3ff]/70 px-6 py-5">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#dce5fa] text-[#001f73]">
                 <Sparkles className="h-5 w-5" />
               </span>
               <div>
@@ -2750,7 +2784,7 @@ function TaskOperationDrawer({
               </div>
             </div>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-5">
-              <div className="rounded-xl bg-cyan-50/60 px-4 py-3 text-xs leading-5 text-cyan-800 ring-1 ring-cyan-100">
+              <div className="rounded-xl bg-[#eef3ff]/60 px-4 py-3 text-xs leading-5 text-[#00164f] ring-1 ring-[#dce5fa]">
                 {t("本任务「{title}」及其全部下级将整体并入所选任务。原有层级、主责人、进度、进展留痕与附件均保持不变，之后可随时取消关系并整体提升回独立任务。", { title: task.title })}
               </div>
               <div>
@@ -2759,7 +2793,7 @@ function TaskOperationDrawer({
                   value={attachSearch}
                   onChange={(e) => setAttachSearch(e.target.value)}
                   placeholder={t("搜索任务标题 / 编号")}
-                  className="mt-2 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-cyan-300 focus:ring-2 focus:ring-cyan-100"
+                  className="mt-2 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
                 />
                 <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-slate-200">
                   {attachLoading ? (
@@ -2779,10 +2813,10 @@ function TaskOperationDrawer({
                         onClick={() => setAttachTargetId(c.task_id)}
                         className={cn(
                           "flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left last:border-0 hover:bg-slate-50",
-                          attachTargetId === c.task_id && "bg-cyan-50",
+                          attachTargetId === c.task_id && "bg-[#eef3ff]",
                         )}
                       >
-                        <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full border", attachTargetId === c.task_id ? "border-cyan-500 bg-cyan-500" : "border-slate-300")} />
+                        <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full border", attachTargetId === c.task_id ? "border-[#002fa7] bg-[#002fa7]" : "border-slate-300")} />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium text-slate-800">{c.title}</span>
                           <span className="block truncate text-[11px] text-slate-400">{c.task_id}{c.primary_owner ? ` · ${c.primary_owner}` : ""}</span>
@@ -2819,7 +2853,7 @@ function TaskOperationDrawer({
                 type="button"
                 disabled={attachSubmitting || !attachTargetId}
                 onClick={submitAttachSubtask}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#002fa7] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#001f73] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {attachSubmitting ? t("处理中…") : t("确认并入")}
               </button>
@@ -2862,14 +2896,14 @@ function AISuggestionDrawer({
           ]}
         />
 
-        <div className="rounded-xl border border-violet-100 bg-violet-50 px-4 py-3">
+        <div className="rounded-xl border border-[#dce5fa] bg-[#eef3ff] px-4 py-3">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-semibold text-violet-800">{t("AI 建议摘要")}</span>
-            <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-violet-700">
+            <span className="text-sm font-semibold text-[#00164f]">{t("AI 建议摘要")}</span>
+            <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-[#001f73]">
               {t("置信度")} {regenerated ? Math.min(96, suggestion.confidence + 6) : suggestion.confidence}%
             </span>
           </div>
-          <p className="mt-2 text-sm leading-6 text-violet-700">
+          <p className="mt-2 text-sm leading-6 text-[#001f73]">
             {regenerated ? t("已根据更保守的拆解原则重新生成，请重点确认责任人和截止日期。") : <AutoTranslatedText text={suggestion.preview} />}
           </p>
         </div>
@@ -2896,7 +2930,7 @@ function AISuggestionDrawer({
           <Textarea
             rows={3}
             placeholder={t("例如：拆得更细、责任人改为赵强、截止日期顺延到下周三")}
-            className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+            className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
           />
         </label>
 
@@ -3061,10 +3095,10 @@ function NotificationDrawer({
             <div className="text-sm text-slate-500">{t("提交人：")}<span className="font-medium text-slate-700">{reviewSubmitterName}</span></div>
             {reviewType === "due_date" && reviewPendingDueDate && (
               <div className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-slate-200">
-                <CalendarClock className="h-4 w-4 shrink-0 text-indigo-500" />
+                <CalendarClock className="h-4 w-4 shrink-0 text-[#002fa7]" />
                 <span className="text-slate-500">{reviewCurrentDueDate || t("未设置")}</span>
                 <ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                <span className="font-semibold text-indigo-700">{reviewPendingDueDate}</span>
+                <span className="font-semibold text-[#001f73]">{reviewPendingDueDate}</span>
               </div>
             )}
             {reviewNote && (
@@ -3086,7 +3120,7 @@ function NotificationDrawer({
           <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-                <Clock className="h-4 w-4 text-indigo-500" />
+                <Clock className="h-4 w-4 text-[#002fa7]" />
                 {t("进度时间线")}
                 <span className="text-xs font-normal text-slate-400">{t("（审核参考依据）")}</span>
               </div>
@@ -3105,9 +3139,9 @@ function NotificationDrawer({
 
         {/* ── Review result card ── */}
         {isReviewResult && (
-          <div className={`rounded-xl border p-4 space-y-3 ${resultApproved ? "border-emerald-100 bg-emerald-50/60" : "border-red-100 bg-red-50/60"}`}>
+          <div className={`rounded-xl border p-4 space-y-3 ${resultApproved ? "border-emerald-100 bg-emerald-50/60" : "border-rose-100 bg-rose-50/60"}`}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${resultApproved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${resultApproved ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
                 {resultApproved ? t("✓ 审核通过") : t("✕ 被打回")}
               </span>
               <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">
@@ -3132,9 +3166,9 @@ function NotificationDrawer({
                   : t("任务已通过审核，恭喜完成！")}
               </div>
             ) : (
-              <div className="rounded-lg bg-white px-3 py-2 text-sm text-red-700 ring-1 ring-red-100">
+              <div className="rounded-lg bg-white px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-100">
                 <span className="font-medium">{t("打回原因：")}</span>{resultReason ? <AutoTranslatedText text={resultReason} /> : t("请联系审核人了解详情")}
-                {resultNote && <AutoTranslatedText as="p" className="mt-1 text-red-600" text={resultNote} />}
+                {resultNote && <AutoTranslatedText as="p" className="mt-1 text-rose-600" text={resultNote} />}
               </div>
             )}
           </div>
@@ -3142,9 +3176,9 @@ function NotificationDrawer({
 
         {/* ── Procurement review result card ── */}
         {isProcurementReviewResult && (
-          <div className={cn("space-y-4 rounded-xl border bg-white p-4", procurementApproved ? "border-emerald-200" : "border-red-200")}>
+          <div className={cn("space-y-4 rounded-xl border bg-white p-4", procurementApproved ? "border-emerald-200" : "border-rose-200")}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", procurementApproved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700")}>
+              <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", procurementApproved ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700")}>
                 {procurementApproved ? t("审核通过") : t("审核打回")}
               </span>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{t("转采购审核")}</span>
@@ -3170,9 +3204,9 @@ function NotificationDrawer({
               ))}
             </dl>
             {!procurementApproved && (
-              <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2">
-                <div className="text-xs font-semibold text-red-700">{t("打回原因")}</div>
-                <AutoTranslatedText as="p" className="mt-1 whitespace-pre-wrap text-pretty text-sm leading-6 text-red-800" text={procurementReason || t("未填写打回原因")} />
+              <div className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2">
+                <div className="text-xs font-semibold text-rose-700">{t("打回原因")}</div>
+                <AutoTranslatedText as="p" className="mt-1 whitespace-pre-wrap text-pretty text-sm leading-6 text-rose-800" text={procurementReason || t("未填写打回原因")} />
               </div>
             )}
             <div className={cn("rounded-lg border px-3 py-2", procurementApproved ? "border-emerald-100 bg-emerald-50" : "border-slate-200 bg-slate-50")}>
@@ -3200,7 +3234,7 @@ function NotificationDrawer({
           <button
             type="button"
             onClick={onSelfAssess}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-violet-700"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#002fa7] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#001f73]"
           >
             {isHandled ? t("查看 / 修改自评") : t("去自评")}
           </button>
@@ -3229,12 +3263,12 @@ function NotificationDrawer({
 
         {/* ── Sender info (non-review messages) ── */}
         {notification.type === "message" && !isReviewRequest && !isReviewResult && !isProcurementReviewResult && (
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
-            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-indigo-700">
+          <div className="rounded-xl border border-[#dce5fa] bg-[#eef3ff]/60 px-4 py-3">
+            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-[#001f73]">
               <MessageSquare className="h-3.5 w-3.5" />
               <span className="font-semibold">{notification.sender_name ?? t("未知发件人")}</span>
-              {notification.sender_role && <span className="text-indigo-500">· {notification.sender_role}</span>}
-              <span className="ml-auto text-indigo-400">{relativeTimeLabel((notification as { created_at?: string }).created_at, notification.time)}</span>
+              {notification.sender_role && <span className="text-[#5f7fd3]">· {notification.sender_role}</span>}
+              <span className="ml-auto text-[#5f7fd3]">{relativeTimeLabel((notification as { created_at?: string }).created_at, notification.time)}</span>
             </div>
             <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{notification.message}</p>
           </div>
@@ -3242,12 +3276,12 @@ function NotificationDrawer({
 
         {/* ── System suggestion (non-message notifications) ── */}
         {notification.type !== "message" && (
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
-            <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-indigo-800">
+          <div className="rounded-xl border border-[#dce5fa] bg-[#eef3ff] px-4 py-3">
+            <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-[#00164f]">
               <ShieldCheck className="h-4 w-4" />
               {t("系统建议")}
             </div>
-            <p className="text-sm leading-6 text-indigo-700">
+            <p className="text-sm leading-6 text-[#001f73]">
               {notification.type === "due_soon" && t("建议先确认是否需要顺延；如果仍由你处理，请更新下一步动作和风险说明。")}
               {notification.type === "blocked" && t("建议补充协作反馈，并把上游阻塞同步给主责人和上级。")}
               {notification.type === "pending_ai" && t("建议进入 AI 建议审核，确认后再写入任务池，避免自动生成不准确任务。")}
@@ -3258,8 +3292,8 @@ function NotificationDrawer({
 
         {/* ── Inline reject dialog ── */}
         {rejectOpen && (
-          <div className="rounded-xl border border-red-100 bg-red-50/60 p-4 space-y-3">
-            <div className="text-sm font-semibold text-red-700">{t("填写驳回原因")}</div>
+          <div className="rounded-xl border border-rose-100 bg-rose-50/60 p-4 space-y-3">
+            <div className="text-sm font-semibold text-rose-700">{t("填写驳回原因")}</div>
             <Textarea
               rows={3}
               placeholder={t("请说明驳回原因，申请人将收到通知…")}
@@ -3380,26 +3414,20 @@ function formatFileSize(size: number) {
 const WORKSPACE_PAGE_SIZE = 6;
 const NOTIF_PAGE_SIZE = 5;
 
-const WS_PRIORITY_GRAD: Record<string, { from: string; to: string }> = {
-  high:   { from: "#f87171", to: "#dc2626" },
-  medium: { from: "#fb923c", to: "#ea580c" },
-  low:    { from: "#34d399", to: "#059669" },
-};
-
 const WS_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
   draft:          { label: "草稿",   bg: "bg-slate-100",   text: "text-slate-500" },
-  in_progress:    { label: "进行中", bg: "bg-blue-50",     text: "text-blue-700" },
-  pending_review: { label: "待审核", bg: "bg-violet-50",   text: "text-violet-700" },
+  in_progress:    { label: "进行中", bg: "bg-[#eef3ff]",   text: "text-[#002fa7]" },
+  pending_review: { label: "待审核", bg: "bg-[#eef3ff]",   text: "text-[#002fa7]" },
   paused_leave:   { label: "请假暂停", bg: "bg-amber-50",  text: "text-amber-700" },
-  paused_blocked: { label: "阻塞",   bg: "bg-red-50",      text: "text-red-700" },
+  paused_blocked: { label: "阻塞",   bg: "bg-rose-50",     text: "text-rose-700" },
   on_hold:        { label: "挂起",   bg: "bg-slate-100",   text: "text-slate-500" },
   completed:      { label: "已完成", bg: "bg-emerald-50",  text: "text-emerald-700" },
-  pending_assign: { label: "待指派", bg: "bg-orange-50",   text: "text-orange-700" },
+  pending_assign: { label: "待指派", bg: "bg-amber-50",    text: "text-amber-700" },
   archived:       { label: "已归档", bg: "bg-slate-100",   text: "text-slate-400" },
 };
 
 const WS_PRIORITY_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
-  high:   { label: "高",  bg: "bg-red-50",    text: "text-red-700"    },
+  high:   { label: "高",  bg: "bg-rose-50",   text: "text-rose-700"   },
   medium: { label: "中",  bg: "bg-amber-50",  text: "text-amber-700"  },
   low:    { label: "低",  bg: "bg-slate-100", text: "text-slate-500"  },
 };
@@ -3540,7 +3568,7 @@ function WorkspaceMoveDialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
       <motion.div
@@ -3553,7 +3581,7 @@ function WorkspaceMoveDialog({
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#dce5fa] text-[#002fa7]">
               <FolderInput className="h-4 w-4" />
             </div>
             <div>
@@ -3646,7 +3674,7 @@ function WorkspaceMoveDialog({
             type="button"
             disabled={saving || loadingBase || loadingTree || !targetSubId}
             onClick={handleConfirm}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#001f73] disabled:opacity-60"
           >
             {saving ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
             {t("确认移动")}
@@ -3678,9 +3706,8 @@ function WorkspaceTaskCard({
   /** 未读评论数（微信式红点，>0 才显示） */
   unreadCount?: number;
 }) {
-  const grad = WS_PRIORITY_GRAD[task.priority] ?? WS_PRIORITY_GRAD.medium!;
   const pCfg = WS_PRIORITY_CONFIG[task.priority] ?? WS_PRIORITY_CONFIG.medium!;
-  const horizonWorkspace = !isUsCollabWorkspace() && !isProductionWorkspace();
+  const horizonWorkspace = !isProductionWorkspace();
   const days = workspaceDaysUntil(task.due_date);
   const isOverdue = isTaskOverdue(task);
   const currentWorkspace = isUsCollabWorkspace() ? "us-collab" : "rd";
@@ -3704,6 +3731,7 @@ function WorkspaceTaskCard({
   const hiddenAttachmentCount = Math.max(0, attachmentCount - visibleAttachmentImages.length);
   const latestActivity = task.latest_progress_summary;
   const taskAtRisk = isOverdue || task.status === "paused_blocked" || task.blockers.length > 0;
+  const progressValue = clampProgressValue(task.progress);
   const cardSummary =
     task.latest_progress_summary?.text?.trim()
     || task.next_action?.trim()
@@ -3712,7 +3740,7 @@ function WorkspaceTaskCard({
 
   return (
     <motion.div
-      initial={horizonWorkspace ? { opacity: 0 } : { opacity: 0, y: 8 }}
+      initial={horizonWorkspace ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
       onClick={isPendingReview ? undefined : () => onOpen(task, "detail")}
@@ -3728,11 +3756,11 @@ function WorkspaceTaskCard({
         }
       }}
       className={cn(
-        "rd-horizon-workspace-task-card group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-all duration-200 focus-visible:outline-none",
+        "rd-horizon-workspace-task-card group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-colors focus-visible:outline-none",
         isPendingReview
           ? "cursor-not-allowed select-text bg-slate-50 opacity-60 grayscale"
-          : "cursor-pointer hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_12px_28px_-12px_rgba(79,70,229,0.28)] focus-visible:ring-2 focus-visible:ring-indigo-200",
-        selected && "ring-2 ring-indigo-400/70",
+          : "cursor-pointer hover:border-[#8fa9e8] focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
+        selected && "ring-2 ring-[#5f7fd3]/70",
       )}
       data-status={task.status}
       data-priority={task.priority}
@@ -3746,21 +3774,21 @@ function WorkspaceTaskCard({
               <span
                 key={tag}
                 title={tag}
-                className="max-w-[150px] truncate rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700"
+                className="max-w-[150px] truncate rounded-md bg-[#eef3ff] px-2 py-1 text-[10px] font-semibold text-[#002fa7]"
               >
                 {tag}
               </span>
             ))}
             <span className={cn(
               "inline-flex shrink-0 items-center gap-0.5 rounded-md px-2 py-1 text-[10px] font-semibold",
-              task.role === "primary" ? "bg-blue-50 text-blue-600" : "bg-slate-100 text-slate-500"
+              task.role === "primary" ? "bg-[#eef3ff] text-[#002fa7]" : "bg-slate-100 text-slate-500"
             )}>
               {task.role === "primary" ? t("主责") : `${t("协作")}${task.collab_role ? ` · ${task.collab_role}` : ""}`}
             </span>
             {task.source_workspace && (
               <span className={cn(
                 "inline-flex shrink-0 rounded-md px-2 py-1 text-[10px] font-semibold",
-                task.source_workspace === "us-collab" ? "bg-cyan-50 text-cyan-700" : "bg-indigo-50 text-indigo-700",
+                task.source_workspace === "us-collab" ? "bg-[#eef3ff] text-[#002fa7]" : "bg-slate-100 text-slate-700",
               )}>
                 {task.source_workspace === "us-collab" ? t("协同") : t("研发")}
               </span>
@@ -3772,7 +3800,7 @@ function WorkspaceTaskCard({
               </span>
             )}
             {task.ai_pending && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-600">
+              <span className="inline-flex items-center gap-1 rounded-md bg-[#eef3ff] px-2 py-1 text-[10px] font-semibold text-[#002fa7]">
                 <Sparkles className="h-2.5 w-2.5" />
                 {t("AI待确认")}
               </span>
@@ -3781,13 +3809,13 @@ function WorkspaceTaskCard({
 
           <div className="flex shrink-0 items-center gap-1.5">
             {attachmentCount > 0 && (
-              <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg bg-indigo-50 px-2 text-[10px] font-semibold text-indigo-700">
+              <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg bg-[#eef3ff] px-2 text-[10px] font-semibold text-[#002fa7]">
                 <Paperclip className="h-3 w-3" />
                 {t("附件")} <span className="tabular-nums">{attachmentCount}</span>
               </span>
             )}
             {unreadCount > 0 && (
-              <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm">
+              <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold leading-none text-white">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
@@ -3797,7 +3825,7 @@ function WorkspaceTaskCard({
                   <button
                     type="button"
                     onClick={(event) => event.stopPropagation()}
-                    className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+                    className="flex size-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:border-[#cbd8f6] hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]"
                     aria-label={t("更多操作")}
                   >
                     <MoreVertical className="h-4 w-4" />
@@ -3835,10 +3863,10 @@ function WorkspaceTaskCard({
         <div className="flex min-w-0 flex-1 flex-col gap-2.5">
 
           {/* Title */}
-          <div className="line-clamp-2 text-[15px] font-bold leading-snug text-slate-900">
+          <div className="line-clamp-2 text-balance text-[15px] font-bold leading-snug text-slate-900">
             <AutoTranslatedText text={task.title} />
           </div>
-          <div className="line-clamp-2 min-h-10 text-xs leading-5 text-slate-500">
+          <div className="line-clamp-2 min-h-10 text-pretty text-xs leading-5 text-slate-500">
             <AutoTranslatedText text={cardSummary} />
           </div>
 
@@ -3861,7 +3889,7 @@ function WorkspaceTaskCard({
                 </div>
               ))}
               {hiddenAttachmentCount > 0 && (
-                <div className="flex h-12 min-w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-indigo-200 bg-indigo-50/70 px-2 text-xs font-bold tabular-nums text-indigo-600">
+                <div className="flex h-12 min-w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-[#cbd8f6] bg-[#eef3ff]/70 px-2 text-xs font-bold tabular-nums text-[#002fa7]">
                   +{hiddenAttachmentCount}
                 </div>
               )}
@@ -3870,24 +3898,27 @@ function WorkspaceTaskCard({
 
           {/* Progress bar */}
           <div className="mt-auto flex items-center gap-2 pt-0.5">
-            <div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100">
+            <div
+              role="progressbar"
+              aria-label={t("{task} 的任务进度", { task: task.title })}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progressValue}
+              className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100"
+            >
               <div
                 className={cn(
-                  "rd-horizon-workspace-task-progress h-full rounded-full transition-all duration-500",
-                  task.progress === 100 && "rd-horizon-workspace-task-progress--complete",
+                  "rd-horizon-workspace-task-progress h-full rounded-full",
+                  progressValue === 100 && "rd-horizon-workspace-task-progress--complete",
                 )}
                 style={{
-                  width: `${task.progress}%`,
-                  background: task.progress === 100
-                    ? "#10b981"
-                    : horizonWorkspace
-                      ? "#002fa7"
-                      : `linear-gradient(90deg, ${grad.from}, ${grad.to})`,
+                  width: `${progressValue}%`,
+                  backgroundColor: progressValue === 100 ? "#10b981" : "#002fa7",
                 }}
               />
             </div>
             <span className="w-8 shrink-0 text-right text-[10px] font-bold tabular-nums text-slate-500">
-              {task.progress}%
+              {progressValue}%
             </span>
           </div>
 
@@ -3898,13 +3929,13 @@ function WorkspaceTaskCard({
               {t(`${pCfg.label}优先`)}
             </span>
             {task.due_date && (
-              <span className={cn("inline-flex items-center gap-1", isOverdue && "font-semibold text-red-500")}>
+              <span className={cn("inline-flex items-center gap-1", isOverdue && "font-semibold text-rose-600")}>
                 <CalendarClock className="h-3 w-3 shrink-0" />
                 {isOverdue ? t("逾期 {n} 天", { n: taskOverdueDays(task) }) : days === 0 ? t("今天到期") : `${t("截止：")} ${task.due_date.slice(5)}`}
               </span>
             )}
             {taskAtRisk && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-1.5 py-0.5 font-semibold text-red-600">
+              <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 font-semibold text-rose-700">
                 <AlertTriangle className="h-3 w-3" />
                 {t("风险")}
               </span>
@@ -4015,10 +4046,10 @@ function WorkspaceTaskTreeRow({
           }
         }}
         className={cn(
-          "group grid min-h-[62px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
+          "group grid min-h-[62px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border px-3 py-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]",
           depth === 0 ? "border-slate-200/80 bg-white shadow-[0_2px_10px_rgba(15,23,42,0.04)]" : "border-transparent bg-slate-50/55",
           pendingReview ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:border-slate-200 hover:bg-white",
-          selected && "border-indigo-300 bg-indigo-50/40 ring-1 ring-indigo-200",
+          selected && "border-[#8fa9e8] bg-[#eef3ff]/40 ring-1 ring-[#cbd8f6]",
         )}
       >
         <div className="flex min-w-0 items-start gap-2.5">
@@ -4031,7 +4062,7 @@ function WorkspaceTaskTreeRow({
                 event.stopPropagation();
                 setExpanded((value) => !value);
               }}
-              className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+              className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]"
             >
               <ChevronRight className={cn("h-4 w-4 transition-transform", expanded && "rotate-90")} />
             </button>
@@ -4046,7 +4077,7 @@ function WorkspaceTaskTreeRow({
                 <AutoTranslatedText text={task.title} />
               </span>
               {task.priority === "high" && (
-                <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-semibold text-red-600">
+                <span className="inline-flex shrink-0 items-center gap-0.5 text-[10px] font-semibold text-rose-600">
                   <AlertTriangle className="h-3 w-3" />
                   {t("高优先级")}
                 </span>
@@ -4059,7 +4090,7 @@ function WorkspaceTaskTreeRow({
               </span>
               <span>{task.role === "primary" ? t("我主责") : `${t("协作")} · ${task.owner}`}</span>
               {task.due_date && (
-                <span className={cn("inline-flex items-center gap-1", overdue && "font-semibold text-red-600", days === 0 && !overdue && "font-semibold text-amber-600")}>
+                <span className={cn("inline-flex items-center gap-1", overdue && "font-semibold text-rose-600", days === 0 && !overdue && "font-semibold text-amber-600")}>
                   <CalendarClock className="h-3 w-3" />
                   {overdue ? t("逾期 {n} 天", { n: taskOverdueDays(task) }) : days === 0 ? t("今天到期") : task.due_date}
                 </span>
@@ -4082,7 +4113,7 @@ function WorkspaceTaskTreeRow({
           <div className="hidden w-28 items-center gap-2 sm:flex">
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
               <div
-                className={cn("h-full rounded-full transition-[width] duration-300", task.progress >= 100 ? "bg-emerald-500" : "bg-indigo-500")}
+                className={cn("h-full rounded-full transition-[width] duration-300", task.progress >= 100 ? "bg-emerald-500" : "bg-[#002fa7]")}
                 style={{ width: `${Math.max(0, Math.min(100, task.progress))}%` }}
               />
             </div>
@@ -4099,16 +4130,16 @@ function WorkspaceTaskTreeRow({
                 onOpen(task, "discussion");
               }}
               className={cn(
-                "inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
+                "inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border px-2 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]",
                 unreadCount > 0
-                  ? "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
-                  : "border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:text-indigo-700",
+                  ? "border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100"
+                  : "border-slate-200 bg-white text-slate-500 hover:border-[#cbd8f6] hover:text-[#001f73]",
               )}
             >
               <MessageSquare className="h-3.5 w-3.5" />
               <span>{t("评论")}</span>
               {unreadCount > 0 && (
-                <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
+                <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white">
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               )}
@@ -4124,7 +4155,7 @@ function WorkspaceTaskTreeRow({
                 event.stopPropagation();
                 onKickoff(task);
               }}
-              className="inline-flex h-8 items-center gap-1 rounded-lg border border-indigo-100 bg-indigo-50/70 px-2 text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-200 hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:border-slate-100 disabled:bg-slate-50 disabled:text-slate-300"
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-[#dce5fa] bg-[#eef3ff]/70 px-2 text-[11px] font-semibold text-[#001f73] transition-colors hover:border-[#cbd8f6] hover:bg-[#dce5fa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6] disabled:cursor-not-allowed disabled:border-slate-100 disabled:bg-slate-50 disabled:text-slate-300"
             >
               <GitBranch className="h-3.5 w-3.5" />
               {t("立项")}
@@ -4138,7 +4169,7 @@ function WorkspaceTaskTreeRow({
                 event.stopPropagation();
                 onOpen(task, "progress");
               }}
-              className="hidden rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 opacity-0 shadow-sm transition-all hover:border-indigo-200 hover:text-indigo-700 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 group-focus-within:opacity-100 group-hover:opacity-100 md:inline-flex"
+              className="hidden rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 opacity-0 shadow-sm transition-colors hover:border-[#cbd8f6] hover:text-[#001f73] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6] group-focus-within:opacity-100 group-hover:opacity-100 md:inline-flex"
             >
               {t("更新进度")}
             </button>
@@ -4153,7 +4184,7 @@ function WorkspaceTaskTreeRow({
                   event.stopPropagation();
                   move.onMoveTask(task);
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 opacity-100 transition-all hover:bg-indigo-50 hover:text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 opacity-100 transition-colors hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6] sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
               >
                 <FolderInput className="h-3.5 w-3.5" />
               </button>
@@ -4165,8 +4196,8 @@ function WorkspaceTaskTreeRow({
                   move.onToggleSelect(task);
                 }}
                 className={cn(
-                  "flex h-8 w-8 items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
-                  selected ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-300 bg-white text-transparent hover:border-indigo-300",
+                  "flex h-8 w-8 items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]",
+                  selected ? "border-[#002fa7] bg-[#002fa7] text-white" : "border-slate-300 bg-white text-transparent hover:border-[#8fa9e8]",
                 )}
               >
                 <Check className="h-3 w-3" />
@@ -4304,12 +4335,12 @@ function SubsystemFolderCard({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -2 }}
-      className="group relative min-h-[164px] overflow-hidden rounded-[18px] border border-slate-200/80 bg-white p-4 text-left shadow-[0_4px_18px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] hover:border-indigo-200 hover:shadow-[0_14px_32px_rgba(15,23,42,0.09)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+      className="group relative min-h-[164px] overflow-hidden rounded-[18px] border border-slate-200/80 bg-white p-4 text-left shadow-[0_4px_18px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] hover:border-[#cbd8f6] hover:shadow-[0_14px_32px_rgba(15,23,42,0.09)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]"
     >
-      <div className="absolute inset-x-0 top-0 h-1 bg-slate-900 transition-colors group-hover:bg-indigo-600" />
+      <div className="absolute inset-x-0 top-0 h-1 bg-slate-900 transition-colors group-hover:bg-[#002fa7]" />
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 transition-colors group-hover:border-indigo-100 group-hover:bg-indigo-50 group-hover:text-indigo-700">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 transition-colors group-hover:border-[#dce5fa] group-hover:bg-[#eef3ff] group-hover:text-[#001f73]">
             <Folder className="h-5 w-5" />
           </span>
           <div className="min-w-0">
@@ -4317,7 +4348,7 @@ function SubsystemFolderCard({
             <p className="mt-1 text-[11px] text-slate-400">{t("类目任务表")} · {group.total} {t("个任务")}</p>
           </div>
         </div>
-        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-indigo-500" />
+        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-slate-300 transition-colors group-hover:text-[#002fa7]" />
       </div>
 
       <div className="mt-5 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
@@ -4326,13 +4357,13 @@ function SubsystemFolderCard({
           <div className="text-[10px] text-slate-400">{t("进行中")}</div>
         </div>
         <div>
-          <div className={cn("text-base font-semibold tabular-nums", riskCount > 0 ? "text-red-600" : "text-slate-900")}>{riskCount}</div>
+          <div className={cn("text-base font-semibold tabular-nums", riskCount > 0 ? "text-rose-600" : "text-slate-900")}>{riskCount}</div>
           <div className="text-[10px] text-slate-400">{t("风险任务")}</div>
         </div>
         <div>
           <div className="flex items-center gap-1 text-base font-semibold tabular-nums text-slate-900">
             {group.avgProgress}%
-            {unreadCount > 0 && <span className="h-2 w-2 rounded-full bg-red-500" title={t("有未读进展")} />}
+            {unreadCount > 0 && <span className="h-2 w-2 rounded-full bg-rose-500" title={t("有未读进展")} />}
           </div>
           <div className="text-[10px] text-slate-400">{t("整体进度")}</div>
         </div>
@@ -4374,7 +4405,7 @@ function SubsystemPanorama({
               <button
                 type="button"
                 onClick={() => onSelectKey(null)}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:border-[#cbd8f6] hover:bg-[#eef3ff] hover:text-[#001f73]"
                 aria-label={t("返回类目列表")}
               >
                 <ArrowLeft className="h-4 w-4" />
@@ -4392,8 +4423,8 @@ function SubsystemPanorama({
               </div>
             </div>
             <div className="flex items-center gap-2 text-[11px]">
-              <span className="rounded-full bg-blue-50 px-2.5 py-1 font-semibold text-blue-700">{t("进行中")} {selectedGroup?.active.length ?? 0}</span>
-              {riskCount > 0 && <span className="rounded-full bg-red-50 px-2.5 py-1 font-semibold text-red-600">{t("风险")} {riskCount}</span>}
+              <span className="rounded-full bg-[#eef3ff] px-2.5 py-1 font-semibold text-[#001f73]">{t("进行中")} {selectedGroup?.active.length ?? 0}</span>
+              {riskCount > 0 && <span className="rounded-full bg-rose-50 px-2.5 py-1 font-semibold text-rose-600">{t("风险")} {riskCount}</span>}
               <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-600">{t("全部")} {selectedGroup?.total ?? 0}</span>
             </div>
           </div>
@@ -4424,10 +4455,10 @@ function SubsystemPanorama({
                     aria-label={unreadCount > 0 ? t("查看评论，有 {n} 条未读", { n: unreadCount }) : t("查看评论")}
                     onClick={() => onOpen(task, "discussion")}
                     className={cn(
-                      "relative inline-flex h-8 items-center gap-1 rounded-lg border px-2 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+                      "relative inline-flex h-8 items-center gap-1 rounded-lg border px-2 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
                       unreadCount > 0
-                        ? "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
-                        : "border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:text-indigo-700",
+                        ? "border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100"
+                        : "border-slate-200 bg-white text-slate-500 hover:border-[#cbd8f6] hover:text-[#001f73]",
                     )}
                   >
                     <MessageSquare className="h-3.5 w-3.5" />
@@ -4439,7 +4470,7 @@ function SubsystemPanorama({
                     type="button"
                     title={t("在当前节点下发起立项")}
                     onClick={() => onKickoff(task)}
-                    className="inline-flex h-8 items-center rounded-lg border border-indigo-100 bg-indigo-50 px-2 text-[11px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                    className="inline-flex h-8 items-center rounded-lg border border-[#dce5fa] bg-[#eef3ff] px-2 text-[11px] font-semibold text-[#001f73] transition-colors hover:bg-[#dce5fa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]"
                   >
                     <GitBranch className="h-3.5 w-3.5" />
                   </button>
@@ -4448,7 +4479,7 @@ function SubsystemPanorama({
                   <button
                     type="button"
                     onClick={() => onOpen(task, "progress")}
-                    className="hidden h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 xl:inline-flex xl:items-center"
+                    className="hidden h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-[#cbd8f6] hover:text-[#001f73] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8] xl:inline-flex xl:items-center"
                   >
                     {t("更新")}
                   </button>
@@ -4459,7 +4490,7 @@ function SubsystemPanorama({
                       type="button"
                       title={t("移动到其它系统 / 子项")}
                       onClick={() => move.onMoveTask(task)}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]"
                     >
                       <FolderInput className="h-3.5 w-3.5" />
                     </button>
@@ -4469,8 +4500,8 @@ function SubsystemPanorama({
                       aria-pressed={selected}
                       onClick={() => move.onToggleSelect(task)}
                       className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
-                        selected ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-300 bg-white text-transparent hover:border-indigo-300",
+                        "flex h-8 w-8 items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
+                        selected ? "border-[#002fa7] bg-[#002fa7] text-white" : "border-slate-300 bg-white text-transparent hover:border-[#8fa9e8]",
                       )}
                     >
                       <Check className="h-3 w-3" />
@@ -4524,14 +4555,9 @@ export function RDMyWorkspacePage() {
   const canProposeProject = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const canStartProject = canProposeProject || canDirectProject;
-  const nativeRdWorkspace = !isUsCollabWorkspace() && !isProductionWorkspace();
-  const WORKSPACE_AUDIT_ACTOR = useAuditActor("研发成员");
-  const canReview = user
-    ? user.permissions.includes("*")
-      || user.permissions.includes("rd-task:edit")
-      || user.permissions.includes("rd-task:reassign")
-      || user.permissions.includes("rd-procurement:review")
-    : false;
+  const horizonWorkspace = !isProductionWorkspace();
+  // 研发审核通知已由服务端按当前节点成员池逐人投递；是否能执行仍由审核接口做最终授权。
+  const canReview = Boolean(user);
   const canReviewNotification = useCallback((notification: WorkspaceNotification) => {
     if (!user || !notification.raw_body) return false;
     try {
@@ -4540,9 +4566,7 @@ export function RDMyWorkspacePage() {
       if (String(body.review_type ?? "") === "procurement_transfer") {
         return user.permissions.includes("*") || user.permissions.includes("rd-procurement:review");
       }
-      return user.permissions.includes("*")
-        || user.permissions.includes("rd-task:edit")
-        || user.permissions.includes("rd-task:reassign");
+      return true;
     } catch {
       return false;
     }
@@ -4569,23 +4593,29 @@ export function RDMyWorkspacePage() {
   const taskScrollRef = React.useRef<HTMLDivElement>(null);
   const taskSentinelRef = React.useRef<HTMLDivElement>(null);
   const filteredRoleTasksLengthRef = React.useRef(0);
+  const workspaceLoadSeqRef = React.useRef(0);
+  const workspaceKey = isUsCollabWorkspace() ? "us-collab" : "rd";
 
   const loadWorkspace = React.useCallback(async (options?: { silent?: boolean }) => {
+    const requestSeq = ++workspaceLoadSeqRef.current;
     if (!options?.silent) setLoading(true);
     setLoadError(null);
     try {
       const payload = await fetchRdWorkspace({ includeCollaboration: !isUsCollabWorkspace() });
+      if (requestSeq !== workspaceLoadSeqRef.current) return;
       setWorkspace({ ...EMPTY_WORKSPACE, ...payload });
     } catch (error) {
+      if (requestSeq !== workspaceLoadSeqRef.current) return;
       if (!options?.silent) setWorkspace(EMPTY_WORKSPACE);
       setLoadError(error instanceof Error ? error.message : "个人工作台接口加载失败");
     } finally {
-      if (!options?.silent) setLoading(false);
+      if (requestSeq === workspaceLoadSeqRef.current && !options?.silent) setLoading(false);
     }
-  }, []);
+  }, [workspaceKey]);
 
   useEffect(() => {
     void loadWorkspace();
+    return () => { workspaceLoadSeqRef.current += 1; };
   }, [loadWorkspace]);
 
   useEffect(() => {
@@ -4622,9 +4652,11 @@ export function RDMyWorkspacePage() {
     [workspace.collabTasks, progressOverrides, primaryTaskIds],
   );
   const allTasks = useMemo(() => [...myTasks, ...collabTasks], [myTasks, collabTasks]);
+  const taskById = useMemo(() => new Map(allTasks.map((task) => [task.task_id, task])), [allTasks]);
   const roleTasks = taskRoleTab === "primary" ? myTasks : collabTasks;
-  const normalizedTaskKeyword = taskKeyword.trim().toLowerCase();
-  const taskFiltersActive = Boolean(normalizedTaskKeyword) || taskPriorityFilter !== "all" || taskStatusFilter !== "all" || taskDueFilter !== "all";
+  const deferredTaskKeyword = useDeferredValue(taskKeyword);
+  const normalizedTaskKeyword = deferredTaskKeyword.trim().toLowerCase();
+  const taskFiltersActive = Boolean(taskKeyword.trim()) || taskPriorityFilter !== "all" || taskStatusFilter !== "all" || taskDueFilter !== "all";
   const filteredMyTasks = useMemo(
     () => myTasks.filter((task) => workspaceTaskMatches(task, normalizedTaskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter)),
     [myTasks, normalizedTaskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter],
@@ -4694,18 +4726,21 @@ export function RDMyWorkspacePage() {
 
   // 当前角色下逐条展示任务；待审核沉底、已完成最底。
   const filteredRoleTasks = useMemo(
-    () => (taskRoleTab === "primary" ? filteredMyTasks : filteredCollabTasks).sort(compareWorkspaceTasks),
+    () => [...(taskRoleTab === "primary" ? filteredMyTasks : filteredCollabTasks)].sort(compareWorkspaceTasks),
     [filteredCollabTasks, filteredMyTasks, taskRoleTab],
   );
-  const shownTasks = filteredRoleTasks.slice(0, taskVisibleCount);
+  const shownTasks = useMemo(
+    () => filteredRoleTasks.slice(0, taskVisibleCount),
+    [filteredRoleTasks, taskVisibleCount],
+  );
   const hasMoreTasks = taskVisibleCount < filteredRoleTasks.length;
-  const visiblePreviewTaskIds = shownTasks
-    .filter((task) => {
-      const source = task.source_workspace ?? (isUsCollabWorkspace() ? "us-collab" : "rd");
-      return source === (isUsCollabWorkspace() ? "us-collab" : "rd");
-    })
-    .map((task) => task.task_id);
-  const visiblePreviewTaskKey = visiblePreviewTaskIds.join("|");
+  const visiblePreviewTaskKey = useMemo(() => {
+    const currentWorkspace = isUsCollabWorkspace() ? "us-collab" : "rd";
+    return shownTasks
+      .filter((task) => (task.source_workspace ?? currentWorkspace) === currentWorkspace)
+      .map((task) => task.task_id)
+      .join("|");
+  }, [shownTasks]);
   // Keep ref in sync so the IntersectionObserver callback always has the latest value
   filteredRoleTasksLengthRef.current = filteredRoleTasks.length;
 
@@ -4754,7 +4789,7 @@ export function RDMyWorkspacePage() {
     return () => observer.disconnect();
   }, [filteredRoleTasks.length, hasMoreTasks, loading]);
 
-  const findTask = (taskId?: string) => allTasks.find((task) => task.task_id === taskId);
+  const findTask = useCallback((taskId?: string) => (taskId ? taskById.get(taskId) : undefined), [taskById]);
 
   // ── 评论未读红点（微信式）：任务级未读数，打开任务即标记已读（全端同步消失）──
   const [noteUnread, setNoteUnread] = useState<Record<string, number>>({});
@@ -4837,6 +4872,34 @@ export function RDMyWorkspacePage() {
     [user?.id],
   );
 
+  const settleReviewNotification = React.useCallback(async (notification: WorkspaceNotification) => {
+    // 任务审核和通知回写不是同一事务：任务一旦已处理，必须先在本地撤掉操作入口，
+    // 避免后续工作台刷新把同一条通知重新变成可批准/驳回。
+    setDismissedNotifs((prev) => {
+      if (prev.has(notification.id)) return prev;
+      const next = new Set(prev);
+      next.add(notification.id);
+      return next;
+    });
+    setWorkspace((prev) => ({
+      ...prev,
+      notifications: prev.notifications.map((item) => (
+        item.id === notification.id ? { ...item, handled: true, read: true } : item
+      )),
+    }));
+    setActivePanel((current) => (
+      current?.kind === "notification" && current.notification.id === notification.id ? null : current
+    ));
+
+    const messageSynced = await patchReviewNotificationHandled(notification.id);
+    if (messageSynced) {
+      window.dispatchEvent(new CustomEvent("rd:messages-updated"));
+    } else {
+      retryReviewNotificationHandledLater(notification.id);
+    }
+    return messageSynced;
+  }, []);
+
   const approveNotificationReview = React.useCallback((notification: WorkspaceNotification) => {
     if (!notification.raw_body) {
       toast.error(t("通知内容缺少审核任务信息"));
@@ -4898,24 +4961,78 @@ export function RDMyWorkspacePage() {
           : t("通过后任务会进入审核通过状态，并通知对应申请人员。"),
       ],
       onConfirm: async () => {
-        if (reviewType === "procurement_transfer") {
-          await approveRdProcurementTransfer(taskId);
-          announceProcurementRefresh();
-        } else {
-          await updateRdTask(taskId, {
-            _review_action: "approve",
-            _reviewer_name: user?.name,
-          } as Parameters<typeof updateRdTask>[1]);
+        let alreadySettled = false;
+        try {
+          if (reviewType === "procurement_transfer") {
+            await approveRdProcurementTransfer(taskId);
+          } else {
+            await updateRdTask(taskId, {
+              _review_action: "approve",
+              _reviewer_name: user?.name,
+            } as Parameters<typeof updateRdTask>[1]);
+          }
+        } catch (error) {
+          if (!isReviewAlreadySettledError(error)) throw error;
+          alreadySettled = true;
         }
-        await patchRdMessage(notification.id, { handled: true, read: true });
-        toast.success(`已批准「${taskTitle}」`);
-        setDismissedNotifs((prev) => new Set(prev).add(notification.id));
+        if (reviewType === "procurement_transfer") announceProcurementRefresh();
+
+        const messageSynced = await settleReviewNotification(notification);
+        if (alreadySettled) {
+          toast.info(messageSynced
+            ? t("该任务已完成审核，当前通知已同步为已处理。")
+            : t("该任务已完成审核，通知已从当前工作台收起，消息状态将在后台重试同步。"));
+        } else if (messageSynced) {
+          toast.success(t("已批准「{title}」", { title: taskTitle }));
+        } else {
+          toast.warning(t("已批准「{title}」；通知已从当前工作台收起，消息状态将在后台重试同步。", { title: taskTitle }));
+        }
         window.dispatchEvent(new CustomEvent("rd:review-submitted"));
-        setActivePanel(null);
         await loadWorkspace({ silent: true });
       },
     });
-  }, [loadWorkspace, user?.name]);
+  }, [loadWorkspace, settleReviewNotification, user?.name]);
+
+  const rejectNotificationReview = React.useCallback(async (notification: WorkspaceNotification, reason: string) => {
+    if (!notification.raw_body) return;
+    try {
+      const body = JSON.parse(notification.raw_body) as Record<string, unknown>;
+      const taskId = String(body.task_id ?? "");
+      const taskTitle = String(body.task_title ?? "");
+      const reviewType = String(body.review_type ?? "");
+      let alreadySettled = false;
+      try {
+        if (reviewType === "procurement_transfer") {
+          await rejectRdProcurementTransfer(taskId, reason);
+        } else {
+          await updateRdTask(taskId, {
+            _review_action: "reject",
+            _reviewer_name: user?.name,
+            _reject_reason: reason,
+          } as Parameters<typeof updateRdTask>[1]);
+        }
+      } catch (error) {
+        if (!isReviewAlreadySettledError(error)) throw error;
+        alreadySettled = true;
+      }
+      if (reviewType === "procurement_transfer") announceProcurementRefresh();
+
+      const messageSynced = await settleReviewNotification(notification);
+      if (alreadySettled) {
+        toast.info(messageSynced
+          ? t("该任务已完成审核，当前通知已同步为已处理。")
+          : t("该任务已完成审核，通知已从当前工作台收起，消息状态将在后台重试同步。"));
+      } else if (messageSynced) {
+        toast.success(t("已驳回「{title}」", { title: taskTitle }));
+      } else {
+        toast.warning(t("已驳回「{title}」；通知已从当前工作台收起，消息状态将在后台重试同步。", { title: taskTitle }));
+      }
+      window.dispatchEvent(new CustomEvent("rd:review-submitted"));
+      await loadWorkspace({ silent: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("操作失败"));
+    }
+  }, [loadWorkspace, settleReviewNotification, user?.name]);
 
   const closeSuggestion = (id: string) => {
     setClosedSuggestions((prev) => new Set(prev).add(id));
@@ -4923,52 +5040,53 @@ export function RDMyWorkspacePage() {
   };
 
   return (
-    <div className={cn("flex h-full min-h-0 px-5 py-6 lg:px-7", nativeRdWorkspace && "rd-horizon-module rd-horizon-workspace")}>
+    <div className={cn("flex h-full min-h-0 px-5 py-6 lg:px-7", horizonWorkspace && "rd-horizon-module rd-horizon-workspace")}>
       <div className="rd-horizon-workspace-shell mx-auto flex h-full min-h-0 w-full max-w-[1680px] flex-col gap-4">
         {/* ── Compact header ── */}
         <header className="rd-horizon-workspace-command rounded-2xl border border-white bg-white/75 px-5 py-3 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             {/* Left group: title + date + stat chips */}
             <div className="rd-horizon-workspace-metrics flex min-w-0 flex-wrap items-center gap-2">
-              <h2 className="rd-horizon-workspace-title text-base font-semibold text-slate-950 shrink-0">
+              <h2 className="rd-horizon-workspace-title shrink-0 text-balance text-base font-semibold text-slate-950">
                 {t(isUsCollabWorkspace() ? "协同工作台" : "个人工作台")}
               </h2>
-              <span className="rd-horizon-workspace-date text-xs text-slate-400 shrink-0">{t("今日")} {todayLabel()}</span>
+              <span className="rd-horizon-workspace-date shrink-0 text-xs tabular-nums text-slate-400">{t("今日")} {todayLabel()}</span>
               {/* Stat chips — always shown */}
-              <span className="rd-horizon-workspace-metric rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700" data-tone="brand">
+              <span className="rd-horizon-workspace-metric inline-flex items-center gap-1 rounded-full bg-[#eef3ff] px-2.5 py-0.5 text-xs font-semibold tabular-nums text-[#002fa7]" data-tone="brand">
+                <User className="size-3" aria-hidden="true" />
                 {t("主责")} {activeMyCount}
               </span>
-              <span className="rd-horizon-workspace-metric rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600" data-tone="neutral">
+              <span className="rd-horizon-workspace-metric inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-slate-600" data-tone="neutral">
+                <Users className="size-3" aria-hidden="true" />
                 {t("协助")} {activeCollabCount}
               </span>
-              <span className="rd-horizon-workspace-metric rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700" data-tone="complete">
+              <span className="rd-horizon-workspace-metric inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-emerald-700" data-tone="complete">
+                <CheckCircle2 className="size-3" aria-hidden="true" />
                 {t("完成率")} {averageProgress}%
               </span>
               {completedCount > 0 && (
-                <span className="rd-horizon-workspace-metric rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700" data-tone="complete">
+                <span className="rd-horizon-workspace-metric inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-emerald-700" data-tone="complete">
+                  <Check className="size-3" aria-hidden="true" />
                   {t("已完成")} {completedCount}
                 </span>
               )}
               {/* Conditional chips */}
               {overdueCount > 0 && (
-                <span className="rd-horizon-workspace-metric rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-600" data-tone="danger">
+                <span className="rd-horizon-workspace-metric inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-rose-700" data-tone="danger">
+                  <AlertTriangle className="size-3" aria-hidden="true" />
                   {t("逾期")} {overdueCount}
                 </span>
               )}
               {dueTodayCount > 0 && (
-                <span className="rd-horizon-workspace-metric rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700" data-tone="warning">
+                <span className="rd-horizon-workspace-metric inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-amber-700" data-tone="warning">
+                  <CalendarClock className="size-3" aria-hidden="true" />
                   {t("今日到期")} {dueTodayCount}
                 </span>
               )}
               {visibleNotifications.length + visibleSuggestions.length > 0 && (
-                <span className="rd-horizon-workspace-metric rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700" data-tone="brand">
+                <span className="rd-horizon-workspace-metric inline-flex items-center gap-1 rounded-full bg-[#eef3ff] px-2.5 py-0.5 text-xs font-semibold tabular-nums text-[#002fa7]" data-tone="brand">
+                  <Bell className="size-3" aria-hidden="true" />
                   {t("待处理")} {visibleNotifications.length + visibleSuggestions.length}
-                </span>
-              )}
-              {/* Inline error */}
-              {loadError && (
-                <span className="inline-flex items-center rounded-md border border-amber-100 bg-amber-50 px-2.5 py-0.5 text-xs text-amber-700">
-                  {loadError}
                 </span>
               )}
             </div>
@@ -4980,35 +5098,58 @@ export function RDMyWorkspacePage() {
                   setProposalParentTask(null);
                   setShowProposalDialog(true);
                 }}
-                className="rd-horizon-workspace-primary-action group inline-flex shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_24px_rgba(79,70,229,0.26)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                className="rd-horizon-workspace-primary-action inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#001f73] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
                 title={t("AI 立项 · 上传文档或写描述，自动拆任务")}
               >
-                <Sparkles className="h-3.5 w-3.5 transition-transform group-hover:rotate-12" />
+                <Sparkles className="size-3.5" />
                 {t("AI 立项")}
-                <ChevronRight className="h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5" />
+                <ChevronRight className="size-3" />
               </button>
             )}
           </div>
         </header>
+
+        {loadError && (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <div className="flex min-w-0 items-start gap-2">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              <p className="text-pretty">{loadError}</p>
+            </div>
+            <Button type="button" size="sm" variant="outline" disabled={loading} onClick={() => void loadWorkspace()} className="shrink-0 border-amber-300 bg-white text-amber-900 focus-visible:ring-amber-600">
+              <RefreshCw className={cn("size-3.5", loading && "animate-spin")} aria-hidden="true" />
+              {loading ? t("重试中…") : t("重新加载")}
+            </Button>
+          </div>
+        )}
 
         {/* ── Body: 2-column grid ── */}
         <div className="rd-horizon-workspace-grid grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden 2xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.65fr)]">
           {/* ── LEFT column ── */}
           <main className="rd-horizon-workspace-main flex min-h-0 flex-col gap-3">
             {/* Sticky filter bar */}
-            <div className="rd-horizon-workspace-filters shrink-0 rounded-2xl border border-white bg-white/90 p-3 shadow-sm backdrop-blur">
+            <div className="rd-horizon-workspace-filters shrink-0 rounded-2xl border border-white bg-white/90 p-3 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 {/* Search — grows up to a sensible cap so the right-side filters always keep their room */}
-                <label className="rd-horizon-workspace-search relative block min-w-0 flex-1 xl:max-w-[360px]">
-                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <div className="rd-horizon-workspace-search relative min-w-0 flex-1 xl:max-w-[360px]">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
                   <Input
-                    className="h-8 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-50"
+                    className="h-8 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-8 text-xs text-slate-700 outline-none transition-colors focus:border-[#8fa9e8] focus:bg-white focus:ring-2 focus:ring-[#dce5fa]"
                     placeholder={t("搜索任务、负责人…")}
                     aria-label={t("搜索任务、负责人…")}
                     value={taskKeyword}
                     onChange={(event) => setTaskKeyword(event.target.value)}
                   />
-                </label>
+                  {taskKeyword && (
+                    <button
+                      type="button"
+                      onClick={() => setTaskKeyword("")}
+                      aria-label={t("清除任务搜索")}
+                      className="absolute right-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]"
+                    >
+                      <X className="size-3" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
 
                 {/* 窄屏保持单行但允许横向滚动，避免筛选项被工作台 overflow-hidden 裁切。 */}
                 <div className="rd-horizon-workspace-filter-controls flex w-full min-w-0 items-center gap-1.5 overflow-x-auto pb-1 xl:w-auto xl:shrink-0 xl:overflow-visible xl:pb-0">
@@ -5023,8 +5164,8 @@ export function RDMyWorkspacePage() {
                       aria-selected={taskRoleTab === "primary"}
                       onClick={() => setTaskRoleTab("primary")}
                       className={cn(
-                        "flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-[6px] px-2.5 text-xs font-medium transition-colors",
-                        taskRoleTab === "primary" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                        "flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-[6px] px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]",
+                        taskRoleTab === "primary" ? "bg-white text-[#002fa7] shadow-sm" : "text-slate-500 hover:text-slate-700",
                       )}
                     >
                       <User className="h-3.5 w-3.5" />
@@ -5037,8 +5178,8 @@ export function RDMyWorkspacePage() {
                       aria-selected={taskRoleTab === "collaborator"}
                       onClick={() => setTaskRoleTab("collaborator")}
                       className={cn(
-                        "flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-[6px] px-2.5 text-xs font-medium transition-colors",
-                        taskRoleTab === "collaborator" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                        "flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-[6px] px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]",
+                        taskRoleTab === "collaborator" ? "bg-white text-[#002fa7] shadow-sm" : "text-slate-500 hover:text-slate-700",
                       )}
                     >
                       <Users className="h-3.5 w-3.5" />
@@ -5048,7 +5189,7 @@ export function RDMyWorkspacePage() {
                   </div>
                   <NativeSelect
                     aria-label={t("优先级")}
-                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
                     value={taskPriorityFilter}
                     onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
                   >
@@ -5059,7 +5200,7 @@ export function RDMyWorkspacePage() {
                   </NativeSelect>
                   <NativeSelect
                     aria-label={t("状态")}
-                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
                     value={taskStatusFilter}
                     onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
                   >
@@ -5072,7 +5213,7 @@ export function RDMyWorkspacePage() {
                   </NativeSelect>
                   <NativeSelect
                     aria-label={t("时间")}
-                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
                     value={taskDueFilter}
                     onChange={(event) => setTaskDueFilter(event.target.value as WorkspaceDueFilter)}
                   >
@@ -5083,20 +5224,21 @@ export function RDMyWorkspacePage() {
                     <option value="7d">{t("7 天内")}</option>
                     <option value="no_due">{t("无截止日")}</option>
                   </NativeSelect>
-                  {/*<button*/}
-                  {/*  type="button"*/}
-                  {/*  onClick={() => {*/}
-                  {/*    setTaskKeyword("");*/}
-                  {/*    setTaskPriorityFilter("all");*/}
-                  {/*    setTaskStatusFilter("all");*/}
-                  {/*    setTaskDueFilter("all");*/}
-                  {/*  }}*/}
-                  {/*  disabled={!taskFiltersActive}*/}
-                  {/*  className="h-8 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"*/}
-                  {/*>*/}
-                  {/*  清空*/}
-                  {/*</button>*/}
-                  <span className="whitespace-nowrap pl-1 text-[11px] text-slate-400">
+                  {taskFiltersActive && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTaskKeyword("");
+                        setTaskPriorityFilter("all");
+                        setTaskStatusFilter("all");
+                        setTaskDueFilter("all");
+                      }}
+                      className="h-8 shrink-0 rounded-[8px] border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:border-[#cbd8f6] hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]"
+                    >
+                      {t("清空筛选")}
+                    </button>
+                  )}
+                  <span className="whitespace-nowrap pl-1 text-[11px] tabular-nums text-slate-400">
                     {loading ? t("加载中…") : `${filteredRoleTasks.length} / ${roleTasks.length}`}
                   </span>
                 </div>
@@ -5106,23 +5248,48 @@ export function RDMyWorkspacePage() {
             <div ref={taskScrollRef} className="rd-horizon-workspace-task-scroll material-scrollbar min-h-0 flex-1 overflow-y-auto pr-1">
               {/* Task list */}
               {loading ? (
-                <div className="space-y-2">
+                <div role="status" aria-label={t("正在加载任务")} className="space-y-2">
                   {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-[84px] animate-pulse rounded-2xl bg-slate-100" />
+                    <div key={i} className="min-h-[220px] animate-pulse rounded-2xl border border-slate-100 bg-white p-4" aria-hidden="true">
+                      <div className="h-4 w-2/3 rounded bg-slate-200" />
+                      <div className="mt-4 h-3 w-full rounded bg-slate-100" />
+                      <div className="mt-2 h-3 w-4/5 rounded bg-slate-100" />
+                      <div className="mt-20 h-1.5 w-full rounded bg-slate-100" />
+                    </div>
                   ))}
                 </div>
               ) : filteredRoleTasks.length === 0 ? (
                 <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 py-12 text-center">
                   {taskRoleTab === "primary" ? (
-                    <User className="mb-2 h-8 w-8 text-slate-300" />
+                    <User className="mb-2 size-8 text-slate-300" />
                   ) : (
-                    <Users className="mb-2 h-8 w-8 text-slate-300" />
+                    <Users className="mb-2 size-8 text-slate-300" />
                   )}
                   <p className="text-sm font-medium text-slate-500">
                     {taskFiltersActive
                       ? taskRoleTab === "primary" ? t("没有匹配的主责任务") : t("没有匹配的协助任务")
                       : taskRoleTab === "primary" ? t("当前没有由我主责的任务") : t("当前没有需要我协助的任务")}
                   </p>
+                  <p className="mt-1 max-w-md text-pretty text-xs leading-5 text-slate-400">
+                    {taskFiltersActive ? t("调整筛选条件以查看其他任务。") : t("刷新后将同步最新的任务归属与进度。")}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (taskFiltersActive) {
+                        setTaskKeyword("");
+                        setTaskPriorityFilter("all");
+                        setTaskStatusFilter("all");
+                        setTaskDueFilter("all");
+                      } else {
+                        void loadWorkspace();
+                      }
+                    }}
+                    className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:border-[#cbd8f6] hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
+                  >
+                    {taskFiltersActive ? <X className="size-3.5" aria-hidden="true" /> : <RefreshCw className="size-3.5" aria-hidden="true" />}
+                    {taskFiltersActive ? t("清空筛选") : t("刷新工作台")}
+                  </button>
                 </div>
               ) : (
                 <>
@@ -5148,7 +5315,7 @@ export function RDMyWorkspacePage() {
                   <div ref={taskSentinelRef}>
                     {hasMoreTasks ? (
                       <div className="mt-3 flex items-center justify-center gap-1.5 py-2 text-[11px] text-slate-400">
-                        <ChevronDown className="h-3 w-3 animate-bounce" />
+                        <ChevronDown className="size-3" />
                         <span>{t("滚动加载更多 · 已显示")} <span className="tabular-nums">{shownTasks.length}</span> / {t("共")} <span className="tabular-nums">{filteredRoleTasks.length}</span> {t("个")}</span>
                       </div>
                     ) : filteredRoleTasks.length > WORKSPACE_PAGE_SIZE ? (
@@ -5180,9 +5347,9 @@ export function RDMyWorkspacePage() {
                         <li key={notification.id}>
                           <div
                             className={cn(
-                              "rd-horizon-workspace-notification group flex w-full cursor-pointer items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]",
+                              "rd-horizon-workspace-notification group flex w-full cursor-pointer items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition-colors hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]",
                               isMessage
-                                ? "border-blue-100 bg-blue-50/60"
+                                ? "border-[#dce5fa] bg-[#eef3ff]/60"
                                 : notification.type === "blocked" || notification.type === "due_soon"
                                   ? "border-amber-100 bg-amber-50"
                                   : "border-slate-100 bg-slate-50",
@@ -5198,12 +5365,12 @@ export function RDMyWorkspacePage() {
                               className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-left focus-visible:outline-none"
                             >
                               {isMessage ? (
-                                <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
+                                <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#002fa7]" />
                               ) : (
                                 <AlertTriangle
                                   className={cn(
                                     "mt-0.5 h-3.5 w-3.5 shrink-0",
-                                    notification.type === "blocked" ? "text-red-500" : "text-amber-500",
+                                    notification.type === "blocked" ? "text-rose-500" : "text-amber-500",
                                   )}
                                 />
                               )}
@@ -5214,7 +5381,7 @@ export function RDMyWorkspacePage() {
                                     <span
                                       className={cn(
                                         "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
-                                        notification.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600 ring-1 ring-red-100",
+                                        notification.read ? "bg-slate-100 text-slate-500" : "bg-rose-50 text-rose-600 ring-1 ring-rose-100",
                                       )}
                                     >
                                       {notification.read ? t("已读") : t("未读")}
@@ -5281,13 +5448,13 @@ export function RDMyWorkspacePage() {
               <SectionCard title={t("待审核 AI 建议")} icon={Sparkles} count={visibleSuggestions.length} helper={t("确认后才写入任务池")}>
                 <div className="space-y-3">
                   {visibleSuggestions.map((suggestion) => (
-                    <article key={suggestion.id} className="rd-horizon-workspace-ai-card rounded-xl border border-violet-100 bg-violet-50/60 p-3">
+                    <article key={suggestion.id} className="rd-horizon-workspace-ai-card rounded-xl border border-[#dce5fa] bg-[#eef3ff]/60 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <h3 className="text-xs font-semibold text-slate-900">{suggestion.title}</h3>
                           <p className="mt-0.5 line-clamp-2 text-[11px] leading-5 text-slate-500">{suggestion.preview}</p>
                         </div>
-                        <span className="rd-horizon-workspace-ai-score shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-violet-700">
+                        <span className="rd-horizon-workspace-ai-score shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-[#001f73]">
                           {regeneratedSuggestions.has(suggestion.id) ? suggestion.confidence + 6 : suggestion.confidence}%
                         </span>
                       </div>
@@ -5465,30 +5632,7 @@ export function RDMyWorkspacePage() {
           }}
           onReject={async (reason) => {
             const notif = activePanel!.kind === "notification" ? activePanel!.notification : null;
-            if (!notif?.raw_body) return;
-            try {
-              const body = JSON.parse(notif.raw_body) as Record<string, unknown>;
-              const taskId = String(body.task_id ?? "");
-              const taskTitle = String(body.task_title ?? "");
-              if (String(body.review_type ?? "") === "procurement_transfer") {
-                await rejectRdProcurementTransfer(taskId, reason);
-                announceProcurementRefresh();
-              } else {
-                await updateRdTask(taskId, {
-                  _review_action: "reject",
-                  _reviewer_name: user?.name,
-                  _reject_reason: reason,
-                } as Parameters<typeof updateRdTask>[1]);
-              }
-              await patchRdMessage(notif.id, { handled: true, read: true });
-              toast.success(t("已驳回「{title}」", { title: taskTitle }));
-              setDismissedNotifs((prev) => new Set(prev).add(notif.id));
-              window.dispatchEvent(new CustomEvent("rd:review-submitted"));
-              setActivePanel(null);
-              await loadWorkspace({ silent: true });
-            } catch (err) {
-              toast.error(err instanceof Error ? err.message : t("操作失败"));
-            }
+            if (notif) await rejectNotificationReview(notif, reason);
           }}
         />
       )}

@@ -1,16 +1,36 @@
-import React, { useState, useMemo } from "react";
+import React, { useDeferredValue, useMemo, useState } from "react";
 import {
+  ArrowRight,
+  BadgeCheck,
   BookOpen,
-  ChevronDown,
-  ChevronRight,
+  CircleCheck,
+  FileCheck2,
   Filter,
   History,
+  Layers3,
+  Library,
   Search,
+  ShieldCheck,
   Tag,
   X,
 } from "lucide-react";
+import { Link } from "react-router";
 import { toast } from "sonner";
+
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import { Button } from "./components/ui/button";
+import { Checkbox } from "./components/ui/checkbox";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { cn } from "./components/ui/utils";
+import { routePath } from "./lib/routePaths";
 
 type Framework = "FDA" | "CE MDR" | "NMPA";
 type RegType = "强制标准" | "指导原则" | "技术规范";
@@ -88,295 +108,325 @@ const mockRegulations: Regulation[] = [
 ];
 
 const frameworkColors: Record<Framework, string> = {
-  FDA: "bg-blue-100 text-blue-700",
-  "CE MDR": "bg-emerald-100 text-emerald-700",
-  NMPA: "bg-red-100 text-red-700",
+  FDA: "border-blue-200 bg-blue-50 text-blue-700",
+  "CE MDR": "border-emerald-200 bg-emerald-50 text-emerald-700",
+  NMPA: "border-rose-200 bg-rose-50 text-rose-700",
 };
 
 const tagColors: Record<string, string> = {
-  报警: "bg-orange-50 text-orange-600",
-  电源: "bg-yellow-50 text-yellow-700",
-  软件: "bg-violet-50 text-violet-700",
-  硬件: "bg-sky-50 text-sky-700",
-  临床: "bg-pink-50 text-pink-700",
-  质量: "bg-teal-50 text-teal-700",
-  生产: "bg-amber-50 text-amber-700",
+  报警: "border-orange-200 bg-orange-50 text-orange-700",
+  电源: "border-yellow-200 bg-yellow-50 text-yellow-800",
+  软件: "border-blue-200 bg-blue-50 text-blue-700",
+  硬件: "border-sky-200 bg-sky-50 text-sky-700",
+  临床: "border-cyan-200 bg-cyan-50 text-cyan-800",
+  质量: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  生产: "border-amber-200 bg-amber-50 text-amber-800",
 };
 
 const ALL_FRAMEWORKS: Framework[] = ["FDA", "CE MDR", "NMPA"];
 const ALL_REGTYPES: RegType[] = ["强制标准", "指导原则", "技术规范"];
 const ALL_CATEGORIES = ["CPAP", "BiPAP", "呼吸机", "制氧机"];
+const SEMANTIC_TERMS: Record<string, string[]> = {
+  设计: ["design", "dhf", "设计控制"],
+  质量: ["quality", "qsr", "capa", "纠正", "预防"],
+  品质: ["质量", "quality", "qsr"],
+  生产: ["process", "validation", "过程确认"],
+  临床: ["clinical", "评价报告"],
+  注册: ["registration", "申报", "nmpa"],
+  技术文档: ["technical documentation", "annex ii"],
+};
+
+function matchesRegulation(regulation: Regulation, keyword: string, mode: SearchMode) {
+  const searchableText = [
+    regulation.title,
+    regulation.authority,
+    regulation.id,
+    ...regulation.category,
+    ...regulation.clauses.map((clause) => `${clause.num} ${clause.text} ${clause.tags.join(" ")}`),
+  ].join(" ").toLowerCase();
+
+  if (mode === "精确匹配") return searchableText.includes(keyword);
+
+  const directTerms = keyword.split(/\s+/).filter(Boolean);
+  const relatedTerms = Object.entries(SEMANTIC_TERMS)
+    .filter(([concept]) => keyword.includes(concept) || concept.includes(keyword))
+    .flatMap(([concept, aliases]) => [concept, ...aliases]);
+  return [...new Set([...directTerms, ...relatedTerms])].some((term) => searchableText.includes(term.toLowerCase()));
+}
+
+function FilterGroup({
+  title,
+  values,
+  selected,
+  onToggle,
+}: {
+  title: string;
+  values: readonly string[];
+  selected: readonly string[];
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <fieldset className="space-y-2.5">
+      <legend className="text-xs font-semibold text-slate-700">{title}</legend>
+      <div className="space-y-2">
+        {values.map((value) => {
+          const id = `reg-filter-${title}-${value}`.replace(/\s+/g, "-");
+          return (
+            <div key={value} className="flex min-h-8 items-center gap-2.5">
+              <Checkbox id={id} checked={selected.includes(value)} onCheckedChange={() => onToggle(value)} />
+              <Label htmlFor={id} className="cursor-pointer text-xs font-medium text-slate-600">{value}</Label>
+            </div>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
 
 export function RAKnowledgePage() {
   const [frameworks, setFrameworks] = useState<Framework[]>([]);
   const [regTypes, setRegTypes] = useState<RegType[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [keyword, setKeyword] = useState("");
+  const deferredKeyword = useDeferredValue(keyword);
   const [searchMode, setSearchMode] = useState<SearchMode>("精确匹配");
-  const [selectedId, setSelectedId] = useState<string>(mockRegulations[0].id);
+  const [selectedId, setSelectedId] = useState(mockRegulations[0].id);
   const [expandedClauses, setExpandedClauses] = useState<Record<string, boolean>>({});
-  const [versionTab, setVersionTab] = useState<"clauses" | "history">("clauses");
 
   const filtered = useMemo(() => {
-    return mockRegulations.filter((r) => {
-      if (frameworks.length && !frameworks.includes(r.framework)) return false;
-      if (regTypes.length && !regTypes.includes(r.regType)) return false;
-      if (categories.length && !r.category.some((c) => categories.includes(c))) return false;
-      if (keyword) {
-        const kw = keyword.toLowerCase();
-        return [r.title, r.authority, r.id, ...r.category].join(" ").toLowerCase().includes(kw);
-      }
-      return true;
+    const normalizedKeyword = deferredKeyword.trim().toLowerCase();
+    return mockRegulations.filter((regulation) => {
+      if (frameworks.length && !frameworks.includes(regulation.framework)) return false;
+      if (regTypes.length && !regTypes.includes(regulation.regType)) return false;
+      if (categories.length && !regulation.category.some((category) => categories.includes(category))) return false;
+      if (!normalizedKeyword) return true;
+      return matchesRegulation(regulation, normalizedKeyword, searchMode);
     });
-  }, [frameworks, regTypes, categories, keyword]);
+  }, [categories, deferredKeyword, frameworks, regTypes, searchMode]);
 
-  const selected = filtered.find((r) => r.id === selectedId) ?? filtered[0] ?? null;
-
+  const selected = filtered.find((regulation) => regulation.id === selectedId) ?? filtered[0] ?? null;
   const activeFilterCount = frameworks.length + regTypes.length + categories.length;
+  const totalClauses = mockRegulations.reduce((sum, regulation) => sum + regulation.clauses.length, 0);
 
-  const toggleFramework = (f: Framework) =>
-    setFrameworks((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
-  const toggleRegType = (t: RegType) =>
-    setRegTypes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
-  const toggleCategory = (c: string) =>
-    setCategories((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
-  const resetFilters = () => { setFrameworks([]); setRegTypes([]); setCategories([]); };
+  const resetFilters = () => {
+    setFrameworks([]);
+    setRegTypes([]);
+    setCategories([]);
+    setKeyword("");
+    setSelectedId(mockRegulations[0].id);
+  };
+
+  const removeFilter = (filter: string) => {
+    setSelectedId("");
+    if (ALL_FRAMEWORKS.includes(filter as Framework)) {
+      setFrameworks((current) => current.filter((item) => item !== filter));
+    } else if (ALL_REGTYPES.includes(filter as RegType)) {
+      setRegTypes((current) => current.filter((item) => item !== filter));
+    } else {
+      setCategories((current) => current.filter((item) => item !== filter));
+    }
+  };
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col gap-3 bg-gray-50 p-3 lg:h-full lg:min-h-0 lg:flex-row lg:gap-0 lg:overflow-hidden lg:p-0">
-      {/* Left: Filter Sidebar */}
-      <div className="flex max-h-[45vh] min-w-0 flex-col overflow-y-auto border border-gray-100 bg-white lg:max-h-none lg:w-52 lg:flex-shrink-0 lg:border-y-0 lg:border-l-0 lg:border-r">
-        <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <Filter className="w-4 h-4 text-gray-500" />
-            <span className="text-sm font-semibold text-gray-700">筛选</span>
-            {activeFilterCount > 0 && (
-              <span className="text-xs bg-purple-100 text-purple-700 rounded-full px-1.5 font-medium">{activeFilterCount}</span>
-            )}
-          </div>
-          {activeFilterCount > 0 && (
-            <button onClick={resetFilters} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-0.5">
-              <X className="w-3 h-3" /> 清空
-            </button>
-          )}
-        </div>
+    <div className="horizon-theme hz-page mx-auto flex min-h-full max-w-[1600px] min-w-0 flex-col gap-4 px-3 py-4 sm:p-5 lg:p-6">
+      <HorizonPageHeader
+        Icon={BookOpen}
+        eyebrow="REGULATORY INTELLIGENCE · KNOWLEDGE"
+        title="法规知识库"
+        description="集中检索 FDA、CE MDR 与 NMPA 法规，快速定位条款、适用产品和版本状态。"
+        meta={<><span>3 套法规体系</span><span>·</span><span>{totalClauses} 条重点条款</span><span>·</span><span>版本数据更新至 2024-02-02</span></>}
+        actions={
+          <>
+            <Button asChild variant="outline">
+              <Link to={routePath("page:quality-dms", "/quality-dms")}>质量文件 DMS<ArrowRight className="size-4" /></Link>
+            </Button>
+            <Button className="hz-primary-action" onClick={() => toast.success("法规同步检查已加入任务队列")}>同步检查</Button>
+          </>
+        }
+      />
 
-        {/* Active filter chips */}
-        {activeFilterCount > 0 && (
-          <div className="px-3 py-2 flex flex-wrap gap-1 border-b border-gray-50">
-            {[...frameworks, ...regTypes, ...categories].map((f) => (
-              <span key={f} className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full flex items-center gap-1">
-                {f}
-                <button onClick={() => {
-                  if (ALL_FRAMEWORKS.includes(f as Framework)) toggleFramework(f as Framework);
-                  else if (ALL_REGTYPES.includes(f as RegType)) toggleRegType(f as RegType);
-                  else toggleCategory(f);
-                }}>×</button>
-              </span>
-            ))}
-          </div>
-        )}
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={Layers3} label="法规体系" value={mockRegulations.length} note="FDA / CE MDR / NMPA" />
+        <HorizonMetric Icon={CircleCheck} label="有效文档" value={mockRegulations.filter((item) => item.status === "有效").length} note="当前可引用版本" tone="success" />
+        <HorizonMetric Icon={FileCheck2} label="重点条款" value={totalClauses} note="已完成业务标签" />
+        <HorizonMetric Icon={Search} label="当前结果" value={filtered.length} note={activeFilterCount ? `${activeFilterCount} 项筛选已启用` : "展示全部法规"} tone={filtered.length ? "brand" : "warning"} />
+      </HorizonMetricGrid>
 
-        <div className="flex-1 px-3 py-3 space-y-4">
-          <div>
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">法规体系</div>
-            {ALL_FRAMEWORKS.map((f) => (
-              <label key={f} className="flex items-center gap-2 py-1 cursor-pointer group">
-                <input type="checkbox" checked={frameworks.includes(f)} onChange={() => toggleFramework(f)}
-                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-400" />
-                <span className={cn("text-xs font-medium px-1.5 py-0.5 rounded-full", frameworkColors[f])}>{f}</span>
-              </label>
-            ))}
-          </div>
-          <div>
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">法规类型</div>
-            {ALL_REGTYPES.map((t) => (
-              <label key={t} className="flex items-center gap-2 py-1 cursor-pointer">
-                <input type="checkbox" checked={regTypes.includes(t)} onChange={() => toggleRegType(t)}
-                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-400" />
-                <span className="text-xs text-gray-600">{t}</span>
-              </label>
-            ))}
-          </div>
-          <div>
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">产品类别</div>
-            {ALL_CATEGORIES.map((c) => (
-              <label key={c} className="flex items-center gap-2 py-1 cursor-pointer">
-                <input type="checkbox" checked={categories.includes(c)} onChange={() => toggleCategory(c)}
-                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-400" />
-                <span className="text-xs text-gray-600">{c}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Center: Search + Document List */}
-      <div className="flex min-w-0 flex-col border border-gray-100 bg-white lg:w-80 lg:flex-shrink-0 lg:border-y-0 lg:border-l-0 lg:border-r">
-        <div className="px-4 pt-4 pb-3 border-b border-gray-100 space-y-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-            <input
-              className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-400"
-              placeholder="搜索条款、关键词..."
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-            />
-          </div>
-          <div className="flex gap-1">
-            {(["精确匹配", "语义检索"] as SearchMode[]).map((m) => (
-              <button key={m} onClick={() => setSearchMode(m)}
-                className={cn("flex-1 text-xs py-1 rounded-lg font-medium transition-colors",
-                  searchMode === m ? "bg-purple-100 text-purple-700" : "text-gray-500 hover:bg-gray-50"
-                )}>
-                {m}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
-          {filtered.length === 0 ? (
-            <div className="p-6 text-center text-sm text-gray-400">无匹配法规文档</div>
-          ) : filtered.map((reg) => (
-            <button key={reg.id} onClick={() => setSelectedId(reg.id)}
-              className={cn("w-full text-left px-4 py-3.5 hover:bg-gray-50 transition-colors",
-                selected?.id === reg.id && "bg-purple-50"
-              )}>
-              <div className="flex items-start justify-between gap-2 mb-1.5">
-                <span className={cn("text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0", frameworkColors[reg.framework])}>{reg.framework}</span>
-                <span className={cn("text-xs px-1.5 py-0.5 rounded-full font-medium",
-                  reg.status === "有效" ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400 line-through"
-                )}>{reg.status}</span>
-              </div>
-              <div className="text-sm font-medium text-gray-800 leading-snug mb-1">{reg.title}</div>
-              <div className="text-xs text-gray-400">{reg.authority} · {reg.date}</div>
-              <div className="flex flex-wrap gap-1 mt-1.5">
-                {reg.category.slice(0, 3).map((c) => (
-                  <span key={c} className="text-xs bg-gray-50 text-gray-500 px-1.5 py-0.5 rounded">{c}</span>
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[190px_minmax(280px,310px)_minmax(0,1fr)]">
+        <section className="hz-surface min-w-0 overflow-hidden border" aria-label="法规筛选范围">
+          <HorizonSectionHeader
+            Icon={Filter}
+            title="筛选范围"
+            description="按体系、类型和适用产品收窄结果。"
+            trailing={activeFilterCount > 0 ? <Button variant="ghost" size="sm" onClick={resetFilters}>清空</Button> : undefined}
+          />
+          <div className="space-y-5 p-4">
+            {activeFilterCount > 0 ? (
+              <div className="flex flex-wrap gap-1.5" aria-label="已启用筛选">
+                {[...frameworks, ...regTypes, ...categories].map((filter) => (
+                  <span key={filter} className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-1 pl-2.5 pr-1 text-xs font-semibold text-blue-700">
+                    {filter}
+                    <button type="button" className="inline-flex size-6 items-center justify-center rounded-full hover:bg-blue-100" onClick={() => removeFilter(filter)} aria-label={`移除筛选 ${filter}`}>
+                      <X className="size-3.5" />
+                    </button>
+                  </span>
                 ))}
               </div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Right: Document Detail */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden border border-gray-100 bg-white lg:border-0">
-        {selected ? (
-          <>
-            <div className="border-b border-gray-100 px-4 pb-4 pt-5 sm:px-6">
-              <div className="flex items-start justify-between gap-4 mb-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", frameworkColors[selected.framework])}>{selected.framework}</span>
-                  <span className="text-xs text-gray-400">{selected.regType}</span>
-                  <span className={cn("text-xs px-1.5 py-0.5 rounded-full",
-                    selected.status === "有效" ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-400"
-                  )}>{selected.status}</span>
-                </div>
-                <span className="text-xs text-gray-400 flex-shrink-0">{selected.version} · {selected.date}</span>
-              </div>
-              <h2 className="font-semibold text-gray-800 text-base leading-snug">{selected.title}</h2>
-              <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
-                <BookOpen className="w-3.5 h-3.5 text-gray-400" />
-                <span className="text-xs text-gray-500">{selected.authority}</span>
-                <span className="text-gray-200">·</span>
-                <div className="flex min-w-0 flex-wrap gap-1">
-                  {selected.category.map((c) => (
-                    <span key={c} className="text-xs bg-gray-50 text-gray-500 px-1.5 py-0.5 rounded">{c}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Tabs */}
-            <div className="flex gap-4 overflow-x-auto border-b border-gray-100 px-4 pt-3 sm:px-6">
-              {(["clauses", "history"] as const).map((tab) => (
-                <button key={tab} onClick={() => setVersionTab(tab)}
-                  className={cn("text-sm pb-2.5 font-medium border-b-2 transition-colors",
-                    versionTab === tab ? "border-purple-500 text-purple-700" : "border-transparent text-gray-400 hover:text-gray-600"
-                  )}>
-                  {tab === "clauses" ? "条款与标注" : "版本历史"}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-              {versionTab === "clauses" ? (
-                <div className="space-y-3">
-                  {selected.clauses.map((clause) => (
-                    <div key={clause.id} className="border border-gray-100 rounded-xl overflow-hidden">
-                      <button
-                        onClick={() => setExpandedClauses((prev) => ({ ...prev, [clause.id]: !prev[clause.id] }))}
-                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
-                      >
-                        <div className="flex min-w-0 items-center gap-3">
-                          <span className="text-xs font-mono font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded">{clause.num}</span>
-                          <span className="truncate text-sm font-medium text-gray-700">{clause.text.slice(0, 40)}...</span>
-                        </div>
-                        <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
-                          {clause.tags.map((t) => (
-                            <span key={t} className={cn("text-xs px-1.5 py-0.5 rounded-full font-medium", tagColors[t] ?? "bg-gray-50 text-gray-500")}>{t}</span>
-                          ))}
-                          {expandedClauses[clause.id] ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
-                        </div>
-                      </button>
-                      {expandedClauses[clause.id] && (
-                        <div className="px-4 pb-4 border-t border-gray-50">
-                          <p className="text-sm text-gray-700 leading-relaxed mt-3">{clause.text}</p>
-                          <div className="flex items-center justify-between mt-3">
-                            <div className="flex gap-1.5 flex-wrap">
-                              {clause.tags.map((t) => (
-                                <span key={t} className={cn("text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1", tagColors[t] ?? "bg-gray-50 text-gray-500")}>
-                                  <Tag className="w-3 h-3" />{t}
-                                </span>
-                              ))}
-                            </div>
-                            <button
-                              onClick={() => toast.success(`已为 ${clause.num} 添加标注`)}
-                              className="text-xs text-purple-600 hover:text-purple-700 border border-purple-200 rounded-lg px-2.5 py-1 hover:bg-purple-50 transition-colors"
-                            >
-                              + 添加标注
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {[
-                    { version: selected.version, date: selected.date, note: "当前有效版本", active: true },
-                    { version: "上一版本", date: "2019-03-01", note: "已废止", active: false },
-                  ].map((v, i) => (
-                    <div key={i} className={cn("border rounded-xl p-4", v.active ? "border-purple-100 bg-purple-50/30" : "border-gray-100")}>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <History className="w-4 h-4 text-gray-400" />
-                          <span className="text-sm font-medium text-gray-800">{v.version}</span>
-                          {v.active ? (
-                            <span className="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded-full">当前版本</span>
-                          ) : (
-                            <span className="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full line-through">已废止</span>
-                          )}
-                        </div>
-                        <span className="text-xs text-gray-400">{v.date}</span>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-2">{v.note}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-300">
-            <div className="text-center">
-              <BookOpen className="w-12 h-12 mx-auto opacity-20 mb-3" />
-              <p className="text-sm">从左侧选择法规文档查看详情</p>
-            </div>
+            ) : null}
+            <FilterGroup title="法规体系" values={ALL_FRAMEWORKS} selected={frameworks} onToggle={(value) => { setSelectedId(""); setFrameworks((current) => current.includes(value as Framework) ? current.filter((item) => item !== value) : [...current, value as Framework]); }} />
+            <FilterGroup title="法规类型" values={ALL_REGTYPES} selected={regTypes} onToggle={(value) => { setSelectedId(""); setRegTypes((current) => current.includes(value as RegType) ? current.filter((item) => item !== value) : [...current, value as RegType]); }} />
+            <FilterGroup title="适用产品" values={ALL_CATEGORIES} selected={categories} onToggle={(value) => { setSelectedId(""); setCategories((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]); }} />
           </div>
-        )}
+        </section>
+
+        <section className="hz-surface min-w-0 overflow-hidden border" aria-label="法规目录">
+          <HorizonSectionHeader Icon={Library} title="法规目录" description="搜索法规名称、机构、条款和业务标签。" trailing={<span className="text-xs text-slate-500" aria-live="polite">{filtered.length} 份</span>} />
+          <div className="hz-toolbar space-y-3 border-b p-3">
+            <Label htmlFor="regulation-search" className="sr-only">搜索法规与条款</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Input id="regulation-search" type="search" value={keyword} onChange={(event) => { setKeyword(event.target.value); setSelectedId(""); }} placeholder="搜索法规、条款或关键词" className="bg-white pl-9" />
+            </div>
+            <Tabs value={searchMode} onValueChange={(value) => { setSearchMode(value as SearchMode); setSelectedId(""); }}>
+              <TabsList className="grid w-full grid-cols-2 bg-slate-100" aria-label="检索方式">
+                <TabsTrigger value="精确匹配" className="data-[state=active]:text-[#002fa7]">精确匹配</TabsTrigger>
+                <TabsTrigger value="语义检索" className="data-[state=active]:text-[#002fa7]">语义检索</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <p className="text-pretty text-[11px] leading-4 text-slate-500">
+              {searchMode === "精确匹配" ? "按输入词在法规、条款和标签中直接匹配。" : "扩展设计、质量、临床等常用中英文监管术语。"}
+            </p>
+          </div>
+          <div className="max-h-[620px] overflow-y-auto">
+            {filtered.length ? (
+              <ul className="divide-y divide-slate-100" aria-label="法规文档列表">
+                {filtered.map((regulation) => (
+                  <li key={regulation.id}>
+                    <button
+                      type="button"
+                      aria-pressed={selected?.id === regulation.id}
+                      onClick={() => setSelectedId(regulation.id)}
+                      className={cn(
+                        "w-full cursor-pointer px-4 py-3.5 text-left transition-colors hover:bg-slate-50",
+                        selected?.id === regulation.id && "border-l-2 border-[#002fa7] bg-blue-50/70 pl-[14px]",
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-semibold", frameworkColors[regulation.framework])}>{regulation.framework}</span>
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700"><CircleCheck className="size-3" />{regulation.status}</span>
+                      </div>
+                      <div className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-slate-800">{regulation.title}</div>
+                      <div className="mt-1 text-xs text-slate-500">{regulation.authority}</div>
+                      <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                        <span className="truncate">{regulation.category.join(" · ")}</span>
+                        <time className="shrink-0 tabular-nums" dateTime={regulation.date}>{regulation.date}</time>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <HorizonEmptyState Icon={Search} title="没有匹配的法规文档" description="调整关键词或清除筛选条件后重试。" action={<Button size="sm" variant="outline" onClick={resetFilters}>清除筛选</Button>} />
+            )}
+          </div>
+        </section>
+
+        <section className="hz-surface min-w-0 overflow-hidden border" aria-label="法规详情">
+          {selected ? (
+            <>
+              <HorizonSectionHeader Icon={ShieldCheck} title="法规详情" description="查看版本身份、重点条款和历史状态。" trailing={<span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-semibold", frameworkColors[selected.framework])}>{selected.framework}</span>} />
+              <div className="border-b border-slate-100 p-4 sm:p-5">
+                <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      <span className="font-mono font-semibold text-[#002fa7]">{selected.id}</span>
+                      <span>·</span>
+                      <span>{selected.regType}</span>
+                      <span className="inline-flex items-center gap-1 text-emerald-700"><BadgeCheck className="size-3.5" />{selected.status}</span>
+                    </div>
+                    <h2 className="mt-2 text-balance text-lg font-bold leading-7 text-[#1b2559]">{selected.title}</h2>
+                    <p className="mt-2 text-pretty text-sm text-slate-600">发布机构：{selected.authority}</p>
+                  </div>
+                  <dl className="grid w-full shrink-0 grid-cols-2 gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs 2xl:w-auto">
+                    <div><dt className="text-slate-500">版本</dt><dd className="mt-1 font-semibold text-slate-800">{selected.version}</dd></div>
+                    <div><dt className="text-slate-500">生效日期</dt><dd className="mt-1 font-semibold tabular-nums text-slate-800">{selected.date}</dd></div>
+                    <div className="col-span-2"><dt className="text-slate-500">适用产品</dt><dd className="mt-1 font-semibold text-slate-800">{selected.category.join("、")}</dd></div>
+                  </dl>
+                </div>
+              </div>
+
+              <Tabs key={selected.id} defaultValue="clauses" className="gap-0">
+                <div className="border-b border-slate-100 px-4 pt-3 sm:px-5">
+                  <TabsList className="bg-slate-100" aria-label="法规详情视图">
+                    <TabsTrigger value="clauses" className="data-[state=active]:text-[#002fa7]">条款与标注</TabsTrigger>
+                    <TabsTrigger value="history" className="data-[state=active]:text-[#002fa7]">版本历史</TabsTrigger>
+                  </TabsList>
+                </div>
+                <TabsContent value="clauses" className="m-0 p-4 sm:p-5">
+                  <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+                    {selected.clauses.map((clause, index) => {
+                      const expanded = expandedClauses[clause.id] ?? index === 0;
+                      return (
+                        <details
+                          key={clause.id}
+                          open={expanded}
+                          onToggle={(event) => {
+                            const isOpen = event.currentTarget.open;
+                            setExpandedClauses((current) => ({ ...current, [clause.id]: isOpen }));
+                          }}
+                          className="group"
+                        >
+                          <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:hidden hover:bg-slate-50">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 font-mono text-xs font-bold text-[#002fa7]">{clause.num}</span>
+                              <span className="line-clamp-2 text-sm font-semibold text-slate-700">{clause.text}</span>
+                            </div>
+                            <span className="shrink-0 text-xs text-slate-500">{expanded ? "收起条款" : "展开条款"}</span>
+                          </summary>
+                          <div className="border-t border-slate-100 bg-slate-50/70 px-4 py-4">
+                            <p className="text-pretty text-sm leading-6 text-slate-700">{clause.text}</p>
+                            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex flex-wrap gap-1.5" aria-label="条款标签">
+                                {clause.tags.map((tag) => (
+                                  <span key={tag} className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold", tagColors[tag] ?? "border-slate-200 bg-white text-slate-600")}><Tag className="size-3" />{tag}</span>
+                                ))}
+                              </div>
+                              <Button size="sm" variant="outline" onClick={() => toast.success(`已为 ${clause.num} 添加标注`)}>添加标注</Button>
+                            </div>
+                          </div>
+                        </details>
+                      );
+                    })}
+                  </div>
+                </TabsContent>
+                <TabsContent value="history" className="m-0 p-4 sm:p-5">
+                  <ol className="space-y-0" aria-label="法规版本历史">
+                    {[
+                      { version: selected.version, date: selected.date, note: "当前有效版本，可用于注册与质量文件引用。", active: true },
+                      { version: "上一版本", date: "2019-03-01", note: "历史版本，仅用于变更追溯与差异核对。", active: false },
+                    ].map((version, index) => (
+                      <li key={`${selected.id}-${version.version}`} className="relative grid grid-cols-[28px_minmax(0,1fr)] gap-3 pb-5 last:pb-0">
+                        <div className="relative flex justify-center">
+                          <span className={cn("z-10 mt-0.5 inline-flex size-7 items-center justify-center rounded-full border", version.active ? "border-blue-200 bg-blue-50 text-[#002fa7]" : "border-slate-200 bg-white text-slate-500")}><History className="size-3.5" /></span>
+                          {index === 0 ? <span className="absolute bottom-0 top-7 w-px bg-slate-200" aria-hidden="true" /> : null}
+                        </div>
+                        <div className="min-w-0 rounded-xl border border-slate-200 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="font-semibold text-slate-800">{version.version}</div>
+                            <time className="text-xs tabular-nums text-slate-500" dateTime={version.date}>{version.date}</time>
+                          </div>
+                          <p className="mt-1 text-pretty text-xs leading-5 text-slate-600">{version.note}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </TabsContent>
+              </Tabs>
+            </>
+          ) : (
+            <HorizonEmptyState Icon={BookOpen} title="请选择法规文档" description="从法规目录选择一份文档查看条款与版本历史。" action={<Button size="sm" variant="outline" onClick={resetFilters}>恢复全部法规</Button>} />
+          )}
+        </section>
       </div>
     </div>
   );

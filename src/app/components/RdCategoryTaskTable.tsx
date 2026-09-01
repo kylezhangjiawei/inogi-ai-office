@@ -81,12 +81,12 @@ function TaskRow({
   const score = task.completion_score;
 
   return (
-    <tr className="group border-b border-slate-100 align-middle transition-colors hover:bg-indigo-50/35 [content-visibility:auto] [contain-intrinsic-size:58px]">
+    <tr className="group border-b border-slate-100 align-middle transition-colors hover:bg-[#eef3ff]/70 [content-visibility:auto] [contain-intrinsic-size:58px]">
       <td className="min-w-[300px] px-4 py-3">
         <div className="flex min-w-0 items-start gap-2" style={{ paddingInlineStart: `${depth * 18}px` }}>
           <span className={cn(
             "mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
-            depth > 0 ? "bg-indigo-50 text-indigo-500" : "bg-slate-100 text-slate-500",
+            depth > 0 ? "bg-[#eef3ff] text-[#002fa7]" : "bg-slate-100 text-slate-500",
           )} aria-hidden="true">
             {depth > 0 ? <GitBranch className="h-3 w-3" /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}
           </span>
@@ -95,13 +95,13 @@ function TaskRow({
               type="button"
               onClick={() => onOpenTask?.(task)}
               disabled={!onOpenTask}
-              className="block max-w-full truncate text-left text-[13px] font-semibold text-slate-900 decoration-indigo-300 underline-offset-2 enabled:hover:text-indigo-700 enabled:hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+              className="block max-w-full truncate text-left text-[13px] font-semibold text-slate-900 decoration-[#002fa7]/30 underline-offset-2 enabled:hover:text-[#002fa7] enabled:hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
               title={task.title}
             >
               <AutoTranslatedText text={task.title} />
             </button>
             <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-slate-400">
-              <span className="font-mono">{task.task_id}</span>
+              <span className="font-mono tabular-nums">{task.task_id}</span>
               {task.parent_title && (
                 <span className="max-w-[230px] truncate rounded bg-slate-100 px-1.5 py-0.5 text-slate-500" title={task.parent_title}>
                   {t("上级：{title}", { title: task.parent_title })}
@@ -137,7 +137,7 @@ function TaskRow({
         <div className="flex items-center gap-2">
           <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
             <div
-              className={cn("h-full rounded-full", task.progress >= 100 ? "bg-emerald-500" : "bg-indigo-500")}
+              className={cn("h-full rounded-full", task.progress >= 100 ? "bg-emerald-500" : "bg-[#002fa7]")}
               style={{ width: `${Math.max(0, Math.min(100, task.progress))}%` }}
             />
           </div>
@@ -146,14 +146,14 @@ function TaskRow({
       </td>
       <td className="min-w-[100px] px-3 py-3">
         {score ? (
-          <div className="text-xs font-semibold tabular-nums text-indigo-700">
+          <div className="text-xs font-semibold tabular-nums text-[#002fa7]">
             {score.total}<span className="ml-1 text-[10px] font-medium text-slate-400">{score.grade}</span>
           </div>
         ) : <span className="text-xs text-slate-300">—</span>}
       </td>
       <td className="min-w-[240px] max-w-[340px] px-3 py-3">
         {preview ? (
-          <div className="line-clamp-2 text-[11px] leading-4 text-slate-600">
+          <div className="line-clamp-2 text-pretty text-[11px] leading-4 text-slate-600">
             <span className="mr-1 text-slate-400">{t(preview.label)}</span>
             <AutoTranslatedText text={preview.text} />
           </div>
@@ -165,7 +165,7 @@ function TaskRow({
             <button
               type="button"
               onClick={() => onOpenTask?.(task)}
-              className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition-colors hover:border-[#002fa7]/25 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
             >
               {t("查看")}<ChevronRight className="h-3.5 w-3.5" />
             </button>
@@ -185,7 +185,7 @@ export function RdCategoryTaskTable({ caption, sections, onOpenTask, renderActio
 
   if (total === 0) {
     return (
-      <div className="flex min-h-[240px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 text-sm text-slate-400">
+      <div className="flex min-h-[240px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-6 text-center text-pretty text-sm text-slate-500">
         {emptyText ?? t("该类目下没有匹配的任务")}
       </div>
     );
@@ -197,7 +197,7 @@ export function RdCategoryTaskTable({ caption, sections, onOpenTask, renderActio
       <div className="max-w-full overflow-x-auto" tabIndex={0} aria-label={t("可横向滚动的类目任务表") }>
         <table className="w-full min-w-[1180px] table-auto border-collapse text-left">
           <caption className="sr-only">{caption}</caption>
-          <thead className="sticky top-0 z-20 bg-slate-50/95 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500 backdrop-blur">
+          <thead className="sticky top-0 z-20 bg-slate-50/95 text-[10px] font-semibold uppercase text-slate-500">
             <tr className="border-b border-slate-200">
               <th scope="col" className="px-4 py-3">{t("任务")}</th>
               <th scope="col" className="px-3 py-3">{t("主责人")}</th>
@@ -212,14 +212,14 @@ export function RdCategoryTaskTable({ caption, sections, onOpenTask, renderActio
           {orderedSections.map((section) => (
             <tbody key={section.key}>
               {section.label && (
-                <tr className="border-y border-indigo-100 bg-indigo-50/65">
+                <tr className="border-y border-[#dce6ff] bg-[#eef3ff]/70">
                   <th colSpan={actionColumn ? 8 : 7} scope="rowgroup" className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-indigo-900">{section.label}</span>
-                      <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold tabular-nums text-indigo-600 ring-1 ring-indigo-100">
+                      <span className="text-xs font-bold text-[#1b2559]">{section.label}</span>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold tabular-nums text-[#002fa7] ring-1 ring-[#dce6ff]">
                         {section.tasks.length} {t("项")}
                       </span>
-                      {section.subtitle && <span className="text-[10px] font-normal text-slate-500">{section.subtitle}</span>}
+                      {section.subtitle && <span className="text-pretty text-[10px] font-normal text-slate-500">{section.subtitle}</span>}
                     </div>
                   </th>
                 </tr>

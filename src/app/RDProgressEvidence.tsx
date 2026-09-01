@@ -1,7 +1,7 @@
-import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import React, { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, PlayCircle, RefreshCw, Table2, Trash2, Video, X, ZoomIn, ZoomOut } from "lucide-react";
 import { cn } from "./components/ui/utils";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./components/ui/dialog";
 import { currentI18nLang, i18nLocale, t, useI18n } from "./lib/i18n";
 import { renderTextWithMentions } from "./components/MentionInput";
 import { AutoTranslatedText } from "./components/TranslatableText";
@@ -11,7 +11,6 @@ import { isMobileViewport } from "./lib/mobileRouting";
 import {
   closeMobileOverlay,
   pushMobileOverlayState,
-  useBodyScrollLock,
   useMobileOverlayBack,
 } from "./hooks/useMobileOverlay";
 import {
@@ -164,6 +163,7 @@ export function TaskImageGallery({
 
   useI18n(); // 共享组件自行订阅语言切换
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const galleryPanelId = useId();
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const dismissLightbox = useCallback(() => setLightboxIndex(null), []);
   useMobileOverlayBack(lightboxIndex != null, TASK_GALLERY_OVERLAY, dismissLightbox);
@@ -180,6 +180,8 @@ export function TaskImageGallery({
       <button
         type="button"
         onClick={() => setCollapsed((prev) => !prev)}
+        aria-expanded={!collapsed}
+        aria-controls={galleryPanelId}
         className="flex w-full cursor-pointer items-center justify-between gap-2"
       >
         <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
@@ -191,7 +193,7 @@ export function TaskImageGallery({
       </button>
 
       {!collapsed && (
-        <div className="mt-2 max-h-[300px] space-y-2.5 overflow-y-auto">
+        <div id={galleryPanelId} className="mt-2 max-h-[300px] space-y-2.5 overflow-y-auto">
           {groups.map((group) => (
             <div key={group.date}>
               <div className="mb-1 text-[10px] font-semibold text-slate-400">
@@ -208,7 +210,7 @@ export function TaskImageGallery({
                       setLightboxIndex(indexOf.get(img.att.id) ?? 0);
                     }}
                     title={`${img.att.name}${img.actor ? ` · ${img.actor}` : ""}`}
-                    className="h-[72px] w-[72px] shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-slate-100 transition hover:border-indigo-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                    className="size-[72px] shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-slate-100 hover:border-[#002fa7]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
                   >
                     <img
                       src={getAttachmentThumbUrl(img.att)}
@@ -262,6 +264,7 @@ export function TaskImageLightbox({
   const imageFrameRef = useRef<HTMLDivElement>(null);
   const imageElementRef = useRef<HTMLImageElement>(null);
   const zoomLabelRef = useRef<HTMLSpanElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const activePointersRef = useRef(new Map<number, PointerPosition>());
   const gestureLayoutRef = useRef<(TaskImageViewport & { center: PointerPosition }) | null>(null);
   const imageTransformRef = useRef<TaskImageTransform>({ scale: TASK_IMAGE_MIN_SCALE, x: 0, y: 0 });
@@ -277,7 +280,6 @@ export function TaskImageLightbox({
   const suppressBackdropClickRef = useRef(false);
   const lastWheelNavigationRef = useRef(0);
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
-  useBodyScrollLock(true);
 
   const moveTo = useCallback((nextIndex: number) => {
     if (nextIndex < 0 || nextIndex >= images.length || nextIndex === index) return;
@@ -445,7 +447,6 @@ export function TaskImageLightbox({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
       if (event.key === "ArrowLeft" && hasPrev) moveTo(index - 1);
       if (event.key === "ArrowRight" && hasNext) moveTo(index + 1);
     };
@@ -453,12 +454,22 @@ export function TaskImageLightbox({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [index, hasPrev, hasNext, moveTo, onClose]);
 
-  return createPortal(
-    <div className="fixed inset-0 z-[1000] flex flex-col overscroll-none bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`图片预览：${current.att.name}`}>
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <DialogContent
+      aria-label={`图片预览：${current.att.name}`}
+      onOpenAutoFocus={(event) => {
+        event.preventDefault();
+        closeButtonRef.current?.focus();
+      }}
+      className="horizon-portal inset-0 left-0 top-0 flex h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-slate-950/90 p-0 shadow-none sm:max-w-none [&>button:last-child]:hidden"
+    >
+      <DialogTitle className="sr-only">{`图片预览：${current.att.name}`}</DialogTitle>
+      <DialogDescription className="sr-only">{t("可使用左右方向键切换图片；移动端支持双指缩放和拖动。")}</DialogDescription>
       <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white">
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">{current.att.name}</div>
-          <div className="mt-0.5 text-xs text-white/60">
+          <div className="truncate text-balance text-sm font-semibold">{current.att.name}</div>
+          <div className="mt-0.5 text-xs tabular-nums text-white/60">
             {index + 1} / {images.length}
             {current.date !== "未知日期" ? ` · ${current.date}` : ""}
             {current.actor ? ` · ${current.actor}` : ""}
@@ -497,6 +508,7 @@ export function TaskImageLightbox({
             <Download className="h-4 w-4" />
           </a>
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white/90 transition hover:bg-white/20"
@@ -610,9 +622,9 @@ export function TaskImageLightbox({
             <ChevronLeft className="h-6 w-6" />
           </button>
         )}
-        <div ref={carouselFrameRef} className="relative flex h-full w-full items-center justify-center will-change-transform">
+        <div ref={carouselFrameRef} className="relative flex h-full w-full items-center justify-center">
           {loadedUrl !== currentUrl && <Loader2 className="absolute size-7 animate-spin text-white/70" aria-hidden="true" />}
-          <div ref={imageFrameRef} className="relative flex h-full w-full origin-center items-center justify-center will-change-transform">
+          <div ref={imageFrameRef} className="relative flex h-full w-full origin-center items-center justify-center">
             <img
               ref={imageElementRef}
               key={currentUrl}
@@ -627,7 +639,7 @@ export function TaskImageLightbox({
                 applyImageTransform(imageTransformRef.current, false);
               }}
               className={cn(
-                "relative max-h-full max-w-full rounded-lg object-contain shadow-2xl transition-opacity duration-150",
+                "relative max-h-full max-w-full rounded-lg object-contain shadow-2xl",
                 loadedUrl === currentUrl ? "opacity-100" : "opacity-0",
               )}
             />
@@ -644,8 +656,8 @@ export function TaskImageLightbox({
           </button>
         )}
       </div>
-    </div>,
-    document.body,
+    </DialogContent>
+    </Dialog>
   );
 }
 
@@ -768,15 +780,6 @@ export function ProgressAttachmentGrid({
     [dismissAnyPreview],
   );
 
-  useEffect(() => {
-    if (!preview) return undefined;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closePreview();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [closePreview, preview]);
-
   if (!attachments.length) return null;
 
   // 悬停/聚焦角标工具条（替换/删除）：与展示按钮平级绝对定位，避免 button 嵌套。
@@ -843,7 +846,7 @@ export function ProgressAttachmentGrid({
                   title={`${att.name} · ${formatRdFileSize(att.size)}`}
                   aria-label={thumbnailMode ? `预览图片 ${imagePosition}/${imageAttachments.length}：${att.name}` : undefined}
                   className={cn(
-                    "group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 text-left transition hover:border-indigo-300 hover:shadow-[0_8px_18px_rgba(79,70,229,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+                    "group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 text-left hover:border-[#002fa7]/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
                     thumbnailMode && "h-full bg-white",
                   )}
                 >
@@ -854,7 +857,7 @@ export function ProgressAttachmentGrid({
                     <img
                       src={getAttachmentThumbUrl(att)}
                       alt={att.name}
-                      className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                      className="h-full w-full object-cover"
                       loading="lazy"
                       decoding="async"
                     />
@@ -868,7 +871,7 @@ export function ProgressAttachmentGrid({
                       </span>
                     ) : null}
                     {showsHiddenCount ? (
-                      <span className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-slate-950/60 text-white backdrop-blur-[1px]">
+                      <span className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-slate-950/70 text-white">
                         <span className="text-base font-bold leading-none">+{hiddenImageCount}</span>
                         <span className="mt-1 text-[9px] font-semibold">{t("查看全部")}</span>
                       </span>
@@ -893,7 +896,7 @@ export function ProgressAttachmentGrid({
                   type="button"
                   onClick={() => openPreview(att)}
                   title={`${att.name} · ${formatRdFileSize(att.size)}`}
-                  className="group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-950 text-left transition hover:border-indigo-300 hover:shadow-[0_8px_18px_rgba(79,70,229,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                  className="group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-950 text-left hover:border-[#002fa7]/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
                 >
                   <div className={cn("relative overflow-hidden bg-slate-900", clippedCardMode ? "h-16" : compact ? "h-12" : "h-32")}>
                     <video
@@ -905,7 +908,7 @@ export function ProgressAttachmentGrid({
                       aria-label={att.name}
                     />
                     <span className="absolute inset-0 flex items-center justify-center">
-                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-indigo-600 shadow-lg transition-transform duration-200 group-hover:scale-105">
+                      <span className="flex size-9 items-center justify-center rounded-full bg-white/90 text-[#002fa7] shadow-lg">
                         <PlayCircle className="h-5 w-5" />
                       </span>
                     </span>
@@ -986,15 +989,6 @@ export function MobileAttachmentPreviewHost() {
     return () => window.removeEventListener(MOBILE_ATTACHMENT_PREVIEW_EVENT, handleOpen);
   }, []);
 
-  useEffect(() => {
-    if (!preview || preview.kind === "image-gallery") return undefined;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closePreview();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [closePreview, preview]);
-
   if (!preview) return null;
   if (preview.kind === "image-gallery") {
     return preview.images[preview.index] ? (
@@ -1025,25 +1019,25 @@ function AttachmentPreviewModal({
     attachment.mime === "application/pdf" ||
     attachment.mime === "text/plain" ||
     attachment.mime === "application/json";
-  useBodyScrollLock(true);
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center overscroll-none bg-slate-950/72 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <DialogContent
       aria-label={`附件预览：${attachment.name}`}
-      onClick={(event) => {
-        if (shouldCloseFromBackdrop(event)) onClose();
+      onOpenAutoFocus={(event) => {
+        event.preventDefault();
+        closeButtonRef.current?.focus();
       }}
+      onPointerDownOutside={(event) => { if (isMobileRoute()) event.preventDefault(); }}
+      className="horizon-portal flex max-h-[88dvh] gap-0 overflow-hidden rounded-xl border-slate-200 bg-white p-0 shadow-xl sm:max-w-5xl [&>button:last-child]:hidden"
     >
-      <div className="relative flex max-h-[88dvh] w-full max-w-5xl flex-col overflow-hidden rounded-[8px] border border-white/10 bg-white shadow-2xl">
+      <div className="relative flex min-h-0 w-full flex-col overflow-hidden">
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-900">{attachment.name}</div>
-            <div className="mt-0.5 text-xs text-slate-500">
+            <DialogTitle className="truncate text-balance text-sm font-semibold text-[#1b2559]">{attachment.name}</DialogTitle>
+            <DialogDescription className="mt-0.5 truncate text-xs tabular-nums text-slate-500">
               {attachment.mime || "未知类型"} · {formatRdFileSize(attachment.size)}
-            </div>
+            </DialogDescription>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <a
@@ -1051,15 +1045,16 @@ function AttachmentPreviewModal({
               download={attachment.name}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dce6ff] bg-white px-3 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
             >
               <Download className="h-3.5 w-3.5" />
               下载
             </a>
             <button
+              ref={closeButtonRef}
               type="button"
               onClick={onClose}
-              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[8px] border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+              className="flex size-8 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
               aria-label="关闭预览"
             >
               <X className="h-4 w-4" />
@@ -1102,16 +1097,16 @@ function AttachmentPreviewModal({
           ) : (
             <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white px-8 text-center">
               <FileText className="h-10 w-10 text-slate-300" />
-              <div className="mt-4 text-sm font-semibold text-slate-900">当前格式暂不支持内嵌预览</div>
-              <p className="mt-2 text-xs leading-5 text-slate-500">
+              <div className="mt-4 text-balance text-sm font-semibold text-[#1b2559]">当前格式暂不支持内嵌预览</div>
+              <p className="mt-2 text-pretty text-xs leading-5 text-slate-500">
                 文件已保留在当前留痕记录中，可直接下载查看，不会离开当前驾驶舱页面。
               </p>
             </div>
           )}
         </div>
       </div>
-    </div>,
-    document.body,
+    </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1120,6 +1115,7 @@ function XlsxTablePreview({ attachment }: { attachment: RdTaskProgressAttachment
   const [sheets, setSheets] = useState<XlsxPreviewSheet[] | null>(null);
   const [active, setActive] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -1140,21 +1136,32 @@ function XlsxTablePreview({ attachment }: { attachment: RdTaskProgressAttachment
     return () => {
       cancelled = true;
     };
-  }, [attachment]);
+  }, [attachment, retryKey]);
 
   if (error) {
     return (
-      <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white px-8 text-center">
+      <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white px-8 text-center" role="alert">
         <FileText className="h-10 w-10 text-slate-300" />
-        <div className="mt-4 text-sm font-semibold text-slate-900">表格预览失败</div>
-        <p className="mt-2 text-xs leading-5 text-slate-500">{error}，可点右上角「下载」打开。</p>
+        <div className="mt-4 text-balance text-sm font-semibold text-[#1b2559]">表格预览失败</div>
+        <p className="mt-2 text-pretty text-xs leading-5 text-slate-500">{error}，可点右上角「下载」打开。</p>
+        <button
+          type="button"
+          onClick={() => setRetryKey((current) => current + 1)}
+          className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[#002fa7] px-3 py-2 text-xs font-semibold text-white hover:bg-[#002581] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+        >
+          <RefreshCw className="size-3.5" aria-hidden="true" />
+          重新解析
+        </button>
       </div>
     );
   }
   if (!sheets) {
     return (
-      <div className="flex min-h-[52vh] flex-col items-center justify-center gap-3 text-slate-500">
-        <Loader2 className="h-6 w-6 animate-spin motion-reduce:animate-none" />
+      <div className="flex min-h-[52vh] flex-col items-center justify-center gap-3 text-slate-500" role="status" aria-label="正在解析表格">
+        <div className="w-full max-w-xl space-y-2 px-6">
+          <div className="h-8 animate-pulse rounded-lg bg-slate-200 motion-reduce:animate-none" />
+          <div className="h-44 animate-pulse rounded-lg bg-slate-100 motion-reduce:animate-none" />
+        </div>
         <span className="text-xs">正在解析表格…</span>
       </div>
     );
@@ -1163,8 +1170,8 @@ function XlsxTablePreview({ attachment }: { attachment: RdTaskProgressAttachment
     return (
       <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white px-8 text-center">
         <Table2 className="h-10 w-10 text-slate-300" />
-        <div className="mt-4 text-sm font-semibold text-slate-900">这张表是空的</div>
-        <p className="mt-2 text-xs leading-5 text-slate-500">未读取到任何单元格内容。</p>
+        <div className="mt-4 text-balance text-sm font-semibold text-[#1b2559]">这张表是空的</div>
+        <p className="mt-2 text-pretty text-xs leading-5 text-slate-500">未读取到任何单元格内容。</p>
       </div>
     );
   }
@@ -1180,8 +1187,8 @@ function XlsxTablePreview({ attachment }: { attachment: RdTaskProgressAttachment
               type="button"
               onClick={() => setActive(i)}
               className={cn(
-                "shrink-0 rounded-[6px] px-2.5 py-1 text-xs font-medium transition",
-                i === active ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:bg-white/70 hover:text-slate-700",
+                "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
+                i === active ? "bg-white text-[#002fa7] shadow-sm" : "text-slate-500 hover:bg-white hover:text-slate-700",
               )}
             >
               {s.name}
@@ -1242,16 +1249,23 @@ export function ProgressNoteList({
   );
   if (loading) {
     return (
-      <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/70 px-3 py-4 text-center text-xs text-slate-400">
-        {t("正在读取进度留痕...")}
+      <div className="space-y-2 rounded-[8px] border border-slate-200 bg-white p-3" role="status" aria-label={t("正在读取进度留痕")}>
+        {[0, 1].map((item) => (
+          <div key={item} className="space-y-2 rounded-lg border border-slate-100 p-3">
+            <div className="h-3 w-32 animate-pulse rounded bg-slate-200 motion-reduce:animate-none" />
+            <div className="h-12 animate-pulse rounded bg-slate-100 motion-reduce:animate-none" />
+          </div>
+        ))}
+        <span className="sr-only">{t("正在读取进度留痕...")}</span>
       </div>
     );
   }
 
   if (notes.length === 0) {
     return (
-      <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/70 px-3 py-4 text-center text-xs text-slate-400">
-        {emptyText ?? t("暂无进度记录")}
+      <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-center">
+        <p className="text-balance text-sm font-semibold text-slate-600">{emptyText ?? t("暂无进度记录")}</p>
+        <p className="mt-1 text-pretty text-xs leading-5 text-slate-400">{t("后续进展、结论和附件会按时间显示在这里。")}</p>
       </div>
     );
   }
@@ -1278,7 +1292,7 @@ export function ProgressNoteList({
               </span>
             )}
             {note.attachments.length > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#eef3ff] px-2 py-0.5 text-[10px] font-semibold text-[#002fa7]">
                 <Paperclip className="h-3 w-3" />
                 {t("{n} 个附件", { n: note.attachments.length })}
               </span>
@@ -1288,14 +1302,14 @@ export function ProgressNoteList({
             // 含 @ 提及的评论在中文态用高亮渲染（@姓名 蓝色）；英文态人名不参与翻译、
             // 高亮与整段自动翻译不可兼得，保持 AutoTranslatedText 原行为
             (note.mentions?.length ?? 0) > 0 && currentI18nLang() === "zh" ? (
-              <p className={cn("mt-2 whitespace-pre-wrap text-slate-800", compact ? "text-xs leading-5" : "text-sm leading-relaxed")}>
+              <p className={cn("mt-2 whitespace-pre-wrap break-words text-pretty text-slate-800", compact ? "text-xs leading-5" : "text-sm leading-relaxed")}>
                 {renderTextWithMentions(note.text, note.mentions)}
               </p>
             ) : (
               <AutoTranslatedText
                 as="p"
                 text={note.text}
-                className={cn("mt-2 whitespace-pre-wrap text-slate-800", compact ? "text-xs leading-5" : "text-sm leading-relaxed")}
+                className={cn("mt-2 whitespace-pre-wrap break-words text-pretty text-slate-800", compact ? "text-xs leading-5" : "text-sm leading-relaxed")}
               />
             )
           )}

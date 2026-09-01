@@ -1,6 +1,27 @@
 import React, { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, FileText, Search, Sparkles, Upload } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  FileCheck2,
+  FileSpreadsheet,
+  Files,
+  Search,
+  ShieldCheck,
+  Upload,
+} from "lucide-react";
 import { toast } from "sonner";
+
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
 import { cn } from "./components/ui/utils";
 
 type FieldStatus = "ok" | "warning" | "missing";
@@ -30,14 +51,15 @@ const validationRows = [
 ];
 
 function statusTone(status: FieldStatus) {
-  if (status === "ok") return "bg-emerald-50 text-emerald-700";
-  if (status === "warning") return "bg-amber-50 text-amber-700";
-  return "bg-red-50 text-red-600";
+  if (status === "ok") return "border-emerald-100 bg-emerald-50 text-emerald-700";
+  if (status === "warning") return "border-amber-100 bg-amber-50 text-amber-700";
+  return "border-red-100 bg-red-50 text-red-700";
 }
 
 export function CustomsDocs() {
   const [keyword, setKeyword] = useState("");
   const [hsCode, setHsCode] = useState("9019.20.0000");
+  const [hsError, setHsError] = useState("");
   const [uploadedCount, setUploadedCount] = useState(3);
 
   const filteredFields = useMemo(() => {
@@ -47,114 +69,112 @@ export function CustomsDocs() {
   }, [keyword]);
 
   const warningCount = validationRows.filter((row) => row.status === "warning").length;
+  const recognizedCount = extractedFields.filter((field) => field.status !== "missing").length;
+
+  const exportTemplate = () => {
+    if (!hsCode.trim()) {
+      setHsError("请补录 HS Code 后再导出模板");
+      return;
+    }
+    setHsError("");
+    toast.success("已生成 CI / PL 模板草稿");
+  };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-4 sm:p-6 md:p-8">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div className="min-w-0 space-y-3">
-            <span className="material-chip bg-blue-50 text-blue-700">Customs Workflow</span>
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">报关单证自动处理</h2>
-              <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-                这页补齐了报关单证明细处理能力，包含字段抽取、异常校验、人工补录和模板导出。
-              </p>
+    <div className="horizon-theme hz-page mx-auto flex min-h-full max-w-[1600px] min-w-0 flex-col gap-4 px-3 py-4 sm:p-5 lg:p-6">
+      <HorizonPageHeader
+        Icon={Files}
+        eyebrow="报关管理 · 单证处理"
+        title="报关单证自动处理"
+        description="集中完成字段抽取、异常校验、人工补录与 CI / PL 模板导出。"
+        meta={<><span>当前批次 EXP-2026-0415</span><span aria-hidden="true">·</span><span>最近识别于 11:40</span></>}
+        actions={
+          <>
+            <Button type="button" variant="outline" onClick={() => { setUploadedCount((count) => count + 1); toast.success("已追加一份演示单证"); }}><Upload className="size-4" />上传单证</Button>
+            <Button type="button" className="hz-primary-action" onClick={exportTemplate}><Download className="size-4" />导出模板</Button>
+          </>
+        }
+      />
+
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={Files} label="已上传单证" value={uploadedCount} note="PI、CI 与 PL 文件" tone="brand" />
+        <HorizonMetric Icon={FileCheck2} label="已识别字段" value={`${recognizedCount}/${extractedFields.length}`} note="1 项需要人工补录" tone="success" />
+        <HorizonMetric Icon={AlertTriangle} label="待人工复核" value={warningCount} note="金额差异与编码缺失" tone="warning" />
+        <HorizonMetric Icon={ShieldCheck} label="模板状态" value="就绪" note="补录后可正式导出" tone="neutral" />
+      </HorizonMetricGrid>
+
+      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+        <section className="hz-surface min-w-0 overflow-hidden">
+          <HorizonSectionHeader
+            Icon={FileSpreadsheet}
+            title="字段抽取与人工补录"
+            description="核对识别字段，并补齐导出模板需要的信息。"
+            trailing={<span className="text-xs text-slate-500 tabular-nums">显示 {filteredFields.length} / {extractedFields.length}</span>}
+          />
+          <div className="hz-toolbar border-b px-4 py-3">
+            <div className="relative max-w-md">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Input
+                type="search"
+                aria-label="搜索单证字段"
+                value={keyword}
+                onChange={(event) => setKeyword(event.target.value)}
+                className="h-10 rounded-xl bg-white pl-9"
+                placeholder="搜索字段名称"
+              />
             </div>
           </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:gap-3">
-            <button type="button" onClick={() => setUploadedCount((count) => count + 1)} className="material-button-secondary justify-center">
-              <Upload className="h-4 w-4" />
-              上传单证
-            </button>
-            <button type="button" onClick={() => toast.success("已生成 CI / PL 模板草稿")} className="material-button-primary justify-center">
-              <Download className="h-4 w-4" />
-              导出模板
-            </button>
-          </div>
-        </div>
-      </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <div className="material-card-flat min-w-0 p-4 sm:p-5">
-          <div className="text-sm font-medium text-slate-500">已上传单证</div>
-          <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{uploadedCount}</div>
-        </div>
-        <div className="material-card-flat min-w-0 p-4 sm:p-5">
-          <div className="text-sm font-medium text-slate-500">待人工复核</div>
-          <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{warningCount}</div>
-        </div>
-        <div className="material-card-flat min-w-0 p-4 sm:p-5">
-          <div className="text-sm font-medium text-slate-500">模板状态</div>
-          <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">就绪</div>
-        </div>
-      </section>
-
-      <section className="grid grid-cols-12 gap-6">
-        <div className="col-span-12 xl:col-span-7">
-          <div className="material-card min-w-0 p-4 sm:p-6">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-slate-900">字段抽取结果</h3>
-                <p className="mt-1 text-sm text-slate-500">支持搜索字段、人工补录和异常标记。</p>
-              </div>
-              <Sparkles className="h-5 w-5 text-primary" />
-            </div>
-            <div className="relative mb-4">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input value={keyword} onChange={(e) => setKeyword(e.target.value)} className="material-input pl-11" placeholder="搜索字段" />
-            </div>
-            <div className="space-y-3">
+          {filteredFields.length > 0 ? (
+            <dl className="divide-y divide-slate-100">
               {filteredFields.map((field) => (
-                <div key={field.label} className="flex flex-col gap-3 rounded-[22px] border border-slate-100 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
-                  <div className="w-full text-sm font-semibold text-slate-500 sm:w-24">{field.label}</div>
-                  <div className="min-w-0 flex-1">
+                <div key={field.label} className="grid min-w-0 gap-2 px-4 py-3 sm:grid-cols-[110px_minmax(0,1fr)_76px] sm:items-center sm:gap-4">
+                  <dt className="text-sm font-medium text-slate-500">{field.label}</dt>
+                  <dd className="min-w-0">
                     {field.status === "missing" ? (
-                      <input value={hsCode} onChange={(e) => setHsCode(e.target.value)} className="material-input" placeholder="补录 HS Code" />
+                      <div className="space-y-2">
+                        <Label htmlFor="customs-hs-code" className="sr-only">HS Code</Label>
+                        <Input
+                          id="customs-hs-code"
+                          value={hsCode}
+                          onChange={(event) => { setHsCode(event.target.value); if (hsError) setHsError(""); }}
+                          aria-invalid={Boolean(hsError)}
+                          className="h-10 rounded-xl font-mono tabular-nums"
+                          placeholder="补录 HS Code"
+                        />
+                        {hsError ? <p className="flex items-center gap-1.5 text-xs text-red-600" role="alert"><AlertTriangle className="size-3.5" aria-hidden="true" />{hsError}</p> : null}
+                      </div>
                     ) : (
-                      <div className="break-words text-sm font-medium text-slate-800">{field.value}</div>
+                      <div className="break-words text-sm font-medium text-slate-800 tabular-nums">{field.value}</div>
                     )}
-                  </div>
-                  <span className={cn("material-chip", statusTone(field.status))}>
-                    {field.status === "ok" ? "正常" : field.status === "warning" ? "需复核" : "缺失"}
-                  </span>
+                  </dd>
+                  <dd className="sm:text-right"><span className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", statusTone(field.status))}>{field.status === "ok" ? "正常" : field.status === "warning" ? "需复核" : "待补录"}</span></dd>
                 </div>
               ))}
-            </div>
-          </div>
-        </div>
+            </dl>
+          ) : (
+            <HorizonEmptyState Icon={Search} title="没有匹配字段" description="请更换搜索词或清空搜索条件。" action={<Button type="button" variant="outline" onClick={() => setKeyword("")}>清空搜索</Button>} />
+          )}
+        </section>
 
-        <div className="col-span-12 xl:col-span-5">
-          <div className="material-card min-w-0 p-4 sm:p-6">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-slate-900">一致性校验</h3>
-                <p className="mt-1 text-sm text-slate-500">重点关注差异项和缺失项。</p>
+        <section className="hz-surface min-w-0 overflow-hidden">
+          <HorizonSectionHeader Icon={ShieldCheck} title="一致性校验" description="优先处理差异与缺失项。" />
+          <div className="divide-y divide-slate-100 px-4">
+            {validationRows.map((row) => (
+              <div key={row.title} className="flex items-start gap-3 py-3">
+                <span className={cn("mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg", row.status === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")} aria-hidden="true">
+                  {row.status === "ok" ? <CheckCircle2 className="size-4" /> : <AlertTriangle className="size-4" />}
+                </span>
+                <div className="min-w-0"><h3 className="text-balance text-sm font-semibold text-slate-800">{row.title}</h3><p className="mt-1 text-xs text-pretty leading-5 text-slate-600">{row.detail}</p></div>
               </div>
-              <FileText className="h-5 w-5 text-primary" />
-            </div>
-            <div className="space-y-3">
-              {validationRows.map((row) => (
-                <div key={row.title} className={cn("rounded-[22px] border px-4 py-4", row.status === "ok" ? "border-emerald-100 bg-emerald-50/70" : "border-amber-100 bg-amber-50/70")}>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                    {row.status === "ok" ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <AlertTriangle className="h-4 w-4 text-amber-600" />}
-                    {row.title}
-                  </div>
-                  <div className="mt-2 text-sm leading-6 text-slate-600">{row.detail}</div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <button type="button" onClick={() => toast.success("已生成校验摘要")} className="material-button-secondary justify-center">
-                <FileSpreadsheet className="h-4 w-4" />
-                导出校验表
-              </button>
-              <button type="button" onClick={() => toast.success("已同步回报关 AI 主流程")} className="material-button-primary justify-center">
-                返回主流程
-              </button>
-            </div>
+            ))}
           </div>
-        </div>
-      </section>
+          <div className="grid gap-2 border-t border-slate-100 p-4 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+            <Button type="button" variant="outline" onClick={() => toast.success("已生成校验摘要")}><FileSpreadsheet className="size-4" />导出校验表</Button>
+            <Button type="button" className="bg-[#002fa7] hover:bg-[#002581]" onClick={() => toast.success("已同步回报关 AI 主流程")}><FileCheck2 className="size-4" />返回主流程</Button>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

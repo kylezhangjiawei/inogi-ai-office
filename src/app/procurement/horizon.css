@@ -1,0 +1,790 @@
+/*
+ * Procurement Horizon
+ *
+ * 采购模块自己的 Horizon/Klein Blue 视觉作用域。令牌与研发驾驶舱保持同源，
+ * 但不依赖 rd-horizon-* 选择器，避免两个业务模块互相牵连。
+ */
+.proc-horizon,
+.proc-horizon-drawer {
+  --proc-primary: #002fa7;
+  --proc-primary-hover: #002581;
+  --proc-primary-bright: #165dff;
+  --proc-ink: #1b2559;
+  --proc-body: #3f4b63;
+  --proc-muted: #59667f;
+  --proc-subtle: #748096;
+  --proc-canvas: #f7f9fc;
+  --proc-surface: #ffffff;
+  --proc-soft-blue: #eef3ff;
+  --proc-line: #e2e8f0;
+  --proc-line-strong: #cbd5e1;
+  --proc-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --proc-shadow-focal: 0 2px 8px rgba(15, 23, 42, 0.06);
+  color: var(--proc-body);
+}
+
+.proc-horizon {
+  position: relative;
+  background: transparent;
+}
+
+.proc-horizon .proc-horizon-command {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--proc-line) !important;
+  border-radius: 14px !important;
+  padding: 1rem !important;
+  background: var(--proc-surface) !important;
+  box-shadow: var(--proc-shadow-focal) !important;
+  container-name: proc-command;
+  container-type: inline-size;
+}
+
+.proc-horizon .proc-horizon-command-layout {
+  display: grid;
+  grid-template-columns: minmax(17rem, 1fr) auto;
+  gap: 1rem;
+}
+
+.proc-horizon .proc-horizon-command-heading {
+  display: flex;
+  min-width: 0;
+  min-height: 3.25rem;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.proc-horizon .proc-horizon-command-mark {
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: #fff;
+  background: var(--proc-primary);
+  box-shadow: 0 1px 2px rgba(0, 47, 167, 0.22);
+}
+
+.proc-horizon .proc-horizon-command-copy {
+  min-width: 0;
+}
+
+.proc-horizon .proc-horizon-command-copy :is(h1, h2) {
+  color: var(--proc-ink);
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.proc-horizon .proc-horizon-command-copy p {
+  margin-top: 0.2rem;
+  color: var(--proc-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.proc-horizon .proc-horizon-scope-tabs {
+  margin-top: 0.6rem;
+}
+
+.proc-horizon .proc-horizon-scope-tabs [data-slot="tabs-list"] {
+  height: 2.75rem;
+  border: 1px solid var(--proc-line);
+  border-radius: 10px;
+  padding: 0.2rem;
+  background: var(--proc-canvas);
+}
+
+.proc-horizon .proc-horizon-scope-tabs [data-slot="tabs-trigger"] {
+  height: 2.25rem;
+  border-radius: 7px;
+  padding-inline: 0.65rem;
+  color: var(--proc-muted);
+  font-size: 0.7rem;
+  box-shadow: none;
+}
+
+.proc-horizon .proc-horizon-scope-tabs [data-slot="tabs-trigger"][data-state="active"] {
+  color: var(--proc-primary);
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(112, 144, 176, 0.12);
+}
+
+.proc-horizon .proc-horizon-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.proc-horizon .proc-horizon-actions button,
+.proc-horizon .proc-horizon-actions [data-slot="button"] {
+  min-height: 2.5rem;
+  border: 1px solid var(--proc-line) !important;
+  border-radius: 8px !important;
+  padding: 0.5rem 0.75rem !important;
+  color: var(--proc-body) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  box-shadow: none !important;
+}
+
+.proc-horizon .proc-horizon-actions button:hover,
+.proc-horizon .proc-horizon-actions [data-slot="button"]:hover {
+  border-color: rgba(0, 47, 167, 0.32) !important;
+  color: var(--proc-primary) !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+
+.proc-horizon .proc-horizon-actions .proc-horizon-primary-action,
+.proc-horizon .proc-horizon-actions .material-button-primary {
+  border-color: var(--proc-primary) !important;
+  color: #fff !important;
+  background: var(--proc-primary) !important;
+  box-shadow: 0 1px 2px rgba(0, 47, 167, 0.2) !important;
+}
+
+.proc-horizon .proc-horizon-actions .proc-horizon-primary-action:hover,
+.proc-horizon .proc-horizon-actions .material-button-primary:hover {
+  border-color: var(--proc-primary-hover) !important;
+  color: #fff !important;
+  background: var(--proc-primary-hover) !important;
+}
+
+.proc-horizon .proc-horizon-kpi-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  border-top: 1px solid var(--proc-line);
+  padding-top: 0.5rem;
+}
+
+.proc-horizon .proc-horizon-kpi-grid.proc-horizon-surface {
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  border-top: 0;
+  padding: 0.5rem !important;
+}
+
+.proc-horizon .proc-horizon-kpi {
+  min-height: 3.75rem;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  padding: 0.5rem 0.75rem !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.proc-horizon .proc-horizon-kpi-accent {
+  display: none;
+}
+
+.proc-horizon .proc-horizon-kpi[data-active="true"] {
+  border-color: rgba(0, 47, 167, 0.1) !important;
+  background: var(--proc-soft-blue) !important;
+}
+
+.proc-horizon button.proc-horizon-kpi:not([data-active="true"]):hover {
+  border-color: rgba(0, 47, 167, 0.08) !important;
+  background: rgba(238, 243, 255, 0.72) !important;
+}
+
+.proc-horizon .proc-horizon-kpi-icon {
+  width: 1.75rem !important;
+  height: 1.75rem !important;
+  border-radius: 7px !important;
+  color: var(--proc-primary) !important;
+  background: var(--proc-soft-blue) !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.12) !important;
+}
+
+.proc-horizon .proc-horizon-kpi[data-tone="red"] .proc-horizon-kpi-value {
+  color: #e31a1a !important;
+}
+
+.proc-horizon .proc-horizon-kpi[data-tone="red"] .proc-horizon-kpi-icon {
+  color: #d51b1b !important;
+  background: #feefee !important;
+  box-shadow: inset 0 0 0 1px rgba(227, 26, 26, 0.08) !important;
+}
+
+.proc-horizon .proc-horizon-kpi[data-tone="amber"] .proc-horizon-kpi-value {
+  color: #a66300 !important;
+}
+
+.proc-horizon .proc-horizon-kpi[data-tone="amber"] .proc-horizon-kpi-icon {
+  color: #a66300 !important;
+  background: #fff6da !important;
+  box-shadow: inset 0 0 0 1px rgba(166, 99, 0, 0.08) !important;
+}
+
+.proc-horizon .proc-horizon-kpi[data-tone="emerald"] .proc-horizon-kpi-value {
+  color: #018f5b !important;
+}
+
+.proc-horizon .proc-horizon-kpi[data-tone="emerald"] .proc-horizon-kpi-icon {
+  color: #018f5b !important;
+  background: #e7f9f2 !important;
+  box-shadow: inset 0 0 0 1px rgba(1, 143, 91, 0.08) !important;
+}
+
+.proc-horizon .proc-horizon-kpi[data-tone="indigo"] .proc-horizon-kpi-value {
+  color: var(--proc-primary) !important;
+}
+
+.proc-horizon .proc-horizon-kpi[data-active="true"] .proc-horizon-kpi-icon {
+  color: #fff !important;
+  background: var(--proc-primary) !important;
+  box-shadow: 0 1px 2px rgba(0, 47, 167, 0.2) !important;
+}
+
+.proc-horizon .proc-horizon-kpi-value {
+  margin-top: 0.15rem !important;
+  color: var(--proc-ink) !important;
+  font-size: 1.25rem !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.proc-horizon .proc-horizon-kpi[data-active="true"] .proc-horizon-kpi-value {
+  color: var(--proc-primary) !important;
+}
+
+.proc-horizon .proc-horizon-kpi-label {
+  color: var(--proc-muted) !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+}
+
+.proc-horizon .proc-horizon-task-stream {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.proc-horizon .proc-horizon-people-nav {
+  display: flex;
+  min-height: 4.75rem;
+  align-items: center;
+  border: 1px solid var(--proc-line);
+  border-radius: 14px;
+  margin-bottom: 0;
+  padding-right: 0.75rem;
+  background: var(--proc-surface);
+  box-shadow: var(--proc-shadow-card);
+}
+
+.proc-horizon .proc-horizon-people-label {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.4rem;
+  align-self: stretch;
+  border-right: 1px solid var(--proc-line);
+  padding-inline: 1rem;
+  color: var(--proc-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.proc-horizon .proc-horizon-people-list {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 0.25rem;
+  overflow-x: auto;
+  padding: 0.5rem 0.75rem 0.375rem;
+  scrollbar-color: rgba(112, 126, 174, 0.34) transparent;
+}
+
+.proc-horizon .proc-horizon-person-tab {
+  display: flex;
+  min-width: 4.75rem;
+  height: auto !important;
+  flex: none;
+  flex-direction: column;
+  gap: 0.25rem !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  padding: 0.375rem 0.5rem 0.25rem !important;
+  color: var(--proc-muted) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.proc-horizon .proc-horizon-person-tab:hover {
+  background: rgba(238, 243, 255, 0.7) !important;
+}
+
+.proc-horizon .proc-horizon-person-tab[data-state="on"] {
+  color: var(--proc-ink) !important;
+  background: rgba(238, 243, 255, 0.96) !important;
+}
+
+.proc-horizon .proc-horizon-person-tab[data-state="on"]::after {
+  width: 1.25rem;
+  height: 2px;
+  border-radius: 999px;
+  margin-top: 0.05rem;
+  background: var(--proc-primary);
+  content: "";
+}
+
+.proc-horizon .proc-horizon-avatar-ring {
+  position: relative;
+  display: flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--proc-line-strong);
+}
+
+.proc-horizon .proc-horizon-person-tab[data-state="on"] .proc-horizon-avatar-ring {
+  background: var(--proc-primary);
+}
+
+.proc-horizon .proc-horizon-avatar-core {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  color: var(--proc-primary);
+  background: var(--proc-soft-blue);
+}
+
+.proc-horizon .proc-horizon-person-name {
+  max-width: 4rem;
+  overflow: hidden;
+  color: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proc-horizon .proc-horizon-person-count {
+  position: absolute;
+  right: -0.2rem;
+  bottom: -0.1rem;
+  display: inline-flex;
+  min-width: 1rem;
+  height: 1rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--proc-line-strong);
+  border-radius: 999px;
+  padding-inline: 0.2rem;
+  color: var(--proc-ink);
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(27, 37, 89, 0.1);
+  font-size: 0.55rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.proc-horizon .proc-horizon-person-count[data-empty="true"] {
+  color: var(--proc-subtle);
+  background: var(--proc-canvas);
+  box-shadow: none;
+}
+
+.proc-horizon .proc-horizon-search {
+  position: relative;
+  flex: none;
+}
+
+.proc-horizon .proc-horizon-search input {
+  width: clamp(9rem, 16vw, 13rem);
+  height: 2.25rem;
+  border-color: var(--proc-line-strong) !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+
+.proc-horizon .proc-horizon-search input:focus {
+  border-color: rgba(0, 47, 167, 0.28) !important;
+  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.06) !important;
+}
+
+.proc-horizon .proc-horizon-filter-bar {
+  display: flex;
+  min-height: 2.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--proc-line);
+  padding: 0.45rem 0.75rem;
+  color: var(--proc-muted);
+  background: var(--proc-canvas);
+  font-size: 0.7rem;
+}
+
+.proc-horizon .proc-horizon-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid rgba(0, 47, 167, 0.12);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  color: var(--proc-primary);
+  background: #fff;
+  font-weight: 600;
+  max-width: min(15rem, 70vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proc-horizon .proc-horizon-task-feed {
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  border: 1px solid var(--proc-line);
+  border-radius: 14px;
+  background: var(--proc-surface);
+  box-shadow: var(--proc-shadow-card);
+}
+
+.proc-horizon .proc-horizon-task-scroll {
+  height: 100%;
+  padding: 0.875rem;
+  background: var(--proc-canvas);
+}
+
+.proc-horizon .proc-horizon-masonry {
+  column-gap: 1rem !important;
+}
+
+.proc-horizon .proc-horizon-task-card {
+  border-color: var(--proc-line) !important;
+  border-radius: 12px !important;
+  background: var(--proc-surface) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.proc-horizon .proc-horizon-task-card:hover {
+  border-color: rgba(0, 47, 167, 0.1) !important;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06) !important;
+  transform: none !important;
+}
+
+.proc-horizon .proc-horizon-task-card-body {
+  min-height: 12.5rem !important;
+  gap: 0.75rem !important;
+  padding: 1rem !important;
+}
+
+.proc-horizon .proc-horizon-task-card h3 {
+  color: var(--proc-ink) !important;
+  font-weight: 700 !important;
+}
+
+.proc-horizon .proc-horizon-task-card .proc-horizon-context-pill {
+  border-color: var(--proc-line-strong) !important;
+  color: var(--proc-muted) !important;
+  background: var(--proc-canvas) !important;
+}
+
+.proc-horizon .proc-horizon-task-code {
+  border-radius: 6px;
+  padding: 0.15rem 0.4rem;
+  color: var(--proc-muted);
+  background: var(--proc-canvas);
+}
+
+.proc-horizon .proc-horizon-task-summary {
+  color: var(--proc-muted) !important;
+}
+
+.proc-horizon .proc-horizon-fulfillment {
+  border-block: 1px solid var(--proc-canvas);
+  border-radius: 0 !important;
+  padding: 0.55rem 0 !important;
+  background: transparent !important;
+}
+
+.proc-horizon .proc-horizon-task-progress-track {
+  background: var(--proc-line) !important;
+}
+
+.proc-horizon .proc-horizon-task-progress {
+  background: var(--proc-primary) !important;
+}
+
+.proc-horizon .proc-horizon-task-progress[data-complete="true"] {
+  background: #01b574 !important;
+}
+
+.proc-horizon .proc-horizon-task-footer {
+  border-top-color: var(--proc-canvas) !important;
+  color: var(--proc-muted) !important;
+  font-size: 0.7rem !important;
+}
+
+.proc-horizon .proc-horizon-priority[data-priority="high"] {
+  color: #e31a1a !important;
+  background: #feefee !important;
+}
+
+.proc-horizon .proc-horizon-priority[data-priority="medium"] {
+  color: #a66300 !important;
+  background: #fff6da !important;
+}
+
+.proc-horizon .proc-horizon-priority[data-priority="low"] {
+  color: var(--proc-muted) !important;
+  background: var(--proc-canvas) !important;
+}
+
+.proc-horizon .proc-horizon-attachment-action,
+.proc-horizon .proc-horizon-more-action {
+  color: var(--proc-primary) !important;
+  background: var(--proc-soft-blue) !important;
+}
+
+.proc-horizon .proc-horizon-more-action {
+  border-color: var(--proc-line) !important;
+  color: var(--proc-muted) !important;
+  background: transparent !important;
+}
+
+.proc-horizon .proc-horizon-system-panorama {
+  border: 1px solid var(--proc-line) !important;
+  border-radius: 14px !important;
+  background: var(--proc-surface) !important;
+  box-shadow: var(--proc-shadow-card) !important;
+}
+
+.proc-horizon .proc-horizon-system-card {
+  border-color: var(--proc-line) !important;
+  border-radius: 12px !important;
+  background: var(--proc-surface) !important;
+  box-shadow: none !important;
+}
+
+.proc-horizon .proc-horizon-system-card:hover {
+  border-color: rgba(0, 47, 167, 0.1) !important;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06) !important;
+}
+
+.proc-horizon .proc-horizon-system-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+}
+
+.proc-horizon .proc-horizon-surface {
+  border-color: var(--proc-line) !important;
+  border-radius: 14px !important;
+  background: var(--proc-surface) !important;
+  box-shadow: var(--proc-shadow-card) !important;
+}
+
+.proc-horizon .proc-horizon-surface.proc-horizon-unassigned {
+  border-color: rgba(245, 158, 11, 0.38) !important;
+  background: #fffbeb !important;
+  box-shadow: 0 12px 28px -24px rgba(217, 119, 6, 0.55) !important;
+}
+
+.proc-horizon .material-card:not(.proc-horizon-command):not(.proc-horizon-kpi):not(.proc-horizon-surface) {
+  border-color: var(--proc-line) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--proc-shadow-card) !important;
+}
+
+.proc-horizon .proc-horizon-stage-title {
+  color: var(--proc-ink) !important;
+  font-weight: 700 !important;
+}
+
+.proc-horizon .proc-horizon-workspace-surface {
+  overflow: hidden;
+  border: 1px solid var(--proc-line);
+  border-radius: 14px;
+  background: var(--proc-surface);
+  box-shadow: var(--proc-shadow-card);
+}
+
+.proc-horizon .proc-horizon-workspace-stage {
+  padding: 1rem;
+}
+
+.proc-horizon .proc-horizon-workspace-stage + .proc-horizon-workspace-stage {
+  border-top: 1px solid var(--proc-line);
+}
+
+.proc-horizon .proc-horizon-quote-scroll {
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+.proc-horizon-drawer {
+  border-left-color: var(--proc-line) !important;
+  background: var(--proc-surface) !important;
+  box-shadow: -8px 0 24px rgba(15, 23, 42, 0.1) !important;
+}
+
+.proc-horizon-drawer [data-slot="sheet-header"] {
+  border-bottom-color: var(--proc-line) !important;
+}
+
+.proc-horizon-drawer .proc-horizon-next-step {
+  border-color: rgba(0, 47, 167, 0.14) !important;
+  background: var(--proc-soft-blue) !important;
+}
+
+.proc-horizon-drawer .proc-horizon-drawer-section {
+  border-color: var(--proc-line) !important;
+  border-radius: 12px !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+
+.proc-horizon-menu {
+  border-color: #e0e5f2 !important;
+  border-radius: 10px !important;
+  color: #42526f !important;
+  background: #fff !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12) !important;
+}
+
+.proc-horizon-menu [data-slot="dropdown-menu-item"] {
+  min-height: 2.25rem;
+  border-radius: 8px;
+  font-size: 0.75rem;
+}
+
+.proc-horizon-menu [data-slot="dropdown-menu-item"]:focus {
+  color: #002fa7;
+  background: #eef3ff;
+}
+
+.proc-horizon-overlay {
+  --primary: #002fa7;
+  --ring: #002fa7;
+  border-color: #e9edf7 !important;
+  border-radius: 12px !important;
+  color: #42526f !important;
+  background: #fff !important;
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.14) !important;
+}
+
+.proc-horizon-overlay :where(h1, h2, h3, [data-slot="dialog-title"]) {
+  color: #1b2559;
+}
+
+.proc-horizon-overlay :where(button, input, textarea, a[href], [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+}
+
+.proc-horizon :where(button, input, textarea, a[href], [role="button"], [tabindex]):focus-visible,
+.proc-horizon-drawer :where(button, input, textarea, a[href], [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline-offset: 2px !important;
+}
+
+@container proc-command (min-width: 36rem) {
+  .proc-horizon .proc-horizon-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container proc-command (min-width: 56rem) {
+  .proc-horizon .proc-horizon-kpi-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+@container proc-command (max-width: 54rem) {
+  .proc-horizon .proc-horizon-command-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .proc-horizon .proc-horizon-actions {
+    justify-content: flex-start;
+  }
+}
+
+@container proc-command (min-width: 36rem) and (max-width: 54rem) {
+  .proc-horizon .proc-horizon-command-cockpit .proc-horizon-command-layout {
+    grid-template-columns: minmax(15rem, 1fr) auto;
+    gap: 0.75rem;
+  }
+
+  .proc-horizon .proc-horizon-command-cockpit .proc-horizon-action-label {
+    display: none;
+  }
+
+  .proc-horizon .proc-horizon-command-cockpit .proc-horizon-actions {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 1180px) {
+  .proc-horizon .proc-horizon-command {
+    padding: 0.75rem !important;
+  }
+
+  .proc-horizon .proc-horizon-command-layout {
+    row-gap: 0.5rem;
+  }
+
+  .proc-horizon .proc-horizon-kpi {
+    min-height: 3.25rem;
+  }
+
+  .proc-horizon .proc-horizon-people-nav {
+    min-height: 4rem;
+  }
+
+  .proc-horizon .proc-horizon-actions {
+    justify-content: flex-start;
+  }
+
+  .proc-horizon .proc-horizon-command-cockpit .proc-horizon-actions {
+    justify-content: flex-end;
+  }
+
+  .proc-horizon .proc-horizon-people-label {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .proc-horizon .proc-horizon-command-cockpit .proc-horizon-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proc-horizon *,
+  .proc-horizon *::before,
+  .proc-horizon *::after,
+  .proc-horizon-drawer *,
+  .proc-horizon-drawer *::before,
+  .proc-horizon-drawer *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

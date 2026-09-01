@@ -1,6 +1,6 @@
 // 移动任务归类：把任务显式挂到子系统树的任意节点，或解除归属退回按物料自动推导。
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, FolderTree, Loader2, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, FolderTree, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { useI18n } from "../../lib/i18n";
@@ -49,10 +49,13 @@ export function MoveTaskDialog({
   const [selected, setSelected] = useState<string>(currentNodeId ?? AUTO_NODE);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
+    setError("");
     listProcTaskTree(productId, controller.signal)
       .then((data) => {
         setRoots(data.roots);
@@ -80,7 +83,7 @@ export function MoveTaskDialog({
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [productId, currentNodeId, t]);
+  }, [productId, currentNodeId, reloadKey, t]);
 
   const toggle = useCallback((id: string) => {
     setExpanded((current) => {
@@ -120,7 +123,13 @@ export function MoveTaskDialog({
   const allPicked = visibleCandidates.length > 0 && visibleCandidates.every((task) => picked.has(task.id));
 
   const handleConfirm = async () => {
-    if (effectiveIds.length === 0) { toast.error(t("请至少勾选一个任务")); return; }
+    if (effectiveIds.length === 0) {
+      const message = t("请至少勾选一个任务");
+      setActionError(message);
+      toast.error(message);
+      return;
+    }
+    setActionError("");
     setSaving(true);
     try {
       const result = await moveProcTasks(effectiveIds, selected === AUTO_NODE ? undefined : selected);
@@ -128,7 +137,9 @@ export function MoveTaskDialog({
       onMoved();
       onClose();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : t("移动失败"));
+      const message = caught instanceof Error ? caught.message : t("移动失败");
+      setActionError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -142,14 +153,10 @@ export function MoveTaskDialog({
       return (
         <div key={node.id}>
           <div
-            role="button"
-            tabIndex={0}
-            onClick={() => setSelected(node.id)}
-            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(node.id); } }}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
             className={cn(
-              "flex cursor-pointer items-center gap-1.5 rounded-lg py-1.5 pr-2 text-sm transition",
-              isSelected ? "bg-indigo-50 font-semibold text-indigo-700" : "text-slate-700 hover:bg-slate-50",
+              "flex items-center gap-1.5 rounded-lg py-1.5 pr-2 text-sm",
+              isSelected ? "bg-[#eef3ff] font-semibold text-[#002fa7]" : "text-slate-700 hover:bg-slate-50",
             )}
           >
             {hasChildren ? (
@@ -159,18 +166,25 @@ export function MoveTaskDialog({
                 className="shrink-0 rounded p-0.5 hover:bg-slate-200"
                 aria-label={isOpen ? t("收起") : t("展开")}
               >
-                <ChevronRight className={cn("h-3.5 w-3.5 text-slate-400 transition-transform", isOpen && "rotate-90")} />
+                <ChevronRight className={cn("size-3.5 text-slate-400", isOpen && "rotate-90")} />
               </button>
             ) : (
               <span className="w-4.5 shrink-0" />
             )}
-            <span className="truncate">{node.name}</span>
-            {node.taskCount > 0 ? (
-              <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] text-slate-500">{node.taskCount}</span>
-            ) : null}
-            {node.id === currentNodeId ? (
-              <span className="shrink-0 text-[10px] text-slate-400">{t("当前")}</span>
-            ) : null}
+            <button
+              type="button"
+              aria-pressed={isSelected}
+              onClick={() => { setSelected(node.id); setActionError(""); }}
+              className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]"
+            >
+              <span className="min-w-0 flex-1 truncate">{node.name}</span>
+              {node.taskCount > 0 ? (
+                <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] tabular-nums text-slate-500">{node.taskCount}</span>
+              ) : null}
+              {node.id === currentNodeId ? (
+                <span className="shrink-0 text-[10px] text-slate-400">{t("当前")}</span>
+              ) : null}
+            </button>
           </div>
           {hasChildren && isOpen ? renderNodes(node.children, depth + 1) : null}
         </div>
@@ -179,15 +193,15 @@ export function MoveTaskDialog({
 
   return (
     <Dialog open onOpenChange={(next) => { if (!next && !saving) onClose(); }}>
-      <DialogContent className="border-slate-200 p-0 sm:max-w-lg">
+      <DialogContent className="proc-horizon-overlay border-slate-200 p-0 sm:max-w-lg">
         <DialogHeader className="border-b border-slate-100 bg-slate-50/80 px-6 py-5 pr-14">
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-600 text-white">
+            <span className="flex size-10 items-center justify-center rounded-2xl bg-[#002fa7] text-white">
               <FolderTree className="h-4.5 w-4.5" />
             </span>
             <div>
-              <DialogTitle>{t("移动归类")}</DialogTitle>
-              <DialogDescription className="mt-1">
+              <DialogTitle className="text-balance">{t("移动归类")}</DialogTitle>
+              <DialogDescription className="mt-1 text-pretty tabular-nums">
                 {batchMode
                   ? t("勾选任务并选择归属的子系统节点，可挂到任意层级；已选 {count} 个", { count: picked.size })
                   : t("选择任务归属的子系统节点，可挂到任意层级；共 {count} 个任务", { count: effectiveIds.length })}
@@ -196,19 +210,30 @@ export function MoveTaskDialog({
           </div>
         </DialogHeader>
 
+        <div className="grid grid-cols-2 border-b border-slate-100 bg-white px-6 py-2.5">
+          {[
+            { label: batchMode ? t("选择待移动任务") : t("确认待移动任务"), complete: !batchMode || picked.size > 0 },
+            { label: t("选择目标归属"), complete: Boolean(selectedLabel) },
+          ].map((step, index) => {
+            const active = index === (batchMode && picked.size === 0 ? 0 : 1);
+            return <div key={step.label} className={cn("flex items-center gap-2 text-xs", active ? "font-semibold text-[#002fa7]" : step.complete ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", active ? "border-[#002fa7] bg-[#002fa7] text-white" : step.complete ? "border-emerald-300 bg-emerald-50" : "border-slate-200")}>{step.complete && !active ? <CheckCircle2 className="size-3" /> : index + 1}</span><span className="truncate">{step.label}</span></div>;
+          })}
+        </div>
+
         {batchMode ? (
           <div className="border-b border-slate-100 px-4 py-3">
             <div className="mb-2 flex items-center gap-2">
               <Input
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
+                aria-label={t("搜索待移动任务")}
                 placeholder={t("搜索单号 / 物料 / 负责人")}
                 className="h-8 flex-1 text-xs"
               />
               <button
                 type="button"
-                onClick={() => setPicked(allPicked ? new Set() : new Set(visibleCandidates.map((task) => task.id)))}
-                className="shrink-0 text-xs font-semibold text-indigo-600 hover:underline"
+                onClick={() => { setPicked(allPicked ? new Set() : new Set(visibleCandidates.map((task) => task.id))); setActionError(""); }}
+                className="shrink-0 text-xs font-semibold text-[#002fa7] hover:underline"
               >
                 {allPicked ? t("全部取消") : t("全部选中")}
               </button>
@@ -221,12 +246,15 @@ export function MoveTaskDialog({
                   <label key={task.id} className="flex cursor-pointer items-center gap-2 border-b border-slate-100 px-3 py-1.5 text-xs last:border-b-0 hover:bg-slate-50">
                     <Checkbox
                       checked={picked.has(task.id)}
-                      onCheckedChange={() => setPicked((current) => {
-                        const next = new Set(current);
-                        if (next.has(task.id)) next.delete(task.id);
-                        else next.add(task.id);
-                        return next;
-                      })}
+                      onCheckedChange={() => {
+                        setActionError("");
+                        setPicked((current) => {
+                          const next = new Set(current);
+                          if (next.has(task.id)) next.delete(task.id);
+                          else next.add(task.id);
+                          return next;
+                        });
+                      }}
                     />
                     <span className="shrink-0 font-mono text-slate-500">{task.code}</span>
                     <span className="min-w-0 flex-1 truncate text-slate-700">{task.materialName}</span>
@@ -244,36 +272,36 @@ export function MoveTaskDialog({
               <Loader2 className="h-4 w-4 animate-spin" />{t("加载子系统树")}…
             </div>
           ) : error ? (
-            <p className="py-10 text-center text-sm text-red-500">{error}</p>
+            <div role="alert" className="flex flex-col items-center gap-3 py-10 text-center"><AlertTriangle className="size-5 text-rose-600" /><p className="max-w-sm text-pretty text-sm text-rose-700">{error}</p><button type="button" onClick={() => setReloadKey((value) => value + 1)} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载归属树")}</button></div>
           ) : (
             <>
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => setSelected(AUTO_NODE)}
-                onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(AUTO_NODE); } }}
+              <button
+                type="button"
+                aria-pressed={selected === AUTO_NODE}
+                onClick={() => { setSelected(AUTO_NODE); setActionError(""); }}
                 className={cn(
-                  "mb-2 flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm transition",
-                  selected === AUTO_NODE ? "border-indigo-300 bg-indigo-50" : "border-slate-200 hover:bg-slate-50",
+                  "mb-2 flex w-full cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
+                  selected === AUTO_NODE ? "border-[#8fa9e8] bg-[#eef3ff]" : "border-slate-200 hover:bg-slate-50",
                 )}
               >
-                <Sparkles className={cn("mt-0.5 h-4 w-4 shrink-0", selected === AUTO_NODE ? "text-indigo-600" : "text-slate-400")} />
+                <Sparkles className={cn("mt-0.5 size-4 shrink-0", selected === AUTO_NODE ? "text-[#002fa7]" : "text-slate-400")} />
                 <span>
-                  <span className={cn("block font-semibold", selected === AUTO_NODE ? "text-indigo-700" : "text-slate-700")}>
+                  <span className={cn("block font-semibold", selected === AUTO_NODE ? "text-[#002fa7]" : "text-slate-700")}>
                     {t("自动归类")}
                   </span>
-                  <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500">
+                  <span className="mt-0.5 block text-pretty text-[11px] leading-relaxed text-slate-500">
                     {t("解除手工归属，按物料自动挂到对应节点；物料重名时可能挂不上")}
                   </span>
                 </span>
-              </div>
+              </button>
               {roots.length === 0 ? (
-                <p className="py-8 text-center text-sm text-slate-400">{t("该产品还没有维护子系统树")}</p>
+                <p className="py-8 text-center text-pretty text-sm text-slate-400">{t("该产品还没有维护子系统树，可先保留自动归类。")}</p>
               ) : (
                 renderNodes(roots)
               )}
             </>
           )}
+          {actionError && <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{actionError}</div>}
         </div>
 
         <DialogFooter className="flex-row items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
@@ -291,7 +319,7 @@ export function MoveTaskDialog({
               className="material-button-primary px-4 py-2 text-xs disabled:opacity-50"
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderTree className="h-3.5 w-3.5" />}
-              {t("确认移动")}
+              {saving ? t("正在移动…") : t("移动 {count} 个任务", { count: effectiveIds.length })}
             </button>
           </div>
         </DialogFooter>

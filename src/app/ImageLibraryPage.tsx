@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
+  Activity,
   ArrowDownToLine,
   ArrowLeft,
+  CheckCircle2,
+  CircleDollarSign,
   Eye,
+  FolderOpen,
   FolderTree,
   Heart,
   Images,
@@ -17,6 +21,15 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import { Button } from "./components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { cn } from "./components/ui/utils";
 import { AssignCategoryModal, MediaCategorySidebar } from "./components/MediaCategorySidebar";
 import { MediaUploadButton, MediaUploadDialog } from "./components/MediaUploadDialog";
@@ -42,11 +55,10 @@ import {
   flattenCategoryTree,
   formatImageCost,
   formatTime,
+  formatUsd,
   getDateRangeBounds,
-  glassCard,
   ImageEditModal,
   ImagePreviewModal,
-  ImageUsagePanel,
   Pager,
   UNCATEGORIZED_FILTER,
   type DateRangeKey,
@@ -66,7 +78,8 @@ const DATE_RANGES: Array<{ key: DateRangeKey; label: string }> = [
   { key: "30d", label: "近30天" },
 ];
 const PAGE_SIZE = 18;
-const ICON_BTN = "flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700";
+const USAGE_LOG_PAGE_SIZE = 12;
+const ICON_BTN = "flex size-7 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-[#eef3ff] hover:text-[#002fa7]";
 /**
  * 悬停浮出层。基线保持可见，只有在真正支持 hover 的设备上才隐藏并靠 hover/focus 唤出。
  * 不能直接写 opacity-0 + group-hover：触控设备没有 hover，那层会永远透明却仍在最上层
@@ -322,9 +335,25 @@ export function ImageLibraryPage() {
       ? "没有匹配的作品"
       : categoryFilter
         ? "该分类下还没有作品"
-        : dateRange !== "all"
-          ? "该时间段没有作品"
-          : "还没有生成记录";
+          : dateRange !== "all"
+            ? "该时间段没有作品"
+            : "还没有生成记录";
+
+  const hasActiveFilters = Boolean(
+    normalizedSearchKeyword || searchInput.trim() || favoriteOnly || categoryFilter || dateRange !== "all",
+  );
+  const usageSummary = usage?.summary ?? null;
+  const usageSuccessRate = usageSummary?.upstreamCalls
+    ? Math.round((usageSummary.successCalls / usageSummary.upstreamCalls) * 100)
+    : 0;
+
+  function clearGalleryFilters() {
+    setSearchInput("");
+    setSearchKeyword("");
+    setDateRange("all");
+    setFavoriteOnly(false);
+    setCategoryFilter("");
+  }
 
   const cardHandlers = {
     onPreview: setPreviewItem,
@@ -335,40 +364,72 @@ export function ImageLibraryPage() {
   };
 
   return (
-    // 作品库页签下让页面吃满外壳高度、自身不滚动，把滚动条交给下面的作品列表；
-    // lg 以下不启用（外壳固定 min-w-[1024px]，窄视口本来就是整体横向平移 + 页面滚动）。
-    // 用量监控是长表格，仍走 <main> 的常规滚动。
-    <div className={cn("flex flex-col gap-4", isGalleryTab && "lg:h-full lg:overflow-hidden")}>
-      <div className="flex shrink-0 items-center justify-between gap-3">
-        <div className="inline-flex items-center gap-1 rounded-[14px] border border-border bg-surface-container-lowest p-1">
-          {TABS.map((tab) => {
-            const active = tab === activeTab;
-            return (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={cn(
-                  "cursor-pointer rounded-[10px] px-4 py-1.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-                  active ? "bg-primary text-primary-foreground shadow-sm" : "text-slate-600 hover:bg-surface-container-low",
-                )}
-              >
-                {tab}
-              </button>
-            );
-          })}
-        </div>
-        <Link
-          to={routePath("page:ui-design", "/ui-design")}
-          className="inline-flex h-9 w-fit shrink-0 cursor-pointer items-center gap-1.5 rounded-[12px] border border-border bg-surface-container-low px-3.5 text-xs font-semibold text-slate-600 transition hover:border-primary/30 hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          返回生成器
-        </Link>
-      </div>
+    // 作品库页签下让页面吃满外壳高度、自身不滚动，把滚动条交给作品区域；
+    // 用量监控是长内容，仍走页面的常规滚动。
+    <Tabs
+      value={activeTab}
+      onValueChange={(value) => setActiveTab(value as LibraryTab)}
+      className={cn(
+        "horizon-theme hz-page flex min-w-0 flex-col !gap-4 px-3 py-3 sm:px-4 lg:px-5",
+        isGalleryTab && "lg:h-full lg:min-h-0 lg:overflow-hidden",
+      )}
+    >
+      <HorizonPageHeader
+        Icon={Images}
+        eyebrow="CREATIVE OPERATIONS · IMAGE LIBRARY"
+        title="图像作品库"
+        description="统一检索、归类和复用生成作品，并追踪模型调用质量与成本。"
+        meta={
+          <>
+            <span>分类树与生成器自动同步</span>
+            <span aria-hidden="true">·</span>
+            <span>{activeTab === "作品库" ? "当前查看作品资产" : "当前查看当日上游用量"}</span>
+          </>
+        }
+        actions={
+          <>
+            <TabsList aria-label="图像作品库视图" className="h-10 rounded-xl border border-slate-200 bg-slate-100 p-1">
+              {TABS.map((tab) => (
+                <TabsTrigger
+                  key={tab}
+                  value={tab}
+                  className="h-8 min-w-20 rounded-lg px-3 text-xs font-semibold text-slate-600 data-[state=active]:bg-[#002fa7] data-[state=active]:text-white"
+                >
+                  {tab}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {isGalleryTab && canUpload ? <MediaUploadButton kind="image" onClick={() => setUploadOpen(true)} /> : null}
+            <Button asChild variant="outline">
+              <Link to={routePath("page:ui-design", "/ui-design")}>
+                <ArrowLeft className="size-4" />
+                返回生成器
+              </Link>
+            </Button>
+          </>
+        }
+      />
 
-      {isGalleryTab ? (
-        <section className="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:flex-row">
+      <HorizonMetricGrid className="shrink-0">
+        {isGalleryTab ? (
+          <>
+            <HorizonMetric Icon={Images} label="作品总量" value={totalCount.toLocaleString("zh-CN")} note="当前账号归档" tone="brand" />
+            <HorizonMetric Icon={Search} label="当前结果" value={total.toLocaleString("zh-CN")} note={`第 ${page} / ${totalPages} 页`} />
+            <HorizonMetric Icon={FolderTree} label="分类节点" value={flatCategories.length.toLocaleString("zh-CN")} note="支持父子分类联动" />
+            <HorizonMetric Icon={FolderOpen} label="待归类" value={uncategorizedCount.toLocaleString("zh-CN")} note="尚未分配分类" tone={uncategorizedCount > 0 ? "warning" : "success"} />
+          </>
+        ) : (
+          <>
+            <HorizonMetric Icon={Activity} label="上游调用" value={usageSummary ? usageSummary.upstreamCalls.toLocaleString("zh-CN") : "—"} note="按 UTC 日统计" tone="brand" />
+            <HorizonMetric Icon={CheckCircle2} label="成功率" value={usageSummary ? `${usageSuccessRate}%` : "—"} note={usageSummary ? `${usageSummary.successCalls} 次成功` : "等待用量数据"} tone={usageSummary && usageSummary.errorCalls > 0 ? "warning" : "success"} />
+            <HorizonMetric Icon={RefreshCw} label="重试次数" value={usageSummary ? usageSummary.retryCalls.toLocaleString("zh-CN") : "—"} note={usageSummary ? `${usageSummary.errorCalls} 次失败` : "等待用量数据"} tone={usageSummary && usageSummary.retryCalls > 0 ? "warning" : "neutral"} />
+            <HorizonMetric Icon={CircleDollarSign} label="预估费用" value={usageSummary ? formatUsd(usageSummary.estimatedCostUsd) : "—"} note={usage?.date ?? "当日累计"} />
+          </>
+        )}
+      </HorizonMetricGrid>
+
+      <TabsContent value="作品库" className="mt-0 min-h-0 data-[state=inactive]:hidden lg:flex-1">
+        <section className="flex h-full flex-col gap-4 lg:min-h-0 lg:flex-row" aria-label="图像作品区">
           <MediaCategorySidebar
             categories={sidebarCategories}
             loading={categoriesLoading}
@@ -384,24 +445,68 @@ export function ImageLibraryPage() {
             onCreate={handleCreateCategory}
             onUpdate={handleUpdateCategory}
             onDelete={handleDeleteCategory}
+            className="hz-surface"
           />
 
           {/* ── 内容区 ────────────────────────────────────────────────────── */}
-          <div className="flex min-w-0 flex-1 flex-col gap-4 lg:min-h-0">
-            <div className={cn("flex shrink-0 flex-col gap-3 rounded-[16px] px-4 py-3.5", glassCard)}>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="relative w-full lg:max-w-xs">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <div className="hz-surface flex min-w-0 flex-1 flex-col overflow-hidden lg:min-h-0">
+            <HorizonSectionHeader
+              Icon={Images}
+              title={activeCategory ? activeCategory.name : categoryFilter === UNCATEGORIZED_FILTER ? "未分类作品" : "作品浏览"}
+              description={activeCategory ? `${activeCategory.path}，筛选范围包含其子分类。` : "通过提示词、时间与收藏状态快速定位可复用作品。"}
+              trailing={
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600 tabular-nums" aria-live="polite">
+                    {total.toLocaleString("zh-CN")} 件
+                  </span>
+                  <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="作品展示方式">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("grid")}
+                      aria-pressed={viewMode === "grid"}
+                      aria-label="切换为网格视图"
+                      className={cn(
+                        "flex size-8 items-center justify-center rounded-md transition-colors",
+                        viewMode === "grid" ? "bg-white text-[#002fa7] shadow-sm" : "text-slate-500 hover:text-slate-700",
+                      )}
+                    >
+                      <LayoutGrid className="size-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("list")}
+                      aria-pressed={viewMode === "list"}
+                      aria-label="切换为列表视图"
+                      className={cn(
+                        "flex size-8 items-center justify-center rounded-md transition-colors",
+                        viewMode === "list" ? "bg-white text-[#002fa7] shadow-sm" : "text-slate-500 hover:text-slate-700",
+                      )}
+                    >
+                      <List className="size-4" />
+                    </button>
+                  </div>
+                </div>
+              }
+            />
+
+            <div className="hz-toolbar shrink-0 border-b border-slate-100 px-3 py-3 sm:px-4">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div className="relative w-full xl:max-w-sm">
+                  <label htmlFor="image-library-search" className="sr-only">搜索作品提示词</label>
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" aria-hidden="true" />
                   <input
+                    id="image-library-search"
+                    type="search"
                     value={searchInput}
                     onChange={(event) => setSearchInput(event.target.value)}
-                    placeholder="搜索提示词…"
-                    className="material-input h-10 w-full rounded-[14px] pl-9 pr-3 text-xs"
+                    placeholder="搜索提示词、模型或作品描述"
+                    className="material-input h-10 w-full rounded-xl bg-white pl-9 pr-3 text-xs"
                   />
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="inline-flex items-center gap-1 rounded-[14px] border border-border bg-surface-container-lowest p-1">
+                  <fieldset className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1">
+                    <legend className="sr-only">生成时间范围</legend>
                     {DATE_RANGES.map((range) => {
                       const active = range.key === dateRange;
                       return (
@@ -409,91 +514,61 @@ export function ImageLibraryPage() {
                           key={range.key}
                           type="button"
                           onClick={() => setDateRange(range.key)}
+                          aria-pressed={active}
                           className={cn(
-                            "cursor-pointer rounded-[10px] px-3 py-1.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-                            active ? "bg-primary text-primary-foreground shadow-sm" : "text-slate-600 hover:bg-surface-container-low",
+                            "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                            active ? "bg-[#002fa7] text-white shadow-sm" : "text-slate-600 hover:bg-slate-100",
                           )}
                         >
                           {range.label}
                         </button>
                       );
                     })}
-                  </div>
+                  </fieldset>
 
                   <button
                     type="button"
                     onClick={() => setFavoriteOnly((value) => !value)}
                     aria-pressed={favoriteOnly}
                     className={cn(
-                      "inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-[14px] border px-3.5 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                      "inline-flex h-10 items-center gap-1.5 rounded-xl border px-3.5 text-xs font-semibold transition-colors",
                       favoriteOnly
-                        ? "border-transparent bg-primary text-primary-foreground shadow-sm"
-                        : "border-border bg-surface-container-low text-slate-600 hover:border-primary/30 hover:text-primary",
+                        ? "border-[#002fa7] bg-[#002fa7] text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-[#002fa7]",
                     )}
                   >
-                    <Heart className={cn("h-4 w-4", favoriteOnly ? "fill-current" : "")} />
+                    <Heart className={cn("size-4", favoriteOnly ? "fill-current" : "")} />
                     仅收藏
                   </button>
 
-                  {/* 网格 / 列表 视图切换 */}
-                  <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setViewMode("grid")}
-                      aria-pressed={viewMode === "grid"}
-                      title="网格视图"
-                      className={cn(
-                        "flex h-8 w-9 cursor-pointer items-center justify-center rounded-md transition",
-                        viewMode === "grid" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600",
-                      )}
-                    >
-                      <LayoutGrid className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setViewMode("list")}
-                      aria-pressed={viewMode === "list"}
-                      title="列表视图"
-                      className={cn(
-                        "flex h-8 w-9 cursor-pointer items-center justify-center rounded-md transition",
-                        viewMode === "list" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600",
-                      )}
-                    >
-                      <List className="h-4 w-4" />
-                    </button>
-                  </div>
-
-                  {canUpload ? <MediaUploadButton kind="image" onClick={() => setUploadOpen(true)} /> : null}
-
-                  <button
+                  {hasActiveFilters ? (
+                    <Button type="button" size="sm" variant="ghost" onClick={clearGalleryFilters}>清除筛选</Button>
+                  ) : null}
+                  <Button
                     type="button"
+                    size="icon"
+                    variant="outline"
                     onClick={() => void loadGallery(page)}
                     disabled={galleryLoading}
-                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[14px] border border-border bg-surface-container-low text-slate-500 transition hover:border-primary/30 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
-                    aria-label="刷新列表"
+                    aria-label="刷新作品列表"
                   >
-                    <RefreshCw className={cn("h-4 w-4", galleryLoading ? "animate-spin motion-reduce:animate-none" : "")} />
-                  </button>
+                    <RefreshCw className={cn("size-4", galleryLoading ? "animate-spin motion-reduce:animate-none" : "")} />
+                  </Button>
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600" aria-live="polite">
                 <span className="inline-flex flex-wrap items-center gap-1.5">
-                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">
-                    共 <span className="tabular-nums">{total.toLocaleString("zh-CN")}</span> 件
-                  </span>
                   {normalizedSearchKeyword ? (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">
-                      搜索“{normalizedSearchKeyword}”
-                    </span>
+                    <span className="rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-slate-600">搜索“{normalizedSearchKeyword}”</span>
                   ) : null}
                   {relaxedMatch ? (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                    <span className="rounded-md bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700" role="status">
                       {t("没有完全匹配的作品，以下是相近结果")}
                     </span>
                   ) : null}
                   {activeCategory || categoryFilter === UNCATEGORIZED_FILTER ? (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-600">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-[#eef3ff] px-2 py-1 text-[11px] font-semibold text-[#002fa7]">
                       {activeCategory
                         ? `${activeCategory.path}${(activeCategory.children ?? []).length > 0 ? "（含子分类）" : ""}`
                         : "未分类"}
@@ -501,74 +576,75 @@ export function ImageLibraryPage() {
                         type="button"
                         onClick={() => setCategoryFilter("")}
                         aria-label="清除分类筛选"
-                        className="cursor-pointer text-indigo-400 transition hover:text-indigo-700 focus-visible:outline-none"
+                        className="text-blue-600 transition-colors hover:text-[#002581]"
                       >
-                        <X className="h-3 w-3" />
+                        <X className="size-3" />
                       </button>
                     </span>
                   ) : null}
                 </span>
-                {totalPages > 1 ? <span>第 {page} / {totalPages} 页</span> : null}
+                <span className="tabular-nums">第 {page} / {totalPages} 页</span>
               </div>
             </div>
 
-            {/* 作品列表吃掉剩余高度并自带滚动条，分页条固定在底部不随之滚走 */}
-            <div className="flex flex-col gap-4 lg:min-h-0 lg:flex-1">
-              <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-                {items.length > 0 ? (
-                  viewMode === "grid" ? (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-                      {items.map((item) => (
+            {/* 作品列表吃掉剩余高度并自带滚动条，分页条固定在底部。 */}
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4" aria-busy={galleryLoading}>
+              {items.length > 0 ? (
+                viewMode === "grid" ? (
+                  <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3" aria-label="图像作品网格">
+                    {items.map((item) => (
+                      <li key={item.id} className="min-w-0">
                         <ArtworkGridCard
-                          key={item.id}
                           item={item}
                           busy={favoriteBusyId === item.id}
                           category={item.categoryId ? categoryById.get(item.categoryId) ?? null : null}
                           {...cardHandlers}
                         />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      {items.map((item) => (
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <ul className="flex flex-col gap-2" aria-label="图像作品列表">
+                    {items.map((item) => (
+                      <li key={item.id}>
                         <ArtworkListRow
-                          key={item.id}
                           item={item}
                           busy={favoriteBusyId === item.id}
                           category={item.categoryId ? categoryById.get(item.categoryId) ?? null : null}
                           {...cardHandlers}
                         />
-                      ))}
-                    </div>
-                  )
-                ) : galleryLoading ? (
-              <div className="flex min-h-[40vh] items-center justify-center text-xs font-semibold text-slate-500">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
-                正在加载...
-              </div>
-            ) : (
-              <div className="flex min-h-[40vh] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white/70 px-6 py-12 text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-[14px] bg-primary-container text-on-primary-container">
-                  <Images className="h-6 w-6" />
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : galleryLoading ? (
+                <div className="flex min-h-[40vh] items-center justify-center text-xs font-semibold text-slate-600" role="status" aria-live="polite">
+                  <Loader2 className="mr-2 size-4 animate-spin motion-reduce:animate-none" />
+                  正在加载作品…
                 </div>
-                <h2 className="mt-4 text-sm font-semibold text-slate-950">{emptyTitle}</h2>
-                <p className="mt-2 max-w-sm text-xs leading-5 text-slate-500">
-                  {favoriteOnly
-                    ? "在生成器或这里把喜欢的作品加入收藏，方便后续复用。"
-                    : categoryFilter
-                      ? "把鼠标移到作品上，点「分类」即可把作品归到这个分类下。"
-                      : "前往生成器创建你的第一张图像，作品会自动归档到这里。"}
-                </p>
-                <Link
-                  to={routePath("page:ui-design", "/ui-design")}
-                  className="mt-5 inline-flex h-10 cursor-pointer items-center gap-2 rounded-[14px] bg-primary px-5 text-xs font-semibold text-primary-foreground transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25"
-                >
-                  去生成图像
-                </Link>
-              </div>
-                )}
-              </div>
+              ) : (
+                <HorizonEmptyState
+                  Icon={Images}
+                  title={emptyTitle}
+                  description={
+                    hasActiveFilters
+                      ? "当前筛选条件下没有可展示的作品，清除筛选后可恢复全部资产。"
+                      : "前往生成器创建第一张图像，生成结果会自动归档到这里。"
+                  }
+                  action={
+                    hasActiveFilters ? (
+                      <Button type="button" size="sm" variant="outline" onClick={clearGalleryFilters}>清除筛选</Button>
+                    ) : (
+                      <Button asChild size="sm">
+                        <Link to={routePath("page:ui-design", "/ui-design")}>去生成图像</Link>
+                      </Button>
+                    )
+                  }
+                />
+              )}
+            </div>
 
+            <div className="shrink-0 border-t border-slate-100 px-4 py-3">
               <Pager
                 page={page}
                 totalPages={totalPages}
@@ -578,9 +654,11 @@ export function ImageLibraryPage() {
             </div>
           </div>
         </section>
-      ) : (
-        <ImageUsagePanel usage={usage} loading={usageLoading} onRefresh={() => void loadUsage()} />
-      )}
+      </TabsContent>
+
+      <TabsContent value="用量监控" className="mt-0 data-[state=inactive]:hidden">
+        <LibraryUsagePanel usage={usage} loading={usageLoading} onRefresh={() => void loadUsage()} />
+      </TabsContent>
 
       {previewItem ? <ImagePreviewModal item={previewItem} onClose={() => setPreviewItem(null)} /> : null}
 
@@ -623,7 +701,229 @@ export function ImageLibraryPage() {
           }}
         />
       ) : null}
-    </div>
+    </Tabs>
+  );
+}
+
+function formatUsageDuration(ms: number) {
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  if (ms < 1_000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1_000).toFixed(ms >= 10_000 ? 0 : 1)} s`;
+}
+
+function shortenUsageModel(model: string) {
+  if (!model) return "未知模型";
+  return model.length > 28 ? `${model.slice(0, 25)}…` : model;
+}
+
+function LibraryUsagePanel({
+  usage,
+  loading,
+  onRefresh,
+}: {
+  usage: ImageUsageResponse | null;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  const [logPage, setLogPage] = useState(1);
+  const summary = usage?.summary ?? null;
+  const entries = usage?.entries ?? [];
+
+  const operationData = useMemo(() => {
+    if (!summary) return [] as Array<{ label: string; value: number; color: string }>;
+    return [
+      { label: "文生图", value: summary.generateCalls, color: "#002fa7" },
+      { label: "图生图", value: summary.editCalls, color: "#0891b2" },
+    ];
+  }, [summary]);
+
+  const modelData = useMemo(() => {
+    const byModel = new Map<string, { model: string; calls: number; cost: number }>();
+    for (const entry of entries) {
+      const model = entry.model || "未知模型";
+      const current = byModel.get(model) ?? { model, calls: 0, cost: 0 };
+      current.calls += 1;
+      current.cost += entry.estimatedCostUsd || 0;
+      byModel.set(model, current);
+    }
+    return Array.from(byModel.values())
+      .sort((a, b) => b.cost - a.cost || b.calls - a.calls)
+      .slice(0, 6);
+  }, [entries]);
+
+  const averageDuration = entries.length
+    ? Math.round(entries.reduce((sum, entry) => sum + (entry.durationMs || 0), 0) / entries.length)
+    : 0;
+  const operationTotal = Math.max(1, operationData.reduce((sum, item) => sum + item.value, 0));
+  const hasModelCost = modelData.some((item) => item.cost > 0);
+  const maxModelMagnitude = Math.max(
+    Number.EPSILON,
+    ...modelData.map((item) => (hasModelCost ? item.cost : item.calls)),
+  );
+  const logTotalPages = Math.max(1, Math.ceil(entries.length / USAGE_LOG_PAGE_SIZE));
+  const safeLogPage = Math.min(logPage, logTotalPages);
+  const pagedEntries = entries.slice(
+    (safeLogPage - 1) * USAGE_LOG_PAGE_SIZE,
+    safeLogPage * USAGE_LOG_PAGE_SIZE,
+  );
+
+  return (
+    <section className="hz-surface overflow-hidden" aria-label="图像用量监控">
+      <HorizonSectionHeader
+        Icon={Activity}
+        title="模型调用与成本"
+        description={usage ? `${usage.date} · ${usage.timezone} · 按 UTC 日汇总上游调用。` : "查看调用质量、模型分布和逐次请求明细。"}
+        trailing={
+          <Button type="button" size="sm" variant="outline" onClick={onRefresh} disabled={loading}>
+            <RefreshCw className={cn("size-4", loading ? "animate-spin motion-reduce:animate-none" : "")} />
+            {loading ? "刷新中" : "刷新用量"}
+          </Button>
+        }
+      />
+
+      {!usage || !summary ? (
+        loading ? (
+          <div className="flex min-h-64 items-center justify-center text-sm font-medium text-slate-600" role="status" aria-live="polite">
+            <Loader2 className="mr-2 size-4 animate-spin motion-reduce:animate-none" />
+            正在加载用量数据…
+          </div>
+        ) : (
+          <HorizonEmptyState
+            Icon={Activity}
+            title="暂无上游调用记录"
+            description="生成或编辑图像后，这里会显示调用成功率、模型分布和预估费用。"
+            action={<Button type="button" size="sm" variant="outline" onClick={onRefresh}>重新加载</Button>}
+          />
+        )
+      ) : (
+        <div className="space-y-4 p-3 sm:p-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className="rounded-xl border border-slate-100 bg-slate-50/70 p-4" aria-labelledby="image-operation-composition">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 id="image-operation-composition" className="text-sm font-semibold text-slate-800">调用构成</h3>
+                  <p className="mt-1 text-xs text-pretty text-slate-600">文生图与图生图占比，以及本日平均上游耗时。</p>
+                </div>
+                <span className="rounded-full bg-white px-2.5 py-1 text-xs text-slate-600 tabular-nums">
+                  均耗时 {formatUsageDuration(averageDuration)}
+                </span>
+              </div>
+              <div className="mt-5 space-y-4">
+                {operationData.map((item) => {
+                  const ratio = Math.round((item.value / operationTotal) * 100);
+                  return (
+                    <div key={item.label}>
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="font-semibold text-slate-700">{item.label}</span>
+                        <span className="text-slate-600 tabular-nums">{item.value.toLocaleString("zh-CN")} 次 · {ratio}%</span>
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label={`${item.label}调用占比`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={ratio}>
+                        <div className="h-full rounded-full" style={{ width: `${ratio}%`, backgroundColor: item.color }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-slate-100 bg-slate-50/70 p-4" aria-labelledby="image-model-distribution">
+              <div>
+                <h3 id="image-model-distribution" className="text-sm font-semibold text-slate-800">模型分布</h3>
+                <p className="mt-1 text-xs text-pretty text-slate-600">按预估费用排序，费用为零时改用调用次数比较。</p>
+              </div>
+              {modelData.length > 0 ? (
+                <ul className="mt-4 space-y-3" aria-label="图像模型调用分布">
+                  {modelData.map((item) => {
+                    const magnitude = hasModelCost ? item.cost : item.calls;
+                    const ratio = Math.max(4, Math.round((magnitude / maxModelMagnitude) * 100));
+                    return (
+                      <li key={item.model}>
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="min-w-0 truncate font-semibold text-slate-700" title={item.model}>{shortenUsageModel(item.model)}</span>
+                          <span className="shrink-0 text-slate-600 tabular-nums">{item.calls} 次 · {formatUsd(item.cost)}</span>
+                        </div>
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
+                          <div className="h-full rounded-full bg-[#002fa7]" style={{ width: `${ratio}%` }} />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <HorizonEmptyState Icon={Images} title="暂无模型分布" description="产生首条调用后会按模型汇总次数与费用。" action={<Button type="button" size="sm" variant="outline" onClick={onRefresh}>刷新数据</Button>} />
+              )}
+            </section>
+          </div>
+
+          <section className="overflow-hidden rounded-xl border border-slate-100 bg-white" aria-labelledby="image-usage-log-heading">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+              <div>
+                <h3 id="image-usage-log-heading" className="text-sm font-semibold text-slate-800">调用日志</h3>
+                <p className="mt-1 text-xs text-slate-600">逐次核对操作类型、模型、状态、tokens、耗时与费用。</p>
+              </div>
+              <span className="text-xs text-slate-600 tabular-nums">共 {entries.length.toLocaleString("zh-CN")} 条</span>
+            </div>
+
+            {entries.length > 0 ? (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[760px] text-left text-xs">
+                    <caption className="sr-only">图像生成上游调用明细</caption>
+                    <thead className="bg-slate-50 text-slate-600">
+                      <tr>
+                        <th scope="col" className="px-4 py-2.5 font-semibold">时间</th>
+                        <th scope="col" className="px-3 py-2.5 font-semibold">操作</th>
+                        <th scope="col" className="px-3 py-2.5 font-semibold">尺寸</th>
+                        <th scope="col" className="px-3 py-2.5 font-semibold">模型</th>
+                        <th scope="col" className="px-3 py-2.5 font-semibold">状态</th>
+                        <th scope="col" className="px-3 py-2.5 text-right font-semibold">输出 tokens</th>
+                        <th scope="col" className="px-3 py-2.5 text-right font-semibold">耗时</th>
+                        <th scope="col" className="px-4 py-2.5 text-right font-semibold">费用</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedEntries.map((entry) => {
+                        const ok = entry.status === "success" || entry.status === "succeeded" || entry.status === "ok";
+                        const failed = entry.status === "error" || entry.status === "failed";
+                        return (
+                          <tr key={entry.id} className="border-t border-slate-100 text-slate-700">
+                            <td className="whitespace-nowrap px-4 py-2.5 text-slate-600 tabular-nums">{formatTime(entry.createdAt)}</td>
+                            <td className="whitespace-nowrap px-3 py-2.5">{entry.operation === "edit" ? "图生图" : "文生图"}</td>
+                            <td className="whitespace-nowrap px-3 py-2.5 text-slate-600">{entry.normalizedSize || "—"}</td>
+                            <td className="max-w-48 truncate px-3 py-2.5 text-slate-600" title={entry.model || "未知模型"}>{shortenUsageModel(entry.model || "未知模型")}</td>
+                            <td className="whitespace-nowrap px-3 py-2.5">
+                              <span
+                                className={cn(
+                                  "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                                  ok ? "bg-emerald-50 text-emerald-700" : failed ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-600",
+                                )}
+                                title={entry.errorMessage || undefined}
+                              >
+                                {entry.status}
+                              </span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2.5 text-right text-slate-600 tabular-nums">{entry.outputTokens.toLocaleString("zh-CN")}</td>
+                            <td className="whitespace-nowrap px-3 py-2.5 text-right text-slate-600 tabular-nums">{formatUsageDuration(entry.durationMs)}</td>
+                            <td className="whitespace-nowrap px-4 py-2.5 text-right font-semibold text-slate-700 tabular-nums">{formatUsd(entry.estimatedCostUsd)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {logTotalPages > 1 ? (
+                  <div className="border-t border-slate-100 px-4 py-3">
+                    <Pager page={safeLogPage} totalPages={logTotalPages} onChange={setLogPage} disabled={loading} />
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <HorizonEmptyState Icon={Activity} title="今日暂无调用明细" description="完成一次图像生成或编辑后，调用日志会在这里出现。" action={<Button type="button" size="sm" variant="outline" onClick={onRefresh}>刷新数据</Button>} />
+            )}
+          </section>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -665,7 +965,7 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
   const src = item.thumbnailUrl || item.imageUrl || item.imageData;
 
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_14px_30px_-12px_rgba(79,70,229,0.28)]">
+    <article className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-blue-200 hover:shadow-md">
       <div className="relative aspect-[16/10] w-full overflow-hidden bg-slate-50">
         <img src={src} alt={item.prompt} loading="lazy" decoding="async" className="h-full w-full object-cover" />
         <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 shadow-sm ring-1 ring-slate-200/70 backdrop-blur">
@@ -694,7 +994,8 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
               onPreview(item);
             }}
             title="预览"
-            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/95 text-indigo-700 shadow transition hover:bg-white"
+            aria-label={`预览作品：${title}`}
+            className="flex size-9 items-center justify-center rounded-full bg-white/95 text-[#002fa7] shadow transition-colors hover:bg-white"
           >
             <Eye className="h-4 w-4" />
           </button>
@@ -706,7 +1007,8 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
               onDownload(item);
             }}
             title="下载"
-            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-white/95 text-slate-700 shadow transition hover:bg-white hover:text-indigo-700"
+            aria-label={`下载作品：${title}`}
+            className="flex size-9 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow transition-colors hover:bg-white hover:text-[#002fa7]"
           >
             <ArrowDownToLine className="h-4 w-4" />
           </button>
@@ -718,7 +1020,7 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
           type="button"
           onClick={() => onPreview(item)}
           title={title}
-          className="block max-w-full cursor-pointer truncate text-left text-sm font-semibold text-slate-900 transition-colors group-hover:text-indigo-600"
+          className="block max-w-full truncate text-left text-sm font-semibold text-slate-900 transition-colors group-hover:text-[#002fa7]"
         >
           {title}
         </button>
@@ -736,10 +1038,10 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
           </span>
 
           <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-            <button type="button" onClick={() => onEdit(item)} title="修改" className={ICON_BTN}>
+            <button type="button" onClick={() => onEdit(item)} title="修改" aria-label={`修改作品：${title}`} className={ICON_BTN}>
               <PencilLine className="h-3.5 w-3.5" />
             </button>
-            <button type="button" onClick={() => onAssign(item)} title="设置分类" className={ICON_BTN}>
+            <button type="button" onClick={() => onAssign(item)} title="设置分类" aria-label={`设置作品分类：${title}`} className={ICON_BTN}>
               <FolderTree className="h-3.5 w-3.5" />
             </button>
             <button
@@ -747,8 +1049,9 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
               onClick={() => onFavorite(item)}
               disabled={busy}
               title={item.isFavorite ? "取消收藏" : "收藏"}
+              aria-label={`${item.isFavorite ? "取消收藏" : "收藏"}作品：${title}`}
               className={cn(
-                "flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition disabled:cursor-not-allowed disabled:opacity-60",
+                "flex size-7 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                 item.isFavorite ? "text-rose-500 hover:bg-rose-50" : "text-slate-500 hover:bg-rose-50 hover:text-rose-600",
               )}
             >
@@ -761,7 +1064,7 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
           </div>
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -770,12 +1073,13 @@ function ArtworkListRow({ item, busy, category, onPreview, onDownload, onEdit, o
   const src = item.thumbnailUrl || item.imageUrl || item.imageData;
 
   return (
-    <div className="group flex items-center gap-3 rounded-lg border border-slate-200/70 bg-white px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-indigo-200 hover:shadow-[0_8px_18px_-10px_rgba(79,70,229,0.25)]">
+    <article className="group flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-blue-200 hover:shadow-md">
       <button
         type="button"
         onClick={() => onPreview(item)}
         title="预览"
-        className="h-11 w-14 shrink-0 cursor-pointer overflow-hidden rounded-md border border-slate-200/80 bg-slate-50"
+        aria-label={`预览作品：${title}`}
+        className="h-11 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200/80 bg-slate-50"
       >
         <img src={src} alt={item.prompt} loading="lazy" decoding="async" className="h-full w-full object-cover" />
       </button>
@@ -789,7 +1093,7 @@ function ArtworkListRow({ item, busy, category, onPreview, onDownload, onEdit, o
           type="button"
           onClick={() => onPreview(item)}
           title={title}
-          className="block max-w-full cursor-pointer truncate text-left text-sm font-semibold text-slate-900 transition hover:text-indigo-600"
+          className="block max-w-full truncate text-left text-sm font-semibold text-slate-900 transition-colors hover:text-[#002fa7]"
         >
           {title}
         </button>
@@ -805,17 +1109,17 @@ function ArtworkListRow({ item, busy, category, onPreview, onDownload, onEdit, o
       </span>
 
       <div className="flex shrink-0 items-center gap-0.5">
-        <button type="button" onClick={() => onPreview(item)} title="预览" className={ICON_BTN}>
+        <button type="button" onClick={() => onPreview(item)} title="预览" aria-label={`预览作品：${title}`} className={ICON_BTN}>
           <Eye className="h-3.5 w-3.5" />
         </button>
-        <button type="button" onClick={() => onDownload(item)} title="下载" className={ICON_BTN}>
+        <button type="button" onClick={() => onDownload(item)} title="下载" aria-label={`下载作品：${title}`} className={ICON_BTN}>
           <ArrowDownToLine className="h-3.5 w-3.5" />
         </button>
         <span className="flex items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-          <button type="button" onClick={() => onEdit(item)} title="修改" className={ICON_BTN}>
+          <button type="button" onClick={() => onEdit(item)} title="修改" aria-label={`修改作品：${title}`} className={ICON_BTN}>
             <PencilLine className="h-3.5 w-3.5" />
           </button>
-          <button type="button" onClick={() => onAssign(item)} title="设置分类" className={ICON_BTN}>
+          <button type="button" onClick={() => onAssign(item)} title="设置分类" aria-label={`设置作品分类：${title}`} className={ICON_BTN}>
             <FolderTree className="h-3.5 w-3.5" />
           </button>
           <button
@@ -823,8 +1127,9 @@ function ArtworkListRow({ item, busy, category, onPreview, onDownload, onEdit, o
             onClick={() => onFavorite(item)}
             disabled={busy}
             title={item.isFavorite ? "取消收藏" : "收藏"}
+            aria-label={`${item.isFavorite ? "取消收藏" : "收藏"}作品：${title}`}
             className={cn(
-              "flex h-7 w-7 cursor-pointer items-center justify-center rounded-md transition disabled:cursor-not-allowed disabled:opacity-60",
+              "flex size-7 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-60",
               item.isFavorite ? "text-rose-500 hover:bg-rose-50" : "text-slate-500 hover:bg-rose-50 hover:text-rose-600",
             )}
           >
@@ -836,6 +1141,6 @@ function ArtworkListRow({ item, busy, category, onPreview, onDownload, onEdit, o
           </button>
         </span>
       </div>
-    </div>
+    </article>
   );
 }

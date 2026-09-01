@@ -90,7 +90,7 @@ const TONE_STYLES: Record<
   emerald: { dot: "bg-emerald-500", bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-100" },
   amber: { dot: "bg-amber-500", bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-100" },
   red: { dot: "bg-rose-500", bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-100" },
-  violet: { dot: "bg-indigo-500", bg: "bg-indigo-50", text: "text-indigo-700", border: "border-indigo-100" },
+  violet: { dot: "bg-[#002fa7]", bg: "bg-[#eef3ff]", text: "text-[#002fa7]", border: "border-[#dce6ff]" },
   slate: { dot: "bg-slate-400", bg: "bg-slate-100", text: "text-slate-700", border: "border-slate-200" },
 };
 
@@ -333,7 +333,7 @@ function AuditLogEntry({
   };
 
   return (
-    <div className="group relative flex gap-3 rounded-lg px-1 pb-4 pt-0.5 transition-colors duration-150 hover:bg-slate-50/80">
+    <div className="group relative flex gap-3 rounded-lg px-1 pb-4 pt-0.5 hover:bg-slate-50/80">
       {/* Vertical guide line */}
       {!isLast && (
         <span className="absolute left-[15px] top-8 h-full w-px bg-slate-200/80" aria-hidden />
@@ -342,7 +342,7 @@ function AuditLogEntry({
       {/* Icon node */}
       <span
         className={cn(
-          "relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border ring-4 ring-white transition-transform duration-150 group-hover:scale-105",
+          "relative z-10 flex size-7 shrink-0 items-center justify-center rounded-md border ring-4 ring-white",
           tone.bg,
           tone.border,
         )}
@@ -360,8 +360,8 @@ function AuditLogEntry({
               onClick={() => onActorClick({ id: log.actor.id, name: log.actor.name })}
               title={t(actorSelected ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")}
               className={cn(
-                "cursor-pointer rounded px-1 py-0.5 font-semibold text-slate-900 transition-colors hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
-                actorSelected && "bg-indigo-100 text-indigo-800 ring-1 ring-inset ring-indigo-200",
+                "cursor-pointer rounded px-1 py-0.5 font-semibold text-slate-900 transition-colors hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
+                actorSelected && "bg-[#dce6ff] text-[#002fa7] ring-1 ring-inset ring-[#002fa7]/20",
               )}
             >
               {log.actor.name}
@@ -387,7 +387,7 @@ function AuditLogEntry({
             </span>
           )}
           {log.source === "ai" && (
-            <span className="inline-flex items-center gap-0.5 rounded-md border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+            <span className="inline-flex items-center gap-0.5 rounded-md border border-[#dce6ff] bg-[#eef3ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#002fa7]">
               <Bot className="h-2.5 w-2.5" />
               AI
             </span>
@@ -430,7 +430,7 @@ function AuditLogEntry({
 
         {/* Comment：审计正文是存库中文，英文用户可点 Translate 按需翻译（AI+缓存） */}
         {log.comment && (
-          <div className="mt-1.5 rounded-md border border-slate-100 bg-white px-2.5 py-1.5 text-xs leading-relaxed text-slate-600">
+          <div className="mt-1.5 rounded-md border border-slate-100 bg-white px-2.5 py-1.5 text-pretty text-xs leading-relaxed text-slate-600">
             <MessageSquare className="mr-1 inline h-3 w-3 text-slate-400" />
             <AutoTranslatedText text={log.comment} as="span" className="align-middle" />
           </div>
@@ -445,7 +445,7 @@ function AuditLogEntry({
             {notes.map((note) => (
               <div
                 key={note.id}
-                className="rounded-md border border-amber-100 bg-amber-50/70 px-2.5 py-1.5 text-xs leading-relaxed text-amber-900"
+                className="rounded-md border border-amber-100 bg-amber-50/70 px-2.5 py-1.5 text-pretty text-xs leading-relaxed text-amber-900"
               >
                 <div className="flex items-center gap-1.5">
                   <StickyNote className="h-3 w-3 shrink-0 text-amber-500" />
@@ -579,7 +579,7 @@ export function AuditTimeline({
     return (
       <div className={cn("rounded-lg border border-dashed border-slate-200 bg-white/70 py-8 text-center", className)}>
         <History className="mx-auto mb-2 h-5 w-5 text-slate-300" />
-        <p className="text-xs text-slate-400">{emptyText ?? t("暂无操作记录")}</p>
+        <p className="text-pretty text-xs text-slate-500">{emptyText ?? t("暂无操作记录")}</p>
       </div>
     );
   }

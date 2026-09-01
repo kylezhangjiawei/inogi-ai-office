@@ -136,9 +136,9 @@ function XlsxPreview({ fileUrl }: { fileUrl: string }) {
               key={s.name}
               type="button"
               onClick={() => setActiveSheet(idx)}
-              className={`shrink-0 rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+              className={`shrink-0 rounded-[4px] px-2.5 py-1 text-[11px] font-medium transition-colors ${
                 idx === activeSheet
-                  ? "bg-indigo-600 text-white shadow-sm"
+                  ? "bg-[#002fa7] text-white"
                   : "text-slate-600 hover:bg-slate-200"
               }`}
             >

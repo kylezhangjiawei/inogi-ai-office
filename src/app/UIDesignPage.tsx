@@ -17,6 +17,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import { Button } from "./components/ui/button";
 import { cn } from "./components/ui/utils";
 import {
   Select,
@@ -45,7 +53,6 @@ import {
   formatImageCost,
   formatTime,
   getTodayBounds,
-  glassCard,
   ImageEditModal,
   ImagePreviewModal,
   MAX_PROMPT_LENGTH,
@@ -183,7 +190,9 @@ function ChatTurn({
 export function UIDesignPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const feedScrollRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const [prompt, setPrompt] = useState("");
+  const [promptError, setPromptError] = useState("");
   const [selectedRatio, setSelectedRatio] = useState<Size>("1792x1024");
   const [selectedModel, setSelectedModel] = useState(DEFAULT_IMAGE_MODEL_VALUE);
   const [referenceImages, setReferenceImages] = useState<ReferenceImageItem[]>([]);
@@ -259,9 +268,11 @@ export function UIDesignPage() {
   async function handleInlineOptimize() {
     const source = prompt.trim();
     if (!source) {
-      toast.error("请先填写提示词再优化");
+      setPromptError("请先填写提示词，再使用 AI 优化描述。");
+      composerRef.current?.focus();
       return;
     }
+    setPromptError("");
     if (optimizing) return;
     setOptimizing(true);
     try {
@@ -330,11 +341,13 @@ export function UIDesignPage() {
   async function handleGenerate() {
     const normalizedPrompt = prompt.trim();
     if (!normalizedPrompt) {
-      toast.error("请先填写图像提示词");
+      setPromptError("请先描述想要生成的画面。");
+      composerRef.current?.focus();
       return;
     }
     if (normalizedPrompt.length > MAX_PROMPT_LENGTH) {
-      toast.error(`提示词不能超过 ${MAX_PROMPT_LENGTH} 个字符`);
+      setPromptError(`提示词不能超过 ${MAX_PROMPT_LENGTH} 个字符。`);
+      composerRef.current?.focus();
       return;
     }
     if (referenceImageBusy) {
@@ -344,6 +357,7 @@ export function UIDesignPage() {
 
     if (submitLockRef.current) return;
     submitLockRef.current = true;
+    setPromptError("");
 
     setPendingRequest(normalizedPrompt);
     setGenerating(true);
@@ -378,20 +392,23 @@ export function UIDesignPage() {
   async function handleEditLatest() {
     const target = latestImage;
     if (!target) {
-      toast.error("还没有可修改的作品，请先生成一张");
+      setPromptError("还没有可修改的作品，请先生成一张图片。");
       return;
     }
     const message = prompt.trim();
     if (!message) {
-      toast.error("请先描述要怎么修改上一张图片");
+      setPromptError("请先描述要如何修改上一张图片。");
+      composerRef.current?.focus();
       return;
     }
     if (message.length > MAX_PROMPT_LENGTH) {
-      toast.error(`修改要求不能超过 ${MAX_PROMPT_LENGTH} 个字符`);
+      setPromptError(`修改要求不能超过 ${MAX_PROMPT_LENGTH} 个字符。`);
+      composerRef.current?.focus();
       return;
     }
     if (submitLockRef.current) return;
     submitLockRef.current = true;
+    setPromptError("");
 
     setPendingRequest(message);
     setGenerating(true);
@@ -427,6 +444,7 @@ export function UIDesignPage() {
 
   function handleReuse(item: GeneratedImage) {
     setPrompt(item.revisedPrompt || item.prompt);
+    setPromptError("");
     setSelectedRatio(item.size);
     toast.success("已复用该图片提示词");
   }
@@ -462,10 +480,44 @@ export function UIDesignPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 gap-4">
+    <div className="horizon-theme hz-page mx-auto flex min-h-full w-full max-w-[1800px] min-w-0 flex-col gap-3 px-3 py-3 sm:px-4 lg:px-5 xl:h-full xl:min-h-0">
+      <HorizonPageHeader
+        Icon={Wand2}
+        eyebrow="AI CREATIVE · IMAGE STUDIO"
+        title="AI 图像生成"
+        description="在一个连续工作台中完成模型选择、参考图准备、提示词优化、图像生成与版本接力。"
+        meta={(
+          <>
+            <span>{selectedModelOption.provider}</span>
+            <span aria-hidden="true">·</span>
+            <span>{selectedModelOption.model}</span>
+            <span aria-hidden="true">·</span>
+            <span>Ctrl / ⌘ + Enter 提交</span>
+          </>
+        )}
+        actions={(
+          <>
+            <Button asChild variant="outline">
+              <Link to={routePath("page:image-library", "/image-library")}><Images className="size-4" />图像作品库</Link>
+            </Button>
+            <Button asChild className="hz-primary-action">
+              <Link to={routePath("page:video-library", "/video-library")}><Sparkles className="size-4" />视频创作</Link>
+            </Button>
+          </>
+        )}
+      />
+
+      <HorizonMetricGrid className="!grid-cols-2 lg:!grid-cols-4">
+        <HorizonMetric Icon={Images} label="本页已加载" value={`${feedImages.length}张`} note="今日最近 24 条窗口" tone="brand" />
+        <HorizonMetric Icon={Upload} label="参考图" value={`${referenceImages.length}/${MAX_REFERENCE_IMAGES}`} note="提交前自动压缩" />
+        <HorizonMetric Icon={Eye} label="当前画幅" value={selectedRatioOption.shortLabel} note={selectedRatioOption.label.replace(/^[\d:]+\s*/, "")} />
+        <HorizonMetric Icon={Sparkles} label="生成状态" value={generating ? "处理中" : "就绪"} note={editModeAvailable ? "支持接力修改最新作品" : "等待首张作品"} tone={generating ? "warning" : "success"} />
+      </HorizonMetricGrid>
+
+      <div className="flex min-h-[48rem] min-w-0 flex-none flex-col gap-3 xl:min-h-0 xl:flex-1 xl:flex-row">
       {/* 左侧：生成设置（可收起） */}
       {settingsCollapsed ? (
-        <aside className={cn("flex w-14 shrink-0 flex-col items-center gap-3 rounded-[16px] p-2.5", glassCard)}>
+        <aside className="hz-surface flex w-full shrink-0 flex-row items-center gap-3 p-2.5 xl:w-14 xl:flex-col">
           <button
             type="button"
             onClick={() => setSettingsCollapsed(false)}
@@ -488,27 +540,23 @@ export function UIDesignPage() {
           </Link>
         </aside>
       ) : (
-        <aside className={cn("flex w-[300px] shrink-0 flex-col rounded-[16px]", glassCard)}>
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/70 px-4 py-3.5">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-primary text-primary-foreground">
-                <Wand2 className="h-4 w-4" />
-              </div>
-              <div>
-                <div className="text-sm font-semibold text-slate-950">AI 图像生成</div>
-                <div className="text-[11px] text-slate-500">设置好后在下方输入提示词</div>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSettingsCollapsed(true)}
-              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[10px] border border-border bg-surface-container-low text-slate-500 transition hover:border-primary/30 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-              aria-label="收起生成设置"
-              title="收起生成设置"
-            >
-              <PanelLeftClose className="h-4 w-4" />
-            </button>
-          </div>
+        <aside className="hz-surface flex max-h-[32rem] w-full shrink-0 flex-col overflow-hidden xl:max-h-none xl:w-[300px]">
+          <HorizonSectionHeader
+            Icon={Wand2}
+            title="生成设置"
+            description="选择模型、画幅与参考图。"
+            trailing={(
+              <button
+                type="button"
+                onClick={() => setSettingsCollapsed(true)}
+                className="flex size-8 cursor-pointer items-center justify-center rounded-[10px] border border-border bg-surface-container-low text-slate-500 transition hover:border-primary/30 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                aria-label="收起生成设置"
+                title="收起生成设置"
+              >
+                <PanelLeftClose className="size-4" />
+              </button>
+            )}
+          />
 
           <div className="material-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
             {/* 模型 */}
@@ -545,6 +593,7 @@ export function UIDesignPage() {
                       key={item.value}
                       type="button"
                       onClick={() => setSelectedRatio(item.value)}
+                      aria-pressed={active}
                       className={cn(
                         "cursor-pointer rounded-[12px] border px-2 py-2.5 text-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
                         active
@@ -628,7 +677,13 @@ export function UIDesignPage() {
       )}
 
       {/* 中央：生成流 + 底部输入框 */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <section className="hz-surface flex min-h-[42rem] min-w-0 flex-1 flex-col overflow-hidden xl:min-h-0">
+        <HorizonSectionHeader
+          Icon={Sparkles}
+          title="生成对话"
+          description="请求与结果按时间顺序排列，最新作品位于最下方。"
+          trailing={<span className="rounded-lg bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">{generating ? "正在生成" : `${feedImages.length} 个结果`}</span>}
+        />
         <div ref={feedScrollRef} className="material-scrollbar min-h-0 flex-1 overflow-y-auto pb-4">
           <div className="mx-auto w-full max-w-3xl space-y-4">
             {feedImages.length > 0 ? (
@@ -645,14 +700,13 @@ export function UIDesignPage() {
                 />
               ))
             ) : !generating ? (
-              <div className="flex min-h-[50vh] flex-col items-center justify-center rounded-[16px] border border-dashed border-border bg-surface-container-lowest/70 px-6 py-12 text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-[16px] bg-primary-container text-on-primary-container">
-                  <Sparkles className="h-7 w-7" />
-                </div>
-                <h2 className="mt-5 text-base font-semibold text-slate-950">两步即可出图</h2>
-                <p className="mt-2 max-w-sm text-xs leading-5 text-slate-500">
-                  先在左侧选好模型、纵横比与参考图，再按下面两步操作。作品会按时间顺序以对话形式出现在这里，最新的在最下方。
-                </p>
+              <div className="flex min-h-[34rem] flex-col items-center justify-center rounded-[16px] border border-dashed border-border bg-surface-container-lowest/70 px-6 py-8 text-center">
+                <HorizonEmptyState
+                  Icon={Sparkles}
+                  title="从一段画面描述开始"
+                  description="选择模型、画幅与参考图后，输入想要的画面；生成结果会按时间顺序出现在这里。"
+                  action={<Button type="button" variant="outline" onClick={() => composerRef.current?.focus()}>开始描述画面</Button>}
+                />
                 <div className="mt-5 w-full max-w-sm space-y-2 text-left">
                   <div className="flex items-start gap-2.5 rounded-[12px] border border-border/70 bg-surface-container-lowest px-3 py-2.5">
                     <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary-container text-[11px] font-semibold text-on-primary-container">
@@ -702,7 +756,7 @@ export function UIDesignPage() {
 
         {/* 底部输入框 */}
         <div className="shrink-0">
-          <div className={cn("mx-auto w-full max-w-3xl rounded-[18px] p-3", glassCard)}>
+          <div className="hz-surface mx-auto w-full max-w-3xl p-3">
             {/* 模式切换：新建一张 / 改上一张 */}
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
               <div className="inline-flex rounded-full border border-border bg-surface-container-low p-0.5 text-[11px] font-semibold">
@@ -710,6 +764,7 @@ export function UIDesignPage() {
                   type="button"
                   onClick={() => setComposerMode("create")}
                   disabled={generating}
+                  aria-pressed={composerMode === "create"}
                   className={cn(
                     "inline-flex cursor-pointer items-center gap-1 rounded-full px-3 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50",
                     composerMode === "create" ? "bg-primary text-primary-foreground shadow-sm" : "text-slate-500 hover:text-slate-700",
@@ -722,6 +777,7 @@ export function UIDesignPage() {
                   type="button"
                   onClick={() => setComposerMode("edit")}
                   disabled={!editModeAvailable || generating}
+                  aria-pressed={composerMode === "edit"}
                   title={editModeAvailable ? "在最新一张作品上继续修改" : "先生成一张图片后才能修改"}
                   className={cn(
                     "inline-flex cursor-pointer items-center gap-1 rounded-full px-3 py-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50",
@@ -744,18 +800,27 @@ export function UIDesignPage() {
               ) : null}
             </div>
 
+            <label htmlFor="image-studio-prompt" className="sr-only">图像生成提示词</label>
             <textarea
+              ref={composerRef}
+              id="image-studio-prompt"
               value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
+              onChange={(event) => {
+                setPrompt(event.target.value);
+                if (promptError) setPromptError("");
+              }}
               onKeyDown={handleComposerKeyDown}
               maxLength={MAX_PROMPT_LENGTH}
+              aria-invalid={Boolean(promptError)}
+              aria-describedby={promptError ? "image-studio-prompt-error" : undefined}
               placeholder={
                 composerMode === "edit"
                   ? "描述要怎么修改上一张图片，例如：把背景换成纯白、增加暖色灯光、把主体放大一些…"
                   : "描述你想要的画面，例如：放在原木桌面上的智能手表产品图，柔和自然光，电商主图风格…"
               }
-              className="h-24 w-full resize-none rounded-[14px] border border-border bg-surface-container-lowest px-3.5 py-3 text-sm leading-6 text-slate-800 outline-none transition focus:border-primary/40 focus:ring-4 focus:ring-primary/10"
+              className="h-24 w-full resize-none rounded-[14px] border border-border bg-surface-container-lowest px-3.5 py-3 text-sm leading-6 text-slate-800 outline-none transition focus:border-primary/40 focus:ring-4 focus:ring-primary/10 aria-invalid:border-red-300 aria-invalid:ring-red-100"
             />
+            {promptError ? <p id="image-studio-prompt-error" role="alert" className="mt-2 text-pretty text-xs font-medium text-red-600">{promptError}</p> : null}
             <div className="mt-2.5 flex items-center justify-between gap-3">
               <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
                 <span className="truncate rounded-full border border-border bg-surface-container-low px-2.5 py-1">
@@ -805,6 +870,7 @@ export function UIDesignPage() {
             </div>
           </div>
         </div>
+      </section>
       </div>
 
       {/* 弹窗：图片预览 / 图片修改 */}

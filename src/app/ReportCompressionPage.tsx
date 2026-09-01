@@ -1,16 +1,40 @@
 import React, { useMemo, useState } from "react";
 import {
+  ArrowRight,
+  BarChart3,
+  CheckCircle2,
+  ClipboardList,
   Copy,
   Download,
   FileText,
+  History,
   RefreshCw,
+  Scissors,
   Sparkles,
   Upload,
 } from "lucide-react";
 import { Link } from "react-router";
 import { toast } from "sonner";
+
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import { Button } from "./components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
+import { Label } from "./components/ui/label";
+import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
-// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
 
 type InputMode = "paste" | "upload";
@@ -32,26 +56,9 @@ type TaskHistory = {
 };
 
 const mockVersions: VersionOutput[] = [
-  {
-    label: "50字版",
-    sublabel: "适合领导即看即懂",
-    charTarget: 50,
-    content: "Q1 销售额 2,180 万，同比增长 34%，海外占比升至 43%，建议 Q2 聚焦墨西哥与东南亚渠道加速。",
-  },
-  {
-    label: "100字版",
-    sublabel: "适合会前预读",
-    charTarget: 100,
-    content:
-      "Q1 总销售额 2,180 万，同比增长 34%，超季度目标 8%。海外市场贡献 43%，其中墨西哥同比增长 67%，东南亚增长 28%。国内市场受低价竞争影响增速放缓至 12%。建议 Q2 加快海外渠道建设，并对国内重点客户推出定制化服务包。",
-  },
-  {
-    label: "300字版",
-    sublabel: "适合正式汇报",
-    charTarget: 300,
-    content:
-      "Q1 总销售额达到 2,180 万元，同比增长 34%，超季度目标 8 个百分点。海外市场表现突出，收入占比升至 43%，其中墨西哥渠道同比增长 67%，东南亚增长 28%。国内市场增速放缓至 12%，主要受低价竞争影响。当前风险集中在欧洲 MDR 换证进度和原材料成本上涨两方面。建议 Q2 继续扩展墨西哥与东南亚渠道，提前锁定欧洲备货方案，并针对国内重点客户推出专属服务包，提升续约与复购表现。",
-  },
+  { label: "50字版", sublabel: "适合领导即看即懂", charTarget: 50, content: "Q1 销售额 2,180 万，同比增长 34%，海外占比升至 43%，建议 Q2 聚焦墨西哥与东南亚渠道加速。" },
+  { label: "100字版", sublabel: "适合会前预读", charTarget: 100, content: "Q1 总销售额 2,180 万，同比增长 34%，超季度目标 8%。海外市场贡献 43%，其中墨西哥同比增长 67%，东南亚增长 28%。国内市场受低价竞争影响增速放缓至 12%。建议 Q2 加快海外渠道建设，并对国内重点客户推出定制化服务包。" },
+  { label: "300字版", sublabel: "适合正式汇报", charTarget: 300, content: "Q1 总销售额达到 2,180 万元，同比增长 34%，超季度目标 8 个百分点。海外市场表现突出，收入占比升至 43%，其中墨西哥渠道同比增长 67%，东南亚增长 28%。国内市场增速放缓至 12%，主要受低价竞争影响。当前风险集中在欧洲 MDR 换证进度和原材料成本上涨两方面。建议 Q2 继续扩展墨西哥与东南亚渠道，提前锁定欧洲备货方案，并针对国内重点客户推出专属服务包，提升续约与复购表现。" },
 ];
 
 const historyItems: TaskHistory[] = [
@@ -76,276 +83,167 @@ const structuredReport = {
   ],
 };
 
-const demoContent =
-  "Q1 总销售额达到 2,180 万元，同比增长 34%，超出季度目标 8 个百分点。海外市场表现亮眼，其中墨西哥渠道同比增长 67%，东南亚增长 28%，海外收入占比升至 43%。国内市场增速降至 12%，主要受低价竞争影响。欧洲 MDR 换证仍在推进，原材料成本上涨 7%，对毛利有压力。Q2 计划继续扩展墨西哥渠道，并评估东南亚区域仓方案，同时针对国内重点客户推出专属服务包。";
+const demoContent = "Q1 总销售额达到 2,180 万元，同比增长 34%，超出季度目标 8 个百分点。海外市场表现亮眼，其中墨西哥渠道同比增长 67%，东南亚增长 28%，海外收入占比升至 43%。国内市场增速降至 12%，主要受低价竞争影响。欧洲 MDR 换证仍在推进，原材料成本上涨 7%，对毛利有压力。Q2 计划继续扩展墨西哥渠道，并评估东南亚区域仓方案，同时针对国内重点客户推出专属服务包。";
 
 export function ReportCompressionPage() {
   const [inputMode, setInputMode] = useState<InputMode>("paste");
   const [compressionMode, setCompressionMode] = useState<CompressionMode>("经营汇报");
   const [pasteText, setPasteText] = useState("");
+  const [inputError, setInputError] = useState("");
   const [versions, setVersions] = useState<VersionOutput[] | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
 
   const ratio = useMemo(() => {
     if (!versions || !pasteText.trim()) return null;
-    const sourceLength = pasteText.length;
     const shortest = Math.min(...versions.map((item) => item.content.length));
-    return `${Math.max(1, Math.round(sourceLength / Math.max(shortest, 1)))}:1`;
+    return `${Math.max(1, Math.round(pasteText.length / Math.max(shortest, 1)))}:1`;
   }, [versions, pasteText]);
 
+  const useDemoSource = (message = "已填入示例经营汇报。") => {
+    setPasteText(demoContent);
+    setInputError("");
+    toast.success(message);
+  };
+
   const handleGenerate = () => {
-    if (inputMode === "paste" && !pasteText.trim()) {
-      toast.error("请先输入原始材料。");
+    if (!pasteText.trim()) {
+      setInputError(inputMode === "paste" ? "请先输入需要压缩的原始材料。" : "请先载入示例文件或切换到粘贴文本。" );
       return;
     }
+    setInputError("");
     setIsGenerating(true);
     window.setTimeout(() => {
       setVersions(mockVersions);
       setIsGenerating(false);
       toast.success("已生成三档压缩结果。");
-    }, 1000);
+    }, 700);
   };
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col gap-4 bg-slate-50 p-3 lg:h-full lg:min-h-0 lg:flex-row lg:p-4">
-      <aside className="flex min-w-0 flex-col gap-4 lg:w-[320px] lg:flex-shrink-0 xl:w-[360px]">
-        <section className="material-card p-5">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-orange-500" />
-            <h2 className="text-sm font-semibold text-slate-800">汇报材料压缩</h2>
-          </div>
-          <p className="mt-2 text-sm leading-6 text-slate-500">支持经营汇报、周报和会议纪要三类场景，把长内容快速收敛成可读版本。</p>
+    <div className="horizon-theme hz-page mx-auto flex min-h-full max-w-[1600px] min-w-0 flex-col gap-4 px-3 py-4 sm:p-5 lg:p-6">
+      <HorizonPageHeader
+        Icon={Scissors}
+        eyebrow="COMMUNICATION · EXECUTIVE BRIEF"
+        title="汇报材料压缩"
+        description="把经营汇报、周报和会议纪要收敛为多档摘要，并保留结论、证据与行动建议。"
+        meta={<><span>支持 3 类业务材料</span><span>·</span><span>输出 50 / 100 / 300 字版本</span><span>·</span><span>{historyItems.length} 条最近任务</span></>}
+        actions={<Button asChild variant="outline"><Link to={routePath("page:meeting", "/meeting")}>进入会议纪要<ArrowRight className="size-4" /></Link></Button>}
+      />
 
-          <div className="mt-4 flex gap-2">
-            {(["paste", "upload"] as const).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setInputMode(mode)}
-                className={cn(
-                  "rounded-2xl px-3 py-2 text-sm font-medium transition",
-                  inputMode === mode ? "bg-orange-500 text-white" : "bg-slate-100 text-slate-500",
-                )}
-              >
-                {mode === "paste" ? "粘贴文本" : "上传文件"}
-              </button>
-            ))}
-          </div>
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={FileText} label="原始材料" value={pasteText.length} note="当前字符数" />
+        <HorizonMetric Icon={ClipboardList} label="压缩场景" value={compressionMode} note="可随材料切换" />
+        <HorizonMetric Icon={BarChart3} label="压缩比" value={ratio ?? "—"} note={versions ? "按最短版本计算" : "生成后自动统计"} tone={ratio ? "success" : "neutral"} />
+        <HorizonMetric Icon={versions ? CheckCircle2 : Sparkles} label="输出版本" value={versions?.length ?? 0} note={versions ? "三档结果已就绪" : "等待生成"} tone={versions ? "success" : "neutral"} />
+      </HorizonMetricGrid>
 
-          <div className="mt-3 flex flex-wrap gap-2">
-            {(["经营汇报", "周报", "会议纪要"] as const).map((item) => (
-              <button
-                key={item}
-                onClick={() => setCompressionMode(item)}
-                className={cn(
-                  "rounded-full border px-3 py-1 text-xs transition",
-                  compressionMode === item ? "border-orange-300 bg-orange-50 text-orange-700" : "border-slate-200 text-slate-500",
-                )}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-
-          {inputMode === "paste" ? (
-            <textarea
-              value={pasteText}
-              onChange={(event) => setPasteText(event.target.value)}
-              placeholder="粘贴原始汇报内容、长邮件、会议纪要或周报正文"
-              className="mt-4 h-40 w-full rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-7 text-slate-700 outline-none transition focus:border-orange-300 focus:bg-white"
-            />
-          ) : (
-            <div className="mt-4 flex h-40 flex-col items-center justify-center rounded-[24px] border-2 border-dashed border-slate-200 bg-slate-50 text-slate-400">
-              <Upload className="h-8 w-8" />
-              <p className="mt-3 text-sm">拖拽或点击上传 PDF / Word / TXT</p>
-              <p className="mt-1 text-xs">当前为演示态，会生成示例压缩结果</p>
-            </div>
-          )}
-
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button onClick={() => setPasteText(demoContent)} className="material-button-secondary">
-              填入示例
-            </button>
-            <button onClick={handleGenerate} disabled={isGenerating} className="material-button-primary sm:ml-auto">
-              {isGenerating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              开始压缩
-            </button>
-          </div>
-        </section>
-
-        <section className="material-card p-5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-800">最近任务</h3>
-            <Link to={routePath("page:meeting", "/meeting")} className="material-button-secondary text-xs">
-              去会议纪要
-            </Link>
-          </div>
-          <div className="mt-4 space-y-3">
-            {historyItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => {
-                  setCompressionMode(item.mode);
-                  setPasteText(demoContent);
-                  toast.info(`已加载历史任务：${item.title}`);
-                }}
-                className="w-full rounded-[24px] border border-slate-100 bg-slate-50/80 p-4 text-left transition hover:-translate-y-0.5"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-slate-800">{item.title}</div>
-                  <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500">{item.mode}</span>
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[350px_minmax(0,1fr)]">
+        <div className="space-y-4">
+          <section className="hz-surface min-w-0 overflow-hidden border" aria-label="压缩输入设置">
+            <HorizonSectionHeader Icon={Sparkles} title="输入与压缩设置" description="选择来源和场景后生成多档摘要。" />
+            <div className="space-y-4 p-4">
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium text-slate-700">材料来源</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["paste", "upload"] as const).map((mode) => (
+                    <Button key={mode} type="button" variant={inputMode === mode ? "default" : "outline"} className={inputMode === mode ? "hz-primary-action" : ""} aria-pressed={inputMode === mode} onClick={() => { setInputMode(mode); setInputError(""); }}>{mode === "paste" ? "粘贴文本" : "示例文件"}</Button>
+                  ))}
                 </div>
-                <div className="mt-2 text-xs text-slate-500">
-                  {item.owner} · {item.updatedAt}
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
-      </aside>
+              </fieldset>
 
-      <main className="grid min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-12">
-        <section className="min-w-0 xl:col-span-8">
-          <div className="material-card p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">压缩结果</h3>
-                <p className="mt-1 text-sm text-slate-500">同时输出短版、中版和正式版，方便按汇报场景直接选用。</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {ratio && <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">压缩比 {ratio}</span>}
-                <button
-                  onClick={() => setExportOpen(true)}
-                  disabled={!versions}
-                  className="material-button-secondary disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Download className="h-4 w-4" />
-                  导出预览
-                </button>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium text-slate-700">材料类型</legend>
+                <div className="flex flex-wrap gap-2">
+                  {(["经营汇报", "周报", "会议纪要"] as const).map((mode) => (
+                    <Button key={mode} type="button" size="sm" variant={compressionMode === mode ? "secondary" : "outline"} className={compressionMode === mode ? "border-blue-200 bg-blue-50 text-[#002fa7]" : ""} aria-pressed={compressionMode === mode} onClick={() => setCompressionMode(mode)}>{mode}</Button>
+                  ))}
+                </div>
+              </fieldset>
+
+              {inputMode === "paste" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="report-source">原始材料</Label>
+                  <Textarea id="report-source" value={pasteText} onChange={(event) => { setPasteText(event.target.value); if (inputError) setInputError(""); }} placeholder="粘贴原始汇报、长邮件、会议纪要或周报正文" className="min-h-48 resize-y bg-slate-50 text-sm leading-6" aria-invalid={Boolean(inputError)} aria-describedby={inputError ? "report-source-error" : "report-source-help"} />
+                  {inputError ? <p id="report-source-error" className="text-pretty text-xs text-red-600" role="alert">{inputError}</p> : <p id="report-source-help" className="text-pretty text-xs text-slate-500">当前 {pasteText.length} 字，建议保留关键数据、风险和行动项。</p>}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center">
+                  <Upload className="mx-auto size-8 text-[#002fa7]" aria-hidden="true" />
+                  <div className="mt-3 font-semibold text-slate-800">使用示例经营汇报文件</div>
+                  <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">演示环境以结构化示例代替真实 PDF / Word 解析。</p>
+                  <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => useDemoSource("示例文件已载入。")}>载入示例文件</Button>
+                  {inputError ? <p className="mt-2 text-pretty text-xs text-red-600" role="alert">{inputError}</p> : null}
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={() => useDemoSource()}>填入示例</Button>
+                <Button type="button" className="hz-primary-action sm:ml-auto" onClick={handleGenerate} disabled={isGenerating}>{isGenerating ? <RefreshCw className="size-4" /> : <Sparkles className="size-4" />}{isGenerating ? "正在压缩" : "开始压缩"}</Button>
               </div>
             </div>
+          </section>
 
+          <section className="hz-surface min-w-0 overflow-hidden border" aria-label="最近压缩任务">
+            <HorizonSectionHeader Icon={History} title="最近任务" description="载入历史场景继续压缩。" />
+            <ul className="divide-y divide-slate-100">
+              {historyItems.map((item) => (
+                <li key={item.id}>
+                  <button type="button" className="w-full cursor-pointer px-4 py-3 text-left transition-colors hover:bg-slate-50" onClick={() => { setCompressionMode(item.mode); useDemoSource(`已加载历史任务：${item.title}`); }}>
+                    <div className="flex items-start justify-between gap-3"><span className="line-clamp-2 text-sm font-semibold text-slate-800">{item.title}</span><span className="shrink-0 rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500">{item.mode}</span></div>
+                    <div className="mt-2 text-xs text-slate-500">{item.owner} · <span className="tabular-nums">{item.updatedAt}</span></div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+
+        <div className="space-y-4">
+          <section className="hz-surface min-w-0 overflow-hidden border" aria-label="压缩结果">
+            <HorizonSectionHeader Icon={Scissors} title="压缩结果" description="根据阅读场景选择短版、中版或正式版。" trailing={<div className="flex items-center gap-2">{ratio ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">压缩比 {ratio}</span> : null}<Button type="button" size="sm" variant="outline" disabled={!versions} onClick={() => setExportOpen(true)}><Download className="size-4" />导出</Button></div>} />
             {versions ? (
-              <div className="mt-5 grid gap-4 lg:grid-cols-3">
-                {versions.map((item) => (
-                  <div key={item.label} className="rounded-[28px] border border-slate-100 bg-slate-50/80 p-5">
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-3 p-4">
+                {versions.map((version) => (
+                  <article key={version.label} className="flex min-w-0 flex-col rounded-xl border border-slate-200 p-4">
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-slate-800">{item.label}</div>
-                        <div className="mt-1 text-xs text-slate-400">{item.sublabel}</div>
-                      </div>
-                      <span
-                        className={cn(
-                          "rounded-full px-2.5 py-1 text-[11px] font-medium",
-                          item.content.length <= item.charTarget ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600",
-                        )}
-                      >
-                        {item.content.length} / {item.charTarget}
-                      </span>
+                      <div><h3 className="font-semibold text-slate-800">{version.label}</h3><p className="mt-1 text-xs text-slate-500">{version.sublabel}</p></div>
+                      <span className={cn("shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold tabular-nums", version.content.length <= version.charTarget ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{version.content.length} / {version.charTarget}</span>
                     </div>
-                    <p className="mt-4 text-sm leading-7 text-slate-700">{item.content}</p>
-                    <div className="mt-5 flex gap-2">
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(item.content);
-                          toast.success(`${item.label} 已复制。`);
-                        }}
-                        className="material-button-secondary text-xs"
-                      >
-                        <Copy className="h-4 w-4" />
-                        复制
-                      </button>
-                      <button onClick={handleGenerate} className="material-button-secondary text-xs">
-                        <RefreshCw className="h-4 w-4" />
-                        重算
-                      </button>
+                    <p className="mt-4 flex-1 text-pretty text-sm leading-6 text-slate-700">{version.content}</p>
+                    <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                      <Button type="button" size="sm" variant="outline" onClick={() => { void navigator.clipboard.writeText(version.content); toast.success(`${version.label} 已复制。`); }}><Copy className="size-4" />复制</Button>
+                      <Button type="button" size="sm" variant="ghost" onClick={handleGenerate}><RefreshCw className="size-4" />重算</Button>
                     </div>
-                  </div>
+                  </article>
                 ))}
               </div>
             ) : (
-              <div className="mt-5 flex h-80 items-center justify-center rounded-[28px] border border-dashed border-slate-200 bg-white text-center">
-                <div>
-                  <FileText className="mx-auto h-10 w-10 text-slate-300" />
-                  <p className="mt-3 text-sm text-slate-400">生成后会在这里展示三档压缩版本。</p>
-                </div>
-              </div>
+              <HorizonEmptyState Icon={FileText} title="尚未生成压缩结果" description="输入原始材料后，系统会同时给出 50、100 和 300 字三个版本。" action={<Button type="button" size="sm" variant="outline" onClick={() => useDemoSource()}>填入示例材料</Button>} />
             )}
-          </div>
-        </section>
+          </section>
 
-        <section className="min-w-0 xl:col-span-4">
-          <div className="material-card h-full p-6">
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-orange-500" />
-              <h3 className="text-sm font-semibold text-slate-800">结构化摘要</h3>
+          <section className="hz-surface min-w-0 overflow-hidden border" aria-label="结构化摘要">
+            <HorizonSectionHeader Icon={ClipboardList} title="结构化摘要" description="同步提取结论、证据和下一步行动。" />
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-0 divide-y divide-slate-100 p-4 sm:divide-y-0 2xl:divide-x">
+              <div className="p-3"><div className="text-xs font-semibold text-[#002fa7]">核心结论</div><p className="mt-2 text-pretty text-sm font-semibold leading-6 text-slate-800">{structuredReport.conclusion}</p></div>
+              <div className="p-3"><div className="text-xs font-semibold text-[#002fa7]">关键证据</div><ul className="mt-2 space-y-2">{structuredReport.evidence.map((item) => <li key={item} className="flex gap-2 text-pretty text-xs leading-5 text-slate-600"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[#002fa7]" aria-hidden="true" />{item}</li>)}</ul></div>
+              <div className="p-3"><div className="text-xs font-semibold text-[#002fa7]">行动建议</div><ul className="mt-2 space-y-2">{structuredReport.actions.map((item) => <li key={item} className="flex gap-2 text-pretty text-xs leading-5 text-slate-600"><span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[#002fa7]" aria-hidden="true" />{item}</li>)}</ul></div>
             </div>
-            <div className="mt-4 rounded-[24px] bg-slate-50/80 p-4">
-              <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Conclusion</div>
-              <p className="mt-2 text-sm font-semibold leading-7 text-slate-800">{structuredReport.conclusion}</p>
-            </div>
-            <div className="mt-4 rounded-[24px] bg-slate-50/80 p-4">
-              <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Evidence</div>
-              <div className="mt-3 space-y-2">
-                {structuredReport.evidence.map((item) => (
-                  <div key={item} className="text-sm leading-6 text-slate-600">
-                    • {item}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="mt-4 rounded-[24px] bg-slate-50/80 p-4">
-              <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Actions</div>
-              <div className="mt-3 space-y-2">
-                {structuredReport.actions.map((item) => (
-                  <div key={item} className="text-sm leading-6 text-slate-600">
-                    • {item}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      {exportOpen && versions && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/20 p-4" onClick={() => setExportOpen(false)}>
-          <div className="w-full max-w-3xl rounded-[28px] bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">导出预览</h3>
-                <p className="mt-1 text-sm text-slate-500">确认导出格式后，可将三档摘要和结构化摘要一起输出。</p>
-              </div>
-              <button onClick={() => setExportOpen(false)} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-500">
-                关闭
-              </button>
-            </div>
-            <div className="mt-5 rounded-[24px] bg-slate-50 p-4">
-              <div className="text-sm font-semibold text-slate-800">{compressionMode} · 导出包</div>
-              <div className="mt-3 space-y-2 text-sm text-slate-600">
-                <div>• 三档压缩结果（50 / 100 / 300 字）</div>
-                <div>• 结构化摘要（结论 / 依据 / 建议）</div>
-                <div>• 原文与压缩比统计</div>
-              </div>
-            </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <button onClick={() => setExportOpen(false)} className="material-button-secondary">
-                返回
-              </button>
-              <button
-                onClick={() => {
-                  setExportOpen(false);
-                  toast.success("Word 导出已触发。");
-                }}
-                className="material-button-primary"
-              >
-                <Download className="h-4 w-4" />
-                导出 Word
-              </button>
-            </div>
-          </div>
+          </section>
         </div>
-      )}
+      </div>
+
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent className="horizon-portal sm:max-w-xl">
+          <DialogHeader><DialogTitle className="text-balance">导出预览</DialogTitle><DialogDescription className="text-pretty">确认导出内容后，将三档摘要与结构化结论一起输出。</DialogDescription></DialogHeader>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="font-semibold text-slate-800">{compressionMode} · 导出包</div>
+            <ul className="mt-3 space-y-2 text-sm text-slate-600"><li>三档压缩结果（50 / 100 / 300 字）</li><li>结构化摘要（结论 / 依据 / 建议）</li><li>原文与压缩比统计</li></ul>
+          </div>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setExportOpen(false)}>返回</Button><Button type="button" className="hz-primary-action" onClick={() => { setExportOpen(false); toast.success("Word 导出已触发。"); }}><Download className="size-4" />导出 Word</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

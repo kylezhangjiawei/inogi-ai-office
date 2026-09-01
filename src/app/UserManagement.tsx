@@ -1,5 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, Search, Trash2, UserCheck, UserX } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Eye,
+  EyeOff,
+  KeyRound,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Trash2,
+  UserCheck,
+  Users,
+  UserX,
+} from "lucide-react";
 import { toast } from "sonner";
 import { authFetch } from "./lib/authSession";
 import { subscribeDepartmentChanges } from "./lib/departmentDirectory";
@@ -7,8 +20,37 @@ import { useAuth } from "./auth";
 import { cn } from "./components/ui/utils";
 import { PermissionGuard } from "./components/PermissionGuard";
 import { AutoTranslatedText } from "./components/TranslatableText";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
+import { Button } from "./components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { t as translate, useI18n } from "./lib/i18n";
+import { PERMISSIONS } from "./lib/permissions";
 
 // ─── 类型 ─────────────────────────────────────────────────────────────────────
 
@@ -69,65 +111,33 @@ const STATUS_LABELS: Record<UserStatus, string> = {
 };
 
 const PAGE_SIZE = 10;
-const TABLE_HEADER_CLASS = "px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap";
+const TABLE_HEADER_CLASS = "px-5 py-3 text-xs font-semibold text-slate-600 whitespace-nowrap";
 const TABLE_CELL_CLASS = "px-5 py-4 align-middle text-sm text-slate-700";
 const EMPTY_SELECT_VALUE = "__empty__";
 const ALL_DEPARTMENTS = "ALL";
 const UNASSIGNED_DEPARTMENT = "__unassigned__";
-const SELECT_TRIGGER_CLASS = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm outline-none transition focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100";
-
-function ActionIconButton({
-  children,
-  className,
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { children: React.ReactNode }) {
-  return (
-    <button
-      className={cn(
-        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50",
-        className,
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ModalShell({
-  title,
-  children,
-  footer,
-  maxWidth = "max-w-lg",
-}: {
-  title: React.ReactNode;
-  children: React.ReactNode;
-  footer: React.ReactNode;
-  maxWidth?: string;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4" role="dialog" aria-modal="true">
-      <div className={cn("w-full overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200", maxWidth)}>
-        <div className="px-6 py-4 text-base font-bold text-slate-900">{title}</div>
-        <div className="max-h-[70vh] overflow-y-auto border-y border-slate-100 px-6 py-5">{children}</div>
-        <div className="flex justify-end gap-2 px-6 py-4">{footer}</div>
-      </div>
-    </div>
-  );
-}
+const SELECT_TRIGGER_CLASS = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition-colors focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100";
 
 function SelectControl({
   value,
   onValueChange,
   options,
   className,
+  id,
   ariaLabel,
+  ariaInvalid,
+  ariaDescribedBy,
+  required,
 }: {
   value: string;
   onValueChange: (value: string) => void;
   options: Array<{ label: string; value: string }>;
   className?: string;
+  id?: string;
   ariaLabel?: string;
+  ariaInvalid?: boolean;
+  ariaDescribedBy?: string;
+  required?: boolean;
 }) {
   const normalizedValue = value === "" ? EMPTY_SELECT_VALUE : value;
 
@@ -136,7 +146,14 @@ function SelectControl({
       value={normalizedValue}
       onValueChange={(nextValue) => onValueChange(nextValue === EMPTY_SELECT_VALUE ? "" : nextValue)}
     >
-      <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, className)} aria-label={ariaLabel}>
+      <SelectTrigger
+        id={id}
+        className={cn(SELECT_TRIGGER_CLASS, className)}
+        aria-label={ariaLabel}
+        aria-invalid={ariaInvalid || undefined}
+        aria-describedby={ariaDescribedBy}
+        aria-required={required || undefined}
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
@@ -235,29 +252,33 @@ function isSuperAdmin(user: User): boolean {
 function PasswordCell({
   user,
   currentUserId,
-  currentUserIsSuperAdmin,
+  canResetOtherUsers,
   onChangePwd,
 }: {
   user: User;
   currentUserId: string;
-  currentUserIsSuperAdmin: boolean;
-  onChangePwd: (user: User) => void;
+  canResetOtherUsers: boolean;
+  onChangePwd: (user: User, trigger: HTMLButtonElement) => void;
 }) {
   const isSelf = user.id === currentUserId;
-  // 超级管理员账号受保护：其密码不允许在用户管理页修改（即便是本人），故对超管行一律隐藏密码操作按钮，
-  // 与「操作」列的「不可操作」保持一致。普通用户行维持原逻辑：本人可改、超管可重置他人。
-  const canChange = !isSuperAdmin(user) && (isSelf || currentUserIsSuperAdmin);
+  // 与后端契约一致：本人始终可修改（包括超管本人）；重置他人需要专项权限，
+  // 且超级管理员账号不允许被其他人重置密码。
+  const canChange = isSelf || (!isSuperAdmin(user) && canResetOtherUsers);
 
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="shrink-0 font-mono text-xs tracking-widest text-slate-400">••••••••</span>
+      <span className="shrink-0 font-mono text-xs text-slate-400" aria-hidden="true">••••••••</span>
       {canChange && (
-        <ActionIconButton
-          onClick={() => onChangePwd(user)}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={(event) => onChangePwd(user, event.currentTarget)}
           title={isSelf ? translate("修改我的密码") : translate("重置密码")}
+          aria-label={isSelf ? translate("修改我的密码") : translate("重置 {name} 的密码", { name: user.name })}
         >
-          <KeyRound className="h-3.5 w-3.5" />
-        </ActionIconButton>
+          <KeyRound className="size-4" aria-hidden="true" />
+        </Button>
       )}
     </div>
   );
@@ -266,17 +287,21 @@ function PasswordCell({
 // ─── 主组件 ───────────────────────────────────────────────────────────────────
 
 type DialogMode = "create" | "edit" | "changePwd" | "deleteConfirm" | null;
+type UserFormErrors = Partial<Record<"name" | "password" | "department" | "roleId", string>>;
 
 export function UserManagement() {
   const { t } = useI18n();
   const { user: currentUser } = useAuth();
   const currentUserId = currentUser?.id ?? "";
-  const currentUserIsSuperAdmin = currentUser?.permissions.includes("*") ?? false;
+  const canResetOtherUsers = currentUser?.permissions.some(
+    (permission) => permission === "*" || permission === PERMISSIONS.USER_RESET_PASSWORD,
+  ) ?? false;
 
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [keyword, setKeyword] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState(ALL_DEPARTMENTS);
   const [statusFilter, setStatusFilter] = useState<"ALL" | UserStatus>("ALL");
@@ -289,26 +314,44 @@ export function UserManagement() {
   const [newPassword, setNewPassword] = useState("");
   const [showNewPwd, setShowNewPwd] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [formErrors, setFormErrors] = useState<UserFormErrors>({});
+  const [newPasswordError, setNewPasswordError] = useState("");
+  const [dialogError, setDialogError] = useState("");
+  const dialogTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const pageFocusRef = useRef<HTMLButtonElement | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
+  const newPasswordInputRef = useRef<HTMLInputElement | null>(null);
+  const loadRequestRef = useRef(0);
 
   const loadData = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
+    setLoadError("");
     try {
       const [usersData, rolesData, typesData] = await Promise.all([
         apiListUsers(),
         apiListRoles(),
         apiListDepartments(),
       ]);
+      if (requestId !== loadRequestRef.current) return;
       setUsers(usersData);
       setRoles(rolesData);
       setDepartments(typesData);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("数据加载失败"));
+      if (requestId !== loadRequestRef.current) return;
+      const message = err instanceof Error ? err.message : t("数据加载失败");
+      setLoadError(message);
+      toast.error(message);
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void loadData(); }, [loadData]);
+  useEffect(() => () => {
+    loadRequestRef.current += 1;
+  }, []);
   useEffect(
     () => subscribeDepartmentChanges(() => {
       void loadData();
@@ -344,21 +387,32 @@ export function UserManagement() {
   useEffect(() => { setPage(1); }, [keyword, departmentFilter, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
-  const pagedUsers = filteredUsers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const safePage = Math.min(page, totalPages);
+  const pagedUsers = filteredUsers.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
   const activeCount = users.filter((user) => user.status === "ACTIVE").length;
   const disabledCount = users.filter((user) => user.status === "DISABLED").length;
   const assignedRoleCount = new Set(users.map((user) => user.roleId).filter(Boolean)).size;
+  const hasActiveFilters = Boolean(keyword) || departmentFilter !== ALL_DEPARTMENTS || statusFilter !== "ALL";
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
 
   // 可分配给用户的角色（排除超管角色）
   const assignableRoles = roles.filter((r) => !r.permissions?.includes("*"));
 
-  function openCreate() {
+  function openCreate(trigger: HTMLButtonElement) {
+    dialogTriggerRef.current = trigger;
+    setSelectedUser(null);
     setForm(EMPTY_FORM);
     setShowFormPwd(false);
+    setFormErrors({});
+    setDialogError("");
     setDialogMode("create");
   }
 
-  function openEdit(user: User) {
+  function openEdit(user: User, trigger: HTMLButtonElement) {
+    dialogTriggerRef.current = trigger;
     setSelectedUser(user);
     setForm({
       id: user.id,
@@ -371,39 +425,54 @@ export function UserManagement() {
       password: "",
     });
     setShowFormPwd(false);
+    setFormErrors({});
+    setDialogError("");
     setDialogMode("edit");
   }
 
-  function openChangePwd(user: User) {
+  function openChangePwd(user: User, trigger: HTMLButtonElement) {
+    dialogTriggerRef.current = trigger;
     setSelectedUser(user);
     setNewPassword("");
     setShowNewPwd(false);
+    setNewPasswordError("");
+    setDialogError("");
     setDialogMode("changePwd");
   }
 
-  function openDelete(user: User) {
+  function openDelete(user: User, trigger: HTMLButtonElement) {
+    dialogTriggerRef.current = trigger;
     setSelectedUser(user);
+    setDialogError("");
     setDialogMode("deleteConfirm");
   }
 
   function closeDialog() {
     setDialogMode(null);
     setSelectedUser(null);
+    setFormErrors({});
+    setNewPasswordError("");
+    setDialogError("");
   }
 
   async function handleSaveUser() {
-    if (!form.name.trim()) {
-      toast.error(t("姓名为必填项"));
+    const nextErrors: UserFormErrors = {};
+    if (!form.name.trim()) nextErrors.name = t("请输入姓名");
+    if (!form.id && !form.department.trim()) nextErrors.department = t("请选择部门");
+    if (!form.id && !form.roleId) nextErrors.roleId = t("请选择角色");
+    if (!form.id && !form.password.trim()) nextErrors.password = t("请输入初始密码");
+    else if (!form.id && form.password.length < 8) nextErrors.password = t("密码长度至少 8 位");
+    if (Object.keys(nextErrors).length > 0) {
+      setFormErrors(nextErrors);
+      requestAnimationFrame(() => {
+        if (nextErrors.name) nameInputRef.current?.focus();
+        else if (nextErrors.password) passwordInputRef.current?.focus();
+        else if (nextErrors.department) document.getElementById("user-department")?.focus();
+        else if (nextErrors.roleId) document.getElementById("user-role")?.focus();
+      });
       return;
     }
-    if (!form.id && !form.password.trim()) {
-      toast.error(t("新建用户必须设置初始密码"));
-      return;
-    }
-    if (!form.id && form.password.length < 8) {
-      toast.error(t("密码长度至少 8 位"));
-      return;
-    }
+    setDialogError("");
     setSaving(true);
     try {
       const saved = await apiSaveUser(form);
@@ -416,10 +485,13 @@ export function UserManagement() {
         }
         return [saved, ...prev];
       });
+      void loadData();
       toast.success(form.id ? t("用户信息已更新") : t("用户已创建"));
       closeDialog();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("保存失败"));
+      const message = err instanceof Error ? err.message : t("保存失败");
+      setDialogError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -430,6 +502,7 @@ export function UserManagement() {
     try {
       const updated = await apiUpdateStatus(user.id, newStatus);
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      void loadData();
       toast.success(newStatus === "ACTIVE" ? t("用户已启用") : t("用户已停用"));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("操作失败"));
@@ -437,14 +510,19 @@ export function UserManagement() {
   }
 
   async function handleChangePassword() {
-    if (!selectedUser || !newPassword.trim()) {
-      toast.error(t("请输入新密码"));
+    if (!selectedUser) return;
+    if (!newPassword.trim()) {
+      setNewPasswordError(t("请输入新密码"));
+      newPasswordInputRef.current?.focus();
       return;
     }
     if (newPassword.length < 8) {
-      toast.error(t("密码长度至少 8 位"));
+      setNewPasswordError(t("密码长度至少 8 位"));
+      newPasswordInputRef.current?.focus();
       return;
     }
+    setNewPasswordError("");
+    setDialogError("");
     setSaving(true);
     try {
       await apiResetPassword(selectedUser.id, newPassword);
@@ -452,7 +530,9 @@ export function UserManagement() {
       toast.success(isSelf ? t("密码已修改") : t("{name} 的密码已重置", { name: selectedUser.name }));
       closeDialog();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("操作失败"));
+      const message = err instanceof Error ? err.message : t("操作失败");
+      setDialogError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -464,10 +544,13 @@ export function UserManagement() {
     try {
       await apiDeleteUser(selectedUser.id);
       setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
+      void loadData();
       toast.success(t("用户已删除"));
       closeDialog();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("删除失败"));
+      const message = err instanceof Error ? err.message : t("删除失败");
+      setDialogError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -481,458 +564,482 @@ export function UserManagement() {
     : t("修改密码");
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      {/* 页头 */}
-      <section className="material-card p-6 md:p-8">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <span className="material-chip bg-blue-50 text-blue-700">User Management</span>
-            <h2 className="mt-3 text-[2rem] font-bold tracking-tight text-slate-900">{t("用户管理")}</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
-              {t("管理系统账号、角色分配与状态控制。密码列仅自己可见操作按钮，超级管理员可对所有用户密码进行操作。")}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              className="material-button-secondary w-fit"
-              onClick={() => void loadData()}
-              disabled={loading}
-            >
-              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-              {t("刷新")}
-            </button>
-            <PermissionGuard permission="user:create">
-              <button className="material-button-primary w-fit" onClick={openCreate}>
-                <Plus className="h-4 w-4" />
-                {t("新建用户")}
-              </button>
-            </PermissionGuard>
-          </div>
-        </div>
-      </section>
+    <div className="horizon-theme hz-page">
+      <div className="hz-page-inner space-y-3">
+        <HorizonPageHeader
+          Icon={Users}
+          eyebrow="SYSTEM GOVERNANCE · IDENTITY"
+          title={t("用户管理")}
+          description={t("统一维护系统账号、角色分配、部门归属与启停状态，并为本人及授权管理员提供安全的密码操作入口。")}
+          meta={(
+            <>
+              <span>{t("身份目录")}</span>
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums">{loading ? t("正在同步") : t("{count} 个账号", { count: users.length })}</span>
+            </>
+          )}
+          actions={(
+            <>
+              <Button ref={pageFocusRef} type="button" variant="outline" onClick={() => void loadData()} disabled={loading}>
+                <RefreshCw className="size-4" aria-hidden="true" />
+                {loading ? t("读取中…") : t("刷新")}
+              </Button>
+              <PermissionGuard permission="user:create">
+                <Button type="button" className="hz-primary-action" onClick={(event) => openCreate(event.currentTarget)}>
+                  <Plus className="size-4" aria-hidden="true" />
+                  {t("新建用户")}
+                </Button>
+              </PermissionGuard>
+            </>
+          )}
+        />
 
-      <section className="grid gap-4 md:grid-cols-4">
-        {[
-          [t("用户总数"), users.length],
-          [t("启用用户"), activeCount],
-          [t("停用用户"), disabledCount],
-          [t("已分配角色"), assignedRoleCount],
-        ].map(([label, value]) => (
-          <div key={label} className="material-card p-5">
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</div>
-            <div className="mt-3 text-3xl font-bold text-slate-900">{value}</div>
-          </div>
-        ))}
-      </section>
+        <HorizonMetricGrid className="!grid-cols-2 xl:!grid-cols-4">
+          <HorizonMetric Icon={Users} label={t("用户总数")} value={loading && users.length === 0 ? "—" : users.length} note={t("当前身份目录账号")} tone="brand" />
+          <HorizonMetric Icon={UserCheck} label={t("启用用户")} value={loading && users.length === 0 ? "—" : activeCount} note={t("可正常访问系统")} tone={activeCount > 0 ? "success" : "neutral"} />
+          <HorizonMetric Icon={UserX} label={t("停用用户")} value={loading && users.length === 0 ? "—" : disabledCount} note={t("已暂停访问权限")} tone={disabledCount > 0 ? "warning" : "neutral"} />
+          <HorizonMetric Icon={ShieldCheck} label={t("已用角色")} value={loading && users.length === 0 ? "—" : assignedRoleCount} note={t("已分配的角色种类")} tone="neutral" />
+        </HorizonMetricGrid>
 
-      {/* 数据表格 */}
-      <section className="material-card p-5 md:p-6">
-        {/* 筛选栏 */}
-        <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="relative w-full xl:max-w-[420px]">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              className="material-input pl-11"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder={t("搜索姓名、英文名、账号、角色、部门...")}
-              aria-label={t("搜索用户")}
-            />
-          </div>
-          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center xl:w-auto">
-            <SelectControl
-              value={departmentFilter}
-              onValueChange={setDepartmentFilter}
-              options={[
-                { label: t("全部部门"), value: ALL_DEPARTMENTS },
-                ...departmentFilterOptions.map((department) => ({ label: t(department.trim()), value: department })),
-                { label: t("未分配部门"), value: UNASSIGNED_DEPARTMENT },
-              ]}
-              className="w-full sm:w-[170px]"
-              ariaLabel={t("按部门筛选用户")}
-            />
-            <SelectControl
-              value={statusFilter}
-              onValueChange={(value) => setStatusFilter(value as "ALL" | UserStatus)}
-              options={[
-                { label: t("全部状态"), value: "ALL" },
-                { label: t("启用"), value: "ACTIVE" },
-                { label: t("待分配"), value: "INVITED" },
-                { label: t("停用"), value: "DISABLED" },
-              ]}
-              className="w-full sm:w-[150px]"
-              ariaLabel={t("按状态筛选用户")}
-            />
-          </div>
-        </div>
-
-        {/* 表格 */}
-        <div className="overflow-hidden rounded-2xl border border-slate-200">
-          <div className="overflow-x-auto">
-          <table className="w-full min-w-[1120px] table-fixed text-left">
-            <colgroup>
-              <col className="w-[260px]" />
-              <col className="w-[180px]" />
-              <col className="w-[180px]" />
-              <col className="w-[120px]" />
-              <col className="w-[170px]" />
-              <col className="w-[210px]" />
-            </colgroup>
-            <thead className="bg-slate-50/90">
-              <tr>
-                {[t("姓名 / 英文名 / 账号"), t("角色"), t("部门"), t("状态"), t("密码"), t("操作")].map((col, index) => (
-                  <th key={col} className={cn(TABLE_HEADER_CLASS, index === 5 && "text-right")}>
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-sm text-slate-400">{t("加载中...")}</td>
-                </tr>
-              ) : pagedUsers.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-sm text-slate-400">{t("暂无符合筛选条件的用户")}</td>
-                </tr>
-              ) : (
-                pagedUsers.map((user) => (
-                  <tr key={user.id} className="h-[76px] transition hover:bg-blue-50/25">
-                    {/* 姓名 / 账号 */}
-                    <td className={TABLE_CELL_CLASS}>
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <span
-                          className={cn(
-                            "min-w-0 truncate text-sm font-medium text-slate-800",
-                            !isSuperAdmin(user) && "cursor-pointer hover:text-primary",
-                          )}
-                          onClick={() => { if (!isSuperAdmin(user)) openEdit(user); }}
-                        >
-                          {user.name}
-                        </span>
-                        {isSuperAdmin(user) && (
-                          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
-                            {t("超级")}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-0.5 truncate text-xs font-medium text-slate-500">{user.englishName}</div>
-                      {user.username && (
-                        <div className="mt-0.5 truncate text-xs text-slate-400">@{user.username}</div>
-                      )}
-                    </td>
-                    {/* 角色 */}
-                    <td className={TABLE_CELL_CLASS}>
-                      {user.role?.name ? <AutoTranslatedText as="div" className="truncate" text={t(user.role.name.trim())} /> : "—"}
-                    </td>
-                    {/* 部门 */}
-                    <td className={TABLE_CELL_CLASS}>
-                      {user.department ? <AutoTranslatedText as="div" className="truncate" text={t(user.department.trim())} /> : "—"}
-                    </td>
-                    {/* 状态 */}
-                    <td className={TABLE_CELL_CLASS}>
-                      <span
-                        className={cn(
-                          "material-chip",
-                          user.status === "ACTIVE"
-                            ? "bg-emerald-50 text-emerald-700"
-                            : user.status === "DISABLED"
-                              ? "bg-red-50 text-red-700"
-                              : "bg-amber-50 text-amber-700",
-                        )}
-                      >
-                        {t(STATUS_LABELS[user.status])}
-                      </span>
-                    </td>
-                    {/* 密码 */}
-                    <td className={TABLE_CELL_CLASS}>
-                      <PasswordCell
-                        user={user}
-                        currentUserId={currentUserId}
-                        currentUserIsSuperAdmin={currentUserIsSuperAdmin}
-                        onChangePwd={openChangePwd}
-                      />
-                    </td>
-                    {/* 操作 */}
-                    <td className={cn(TABLE_CELL_CLASS, "text-right")}>
-                      {isSuperAdmin(user) ? (
-                        <span className="text-xs text-slate-400">{t("不可操作")}</span>
-                      ) : (
-                        <div className="flex justify-end gap-2">
-                          <PermissionGuard permission="user:edit">
-                            <ActionIconButton
-                              onClick={() => openEdit(user)}
-                              title={t("编辑用户")}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </ActionIconButton>
-                          </PermissionGuard>
-                          <PermissionGuard permission="user:disable">
-                            <ActionIconButton
-                              onClick={() => void handleToggleStatus(user)}
-                              title={user.status === "DISABLED" ? t("启用") : t("停用")}
-                            >
-                              {user.status === "DISABLED" ? (
-                                <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
-                              ) : (
-                                <UserX className="h-3.5 w-3.5 text-red-500" />
-                              )}
-                            </ActionIconButton>
-                          </PermissionGuard>
-                          <PermissionGuard permission="user:delete">
-                            <ActionIconButton
-                              className="hover:border-red-200 hover:bg-red-50"
-                              onClick={() => openDelete(user)}
-                              title={t("删除用户")}
-                            >
-                              <Trash2 className="h-3.5 w-3.5 text-red-500" />
-                            </ActionIconButton>
-                          </PermissionGuard>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-          </div>
-        </div>
-
-        {/* 分页 */}
-        <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-slate-500">
-            {t("共 {count} 条，第 {page} / {total} 页", { count: filteredUsers.length, page, total: totalPages })}
-          </div>
-          <div className="flex gap-2">
-            <button
-              className="material-button-secondary !px-3 !py-2"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-            >
-              {t("上一页")}
-            </button>
-            <button
-              className="material-button-secondary !px-3 !py-2"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-            >
-              {t("下一页")}
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* 新建 / 编辑 弹窗 */}
-      {(dialogMode === "create" || dialogMode === "edit") && (
-      <ModalShell
-        title={dialogMode === "edit" ? t("编辑用户") : t("新建用户")}
-        maxWidth="max-w-xl"
-        footer={
-          <>
-            <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>
-              {t("取消")}
-            </button>
-            <button
-              className="material-button-primary"
-              onClick={() => void handleSaveUser()}
-              disabled={saving}
-            >
-              {saving ? t("保存中...") : t("保存")}
-            </button>
-          </>
-        }
-      >
-          <div className="space-y-4 pt-1">
-            <div>
-              <label htmlFor="user-name" className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                {t("姓名")} <span className="text-red-500">*</span>
-              </label>
-              <input
-                id="user-name"
-                className="material-input w-full"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder={t("请输入姓名")}
-              />
-            </div>
-            <div>
-              <label htmlFor="user-english-name" className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                {t("英文名")}
-              </label>
-              <input
-                id="user-english-name"
-                className="material-input w-full"
-                value={form.englishName}
-                maxLength={80}
-                onChange={(e) => setForm((f) => ({ ...f, englishName: e.target.value }))}
-                placeholder={t("可选，留空后系统自动生成")}
-              />
-              <p className="mt-1.5 text-xs text-slate-400">{t("可随时修改；清空后保存会重新生成英文名。")}</p>
-            </div>
-            <div>
-              <label htmlFor="user-account" className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                {t("账号")}
-              </label>
-              <input
-                id="user-account"
-                className="material-input w-full"
-                value={form.username}
-                onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
-                placeholder={t("登录账号（可选，默认使用邮箱登录）")}
-              />
-            </div>
-            {/* 密码仅新建时填写 */}
-            {!form.id && (
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  {t("初始密码")} <span className="text-red-500">*</span>
-                </label>
-                <div className="relative">
-                  <input
-                    className="material-input w-full pr-10"
-                    type={showFormPwd ? "text" : "password"}
-                    value={form.password}
-                    onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                    placeholder={t("至少 8 位")}
-                    autoComplete="new-password"
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    onClick={() => setShowFormPwd((v) => !v)}
-                    tabIndex={-1}
-                  >
-                    {showFormPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
+        <section className="hz-surface min-w-0 overflow-hidden" aria-label={t("用户目录工作台")}>
+          <HorizonSectionHeader
+            Icon={Users}
+            title={t("用户目录")}
+            description={t("按姓名、账号、角色、部门和状态检索，并在权限范围内维护账号。")}
+            trailing={(
+              <span className="text-xs text-slate-500">
+                {t("显示")} <span className="tabular-nums font-semibold text-slate-700">{filteredUsers.length}</span> / {users.length} {t("条")}
+              </span>
             )}
+          />
+
+          <div className="grid gap-3 border-b border-slate-200 p-4 md:grid-cols-[minmax(260px,1fr)_190px_160px_auto] md:items-end">
+            <div className="min-w-0">
+              <Label htmlFor="user-search" className="mb-1.5 block text-xs font-semibold text-slate-700">{t("搜索用户")}</Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute inset-y-0 left-0 flex w-9 items-center justify-center text-slate-400" aria-hidden="true">
+                  <Search className="size-4" />
+                </span>
+                <Input
+                  id="user-search"
+                  className="pl-9"
+                  value={keyword}
+                  onChange={(event) => setKeyword(event.target.value)}
+                  placeholder={t("姓名、英文名、账号、角色或部门")}
+                />
+              </div>
+            </div>
             <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                {t("部门")}
-              </label>
+              <Label htmlFor="user-department-filter" className="mb-1.5 block text-xs font-semibold text-slate-700">{t("部门")}</Label>
               <SelectControl
-                value={form.department}
-                onValueChange={(value) => setForm((f) => ({ ...f, department: value }))}
+                id="user-department-filter"
+                value={departmentFilter}
+                onValueChange={setDepartmentFilter}
                 options={[
-                  { label: t("— 暂不分配 —"), value: "" },
-                  ...departments.map((department) => ({ label: t(department.name.trim()), value: department.name })),
+                  { label: t("全部部门"), value: ALL_DEPARTMENTS },
+                  ...departmentFilterOptions.map((department) => ({ label: t(department.trim()), value: department })),
+                  { label: t("未分配部门"), value: UNASSIGNED_DEPARTMENT },
                 ]}
                 className="w-full"
+                ariaLabel={t("按部门筛选用户")}
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                {t("角色")}
-              </label>
+              <Label htmlFor="user-status-filter" className="mb-1.5 block text-xs font-semibold text-slate-700">{t("状态")}</Label>
               <SelectControl
-                value={form.roleId}
-                onValueChange={(value) => setForm((f) => ({ ...f, roleId: value }))}
+                id="user-status-filter"
+                value={statusFilter}
+                onValueChange={(value) => setStatusFilter(value as "ALL" | UserStatus)}
                 options={[
-                  { label: t("— 暂不分配 —"), value: "" },
-                  ...assignableRoles.map((role) => ({ label: t(role.name.trim()), value: role.id })),
-                ]}
-                className="w-full"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                {t("状态")}
-              </label>
-              <SelectControl
-                value={form.status}
-                onValueChange={(value) => setForm((f) => ({ ...f, status: value as UserStatus }))}
-                options={[
+                  { label: t("全部状态"), value: "ALL" },
                   { label: t("启用"), value: "ACTIVE" },
                   { label: t("待分配"), value: "INVITED" },
                   { label: t("停用"), value: "DISABLED" },
                 ]}
                 className="w-full"
+                ariaLabel={t("按状态筛选用户")}
               />
             </div>
-          </div>
-      </ModalShell>
-      )}
-
-      {/* 修改 / 重置密码弹窗 */}
-      {dialogMode === "changePwd" && (
-      <ModalShell
-        title={changePwdTitle}
-        maxWidth="max-w-md"
-        footer={
-          <>
-            <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>
-              {t("取消")}
-            </button>
-            <button
-              className="material-button-primary"
-              onClick={() => void handleChangePassword()}
-              disabled={saving}
-            >
-              {saving ? t("保存中...") : t("确认")}
-            </button>
-          </>
-        }
-      >
-          {selectedUser && isSelf(selectedUser) && (
-            <p className="mb-4 text-sm text-slate-500">{t("修改后需重新登录方可生效。")}</p>
-          )}
-          {selectedUser && !isSelf(selectedUser) && (
-            <p className="mb-4 text-sm text-slate-500">
-              {t("正在为 {name} 重置密码，重置后该用户需使用新密码登录。", { name: selectedUser.name })}
-            </p>
-          )}
-          <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-            {t("新密码（至少 8 位）")}
-          </label>
-          <div className="relative">
-            <input
-              className="material-input w-full pr-10"
-              type={showNewPwd ? "text" : "password"}
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder={t("请输入新密码")}
-              autoComplete="new-password"
-            />
-            <button
+            <Button
               type="button"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              onClick={() => setShowNewPwd((v) => !v)}
-              tabIndex={-1}
+              variant="outline"
+              onClick={() => { setKeyword(""); setDepartmentFilter(ALL_DEPARTMENTS); setStatusFilter("ALL"); }}
+              disabled={!hasActiveFilters}
             >
-              {showNewPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
+              {t("清除筛选")}
+            </Button>
           </div>
-      </ModalShell>
-      )}
 
-      {/* 删除确认弹窗 */}
-      {dialogMode === "deleteConfirm" && (
-      <ModalShell
-        title={t("确认删除用户")}
-        maxWidth="max-w-md"
-        footer={
-          <>
-            <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>
-              {t("取消")}
-            </button>
-            <button
-              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-              onClick={() => void handleDeleteUser()}
-              disabled={saving}
-            >
-              {saving ? t("删除中...") : t("确认删除")}
-            </button>
-          </>
-        }
-      >
-          <p className="text-sm text-slate-600">
-            {t("即将永久删除用户 {name}，此操作无法撤销。", { name: selectedUser?.name ?? "" })}
-          </p>
-      </ModalShell>
-      )}
+          {loadError && users.length > 0 ? (
+            <p role="alert" className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">{loadError}</p>
+          ) : null}
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1120px] table-fixed text-left">
+              <caption className="sr-only">{t("用户姓名、角色、部门、状态、密码入口及可用操作")}</caption>
+              <colgroup>
+                <col className="w-[280px]" />
+                <col className="w-[180px]" />
+                <col className="w-[180px]" />
+                <col className="w-[120px]" />
+                <col className="w-[160px]" />
+                <col className="w-[200px]" />
+              </colgroup>
+              <thead className="bg-slate-50/90">
+                <tr>
+                  {[t("姓名 / 英文名 / 账号"), t("角色"), t("部门"), t("状态"), t("密码"), t("操作")].map((column) => (
+                    <th key={column} scope="col" className={cn(TABLE_HEADER_CLASS, column === t("操作") && "text-right")}>{column}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {loading && users.length === 0 ? (
+                  Array.from({ length: 4 }, (_, index) => (
+                    <tr key={index} aria-hidden="true">
+                      <td colSpan={6} className="px-5 py-4"><div className="h-10 rounded-lg bg-slate-100" /></td>
+                    </tr>
+                  ))
+                ) : pagedUsers.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-0">
+                      <HorizonEmptyState
+                        Icon={hasActiveFilters ? Search : Users}
+                        title={hasActiveFilters ? t("没有匹配的用户") : loadError ? t("用户目录加载失败") : t("尚未建立用户目录")}
+                        description={hasActiveFilters ? t("调整检索条件或清除筛选后重试。") : loadError ? loadError : t("新建首个用户，为其配置部门、角色和访问状态。")}
+                        action={hasActiveFilters ? (
+                          <Button type="button" variant="outline" onClick={() => { setKeyword(""); setDepartmentFilter(ALL_DEPARTMENTS); setStatusFilter("ALL"); }}>{t("清除筛选")}</Button>
+                        ) : loadError ? (
+                          <Button type="button" variant="outline" onClick={() => void loadData()}><RefreshCw className="size-4" aria-hidden="true" />{t("重新读取")}</Button>
+                        ) : (
+                          <PermissionGuard
+                            permission="user:create"
+                            fallback={<Button type="button" variant="outline" onClick={() => void loadData()}><RefreshCw className="size-4" aria-hidden="true" />{t("重新读取")}</Button>}
+                          >
+                            <Button type="button" className="hz-primary-action" onClick={(event) => openCreate(event.currentTarget)}><Plus className="size-4" aria-hidden="true" />{t("新建用户")}</Button>
+                          </PermissionGuard>
+                        )}
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  pagedUsers.map((user) => (
+                    <tr key={user.id} className="hover:bg-blue-50/35">
+                      <td className={TABLE_CELL_CLASS}>
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-[#002fa7]" aria-hidden="true">
+                            <Users className="size-[18px]" />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 items-center gap-2">
+                              {isSuperAdmin(user) ? (
+                                <span className="truncate font-semibold text-slate-800">{user.name}</span>
+                              ) : (
+                                <PermissionGuard permission="user:edit" fallback={<span className="truncate font-semibold text-slate-800">{user.name}</span>}>
+                                  <button
+                                    type="button"
+                                    className="min-w-0 cursor-pointer truncate rounded-sm text-left font-semibold text-slate-800 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                    onClick={(event) => openEdit(user, event.currentTarget)}
+                                  >
+                                    {user.name}
+                                  </button>
+                                </PermissionGuard>
+                              )}
+                              {isSuperAdmin(user) ? <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">{t("超级管理员")}</span> : null}
+                            </div>
+                            <div className="mt-0.5 truncate text-xs font-medium text-slate-500">{user.englishName || "—"}</div>
+                            <div className="mt-0.5 truncate text-xs text-slate-500">{user.username ? `@${user.username}` : user.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className={TABLE_CELL_CLASS}>{user.role?.name ? <AutoTranslatedText as="div" className="truncate" text={t(user.role.name.trim())} /> : "—"}</td>
+                      <td className={TABLE_CELL_CLASS}>{user.department ? <AutoTranslatedText as="div" className="truncate" text={t(user.department.trim())} /> : "—"}</td>
+                      <td className={TABLE_CELL_CLASS}>
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
+                            user.status === "ACTIVE"
+                              ? "border-green-200 bg-green-50 text-green-700"
+                              : user.status === "DISABLED"
+                                ? "border-red-200 bg-red-50 text-red-700"
+                                : "border-amber-200 bg-amber-50 text-amber-800",
+                          )}
+                        >
+                          {t(STATUS_LABELS[user.status])}
+                        </span>
+                      </td>
+                      <td className={TABLE_CELL_CLASS}>
+                        <PasswordCell user={user} currentUserId={currentUserId} canResetOtherUsers={canResetOtherUsers} onChangePwd={openChangePwd} />
+                      </td>
+                      <td className={cn(TABLE_CELL_CLASS, "text-right")}>
+                        {isSuperAdmin(user) ? (
+                          <span className="text-xs text-slate-500">{t("受保护账号")}</span>
+                        ) : (
+                          <div className="flex justify-end gap-1">
+                            <PermissionGuard permission="user:edit">
+                              <Button type="button" variant="ghost" size="icon" onClick={(event) => openEdit(user, event.currentTarget)} aria-label={t("编辑用户 {name}", { name: user.name })} title={t("编辑用户")}>
+                                <Pencil className="size-4" aria-hidden="true" />
+                              </Button>
+                            </PermissionGuard>
+                            <PermissionGuard permission="user:disable">
+                              <Button type="button" variant="ghost" size="icon" onClick={() => void handleToggleStatus(user)} aria-label={user.status === "DISABLED" ? t("启用用户 {name}", { name: user.name }) : t("停用用户 {name}", { name: user.name })} title={user.status === "DISABLED" ? t("启用") : t("停用")}>
+                                {user.status === "DISABLED" ? <UserCheck className="size-4 text-green-600" aria-hidden="true" /> : <UserX className="size-4 text-amber-700" aria-hidden="true" />}
+                              </Button>
+                            </PermissionGuard>
+                            <PermissionGuard permission="user:delete">
+                              <Button type="button" variant="ghost" size="icon" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={(event) => openDelete(user, event.currentTarget)} aria-label={t("删除用户 {name}", { name: user.name })} title={t("删除用户")}>
+                                <Trash2 className="size-4" aria-hidden="true" />
+                              </Button>
+                            </PermissionGuard>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+            <div aria-live="polite">{t("共 {count} 条，第 {page} / {total} 页", { count: filteredUsers.length, page: safePage, total: totalPages })}</div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setPage(Math.max(1, safePage - 1))} disabled={safePage === 1} aria-label={t("上一页")}>{t("上一页")}</Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setPage(Math.min(totalPages, safePage + 1))} disabled={safePage === totalPages} aria-label={t("下一页")}>{t("下一页")}</Button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <Dialog open={dialogMode === "create" || dialogMode === "edit"} onOpenChange={(open) => { if (!open && !saving) closeDialog(); }}>
+        <DialogContent
+          className="horizon-portal max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = dialogTriggerRef.current;
+            dialogTriggerRef.current = null;
+            if (trigger?.isConnected) trigger.focus();
+            else pageFocusRef.current?.focus();
+          }}
+        >
+          <form onSubmit={(event) => { event.preventDefault(); void handleSaveUser(); }} className="space-y-5">
+            <DialogHeader>
+              <DialogTitle className="text-balance text-slate-900">{dialogMode === "edit" ? t("编辑用户") : t("新建用户")}</DialogTitle>
+              <DialogDescription className="text-pretty">{t("维护账号身份、组织归属、角色与访问状态。")}</DialogDescription>
+            </DialogHeader>
+
+            {dialogError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{dialogError}</p> : null}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="user-name" className="mb-1.5 block text-sm font-semibold text-slate-700">{t("姓名")} <span className="text-red-600">*</span></Label>
+                <Input
+                  ref={nameInputRef}
+                  id="user-name"
+                  autoFocus
+                  value={form.name}
+                  onChange={(event) => { setForm((current) => ({ ...current, name: event.target.value })); if (formErrors.name) setFormErrors((current) => ({ ...current, name: undefined })); }}
+                  placeholder={t("请输入姓名")}
+                  aria-invalid={Boolean(formErrors.name)}
+                  aria-describedby={formErrors.name ? "user-name-error" : undefined}
+                />
+                {formErrors.name ? <p id="user-name-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{formErrors.name}</p> : null}
+              </div>
+              <div>
+                <Label htmlFor="user-english-name" className="mb-1.5 block text-sm font-semibold text-slate-700">{t("英文名")}</Label>
+                <Input id="user-english-name" value={form.englishName} maxLength={80} onChange={(event) => setForm((current) => ({ ...current, englishName: event.target.value }))} placeholder={t("可选，留空后系统自动生成")} />
+                <p className="mt-1.5 text-pretty text-xs text-slate-500">{t("清空后保存将重新生成英文名。")}</p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="user-account" className="mb-1.5 block text-sm font-semibold text-slate-700">{t("账号")}</Label>
+                <Input id="user-account" value={form.username} onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))} placeholder={t("可选，默认使用邮箱登录")} />
+              </div>
+              {!form.id ? (
+                <div>
+                  <Label htmlFor="user-initial-password" className="mb-1.5 block text-sm font-semibold text-slate-700">{t("初始密码")} <span className="text-red-600">*</span></Label>
+                  <div className="relative">
+                    <Input
+                      ref={passwordInputRef}
+                      id="user-initial-password"
+                      className="pr-11"
+                      type={showFormPwd ? "text" : "password"}
+                      value={form.password}
+                      onChange={(event) => { setForm((current) => ({ ...current, password: event.target.value })); if (formErrors.password) setFormErrors((current) => ({ ...current, password: undefined })); }}
+                      placeholder={t("至少 8 位")}
+                      autoComplete="new-password"
+                      aria-invalid={Boolean(formErrors.password)}
+                      aria-describedby={formErrors.password ? "user-initial-password-error" : undefined}
+                    />
+                    <span className="absolute inset-y-0 right-1 flex items-center">
+                      <Button type="button" variant="ghost" size="icon" onClick={() => setShowFormPwd((value) => !value)} aria-label={showFormPwd ? t("隐藏初始密码") : t("显示初始密码")}>
+                        {showFormPwd ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+                      </Button>
+                    </span>
+                  </div>
+                  {formErrors.password ? <p id="user-initial-password-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{formErrors.password}</p> : null}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <Label htmlFor="user-department" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  {t("部门")} {!form.id ? <span className="text-red-600">*</span> : null}
+                </Label>
+                <SelectControl
+                  id="user-department"
+                  value={form.department}
+                  onValueChange={(value) => {
+                    setForm((current) => ({ ...current, department: value }));
+                    if (formErrors.department) setFormErrors((current) => ({ ...current, department: undefined }));
+                  }}
+                  options={[
+                    ...(!form.department
+                      ? [{ label: t(form.id ? "当前未分配（保存时保持）" : "请选择部门（必填）"), value: "" }]
+                      : []),
+                    ...departments.map((department) => ({ label: t(department.name.trim()), value: department.name })),
+                  ]}
+                  className="w-full"
+                  ariaLabel={t("选择用户部门")}
+                  ariaInvalid={Boolean(formErrors.department)}
+                  ariaDescribedBy={formErrors.department ? "user-department-error" : "user-department-help"}
+                  required={!form.id}
+                />
+                {formErrors.department ? (
+                  <p id="user-department-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{formErrors.department}</p>
+                ) : (
+                  <p id="user-department-help" className="mt-1.5 text-pretty text-xs text-slate-500">
+                    {t(form.id && !form.department ? "当前账号未分配部门；不选择将保持现状。" : form.id ? "只能更换为其他部门，不会清空当前归属。" : "新建账号必须归属一个部门。")}
+                  </p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="user-role" className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  {t("角色")} {!form.id ? <span className="text-red-600">*</span> : null}
+                </Label>
+                <SelectControl
+                  id="user-role"
+                  value={form.roleId}
+                  onValueChange={(value) => {
+                    setForm((current) => ({ ...current, roleId: value }));
+                    if (formErrors.roleId) setFormErrors((current) => ({ ...current, roleId: undefined }));
+                  }}
+                  options={[
+                    ...(!form.roleId
+                      ? [{ label: t(form.id ? "当前未分配（保存时保持）" : "请选择角色（必填）"), value: "" }]
+                      : []),
+                    ...assignableRoles.map((role) => ({ label: t(role.name.trim()), value: role.id })),
+                  ]}
+                  className="w-full"
+                  ariaLabel={t("选择用户角色")}
+                  ariaInvalid={Boolean(formErrors.roleId)}
+                  ariaDescribedBy={formErrors.roleId ? "user-role-error" : "user-role-help"}
+                  required={!form.id}
+                />
+                {formErrors.roleId ? (
+                  <p id="user-role-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{formErrors.roleId}</p>
+                ) : (
+                  <p id="user-role-help" className="mt-1.5 text-pretty text-xs text-slate-500">
+                    {t(form.id && !form.roleId ? "当前账号未分配角色；不选择将保持现状。" : form.id ? "只能更换为其他角色，不会清空当前权限。" : "新建账号必须分配一个角色。")}
+                  </p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="user-status" className="mb-1.5 block text-sm font-semibold text-slate-700">{t("状态")}</Label>
+                <SelectControl id="user-status" value={form.status} onValueChange={(value) => setForm((current) => ({ ...current, status: value as UserStatus }))} options={[{ label: t("启用"), value: "ACTIVE" }, { label: t("待分配"), value: "INVITED" }, { label: t("停用"), value: "DISABLED" }]} className="w-full" ariaLabel={t("选择用户状态")} />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeDialog} disabled={saving}>{t("取消")}</Button>
+              <Button type="submit" className="hz-primary-action" disabled={saving}>{saving ? t("保存中…") : t("保存用户")}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={dialogMode === "changePwd"} onOpenChange={(open) => { if (!open && !saving) closeDialog(); }}>
+        <DialogContent
+          className="horizon-portal sm:max-w-md"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = dialogTriggerRef.current;
+            dialogTriggerRef.current = null;
+            if (trigger?.isConnected) trigger.focus();
+            else pageFocusRef.current?.focus();
+          }}
+        >
+          <form onSubmit={(event) => { event.preventDefault(); void handleChangePassword(); }} className="space-y-5">
+            <DialogHeader>
+              <DialogTitle className="text-balance text-slate-900">{changePwdTitle}</DialogTitle>
+              <DialogDescription className="text-pretty">
+                {selectedUser && isSelf(selectedUser)
+                  ? t("密码修改后需重新登录方可生效。")
+                  : t("为 {name} 设置新密码，保存后该用户需使用新密码登录。", { name: selectedUser?.name ?? "" })}
+              </DialogDescription>
+            </DialogHeader>
+
+            {dialogError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{dialogError}</p> : null}
+
+            <div>
+              <Label htmlFor="user-new-password" className="mb-1.5 block text-sm font-semibold text-slate-700">{t("新密码")} <span className="text-red-600">*</span></Label>
+              <div className="relative">
+                <Input
+                  ref={newPasswordInputRef}
+                  id="user-new-password"
+                  autoFocus
+                  className="pr-11"
+                  type={showNewPwd ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(event) => { setNewPassword(event.target.value); if (newPasswordError) setNewPasswordError(""); }}
+                  placeholder={t("至少 8 位")}
+                  autoComplete="new-password"
+                  aria-invalid={Boolean(newPasswordError)}
+                  aria-describedby={newPasswordError ? "user-new-password-error" : "user-new-password-help"}
+                />
+                <span className="absolute inset-y-0 right-1 flex items-center">
+                  <Button type="button" variant="ghost" size="icon" onClick={() => setShowNewPwd((value) => !value)} aria-label={showNewPwd ? t("隐藏新密码") : t("显示新密码")}>
+                    {showNewPwd ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+                  </Button>
+                </span>
+              </div>
+              {newPasswordError ? <p id="user-new-password-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{newPasswordError}</p> : <p id="user-new-password-help" className="mt-1.5 text-xs text-slate-500">{t("密码长度至少 8 位。")}</p>}
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeDialog} disabled={saving}>{t("取消")}</Button>
+              <Button type="submit" className="hz-primary-action" disabled={saving}>{saving ? t("保存中…") : t("确认修改")}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={dialogMode === "deleteConfirm"} onOpenChange={(open) => { if (!open && !saving) closeDialog(); }}>
+        <AlertDialogContent
+          className="horizon-portal sm:max-w-md"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = dialogTriggerRef.current;
+            dialogTriggerRef.current = null;
+            if (trigger?.isConnected) trigger.focus();
+            else pageFocusRef.current?.focus();
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-balance text-slate-900">{t("确认删除用户？")}</AlertDialogTitle>
+            <AlertDialogDescription className="text-pretty leading-6">{t("即将永久删除用户 {name}，此操作无法撤销。", { name: selectedUser?.name ?? "" })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {dialogError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{dialogError}</p> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>{t("保留用户")}</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600" disabled={saving} onClick={(event) => { event.preventDefault(); void handleDeleteUser(); }}>
+              {saving ? t("删除中…") : t("确认删除")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -6,12 +6,16 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { createPortal } from "react-dom";
 import { Download, X, ZoomIn, ZoomOut } from "lucide-react";
 import { cn } from "./ui/utils";
-import { useBodyScrollLock } from "../hooks/useMobileOverlay";
-import { useModalFocus } from "../hooks/useModalFocus";
 import { isMobileViewport } from "../lib/mobileRouting";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./ui/dialog";
 import {
   TASK_IMAGE_DOUBLE_TAP_SCALE,
   TASK_IMAGE_MIN_SCALE,
@@ -365,7 +369,7 @@ export function MobileZoomableImage({
       {zoomEnabled && showControls ? (
         <div
           className={cn(
-            "absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full bg-slate-950/65 p-1 text-white shadow-lg backdrop-blur",
+            "absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-slate-950/90 p-1 text-white shadow-lg",
             controlsClassName,
           )}
           onPointerDown={(event) => event.stopPropagation()}
@@ -376,8 +380,9 @@ export function MobileZoomableImage({
             onClick={() => zoomTo(transformRef.current.scale - TASK_IMAGE_ZOOM_STEP)}
             className="flex h-11 w-11 items-center justify-center rounded-full transition active:bg-white/20"
             aria-label="缩小图片"
+            title="缩小图片"
           >
-            <ZoomOut className="h-4 w-4" />
+            <ZoomOut className="h-4 w-4" aria-hidden="true" />
           </button>
           <span ref={zoomLabelRef} className="w-11 text-center text-[11px] tabular-nums text-white/85" aria-live="polite">100%</span>
           <button
@@ -385,8 +390,9 @@ export function MobileZoomableImage({
             onClick={() => zoomTo(transformRef.current.scale + TASK_IMAGE_ZOOM_STEP)}
             className="flex h-11 w-11 items-center justify-center rounded-full transition active:bg-white/20"
             aria-label="放大图片"
+            title="放大图片"
           >
-            <ZoomIn className="h-4 w-4" />
+            <ZoomIn className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       ) : null}
@@ -407,7 +413,6 @@ export function MobileImageLightbox({
   downloadUrl?: string;
   onClose: () => void;
 }) {
-  useBodyScrollLock(true);
   const closingRef = useRef(false);
   const historyOwnerRef = useRef<string | null>(null);
   const onCloseRef = useRef(onClose);
@@ -419,8 +424,6 @@ export function MobileImageLightbox({
     if (historyOwnerRef.current === window.history.state?.[MOBILE_IMAGE_PREVIEW_HISTORY_KEY]) window.history.back();
     else onCloseRef.current();
   }, []);
-  const dialogRef = useModalFocus<HTMLDivElement>(true, close);
-
   useEffect(() => {
     const owner = historyOwnerRef.current ?? `image-preview-${nextMobileImagePreviewOwner++}`;
     historyOwnerRef.current = owner;
@@ -437,17 +440,14 @@ export function MobileImageLightbox({
     return () => window.removeEventListener("popstate", closeOnBack);
   }, []);
 
-  return createPortal(
-    <div
-      ref={dialogRef}
-      className="fixed inset-0 z-[1600] flex flex-col overscroll-none bg-slate-950/92 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`图片预览：${alt}`}
-      tabIndex={-1}
-    >
+  return (
+    <Dialog open onOpenChange={(nextOpen) => { if (!nextOpen) close(); }}>
+      <DialogContent className="horizon-theme horizon-portal inset-0 left-0 top-0 z-[1600] flex h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 overscroll-none rounded-none border-0 bg-slate-950 p-0 shadow-none sm:max-w-none [&>button.absolute]:hidden">
       <div className="flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white">
-        <div className="min-w-0 truncate text-sm font-semibold">{title || alt}</div>
+        <div className="min-w-0">
+          <DialogTitle className="truncate text-sm font-semibold text-white">{title || alt}</DialogTitle>
+          <DialogDescription className="sr-only">支持双指缩放、放大后拖动与双击缩放的图片预览</DialogDescription>
+        </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {downloadUrl ? (
             <a
@@ -457,29 +457,32 @@ export function MobileImageLightbox({
               rel="noopener noreferrer"
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white/90"
               aria-label="下载原图"
+              title="下载原图"
             >
-              <Download className="h-4 w-4" />
+              <Download className="h-4 w-4" aria-hidden="true" />
             </a>
           ) : null}
-          <button
-            type="button"
-            onClick={close}
-            data-dialog-autofocus
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white/90"
-            aria-label="关闭图片预览"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <DialogClose asChild>
+            <button
+              type="button"
+              autoFocus
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+              aria-label="关闭图片预览"
+              title="关闭图片预览"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </DialogClose>
         </div>
       </div>
       <MobileZoomableImage
         src={src}
         alt={alt}
         className="min-h-0 flex-1 px-2 pb-[max(1rem,env(safe-area-inset-bottom))]"
-        imageClassName="rounded-lg shadow-2xl"
+        imageClassName="rounded-[4px] shadow-lg"
       />
-    </div>,
-    document.body,
+      </DialogContent>
+    </Dialog>
   );
 }
 

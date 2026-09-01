@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
@@ -10,11 +10,22 @@ import {
   Loader2,
   Plus,
   Trash2,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
+import { Button } from "./ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { cn } from "./ui/utils";
 import {
   CATEGORY_COLORS,
@@ -29,7 +40,7 @@ import {
 } from "../lib/mediaCategory";
 
 /** 侧边栏选中态：与研发知识库同款主色块 */
-const SELECTED_ROW = "bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(79,70,229,0.16)]";
+const SELECTED_ROW = "bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(0,47,167,0.18)]";
 const UNSELECTED_ROW = "text-slate-600 hover:bg-slate-50";
 const SURFACE_CARD = "rounded-lg border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
 
@@ -42,42 +53,72 @@ export function ModalShell({
   description,
   onClose,
   children,
-  widthClass = "max-w-md",
+  widthClass = "sm:max-w-md",
+  dismissible = true,
 }: {
   title: string;
   description?: string;
   onClose: () => void;
   children: React.ReactNode;
   widthClass?: string;
+  dismissible?: boolean;
 }) {
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const returnFocusCapturedRef = useRef(false);
+  const mountedRef = useRef(false);
+
+  if (!returnFocusCapturedRef.current && typeof document !== "undefined") {
+    returnFocusCapturedRef.current = true;
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && activeElement !== document.body && activeElement.tabIndex >= 0) {
+      returnFocusRef.current = activeElement;
+    }
+  }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const returnTarget = returnFocusRef.current;
+      if (!returnTarget) return;
+      window.requestAnimationFrame(() => {
+        // 等 Radix 的 FocusScope 完成卸载清理后再恢复，否则其收尾会把焦点重新落到 body。
+        window.requestAnimationFrame(() => {
+          // React StrictMode 会在开发环境模拟一次 effect 卸载/重挂；真实弹窗仍在时不抢回焦点。
+          if (mountedRef.current) return;
+          if (!returnTarget.isConnected || returnTarget.hasAttribute("disabled")) return;
+          returnTarget.focus({ preventScroll: true });
+        });
+      });
+    };
+  }, []);
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/48 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-    >
-      <div
-        className={cn("flex max-h-[82vh] w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.32)]", widthClass)}
-        onClick={(event) => event.stopPropagation()}
+    <Dialog open onOpenChange={(open) => { if (!open && dismissible) onClose(); }}>
+      <DialogContent
+        onCloseAutoFocus={(event) => {
+          const returnTarget = returnFocusRef.current;
+          if (!returnTarget || !returnTarget.isConnected || returnTarget.hasAttribute("disabled")) return;
+          event.preventDefault();
+          returnTarget.focus({ preventScroll: true });
+        }}
+        onEscapeKeyDown={(event) => { if (!dismissible) event.preventDefault(); }}
+        onPointerDownOutside={(event) => { if (!dismissible) event.preventDefault(); }}
+        className={cn(
+          "horizon-portal flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden border-slate-200 bg-white p-0 shadow-xl [&>button]:right-4 [&>button]:top-4 [&>button]:z-10 [&>button]:bg-slate-100 [&>button]:p-2 [&>button]:text-slate-600 [&>button]:opacity-100",
+          !dismissible && "[&>button]:hidden",
+          widthClass,
+        )}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-            {description ? <p className="mt-0.5 text-[11px] text-slate-400">{description}</p> : null}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="关闭"
-            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <DialogHeader className="shrink-0 border-b border-slate-100 px-5 py-4 pr-14 text-left">
+          <DialogTitle className="text-balance text-base text-slate-900">{title}</DialogTitle>
+          <DialogDescription className={cn("text-pretty text-xs", !description && "sr-only")}>
+            {description || "完成当前媒体分类操作。"}
+          </DialogDescription>
+        </DialogHeader>
         {children}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -117,7 +158,7 @@ function CategoryTreeNode({
   const hasActions = canAddChild || canEdit || canDelete;
 
   const actionClass = cn(
-    "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+    "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
     selected ? "text-white/80 hover:bg-white/15 hover:text-white" : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
   );
 
@@ -132,13 +173,13 @@ function CategoryTreeNode({
           }}
           title={category.path}
           className={cn(
-            "flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 py-2 pl-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+            "flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 py-2 pl-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
             hasActions ? "rounded-l-md pr-1" : "rounded-md pr-3",
           )}
         >
           <span className="flex min-w-0 items-center gap-2">
             <FolderTree
-              className="h-4 w-4 shrink-0"
+              className="size-4 shrink-0"
               style={selected ? undefined : { color: category.color || undefined }}
             />
             <span className="truncate">{category.name}</span>
@@ -147,7 +188,7 @@ function CategoryTreeNode({
             <span className="text-[11px] tabular-nums opacity-70">{category.totalItemCount}</span>
             <span className="flex h-4 w-3.5 items-center justify-center">
               {hasChildren ? (
-                <ChevronRight className={cn("h-3.5 w-3.5 opacity-45 transition-transform", expanded && "rotate-90")} />
+                <ChevronRight className={cn("size-3.5 opacity-45 transition-transform", expanded && "rotate-90")} />
               ) : null}
             </span>
           </span>
@@ -168,7 +209,7 @@ function CategoryTreeNode({
                 aria-label={`在 ${category.name} 下新增子分类`}
                 className={actionClass}
               >
-                <FolderPlus className="h-3.5 w-3.5" />
+                <FolderPlus className="size-3.5" />
               </button>
             ) : null}
             {canEdit ? (
@@ -179,7 +220,7 @@ function CategoryTreeNode({
                 aria-label={`编辑分类 ${category.name}`}
                 className={actionClass}
               >
-                <Edit3 className="h-3.5 w-3.5" />
+                <Edit3 className="size-3.5" />
               </button>
             ) : null}
             {canDelete ? (
@@ -191,7 +232,7 @@ function CategoryTreeNode({
                 aria-label={`删除分类 ${category.name}`}
                 className={cn(actionClass, selected ? "hover:text-white" : "hover:bg-red-50 hover:text-red-600", "disabled:cursor-not-allowed disabled:opacity-40")}
               >
-                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                {busy ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Trash2 className="size-3.5" />}
               </button>
             ) : null}
           </div>
@@ -243,6 +284,7 @@ function CategoryFormDialog({
   const [parentId, setParentId] = useState(
     isEdit ? state.category.parentId ?? "" : state.parentId ?? "",
   );
+  const [nameAttempted, setNameAttempted] = useState(false);
 
   const parentCategory = categories.find((item) => item.id === (isEdit ? state.category.parentId : state.parentId));
 
@@ -255,6 +297,7 @@ function CategoryFormDialog({
   }, [categories, isEdit, state]);
 
   function submit() {
+    setNameAttempted(true);
     const trimmed = name.trim();
     if (!trimmed) {
       toast.error("请输入分类名称");
@@ -284,8 +327,11 @@ function CategoryFormDialog({
             }}
             maxLength={40}
             placeholder="如：产品图"
-            className="material-input h-10 w-full rounded-md px-3 text-xs"
+            aria-invalid={nameAttempted && !name.trim()}
+            aria-describedby={nameAttempted && !name.trim() ? "media-category-name-error" : undefined}
+            className="material-input h-10 w-full rounded-lg px-3 text-xs"
           />
+          {nameAttempted && !name.trim() ? <p id="media-category-name-error" role="alert" className="text-xs text-rose-700">请输入分类名称。</p> : null}
         </div>
 
         {isEdit ? (
@@ -297,7 +343,7 @@ function CategoryFormDialog({
               id="media-category-parent"
               value={parentId}
               onChange={(event) => setParentId(event.target.value)}
-              className="material-input h-10 w-full rounded-md px-2 text-xs"
+              className="material-input h-10 w-full rounded-lg px-2 text-xs"
             >
               <option value="">根分类</option>
               {parentOptions.map((option) => (
@@ -320,7 +366,7 @@ function CategoryFormDialog({
                 aria-label={`选择颜色 ${option}`}
                 aria-pressed={color === option}
                 className={cn(
-                  "h-6 w-6 cursor-pointer rounded-full border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+                  "size-6 cursor-pointer rounded-full border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
                   color === option ? "border-slate-900" : "border-transparent hover:border-slate-300",
                 )}
                 style={{ backgroundColor: option }}
@@ -331,22 +377,19 @@ function CategoryFormDialog({
       </div>
 
       <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex h-9 cursor-pointer items-center rounded-md border border-slate-200 px-3.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
-        >
+        <Button type="button" size="sm" variant="outline" onClick={onClose}>
           取消
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          size="sm"
           onClick={submit}
           disabled={saving}
-          className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3.5 text-xs font-semibold text-primary-foreground transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
+          className="hz-primary-action"
         >
-          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+          {saving ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Check className="size-3.5" />}
           保存
-        </button>
+        </Button>
       </div>
     </ModalShell>
   );
@@ -370,21 +413,21 @@ export function AssignCategoryModal({
 }) {
   const rowClass = (active: boolean) =>
     cn(
-      "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border px-3 py-2.5 text-left text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
-      active ? "border-indigo-200 bg-indigo-50 text-indigo-700" : "border-slate-200/70 bg-white text-slate-600 hover:border-indigo-200 hover:bg-slate-50",
+      "flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-left text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+      active ? "border-[#002fa7] bg-[#eef3ff] text-[#002fa7]" : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-slate-50",
     );
 
   return (
-    <ModalShell title="设置分类" onClose={onClose}>
+    <ModalShell title="设置分类" description="选择未分类或一个目标分类，作品归属会立即更新。" onClose={onClose}>
       <div className="flex-1 space-y-1 overflow-y-auto px-5 py-4">
         <p className="line-clamp-2 pb-2 text-xs leading-5 text-slate-500">{subtitle}</p>
 
         <button type="button" onClick={() => onSelect(null)} className={rowClass(currentId === null)}>
           <span className="flex items-center gap-2">
-            <FolderOpen className="h-3.5 w-3.5" />
+            <FolderOpen className="size-3.5" />
             未分类
           </span>
-          {currentId === null ? <Check className="h-4 w-4" /> : null}
+          {currentId === null ? <Check className="size-4" /> : null}
         </button>
 
         {categories.map((category) => (
@@ -398,10 +441,10 @@ export function AssignCategoryModal({
             className={rowClass(currentId === category.id)}
           >
             <span className="flex min-w-0 items-center gap-2">
-              <FolderTree className="h-3.5 w-3.5 shrink-0" style={{ color: category.color || undefined }} />
+              <FolderTree className="size-3.5 shrink-0" style={{ color: category.color || undefined }} />
               <span className="truncate">{category.name}</span>
             </span>
-            {currentId === category.id ? <Check className="h-4 w-4 shrink-0" /> : null}
+            {currentId === category.id ? <Check className="size-4 shrink-0" /> : null}
           </button>
         ))}
 
@@ -457,8 +500,12 @@ export function MediaCategorySidebar({
   const [dialog, setDialog] = useState<CategoryDialogState | null>(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<MediaCategoryNode | null>(null);
 
   const flatCategories = useMemo(() => flattenCategories(categories), [categories]);
+  const deleteSubtree = deleteTarget ? flattenCategories([deleteTarget]) : [];
+  const deleteChildCount = Math.max(0, deleteSubtree.length - 1);
+  const deleteItemCount = deleteSubtree.reduce((sum, node) => sum + node.itemCount, 0);
 
   function toggleCollapsed(id: string) {
     setCollapsedIds((current) => {
@@ -482,22 +529,10 @@ export function MediaCategorySidebar({
   }
 
   async function handleDelete(category: MediaCategoryNode) {
-    const subtree = flattenCategories([category]);
-    const childCount = subtree.length - 1;
-    const itemCount = subtree.reduce((sum, node) => sum + node.itemCount, 0);
-    const detail = [
-      childCount > 0 ? `连同 ${childCount} 个子分类` : "",
-      itemCount > 0 ? `${itemCount} 件${itemNoun}将转为未分类` : "",
-    ]
-      .filter(Boolean)
-      .join("，");
-    if (!window.confirm(`确定删除分类「${category.name}」？${detail ? `${detail}。` : ""}${itemNoun}本身不会被删除。`)) {
-      return;
-    }
-
     setBusyId(category.id);
     try {
       await onDelete(category);
+      setDeleteTarget(null);
     } finally {
       setBusyId(null);
     }
@@ -515,9 +550,9 @@ export function MediaCategorySidebar({
               onClick={() => setDialog({ mode: "create", parentId: null })}
               title="新增一级分类"
               aria-label="新增一级分类"
-              className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+              className="flex size-6 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="size-3.5" />
             </button>
           ) : null}
         </div>
@@ -526,12 +561,12 @@ export function MediaCategorySidebar({
           type="button"
           onClick={() => onSelect("")}
           className={cn(
-            "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+            "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
             selectedId === "" ? SELECTED_ROW : UNSELECTED_ROW,
           )}
         >
           <span className="flex items-center gap-2">
-            <AllIcon className="h-4 w-4" />
+            <AllIcon className="size-4" />
             全部
           </span>
           <span className="text-[11px] tabular-nums opacity-70">{totalCount}</span>
@@ -541,12 +576,12 @@ export function MediaCategorySidebar({
           type="button"
           onClick={() => onSelect(UNCATEGORIZED_FILTER)}
           className={cn(
-            "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+            "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
             selectedId === UNCATEGORIZED_FILTER ? SELECTED_ROW : UNSELECTED_ROW,
           )}
         >
           <span className="flex items-center gap-2">
-            <FolderOpen className="h-4 w-4" />
+            <FolderOpen className="size-4" />
             未分类
           </span>
           <span className="text-[11px] tabular-nums opacity-70">{uncategorizedCount}</span>
@@ -566,7 +601,7 @@ export function MediaCategorySidebar({
             onToggle={toggleCollapsed}
             onCreateChild={(parentId) => setDialog({ mode: "create", parentId })}
             onEdit={(target) => setDialog({ mode: "edit", category: target })}
-            onDelete={(target) => void handleDelete(target)}
+            onDelete={setDeleteTarget}
           />
         ))}
 
@@ -590,6 +625,34 @@ export function MediaCategorySidebar({
           onClose={() => setDialog(null)}
         />
       ) : null}
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open && !busyId) setDeleteTarget(null); }}>
+        <AlertDialogContent className="horizon-portal">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-balance text-slate-900">确认删除分类“{deleteTarget?.name ?? "当前分类"}”？</AlertDialogTitle>
+            <AlertDialogDescription className="text-pretty">
+              {deleteChildCount > 0 ? `将同时删除 ${deleteChildCount} 个子分类。` : "该分类没有子分类。"}
+              {deleteItemCount > 0
+                ? ` ${deleteItemCount} 件${itemNoun}会转为未分类，但${itemNoun}本身不会被删除。`
+                : ` 分类中没有${itemNoun}，不会删除任何${itemNoun}。`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(busyId)}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 text-white hover:bg-red-700"
+              disabled={!deleteTarget || Boolean(busyId)}
+              onClick={(event) => {
+                event.preventDefault();
+                if (deleteTarget) void handleDelete(deleteTarget);
+              }}
+            >
+              {busyId ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> : <Trash2 className="size-4" />}
+              {busyId ? "正在删除" : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

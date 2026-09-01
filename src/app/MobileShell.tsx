@@ -1,18 +1,26 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
-import { BarChart3, LayoutDashboard, LogOut, Menu } from "lucide-react";
+import { BarChart3, LayoutDashboard, LogOut, Menu, X } from "lucide-react";
 import { useAuth } from "./auth";
 import { isProductionWorkspace, isUsCollabWorkspace } from "./lib/rdApi";
 import { initI18n, t, useI18n } from "./lib/i18n";
 import { hasPermission } from "./lib/permissions";
 import { cn } from "./components/ui/utils";
 import { Toaster } from "./components/ui/sonner";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "./components/ui/sheet";
 import { SiteRecordFooter } from "./components/SiteRecordFooter";
 import {
   closeMobileOverlay,
   isCurrentMobileOverlay,
   pushMobileOverlayState,
-  useBodyScrollLock,
   useMobileOverlayBack,
 } from "./hooks/useMobileOverlay";
 
@@ -46,21 +54,11 @@ export function MobileLayout() {
     return () => root.classList.remove("mobile-route");
   }, []);
 
-  useBodyScrollLock(menuOpen);
   useMobileOverlayBack(menuOpen, MENU_OVERLAY, () => setMenuOpen(false));
-
-  useEffect(() => {
-    if (!menuOpen) return undefined;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeMobileOverlay(MENU_OVERLAY, () => setMenuOpen(false));
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [menuOpen]);
 
   if (!hydrated) {
     return (
-      <div className="flex min-h-[100dvh] items-center justify-center bg-slate-50 text-sm text-slate-500">
+      <div className="horizon-theme hz-page flex min-h-[100dvh] min-w-0 items-center justify-center bg-[#f4f7fe] px-4 text-center text-sm text-[#64748b]" role="status">
         正在恢复登录状态...
       </div>
     );
@@ -104,54 +102,65 @@ export function MobileLayout() {
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
   };
 
-  const openMenu = () => {
-    pushMobileOverlayState(MENU_OVERLAY);
-    setMenuOpen(true);
-  };
-
   const closeMenu = () => closeMobileOverlay(MENU_OVERLAY, () => setMenuOpen(false));
 
+  const handleMenuOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) {
+      if (!menuOpen) {
+        pushMobileOverlayState(MENU_OVERLAY);
+        setMenuOpen(true);
+      }
+      return;
+    }
+    if (menuOpen) closeMenu();
+  };
+
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-slate-50">
-      <header className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white/90 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-md">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 font-black text-white shadow-[0_4px_12px_-4px_rgba(79,70,229,0.5)]">
-            {isChatAnalytics ? <BarChart3 size={18} /> : <span className="text-base">{isUsCollabWorkspace() ? "协" : isProduction ? "产" : "研"}</span>}
-          </span>
-          <div className="min-w-0 leading-tight">
-            <div className="truncate text-[17px] font-bold text-slate-900">
-              {shellTitle}
+    <div className="horizon-theme hz-page min-h-[100dvh] min-w-0 overflow-x-hidden bg-[#f4f7fe] text-[#42526f]">
+      <div className="flex min-h-[100dvh] flex-col bg-slate-50">
+        <Sheet open={menuOpen} onOpenChange={handleMenuOpenChange}>
+          <header className="flex shrink-0 items-center justify-between border-b border-[#e9edf7] bg-white px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#002fa7] font-black text-white shadow-[0_9px_18px_-12px_rgba(0,47,167,0.66)]" aria-hidden="true">
+                {isChatAnalytics ? <BarChart3 size={19} /> : <span className="text-base">{isUsCollabWorkspace() ? "协" : isProduction ? "产" : "研"}</span>}
+              </span>
+              <div className="min-w-0 leading-tight">
+                <div className="truncate text-[17px] font-bold text-[#1b2559]">
+                  {shellTitle}
+                </div>
+                <div className="text-[11px] font-medium text-[#64748b]">
+                  {shellSubtitle}
+                </div>
+              </div>
             </div>
-            <div className="text-[11px] font-medium text-slate-400">
-              {shellSubtitle}
-            </div>
+            <SheetTrigger asChild>
+              <button
+                type="button"
+                aria-label="打开菜单"
+                aria-haspopup="dialog"
+                aria-expanded={menuOpen}
+                aria-controls="mobile-shell-navigation"
+                className="flex size-11 shrink-0 items-center justify-center rounded-xl text-[#002fa7] active:bg-[#eef3ff]"
+              >
+                <Menu size={22} aria-hidden="true" />
+              </button>
+            </SheetTrigger>
+          </header>
+
+          <main className="flex-1">
+            <Outlet />
+          </main>
+
+          <div className="border-t border-[#e9edf7] bg-white [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center [&_a]:justify-center [&_a]:rounded-lg [&_a]:px-2 [&_a]:active:text-[#002fa7]">
+            <SiteRecordFooter className="pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-none" />
           </div>
-        </div>
-        <button
-          type="button"
-          onClick={openMenu}
-          aria-label="打开菜单"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 active:bg-slate-100"
-        >
-          <Menu size={22} />
-        </button>
-      </header>
 
-      <main className="flex-1">
-        <Outlet />
-      </main>
-
-      <SiteRecordFooter className="pb-[max(0.5rem,env(safe-area-inset-bottom))]" />
-
-      {menuOpen && (
-        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="移动端菜单" onClick={closeMenu}>
-          <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" />
-          <div
-            className="absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] w-72 max-w-[calc(100vw-24px)] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl"
-            style={{ maxHeight: "calc(100dvh - max(1.5rem, env(safe-area-inset-top)) - env(safe-area-inset-bottom))" }}
-            onClick={(e) => e.stopPropagation()}
+          <SheetContent
+            id="mobile-shell-navigation"
+            side="right"
+            className="h-dvh w-[min(20rem,calc(100vw-1rem))] gap-0 overflow-hidden border-[#e0e5f2] bg-white p-0 horizon-portal [&>button:last-child]:hidden"
           >
-            <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-4">
+            <header className="flex shrink-0 items-center gap-3 border-b border-[#e9edf7] px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
               {user.avatarUrl ? (
                 <img
                   src={user.avatarUrl}
@@ -159,63 +168,69 @@ export function MobileLayout() {
                   className="h-11 w-11 shrink-0 rounded-full object-cover"
                 />
               ) : (
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-lg font-bold text-indigo-700">
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#eef3ff] text-lg font-bold text-[#002fa7]" aria-hidden="true">
                   {initial}
                 </span>
               )}
-              <div className="min-w-0">
-                <div className="truncate text-[15px] font-bold text-slate-900">
+              <SheetHeader className="min-w-0 flex-1 gap-0.5 p-0 text-left">
+                <SheetTitle className="truncate text-[15px] font-bold text-[#1b2559]">
                   {user.name || "未命名用户"}
-                </div>
-                {user.roleName && (
-                  <div className="truncate text-xs font-medium text-slate-400">
-                    {user.roleName}
-                  </div>
-                )}
-              </div>
-            </div>
-            <nav className="p-2" aria-label="移动端页面导航">
+                </SheetTitle>
+                <SheetDescription className="truncate text-xs font-medium text-[#64748b]">
+                  {user.roleName || t("移动工作台导航")}
+                </SheetDescription>
+              </SheetHeader>
+              <SheetClose asChild>
+                <button type="button" aria-label="关闭菜单" className="flex size-11 shrink-0 items-center justify-center rounded-xl text-[#002fa7] active:bg-[#eef3ff]">
+                  <X size={21} aria-hidden="true" />
+                </button>
+              </SheetClose>
+            </header>
+
+            <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2" aria-label="移动端页面导航">
               <button
                 type="button"
                 onClick={() => goTo(cockpitPath)}
+                aria-current={!isChatAnalytics ? "page" : undefined}
                 className={cn(
                   "flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold",
-                  !isChatAnalytics ? "bg-indigo-50 text-indigo-700" : "text-slate-600 active:bg-slate-100",
+                  !isChatAnalytics ? "bg-[#eef3ff] text-[#002fa7]" : "text-[#42526f] active:bg-[#f4f7fe]",
                 )}
               >
-                <LayoutDashboard size={19} className="shrink-0" />
+                <LayoutDashboard size={19} className="shrink-0" aria-hidden="true" />
                 {cockpitLabel}
               </button>
               {hasPermission(user.permissions, "page:chat-analytics") && (
                 <button
                   type="button"
                   onClick={() => goTo(returnsToUsCollab ? "/m/chat-analytics?from=us-collab" : "/m/chat-analytics")}
+                  aria-current={isChatAnalytics ? "page" : undefined}
                   className={cn(
                     "mt-1 flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold",
-                    isChatAnalytics ? "bg-indigo-50 text-indigo-700" : "text-slate-600 active:bg-slate-100",
+                    isChatAnalytics ? "bg-[#eef3ff] text-[#002fa7]" : "text-[#42526f] active:bg-[#f4f7fe]",
                   )}
                 >
-                  <BarChart3 size={19} className="shrink-0" />
+                  <BarChart3 size={19} className="shrink-0" aria-hidden="true" />
                   AI 使用与反馈
                 </button>
               )}
             </nav>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className={cn(
-                "flex w-full items-center gap-3 border-t border-slate-100 px-5 py-4 text-left text-sm font-semibold text-red-600 active:bg-red-50",
-              )}
-            >
-              <LogOut size={19} className="shrink-0" />
-              {t("退出登录")}
-            </button>
-          </div>
-        </div>
-      )}
+            <div className="border-t border-[#e9edf7] px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold text-red-600 active:bg-red-50"
+              >
+                <LogOut size={19} className="shrink-0" aria-hidden="true" />
+                {t("退出登录")}
+              </button>
+            </div>
+          </SheetContent>
+        </Sheet>
 
-      {/* /m 独立路由树没有桌面 Root 的 Toaster，这里补一份，备注提交等反馈才能弹出 */}
-      <Toaster richColors position="top-center" />
+        {/* /m 独立路由树没有桌面 Root 的 Toaster，这里补一份，备注提交等反馈才能弹出 */}
+        <Toaster richColors position="top-center" />
+      </div>
     </div>
   );
 }

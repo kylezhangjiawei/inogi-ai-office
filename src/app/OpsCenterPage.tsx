@@ -12,7 +12,6 @@ import {
   Download,
   Eye,
   FileSearch,
-  Filter,
   Gauge,
   Mail,
   PlugZap,
@@ -24,6 +23,7 @@ import {
   Siren,
   Sparkles,
   Trash2,
+  type LucideIcon,
   UserRound,
 } from "lucide-react";
 import {
@@ -42,7 +42,14 @@ import {
 } from "recharts";
 import { toast } from "sonner";
 
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  type HorizonTone,
+} from "./components/horizon/HorizonPage";
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { cn } from "./components/ui/utils";
 import { opsCenterApi, type OpsCenterSectionData, type OpsErrorAnalysis } from "./lib/opsCenterApi";
@@ -56,31 +63,36 @@ type OpsCenterPageProps = {
   section: OpsSection;
 };
 
-const sectionMeta: Record<OpsSection, { title: string; eyebrow: string; description: string }> = {
+const sectionMeta: Record<OpsSection, { title: string; eyebrow: string; description: string; icon: LucideIcon }> = {
   overview: {
     title: "运维总览",
     eyebrow: "Operations Overview",
     description: "集中查看接口、数据库、AI、邮箱同步和后台任务的运行状态。",
+    icon: Activity,
   },
   "api-errors": {
     title: "接口与错误",
     eyebrow: "API & Incident Center",
     description: "按接口、状态码、耗时、错误聚合和处理状态定位线上问题。",
+    icon: Siren,
   },
   database: {
     title: "数据库监控",
     eyebrow: "PostgreSQL Observability",
     description: "查看数据库连接、慢 SQL、锁等待、容量、RDS/ECS 接入状态。",
+    icon: Database,
   },
   "services-tasks": {
     title: "服务与任务",
     eyebrow: "Third-party Services & Jobs",
     description: "监控 AI 模型、邮箱、阿里云集成和业务自动化任务执行结果。",
+    icon: PlugZap,
   },
   "alerts-audit": {
     title: "告警与审计设置",
     eyebrow: "Alerting, Audit & Log Policy",
     description: "配置告警规则、日志保留、敏感字段脱敏、SLS/RDS/ARMS 集成策略。",
+    icon: ShieldCheck,
   },
 };
 
@@ -417,8 +429,12 @@ const statusColors: Record<Tone, string> = {
   neutral: "border-slate-200 bg-slate-100 text-slate-600",
 };
 
-const chartColors = ["#1e40af", "#0891b2", "#f59e0b", "#e11d48", "#7c3aed"];
-const selectTriggerClass = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm outline-none transition focus-visible:border-indigo-300 focus-visible:ring-2 focus-visible:ring-indigo-100";
+const chartColors = ["#002fa7", "#1d4ed8", "#0284c7", "#f59e0b", "#dc2626"];
+const selectTriggerClass = "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-none outline-none transition-colors focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-blue-100";
+const inputClass = "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-none outline-none transition-colors placeholder:text-slate-400 hover:border-slate-300 focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-blue-100";
+const secondaryActionClass = "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-none transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-50";
+const primaryActionClass = "hz-primary-action inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+const chipClass = "inline-flex items-center rounded-md border px-2 py-1 text-xs font-semibold";
 const OPS_TABLE_PAGE_SIZE = 8;
 
 function SelectControl({
@@ -426,18 +442,20 @@ function SelectControl({
   onValueChange,
   options,
   className,
+  ariaLabel = "筛选选项",
 }: {
   value: string;
   onValueChange: (value: string) => void;
   options: Array<{ label: string; value: string }>;
   className?: string;
+  ariaLabel?: string;
 }) {
   return (
     <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger className={cn(selectTriggerClass, className)}>
+      <SelectTrigger className={cn(selectTriggerClass, className)} aria-label={ariaLabel}>
         <SelectValue />
       </SelectTrigger>
-      <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+      <SelectContent className="horizon-portal rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
         {options.map((option) => (
           <SelectItem key={option.value} value={option.value} className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700">
             {option.label}
@@ -480,29 +498,31 @@ function PaginationControls({
   onPageChange: (page: number) => void;
 }) {
   return (
-    <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="text-sm text-slate-500">
+    <nav className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between" aria-label="数据分页">
+      <div className="text-sm tabular-nums text-slate-500" aria-live="polite">
         共 {total} 条，第 {page} / {totalPages} 页
       </div>
       <div className="flex gap-2">
         <button
           type="button"
-          className="material-button-secondary !px-3 !py-2"
+          className={secondaryActionClass}
           onClick={() => onPageChange(Math.max(1, page - 1))}
           disabled={page <= 1}
+          aria-label="上一页"
         >
           上一页
         </button>
         <button
           type="button"
-          className="material-button-secondary !px-3 !py-2"
+          className={secondaryActionClass}
           onClick={() => onPageChange(Math.min(totalPages, page + 1))}
           disabled={page >= totalPages}
+          aria-label="下一页"
         >
           下一页
         </button>
       </div>
-    </div>
+    </nav>
   );
 }
 
@@ -523,7 +543,7 @@ const iconMap = {
   Sparkles,
 };
 
-function resolveIcon(value: unknown, fallback: React.ComponentType<{ className?: string }>) {
+function resolveIcon(value: unknown, fallback: LucideIcon): LucideIcon {
   if (typeof value === "string" && value in iconMap) {
     return iconMap[value as keyof typeof iconMap];
   }
@@ -533,6 +553,80 @@ function resolveIcon(value: unknown, fallback: React.ComponentType<{ className?:
 function getArray<T>(data: OpsCenterSectionData | null, key: string, fallback: T[]): T[] {
   const value = data?.[key];
   return Array.isArray(value) ? (value as T[]) : fallback;
+}
+
+type OpsHeaderMetric = {
+  label: string;
+  value: React.ReactNode;
+  note: React.ReactNode;
+  tone: HorizonTone;
+  icon: LucideIcon;
+};
+
+function toHorizonTone(tone: unknown): HorizonTone {
+  if (tone === "healthy") return "success";
+  if (tone === "warning") return "warning";
+  if (tone === "danger") return "danger";
+  if (tone === "info") return "brand";
+  return "neutral";
+}
+
+function metricFromRow(row: any, fallback: any): OpsHeaderMetric {
+  const item = row ?? fallback;
+  return {
+    label: String(item.label ?? fallback.label),
+    value: item.value ?? fallback.value,
+    note: item.change ?? item.helper ?? fallback.change ?? fallback.helper ?? "实时数据",
+    tone: toHorizonTone(item.tone ?? fallback.tone),
+    icon: resolveIcon(item.icon, resolveIcon(fallback.icon, Activity)),
+  };
+}
+
+function buildSectionMetrics(section: OpsSection, data: OpsCenterSectionData | null): [OpsHeaderMetric, OpsHeaderMetric, OpsHeaderMetric, OpsHeaderMetric] {
+  if (section === "overview") {
+    const rows = getArray<any>(data, "health_cards", healthCards);
+    return healthCards.map((fallback, index) => metricFromRow(rows[index], fallback)) as [OpsHeaderMetric, OpsHeaderMetric, OpsHeaderMetric, OpsHeaderMetric];
+  }
+
+  if (section === "database") {
+    const rows = getArray<any>(data, "database_metrics", databaseMetrics);
+    return databaseMetrics.map((fallback, index) => metricFromRow(rows[index], fallback)) as [OpsHeaderMetric, OpsHeaderMetric, OpsHeaderMetric, OpsHeaderMetric];
+  }
+
+  if (section === "services-tasks") {
+    const unavailableNote = data ? "当前响应未返回统计" : "等待实时数据";
+    const fallback = [
+      { label: "成功任务", value: "—", helper: unavailableNote, tone: "neutral", icon: CheckCircle2 },
+      { label: "失败任务", value: "—", helper: unavailableNote, tone: "neutral", icon: AlertTriangle },
+      { label: "跳过任务", value: "—", helper: unavailableNote, tone: "neutral", icon: Clock3 },
+      { label: "任务总数", value: "—", helper: unavailableNote, tone: "neutral", icon: Gauge },
+    ];
+    const rows = getArray<any>(data, "task_summary", []);
+    return fallback.map((item, index) => metricFromRow(rows[index], item)) as [OpsHeaderMetric, OpsHeaderMetric, OpsHeaderMetric, OpsHeaderMetric];
+  }
+
+  if (section === "alerts-audit") {
+    const rules = getArray<any>(data, "alert_rules", alertRules);
+    const policies = getArray<any>(data, "log_policies", logPolicies);
+    const audits = getArray<any>(data, "audit_logs", auditLogs);
+    const summary = data?.audit_summary as { today_events?: number; high_risk?: number; users?: number } | undefined;
+    return [
+      { label: "启用告警", value: rules.filter((row) => row.enabled).length, note: `共 ${rules.length} 条规则`, tone: "brand", icon: BellRing },
+      { label: "今日审计", value: summary?.today_events ?? audits.length, note: "实时操作事件", tone: "neutral", icon: ShieldCheck },
+      { label: "高风险操作", value: summary?.high_risk ?? audits.filter((row) => row.risk === "高").length, note: "建议优先复核", tone: "danger", icon: Siren },
+      { label: "日志策略", value: policies.length, note: `${summary?.users ?? new Set(audits.map((row) => row.user)).size} 位相关用户`, tone: "success", icon: FileSearch },
+    ];
+  }
+
+  const logs = getArray<any>(data, "api_logs", apiLogs);
+  const groups = getArray<any>(data, "error_groups", errorGroups);
+  const pagination = data?.pagination as { total?: number } | undefined;
+  return [
+    { label: "请求记录", value: pagination?.total ?? logs.length, note: "当前查询窗口", tone: "brand", icon: Activity },
+    { label: "4xx 错误", value: logs.filter((row) => row.status >= 400 && row.status < 500).length, note: "当前返回批次", tone: "warning", icon: AlertTriangle },
+    { label: "5xx 错误", value: logs.filter((row) => row.status >= 500).length, note: "当前返回批次", tone: "danger", icon: Siren },
+    { label: "待处理聚合", value: groups.filter((row) => !["已解决", "已忽略"].includes(row.status)).length, note: `共 ${groups.length} 个错误簇`, tone: "warning", icon: FileSearch },
+  ];
 }
 
 function toneForStatus(status: string): Tone {
@@ -550,61 +644,7 @@ function toneForCode(status: number): Tone {
   return "healthy";
 }
 
-function Hero({ section, refreshing, onRefresh, onExport }: { section: OpsSection; refreshing: boolean; onRefresh: () => void; onExport: () => void }) {
-  const meta = sectionMeta[section];
-  return (
-    <section className="material-card relative overflow-hidden p-6 md:p-8">
-      <div className="absolute inset-x-0 top-0 h-1 bg-primary" />
-      <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-        <div className="max-w-3xl">
-          <span className="material-chip border border-indigo-100 bg-indigo-50 text-indigo-700">{meta.eyebrow}</span>
-          <h2 className="mt-4 text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">{meta.title}</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{meta.description}</p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            className="material-button-secondary"
-            disabled={refreshing}
-            onClick={onRefresh}
-          >
-            <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-            {refreshing ? "刷新中…" : "刷新"}
-          </button>
-          <button
-            type="button"
-            className="material-button-primary"
-            onClick={onExport}
-          >
-            <Download className="h-4 w-4" />
-            导出
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function MetricCard({ item }: { item: any }) {
-  const Icon = resolveIcon(item.icon, Activity);
-  return (
-    <div className="material-card-flat min-w-0 p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-slate-500">{item.label}</div>
-          <div className="mt-3 text-3xl font-bold tracking-tight text-slate-950">{item.value}</div>
-        </div>
-        <div className={cn("flex h-11 w-11 items-center justify-center rounded border", statusColors[item.tone])}>
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-      <div className="mt-4 text-xs font-semibold text-slate-500">{item.change}</div>
-    </div>
-  );
-}
-
 function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
-  const cards = getArray(data, "health_cards", healthCards);
   const dependencies = getArray(data, "dependency_status", dependencyStatus);
   const trend = getArray(data, "error_trend", errorTrend);
   const slowRows = getArray(data, "slow_apis", slowApis);
@@ -613,29 +653,17 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 lg:grid-cols-4">
-        {cards.map((item: any) => (
-          <MetricCard key={item.label} item={item} />
-        ))}
-      </div>
-
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
-        <section className="material-card p-5">
+        <section className="hz-surface min-w-0 border border-slate-200 p-5">
           <PanelTitle icon={Activity} title="24 小时错误趋势" action="按来源拆分" />
-          <div className="mt-5 h-[280px]">
+          <div className="mt-5 h-[280px] min-w-0" aria-label="24 小时错误趋势图">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={trend} margin={{ left: 0, right: 12, top: 10, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="apiErrors" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#1e40af" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#1e40af" stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
                 <CartesianGrid stroke="#e2e8f0" vertical={false} />
                 <XAxis dataKey="time" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                 <Tooltip />
-                <Area type="monotone" dataKey="api" name="接口错误" stroke="#1e40af" fill="url(#apiErrors)" strokeWidth={2} />
+                <Area type="monotone" dataKey="api" name="接口错误" stroke="#002fa7" fill="#e7efff" strokeWidth={2} />
                 <Line type="monotone" dataKey="task" name="任务错误" stroke="#f59e0b" strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="db" name="数据库错误" stroke="#e11d48" strokeWidth={2} dot={false} />
               </AreaChart>
@@ -643,7 +671,7 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
           </div>
         </section>
 
-        <section className="material-card p-5">
+        <section className="hz-surface min-w-0 border border-slate-200 p-5">
           <PanelTitle icon={Server} title="依赖服务状态" action="实时健康" />
           <div className="mt-5 space-y-3">
             {dependencies.map((item: any) => {
@@ -660,7 +688,7 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
                       <div className="mt-1 truncate text-xs text-slate-500">{item.detail}</div>
                     </div>
                   </div>
-                  <span className={cn("material-chip shrink-0", statusColors[item.tone])}>{item.status}</span>
+                  <span className={cn(chipClass, "shrink-0", statusColors[item.tone])}>{item.status}</span>
                 </div>
               </div>
             )})}
@@ -669,7 +697,7 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <section className="material-card p-5">
+        <section className="hz-surface min-w-0 border border-slate-200 p-5">
           <PanelTitle icon={Clock3} title="慢接口 Top 5" action="P95 耗时" />
           <div className="mt-5 h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -688,21 +716,21 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
           </div>
         </section>
 
-        <section className="material-card p-5">
+        <section className="hz-surface min-w-0 border border-slate-200 p-5">
           <PanelTitle icon={Siren} title="最近严重问题" action="待处理优先" />
           <div className="mt-5 space-y-3">
             {issues.map((item: any) => (
               <Link
                 key={item.id}
                 to={routePath("page:ops-api-errors", "/ops-center/api-errors")}
-                className="block rounded border border-slate-200 bg-white p-4 transition-colors hover:border-indigo-200 hover:bg-indigo-50/35"
+                className="block rounded-lg border border-slate-200 bg-white p-4 transition-colors hover:border-blue-200 hover:bg-blue-50/40"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-bold text-slate-900">{item.title}</div>
                     <div className="mt-1 text-xs text-slate-500">{item.service} · {item.path}</div>
                   </div>
-                  <span className={cn("material-chip shrink-0", statusColors[toneForStatus(item.severity)])}>{item.severity}</span>
+                  <span className={cn(chipClass, "shrink-0", statusColors[toneForStatus(item.severity)])}>{item.severity}</span>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
                   <span>发生 {item.count} 次</span>
@@ -715,7 +743,7 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
         </section>
       </div>
 
-      <section className="material-card p-5">
+      <section className="hz-surface min-w-0 border border-slate-200 p-5">
         <PanelTitle icon={Cloud} title="二期可观测能力接入状态" action="SLS / RDS / ARMS" />
         <div className="mt-5 grid gap-4 lg:grid-cols-3">
           {cloudRows.map((item: any) => {
@@ -732,7 +760,7 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
                     <div className="mt-1 text-xs leading-5 text-slate-500">{item.detail}</div>
                   </div>
                 </div>
-                <span className={cn("material-chip shrink-0", statusColors[item.tone])}>{item.status}</span>
+                <span className={cn(chipClass, "shrink-0", statusColors[item.tone])}>{item.status}</span>
               </div>
             </div>
           )})}
@@ -775,15 +803,15 @@ function AiAnalysisBlock({ requestId, aiReady }: { requestId: string; aiReady?: 
   };
 
   return (
-    <div className="min-w-0 rounded border border-indigo-200 bg-indigo-50/50 p-3">
+    <div className="min-w-0 rounded-lg border border-blue-200 bg-blue-50/50 p-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700">
-          <Sparkles className="h-3.5 w-3.5" />
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-[#002fa7]">
+          <Sparkles className="size-3.5" aria-hidden="true" />
           AI 报错归因
         </div>
         <button
           type="button"
-          className="material-button-secondary !px-2.5 !py-1.5 text-xs"
+          className={cn(secondaryActionClass, "min-h-8 px-2.5 py-1.5 text-xs")}
           disabled={loading}
           onClick={() => run(!!result)}
         >
@@ -814,6 +842,7 @@ function EndpointStatsPanel() {
   const [rows, setRows] = useState<any[]>([]);
   const [sort, setSort] = useState<"errors" | "calls" | "latency">("errors");
   const [loading, setLoading] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -824,12 +853,12 @@ function EndpointStatsPanel() {
       .catch(() => { if (!cancelled) setRows([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sort]);
+  }, [reloadKey, sort]);
 
   const { page, setPage, totalPages, pagedRows } = usePagedRows(rows, sort, 8);
 
   return (
-    <section className="material-card p-5">
+    <section className="hz-surface min-w-0 border border-slate-200 p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <PanelTitle icon={Activity} title="按接口调用统计" action="近 24 小时" />
         <SelectControl
@@ -837,10 +866,12 @@ function EndpointStatsPanel() {
           onValueChange={(v) => setSort(v as "errors" | "calls" | "latency")}
           options={[{ label: "按错误数", value: "errors" }, { label: "按调用量", value: "calls" }, { label: "按最大耗时", value: "latency" }]}
           className="w-full sm:w-40"
+          ariaLabel="接口统计排序方式"
         />
       </div>
       <div className="mt-5 overflow-hidden rounded border border-slate-200">
-        <Table>
+        <Table className="min-w-[900px]">
+          <TableCaption className="sr-only">近 24 小时接口调用统计</TableCaption>
           <TableHeader>
             <TableRow>
               <TableHead>接口</TableHead>
@@ -856,7 +887,7 @@ function EndpointStatsPanel() {
             {loading ? (
               <TableRow><TableCell colSpan={7} className="py-10 text-center text-sm text-slate-400">加载中…</TableCell></TableRow>
             ) : pagedRows.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="py-10 text-center text-sm text-slate-400">暂无调用数据</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="p-0 whitespace-normal"><HorizonEmptyState Icon={Activity} title="暂无调用数据" description="当前统计窗口内没有可展示的接口调用。" action={<button type="button" className={secondaryActionClass} onClick={() => setReloadKey((key) => key + 1)}>重新加载</button>} /></TableCell></TableRow>
             ) : pagedRows.map((row: any) => (
               <TableRow key={`${row.method} ${row.path}`}>
                 <TableCell>
@@ -901,7 +932,6 @@ function ApiErrorsPage({ data }: { data: OpsCenterSectionData | null }) {
 
 function DatabaseMonitoringPage({ data }: { data: OpsCenterSectionData | null }) {
   const [slowKeyword, setSlowKeyword] = useState("");
-  const metrics = getArray(data, "database_metrics", databaseMetrics);
   const trend = getArray(data, "database_trend", databaseTrend);
   const slowRows = getArray(data, "slow_queries", slowQueries);
   const deferredSlowKeyword = useDeferredValue(slowKeyword);
@@ -928,27 +958,8 @@ function DatabaseMonitoringPage({ data }: { data: OpsCenterSectionData | null })
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 lg:grid-cols-4">
-        {metrics.map((item: any) => {
-          const Icon = resolveIcon(item.icon, Database);
-          return (
-          <div key={item.label} className="material-card-flat p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-slate-500">{item.label}</div>
-                <div className="mt-3 text-2xl font-bold text-slate-950">{item.value}</div>
-                <div className="mt-2 text-xs text-slate-500">{item.helper}</div>
-              </div>
-              <div className={cn("flex h-11 w-11 items-center justify-center rounded border", statusColors[item.tone])}>
-                <Icon className="h-5 w-5" />
-              </div>
-            </div>
-          </div>
-        )})}
-      </div>
-
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-        <section className="material-card p-5">
+        <section className="hz-surface min-w-0 border border-slate-200 p-5">
           <PanelTitle icon={Database} title="连接、慢 SQL 与锁等待趋势" action="近 6 小时" />
           <div className="mt-5 h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -965,7 +976,7 @@ function DatabaseMonitoringPage({ data }: { data: OpsCenterSectionData | null })
           </div>
         </section>
 
-        <section className="material-card p-5">
+        <section className="hz-surface min-w-0 border border-slate-200 p-5">
           <PanelTitle icon={Cloud} title="阿里云数据库方案" action="部署模式" />
           <div className="mt-5 space-y-3">
             {planRows.map((row: any) => (
@@ -980,16 +991,17 @@ function DatabaseMonitoringPage({ data }: { data: OpsCenterSectionData | null })
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <section className="material-card p-5">
+        <section className="hz-surface min-w-0 border border-slate-200 p-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <PanelTitle icon={Clock3} title="慢 SQL 列表" action={`${filteredSlowRows.length} 条`} />
             <div className="relative w-full sm:w-[320px]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input className="material-input py-2.5 pl-10" value={slowKeyword} onChange={(event) => setSlowKeyword(event.target.value)} placeholder="搜索来源或 Prisma 操作" />
+              <input type="search" name="slow-query-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={slowKeyword} onChange={(event) => setSlowKeyword(event.target.value)} placeholder="搜索来源或 Prisma 操作…" aria-label="搜索慢 SQL" />
             </div>
           </div>
           <div className="mt-5 overflow-hidden rounded border border-slate-200">
-            <Table>
+            <Table className="min-w-[680px]">
+              <TableCaption className="sr-only">慢 SQL 查询列表</TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead>查询来源</TableHead>
@@ -1001,7 +1013,14 @@ function DatabaseMonitoringPage({ data }: { data: OpsCenterSectionData | null })
               <TableBody>
                 {pagedSlowRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="py-10 text-center text-sm text-slate-400">暂无匹配慢 SQL</TableCell>
+                    <TableCell colSpan={4} className="p-0 whitespace-normal">
+                      <HorizonEmptyState
+                        Icon={Search}
+                        title="暂无匹配慢 SQL"
+                        description="清除搜索条件后查看全部慢查询。"
+                        action={<button type="button" className={secondaryActionClass} onClick={() => setSlowKeyword("")}>清除搜索</button>}
+                      />
+                    </TableCell>
                   </TableRow>
                 ) : pagedSlowRows.map((row: any) => (
                   <TableRow key={row.query}>
@@ -1017,7 +1036,7 @@ function DatabaseMonitoringPage({ data }: { data: OpsCenterSectionData | null })
           <PaginationControls page={slowPage} total={filteredSlowRows.length} totalPages={slowTotalPages} onPageChange={setSlowPage} />
         </section>
 
-        <section className="material-card p-5">
+        <section className="hz-surface min-w-0 border border-slate-200 p-5">
           <PanelTitle icon={AlertTriangle} title="锁等待与连接风险" action="实时采样" />
           <div className="mt-5 space-y-3">
             {lockRows.map((row: any) => (
@@ -1027,7 +1046,7 @@ function DatabaseMonitoringPage({ data }: { data: OpsCenterSectionData | null })
                     <div className="font-bold text-slate-950">{row.table}</div>
                     <div className="mt-1 font-mono text-xs text-slate-500">{row.mode} · {row.session}</div>
                   </div>
-                  <span className="material-chip bg-amber-50 text-amber-700">{row.waiting}</span>
+                  <span className={cn(chipClass, "border-amber-200 bg-amber-50 text-amber-700")}>{row.waiting}</span>
                 </div>
               </div>
             ))}
@@ -1068,7 +1087,7 @@ function ServicesTasksPage({ data }: { data: OpsCenterSectionData | null }) {
 
   return (
     <div className="space-y-5">
-      <section className="material-card p-5">
+      <section className="hz-surface min-w-0 border border-slate-200 p-5">
         <PanelTitle icon={PlugZap} title="第三方服务监控" action="AI / 邮箱 / 阿里云" />
         <div className="mt-5 grid gap-4 lg:grid-cols-3">
           {serviceRows.map((item: any) => (
@@ -1078,7 +1097,7 @@ function ServicesTasksPage({ data }: { data: OpsCenterSectionData | null }) {
                   <div className="truncate font-bold text-slate-950">{item.name}</div>
                   <div className="mt-1 text-xs text-slate-500">{item.provider} · {item.lastChecked}</div>
                 </div>
-                <span className={cn("material-chip shrink-0", statusColors[item.tone])}>{item.status}</span>
+                <span className={cn(chipClass, "shrink-0", statusColors[item.tone])}>{item.status}</span>
               </div>
               <div className="mt-5 grid grid-cols-2 gap-3">
                 <MiniMetric label="成功率" value={item.successRate} />
@@ -1086,7 +1105,7 @@ function ServicesTasksPage({ data }: { data: OpsCenterSectionData | null }) {
               </div>
               <button
                 type="button"
-                className="material-button-secondary mt-4 w-full !py-2"
+                className={cn(secondaryActionClass, "mt-4 w-full")}
                 disabled={testingName === item.name}
                 onClick={() => handleTestConnection(item.name)}
               >
@@ -1098,7 +1117,7 @@ function ServicesTasksPage({ data }: { data: OpsCenterSectionData | null }) {
         </div>
       </section>
 
-      <section className="material-card p-5">
+      <section className="hz-surface min-w-0 border border-slate-200 p-5">
         <PanelTitle icon={Cloud} title="阿里云可观测集成" action="二期能力" />
         <div className="mt-5 grid gap-4 lg:grid-cols-3">
           {cloudRows.map((item: any) => {
@@ -1110,7 +1129,7 @@ function ServicesTasksPage({ data }: { data: OpsCenterSectionData | null }) {
               </div>
               <div className="font-bold text-slate-950">{item.name}</div>
               <div className="mt-2 text-sm leading-6 text-slate-600">{item.detail}</div>
-              <span className={cn("material-chip mt-4", statusColors[item.tone])}>{item.status}</span>
+              <span className={cn(chipClass, "mt-4", statusColors[item.tone])}>{item.status}</span>
             </div>
           )})}
         </div>
@@ -1179,24 +1198,26 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
   return (
     <div className="space-y-5">
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-        <section className="material-card p-5">
+        <section className="hz-surface min-w-0 border border-slate-200 p-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <PanelTitle icon={BellRing} title="告警规则" action={`${filteredRules.length} 条`} />
             <div className="flex flex-col gap-3 sm:flex-row">
               <div className="relative w-full sm:w-[280px]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input className="material-input py-2.5 pl-10" value={ruleKeyword} onChange={(event) => setRuleKeyword(event.target.value)} placeholder="搜索规则、条件、渠道" />
+                <input type="search" name="alert-rule-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={ruleKeyword} onChange={(event) => setRuleKeyword(event.target.value)} placeholder="搜索规则、条件、渠道…" aria-label="搜索告警规则" />
               </div>
               <SelectControl
                 value={ruleLevelFilter}
                 onValueChange={setRuleLevelFilter}
                 options={["全部", "严重", "警告", "提示"].map((item) => ({ label: item, value: item }))}
                 className="w-full sm:w-28"
+                ariaLabel="筛选告警级别"
               />
             </div>
           </div>
           <div className="mt-5 overflow-hidden rounded border border-slate-200">
-            <Table>
+            <Table className="min-w-[760px]">
+              <TableCaption className="sr-only">告警规则与启停状态</TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead>规则</TableHead>
@@ -1209,19 +1230,26 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
               <TableBody>
                 {pagedRules.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-10 text-center text-sm text-slate-400">暂无匹配告警规则</TableCell>
+                    <TableCell colSpan={5} className="p-0 whitespace-normal">
+                      <HorizonEmptyState
+                        Icon={BellRing}
+                        title="暂无匹配告警规则"
+                        description="清除关键词和级别筛选后查看全部规则。"
+                        action={<button type="button" className={secondaryActionClass} onClick={() => { setRuleKeyword(""); setRuleLevelFilter("全部"); }}>清除筛选</button>}
+                      />
+                    </TableCell>
                   </TableRow>
                 ) : pagedRules.map((row: any) => (
                   <TableRow key={row.name}>
                     <TableCell className="font-semibold text-slate-900">{row.name}</TableCell>
                     <TableCell>{row.condition}</TableCell>
                     <TableCell>{row.channel}</TableCell>
-                    <TableCell><span className={cn("material-chip", statusColors[toneForStatus(row.level)])}>{row.level}</span></TableCell>
+                    <TableCell><span className={cn(chipClass, statusColors[toneForStatus(row.level)])}>{row.level}</span></TableCell>
                     <TableCell>
                       <button
                         type="button"
                         title="点击切换启停，保存策略后生效"
-                        className={cn("material-chip cursor-pointer transition hover:opacity-80", ruleEnabled(row) ? statusColors.healthy : statusColors.neutral)}
+                        className={cn(chipClass, "cursor-pointer transition-opacity hover:opacity-80", ruleEnabled(row) ? statusColors.healthy : statusColors.neutral)}
                         onClick={() => setRuleOverrides((overrides) => ({ ...overrides, [row.name]: !ruleEnabled(row) }))}
                       >
                         {ruleEnabled(row) ? "启用" : "停用"}
@@ -1235,7 +1263,7 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
           <PaginationControls page={rulePage} total={filteredRules.length} totalPages={ruleTotalPages} onPageChange={setRulePage} />
         </section>
 
-        <section className="material-card p-5">
+        <section className="hz-surface min-w-0 border border-slate-200 p-5">
           <PanelTitle icon={Settings2} title="日志设置" action="保留与脱敏" />
           <div className="mt-5 space-y-3">
             {settings.map((item: string) => (
@@ -1243,7 +1271,7 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
             ))}
             <button
               type="button"
-              className="material-button-primary w-full"
+              className={cn(primaryActionClass, "w-full")}
               onClick={() => {
                 localStorage.setItem(ALERT_RULE_OVERRIDES_KEY, JSON.stringify(ruleOverrides));
                 const changed = Object.keys(ruleOverrides).length;
@@ -1255,7 +1283,7 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
             </button>
             <button
               type="button"
-              className="material-button-secondary w-full text-red-600 hover:border-red-200 hover:bg-red-50"
+              className={cn(secondaryActionClass, "w-full text-red-600 hover:border-red-200 hover:bg-red-50")}
               onClick={() => toast.info("日志清理需要后端定时任务支持，当前环境暂未接入")}
             >
               <Trash2 className="h-4 w-4" />
@@ -1265,16 +1293,17 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
         </section>
       </div>
 
-      <section className="material-card p-5">
+      <section className="hz-surface min-w-0 border border-slate-200 p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <PanelTitle icon={FileSearch} title="日志保留策略" action={`${filteredPolicies.length} 条`} />
           <div className="relative w-full sm:w-[320px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input className="material-input py-2.5 pl-10" value={policyKeyword} onChange={(event) => setPolicyKeyword(event.target.value)} placeholder="搜索日志类型、内容、状态" />
+            <input type="search" name="log-policy-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={policyKeyword} onChange={(event) => setPolicyKeyword(event.target.value)} placeholder="搜索日志类型、内容、状态…" aria-label="搜索日志策略" />
           </div>
         </div>
         <div className="mt-5 overflow-hidden rounded border border-slate-200">
-          <Table>
+          <Table className="min-w-[760px]">
+            <TableCaption className="sr-only">日志保留与脱敏策略</TableCaption>
             <TableHeader>
               <TableRow>
                 <TableHead>日志类型</TableHead>
@@ -1287,7 +1316,14 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
             <TableBody>
               {pagedPolicies.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-10 text-center text-sm text-slate-400">暂无匹配日志策略</TableCell>
+                  <TableCell colSpan={5} className="p-0 whitespace-normal">
+                    <HorizonEmptyState
+                      Icon={FileSearch}
+                      title="暂无匹配日志策略"
+                      description="清除搜索条件后查看全部保留策略。"
+                      action={<button type="button" className={secondaryActionClass} onClick={() => setPolicyKeyword("")}>清除搜索</button>}
+                    />
+                  </TableCell>
                 </TableRow>
               ) : pagedPolicies.map((row: any) => (
                 <TableRow key={row.name}>
@@ -1295,7 +1331,7 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
                   <TableCell>{row.retention}</TableCell>
                   <TableCell>{row.payload}</TableCell>
                   <TableCell>{row.masking}</TableCell>
-                  <TableCell><span className="material-chip bg-emerald-50 text-emerald-700">{row.status}</span></TableCell>
+                  <TableCell><span className={cn(chipClass, "border-emerald-200 bg-emerald-50 text-emerald-700")}>{row.status}</span></TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1378,17 +1414,17 @@ function ApiLogsPage({ linked }: { data: OpsCenterSectionData | null; linked?: {
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <section className="material-card min-w-0 p-5">
+      <section className="hz-surface min-w-0 border border-slate-200 p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <PanelTitle icon={Activity} title="请求记录" action={loading ? "加载中…" : `${total} 条`} />
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             <div className="relative w-full sm:w-[240px]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input className="material-input py-2.5 pl-10" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索接口、错误信息、Request ID" />
+              <input type="search" name="api-log-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索接口、错误信息、Request ID…" aria-label="搜索接口请求记录" />
             </div>
-            <SelectControl value={range} onValueChange={setRange} options={OPS_RANGE_PRESETS.map((p) => ({ label: p.label, value: p.value }))} className="w-full sm:w-32" />
-            <SelectControl value={methodFilter} onValueChange={setMethodFilter} options={["全部", "GET", "POST", "PATCH", "PUT", "DELETE"].map((m) => ({ label: m, value: m }))} className="w-full sm:w-28" />
-            <SelectControl value={statusFilter} onValueChange={setStatusFilter} options={["全部", "2xx", "4xx", "5xx"].map((m) => ({ label: m, value: m }))} className="w-full sm:w-24" />
+            <SelectControl value={range} onValueChange={setRange} options={OPS_RANGE_PRESETS.map((p) => ({ label: p.label, value: p.value }))} className="w-full sm:w-32" ariaLabel="筛选请求时间范围" />
+            <SelectControl value={methodFilter} onValueChange={setMethodFilter} options={["全部", "GET", "POST", "PATCH", "PUT", "DELETE"].map((m) => ({ label: m, value: m }))} className="w-full sm:w-28" ariaLabel="筛选请求方法" />
+            <SelectControl value={statusFilter} onValueChange={setStatusFilter} options={["全部", "2xx", "4xx", "5xx"].map((m) => ({ label: m, value: m }))} className="w-full sm:w-24" ariaLabel="筛选响应状态" />
           </div>
         </div>
 
@@ -1399,7 +1435,8 @@ function ApiLogsPage({ linked }: { data: OpsCenterSectionData | null; linked?: {
         </div>
 
         <div className="mt-5 overflow-hidden rounded border border-slate-200">
-          <Table>
+          <Table className="min-w-[980px]">
+            <TableCaption className="sr-only">接口请求记录</TableCaption>
             <TableHeader>
               <TableRow>
                 <TableHead>时间</TableHead>
@@ -1417,23 +1454,38 @@ function ApiLogsPage({ linked }: { data: OpsCenterSectionData | null; linked?: {
                 </TableRow>
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-400">暂无匹配接口日志</TableCell>
+                  <TableCell colSpan={6} className="p-0 whitespace-normal">
+                    <HorizonEmptyState
+                      Icon={Search}
+                      title="暂无匹配接口日志"
+                      description="清除查询条件后重新加载请求记录。"
+                      action={<button type="button" className={secondaryActionClass} onClick={() => { setKeyword(""); setStatusFilter("全部"); setMethodFilter("全部"); setRange("24h"); }}>清除筛选</button>}
+                    />
+                  </TableCell>
                 </TableRow>
               ) : rows.map((row) => (
                 <TableRow
                   key={row.id}
                   className={cn(
-                    "cursor-pointer align-top transition hover:bg-indigo-50/40",
-                    selected?.id === row.id && "bg-indigo-50/70 ring-1 ring-inset ring-indigo-200",
+                    "cursor-pointer align-top transition-colors hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]",
+                    selected?.id === row.id && "bg-blue-50/70 ring-1 ring-inset ring-blue-200",
                   )}
                   onClick={() => setSelectedLogId(row.id)}
+                  tabIndex={0}
+                  aria-selected={selected?.id === row.id}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedLogId(row.id);
+                    }
+                  }}
                 >
                   <TableCell className="whitespace-nowrap text-xs text-slate-500">{row.time}</TableCell>
                   <TableCell>
                     <div className="font-mono text-xs font-semibold text-slate-800">{row.method} {row.path}</div>
                     <div className="mt-1 font-mono text-[11px] text-slate-400">{row.id}</div>
                   </TableCell>
-                  <TableCell><span className={cn("material-chip", statusColors[toneForCode(row.status)])}>{row.status}</span></TableCell>
+                  <TableCell><span className={cn(chipClass, statusColors[toneForCode(row.status)])}>{row.status}</span></TableCell>
                   <TableCell className={cn("font-semibold", row.duration > 2000 ? "text-amber-700" : "text-slate-600")}>{row.duration}ms</TableCell>
                   <TableCell>{row.user}</TableCell>
                   <TableCell className="max-w-[260px] truncate text-slate-600">{row.message}</TableCell>
@@ -1455,7 +1507,7 @@ function ApiLogsPage({ linked }: { data: OpsCenterSectionData | null; linked?: {
             <KeyValue label="触发用户" value={selected.user} />
             <KeyValue label="来源 IP" value={selected.ip} />
             <div className={cn("rounded border p-3 text-sm leading-6 [overflow-wrap:anywhere]", selectedHasError ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800")}>
-              <div className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] opacity-80">{selectedHasError ? "错误信息" : "响应摘要"}</div>
+              <div className="mb-1 text-xs font-semibold opacity-80">{selectedHasError ? "错误信息" : "响应摘要"}</div>
               {selected.message}
             </div>
             {selectedHasError ? <AiAnalysisBlock requestId={selected.id} aiReady={aiReady} /> : null}
@@ -1523,40 +1575,47 @@ function ErrorsPage({ data, onLinkLogs }: { data: OpsCenterSectionData | null; o
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <section className="material-card min-w-0 p-5">
+      <section className="hz-surface min-w-0 border border-slate-200 p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <PanelTitle icon={Siren} title="错误聚合" action={`${filteredRows.length} 条`} />
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative w-full sm:w-[320px]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input className="material-input py-2.5 pl-10" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索错误、接口、服务、状态" />
+              <input type="search" name="error-group-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索错误、接口、服务、状态…" aria-label="搜索错误聚合" />
             </div>
             <SelectControl
               value={severityFilter}
               onValueChange={setSeverityFilter}
               options={["全部", "严重", "警告", "提示"].map((item) => ({ label: item, value: item }))}
               className="w-full sm:w-28"
+              ariaLabel="筛选错误严重级别"
             />
           </div>
         </div>
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
           {pagedRows.length === 0 ? (
-            <div className="rounded border border-dashed border-slate-200 bg-slate-50 px-4 py-12 text-center text-sm text-slate-400 lg:col-span-2">暂无匹配错误聚合</div>
+            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 lg:col-span-2">
+              <HorizonEmptyState
+                Icon={Search}
+                title="暂无匹配错误聚合"
+                description="清除关键词和严重级别后查看全部错误簇。"
+                action={<button type="button" className={secondaryActionClass} onClick={() => { setKeyword(""); setSeverityFilter("全部"); }}>清除筛选</button>}
+              />
+            </div>
           ) : pagedRows.map((item: any) => (
-            <div
+            <article
               key={item.id}
               className={cn(
-                "cursor-pointer rounded border bg-white p-5 transition hover:border-indigo-200 hover:bg-indigo-50/30",
-                selectedIssue?.id === item.id ? "border-indigo-300 bg-indigo-50/40 ring-1 ring-indigo-200" : "border-slate-200",
+                "rounded-lg border bg-white p-5 transition-colors hover:border-blue-200 hover:bg-blue-50/30",
+                selectedIssue?.id === item.id ? "border-blue-300 bg-blue-50/40 ring-1 ring-blue-200" : "border-slate-200",
               )}
-              onClick={() => setSelectedIssueId(item.id)}
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="truncate text-base font-bold text-slate-950">{item.title}</div>
                   <div className="mt-1 text-xs text-slate-500">{item.service} · {item.path}</div>
                 </div>
-                <span className={cn("material-chip shrink-0", statusColors[toneForStatus(item.severity)])}>{item.severity}</span>
+                <span className={cn(chipClass, "shrink-0", statusColors[toneForStatus(item.severity)])}>{item.severity}</span>
               </div>
               <div className="mt-5 grid grid-cols-3 gap-3">
                 <MiniMetric label="次数" value={String(item.count)} />
@@ -1566,7 +1625,16 @@ function ErrorsPage({ data, onLinkLogs }: { data: OpsCenterSectionData | null; o
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className="material-button-secondary !px-3 !py-2"
+                  className={cn(secondaryActionClass, selectedIssue?.id === item.id && "border-blue-200 bg-blue-50 text-[#002fa7]")}
+                  aria-pressed={selectedIssue?.id === item.id}
+                  onClick={() => setSelectedIssueId(item.id)}
+                >
+                  <Eye className="size-4" aria-hidden="true" />
+                  查看建议
+                </button>
+                <button
+                  type="button"
+                  className={secondaryActionClass}
                   onClick={(event) => {
                     event.stopPropagation();
                     setSelectedIssueId(item.id);
@@ -1579,7 +1647,7 @@ function ErrorsPage({ data, onLinkLogs }: { data: OpsCenterSectionData | null; o
                 </button>
                 <button
                   type="button"
-                  className="material-button-secondary !px-3 !py-2"
+                  className={secondaryActionClass}
                   onClick={(event) => {
                     event.stopPropagation();
                     const current = statusOverrides[item.id] ?? item.status;
@@ -1592,7 +1660,7 @@ function ErrorsPage({ data, onLinkLogs }: { data: OpsCenterSectionData | null; o
                   {(statusOverrides[item.id] ?? item.status) === "已解决" ? "重新打开" : "标记处理"}
                 </button>
               </div>
-            </div>
+            </article>
           ))}
         </div>
         <PaginationControls page={page} total={filteredRows.length} totalPages={totalPages} onPageChange={setPage} />
@@ -1650,42 +1718,28 @@ function TaskLogsPage({ data }: { data: OpsCenterSectionData | null }) {
     totalPages,
     pagedRows,
   } = usePagedRows(filteredRows, `${deferredKeyword}|${statusFilter}`);
-  const summary = getArray(data, "task_summary", [
-    { label: "成功任务", value: "126", tone: "healthy" as Tone },
-    { label: "失败任务", value: "9", tone: "danger" as Tone },
-    { label: "跳过任务", value: "18", tone: "warning" as Tone },
-    { label: "平均耗时", value: "1.8s", tone: "info" as Tone },
-  ]);
-
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-4">
-        {summary.map((item: any) => (
-          <div key={item.label} className={cn("rounded border p-5", statusColors[item.tone])}>
-            <div className="text-sm font-semibold opacity-80">{item.label}</div>
-            <div className="mt-2 text-3xl font-bold">{item.value}</div>
-          </div>
-        ))}
-      </div>
-
-      <section className="material-card p-5">
+      <section className="hz-surface min-w-0 border border-slate-200 p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <PanelTitle icon={Bot} title="任务执行记录" action={`${filteredRows.length} 条`} />
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative w-full sm:w-[320px]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input className="material-input py-2.5 pl-10" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索模块、动作、执行人、结果" />
+              <input type="search" name="task-log-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索模块、动作、执行人、结果…" aria-label="搜索任务执行记录" />
             </div>
             <SelectControl
               value={statusFilter}
               onValueChange={setStatusFilter}
               options={["全部", "成功", "失败", "跳过"].map((item) => ({ label: item, value: item }))}
               className="w-full sm:w-28"
+              ariaLabel="筛选任务状态"
             />
           </div>
         </div>
         <div className="mt-5 overflow-hidden rounded border border-slate-200">
-          <Table>
+          <Table className="min-w-[1040px]">
+            <TableCaption className="sr-only">后台任务执行记录</TableCaption>
             <TableHeader>
               <TableRow>
                 <TableHead>时间</TableHead>
@@ -1700,14 +1754,16 @@ function TaskLogsPage({ data }: { data: OpsCenterSectionData | null }) {
             <TableBody>
               {pagedRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-sm text-slate-400">暂无匹配任务日志</TableCell>
+                  <TableCell colSpan={7} className="p-0 whitespace-normal">
+                    <HorizonEmptyState Icon={Bot} title="暂无匹配任务日志" description="清除任务关键词和状态筛选后重试。" action={<button type="button" className={secondaryActionClass} onClick={() => { setKeyword(""); setStatusFilter("全部"); }}>清除筛选</button>} />
+                  </TableCell>
                 </TableRow>
               ) : pagedRows.map((row: any) => (
                 <TableRow key={row.id} className="align-top">
                   <TableCell className="whitespace-nowrap text-xs text-slate-500">{row.time}</TableCell>
-                  <TableCell><span className="material-chip bg-slate-100 text-slate-700">{row.module}</span></TableCell>
+                  <TableCell><span className={cn(chipClass, "border-slate-200 bg-slate-100 text-slate-700")}>{row.module}</span></TableCell>
                   <TableCell className="font-semibold text-slate-800">{row.action}</TableCell>
-                  <TableCell><span className={cn("material-chip", statusColors[toneForStatus(row.status)])}>{row.status}</span></TableCell>
+                  <TableCell><span className={cn(chipClass, statusColors[toneForStatus(row.status)])}>{row.status}</span></TableCell>
                   <TableCell>{row.duration}</TableCell>
                   <TableCell>{row.owner}</TableCell>
                   <TableCell className="max-w-[360px] text-sm leading-6 text-slate-600">{row.detail}</TableCell>
@@ -1753,24 +1809,26 @@ function AuditLogsPage({ data }: { data: OpsCenterSectionData | null }) {
   const userCount = summary?.users ?? new Set(rows.map((item: any) => item.user)).size;
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <section className="material-card min-w-0 p-5">
+      <section className="hz-surface min-w-0 border border-slate-200 p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <PanelTitle icon={ShieldCheck} title="用户操作审计" action={`${filteredRows.length} 条`} />
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative w-full sm:w-[320px]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input className="material-input py-2.5 pl-10" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索用户、操作、模块、IP" />
+              <input type="search" name="audit-log-search" autoComplete="off" spellCheck={false} className={cn(inputClass, "pl-10")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索用户、操作、模块、IP…" aria-label="搜索用户操作审计" />
             </div>
             <SelectControl
               value={riskFilter}
               onValueChange={setRiskFilter}
               options={["全部", "高", "中", "低"].map((item) => ({ label: item, value: item }))}
               className="w-full sm:w-28"
+              ariaLabel="筛选审计风险级别"
             />
           </div>
         </div>
         <div className="mt-5 overflow-hidden rounded border border-slate-200">
-          <Table>
+          <Table className="min-w-[1080px]">
+            <TableCaption className="sr-only">用户操作审计日志</TableCaption>
             <TableHeader>
               <TableRow>
                 <TableHead>时间</TableHead>
@@ -1785,7 +1843,9 @@ function AuditLogsPage({ data }: { data: OpsCenterSectionData | null }) {
             <TableBody>
               {pagedRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-sm text-slate-400">暂无匹配审计日志</TableCell>
+                  <TableCell colSpan={7} className="p-0 whitespace-normal">
+                    <HorizonEmptyState Icon={ShieldCheck} title="暂无匹配审计日志" description="清除用户关键词和风险级别后重试。" action={<button type="button" className={secondaryActionClass} onClick={() => { setKeyword(""); setRiskFilter("全部"); }}>清除筛选</button>} />
+                  </TableCell>
                 </TableRow>
               ) : pagedRows.map((row: any) => (
                 <TableRow key={row.id} className="align-top">
@@ -1797,8 +1857,8 @@ function AuditLogsPage({ data }: { data: OpsCenterSectionData | null }) {
                     </div>
                   </TableCell>
                   <TableCell>{row.action}</TableCell>
-                  <TableCell><span className="material-chip bg-slate-100 text-slate-700">{row.resource}</span></TableCell>
-                  <TableCell><span className={cn("material-chip", row.risk === "高" ? statusColors.danger : statusColors.warning)}>{row.risk}</span></TableCell>
+                  <TableCell><span className={cn(chipClass, "border-slate-200 bg-slate-100 text-slate-700")}>{row.resource}</span></TableCell>
+                  <TableCell><span className={cn(chipClass, row.risk === "高" ? statusColors.danger : statusColors.warning)}>{row.risk}</span></TableCell>
                   <TableCell className="font-mono text-xs">{row.ip}</TableCell>
                   <TableCell className="max-w-[320px] text-sm leading-6 text-slate-600">{row.summary}</TableCell>
                 </TableRow>
@@ -1813,7 +1873,7 @@ function AuditLogsPage({ data }: { data: OpsCenterSectionData | null }) {
         <MiniMetric label="今日审计事件" value={String(todayEvents)} />
         <MiniMetric label="高风险操作" value={String(highRiskCount)} />
         <MiniMetric label="涉及用户" value={String(userCount)} />
-        <div className="rounded border border-indigo-200 bg-indigo-50 p-4 text-sm leading-6 text-indigo-800">
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-pretty text-sm leading-6 text-blue-900">
           建议将修改 AI Key、角色权限、停用用户、删除数据等操作保持 90 天以上审计保留。
         </div>
       </DetailPanel>
@@ -1832,7 +1892,7 @@ function PanelTitle({ icon: Icon, title, action }: { icon: React.ComponentType<{
           <h3 className="truncate text-base font-bold text-slate-950">{title}</h3>
         </div>
       </div>
-      {action ? <span className="material-chip shrink-0 bg-slate-100 text-slate-600">{action}</span> : null}
+      {action ? <span className={cn(chipClass, "shrink-0 border-slate-200 bg-slate-100 text-slate-600")}>{action}</span> : null}
     </div>
   );
 }
@@ -1847,7 +1907,7 @@ function DetailPanel({
   children: React.ReactNode;
 }) {
   return (
-    <aside className="material-card h-fit min-w-0 p-5">
+    <aside className="hz-surface h-fit min-w-0 border border-slate-200 p-5">
       <PanelTitle icon={icon} title={title} />
       <div className="mt-5 min-w-0 space-y-4">{children}</div>
     </aside>
@@ -1899,6 +1959,8 @@ export function OpsCenterPage({ section }: OpsCenterPageProps) {
   const [reloadKey, setReloadKey] = useState(0);
   // 仅手动点刷新时置位：切换分区也会触发拉取，但不应弹「已刷新」提示
   const manualRefreshRef = useRef(false);
+  const meta = sectionMeta[section];
+  const metrics = useMemo(() => buildSectionMetrics(section, data), [data, section]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1951,16 +2013,68 @@ export function OpsCenterPage({ section }: OpsCenterPageProps) {
   };
 
   return (
-    <div className="min-w-[960px] space-y-5">
-      <Hero section={section} refreshing={loading} onRefresh={() => { manualRefreshRef.current = true; setReloadKey((key) => key + 1); }} onExport={handleExport} />
-      {(loading || loadError) ? (
-        <div className={cn("material-card px-4 py-3 text-sm font-semibold", loadError ? "text-amber-700" : "text-slate-600")}>
-          {loading ? "正在加载真实运维数据..." : `已使用页面降级数据：${loadError}`}
+    <div className="horizon-theme hz-page mx-auto flex min-h-full w-full max-w-[1800px] min-w-0 flex-col gap-4 overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5">
+      <HorizonPageHeader
+        Icon={meta.icon}
+        eyebrow={meta.eyebrow}
+        title={meta.title}
+        description={meta.description}
+        meta={
+          <span aria-live="polite">
+            {loading ? "正在同步实时运维数据…" : loadError ? "实时数据暂不可用，当前为非实时降级视图" : "实时数据已连接"}
+          </span>
+        }
+        actions={
+          <>
+            <button
+              type="button"
+              className={secondaryActionClass}
+              disabled={loading}
+              onClick={() => {
+                manualRefreshRef.current = true;
+                setReloadKey((key) => key + 1);
+              }}
+            >
+              <RefreshCw className={cn("size-4", loading && "animate-spin")} aria-hidden="true" />
+              {loading ? "刷新中…" : "刷新数据"}
+            </button>
+            <button type="button" className={primaryActionClass} onClick={handleExport}>
+              <Download className="size-4" aria-hidden="true" />
+              导出当前视图
+            </button>
+          </>
+        }
+      />
+
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={metrics[0].icon} label={metrics[0].label} value={metrics[0].value} note={metrics[0].note} tone={metrics[0].tone} />
+        <HorizonMetric Icon={metrics[1].icon} label={metrics[1].label} value={metrics[1].value} note={metrics[1].note} tone={metrics[1].tone} />
+        <HorizonMetric Icon={metrics[2].icon} label={metrics[2].label} value={metrics[2].value} note={metrics[2].note} tone={metrics[2].tone} />
+        <HorizonMetric Icon={metrics[3].icon} label={metrics[3].label} value={metrics[3].value} note={metrics[3].note} tone={metrics[3].tone} />
+      </HorizonMetricGrid>
+
+      {loadError ? (
+        <div className="hz-surface flex flex-col gap-3 border border-amber-200 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between" role="alert">
+          <div className="flex min-w-0 items-start gap-2">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 break-words">实时数据加载失败，当前展示示例降级视图（非实时）：{loadError}</span>
+          </div>
+          <button type="button" className={cn(secondaryActionClass, "shrink-0")} onClick={() => setReloadKey((key) => key + 1)}>
+            重新连接
+          </button>
         </div>
       ) : null}
-      <div className="relative">
-        <div className="pointer-events-none absolute -left-3 top-6 h-20 w-1 rounded-full bg-primary" />
-        <SectionContent key={`${section}-${reloadKey}`} section={section} data={data} />
+
+      <div className="min-w-0" aria-busy={loading}>
+        {loading && !data ? (
+          <div className="grid min-w-0 gap-4 lg:grid-cols-2" role="status" aria-label="正在加载运维数据">
+            <div className="hz-surface h-72 animate-pulse border border-slate-200 bg-white" />
+            <div className="hz-surface h-72 animate-pulse border border-slate-200 bg-white" />
+            <span className="sr-only">正在加载运维数据…</span>
+          </div>
+        ) : (
+          <SectionContent key={`${section}-${reloadKey}`} section={section} data={data} />
+        )}
       </div>
     </div>
   );

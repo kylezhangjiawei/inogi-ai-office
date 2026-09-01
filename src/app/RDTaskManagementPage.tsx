@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useRef, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useLocation, useNavigate } from "react-router";
@@ -84,6 +84,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./components/ui/dialog";
 import { PERMISSIONS, isSuperAdmin } from "./lib/permissions";
 import { useLayoutChromeActions } from "./lib/layoutChrome";
 import {
@@ -381,7 +382,43 @@ const PRIORITY_INLINE_TEXT: Record<Priority, string> = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function normalizeIdentity(value?: string | null) {
-  return (value ?? "").trim().toLowerCase();
+  return (value ?? "")
+    .trim()
+    .replace(/[（(].*?[）)]/g, "")
+    .toLocaleLowerCase("zh-CN")
+    .replace(/\s+/g, "");
+}
+
+/**
+ * 与服务端 isTaskParticipant 保持同一口径：已有 user_id 时只按 id 严格匹配，
+ * 仅历史未绑定 id 的参与者才允许使用规范化姓名兜底。
+ */
+export function matchesCurrentTaskParticipant(
+  participantUserId: string | null | undefined,
+  participantName: string | null | undefined,
+  currentUserId: string | null | undefined,
+  currentUserName: string | null | undefined,
+) {
+  const boundUserId = (participantUserId ?? "").trim();
+  if (boundUserId) return Boolean((currentUserId ?? "").trim()) && boundUserId === (currentUserId ?? "").trim();
+  const currentNameKey = normalizeIdentity(currentUserName);
+  return Boolean(currentNameKey) && normalizeIdentity(participantName) === currentNameKey;
+}
+
+export function resolveDeleteDialogTargetAfterSuccess<T extends { task_id: string }>(
+  currentTarget: T | null,
+  requestedTaskId: string,
+) {
+  return currentTarget?.task_id === requestedTaskId ? null : currentTarget;
+}
+
+function taskVisibleTitle(task: Pick<Task, "task_id" | "title">) {
+  const title = typeof task.title === "string" ? task.title.trim() : "";
+  if (title) return title;
+  const taskId = typeof task.task_id === "string" ? task.task_id.trim() : "";
+  return taskId
+    ? t("未命名任务（{id}）", { id: taskId })
+    : t("未命名任务");
 }
 
 function daysUntil(dateStr?: string): number | null {
@@ -1722,14 +1759,15 @@ function CategorySidebar({
   canManageTree?: boolean;
   onRequestEditor?: (req: SystemTreeEditorRequest) => void;
 }) {
+  const productionWorkspace = isProductionWorkspace();
   const { user } = useAuth();
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const canReviewProjectL1 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L1);
   const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
-  // 「移动任务」次级按钮：与抽屉「移动到其他类目」一致，按移动/转派/编辑任一放行（独立于建树权限）。
-  const canMoveTasks = useAnyPermission(PERMISSIONS.RD_TASK_MOVE, PERMISSIONS.RD_TASK_REASSIGN, PERMISSIONS.RD_TASK_EDIT);
+  // 全局移动会影响任意任务结构，只对专职移动/转派角色开放；普通编辑权限仍由工作台按本人任务处理。
+  const canMoveTasks = useAnyPermission(PERMISSIONS.RD_TASK_MOVE, PERMISSIONS.RD_TASK_REASSIGN);
   const shouldReduceMotion = useReducedMotion();
   const selectedParentCatId = useMemo(() => {
     const id = selectedId;
@@ -1756,7 +1794,9 @@ function CategorySidebar({
       <div className="rd-board-sidebar-head border-b border-slate-200/70 px-4 py-3">
         <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Navigation</div>
         <div className="mt-1 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-slate-950">{t("研发系统树")}</h2>
+          <h2 className="text-balance text-sm font-semibold text-slate-950">
+            {productionWorkspace ? t("生产系统树") : t("研发系统树")}
+          </h2>
           <div className="flex items-center gap-2">
             {totalRisks > 0 && (
               <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">{t("{count} 个风险", { count: totalRisks })}</span>
@@ -2034,6 +2074,7 @@ function SystemTreeEditorDialog({
   onClose: () => void;
   onSubmit: (label: string) => Promise<void> | void;
 }) {
+  const productionWorkspace = isProductionWorkspace();
   const shouldReduceMotion = useReducedMotion();
   const initialLabel =
     request.mode === "edit-system" ? request.category.label
@@ -2151,7 +2192,11 @@ function SystemTreeEditorDialog({
                 className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50"
               />
               {request.mode === "add-system" && (
-                <p className="mt-1.5 text-[11px] text-slate-400">{t("将作为研发系统树的一级节点；可在保存后添加子项。")}</p>
+                <p className="mt-1.5 text-pretty text-[11px] text-slate-400">
+                  {productionWorkspace
+                    ? t("将作为生产系统树的一级节点；可在保存后添加子项。")
+                    : t("将作为研发系统树的一级节点；可在保存后添加子项。")}
+                </p>
               )}
             </div>
           )}
@@ -2513,6 +2558,7 @@ function AiCreatePanel({
   onCreated: () => void;
   productId?: string; // 立项目标产品（board 中为当前产品，overview 为主产品）
 }) {
+  const productionWorkspace = isProductionWorkspace();
   const [text, setText] = useState("");
   const [aiState, setAiState] = useState<AiInputState>("idle");
   const [draft, setDraft] = useState<Omit<Task, "task_id"> | null>(null);
@@ -2570,7 +2616,7 @@ function AiCreatePanel({
           });
       const firstTask = result.tasks[0];
       if (!firstTask) {
-        throw new Error("AI 未解析出可创建的研发任务");
+        throw new Error(productionWorkspace ? "AI 未解析出可创建的生产任务" : "AI 未解析出可创建的研发任务");
       }
       const nextDraft = aiDraftToTask(firstTask);
       setDraft(nextDraft);
@@ -2624,7 +2670,7 @@ function AiCreatePanel({
     if (!draft) return;
     const target = resolveAiCreateTarget(categories, draft.category_path);
     if (!target) {
-      toast.error(t("请先配置研发系统树，再创建任务"));
+      toast.error(productionWorkspace ? t("请先配置生产系统树，再创建任务") : t("请先配置研发系统树，再创建任务"));
       return;
     }
     let created: Task;
@@ -2929,6 +2975,7 @@ function getTaskTimelineCurrentIndex(task: Task): number {
 }
 
 function TaskLifecycleTimeline({ task }: { task: Task }) {
+  const productionWorkspace = isProductionWorkspace();
   const shouldReduceMotion = useReducedMotion();
   const currentIndex = getTaskTimelineCurrentIndex(task);
   const attentionCurrent =
@@ -2938,7 +2985,11 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
     helper: string;
     Icon: React.ComponentType<{ className?: string; strokeWidth?: string | number }>;
   }[] = [
-    { label: t("创建"), helper: t("任务已进入研发任务池"), Icon: CircleDot },
+    {
+      label: t("创建"),
+      helper: productionWorkspace ? t("任务已进入生产任务池") : t("任务已进入研发任务池"),
+      Icon: CircleDot,
+    },
     {
       label: t("指派"),
       helper: task.status === "pending_assign" ? t("等待组长确认负责人") : t("主责人：{name}", { name: task.primary_owner }),
@@ -3035,6 +3086,31 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
 }
 
 // ─── SubmitConfirmDialog ──────────────────────────────────────────────────────
+
+function TaskActionDialogFrame({
+  busy,
+  onCancel,
+  children,
+  className,
+}: {
+  busy: boolean;
+  onCancel: () => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !busy) onCancel(); }}>
+      <DialogContent
+        onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }}
+        onPointerDownOutside={(event) => { if (busy) event.preventDefault(); }}
+        className={cn("rd-task-overlay-surface gap-0 overflow-hidden p-0 sm:max-w-md", className)}
+      >
+        {children}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function SubmitConfirmDialog({
   taskTitle,
   onConfirm,
@@ -3046,34 +3122,18 @@ export function SubmitConfirmDialog({
   onCancel: () => void;
   submitting: boolean;
 }) {
-  const shouldReduceMotion = useReducedMotion();
   return (
-    <motion.div
-      initial={shouldReduceMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={RD_FAST_TRANSITION}
-      className="rd-task-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={onCancel}
-    >
-      <motion.div
-        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 14, scale: 0.98 }}
-        transition={RD_PANEL_TRANSITION}
-        className="rd-task-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <TaskActionDialogFrame busy={submitting} onCancel={onCancel}>
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
             <Send className="h-4 w-4" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900">{t("提交任务审核")}</h3>
+          <DialogTitle className="text-base font-semibold text-slate-900">{t("提交任务审核")}</DialogTitle>
         </div>
         <div className="space-y-3 px-6 py-5">
-          <p className="text-sm text-slate-700">
+          <DialogDescription className="text-sm text-slate-700">
             {t("确认提交「") }<span className="font-semibold text-slate-900">{taskTitle}</span>{t("」进入待审核状态？")}
-          </p>
+          </DialogDescription>
           <p className="text-xs text-slate-500">{t("提交将任务进入待审核状态，请确认成果已准备好。")}</p>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
@@ -3095,8 +3155,7 @@ export function SubmitConfirmDialog({
             {t("确认提交")}
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+    </TaskActionDialogFrame>
   );
 }
 
@@ -3112,35 +3171,18 @@ export function CompleteConfirmDialog({
   onCancel: () => void;
   submitting: boolean;
 }) {
-  const shouldReduceMotion = useReducedMotion();
-
   return (
-    <motion.div
-      initial={shouldReduceMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={RD_FAST_TRANSITION}
-      className="rd-task-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={onCancel}
-    >
-      <motion.div
-        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 14, scale: 0.98 }}
-        transition={RD_PANEL_TRANSITION}
-        className="rd-task-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <TaskActionDialogFrame busy={submitting} onCancel={onCancel}>
         <div className="flex items-center gap-3 border-b border-emerald-100 bg-emerald-50/60 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
             <CheckCircle2 className="h-4 w-4" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900">{t("标记任务完成")}</h3>
+          <DialogTitle className="text-base font-semibold text-slate-900">{t("标记任务完成")}</DialogTitle>
         </div>
         <div className="space-y-3 px-6 py-5">
-          <p className="text-sm text-slate-700">
+          <DialogDescription className="text-sm text-slate-700">
             {t("确认将「")}<span className="font-semibold text-slate-900">{taskTitle}</span>{t("」直接标记为已完成？")}
-          </p>
+          </DialogDescription>
           <p className="text-xs text-slate-500">{t("管理员/主管操作会跳过提交审核，任务进度将设为 100%。")}</p>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
@@ -3162,8 +3204,7 @@ export function CompleteConfirmDialog({
             {t("确认完成")}
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+    </TaskActionDialogFrame>
   );
 }
 
@@ -3183,7 +3224,6 @@ export function HandoverDialog({
   onCancel: () => void;
   horizonVariant?: boolean;
 }) {
-  const shouldReduceMotion = useReducedMotion();
   const [newOwner, setNewOwner] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -3201,32 +3241,17 @@ export function HandoverDialog({
   };
 
   return (
-    <motion.div
-      initial={shouldReduceMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={RD_FAST_TRANSITION}
-      className="rd-task-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={onCancel}
-    >
-      <motion.div
-        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 14, scale: 0.98 }}
-        transition={RD_PANEL_TRANSITION}
-        className="rd-task-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <TaskActionDialogFrame busy={saving} onCancel={onCancel}>
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
             <ArrowRight className="h-4 w-4" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900">{t("移交任务")}</h3>
+          <DialogTitle className="text-base font-semibold text-slate-900">{t("移交任务")}</DialogTitle>
         </div>
         <div className="space-y-4 px-6 py-5">
-          <p className="text-sm text-slate-700">
+          <DialogDescription className="text-sm text-slate-700">
             {t("将「")}<span className="font-semibold text-slate-900">{taskTitle}</span>{t("」移交给新责任人")}
-          </p>
+          </DialogDescription>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("当前负责人")}</label>
             <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-500">{currentOwner}</div>
@@ -3268,8 +3293,7 @@ export function HandoverDialog({
             {t("确认移交")}
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+    </TaskActionDialogFrame>
   );
 }
 
@@ -3289,7 +3313,6 @@ export function AddCollaboratorsDialog({
   onConfirm: (newCollaborators: RdCollaborator[]) => Promise<void>;
   onCancel: () => void;
 }) {
-  const shouldReduceMotion = useReducedMotion();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
 
@@ -3332,36 +3355,21 @@ export function AddCollaboratorsDialog({
   };
 
   return (
-    <motion.div
-      initial={shouldReduceMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={RD_FAST_TRANSITION}
-      className="rd-task-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={onCancel}
-    >
-      <motion.div
-        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 14, scale: 0.98 }}
-        transition={RD_PANEL_TRANSITION}
-        className="rd-task-overlay-surface flex w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <TaskActionDialogFrame busy={saving} onCancel={onCancel} className="flex flex-col">
         <div className="flex items-center gap-3 border-b border-indigo-100 bg-indigo-50/60 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
             <UserPlus className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-semibold text-slate-900">{t("添加协作人")}</h3>
+            <DialogTitle className="text-base font-semibold text-slate-900">{t("添加协作人")}</DialogTitle>
             <p className="mt-0.5 truncate text-[11px] text-slate-500">{taskTitle}</p>
           </div>
         </div>
         <div className="space-y-3 px-6 py-4">
-          <p className="text-xs leading-relaxed text-slate-500">
+          <DialogDescription className="text-xs leading-relaxed text-slate-500">
             {t("管理员直接添加将")}<span className="font-semibold text-indigo-700">{t("立即生效")}</span>{t("，不需要走审核流程。")}
             {t("已选")} <span className="font-semibold text-slate-700 tabular-nums">{selected.size}</span> / {candidates.length}
-          </p>
+          </DialogDescription>
           <div className="max-h-72 overflow-y-auto rounded-md border border-slate-200">
             {candidates.length === 0 ? (
               <div className="px-3 py-6 text-center text-xs text-slate-400">{t("无可添加的人员（其他人都已在协作或主责）")}</div>
@@ -3417,8 +3425,7 @@ export function AddCollaboratorsDialog({
             {t("确认添加")} {selected.size > 0 ? `(${selected.size})` : ""}
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+    </TaskActionDialogFrame>
   );
 }
 
@@ -3436,7 +3443,6 @@ export function ApprovalActionDialog({
   onCancel: () => void;
   submitting: boolean;
 }) {
-  const shouldReduceMotion = useReducedMotion();
   const [reason, setReason] = useState("");
   const [rollbackProgress, setRollbackProgress] = useState(Math.max(0, task.progress - 10));
 
@@ -3448,22 +3454,7 @@ export function ApprovalActionDialog({
   };
 
   return (
-    <motion.div
-      initial={shouldReduceMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={RD_FAST_TRANSITION}
-      className="rd-task-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={onCancel}
-    >
-      <motion.div
-        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 14, scale: 0.98 }}
-        transition={RD_PANEL_TRANSITION}
-        className="rd-task-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <TaskActionDialogFrame busy={submitting} onCancel={onCancel}>
         <div className={cn(
           "flex items-center gap-3 border-b px-6 py-4",
           isApprove ? "border-emerald-100 bg-emerald-50/60" : "border-red-100 bg-red-50/60",
@@ -3474,12 +3465,12 @@ export function ApprovalActionDialog({
           )}>
             {isApprove ? <CheckCircle2 className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
           </div>
-          <h3 className="text-base font-semibold text-slate-900">
+          <DialogTitle className="text-base font-semibold text-slate-900">
             {isApprove ? t("审核通过") : t("打回修改")}
-          </h3>
+          </DialogTitle>
         </div>
         <div className="space-y-4 px-6 py-5">
-          <p className="text-sm text-slate-700">
+          <DialogDescription className="text-sm text-slate-700">
             {isApprove
               ? task.pending_review_type === "proposal"
                 ? <>{t("确认通过「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」的立项审核？通过后任务将正式立项并进入进行中状态。")}</>
@@ -3494,7 +3485,7 @@ export function ApprovalActionDialog({
                 : <>{t("确认通过「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」的审核？任务将标记为已完成，进度设为 100%。")}</>
               : <>{t("将「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」打回给负责人重新修改。")}</>
             }
-          </p>
+          </DialogDescription>
           {!isApprove && (
             <>
               <div>
@@ -3545,8 +3536,7 @@ export function ApprovalActionDialog({
             {isApprove ? t("确认通过") : t("确认打回")}
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+    </TaskActionDialogFrame>
   );
 }
 
@@ -4883,6 +4873,7 @@ function PersonDetailDrawer({
   onClose: () => void;
   onOpenTask: (task: Task) => void;
 }) {
+  const productionWorkspace = isProductionWorkspace();
   const shouldReduceMotion = useReducedMotion();
   const activeTasks = tasks.filter((task) => !task.archived && task.status !== "completed");
   const maxTasks = profile?.max_tasks ?? load?.max ?? 8;
@@ -4923,7 +4914,9 @@ function PersonDetailDrawer({
             <OwnerAvatar name={name} userId={profile?.user_id} />
             <div className="min-w-0">
               <h3 className="truncate text-lg font-semibold text-slate-900">{name}</h3>
-              <p className="mt-0.5 text-xs text-slate-500">{profile?.position ?? t("研发成员")} · {profile?.department ?? t("未设置部门")}</p>
+              <p className="mt-0.5 text-pretty text-xs text-slate-500">
+                {profile?.position ?? (productionWorkspace ? t("生产成员") : t("研发成员"))} · {profile?.department ?? t("未设置部门")}
+              </p>
             </div>
           </div>
           <button type="button" onClick={onClose} aria-label={t("关闭人员任务详情")} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
@@ -5030,11 +5023,10 @@ function SystemHealthCard({
       initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={RD_PANEL_TRANSITION}
-      whileHover={shouldReduceMotion || horizonVariant ? undefined : { y: -1 }}
       whileTap={shouldReduceMotion ? undefined : { scale: 0.99 }}
       className={cn(
-        "rd-horizon-system-card group relative flex flex-col gap-3 overflow-hidden rounded-xl border bg-white p-4 text-left transition-all duration-300 ease-out active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2",
-        !horizonVariant && "hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(15,23,42,0.08)] active:translate-y-0",
+        "rd-horizon-system-card group relative flex min-h-11 flex-col gap-3 overflow-hidden rounded-xl border bg-white p-4 text-left transition-[border-color,box-shadow,opacity] duration-300 ease-out active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 focus-visible:ring-offset-2",
+        !horizonVariant && "hover:shadow-[0_12px_30px_rgba(15,23,42,0.08)]",
         hConfig.border,
         isIdle && "opacity-55 hover:opacity-100",
       )}
@@ -5091,7 +5083,7 @@ function SystemHealthCard({
       <div className="flex items-baseline justify-between">
         <span
           className={cn(
-            "text-3xl font-semibold tabular-nums tracking-tight",
+            "text-3xl font-semibold tabular-nums",
             isIdle ? "text-slate-400" : "text-slate-900",
           )}
         >
@@ -5101,7 +5093,7 @@ function SystemHealthCard({
         {stat.risks > 0 && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-red-600 transition-transform duration-150 hover:scale-105">
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-red-600">
                 <AlertTriangle className="h-3 w-3" />
                 {stat.risks}
               </span>
@@ -5119,7 +5111,7 @@ function SystemHealthCard({
       <div className="h-1 overflow-hidden rounded-full bg-slate-100">
         <motion.div
           className={cn(
-            "h-full rounded-full transition-all duration-500 ease-out",
+            "h-full rounded-full transition-[width] duration-500 ease-out",
             isIdle ? "bg-slate-200" : hConfig.dot,
           )}
           initial={shouldReduceMotion ? false : { width: 0 }}
@@ -5145,19 +5137,16 @@ function SystemHealthCard({
         </span>
         {stat.inProgress > 0 && (
           <span className="text-slate-500">
-            <span className="rd-horizon-brand-text font-semibold tabular-nums text-indigo-600">{stat.inProgress}</span> {t("进行中")}
+            <span className="rd-horizon-brand-text font-semibold tabular-nums text-[#002fa7]">{stat.inProgress}</span> {t("进行中")}
           </span>
         )}
         {stat.total === 0 && <span className="text-slate-400">{t("无活跃")}</span>}
       </div>
 
       {/* Hover hint */}
-      <div className="pointer-events-none flex items-center justify-end text-[11px] font-medium text-slate-400 opacity-0 transition-all duration-200 group-hover:opacity-100">
+      <div className="pointer-events-none flex items-center justify-end text-[11px] font-medium text-slate-400 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
         {t("进入详情")}
-        <ChevronRight className={cn(
-          "rd-horizon-system-arrow ml-0.5 h-3 w-3 transition-transform duration-200",
-          !horizonVariant && "group-hover:translate-x-0.5",
-        )} />
+        <ChevronRight className="rd-horizon-system-arrow ml-0.5 h-3 w-3" />
       </div>
     </motion.button>
   );
@@ -5174,14 +5163,14 @@ const PRODUCT_STATUS_LABEL: Record<RdProductStatus, string> = {
 
 const PRODUCT_STATUS_STYLE: Record<RdProductStatus, string> = {
   active: "bg-emerald-50 text-emerald-700 border-emerald-100",
-  developing: "bg-indigo-50 text-indigo-700 border-indigo-100",
+  developing: "bg-blue-50 text-[#002fa7] border-blue-100",
   paused: "bg-amber-50 text-amber-700 border-amber-100",
   archived: "bg-slate-100 text-slate-500 border-slate-200",
 };
 
 const PRODUCT_STATUS_DOT: Record<RdProductStatus, string> = {
   active: "bg-emerald-500",
-  developing: "bg-indigo-500",
+  developing: "bg-[#002fa7]",
   paused: "bg-amber-500",
   archived: "bg-slate-400",
 };
@@ -5214,30 +5203,54 @@ function SystemPanorama({
   // 缓存其他产品的已加载分类数据 { productId → CatStat[] }
   const [productCatStatsCache, setProductCatStatsCache] = useState<Record<string, CatStat[]>>({});
   const [loadingProdId, setLoadingProdId] = useState<string | null>(null);
+  const [productLoadErrorId, setProductLoadErrorId] = useState<string | null>(null);
+  const [productReloadNonce, setProductReloadNonce] = useState(0);
   // 记录每个产品最近一次加载时的 reloadToken，token 变化即视为缓存失效
   const loadedTokenRef = useRef<Record<string, number>>({});
 
-  const activeProd = products.find((p) => p.id === activeProdId) ?? products[0] ?? null;
+  const activeProd = useMemo(
+    () => products.find((product) => product.id === activeProdId) ?? products[0] ?? null,
+    [activeProdId, products],
+  );
+
+  // 产品列表异步到达或当前产品被移除时，自动落到首个真实产品；否则 activeProdId
+  // 仍为空会让首个产品看似选中、统计却取到空缓存，必须等用户再点一次才显示。
+  useEffect(() => {
+    if (products.length === 0) return;
+    if (!products.some((product) => product.id === activeProdId)) {
+      setActiveProdId(products[0].id);
+    }
+  }, [activeProdId, products]);
 
   // 当切换到非主产品（或移动后 token 变化）时，按需加载该产品的分类数据
   useEffect(() => {
     if (!activeProdId || activeProdId === MAIN_PRODUCT_ID) return;
     if (loadedTokenRef.current[activeProdId] === reloadToken) return; // 已按当前 token 缓存
+    let cancelled = false;
     setLoadingProdId(activeProdId);
+    setProductLoadErrorId((current) => current === activeProdId ? null : current);
     fetchProductTaskCategories(activeProdId)
       .then((cats) => {
+        if (cancelled) return;
         const risks = computeRisks(cats);
         const stats = buildCatStats(cats, risks);
         loadedTokenRef.current[activeProdId] = reloadToken;
         setProductCatStatsCache((prev) => ({ ...prev, [activeProdId]: stats }));
       })
       .catch(() => {
+        if (cancelled) return;
         loadedTokenRef.current[activeProdId] = reloadToken;
         setProductCatStatsCache((prev) => ({ ...prev, [activeProdId]: [] }));
+        setProductLoadErrorId(activeProdId);
       })
-      .finally(() => setLoadingProdId(null));
+      .finally(() => {
+        if (!cancelled) setLoadingProdId((current) => current === activeProdId ? null : current);
+      });
+    return () => {
+      cancelled = true;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProdId, reloadToken]);
+  }, [activeProdId, productReloadNonce, reloadToken]);
 
   // 当前产品对应的 catStats
   const activeCatStats: CatStat[] =
@@ -5247,8 +5260,13 @@ function SystemPanorama({
 
   const isLoadingActive = loadingProdId === activeProdId;
 
-  // 健康图例计数（使用全部 activeCatStats）
-  const legendStats = activeCatStats;
+  // 健康图例计数单次遍历生成，避免每次渲染对相同数组重复筛选四遍。
+  const healthCounts = useMemo(() => {
+    const counts: Record<SystemHealth, number> = { healthy: 0, watch: 0, alert: 0, idle: 0 };
+    for (const stat of activeCatStats) counts[getSystemHealth(stat)] += 1;
+    return counts;
+  }, [activeCatStats]);
+  const activeProductLoadFailed = productLoadErrorId === activeProdId;
 
   return (
     <motion.section
@@ -5260,8 +5278,8 @@ function SystemPanorama({
       {/* Header */}
       <header className="mb-4 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h3 className="text-sm font-semibold text-slate-950">{t("子系统全景")}</h3>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <h3 className="text-balance text-sm font-semibold text-slate-950">{t("子系统全景")}</h3>
+          <p className="mt-0.5 text-pretty text-xs text-slate-500">
             {activeProd ? (
               <>
                 <AutoTranslatedText text={t(activeProd.name.trim())} /> · {t("{count} 个子系统", { count: activeCatStats.length })}
@@ -5271,10 +5289,10 @@ function SystemPanorama({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* Health legend */}
-          {legendStats.length > 0 && !isLoadingActive && (
+          {activeCatStats.length > 0 && !isLoadingActive && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
               {(["healthy", "watch", "alert", "idle"] as const).map((h) => {
-                const count = legendStats.filter((s) => getSystemHealth(s) === h).length;
+                const count = healthCounts[h];
                 const cfg = HEALTH_CONFIG[h];
                 return (
                   <span key={h} className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1">
@@ -5291,7 +5309,7 @@ function SystemPanorama({
             <button
               type="button"
               onClick={onManageProducts}
-              className="rd-horizon-secondary-control flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:scale-[0.97]"
+              className="rd-horizon-secondary-control flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
             >
               <Settings2 className="h-3.5 w-3.5" />
               {t("管理产品")}
@@ -5321,10 +5339,11 @@ function SystemPanorama({
                   type="button"
                   onClick={() => setActiveProdId(prod.id)}
                   data-active={isActive}
+                  aria-pressed={isActive}
                   className={cn(
-                    "rd-horizon-product-tab flex shrink-0 items-center gap-2 rounded-t-lg px-3 py-2 text-xs font-semibold transition-all",
+                    "rd-horizon-product-tab flex min-h-11 shrink-0 items-center gap-2 rounded-t-lg px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
                     isActive
-                      ? "border-b-2 border-indigo-500 text-indigo-700"
+                      ? "border-b-2 border-[#002fa7] text-[#002fa7]"
                       : "text-slate-500 hover:bg-slate-50 hover:text-slate-700",
                   )}
                 >
@@ -5337,11 +5356,11 @@ function SystemPanorama({
 
           {/* Loading state */}
           {isLoadingActive ? (
-            <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-400">
+            <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-500" role="status" aria-live="polite">
               <Loader2 className="h-4 w-4 animate-spin" />
               {t("加载中…")}
             </div>
-          ) : activeProd ? (
+          ) : activeProd && activeCatStats.length > 0 ? (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {activeCatStats.map((stat) => (
                 <SystemHealthCard
@@ -5351,6 +5370,31 @@ function SystemPanorama({
                   horizonVariant={horizonVariant}
                 />
               ))}
+            </div>
+          ) : activeProd ? (
+            <div className="flex min-h-32 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center" role={activeProductLoadFailed ? "alert" : "status"}>
+              <Settings2 className="h-7 w-7 text-slate-300" aria-hidden="true" />
+              <h4 className="mt-3 text-balance text-sm font-semibold text-slate-800">
+                {activeProductLoadFailed ? t("子系统数据加载失败") : t("当前产品暂无子系统")}
+              </h4>
+              <p className="mt-1 max-w-md text-pretty text-xs leading-5 text-slate-500">
+                {activeProductLoadFailed
+                  ? t("请重新读取该产品的任务树，其他产品数据不受影响。")
+                  : t("可通过产品管理补充子系统，或切换到其他产品继续查看。")}
+              </p>
+              {activeProductLoadFailed && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    delete loadedTokenRef.current[activeProdId];
+                    setProductReloadNonce((value) => value + 1);
+                  }}
+                  className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-md border border-blue-200 bg-white px-3 text-xs font-semibold text-[#002fa7] transition-colors hover:bg-blue-50"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  {t("重新读取")}
+                </button>
+              )}
             </div>
           ) : null}
         </>
@@ -6581,13 +6625,13 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
 
 // ─── PersonTaskCockpit ────────────────────────────────────────────────────────
 // 决策焦点：风险任务 + 人员负载合并为顶部 Tab 导航
-// 根据负载比例返回 Instagram Stories 风格的渐变 ring 色
-function loadRingGradient(ratio: number, onLeave: boolean) {
-  if (onLeave) return { from: "#94a3b8", to: "#64748b" }; // slate
-  if (ratio >= 1)   return { from: "#f87171", to: "#dc2626" }; // red
-  if (ratio >= 0.8) return { from: "#fb923c", to: "#ea580c" }; // orange
-  if (ratio >= 0.6) return { from: "#fbbf24", to: "#d97706" }; // amber
-  return { from: "#34d399", to: "#059669" };                   // emerald
+// 负载环只使用单一状态色，避免渐变装饰干扰领导快速识别负载等级。
+function loadRingColor(ratio: number, onLeave: boolean) {
+  if (onLeave) return "#64748b"; // slate
+  if (ratio >= 1) return "#dc2626"; // red
+  if (ratio >= 0.8) return "#ea580c"; // orange
+  if (ratio >= 0.6) return "#d97706"; // amber
+  return "#059669"; // emerald
 }
 
 /** 返回成员页签标识（身份主键），不是姓名 —— 同名同事必须能分开选中。 */
@@ -6923,6 +6967,7 @@ function PersonTaskCockpit({
   canReassign,
   onReassignTask,
   canDelete,
+  canDeleteAny,
   onDeleteTask,
   canSyncProduction,
   syncedProductionTaskIds,
@@ -6944,6 +6989,7 @@ function PersonTaskCockpit({
   canReassign?: boolean;
   onReassignTask?: (task: Task) => void;
   canDelete?: boolean;
+  canDeleteAny?: boolean;
   onDeleteTask?: (task: Task) => void;
   canSyncProduction?: boolean;
   syncedProductionTaskIds?: Set<string>;
@@ -6958,6 +7004,7 @@ function PersonTaskCockpit({
 }) {
   const shouldReduceMotion = useReducedMotion();
   useI18n(); // 订阅语言切换（卡片流文案已 t() 化）
+  const { user } = useAuth();
   const noteReceipts = React.useContext(NoteReceiptContext); // 备注回执 map（父级驾驶舱下发）
   const masonryColumns = useMasonryColumns();
   // 协同侧信息密度降一档：卡片内边距与卡片间距放宽（欧美工具风的呼吸感）；研发侧维持紧凑
@@ -6998,10 +7045,18 @@ function PersonTaskCockpit({
   const setCockpitKeyword = onKeywordChange ?? setLocalCockpitKeyword;
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchTriggerRef = useRef<HTMLButtonElement | null>(null);
   const cockpitSearch = cockpitKeyword.trim();
+  const deferredCockpitSearch = useDeferredValue(cockpitSearch);
+  const searchPending = deferredCockpitSearch !== cockpitSearch;
   useEffect(() => {
     if (searchOpen) searchInputRef.current?.focus();
   }, [searchOpen]);
+  const closeSearchAndRestoreFocus = useCallback(() => {
+    setCockpitKeyword("");
+    setSearchOpen(false);
+    requestAnimationFrame(() => searchTriggerRef.current?.focus());
+  }, [setCockpitKeyword]);
 
   // 异步刷新后（如删除了某人最后一个任务），该成员会从 personLoads 中消失。
   // 此时停留在已不存在的人员 tab 上会让内容区空白，回退到「全部」。
@@ -7327,32 +7382,42 @@ function PersonTaskCockpit({
 
   // ── Derived data ──
   // "全部" tab — 默认包含所有非归档任务（含已完成），按更新时间倒序；如有 KPI 筛选则再过滤
-  const allActiveTasks = useMemo(() => {
+  const filteredTasks = useMemo(() => {
     return sortByUpdatedDesc(
-      allTasks.filter((t) => !t.archived && matchesKpiFilter(t) && taskMatches(t, cockpitSearch, "all", "all", "all")),
+      allTasks.filter((task) =>
+        !task.archived
+        && matchesKpiFilter(task)
+        && taskMatches(task, deferredCockpitSearch, "all", "all", "all"),
+      ),
     );
-  }, [allTasks, sortByUpdatedDesc, matchesKpiFilter, cockpitSearch]);
+  }, [allTasks, deferredCockpitSearch, matchesKpiFilter, sortByUpdatedDesc]);
+
+  const allActiveTasks = filteredTasks;
 
   // Per-person — 同步包含已完成任务并应用 KPI 筛选与搜索关键字
   // 驾驶舱是给领导看「谁在负责什么」的，所以主责与协助必须分开：
   // 主责段占第一屏，协助段作为下钻上下文默认折叠。两段应用同一套 KPI 筛选与搜索。
   const personTasksMap = useMemo(() => {
     const map = new Map<string, { primary: Task[]; collaborating: Task[] }>();
-    for (const p of personLoads) {
-      const primary: Task[] = [];
-      const collaborating: Task[] = [];
-      for (const task of allTasks) {
-        if (task.archived || !matchesKpiFilter(task) || !taskMatches(task, cockpitSearch, "all", "all", "all")) continue;
-        if (memberIdentityKey(task.primary_owner, task.primary_owner_user_id) === p.key) {
-          primary.push(task);
-        } else if (task.collaborators.some((c) => memberIdentityKey(c.name, c.user_id) === p.key)) {
-          collaborating.push(task);
-        }
+    for (const person of personLoads) {
+      map.set(person.key, { primary: [], collaborating: [] });
+    }
+    // filteredTasks 已按最后活动时间排序；单次遍历即可保持各成员分组同序，
+    // 避免原先“人员 × 任务”的嵌套扫描。同一任务的重复协作者用 Set 去重。
+    for (const task of filteredTasks) {
+      const ownerKey = memberIdentityKey(task.primary_owner, task.primary_owner_user_id);
+      map.get(ownerKey)?.primary.push(task);
+
+      const collaboratorKeys = new Set(
+        task.collaborators.map((collaborator) => memberIdentityKey(collaborator.name, collaborator.user_id)),
+      );
+      collaboratorKeys.delete(ownerKey);
+      for (const collaboratorKey of collaboratorKeys) {
+        map.get(collaboratorKey)?.collaborating.push(task);
       }
-      map.set(p.key, { primary: sortByUpdatedDesc(primary), collaborating: sortByUpdatedDesc(collaborating) });
     }
     return map;
-  }, [personLoads, allTasks, sortByUpdatedDesc, matchesKpiFilter, cockpitSearch]);
+  }, [filteredTasks, personLoads]);
 
   /** 分页、导出等下游只关心「该成员页签下的全部任务」，主责在前、协助在后。 */
   const personScopeTasks = useCallback(
@@ -7364,7 +7429,10 @@ function PersonTaskCockpit({
   );
 
   // 当前 tab 的搜索命中数（展示在搜索框内）
-  const cockpitHitCount = activeTab === "all" ? allActiveTasks.length : personScopeTasks(activeTab).length;
+  const activePersonSegments = activeTab === "all" ? undefined : personTasksMap.get(activeTab);
+  const cockpitHitCount = activePersonSegments
+    ? activePersonSegments.primary.length + activePersonSegments.collaborating.length
+    : allActiveTasks.length;
 
   // 批量导出报告：把当前范围（"全部" / 某成员）已完成且已评分的任务，汇总成一份多页 PDF。
   // 注意：依赖 allActiveTasks / personTasksMap，必须定义在它们的 useMemo 之后，否则触发 TDZ。
@@ -7442,12 +7510,12 @@ function PersonTaskCockpit({
     } finally {
       setBatchExportBusy(false);
     }
-  }, [batchExportBusy, activeTab, allActiveTasks, personTasksMap, aiScoreMap, notesMap]);
+  }, [activeTab, aiScoreMap, allActiveTasks, batchExportBusy, notesMap, personLoads, personScopeTasks]);
 
   // 切换 KPI 筛选 / 搜索关键字时重置分页计数，避免旧偏移导致空白
   useEffect(() => {
     setVisibleCounts({});
-  }, [kpiFilter, cockpitSearch]);
+  }, [deferredCockpitSearch, kpiFilter]);
 
   // One card-summary request per visible page. The previous implementation emitted one full-notes
   // request per task and repeated the backend's full JSON scans, which scaled poorly with task count.
@@ -7570,18 +7638,22 @@ function PersonTaskCockpit({
     }),
   };
 
+  const activeMember = useMemo(
+    () => activeTab === "all" ? undefined : personLoads.find((person) => person.key === activeTab),
+    [activeTab, personLoads],
+  );
+  const activityActor = useMemo(
+    () => activeMember ? { id: activeMember.user_id, name: activeMember.name } : undefined,
+    [activeMember],
+  );
+
   // ── Shared task card renderer (used by both "全部" and per-person tabs) ──
   const renderTaskCard = (
     task: Task,
     taskIdx: number,
-    grad: { from: string; to: string },
+    accentColor: string,
   ) => {
-    const activeMember = activeTab === "all"
-      ? undefined
-      : personLoads.find((person) => person.key === activeTab);
-    const activityActor = activeMember
-      ? { id: activeMember.user_id, name: activeMember.name }
-      : undefined;
+    const visibleTaskTitle = taskVisibleTitle(task);
     // 协助段的卡片必须标明主责人，领导才知道这件事到底归谁
     const isSelectedPersonCollaborator = Boolean(
       activeMember && memberIdentityKey(task.primary_owner, task.primary_owner_user_id) !== activeMember.key,
@@ -7595,6 +7667,21 @@ function PersonTaskCockpit({
     const hasLoadedAttachments = Boolean(attachmentPreview && attachmentPreview.attachment_count > 0);
     const isRisk = riskTaskIds.has(task.task_id);
     const productionMirror = isProductionMirrorTask(task);
+    const isCurrentUserParticipant = Boolean(user && (
+      matchesCurrentTaskParticipant(
+        task.primary_owner_user_id,
+        task.primary_owner,
+        user.id,
+        user.name,
+      )
+      || task.collaborators.some((collaborator) => matchesCurrentTaskParticipant(
+        collaborator.user_id,
+        collaborator.name,
+        user.id,
+        user.name,
+      ))
+    ));
+    const showDeleteTaskAction = Boolean(canDelete && (canDeleteAny || isCurrentUserParticipant));
     const productionSynced = syncedProductionTaskIds?.has(task.task_id) ?? false;
     const showProductionSyncAction = Boolean(canSyncProduction && onToggleProductionSync && !productionMirror);
     // 最近更新时间：用后端派生的 last_activity_at（= max(updated_at, 最新留痕时间)），与列表排序同口径。
@@ -7638,6 +7725,8 @@ function PersonTaskCockpit({
       task.latest_progress_summary?.text?.trim()
       || task.description?.trim()
       || t("暂无进展摘要");
+    const workItems = task.work_items ?? [];
+    const completedWorkItemCount = workItems.reduce((count, item) => count + (item.done ? 1 : 0), 0);
 
     return (
       <motion.div
@@ -7651,6 +7740,7 @@ function PersonTaskCockpit({
         onClick={() => onSelectTask(task, activityActor)}
         role="button"
         tabIndex={0}
+        aria-label={t("打开任务：{title}", { title: visibleTaskTitle })}
         onKeyDown={(e) => {
           if (e.target !== e.currentTarget) return;
           if (e.key === "Enter" || e.key === " ") {
@@ -7659,7 +7749,7 @@ function PersonTaskCockpit({
           }
         }}
         className={cn(
-          "rd-horizon-task-card group relative cursor-pointer overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_12px_28px_-12px_rgba(79,70,229,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
+          "rd-horizon-task-card group relative cursor-pointer overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] duration-200 hover:border-blue-200 hover:shadow-[0_10px_24px_-14px_rgba(0,47,167,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
         )}
       >
         <div className={cn("rd-horizon-task-card-body flex min-h-[220px] min-w-0 flex-col", spaciousCards ? "gap-3 px-5 py-4" : "gap-2.5 px-4 py-3.5")}>
@@ -7669,7 +7759,7 @@ function PersonTaskCockpit({
               {hierarchySegments.map((segment) => (
                 <span
                   key={segment}
-                  className="rd-horizon-task-path max-w-[138px] truncate rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700"
+                  className="rd-horizon-task-path max-w-[138px] truncate rounded-md bg-blue-50 px-2 py-1 text-[10px] font-semibold text-[#002fa7]"
                   title={segment}
                 >
                   {segment}
@@ -7730,7 +7820,7 @@ function PersonTaskCockpit({
                     event.stopPropagation();
                     void openCompleteAttachmentCollection(task, taskAttachmentCount);
                   }}
-                  className="rd-horizon-attachment-action inline-flex h-7 items-center gap-1 rounded-lg bg-indigo-50 px-2 text-[10px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-60"
+                  className="rd-horizon-attachment-action inline-flex min-h-9 items-center gap-1 rounded-lg bg-blue-50 px-2 text-[10px] font-semibold text-[#002fa7] transition-colors hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"
                   aria-label={t("查看全部附件")}
                 >
                   {attachmentLoadingTaskId === task.task_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Paperclip className="h-3 w-3" />}
@@ -7742,7 +7832,7 @@ function PersonTaskCockpit({
                   <button
                     type="button"
                     onClick={(event) => event.stopPropagation()}
-                    className="rd-horizon-more-action flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+                    className="rd-horizon-more-action flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
                     aria-label={t("更多操作")}
                   >
                     <MoreVertical className="h-4 w-4" />
@@ -7772,7 +7862,7 @@ function PersonTaskCockpit({
                       {t("转派")}
                     </DropdownMenuItem>
                   )}
-                  {!productionMirror && canDelete && onDeleteTask && (
+                  {!productionMirror && showDeleteTaskAction && onDeleteTask && (
                     <DropdownMenuItem variant="destructive" onSelect={() => onDeleteTask(task)}>
                       <Trash2 className="h-4 w-4" />
                       {t("删除")}
@@ -7783,8 +7873,8 @@ function PersonTaskCockpit({
             </div>
           </div>
 
-          <h3 className="line-clamp-2 text-[15px] font-bold leading-snug text-slate-900">
-            <AutoTranslatedText text={task.title} />
+          <h3 className="line-clamp-2 break-words text-balance text-[15px] font-bold leading-snug text-slate-900">
+            <AutoTranslatedText text={visibleTaskTitle} />
           </h3>
 
           {/* ─── 备注回执状态条（管理视角：他人给任务留的备注是否被目标人查看/跟进） ─── */}
@@ -7812,7 +7902,7 @@ function PersonTaskCockpit({
           <AutoTranslatedText
             as="p"
             text={cardSummary}
-            className="rd-horizon-task-summary line-clamp-2 min-h-10 text-xs leading-5 text-slate-500"
+            className="rd-horizon-task-summary line-clamp-2 min-h-10 break-words text-pretty text-xs leading-5 text-slate-500"
           />
 
           {hasLoadedAttachments && (
@@ -7849,7 +7939,7 @@ function PersonTaskCockpit({
                 style={{
                   width: "100%",
                   transformOrigin: "left center",
-                  background: task.progress === 100 ? "#10b981" : `linear-gradient(90deg, ${grad.from}, ${grad.to})`,
+                  background: task.progress === 100 ? "#10b981" : accentColor,
                 }}
               />
             </div>
@@ -7885,13 +7975,13 @@ function PersonTaskCockpit({
                 {t("已阻塞 {n} 天", { n: blockedDaysOf(task) })}
               </span>
             )}
-            {workItemsFeatureEnabled() && (task.work_items ?? []).length > 0 && (
+            {workItemsFeatureEnabled() && workItems.length > 0 && (
               <span
                 className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500"
-                title={t("工作项 {done}/{total}", { done: task.work_items!.filter((it) => it.done).length, total: task.work_items!.length })}
+                title={t("工作项 {done}/{total}", { done: completedWorkItemCount, total: workItems.length })}
               >
                 <ListChecks className="h-3 w-3" />
-                {task.work_items!.filter((it) => it.done).length}/{task.work_items!.length}
+                {completedWorkItemCount}/{workItems.length}
               </span>
             )}
             <span className="ml-auto inline-flex min-w-0 items-center gap-1.5 text-slate-400">
@@ -7961,37 +8051,37 @@ function PersonTaskCockpit({
 
           {/* ── INS Stories-style 人员导航栏 (with visible horizontal scrollbar) ──
               外层 flex 承载底边框/底色：头像区可横向滚动，右端搜索控件钉死不随之滚走。 */}
-          <div className="rd-horizon-people-nav flex w-full items-center border-b border-indigo-100 bg-slate-50/50 pr-4">
+          <div className="rd-horizon-people-nav flex w-full min-w-0 flex-col items-stretch border-b border-blue-100 bg-slate-50/50 sm:flex-row sm:items-center sm:pr-4">
           <TabsList className="rd-horizon-people-list flex h-auto min-w-0 flex-1 snap-x snap-proximity justify-start gap-0 overflow-x-auto overscroll-x-contain rounded-none border-none bg-transparent px-4 pt-4 pb-2 touch-pan-x [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
 
             {/* 管理员视角 — 所有活跃任务入口；详情沿用原权限规则，不附加成员筛选 */}
             <TabsTrigger
               value="all"
-              className="rd-horizon-person-tab flex min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0 data-[state=active]:bg-transparent"
+              className="rd-horizon-person-tab flex min-h-11 min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 data-[state=active]:bg-transparent"
             >
               <div className="relative">
                 <div
-                  className="rd-horizon-admin-ring rd-horizon-avatar-ring flex h-[54px] w-[54px] items-center justify-center rounded-full p-[2.5px] transition-all duration-200"
+                  className="rd-horizon-admin-ring rd-horizon-avatar-ring flex h-[54px] w-[54px] items-center justify-center rounded-full p-[2.5px] transition-colors duration-200"
                   style={{
                     background: activeTab === "all"
-                      ? "linear-gradient(135deg,#002FA7,#165DFF)"
+                      ? "#002fa7"
                       : risks.length > 0
-                        ? "linear-gradient(135deg,#a5b4fc,#f87171)"
-                        : "linear-gradient(135deg,#cbd5e1,#94a3b8)",
+                        ? "#dc2626"
+                        : "#94a3b8",
                   }}
                 >
                   <div className={cn(
-                    "flex h-full w-full items-center justify-center rounded-full bg-white transition-all",
+                    "flex h-full w-full items-center justify-center rounded-full bg-white transition-[padding]",
                     activeTab === "all" ? "p-[2px]" : "p-0",
                   )}>
-                    <div className="rd-horizon-avatar-core flex h-full w-full items-center justify-center rounded-full bg-indigo-50">
-                      <ListChecks className={cn("h-5 w-5 transition-colors", activeTab === "all" ? "text-indigo-600" : "text-slate-500")} />
+                    <div className="rd-horizon-avatar-core flex h-full w-full items-center justify-center rounded-full bg-blue-50">
+                      <ListChecks className={cn("h-5 w-5 transition-colors", activeTab === "all" ? "text-[#002fa7]" : "text-slate-500")} />
                     </div>
                   </div>
                 </div>
                 {/* Total tasks badge */}
                 {allActiveTasks.length > 0 && (
-                  <span className="rd-horizon-total-count absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-500 px-0.5 text-[9px] font-black text-white">
+                  <span className="rd-horizon-total-count absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#002fa7] px-0.5 text-[9px] font-black text-white">
                     {allActiveTasks.length > 99 ? "99+" : allActiveTasks.length}
                   </span>
                 )}
@@ -8005,7 +8095,7 @@ function PersonTaskCockpit({
                   </span>
                 )}
               </div>
-              <span className={cn("rd-horizon-person-name text-[10px] font-semibold leading-none", activeTab === "all" ? "text-indigo-800" : "text-slate-500")}>
+              <span className={cn("rd-horizon-person-name text-[10px] font-semibold leading-none", activeTab === "all" ? "text-[#002fa7]" : "text-slate-500")}>
                 {t("管理员视角")}
               </span>
             </TabsTrigger>
@@ -8013,7 +8103,7 @@ function PersonTaskCockpit({
             {/* Per-person Stories avatars */}
             {personLoads.map((p) => {
               const ratio = p.max > 0 ? p.count / p.max : 0;
-              const grad = loadRingGradient(ratio, p.onLeave);
+              const accentColor = loadRingColor(ratio, p.onLeave);
               const isActive = activeTab === p.key;
               const initial = p.name.replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
               const avatarUrl = resolveAvatar(p.name, p.user_id);
@@ -8021,15 +8111,13 @@ function PersonTaskCockpit({
                 <TabsTrigger
                   key={p.key}
                   value={p.key}
-                  className="rd-horizon-person-tab flex min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0 data-[state=active]:bg-transparent"
+                  className="rd-horizon-person-tab flex min-h-11 min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 data-[state=active]:bg-transparent"
                 >
                   <div className="relative">
                     <div
-                      className="rd-horizon-avatar-ring flex h-[54px] w-[54px] items-center justify-center rounded-full transition-all duration-200"
+                      className="rd-horizon-avatar-ring flex h-[54px] w-[54px] items-center justify-center rounded-full transition-[padding] duration-200"
                       style={{
-                        background: p.onLeave
-                          ? "#e2e8f0"
-                          : `linear-gradient(135deg, ${grad.from}, ${grad.to})`,
+                        background: p.onLeave ? "#e2e8f0" : accentColor,
                         padding: isActive ? "2.5px" : "2px",
                       }}
                     >
@@ -8051,7 +8139,7 @@ function PersonTaskCockpit({
                     {p.count > 0 && (
                       <span
                         className="rd-horizon-load-count absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-0.5 text-[9px] font-black text-white"
-                        style={{ background: `linear-gradient(135deg, ${grad.from}, ${grad.to})` }}
+                        style={{ background: accentColor }}
                       >
                         {p.count}
                       </span>
@@ -8062,14 +8150,14 @@ function PersonTaskCockpit({
                       </span>
                     )}
                   </div>
-                  <span className={cn("rd-horizon-person-name max-w-[56px] truncate text-[10px] font-semibold leading-none", isActive ? "text-indigo-800" : "text-slate-500")}>
+                  <span className={cn("rd-horizon-person-name max-w-[56px] truncate text-[10px] font-semibold leading-none", isActive ? "text-[#002fa7]" : "text-slate-500")}>
                     {p.name}
                   </span>
                   {isActive && (
                     <motion.span
                       layoutId="cockpit-tab-dot"
                       className="rd-horizon-person-indicator mt-0 h-1 w-4 rounded-full"
-                      style={{ background: `linear-gradient(135deg, ${grad.from}, ${grad.to})` }}
+                      style={{ background: accentColor }}
                       transition={{ duration: 0.22, ease: RD_MOTION_EASE }}
                     />
                   )}
@@ -8079,30 +8167,37 @@ function PersonTaskCockpit({
           </TabsList>
 
           {/* 任务搜索：默认仅一枚圆形图标，点击展开为小输入框；为空失焦自动缩回 */}
-          <div className="rd-horizon-search ml-2 flex shrink-0 items-center">
+          <div className="rd-horizon-search flex w-full shrink-0 items-center px-4 pb-3 sm:ml-2 sm:w-auto sm:px-0 sm:pb-0">
             {searchOpen || cockpitSearch ? (
-              <label className="relative block">
+              <label className="relative block w-full sm:w-auto">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <input
                   ref={searchInputRef}
+                  type="search"
                   value={cockpitKeyword}
                   onChange={(e) => setCockpitKeyword(e.target.value)}
                   onBlur={() => { if (!cockpitKeyword.trim()) setSearchOpen(false); }}
                   onKeyDown={(e) => {
                     if (e.key === "Escape") {
-                      setCockpitKeyword("");
-                      setSearchOpen(false);
-                      e.currentTarget.blur();
+                      e.preventDefault();
+                      closeSearchAndRestoreFocus();
                     }
                   }}
                   placeholder={t("搜索任务全部内容")}
-                  className="h-9 w-40 rounded-full border border-slate-200 bg-white pl-8 pr-14 text-xs text-slate-700 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50 sm:w-52"
+                  aria-label={t("搜索任务全部内容")}
+                  aria-describedby="rd-cockpit-search-results"
+                  className="min-h-11 w-full rounded-full border border-slate-200 bg-white pl-8 pr-16 text-xs text-slate-700 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-[#002fa7]/50 focus:ring-2 focus:ring-blue-100 sm:w-52"
                 />
-                {cockpitSearch ? (
-                  <span className="rd-horizon-search-count pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-[10px] font-semibold tabular-nums text-indigo-500">
-                    {t("{n} 条", { n: cockpitHitCount })}
-                  </span>
-                ) : null}
+                <span
+                  id="rd-cockpit-search-results"
+                  className={cn(
+                    "rd-horizon-search-count pointer-events-none absolute right-9 top-1/2 -translate-y-1/2 text-[10px] font-semibold tabular-nums text-[#002fa7]",
+                    !cockpitSearch && "sr-only",
+                  )}
+                  aria-live="polite"
+                >
+                  {searchPending ? t("筛选中…") : t("{n} 条", { n: cockpitHitCount })}
+                </span>
                 {cockpitKeyword ? (
                   <button
                     type="button"
@@ -8111,7 +8206,7 @@ function PersonTaskCockpit({
                       setCockpitKeyword("");
                       searchInputRef.current?.focus();
                     }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded-full p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                    className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
                     aria-label={t("清空搜索")}
                   >
                     <X className="h-3.5 w-3.5" />
@@ -8120,9 +8215,10 @@ function PersonTaskCockpit({
               </label>
             ) : (
               <button
+                ref={searchTriggerRef}
                 type="button"
                 onClick={() => setSearchOpen(true)}
-                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
+                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
                 title={t("搜索任务全部内容（描述、人员、进度、工作项等）")}
                 aria-label={t("搜索任务")}
               >
@@ -8134,9 +8230,9 @@ function PersonTaskCockpit({
 
           {/* ── 当前 KPI 筛选条 ── */}
           {kpiFilter !== "all" && (
-            <div className="rd-horizon-filter-bar flex items-center justify-between gap-3 border-b border-indigo-100 bg-indigo-50/40 px-4 py-2 text-xs">
+            <div className="rd-horizon-filter-bar flex flex-col items-stretch justify-between gap-3 border-b border-blue-100 bg-blue-50/50 px-4 py-2 text-xs sm:flex-row sm:items-center">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="rd-horizon-filter-label inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-200 shadow-[0_4px_10px_rgba(79,70,229,0.06)]">
+                <span className="rd-horizon-filter-label inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-[#002fa7] ring-1 ring-blue-200">
                   <ListChecks className="h-3 w-3" />
                   {t("当前筛选：")}
                   <span className="ml-0.5">{t(KPI_FILTER_LABEL[kpiFilter])}</span>
@@ -8145,14 +8241,14 @@ function PersonTaskCockpit({
                   {t("共 {count} 个任务符合此筛选", { count: allActiveTasks.length })}
                 </span>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 {kpiFilter === "completed" && canReassign && (
                   <>
                     <button
                       type="button"
                       onClick={() => handleBackfillScores(false)}
                       disabled={backfillBusy}
-                      className="rd-horizon-brand-control inline-flex shrink-0 items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-1 text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-blue-200 bg-white px-2 text-[11px] font-semibold text-[#002fa7] transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
                       title={t("一键执行：① 自动抽取附件文本（OCR/文档/视觉） → ② 调 AI 评分。已抽取/已评分的会跳过（幂等）。")}
                     >
                       {backfillBusy ? (
@@ -8174,7 +8270,7 @@ function PersonTaskCockpit({
                         }
                       }}
                       disabled={backfillBusy}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] font-semibold text-amber-700 transition-colors hover:border-amber-300 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-amber-200 bg-white px-2 text-[11px] font-semibold text-amber-700 transition-colors hover:border-amber-300 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
                       title={t("强制重算：对所有已完成任务按最新评分标准重新评分并覆盖旧分。用于评分标准升级后统一刷新历史分。")}
                     >
                       <RotateCcw className="h-3 w-3" />
@@ -8184,7 +8280,7 @@ function PersonTaskCockpit({
                       type="button"
                       onClick={handleBatchExportReports}
                       disabled={batchExportBusy}
-                      className="rd-horizon-brand-control inline-flex shrink-0 items-center gap-1 rounded-md border border-violet-200 bg-white px-2 py-1 text-[11px] font-semibold text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-blue-200 bg-white px-2 text-[11px] font-semibold text-[#002fa7] transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
                       title={t("把当前范围（管理员视角 / 选中成员）已完成且已评分的任务，汇总成一份多页正式报告，可在打印对话框中选择「另存为 PDF」下载。")}
                     >
                       {batchExportBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
@@ -8197,7 +8293,7 @@ function PersonTaskCockpit({
                     type="button"
                     onClick={handleBackfillExtraction}
                     disabled={extractionBackfillBusy}
-                    className="rd-horizon-brand-control inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-60"
                     title={t("仅抽取附件文本（不触发评分）。用于进行中/暂停任务的附件抽取，便于知识库 RAG 检索；已完成任务请直接用 AI 复盘评分（已包含抽取）。")}
                   >
                     {extractionBackfillBusy ? (
@@ -8212,7 +8308,7 @@ function PersonTaskCockpit({
                   <button
                     type="button"
                     onClick={onClearKpiFilter}
-                    className="rd-horizon-brand-control inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                    className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
                   >
                     <X className="h-3 w-3" />
                     {t("清除筛选")}
@@ -8223,7 +8319,7 @@ function PersonTaskCockpit({
           )}
 
           {/* ── Animated tab content area ── */}
-          <div className="rd-horizon-task-feed relative overflow-hidden bg-slate-50/40">
+          <div className="rd-horizon-task-feed relative min-w-0 overflow-hidden bg-slate-50/40" aria-busy={searchPending}>
             <AnimatePresence mode="wait" custom={direction}>
               <motion.div
                 key={activeTab}
@@ -8240,7 +8336,7 @@ function PersonTaskCockpit({
                   const visibleCount = visibleCounts["all"] ?? taskPageSize;
                   const shownTasks = allActiveTasks.slice(0, visibleCount);
                   const hasMore = visibleCount < allActiveTasks.length;
-                  const allGrad = { from: "#4f46e5", to: "#6366f1" };
+                  const allAccentColor = "#002fa7";
 
                   return (
                     <div>
@@ -8251,7 +8347,9 @@ function PersonTaskCockpit({
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
                             transition={RD_FAST_TRANSITION}
-                            className="rd-horizon-loading-strip flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-[11px] text-indigo-600"
+                            className="rd-horizon-loading-strip flex items-center gap-2 border-b border-blue-100 bg-blue-50 px-4 py-2 text-[11px] text-[#002fa7]"
+                            role="status"
+                            aria-live="polite"
                           >
                             <Loader2 className="h-3 w-3 animate-spin shrink-0" />
                             {t("正在加载任务附件图片…")}
@@ -8260,19 +8358,30 @@ function PersonTaskCockpit({
                       </AnimatePresence>
 
                       {allActiveTasks.length === 0 ? (
-                        <div className="flex h-[65vh] flex-col items-center justify-center gap-2 text-sm text-slate-400">
-                          <span>
+                        <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 px-6 py-12 text-center text-sm text-slate-500" role="status">
+                          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-50 text-[#002fa7]">
+                            <Search className="h-5 w-5" aria-hidden="true" />
+                          </span>
+                          <h3 className="text-balance text-base font-semibold text-slate-900">
                             {cockpitSearch
                               ? t("没有匹配「{keyword}」的任务", { keyword: cockpitSearch })
                               : kpiFilter === "all"
                                 ? t("暂无任务")
                                 : t("当前筛选「{filter}」下暂无任务", { filter: t(KPI_FILTER_LABEL[kpiFilter]) })}
-                          </span>
+                          </h3>
+                          <p className="max-w-md text-pretty text-xs leading-5 text-slate-500">
+                            {cockpitSearch
+                              ? t("请调整关键词，或清除搜索查看当前范围内的全部任务。")
+                              : kpiFilter === "all"
+                                ? t("当前工作区还没有可展示的非归档任务。")
+                                : t("请清除筛选，或切换其他决策指标继续查看。")}
+                          </p>
+                          <div className="flex flex-wrap items-center justify-center gap-2">
                           {cockpitSearch && (
                             <button
                               type="button"
-                              onClick={() => { setCockpitKeyword(""); setSearchOpen(false); }}
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                              onClick={closeSearchAndRestoreFocus}
+                              className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
                             >
                               <X className="h-3 w-3" />
                               {t("清除搜索")}
@@ -8282,12 +8391,13 @@ function PersonTaskCockpit({
                             <button
                               type="button"
                               onClick={onClearKpiFilter}
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                              className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
                             >
                               <X className="h-3 w-3" />
                               {t("清除筛选")}
                             </button>
                           )}
+                          </div>
                         </div>
                       ) : (
                         <div
@@ -8301,7 +8411,7 @@ function PersonTaskCockpit({
                               <div key={colIdx} className={cn("rd-horizon-masonry-column flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
                                 <AnimatePresence>
                                   {column.map((task, rowIdx) =>
-                                    renderTaskCard(task, colIdx + rowIdx * masonryColumns, allGrad),
+                                    renderTaskCard(task, colIdx + rowIdx * masonryColumns, allAccentColor),
                                   )}
                                 </AnimatePresence>
                               </div>
@@ -8312,7 +8422,7 @@ function PersonTaskCockpit({
                             <button
                               type="button"
                               onClick={() => loadNextTaskPage("all", allActiveTasks.length)}
-                              className="flex w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-indigo-50/50 hover:text-indigo-600"
+                              className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-blue-50/50 hover:text-[#002fa7]"
                             >
                               <ChevronDown className="h-3 w-3" />
                               <span>{t("继续向下滚动 · 已显示")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> {t("个任务")}</span>
@@ -8348,7 +8458,7 @@ function PersonTaskCockpit({
                   const hasMore = visibleCount < primaryTasks.length;
                   const collabExpanded = expandedCollabTabs.has(p.key);
                   const ratio = p.max > 0 ? p.count / p.max : 0;
-                  const grad = loadRingGradient(ratio, p.onLeave);
+                  const accentColor = loadRingColor(ratio, p.onLeave);
                   const initial = p.name.replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
                   return (
                     <div>
@@ -8360,7 +8470,9 @@ function PersonTaskCockpit({
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
                             transition={RD_FAST_TRANSITION}
-                            className="rd-horizon-loading-strip flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-[11px] text-indigo-600"
+                            className="rd-horizon-loading-strip flex items-center gap-2 border-b border-blue-100 bg-blue-50 px-4 py-2 text-[11px] text-[#002fa7]"
+                            role="status"
+                            aria-live="polite"
                           >
                             <Loader2 className="h-3 w-3 animate-spin shrink-0" />
                             {t("正在加载任务附件图片…")}
@@ -8370,17 +8482,28 @@ function PersonTaskCockpit({
 
                       {/* Task list — 与"全部"相同的 INS 风格滚动 feed */}
                       {tasks.length === 0 ? (
-                        <div className="flex h-[65vh] flex-col items-center justify-center gap-2 text-sm text-slate-400">
-                          <span>
+                        <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 px-6 py-12 text-center text-sm text-slate-500" role="status">
+                          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-50 text-[#002fa7]">
+                            <Users className="h-5 w-5" aria-hidden="true" />
+                          </span>
+                          <h3 className="text-balance text-base font-semibold text-slate-900">
                             {cockpitSearch
                               ? t("该成员下没有匹配「{keyword}」的任务", { keyword: cockpitSearch })
                               : kpiFilter === "all" ? t("该成员当前暂无任务") : t("该成员当前筛选「{filter}」下暂无任务", { filter: t(KPI_FILTER_LABEL[kpiFilter]) })}
-                          </span>
+                          </h3>
+                          <p className="max-w-md text-pretty text-xs leading-5 text-slate-500">
+                            {cockpitSearch
+                              ? t("请调整关键词，或清除搜索查看该成员的主责与协助任务。")
+                              : kpiFilter === "all"
+                                ? t("该成员当前没有符合工作区范围的任务。")
+                                : t("请清除筛选，或切换其他人员继续查看。")}
+                          </p>
+                          <div className="flex flex-wrap items-center justify-center gap-2">
                           {cockpitSearch && (
                             <button
                               type="button"
-                              onClick={() => { setCockpitKeyword(""); setSearchOpen(false); }}
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                              onClick={closeSearchAndRestoreFocus}
+                              className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
                             >
                               <X className="h-3 w-3" />
                               {t("清除搜索")}
@@ -8390,12 +8513,13 @@ function PersonTaskCockpit({
                             <button
                               type="button"
                               onClick={onClearKpiFilter}
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                              className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
                             >
                               <X className="h-3 w-3" />
                               {t("清除筛选")}
                             </button>
                           )}
+                          </div>
                         </div>
                       ) : (
                         <div
@@ -8406,7 +8530,7 @@ function PersonTaskCockpit({
                         >
                           {/* ── 主责段：领导最关心「这个人负责什么」，占第一屏 ── */}
                           <div className="flex items-center gap-2 px-4 pt-3 text-[11px] font-semibold text-slate-500">
-                            <span className="h-3 w-0.5 rounded-full bg-indigo-500" />
+                            <span className="h-3 w-0.5 rounded-full bg-[#002fa7]" />
                             <span>{t("主责")}</span>
                             <span className="tabular-nums text-slate-400">{primaryTasks.length}</span>
                           </div>
@@ -8418,7 +8542,7 @@ function PersonTaskCockpit({
                                 <div key={colIdx} className={cn("rd-horizon-masonry-column flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
                                   <AnimatePresence>
                                     {column.map((task, rowIdx) =>
-                                      renderTaskCard(task, colIdx + rowIdx * masonryColumns, grad),
+                                      renderTaskCard(task, colIdx + rowIdx * masonryColumns, accentColor),
                                     )}
                                   </AnimatePresence>
                                 </div>
@@ -8446,7 +8570,7 @@ function PersonTaskCockpit({
                                     <div key={colIdx} className={cn("rd-horizon-masonry-column flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
                                       <AnimatePresence>
                                         {column.map((task, rowIdx) =>
-                                          renderTaskCard(task, colIdx + rowIdx * masonryColumns, grad),
+                                          renderTaskCard(task, colIdx + rowIdx * masonryColumns, accentColor),
                                         )}
                                       </AnimatePresence>
                                     </div>
@@ -8461,7 +8585,7 @@ function PersonTaskCockpit({
                             <button
                               type="button"
                               onClick={() => loadNextTaskPage(p.key, primaryTasks.length)}
-                              className="flex w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-indigo-50/50 hover:text-indigo-600"
+                              className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-blue-50/50 hover:text-[#002fa7]"
                             >
                               <ChevronDown className="h-3 w-3" />
                               <span>{t("继续向下滚动 · 已显示主责")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{primaryTasks.length}</span> {t("个任务")}</span>
@@ -8531,10 +8655,9 @@ function TaskReassignModal({
   onUpdated?: () => void;
   horizonVariant?: boolean;
 }) {
-  const shouldReduceMotion = useReducedMotion();
   const assignableTasks: ReassignableTask[] = allTasks
     .filter((t) => !isProductionMirrorTask(t) && !t.archived && t.status !== "completed")
-    .map((t) => ({ task_id: t.task_id, title: t.title, owner: t.primary_owner, priority: t.final_priority }));
+    .map((t) => ({ task_id: t.task_id, title: taskVisibleTitle(t), owner: t.primary_owner, priority: t.final_priority }));
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(
     () => new Set(initialTaskId ? [initialTaskId] : []),
   );
@@ -8616,25 +8739,32 @@ function TaskReassignModal({
   };
 
   return (
-    <motion.div
-      initial={shouldReduceMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={RD_FAST_TRANSITION}
-      className="rd-task-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !saving) onClose();
+      }}
     >
-      <motion.div
-        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 14, scale: 0.98 }}
-        transition={RD_PANEL_TRANSITION}
-        className="rd-task-overlay-surface w-full max-w-lg rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        className="rd-task-overlay-surface gap-0 overflow-hidden border-0 bg-white p-0 shadow-2xl sm:max-w-lg [&>button:last-child]:hidden"
+        onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
+        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}
+        onInteractOutside={(event) => { if (saving) event.preventDefault(); }}
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <span className="font-semibold text-slate-800">{t("批量转派任务")}</span>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
+          <div>
+            <DialogTitle className="font-semibold text-slate-800">{t("批量转派任务")}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {t("选择一个或多个任务，并指定新的负责人。")}
+            </DialogDescription>
+          </div>
+          <button
+            type="button"
+            aria-label={t("关闭批量转派任务")}
+            disabled={saving}
+            onClick={() => { if (!saving) onClose(); }}
+            className="rounded-lg p-1.5 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40"
+          >
             <X className="h-4 w-4 text-slate-500" />
           </button>
         </div>
@@ -8662,7 +8792,11 @@ function TaskReassignModal({
                         />
                       </div>
                       <Select value={ownerFilter} onValueChange={setOwnerFilter}>
-                        <SelectTrigger size="sm" className="h-8 w-auto max-w-[160px] shrink-0 rounded-lg text-sm text-slate-600">
+                        <SelectTrigger
+                          size="sm"
+                          aria-label={t("按负责人筛选")}
+                          className="h-8 w-auto max-w-[160px] shrink-0 rounded-lg text-sm text-slate-600"
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className={cn("rounded-xl border border-slate-200 bg-white p-1 shadow-lg", horizonVariant && "rd-horizon-detail-select")}>
@@ -8683,6 +8817,7 @@ function TaskReassignModal({
                         <button
                           key={p.key}
                           type="button"
+                          aria-pressed={priorityFilter === p.key}
                           onClick={() => setPriorityFilter(p.key)}
                           className={cn(
                             "cursor-pointer rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
@@ -8745,6 +8880,7 @@ function TaskReassignModal({
                       <button
                         key={p.id}
                         type="button"
+                        aria-pressed={targetPerson?.id === p.id}
                         disabled={isNoop}
                         onClick={() => !isNoop && setTargetPerson(p)}
                         className={cn(
@@ -8766,7 +8902,14 @@ function TaskReassignModal({
                 </div>
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">{t("取消")}</button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => { if (!saving) onClose(); }}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40"
+                >
+                  {t("取消")}
+                </button>
                 <button
                   type="button"
                   disabled={selectedTasks.size === 0 || !targetPerson || targetIsCurrentOwner || saving}
@@ -8789,16 +8932,21 @@ function TaskReassignModal({
             </div>
           )}
         </div>
-      </motion.div>
-    </motion.div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 // ─── ClearDataDialog ──────────────────────────────────────────────────────────
 function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleared: () => void }) {
   const usCollab = isUsCollabWorkspace();
-  const moduleName = usCollab ? t("协同任务模块") : t("研发任务模块");
-  const workspaceName = usCollab ? t("协同") : t("研发");
+  const productionWorkspace = isProductionWorkspace();
+  const moduleName = usCollab
+    ? t("协同任务模块")
+    : productionWorkspace
+      ? t("生产任务模块")
+      : t("研发任务模块");
+  const workspaceName = usCollab ? t("协同") : productionWorkspace ? t("生产") : t("研发");
   const shouldReduceMotion = useReducedMotion();
   const [confirmText, setConfirmText] = useState("");
   const [clearing, setClearing] = useState(false);
@@ -8933,6 +9081,7 @@ function ProductManageDialog({
   onSave: (products: ProductDef[]) => Promise<void>;
   horizonVariant?: boolean;
 }) {
+  const productionWorkspace = isProductionWorkspace();
   const shouldReduceMotion = useReducedMotion();
   const [view, setView] = useState<"list" | "form">("list");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -9053,7 +9202,7 @@ function ProductManageDialog({
                       const pStatus: RdProductStatus = prod.status ?? "developing";
                       const style = PRODUCT_STATUS_STYLE[pStatus];
                       const dot = PRODUCT_STATUS_DOT[pStatus];
-                      const label = PRODUCT_STATUS_LABEL[pStatus];
+                      const label = productionWorkspace && pStatus === "developing" ? "生产中" : PRODUCT_STATUS_LABEL[pStatus];
                       return (
                         <div key={prod.id} className="flex items-center gap-3 px-6 py-3">
                           <div className="min-w-0 flex-1">
@@ -9125,7 +9274,9 @@ function ProductManageDialog({
                 </div>
                 {/* Status */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">{t("研发状态")}</Label>
+                  <Label className="text-xs font-semibold text-slate-700">
+                    {productionWorkspace ? t("生产状态") : t("研发状态")}
+                  </Label>
                   <Select
                     value={form.status}
                     onValueChange={(v) => setForm((prev) => ({ ...prev, status: v as RdProductStatus }))}
@@ -9135,7 +9286,7 @@ function ProductManageDialog({
                     </SelectTrigger>
                     <SelectContent className={cn(horizonVariant && "rd-horizon-detail-select")}>
                       <SelectItem value="active">{t("活跃")}</SelectItem>
-                      <SelectItem value="developing">{t("研发中")}</SelectItem>
+                      <SelectItem value="developing">{productionWorkspace ? t("生产中") : t("研发中")}</SelectItem>
                       <SelectItem value="paused">{t("暂停")}</SelectItem>
                       <SelectItem value="archived">{t("归档")}</SelectItem>
                     </SelectContent>
@@ -9242,9 +9393,9 @@ function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
         aria-expanded={expanded}
-        className="flex w-full cursor-pointer flex-wrap items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-slate-50/60"
+        className="flex min-h-11 w-full cursor-pointer flex-wrap items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-slate-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
       >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#002fa7] ring-1 ring-blue-100">
           <CalendarDays className="h-3.5 w-3.5" />
         </span>
         <span className="text-sm font-semibold text-slate-700">{t("今日日报")}</span>
@@ -9267,7 +9418,7 @@ function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
         ) : (
           <span className="text-xs text-slate-400">{t("今日暂无日报")}{canRegenerate ? ` · ${t("展开后可立即汇总")}` : ""}</span>
         )}
-        <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-indigo-600">
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-[#002fa7]">
           {expanded ? t("收起报表") : t("展开报表")}
           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")} />
         </span>
@@ -9309,6 +9460,7 @@ function ExecutiveOverview({
   canDirectProject,
   onReassignTask,
   canDelete,
+  canDeleteAny,
   onDeleteTask,
   canSyncProduction,
   syncedProductionTaskIds,
@@ -9350,6 +9502,7 @@ function ExecutiveOverview({
   canDirectProject?: boolean;
   onReassignTask?: (t: Task) => void;
   canDelete?: boolean;
+  canDeleteAny?: boolean;
   onDeleteTask?: (t: Task) => void;
   canSyncProduction?: boolean;
   syncedProductionTaskIds?: Set<string>;
@@ -9362,17 +9515,24 @@ function ExecutiveOverview({
   panoramaReloadToken?: number;
   /** 中美协同驾驶舱：隐藏「子系统全景」模块 */
   hideSystemPanorama?: boolean;
-  /** 原生研发驾驶舱专用的 Horizon / Klein Blue 视觉变体。 */
+  /** 研发与生产驾驶舱共用的 Horizon / Klein Blue 视觉变体。 */
   horizonVariant?: boolean;
 }) {
+  const productionWorkspace = isProductionWorkspace();
   const shouldReduceMotion = useReducedMotion();
   // i18n 试点（P0 验证链路）：订阅语言切换；t() 中文态原样返回，研发侧零影响
   const { lang } = useI18n();
   // KPI 一律用 kpiStats（概览跨库、board 内为本库），与下方按当前库渲染的分类卡刻意不同源
-  const totalActive = kpiStats.reduce((s, c) => s + c.total, 0);
-  const inProgress = kpiStats.reduce((s, c) => s + c.inProgress, 0);
-  const done = kpiStats.reduce((s, c) => s + c.done, 0);
-  const blocked = kpiStats.reduce((s, c) => s + c.blocked, 0);
+  const { totalActive, inProgress, done, blocked } = useMemo(() => {
+    const totals = { totalActive: 0, inProgress: 0, done: 0, blocked: 0 };
+    for (const stat of kpiStats) {
+      totals.totalActive += stat.total;
+      totals.inProgress += stat.inProgress;
+      totals.done += stat.done;
+      totals.blocked += stat.blocked;
+    }
+    return totals;
+  }, [kpiStats]);
   const rate = totalActive > 0 ? Math.round((done / totalActive) * 100) : 0;
 
   // KPI 卡片筛选：点击切换；再点一次取消。
@@ -9381,23 +9541,41 @@ function ExecutiveOverview({
     setKpiFilter((prev) => (prev === key ? "all" : key));
   }, []);
 
-  // KPI 定义（研发的格子卡与协同的 stat strip 共享同一份数据与筛选交互）
-  const kpiItems = [
-    { label: t("总任务"), value: totalActive, hint: t("未归档根任务数；已并入父任务的子任务不重复统计"), Icon: Target, tone: "text-indigo-700", bg: "from-indigo-50 to-white", filterKey: null, activeRing: "ring-indigo-300" },
-    { label: t("完成率"), value: `${rate}%`, hint: t("已完成 ÷ 总任务（{n}）", { n: totalActive }), Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white", filterKey: null, activeRing: "ring-slate-300" },
-    { label: t("进行中"), value: inProgress, hint: "", Icon: CircleDot, tone: "text-indigo-600", bg: "from-indigo-50 to-white", filterKey: "in_progress" as KpiFilter, activeRing: "ring-indigo-400" },
-    { label: t("完成"), value: done, hint: "", Icon: CheckCircle2, tone: "text-emerald-700", bg: "from-emerald-50 to-white", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
-    { label: t("阻塞/待派"), value: blocked, hint: "", Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", bg: blocked > 0 ? "from-amber-50 to-white" : "from-slate-50 to-white", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
-    { label: t("风险"), value: risks.length, hint: "", Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", bg: risks.length > 0 ? "from-red-50 to-white" : "from-slate-50 to-white", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
-  ] as const;
+  // KPI 定义（Horizon 格子卡与协同 stat strip 共享同一份数据与筛选交互）
+  const kpiItems = useMemo(() => [
+    { label: t("总任务"), value: totalActive, hint: t("未归档根任务数；已并入父任务的子任务不重复统计"), Icon: Target, tone: "text-[#002fa7]", filterKey: null, activeRing: "ring-blue-300" },
+    { label: t("完成率"), value: `${rate}%`, hint: t("已完成 ÷ 总任务（{n}）", { n: totalActive }), Icon: Gauge, tone: "text-slate-900", filterKey: null, activeRing: "ring-slate-300" },
+    { label: t("进行中"), value: inProgress, hint: "", Icon: CircleDot, tone: "text-[#002fa7]", filterKey: "in_progress" as KpiFilter, activeRing: "ring-blue-400" },
+    { label: t("完成"), value: done, hint: "", Icon: CheckCircle2, tone: "text-emerald-700", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
+    { label: t("阻塞/待派"), value: blocked, hint: "", Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
+    { label: t("风险"), value: risks.length, hint: "", Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
+  ] as const, [blocked, done, inProgress, lang, rate, risks.length, totalActive]);
 
-  // 协同侧页头采用三层结构（页头条 / stat strip / 报表全宽），研发侧维持原两卡布局
+  const decisionSummary = useMemo(() => {
+    if (risks.length > 0) {
+      return t("当前有 {riskCount} 个风险任务、{blockedCount} 个阻塞或待派任务。建议先处理风险，再推进进行中工作。", {
+        riskCount: risks.length,
+        blockedCount: blocked,
+      });
+    }
+    if (blocked > 0) {
+      return t("当前有 {count} 个阻塞或待派任务，建议先明确责任人与下一步。", { count: blocked });
+    }
+    if (inProgress > 0) {
+      return t("当前 {count} 个任务正在推进，暂无已识别风险。", { count: inProgress });
+    }
+    return totalActive > 0
+      ? t("当前任务均未进入执行或已完成，可从人员任务区继续核对状态。")
+      : t("当前工作区暂无任务数据。读取或创建任务后，这里会生成真实决策摘要。");
+  }, [blocked, inProgress, lang, risks.length, totalActive]);
+
+  // 协同侧页头采用三层结构（页头条 / stat strip / 报表全宽），研发与生产侧维持 Horizon 两卡布局
   const usCollabLayout = isUsCollabWorkspace();
 
   // 沉浸模式（整屏看任务）：把顶部概览的收起信号上报给 Root，联动隐藏全局顶栏 + 滑出侧边栏。
   const { setImmersive } = useLayoutChromeActions();
 
-  // 顶部模块（研发执行提示 + 日报/月报）随任务流滚动自动收起；「钉住」后常显、忽略滚动信号。
+  // 顶部模块（执行提示 + 日报/月报）随任务流滚动自动收起；「钉住」后常显、忽略滚动信号。
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [headerPinned, setHeaderPinned] = useState(false);
   // 来自 PersonTaskCockpit 的下滑收起信号：钉住时丢弃；展开由沉浸模式控制条显式触发。
@@ -9423,15 +9601,18 @@ function ExecutiveOverview({
       initial={shouldReduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={RD_FAST_TRANSITION}
-      className={cn("min-h-full bg-slate-50/30", horizonVariant && "rd-horizon-cockpit")}
+      className={cn("min-h-full min-w-0 bg-slate-50/30", horizonVariant && "horizon-theme hz-page rd-horizon-cockpit")}
       style={{ background: "transparent" }}
+      role="region"
+      aria-busy={loading}
+      aria-label={productionWorkspace ? t("生产任务核心驾驶舱") : t("研发任务核心驾驶舱")}
     >
       <div className="rd-horizon-layout mx-auto space-y-6 rd-stagger-children">
-        {/* 顶部并排区：研发执行提示（占 3）+ 今日日报速览（占 2）。窄屏（< xl）自动上下堆叠，
+        {/* 顶部并排区：执行提示（占 3）+ 今日日报速览（占 2）。窄屏（< xl）自动上下堆叠，
             宽屏并排可省下一整块纵向高度，留给下方的人员任务驾驶舱。
             随任务流下滑自动收起以最大化任务可视区；进入沉浸模式后由控制条显式展开。 */}
         <div className="rd-horizon-overview-top relative">
-        {/* 仅研发侧提供沉浸模式控制：收起后通过 portal 固定到视口右上角，不占布局且不受面板层级遮挡。 */}
+        {/* Horizon 驾驶舱提供沉浸模式控制：收起后通过 portal 固定到视口右上角，不占布局且不受面板层级遮挡。 */}
         {!usCollabLayout && headerCollapsed && typeof document !== "undefined" && createPortal(
             <motion.button
               type="button"
@@ -9442,7 +9623,7 @@ function ExecutiveOverview({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={RD_FAST_TRANSITION}
               className={cn(
-                "fixed right-4 top-4 z-40 inline-flex h-10 items-center gap-2 rounded-full border border-indigo-200/80 bg-white/90 px-3.5 text-xs font-semibold text-indigo-700 shadow-[0_10px_30px_-12px_rgba(79,70,229,0.45)] backdrop-blur-md transition-[border-color,background-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-indigo-300 hover:bg-white hover:shadow-[0_14px_34px_-12px_rgba(79,70,229,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none sm:right-6",
+                "horizon-portal fixed right-4 top-4 z-40 inline-flex min-h-11 items-center gap-2 rounded-full border border-blue-200 bg-white px-3.5 text-xs font-semibold text-[#002fa7] shadow-[0_10px_28px_-16px_rgba(0,47,167,0.30)] transition-[border-color,background-color,box-shadow] hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2 motion-reduce:transition-none sm:right-6",
                 horizonVariant && "rd-horizon-immersive-control",
               )}
             >
@@ -9460,10 +9641,10 @@ function ExecutiveOverview({
                 aria-label={headerPinned ? t("已钉住顶部模块，点击恢复滚动自动收起") : t("顶部模块随任务滚动自动收起，点击钉住常显")}
                 title={headerPinned ? t("已钉住：滚动时保持展开 · 点击恢复自动收起") : t("滚动任务时自动收起 · 点击钉住常显")}
                 className={cn(
-                  "rd-horizon-pin-toggle inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm transition-colors",
+                  "rd-horizon-pin-toggle inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 text-[11px] font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
                   headerPinned
-                    ? "border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700"
-                    : "border-slate-200 bg-white/70 text-slate-400 hover:border-indigo-200 hover:bg-white hover:text-indigo-600",
+                    ? "border-[#002fa7] bg-[#002fa7] text-white hover:bg-[#002782]"
+                    : "border-slate-200 bg-white text-slate-500 hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]",
                 )}
               >
                 {headerPinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
@@ -9483,13 +9664,14 @@ function ExecutiveOverview({
           <div className="flex flex-col gap-5">
             {/* ① 页头条（无卡片框）：标题+日期 在左，全局动作按钮组 在右 */}
             <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-bold tracking-tight text-slate-900">{t("协同任务驾驶舱")}</h2>
+              <div className="min-w-0">
+                <h2 className="text-balance text-xl font-bold text-slate-900">{t("协同任务驾驶舱")}</h2>
                 <p className="mt-1 text-sm text-slate-400">
                   {/* 与下方 KPI 首格同源：页头再报一个不同口径的任务数只会让人对不上账 */}
                   {new Date().toLocaleDateString(lang === "en" ? "en-US" : "zh-CN", { month: "long", day: "numeric", weekday: "long" })} · {t("{n} 个任务", { n: totalActive })}
                   {risks.length > 0 && <span className="ml-2 font-semibold text-red-500">{t("{n} 个风险", { n: risks.length })}</span>}
                 </p>
+                <p className="mt-2 max-w-2xl text-pretty text-xs leading-5 text-slate-600">{decisionSummary}</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <RdTaskExportButton allTasks={allTasks} peopleDirectory={peopleDirectory} />
@@ -9497,7 +9679,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onReassign}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
                   >
                     <UserCog className="h-3.5 w-3.5" />
                     {t("批量转派")}
@@ -9507,7 +9689,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onOpenPeople}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
                   >
                     <UserPlus className="h-3.5 w-3.5" />
                     {t("人员管理")}
@@ -9517,7 +9699,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onClearData}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-red-500 transition-colors hover:border-red-200 hover:bg-red-50"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-red-600 transition-colors hover:border-red-200 hover:bg-red-50"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     {t("清空数据")}
@@ -9527,7 +9709,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onAiProject}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-xs font-semibold text-white shadow-[0_6px_14px_-4px_rgba(79,70,229,0.4)] transition-colors hover:bg-indigo-700"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-[#002fa7] px-3.5 text-xs font-semibold text-white shadow-[0_6px_14px_-8px_rgba(0,47,167,0.35)] transition-colors hover:bg-[#002782]"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
                     {t("AI 立项")}
@@ -9561,10 +9743,10 @@ function ExecutiveOverview({
                       clickable && "cursor-pointer hover:bg-slate-50/80",
                     )}
                   >
-                    <span className={cn("text-2xl font-bold leading-none tabular-nums tracking-tight", active ? "text-indigo-600" : item.tone)}>
+                    <span className={cn("text-2xl font-bold leading-none tabular-nums", active ? "text-[#002fa7]" : item.tone)}>
                       <AnimatedNumber value={item.value} />
                     </span>
-                    <span className={cn("mt-1.5 text-xs font-medium", active ? "font-semibold text-indigo-600" : "text-slate-400")}>
+                    <span className={cn("mt-1.5 text-xs font-medium", active ? "font-semibold text-[#002fa7]" : "text-slate-400")}>
                       {item.label}
                       {active && ` · ${t("筛选中")}`}
                     </span>
@@ -9579,18 +9761,18 @@ function ExecutiveOverview({
             )}
           </div>
         ) : (
-        <div className={cn("rd-horizon-overview-grid", catStats.length > 0 && "grid items-stretch gap-6 xl:grid-cols-5")}>
-        <section className={cn("rd-horizon-command rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && "min-w-0 xl:col-span-3")}>
+        <div className={cn("rd-horizon-overview-grid", catStats.length > 0 && "grid items-stretch gap-6 min-[1500px]:grid-cols-5")}>
+        <section className={cn("rd-horizon-command rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && "min-w-0 min-[1500px]:col-span-3")}>
           <div className="rd-horizon-command-layout grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto]">
             <div className="rd-horizon-command-heading order-1 flex min-w-0 items-center gap-3">
-              <span className="rd-horizon-command-mark flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_6px_16px_-4px_rgba(79,70,229,0.45)]">
+              <span className="rd-horizon-command-mark flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#002fa7] text-white shadow-[0_6px_16px_-8px_rgba(0,47,167,0.35)]">
                 <Sparkles className="h-5 w-5" />
               </span>
               <div className="rd-horizon-command-copy min-w-0">
-                <h2 className="truncate text-base font-bold text-slate-900">{t("研发执行提示")}</h2>
-                {/*<p className="mt-0.5 truncate text-xs font-medium text-slate-500">*/}
-                {/*  优先处理阻塞、逾期和待指派任务；新增需求建议先走 AI 立项拆解。*/}
-                {/*</p>*/}
+                <h2 className="truncate text-balance text-base font-bold text-slate-900">
+                  {productionWorkspace ? t("生产执行提示") : t("研发执行提示")}
+                </h2>
+                <p className="mt-1 max-w-xl text-pretty text-xs leading-5 text-slate-600">{decisionSummary}</p>
               </div>
             </div>
 
@@ -9616,11 +9798,11 @@ function ExecutiveOverview({
                         ? { title: item.hint }
                         : {})}
                     className={cn(
-                      "rd-horizon-kpi flex min-w-0 items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 transition-all",
+                      "rd-horizon-kpi flex min-h-11 min-w-0 items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 transition-[border-color,box-shadow]",
                       active
-                        ? cn("border-transparent ring-2 ring-offset-1 shadow-[0_10px_24px_-10px_rgba(79,70,229,0.30)]", item.activeRing)
+                        ? cn("border-transparent ring-2 ring-offset-1 shadow-[0_10px_24px_-14px_rgba(0,47,167,0.24)]", item.activeRing)
                         : "border-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
-                      clickable && !active && "cursor-pointer hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_8px_18px_-8px_rgba(79,70,229,0.25)]",
+                      clickable && !active && "cursor-pointer hover:border-blue-200 hover:shadow-[0_8px_18px_-12px_rgba(0,47,167,0.20)]",
                       clickable && "text-left",
                     )}
                   >
@@ -9631,7 +9813,7 @@ function ExecutiveOverview({
                       <div className={cn("rd-horizon-kpi-value text-base font-bold leading-none tabular-nums", item.tone)}>{item.value}</div>
                       <div className="rd-horizon-kpi-label mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold text-slate-500">
                         <span className="truncate">{item.label}</span>
-                        {active && <span className="rd-horizon-kpi-filter-badge shrink-0 rounded-sm bg-indigo-100 px-1 py-px text-[9px] font-bold leading-none text-indigo-700">{t("筛选中")}</span>}
+                        {active && <span className="rd-horizon-kpi-filter-badge shrink-0 rounded-sm bg-blue-100 px-1 py-px text-[9px] font-bold leading-none text-[#002fa7]">{t("筛选中")}</span>}
                       </div>
                     </div>
                   </Wrapper>
@@ -9641,13 +9823,13 @@ function ExecutiveOverview({
 
             {(
               <div className="rd-horizon-actions order-2 flex flex-wrap justify-start gap-2 lg:justify-end">
-                {/* 导出：按时间段导出当前研发驾驶舱配置人员的任务完成情况。 */}
+                {/* 导出：按时间段导出当前工作区配置人员的任务完成情况。 */}
                 <RdTaskExportButton allTasks={allTasks} peopleDirectory={peopleDirectory} />
                 {onAiClassifyTasks && (
                   <button
                     type="button"
                     onClick={onAiClassifyTasks}
-                    className="group flex flex-none items-center gap-2 rounded-xl border border-amber-200 bg-slate-950 px-2.5 py-2 text-left text-xs font-semibold text-white shadow-[0_8px_18px_-6px_rgba(15,23,42,0.45)] transition-all hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-[0_12px_22px_-6px_rgba(15,23,42,0.52)] active:translate-y-0 active:scale-[0.98]"
+                    className="group flex min-h-11 flex-none items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-2.5 text-left text-xs font-semibold text-white shadow-[0_8px_18px_-10px_rgba(15,23,42,0.35)] transition-colors hover:bg-slate-800"
                   >
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-300/15 text-amber-300 ring-1 ring-amber-300/25">
                       <Layers3 className="h-4 w-4 transition-transform group-hover:-rotate-6" />
@@ -9659,7 +9841,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onAiProject}
-                    className="rd-horizon-primary-action group flex flex-none items-center gap-2 rounded-xl bg-indigo-600 px-2.5 py-2 text-left text-xs font-semibold text-white shadow-[0_8px_18px_-6px_rgba(79,70,229,0.45)] transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_22px_-6px_rgba(79,70,229,0.50)] active:translate-y-0 active:scale-[0.98]"
+                    className="rd-horizon-primary-action group flex min-h-11 flex-none items-center gap-2 rounded-xl bg-[#002fa7] px-2.5 text-left text-xs font-semibold text-white shadow-[0_8px_18px_-10px_rgba(0,47,167,0.35)] transition-colors hover:bg-[#002782]"
                   >
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/18">
                       <Sparkles className="h-4 w-4 transition-transform group-hover:rotate-12" />
@@ -9671,7 +9853,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onCreateTask}
-                    className="group flex flex-none items-center gap-2 rounded-xl border border-emerald-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 active:translate-y-0 active:scale-[0.98]"
+                    className="group flex min-h-11 flex-none items-center gap-2 rounded-xl border border-emerald-100 bg-white px-2.5 text-left text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
                   >
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
                       <Plus className="h-4 w-4" />
@@ -9683,9 +9865,9 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onReassign}
-                    className="group flex flex-none items-center gap-2 rounded-xl border border-indigo-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:translate-y-0 active:scale-[0.98]"
+                    className="group flex min-h-11 flex-none items-center gap-2 rounded-xl border border-blue-100 bg-white px-2.5 text-left text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
                   >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#002fa7] ring-1 ring-blue-100">
                       <UserCog className="h-4 w-4" />
                     </span>
                     <span className="min-w-0">{t("批量转派")}</span>
@@ -9695,9 +9877,9 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onOpenPeople}
-                    className="group flex flex-none items-center gap-2 rounded-xl border border-indigo-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:translate-y-0 active:scale-[0.98]"
+                    className="group flex min-h-11 flex-none items-center gap-2 rounded-xl border border-blue-100 bg-white px-2.5 text-left text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
                   >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#002fa7] ring-1 ring-blue-100">
                       <UserPlus className="h-4 w-4" />
                     </span>
                     <span className="min-w-0">{t("人员管理")}</span>
@@ -9707,7 +9889,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onClearData}
-                    className="rd-horizon-danger-action group flex flex-none items-center gap-2 rounded-xl border border-red-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-red-600 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-red-200 hover:bg-red-50 active:translate-y-0 active:scale-[0.98]"
+                    className="rd-horizon-danger-action group flex min-h-11 flex-none items-center gap-2 rounded-xl border border-red-100 bg-white px-2.5 text-left text-xs font-semibold text-red-600 shadow-sm transition-colors hover:border-red-200 hover:bg-red-50"
                   >
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600 ring-1 ring-red-100">
                       <Trash2 className="h-4 w-4" />
@@ -9720,7 +9902,7 @@ function ExecutiveOverview({
           </div>
         </section>
         {catStats.length > 0 && (
-          <div className="rd-horizon-reports min-w-0 xl:col-span-2">
+          <div className="rd-horizon-reports min-w-0 min-[1500px]:col-span-2">
             <RDReportsPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} />
           </div>
         )}
@@ -9733,36 +9915,77 @@ function ExecutiveOverview({
             loadCategories）虽然把 loading 置 true，但旧 catStats 仍在 —— 此时保持下方面板挂载，
             避免 PersonTaskCockpit 被卸载重挂导致 activeTab（当前人员）等内部状态被重置回「全部」。 */}
         {catStats.length === 0 ? (
-          <section className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]">
-            <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-slate-900 text-white">
-              <LayoutGrid className="h-5 w-5" />
+          <section
+            className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]"
+            role={loadError ? "alert" : "status"}
+            aria-live={loadError ? "assertive" : "polite"}
+          >
+            <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-[#002fa7] text-white">
+              {loading ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : loadError ? <AlertTriangle className="h-5 w-5" aria-hidden="true" /> : <LayoutGrid className="h-5 w-5" aria-hidden="true" />}
             </span>
-            <h2 className="mt-4 text-lg font-semibold text-slate-950">
-              {loading ? t("正在加载研发任务数据") : t("暂无研发任务数据")}
+            <h2 className="mt-4 text-balance text-lg font-semibold text-slate-950">
+              {loadError
+                ? productionWorkspace ? t("生产任务数据加载失败") : t("研发任务数据加载失败")
+                : loading
+                ? productionWorkspace ? t("正在加载生产任务数据") : t("正在加载研发任务数据")
+                : productionWorkspace ? t("暂无生产任务数据") : t("暂无研发任务数据")}
             </h2>
-            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-              {loading
-                ? t("正在从后端接口读取任务树、风险和人员负载。")
-                : t("后端当前没有任务树或任务记录。创建任务或导入数据后，这里会展示真实的系统全景、风险和负载。")}
+            <p className="mx-auto mt-2 max-w-md text-pretty text-sm leading-6 text-slate-500">
+              {loadError
+                ? t("本次请求未完成。请检查连接后重新读取，现有工作区与权限设置不会受到影响。")
+                : loading
+                ? productionWorkspace
+                  ? t("正在读取生产任务树、风险和人员负载。")
+                  : t("正在从后端接口读取任务树、风险和人员负载。")
+                : productionWorkspace
+                  ? t("当前没有生产任务树或任务记录。创建任务或导入数据后，这里会展示真实的生产系统全景、风险和负载。")
+                  : t("后端当前没有任务树或任务记录。创建任务或导入数据后，这里会展示真实的系统全景、风险和负载。")}
             </p>
             {loadError && (
-              <p className="mx-auto mt-3 max-w-md rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              <p className="mx-auto mt-3 max-w-md break-words rounded-md border border-red-100 bg-red-50 px-3 py-2 text-pretty text-xs text-red-700">
                 {loadError}
               </p>
             )}
             {!loading && (
-              <button
-                type="button"
-                onClick={onRefresh}
-                className="mt-5 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-all hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:scale-[0.98]"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                {t("重新读取")}
-              </button>
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-blue-200 bg-white px-3 text-xs font-semibold text-[#002fa7] transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  {t("重新读取")}
+                </button>
+                {onCreateTask && (
+                  <button
+                    type="button"
+                    onClick={onCreateTask}
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#002fa7] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#002782] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    {t("新建任务")}
+                  </button>
+                )}
+              </div>
             )}
           </section>
         ) : (
           <>
+            {loadError && (
+              <div className="flex flex-col gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between" role="alert">
+                <p className="min-w-0 break-words text-pretty">
+                  <span className="font-semibold">{t("刷新失败：")}</span>{loadError}
+                </p>
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-md border border-red-200 bg-white px-3 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  {t("重新读取")}
+                </button>
+              </div>
+            )}
             <PersonTaskCockpit
               risks={risks}
               personLoads={personLoads}
@@ -9775,6 +9998,7 @@ function ExecutiveOverview({
               canReassign={canReassign}
               onReassignTask={onReassignTask}
               canDelete={canDelete}
+              canDeleteAny={canDeleteAny}
               onDeleteTask={onDeleteTask}
               canSyncProduction={canSyncProduction}
               syncedProductionTaskIds={syncedProductionTaskIds}
@@ -9854,7 +10078,7 @@ export function MoveTaskDialog({
   onConfirm: (targetProductId: string, targetCatId: string, targetSubId: string) => Promise<void>;
   onClose: () => void;
 }) {
-  const shouldReduceMotion = useReducedMotion();
+  const visibleTaskTitle = taskVisibleTitle(task);
   const [targetCatId, setTargetCatId] = useState<string>("");
   const [targetSubId, setTargetSubId] = useState<string>("");
   const [saving, setSaving] = useState(false);
@@ -9905,21 +10129,17 @@ export function MoveTaskDialog({
   };
 
   return (
-    <motion.div
-      initial={shouldReduceMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={RD_FAST_TRANSITION}
-      className="rd-task-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !saving) onClose();
+      }}
     >
-      <motion.div
-        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 14, scale: 0.98 }}
-        transition={RD_PANEL_TRANSITION}
-        className="rd-task-overlay-surface w-full max-w-md rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        className="rd-task-overlay-surface z-[60] gap-0 overflow-hidden border-0 bg-white p-0 shadow-2xl sm:max-w-md [&>button:last-child]:hidden"
+        onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
+        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}
+        onInteractOutside={(event) => { if (saving) event.preventDefault(); }}
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-2.5">
@@ -9927,11 +10147,19 @@ export function MoveTaskDialog({
               <ArrowRight className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-slate-900">{t("移动任务")}</h3>
-              <p className="max-w-[260px] truncate text-xs text-slate-500">{task.title}</p>
+              <DialogTitle className="text-base font-semibold text-slate-900">{t("移动任务")}</DialogTitle>
+              <DialogDescription className="max-w-[260px] truncate text-xs text-slate-500">
+                {visibleTaskTitle}
+              </DialogDescription>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
+          <button
+            type="button"
+            aria-label={t("关闭移动任务")}
+            disabled={saving}
+            onClick={() => { if (!saving) onClose(); }}
+            className="rounded-lg p-1.5 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40"
+          >
             <X className="h-4 w-4 text-slate-500" />
           </button>
         </div>
@@ -9944,8 +10172,9 @@ export function MoveTaskDialog({
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">{t("目标位置")}</label>
             <div className="mb-2">
-              <label className="mb-1 block text-xs text-slate-500">{t("产品")}</label>
+              <label htmlFor="move-task-product" className="mb-1 block text-xs text-slate-500">{t("产品")}</label>
               <NativeSelect
+                id="move-task-product"
                 value={targetProductId}
                 onChange={(e) => setTargetProductId(e.target.value)}
                 className="w-full text-sm"
@@ -9957,8 +10186,9 @@ export function MoveTaskDialog({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="mb-1 block text-xs text-slate-500">{t("一级系统")}</label>
+                <label htmlFor="move-task-category" className="mb-1 block text-xs text-slate-500">{t("一级系统")}</label>
                 <NativeSelect
+                  id="move-task-category"
                   value={targetCatId}
                   onChange={(e) => setTargetCatId(e.target.value)}
                   className="w-full text-sm"
@@ -9971,8 +10201,9 @@ export function MoveTaskDialog({
                 </NativeSelect>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-500">{t("子项")}</label>
+                <label htmlFor="move-task-subproject" className="mb-1 block text-xs text-slate-500">{t("子项")}</label>
                 <NativeSelect
+                  id="move-task-subproject"
                   value={targetSubId}
                   onChange={(e) => setTargetSubId(e.target.value)}
                   className="w-full text-sm"
@@ -9997,7 +10228,7 @@ export function MoveTaskDialog({
           <button
             type="button"
             disabled={saving}
-            onClick={onClose}
+            onClick={() => { if (!saving) onClose(); }}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             {t("取消")}
@@ -10012,8 +10243,8 @@ export function MoveTaskDialog({
             {t("确认移动")}
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -10033,7 +10264,6 @@ function MoveTasksDialog({
   onConfirm: (taskIds: string[], targetProductId: string, targetCatId: string, targetSubId: string) => Promise<void>;
   onClose: () => void;
 }) {
-  const shouldReduceMotion = useReducedMotion();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [targetCatId, setTargetCatId] = useState<string>("");
   const [targetSubId, setTargetSubId] = useState<string>("");
@@ -10097,21 +10327,17 @@ function MoveTasksDialog({
   };
 
   return (
-    <motion.div
-      initial={shouldReduceMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={RD_FAST_TRANSITION}
-      className="rd-task-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={onClose}
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !saving) onClose();
+      }}
     >
-      <motion.div
-        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 14, scale: 0.98 }}
-        transition={RD_PANEL_TRANSITION}
-        className="rd-task-overlay-surface w-full max-w-lg rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
+      <DialogContent
+        className="rd-task-overlay-surface gap-0 overflow-hidden border-0 bg-white p-0 shadow-2xl sm:max-w-lg [&>button:last-child]:hidden"
+        onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
+        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}
+        onInteractOutside={(event) => { if (saving) event.preventDefault(); }}
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-2.5">
@@ -10119,11 +10345,19 @@ function MoveTasksDialog({
               <ArrowRight className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-slate-900">{t("移动任务")}</h3>
-              <p className="text-xs text-slate-500">{t("从「{path}」移动任务到其他子项", { path: `${fromCategory.label} / ${fromSub.label}` })}</p>
+              <DialogTitle className="text-base font-semibold text-slate-900">{t("移动任务")}</DialogTitle>
+              <DialogDescription className="text-xs text-slate-500">
+                {t("从「{path}」移动任务到其他子项", { path: `${fromCategory.label} / ${fromSub.label}` })}
+              </DialogDescription>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
+          <button
+            type="button"
+            aria-label={t("关闭批量移动任务")}
+            disabled={saving}
+            onClick={() => { if (!saving) onClose(); }}
+            className="rounded-lg p-1.5 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40"
+          >
             <X className="h-4 w-4 text-slate-500" />
           </button>
         </div>
@@ -10147,7 +10381,7 @@ function MoveTasksDialog({
                     className="border-slate-300"
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm text-slate-800">{taskItem.title}</div>
+                    <div className="truncate text-sm text-slate-800">{taskVisibleTitle(taskItem)}</div>
                     <div className="text-xs text-slate-400">{taskItem.primary_owner} · {STATUS_CONFIG[taskItem.status] ? t(STATUS_CONFIG[taskItem.status].label) : taskItem.status}</div>
                   </div>
                 </label>
@@ -10158,8 +10392,9 @@ function MoveTasksDialog({
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">{t("目标位置")}</label>
             <div className="mb-2">
-              <label className="mb-1 block text-xs text-slate-500">{t("产品")}</label>
+              <label htmlFor="move-tasks-product" className="mb-1 block text-xs text-slate-500">{t("产品")}</label>
               <NativeSelect
+                id="move-tasks-product"
                 value={targetProductId}
                 onChange={(e) => setTargetProductId(e.target.value)}
                 className="w-full text-sm"
@@ -10171,8 +10406,9 @@ function MoveTasksDialog({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="mb-1 block text-xs text-slate-500">{t("一级系统")}</label>
+                <label htmlFor="move-tasks-category" className="mb-1 block text-xs text-slate-500">{t("一级系统")}</label>
                 <NativeSelect
+                  id="move-tasks-category"
                   value={targetCatId}
                   onChange={(e) => setTargetCatId(e.target.value)}
                   className="w-full text-sm"
@@ -10185,8 +10421,9 @@ function MoveTasksDialog({
                 </NativeSelect>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-500">{t("子项")}</label>
+                <label htmlFor="move-tasks-subproject" className="mb-1 block text-xs text-slate-500">{t("子项")}</label>
                 <NativeSelect
+                  id="move-tasks-subproject"
                   value={targetSubId}
                   onChange={(e) => setTargetSubId(e.target.value)}
                   className="w-full text-sm"
@@ -10211,7 +10448,7 @@ function MoveTasksDialog({
           <button
             type="button"
             disabled={saving}
-            onClick={onClose}
+            onClick={() => { if (!saving) onClose(); }}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             {t("取消")}
@@ -10226,8 +10463,8 @@ function MoveTasksDialog({
             {t("确认移动")}
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -10261,7 +10498,7 @@ function TaskCompletedCelebration({ task, onClose }: { task: Task; onClose: () =
           </div>
         </div>
         <h3 className="mb-2 text-xl font-bold text-slate-900">{t("太棒了！")}</h3>
-        <p className="mb-1 font-semibold text-slate-700">{task.title}</p>
+        <p className="mb-1 font-semibold text-slate-700">{taskVisibleTitle(task)}</p>
         <p className="mb-6 text-sm text-slate-500">{t("任务已审核通过并完成")}</p>
         <button
           type="button"
@@ -11120,6 +11357,9 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const { lang } = useI18n();
   const usCollab = location.pathname.startsWith("/us-collab");
   const productionWorkspace = isProductionWorkspace();
+  // 视觉层：研发、协同与生产驾驶舱统一使用 Horizon；各工作区仍保留自己的信息结构与数据边界。
+  const horizonCockpit = true;
+  // 行为层：URL 搜索仅属于原生研发驾驶舱，不能随视觉接入一并放开到生产。
   const nativeRdCockpit = !usCollab && !productionWorkspace;
   const cockpitSearchKeyword = useMemo(
     () => (nativeRdCockpit ? new URLSearchParams(location.search).get("q") ?? "" : undefined),
@@ -11156,8 +11396,15 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
   const canClearData = usePermission(PERMISSIONS.RD_DATA_CLEAR);
   const canDeleteTasks = usePermission(PERMISSIONS.RD_TASK_EDIT);
-  // 「移动到其他类目」按钮门控：专职移动权限，或具备转派/编辑的高级角色（与后端 move 接口一致）。
-  const canMoveTask = useAnyPermission(PERMISSIONS.RD_TASK_MOVE, PERMISSIONS.RD_TASK_REASSIGN, PERMISSIONS.RD_TASK_EDIT);
+  const canDeleteAnyTask = useAnyPermission(
+    PERMISSIONS.RD_TASK_REASSIGN,
+    PERMISSIONS.RD_PROJECT_DIRECT,
+    PERMISSIONS.RD_PROJECT_REVIEW_L1,
+    PERMISSIONS.RD_PROJECT_REVIEW_L2,
+    PERMISSIONS.RD_PEOPLE_MANAGE,
+  );
+  // 驾驶舱是全局任务树，移动入口只对专职移动/转派角色开放（与后端 canMoveAny 一致）。
+  const canMoveTask = useAnyPermission(PERMISSIONS.RD_TASK_MOVE, PERMISSIONS.RD_TASK_REASSIGN);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   // 管理员成员视角严格跟随任务转派权限；立项终审/直接立项本身不授予全员任务读取能力。
   const canViewCombinedMemberTasks = !usCollab && !productionWorkspace && canReassignTasks;
@@ -11167,6 +11414,9 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const [showReassign, setShowReassign] = useState(false);
   const [reassignTaskId, setReassignTaskId] = useState<string | null>(null);
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<Task | null>(null);
+  const [deleteTaskPendingId, setDeleteTaskPendingId] = useState<string | null>(null);
+  const deleteTaskRequestSequenceRef = useRef(0);
+  const deleteTaskPendingRequestRef = useRef<{ sequence: number; taskId: string } | null>(null);
   const [showClearData, setShowClearData] = useState(false);
   const [showProposalDialog, setShowProposalDialog] = useState(false);
   const [showProjectClassification, setShowProjectClassification] = useState(false);
@@ -11278,9 +11528,14 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   // 当前驾驶舱正在操作的产品。overview 永远是主产品；进入某产品的 board 后切到该产品，
   // 此时 `categories` 装载的是该产品的独立任务树，全板块（统计/树/增删改查）都作用于它。
   const [boardProductId, setBoardProductId] = useState<string>(MAIN_PRODUCT_ID);
+  const categoriesLoadSeqRef = useRef(0);
+  const categoriesLoadProductRef = useRef(MAIN_PRODUCT_ID);
 
   // 按产品加载分类树到 `categories`：主产品走主库端点，其余走对应产品库端点。
   const loadCategoriesFor = (productId: string) => {
+    const requestSeq = ++categoriesLoadSeqRef.current;
+    categoriesLoadProductRef.current = productId;
+    const isCurrentRequest = () => requestSeq === categoriesLoadSeqRef.current && categoriesLoadProductRef.current === productId;
     setLoading(true);
     setLoadError(null);
     const fetcher =
@@ -11289,6 +11544,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         : fetchProductTaskCategories(productId);
     fetcher
       .then((nextCategories) => {
+        if (!isCurrentRequest()) return;
         setCategories(nextCategories);
         setSelectedCatId((current) => {
           if (!current) return null;
@@ -11297,14 +11553,54 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         });
       })
       .catch((error) => {
+        if (!isCurrentRequest()) return;
         setCategories([]);
-        setLoadError(error instanceof Error ? error.message : t("研发任务接口加载失败"));
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : productionWorkspace
+              ? t("生产任务接口加载失败")
+              : t("研发任务接口加载失败"),
+        );
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (isCurrentRequest()) setLoading(false);
+      });
   };
   // 零参刷新当前 board 产品。所有既有 `loadCategories()` 调用点（任务变更/创建/删除后刷新）
   // 因此自动作用于当前产品；即便被当作事件处理器(带 event 实参)调用也安全——这里忽略实参。
   const loadCategories = () => loadCategoriesFor(boardProductId);
+
+  const handleDeleteTaskConfirm = async () => {
+    const target = deleteTaskTarget;
+    // ref 锁在同一事件循环内立即生效，避免双击在 React state 提交前发起两次删除。
+    if (!target || deleteTaskPendingRequestRef.current) return;
+    const requestedTaskId = target.task_id;
+    const request = {
+      sequence: ++deleteTaskRequestSequenceRef.current,
+      taskId: requestedTaskId,
+    };
+    deleteTaskPendingRequestRef.current = request;
+    setDeleteTaskPendingId(requestedTaskId);
+    try {
+      await deleteRdTask(requestedTaskId);
+      // 仅当前请求可以发布结果；功能性更新同时保证旧请求不会关闭后来打开的任务。
+      if (deleteTaskPendingRequestRef.current !== request) return;
+      toast.success(t("任务已删除"));
+      setDeleteTaskTarget((current) => resolveDeleteDialogTargetAfterSuccess(current, requestedTaskId));
+      void loadCategories();
+    } catch (err) {
+      if (deleteTaskPendingRequestRef.current === request) {
+        toast.error(err instanceof Error ? err.message : t("删除失败"));
+      }
+    } finally {
+      // 若未来有更新的删除请求接管锁，旧请求不得清理它的 pending 状态。
+      if (deleteTaskPendingRequestRef.current === request) {
+        deleteTaskPendingRequestRef.current = null;
+        setDeleteTaskPendingId((current) => current === requestedTaskId ? null : current);
+      }
+    }
+  };
 
   // 拉取「所有产品库合并」的分类树，供概览人员负载跨产品聚合。失败则回退到主库(mergedCategories=null)。
   const loadMergedCategories = useCallback(() => {
@@ -11333,11 +11629,12 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   // 概览模式下保持「合并树」新鲜：进入概览、跨产品移动(panoramaReloadToken)、或本地任务变更
   // 触发 categories 刷新时一并重拉。board 模式不拉(用单库 categories 即可，省一次请求)。
   useEffect(() => {
-    if (mode === "overview") {
-      loadMergedCategories();
-      loadMemberTaskCategories();
-    }
-  }, [mode, categories, panoramaReloadToken, loadMergedCategories, loadMemberTaskCategories]);
+    // 等当前单库任务树稳定后再拉聚合树，避免首次挂载先以空 categories 请求一次、
+    // 主树返回后又请求一次；任务变更完成后仍会随 categories / loading 重新刷新。
+    if (mode !== "overview" || loading) return;
+    loadMergedCategories();
+    loadMemberTaskCategories();
+  }, [mode, categories, loading, panoramaReloadToken, loadMergedCategories, loadMemberTaskCategories]);
 
   const handleSaveProducts = async (next: ProductDef[]) => {
     await saveRdProducts(next);
@@ -11722,7 +12019,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const scopedRisks = selectedCatId === null ? risks : visibleRisks;
   const primaryRisk = scopedRisks[0] ?? null;
   const criticalCount = scopedRisks.filter((risk) => risk.severity === "critical").length;
-  const scopeTitle = selectedLabel ?? t("全部研发系统");
+  const scopeTitle = selectedLabel ?? (productionWorkspace ? t("全部生产系统") : t("全部研发系统"));
   const detailScope = selectedSub ?? selectedCategory ?? null;
   const detailActiveTasks = useMemo(
     () => (detailScope ? collectRootActiveTasks(detailScope) : allTasks.filter((task) => !isArchivedTask(task))),
@@ -11737,8 +12034,8 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     return (
       <NoteReceiptContext.Provider value={noteReceipts}>
       <TooltipProvider delayDuration={150}>
-        {/* 协同驾驶舱：任务量小，内容列约束最大宽度居中、两侧留白（欧美工具风），小屏自适应收窄；研发驾驶舱维持全宽 */}
-        <div className={cn(nativeRdCockpit && "rd-horizon-module", isUsCollabWorkspace() && "mx-auto w-full max-w-[1200px] px-1 sm:px-3 2xl:px-0")}>
+        {/* 协同驾驶舱维持独立信息布局，三套驾驶舱共用 Horizon 外壳。 */}
+        <div className={cn(horizonCockpit && "rd-horizon-module", isUsCollabWorkspace() && "mx-auto w-full max-w-[1200px] px-1 sm:px-3 2xl:px-0")}>
         <ExecutiveOverview
           catStats={catStats}
           // KPI 数字跨产品库（概览），分类卡与跳转仍按当前库的 catStats
@@ -11771,6 +12068,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           canDirectProject={canDirectProject}
           onReassignTask={(task) => { setReassignTaskId(task.task_id); setShowReassign(true); }}
           canDelete={canDeleteTasks}
+          canDeleteAny={canDeleteAnyTask}
           onDeleteTask={(task) => setDeleteTaskTarget(task)}
           canSyncProduction={canSyncProduction}
           syncedProductionTaskIds={syncedProductionTaskIds}
@@ -11783,14 +12081,24 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
             : undefined}
           panoramaReloadToken={panoramaReloadToken}
           hideSystemPanorama={hideSystemPanorama}
-          horizonVariant={!usCollab && !productionWorkspace}
+          horizonVariant={horizonCockpit}
         />
-        <AlertDialog open={!!deleteTaskTarget} onOpenChange={(open) => { if (!open) setDeleteTaskTarget(null); }}>
-          <AlertDialogContent className={cn(nativeRdCockpit && "rd-horizon-module-dialog")}>
+        <AlertDialog
+          open={!!deleteTaskTarget}
+          onOpenChange={(open) => {
+            if (!open && !deleteTaskPendingRequestRef.current) setDeleteTaskTarget(null);
+          }}
+        >
+          <AlertDialogContent
+            className={cn(horizonCockpit && "rd-horizon-module-dialog")}
+            onEscapeKeyDown={(event) => { if (deleteTaskPendingRequestRef.current) event.preventDefault(); }}
+          >
             <AlertDialogHeader>
               <AlertDialogTitle>{t("删除任务？")}</AlertDialogTitle>
               <AlertDialogDescription>
-                {t("确认删除「{title}」？该操作不可恢复", { title: deleteTaskTarget?.title ?? "" })}
+                {t("确认删除「{title}」？该操作不可恢复", {
+                  title: deleteTaskTarget ? taskVisibleTitle(deleteTaskTarget) : t("未命名任务"),
+                })}
                 {(deleteTaskTarget?.subtasks?.length ?? 0) > 0
                   ? t("，且会一并删除其 {n} 个子任务", { n: deleteTaskTarget?.subtasks?.length ?? 0 })
                   : ""}
@@ -11798,24 +12106,18 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>{t("取消")}</AlertDialogCancel>
+              <AlertDialogCancel disabled={deleteTaskPendingId !== null}>{t("取消")}</AlertDialogCancel>
               <AlertDialogAction
                 className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
-                onClick={async () => {
-                  const target = deleteTaskTarget;
-                  if (!target) return;
-                  try {
-                    await deleteRdTask(target.task_id);
-                    toast.success(t("任务已删除"));
-                    loadCategories();
-                  } catch (err) {
-                    toast.error(err instanceof Error ? err.message : t("删除失败"));
-                  } finally {
-                    setDeleteTaskTarget(null);
-                  }
+                disabled={deleteTaskPendingId !== null}
+                onClick={(event) => {
+                  // Radix Action 默认立即关闭；删除完成前保持确认框并锁定重复提交。
+                  event.preventDefault();
+                  void handleDeleteTaskConfirm();
                 }}
               >
-                {t("确认删除")}
+                {deleteTaskPendingId !== null && <Loader2 className="h-4 w-4 animate-spin" />}
+                {deleteTaskPendingId !== null ? t("删除中…") : t("确认删除")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -11846,7 +12148,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
             <TaskReassignModal
               initialTaskId={reassignTaskId}
               allTasks={allTasks}
-              horizonVariant={nativeRdCockpit}
+              horizonVariant={horizonCockpit}
               onClose={() => { setShowReassign(false); setReassignTaskId(null); }}
               onUpdated={loadCategories}
             />
@@ -11905,7 +12207,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         <ProductManageDialog
           open={showProductManage}
           products={products}
-          horizonVariant={nativeRdCockpit}
+          horizonVariant={horizonCockpit}
           onClose={() => setShowProductManage(false)}
           onSave={handleSaveProducts}
         />
@@ -11919,7 +12221,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   if (mode === "people" && canManagePeople) {
     return (
       <TooltipProvider delayDuration={150}>
-        <div className={cn(nativeRdCockpit && "rd-horizon-module rd-horizon-people-page")}>
+        <div className={cn(horizonCockpit && "rd-horizon-module rd-horizon-people-page")}>
           <PeopleManagementPage onBack={() => setMode("overview")} />
         </div>
       </TooltipProvider>
@@ -11931,7 +12233,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     <TooltipProvider delayDuration={150}>
       <div className={cn(
         "flex min-h-full flex-col overflow-hidden rounded-[8px] border border-slate-200/80 bg-[#f4f7fb] shadow-[0_24px_60px_rgba(15,23,42,0.08)]",
-        nativeRdCockpit && "rd-horizon-module rd-horizon-board",
+        horizonCockpit && "rd-horizon-module rd-horizon-board",
       )}>
         {/* Breadcrumb / back to overview */}
         <div className="rd-board-breadcrumb flex min-w-0 items-center gap-3 border-b border-slate-200/80 bg-white px-5 py-2.5 animate-rd-fade-in">

@@ -60,7 +60,7 @@ export function IssueAiModule() {
   }, [selectedId]);
 
   return (
-    <div className="rd-horizon-module rd-horizon-issue-ai flex h-full min-h-0 flex-col overflow-hidden text-slate-900 ring-slate-200/70 dark:bg-slate-950 dark:bg-none dark:text-slate-100 dark:ring-slate-800">
+    <div className="horizon-theme hz-page rd-horizon-module rd-horizon-issue-ai flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       {selectedId ? (
         // 详情：窄屏整页滚动；xl+ 两栏各自定高、内部滚动（不超出视口）
         <div
@@ -68,7 +68,7 @@ export function IssueAiModule() {
           role="region"
           aria-label={t("问题详情")}
           tabIndex={-1}
-          className="rd-horizon-issue-detail-viewport material-scrollbar min-h-0 flex-1 overflow-y-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/50 xl:overflow-hidden"
+          className="rd-horizon-issue-detail-viewport material-scrollbar min-h-0 flex-1 overflow-y-auto outline-none xl:overflow-hidden"
         >
           <div className="rd-horizon-issue-detail-shell mx-auto flex min-h-full w-full max-w-[1520px] px-4 py-4 sm:px-5 lg:px-6 xl:h-full">
             <DetailView service={service} issueId={selectedId} onBack={returnToList} />

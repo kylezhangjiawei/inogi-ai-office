@@ -18,12 +18,40 @@ import {
   ShieldCheck,
   ThumbsDown,
   ThumbsUp,
-  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router";
 import { useAuth } from "./auth";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
 import { Button } from "./components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
+import { NativeSelect } from "./components/ui/native-select";
+import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 import {
   fetchRdMessages,
@@ -151,6 +179,8 @@ type ParsedBody =
   | RdDiscussionMentionBody
   | { type: "unknown"; raw: string };
 
+const MESSAGE_CHIP_CLASS = "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium";
+
 function parseBody(raw: string): ParsedBody {
   try {
     const obj = JSON.parse(raw) as Record<string, unknown>;
@@ -169,7 +199,7 @@ function parseBody(raw: string): ParsedBody {
 /** 消息卡片上的来源标签。后端新增来源而前端标签表未同步时，兜底显示原始值，不留空白。 */
 function SourceChip({ source }: { source: RdMessage["source"] }) {
   const label = RD_MESSAGE_SOURCE_LABELS[source] ?? source;
-  return <span className="material-chip bg-slate-100 text-slate-600">{t(label)}</span>;
+  return <span className={cn(MESSAGE_CHIP_CLASS, "border-slate-200 bg-slate-100 text-slate-600")}>{t(label)}</span>;
 }
 
 /** “待审核”在统计卡片和列表筛选中必须使用完全相同的口径。 */
@@ -181,67 +211,71 @@ function isPendingReviewMessage(message: RdMessage): boolean {
 
 function RejectDialog({
   taskTitle,
+  submitting,
+  actionError,
   onConfirm,
   onClose,
+  onCloseAutoFocus,
 }: {
   taskTitle: string;
+  submitting: boolean;
+  actionError: string | null;
   onConfirm: (reason: string) => void;
   onClose: () => void;
+  onCloseAutoFocus: (event: Event) => void;
 }) {
   useI18n();
   const [reason, setReason] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [reasonError, setReasonError] = useState<string | null>(null);
 
-  useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
+  const submit = () => {
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      setReasonError(t("请填写打回原因。"));
+      return;
+    }
+    setReasonError(null);
+    onConfirm(trimmed);
+  };
 
   return (
-    <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          className="absolute right-4 top-4 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-          onClick={onClose}
-        >
-          <X className="h-4 w-4" />
-        </button>
-        <h3 className="text-base font-bold text-slate-900">{t("打回审核")}</h3>
-        <p className="mt-1 text-sm text-slate-500">
-          {t("任务：")}<AutoTranslatedText className="font-medium text-slate-700" text={taskTitle} />
-        </p>
-        <div className="mt-4">
-          <label className="block text-sm font-medium text-slate-700">{t("打回原因")} <span className="text-red-500">*</span></label>
-          <textarea
-            ref={textareaRef}
-            className="material-input mt-1.5 min-h-[100px] resize-y"
+    <Dialog open onOpenChange={(open) => { if (!open && !submitting) onClose(); }}>
+      <DialogContent className="horizon-portal sm:max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
+        <DialogHeader>
+          <DialogTitle className="text-balance text-slate-900">{t("打回审核")}</DialogTitle>
+          <DialogDescription className="text-pretty">
+            {t("任务：")}<AutoTranslatedText className="font-medium text-slate-700" text={taskTitle} />
+          </DialogDescription>
+        </DialogHeader>
+        <div>
+          <Label htmlFor="message-reject-reason" className="mb-1.5 block text-sm font-medium text-slate-700">
+            {t("打回原因")} <span className="text-red-600" aria-hidden="true">*</span>
+          </Label>
+          <Textarea
+            autoFocus
+            id="message-reject-reason"
+            className="min-h-28 resize-y"
             placeholder={t("请填写打回原因，申请人将收到通知...")}
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(event) => {
+              setReason(event.target.value);
+              if (reasonError) setReasonError(null);
+            }}
+            aria-invalid={Boolean(reasonError)}
+            aria-describedby={reasonError ? "message-reject-reason-error" : undefined}
+            disabled={submitting}
           />
+          {reasonError ? <p id="message-reject-reason-error" className="mt-1.5 text-xs text-red-600" role="alert">{reasonError}</p> : null}
+          {actionError ? <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-pretty text-xs text-red-700" role="alert">{actionError}</p> : null}
         </div>
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            onClick={onClose}
-          >
-            {t("取消")}
-          </button>
-          <button
-            type="button"
-            disabled={!reason.trim()}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => { if (reason.trim()) onConfirm(reason.trim()); }}
-          >
-            {t("确认打回")}
-          </button>
-        </div>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>{t("取消")}</Button>
+          <Button type="button" className="bg-red-600 text-white hover:bg-red-700" onClick={submit} disabled={submitting}>
+            {submitting ? t("提交中…") : t("确认打回")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -255,8 +289,10 @@ function ApproveDialog({
   pendingDueDate,
   currentDueDate,
   submitting,
+  actionError,
   onConfirm,
   onClose,
+  onCloseAutoFocus,
 }: {
   taskTitle: string;
   taskId: string;
@@ -265,8 +301,10 @@ function ApproveDialog({
   pendingDueDate?: string;
   currentDueDate?: string;
   submitting: boolean;
+  actionError: string | null;
   onConfirm: () => void;
   onClose: () => void;
+  onCloseAutoFocus: (event: Event) => void;
 }) {
   useI18n();
   const reviewTypeLabel =
@@ -283,80 +321,54 @@ function ApproveDialog({
       : t("成果审核");
 
   return (
-    <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={submitting ? undefined : onClose}>
-      <div
-        className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="message-center-approve-title"
-      >
-        <button
-          type="button"
-          disabled={submitting}
-          className="absolute right-4 top-4 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={onClose}
-          aria-label={t("关闭确认弹窗")}
-        >
-          <X className="h-4 w-4" />
-        </button>
-        <div className="border-b border-emerald-100 bg-emerald-50/70 px-6 py-5">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
-              <ShieldCheck className="h-5 w-5" />
-            </span>
-            <div>
-              <h3 id="message-center-approve-title" className="text-base font-bold text-slate-900">{t("确认审核通过")}</h3>
-              <p className="mt-1 text-sm text-slate-500">{reviewTypeLabel}</p>
-            </div>
-          </div>
-        </div>
-        <div className="space-y-3 px-6 py-5">
-          <p className="text-sm leading-6 text-slate-700">
+    <AlertDialog open onOpenChange={(open) => { if (!open && !submitting) onClose(); }}>
+      <AlertDialogContent className="horizon-portal sm:max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-balance text-slate-900">{t("确认审核通过")}</AlertDialogTitle>
+          <AlertDialogDescription className="text-pretty">{reviewTypeLabel}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="space-y-3">
+          <p className="text-pretty text-sm leading-6 text-slate-700">
             {t("确认通过「")}<AutoTranslatedText className="font-semibold text-slate-900" text={taskTitle} />{t("」？")}
           </p>
-          <div className="rounded-xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600">
-            <div>{t("任务编号：")}{taskId}</div>
-            <div>{t("提交人：")}{submitterName || t("未识别")}</div>
-            {reviewType === "due_date" && pendingDueDate && (
-              <div>{t("截止日期：")}{currentDueDate || t("未设置")} → {pendingDueDate}</div>
-            )}
-            <div>
-              {reviewType === "procurement_transfer"
-                ? t("通过后申请才会进入采购驾驶舱，并按采购部门负载分配采购负责人。")
-                : reviewType === "collaboration"
-                ? t("通过后协作变更会立即生效，并通知申请人员。")
-                : reviewType === "proposal"
-                ? t("通过后任务将正式立项并进入进行中状态，同时通知发起人。")
-                : reviewType === "due_date"
-                ? t("通过后任务的截止日期将更新为申请值，并回到进行中状态。")
-                : reviewType === "abandon"
-                ? t("通过后该任务将被移除（等同删除），不可恢复，并通知申请人。")
-                : t("通过后任务会进入审核通过状态，并通知对应申请人员。")}
-            </div>
-          </div>
+          <dl className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+            <div><dt className="inline font-medium text-slate-500">{t("任务编号：")}</dt><dd className="inline tabular-nums">{taskId}</dd></div>
+            <div><dt className="inline font-medium text-slate-500">{t("提交人：")}</dt><dd className="inline">{submitterName || t("未识别")}</dd></div>
+            {reviewType === "due_date" && pendingDueDate ? (
+              <div><dt className="inline font-medium text-slate-500">{t("截止日期：")}</dt><dd className="inline tabular-nums">{currentDueDate || t("未设置")} → {pendingDueDate}</dd></div>
+            ) : null}
+          </dl>
+          <p className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-pretty text-xs leading-5 text-[#002fa7]">
+            {reviewType === "procurement_transfer"
+              ? t("通过后申请才会进入采购驾驶舱，并按采购部门负载分配采购负责人。")
+              : reviewType === "collaboration"
+              ? t("通过后协作变更会立即生效，并通知申请人员。")
+              : reviewType === "proposal"
+              ? t("通过后任务将正式立项并进入进行中状态，同时通知发起人。")
+              : reviewType === "due_date"
+              ? t("通过后任务的截止日期将更新为申请值，并回到进行中状态。")
+              : reviewType === "abandon"
+              ? t("通过后该任务将被移除（等同删除），不可恢复，并通知申请人。")
+              : t("通过后任务会进入审核通过状态，并通知对应申请人员。")}
+          </p>
+          {actionError ? <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-pretty text-xs text-red-700" role="alert">{actionError}</p> : null}
         </div>
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">
-          <button
-            type="button"
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={submitting}>{t("再看看")}</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-[#002fa7] text-white hover:bg-[#002581]"
             disabled={submitting}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={onClose}
+            onClick={(event) => {
+              event.preventDefault();
+              onConfirm();
+            }}
           >
-            {t("再看看")}
-          </button>
-          <button
-            type="button"
-            disabled={submitting}
-            className="inline-flex min-w-[100px] items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={onConfirm}
-          >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}
+            {submitting ? <Loader2 className="size-4" aria-hidden="true" /> : <ThumbsUp className="size-4" aria-hidden="true" />}
             {submitting ? t("处理中") : t("确认通过")}
-          </button>
-        </div>
-      </div>
-    </div>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -374,9 +386,9 @@ function MessageCard({
   canReview: boolean;
   isApproving: boolean;
   onOpen: (msg: RdMessage) => void;
-  onApprove: (msg: RdMessage, body: ReviewRequestBody) => void;
-  onReject: (msg: RdMessage, body: ReviewRequestBody) => void;
-  onSelfAssess: (msg: RdMessage, body: PerfSelfAssessmentBody) => void;
+  onApprove: (msg: RdMessage, body: ReviewRequestBody, trigger: HTMLElement) => void;
+  onReject: (msg: RdMessage, body: ReviewRequestBody, trigger: HTMLElement) => void;
+  onSelfAssess: (msg: RdMessage, body: PerfSelfAssessmentBody, trigger: HTMLElement) => void;
   onHandle: (msg: RdMessage) => void;
 }) {
   const { lang } = useI18n();
@@ -423,13 +435,13 @@ function MessageCard({
       navigate(rdDiscussionMentionHref(body, { notificationId: msg.id, createdAt: msg.created_at }));
     };
     return (
-      <article className="rounded-xl border border-indigo-100 bg-indigo-50/35 p-4 shadow-[0_4px_18px_rgba(79,70,229,0.05)]">
+      <article className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-indigo-600 text-white")}>
+          <span className={cn(MESSAGE_CHIP_CLASS, msg.read ? "border-slate-200 bg-slate-100 text-slate-500" : "border-[#002fa7] bg-[#002fa7] text-white")}>
             {msg.read ? t("已读") : t("提及你")}
           </span>
-          <span className="material-chip bg-white text-indigo-700 ring-1 ring-indigo-100">{t("受邀参与")}</span>
-          {msg.handled && <span className="material-chip bg-emerald-50 text-emerald-700">{t("已处理")}</span>}
+          <span className={cn(MESSAGE_CHIP_CLASS, "border-blue-200 bg-white text-[#002fa7]")}>{t("受邀参与")}</span>
+          {msg.handled && <span className={cn(MESSAGE_CHIP_CLASS, "border-emerald-200 bg-emerald-50 text-emerald-700")}>{t("已处理")}</span>}
           <span className="ml-auto flex items-center gap-1 text-xs text-slate-400">
             <Clock3 className="h-3.5 w-3.5" />
             {timeLabel}
@@ -437,7 +449,7 @@ function MessageCard({
         </div>
         <div className="mt-2 text-sm font-bold text-slate-900">{body.task_title}</div>
         <p className="mt-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-5 text-slate-700">
-          <span className="font-semibold text-indigo-700">{body.actor_name}</span>
+          <span className="font-semibold text-[#002fa7]">{body.actor_name}</span>
           {t(" 在讨论中提到了你：")}
           {body.excerpt}
         </p>
@@ -448,7 +460,7 @@ function MessageCard({
           <button
             type="button"
             onClick={openDiscussion}
-            className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2"
+            className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[#002fa7] px-4 text-xs font-bold text-white shadow-sm hover:bg-[#002581] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
           >
             {t("查看并回复")}
             <ArrowRight className="h-3.5 w-3.5" />
@@ -457,7 +469,7 @@ function MessageCard({
             <button
               type="button"
               onClick={() => onHandle(msg)}
-              className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+              className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
               {t("标记已处理")}
@@ -475,32 +487,24 @@ function MessageCard({
 
     return (
       <article
-        className={cn("cursor-pointer rounded-2xl border p-5 transition-colors", isHandled ? "border-slate-100 bg-slate-50/60" : "border-blue-100 bg-blue-50/40")}
+        className={cn("cursor-pointer rounded-xl border p-4", isHandled ? "border-slate-200 bg-slate-50/60" : "border-blue-200 bg-blue-50/40")}
         onClick={() => onOpen(msg)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onOpen(msg);
-          }
-        }}
-        role="button"
-        tabIndex={0}
       >
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
+            <span className={cn(MESSAGE_CHIP_CLASS, msg.read ? "border-slate-200 bg-slate-100 text-slate-500" : "border-red-200 bg-red-50 text-red-600")}>
               {msg.read ? t("已读") : t("未读")}
             </span>
             <SourceChip source={msg.source} />
-            <span className="material-chip bg-blue-100 text-blue-700">{t("审核申请")}</span>
-            <span className={cn("material-chip", rb.review_type === "collaboration" ? "bg-purple-50 text-purple-700" : rb.review_type === "proposal" ? "bg-indigo-50 text-indigo-700" : rb.review_type === "due_date" ? "bg-sky-50 text-sky-700" : rb.review_type === "abandon" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700")}>
+            <span className={cn(MESSAGE_CHIP_CLASS, "border-blue-200 bg-blue-100 text-[#002fa7]")}>{t("审核申请")}</span>
+            <span className={cn(MESSAGE_CHIP_CLASS, rb.review_type === "abandon" ? "border-red-200 bg-red-50 text-red-700" : rb.review_type === "procurement_transfer" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-blue-200 bg-white text-[#002fa7]")}>
               {reviewTypeLabel}
             </span>
             {!msg.read && !isHandled && (
               <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />
             )}
             {isHandled && (
-              <span className="material-chip bg-emerald-50 text-emerald-600">{t("已处理")}</span>
+              <span className={cn(MESSAGE_CHIP_CLASS, "border-emerald-200 bg-emerald-50 text-emerald-700")}>{t("已处理")}</span>
             )}
           </div>
           <span className="flex items-center gap-1 text-xs text-slate-400">
@@ -521,7 +525,7 @@ function MessageCard({
         </div>
 
         {rb.review_type === "procurement_transfer" && (
-          <div className="mb-3 grid gap-2 rounded-xl border border-violet-100 bg-white/90 p-3 text-xs text-slate-600 sm:grid-cols-2">
+          <div className="mb-3 grid gap-2 rounded-xl border border-blue-200 bg-white p-3 text-xs text-slate-600 sm:grid-cols-2">
             <div>{t("采购编号：")}<span className="font-mono font-semibold text-slate-800">{rb.procurement_code}</span></div>
             <div>{t("采购方式：")}<span className="font-semibold text-slate-800">{rb.procurement_method_label}</span></div>
             <div>{t("物料：")}<AutoTranslatedText className="font-semibold text-slate-800" text={[rb.material_name, rb.specification].filter(Boolean).join(" · ")} /></div>
@@ -547,23 +551,23 @@ function MessageCard({
             <button
               type="button"
               disabled={isApproving}
-              className="inline-flex min-w-[90px] items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex min-w-[90px] items-center justify-center gap-1.5 rounded-lg bg-[#002fa7] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#002581] disabled:cursor-not-allowed disabled:opacity-60"
               onClick={(event) => {
                 event.stopPropagation();
-                onApprove(msg, rb);
+                onApprove(msg, rb, event.currentTarget);
               }}
             >
               {isApproving
-                ? <><Loader2 className="h-4 w-4 animate-spin" />{t("处理中")}</>
+                ? <><Loader2 className="size-4" aria-hidden="true" />{t("处理中")}</>
                 : <><ThumbsUp className="h-4 w-4" />{t("批准")}</>
               }
             </button>
             <button
               type="button"
-              className="inline-flex min-w-[90px] items-center justify-center gap-1.5 rounded-lg border-2 border-red-500 bg-white px-5 py-2.5 text-sm font-bold text-red-600 transition hover:bg-red-50"
+              className="inline-flex min-w-[90px] items-center justify-center gap-1.5 rounded-lg border border-red-300 bg-white px-5 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50"
               onClick={(event) => {
                 event.stopPropagation();
-                onReject(msg, rb);
+                onReject(msg, rb, event.currentTarget);
               }}
             >
               <ThumbsDown className="h-4 w-4" />
@@ -571,10 +575,23 @@ function MessageCard({
             </button>
           </div>
         )}
+        {!msg.read && (
+          <button
+            type="button"
+            className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#002fa7] hover:underline"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpen(msg);
+            }}
+          >
+            <CheckCircle2 className="size-3.5" aria-hidden="true" />
+            {t("标记为已读")}
+          </button>
+        )}
         {rb.review_type === "procurement_transfer" && rb.rd_task_id && (
           <button
             type="button"
-            className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+            className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#002fa7] hover:underline"
             onClick={(event) => { event.stopPropagation(); onOpen(msg); navigate(`/rd-task/${encodeURIComponent(rb.rd_task_id!)}`); }}
           >
             {t("查看原研发任务")}<ArrowRight className="size-3.5" />
@@ -605,17 +622,17 @@ function MessageCard({
     ].filter((item) => item.value !== null && item.value !== undefined && item.value !== "");
 
     return (
-      <article className={cn("rounded-2xl border bg-white p-5", approved ? "border-emerald-200" : "border-red-200")}>
+      <article className={cn("rounded-xl border bg-white p-4", approved ? "border-emerald-200" : "border-red-200")}>
         <div className="flex flex-wrap items-center gap-2">
-          <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
+          <span className={cn(MESSAGE_CHIP_CLASS, msg.read ? "border-slate-200 bg-slate-100 text-slate-500" : "border-red-200 bg-red-50 text-red-600")}>
             {msg.read ? t("已读") : t("未读")}
           </span>
           <SourceChip source={msg.source} />
-          <span className={cn("material-chip", approved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700")}>
+          <span className={cn(MESSAGE_CHIP_CLASS, approved ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-700")}>
             {approved ? t("审核通过") : t("审核打回")}
           </span>
-          <span className="material-chip bg-slate-100 text-slate-600">{t("转采购审核")}</span>
-          {msg.handled && <span className="material-chip bg-slate-100 text-slate-500">{t("已处理")}</span>}
+          <span className={cn(MESSAGE_CHIP_CLASS, "border-slate-200 bg-slate-100 text-slate-600")}>{t("转采购审核")}</span>
+          {msg.handled && <span className={cn(MESSAGE_CHIP_CLASS, "border-slate-200 bg-slate-100 text-slate-500")}>{t("已处理")}</span>}
           <span className="ml-auto flex items-center gap-1 text-xs text-slate-400">
             <Clock3 className="size-3.5" />
             {timeLabel}
@@ -690,11 +707,11 @@ function MessageCard({
       if (body.route?.startsWith("/")) navigate(body.route);
     };
     return (
-      <article className="rounded-2xl border border-indigo-200 bg-white p-5">
+      <article className="rounded-xl border border-blue-200 bg-white p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>{msg.read ? t("已读") : t("未读")}</span>
+          <span className={cn(MESSAGE_CHIP_CLASS, msg.read ? "border-slate-200 bg-slate-100 text-slate-500" : "border-red-200 bg-red-50 text-red-600")}>{msg.read ? t("已读") : t("未读")}</span>
           <SourceChip source={msg.source} />
-          <span className="material-chip bg-indigo-100 text-indigo-700">{t("新任务分配")}</span>
+          <span className={cn(MESSAGE_CHIP_CLASS, "border-blue-200 bg-blue-100 text-[#002fa7]")}>{t("新任务分配")}</span>
           <span className="ml-auto flex items-center gap-1 text-xs text-slate-400"><Clock3 className="size-3.5" />{timeLabel}</span>
         </div>
         <div className="mt-4 border-b border-slate-100 pb-4">
@@ -708,7 +725,7 @@ function MessageCard({
           {body.specification && <div><dt className="text-xs text-slate-400">{t("规格")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700"><AutoTranslatedText text={body.specification} /></dd></div>}
           <div><dt className="text-xs text-slate-400">{t("分配人")}</dt><dd className="mt-0.5 text-sm font-medium text-slate-700">{body.assigned_by}</dd></div>
         </dl>
-        <AutoTranslatedText as="p" className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-800" text={body.next_action} />
+        <AutoTranslatedText as="p" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-[#002fa7]" text={body.next_action} />
         <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-4">
           {body.route?.startsWith("/") && <Button type="button" size="sm" onClick={openTask}>{t(body.action_label || "打开采购任务")}<ArrowRight className="size-3.5" /></Button>}
           {!msg.handled && <Button type="button" size="sm" variant="outline" onClick={() => onHandle(msg)}><CheckCircle2 className="size-3.5" />{t("标记已处理")}</Button>}
@@ -723,7 +740,7 @@ function MessageCard({
 
     return (
       <article
-        className={cn("cursor-pointer rounded-2xl border p-5", approved ? "border-emerald-100 bg-emerald-50/40" : "border-red-100 bg-red-50/40")}
+        className={cn("cursor-pointer rounded-xl border p-4", approved ? "border-emerald-200 bg-emerald-50/40" : "border-red-200 bg-red-50/40")}
         onClick={() => onOpen(msg)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -736,14 +753,14 @@ function MessageCard({
       >
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
+            <span className={cn(MESSAGE_CHIP_CLASS, msg.read ? "border-slate-200 bg-slate-100 text-slate-500" : "border-red-200 bg-red-50 text-red-600")}>
               {msg.read ? t("已读") : t("未读")}
             </span>
             <SourceChip source={msg.source} />
-            <span className={cn("material-chip", approved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700")}>
+            <span className={cn(MESSAGE_CHIP_CLASS, approved ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-700")}>
               {approved ? t("已批准") : t("已打回")}
             </span>
-            <span className="material-chip bg-slate-100 text-slate-600">
+            <span className={cn(MESSAGE_CHIP_CLASS, "border-slate-200 bg-slate-100 text-slate-600")}>
               {rb.review_type === "procurement_transfer" ? t("转采购前置审核") : t("审核结果")}
             </span>
             {!msg.read && (
@@ -762,7 +779,7 @@ function MessageCard({
         </div>
 
         {rb.review_type === "procurement_transfer" && (
-          <div className="mb-3 grid gap-2 rounded-xl border border-violet-100 bg-white/90 p-3 text-xs text-slate-600 sm:grid-cols-2">
+          <div className="mb-3 grid gap-2 rounded-xl border border-blue-200 bg-white p-3 text-xs text-slate-600 sm:grid-cols-2">
             <div>{t("采购编号：")}<span className="font-mono font-semibold text-slate-800">{rb.procurement_code}</span></div>
             <div>{t("数量：")}<span className="font-semibold text-slate-800">{rb.quantity} {rb.unit}</span></div>
             {rb.buyer_name && <div className="sm:col-span-2">{t("采购负责人：")}<span className="font-semibold text-slate-800">{rb.buyer_name}</span></div>}
@@ -786,26 +803,17 @@ function MessageCard({
     const isHandled = msg.handled === true;
     return (
       <article
-        className={cn("cursor-pointer rounded-2xl border p-5 transition-colors", isHandled ? "border-slate-100 bg-slate-50/60" : "border-violet-100 bg-violet-50/40")}
-        onClick={() => onSelfAssess(msg, pb)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onSelfAssess(msg, pb);
-          }
-        }}
-        role="button"
-        tabIndex={0}
+        className={cn("rounded-xl border p-4", isHandled ? "border-slate-200 bg-slate-50/60" : "border-blue-200 bg-blue-50/40")}
       >
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
+            <span className={cn(MESSAGE_CHIP_CLASS, msg.read ? "border-slate-200 bg-slate-100 text-slate-500" : "border-red-200 bg-red-50 text-red-600")}>
               {msg.read ? t("已读") : t("未读")}
             </span>
             <SourceChip source={msg.source} />
-            <span className="material-chip bg-violet-100 text-violet-700">{t("绩效自评")}</span>
+            <span className={cn(MESSAGE_CHIP_CLASS, "border-blue-200 bg-blue-100 text-[#002fa7]")}>{t("绩效自评")}</span>
             {!msg.read && !isHandled && <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />}
-            {isHandled && <span className="material-chip bg-emerald-50 text-emerald-600">{t("已提交")}</span>}
+            {isHandled && <span className={cn(MESSAGE_CHIP_CLASS, "border-emerald-200 bg-emerald-50 text-emerald-700")}>{t("已提交")}</span>}
           </div>
           <span className="flex items-center gap-1 text-xs text-slate-400">
             <Clock3 className="h-3.5 w-3.5" />
@@ -817,10 +825,10 @@ function MessageCard({
         <div className="mt-2 flex border-t border-slate-100 pt-4">
           <button
             type="button"
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-violet-700"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#002fa7] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#002581]"
             onClick={(event) => {
               event.stopPropagation();
-              onSelfAssess(msg, pb);
+              onSelfAssess(msg, pb, event.currentTarget);
             }}
           >
             {isHandled ? t("查看 / 修改自评") : t("去自评")}
@@ -835,27 +843,27 @@ function MessageCard({
   return (
     <article
       className={cn(
-        "cursor-pointer rounded-2xl border bg-white p-5 transition-colors",
-        videoJump ? "border-indigo-100 hover:border-indigo-300 hover:bg-indigo-50/40" : "border-slate-100",
+        "cursor-pointer rounded-xl border bg-white p-4",
+        videoJump ? "border-blue-200 hover:bg-blue-50/40" : "border-slate-200",
       )}
       onClick={() => (videoJump ? openVideo() : onOpen(msg))}
       onKeyDown={(event) => {
+        if (videoJump) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          if (videoJump) openVideo();
-          else onOpen(msg);
+          onOpen(msg);
         }
       }}
-      role="button"
-      tabIndex={0}
+      role={videoJump ? undefined : "button"}
+      tabIndex={videoJump ? undefined : 0}
     >
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
+          <span className={cn(MESSAGE_CHIP_CLASS, msg.read ? "border-slate-200 bg-slate-100 text-slate-500" : "border-red-200 bg-red-50 text-red-600")}>
             {msg.read ? t("已读") : t("未读")}
           </span>
           <SourceChip source={msg.source} />
-          <span className="material-chip bg-slate-100 text-slate-600">{t("系统消息")}</span>
+          <span className={cn(MESSAGE_CHIP_CLASS, "border-slate-200 bg-slate-100 text-slate-600")}>{t("系统消息")}</span>
           {!msg.read && (
             <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />
           )}
@@ -870,7 +878,7 @@ function MessageCard({
       {videoJump && (
         <button
           type="button"
-          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-700"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#002581]"
           onClick={(event) => {
             event.stopPropagation();
             openVideo();
@@ -915,15 +923,16 @@ function FilterChipRow<T extends string>({
   onClear: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="mr-1 w-8 shrink-0 text-xs font-medium text-slate-400">{label}</span>
+    <fieldset className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <legend className="mr-1 w-10 shrink-0 text-xs font-semibold text-slate-600">{label}</legend>
       <button
         type="button"
         onClick={onClear}
+        aria-pressed={selected.length === 0}
         className={cn(
-          "cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors",
+          "cursor-pointer rounded-full border px-2.5 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
           selected.length === 0
-            ? "border-blue-200 bg-blue-50 font-semibold text-blue-700"
+            ? "border-blue-200 bg-blue-50 font-semibold text-[#002fa7]"
             : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
         )}
       >
@@ -936,16 +945,16 @@ function FilterChipRow<T extends string>({
           aria-pressed={selected.includes(option.value)}
           onClick={() => onToggle(option.value)}
           className={cn(
-            "cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors",
+            "cursor-pointer rounded-full border px-2.5 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
             selected.includes(option.value)
-              ? "border-blue-200 bg-blue-50 font-semibold text-blue-700"
+              ? "border-blue-200 bg-blue-50 font-semibold text-[#002fa7]"
               : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
           )}
         >
           {option.label}
         </button>
       ))}
-    </div>
+    </fieldset>
   );
 }
 
@@ -966,7 +975,9 @@ export function MessageCenterPage() {
   const { user } = useAuth();
   const [messages, setMessages] = useState<RdMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   // 空数组 = 不筛。这两个走服务端，改动会触发重新拉取（见 loadMessages 依赖）
   const [sourceFilter, setSourceFilter] = useState<RdMessageSource[]>([]);
@@ -979,11 +990,18 @@ export function MessageCenterPage() {
   const [rejectTarget, setRejectTarget] = useState<{ msg: RdMessage; body: ReviewRequestBody } | null>(null);
   const [approveTarget, setApproveTarget] = useState<{ msg: RdMessage; body: ReviewRequestBody } | null>(null);
   const [approving, setApproving] = useState<string | null>(null); // message id being approved
+  const [rejecting, setRejecting] = useState<string | null>(null);
+  const [approveError, setApproveError] = useState<string | null>(null);
+  const [rejectError, setRejectError] = useState<string | null>(null);
 
   // 绩效自评弹窗状态
   const [selfAssessReport, setSelfAssessReport] = useState<RdPerformanceReport | null>(null);
   const [selfAssessLoading, setSelfAssessLoading] = useState(false);
   const [selfAssessMsgId, setSelfAssessMsgId] = useState<string | null>(null);
+  const loadRequestRef = useRef(0);
+  const dialogTriggerRef = useRef<HTMLElement | null>(null);
+  const selfAssessTriggerRef = useRef<HTMLElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const canReview = user
     ? user.permissions.includes("*")
@@ -1004,7 +1022,9 @@ export function MessageCenterPage() {
   // Load messages（首屏 / 刷新：始终回到最新一页，丢弃已翻出的更早内容）
   const loadMessages = useCallback(async () => {
     if (!user?.id) return;
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await fetchRdMessages({
         recipient_id: user.id,
@@ -1012,14 +1032,18 @@ export function MessageCenterPage() {
         source: sourceFilter,
         category: categoryFilter,
       });
+      if (requestId !== loadRequestRef.current) return;
       // Sort newest first
       setMessages(data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       setHasMore(data.length === MESSAGE_FETCH_SIZE);
       setPage(1); // 换筛选条件后停在旧页码会显示空列表
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("加载消息失败"));
+      if (requestId !== loadRequestRef.current) return;
+      const message = err instanceof Error ? err.message : t("加载消息失败");
+      setLoadError(message);
+      toast.error(message);
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) setLoading(false);
     }
   }, [user?.id, sourceFilter, categoryFilter]);
 
@@ -1030,6 +1054,7 @@ export function MessageCenterPage() {
     const oldest = messages[messages.length - 1];
     if (!oldest) return;
     setLoadingMore(true);
+    setLoadMoreError(null);
     try {
       const older = await fetchRdMessages({
         recipient_id: user.id,
@@ -1047,7 +1072,9 @@ export function MessageCenterPage() {
         });
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("加载更早消息失败"));
+      const message = err instanceof Error ? err.message : t("加载更早消息失败");
+      setLoadMoreError(message);
+      toast.error(message);
     } finally {
       setLoadingMore(false);
     }
@@ -1071,6 +1098,7 @@ export function MessageCenterPage() {
     const timer = window.setInterval(() => { void loadMessages(); }, 60_000);
 
     return () => {
+      loadRequestRef.current += 1;
       window.removeEventListener('rd:review-submitted', onReviewSubmitted);
       window.removeEventListener('rd:messages-updated', onMessagesUpdated);
       document.removeEventListener('visibilitychange', onVisibilityChange);
@@ -1084,13 +1112,17 @@ export function MessageCenterPage() {
     () => messages.filter(isPendingReviewMessage).length,
     [messages],
   );
+  const handledCount = useMemo(() => messages.filter((message) => message.handled === true).length, [messages]);
 
   const markMessageRead = useCallback((msg: RdMessage) => {
     if (msg.read) return;
     setMessages((prev) => prev.map((item) => (item.id === msg.id ? { ...item, read: true } : item)));
     void patchRdMessage(msg.id, { read: true })
       .then(() => window.dispatchEvent(new CustomEvent("rd:messages-updated")))
-      .catch(() => {});
+      .catch((error: unknown) => {
+        setMessages((previous) => previous.map((item) => item.id === msg.id ? { ...item, read: msg.read } : item));
+        toast.error(error instanceof Error ? error.message : t("消息已读状态更新失败"));
+      });
   }, []);
 
   const markMessageHandled = useCallback((msg: RdMessage) => {
@@ -1099,16 +1131,18 @@ export function MessageCenterPage() {
     )));
     void patchRdMessage(msg.id, { read: true, handled: true })
       .then(() => window.dispatchEvent(new CustomEvent("rd:messages-updated")))
-      .catch(() => {
+      .catch((error: unknown) => {
         setMessages((prev) => prev.map((item) => (
           item.id === msg.id ? { ...item, handled: msg.handled, read: msg.read } : item
         )));
+        toast.error(error instanceof Error ? error.message : t("消息处理状态更新失败"));
       });
   }, []);
 
   // 打开绩效自评：先标已读，按消息携带的月份拉取本人当月绩效，再开评分弹窗。
   const openSelfAssess = useCallback(
-    async (msg: RdMessage, body: PerfSelfAssessmentBody) => {
+    async (msg: RdMessage, body: PerfSelfAssessmentBody, trigger: HTMLElement) => {
+      selfAssessTriggerRef.current = trigger;
       markMessageRead(msg);
       if (!user?.id) return;
       setSelfAssessMsgId(msg.id);
@@ -1118,11 +1152,13 @@ export function MessageCenterPage() {
         const r = list[0] ?? null;
         if (!r) {
           toast.error(t("未找到对应的绩效报表，可能已被重新生成"));
+          window.requestAnimationFrame(() => selfAssessTriggerRef.current?.focus());
           return;
         }
         setSelfAssessReport(r);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : t("读取绩效失败，请稍后重试"));
+        window.requestAnimationFrame(() => selfAssessTriggerRef.current?.focus());
       } finally {
         setSelfAssessLoading(false);
       }
@@ -1178,8 +1214,26 @@ export function MessageCenterPage() {
   const visibleStart = filteredMessages.length === 0 ? 0 : (safePage - 1) * MESSAGE_PAGE_SIZE + 1;
   const visibleEnd = Math.min(safePage * MESSAGE_PAGE_SIZE, filteredMessages.length);
 
-  const requestApprove = useCallback((msg: RdMessage, body: ReviewRequestBody) => {
+  const requestApprove = useCallback((msg: RdMessage, body: ReviewRequestBody, trigger: HTMLElement) => {
+    dialogTriggerRef.current = trigger;
+    setApproveError(null);
     setApproveTarget({ msg, body });
+  }, []);
+
+  const requestReject = useCallback((msg: RdMessage, body: ReviewRequestBody, trigger: HTMLElement) => {
+    dialogTriggerRef.current = trigger;
+    setRejectError(null);
+    setRejectTarget({ msg, body });
+  }, []);
+
+  const restoreDialogFocus = useCallback((event: Event) => {
+    event.preventDefault();
+    const trigger = dialogTriggerRef.current;
+    dialogTriggerRef.current = null;
+    window.requestAnimationFrame(() => {
+      if (trigger?.isConnected) trigger.focus();
+      else searchInputRef.current?.focus();
+    });
   }, []);
 
   // Approve handler
@@ -1188,6 +1242,7 @@ export function MessageCenterPage() {
       if (!approveTarget) return;
       const { msg, body } = approveTarget;
       setApproving(msg.id);
+      setApproveError(null);
       try {
         if (body.review_type === "procurement_transfer") {
           await approveRdProcurementTransfer(body.task_id);
@@ -1206,7 +1261,9 @@ export function MessageCenterPage() {
         toast.success(t("任务「{title}」审核已批准", { title: body.task_title }));
         setApproveTarget(null);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : t("操作失败"));
+        const message = err instanceof Error ? err.message : t("操作失败");
+        setApproveError(message);
+        toast.error(message);
       } finally {
         setApproving(null);
       }
@@ -1219,7 +1276,8 @@ export function MessageCenterPage() {
     async (reason: string) => {
       if (!rejectTarget) return;
       const { msg, body } = rejectTarget;
-      setRejectTarget(null);
+      setRejecting(msg.id);
+      setRejectError(null);
       try {
         if (body.review_type === "procurement_transfer") {
           await rejectRdProcurementTransfer(body.task_id, reason);
@@ -1237,253 +1295,262 @@ export function MessageCenterPage() {
         );
         window.dispatchEvent(new CustomEvent("rd:review-submitted"));
         toast.success(t("任务「{title}」已打回", { title: body.task_title }));
+        setRejectTarget(null);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : t("操作失败"));
+        const message = err instanceof Error ? err.message : t("操作失败");
+        setRejectError(message);
+        toast.error(message);
+      } finally {
+        setRejecting(null);
       }
     },
     [rejectTarget, user?.name],
   );
 
+  const filtersActive = filter !== "all" || Boolean(keyword.trim()) || sourceFilter.length > 0 || categoryFilter.length > 0;
+  const clearFilters = () => {
+    setKeyword("");
+    setFilter("all");
+    setSourceFilter([]);
+    setCategoryFilter([]);
+    setPage(1);
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  };
+
+  const closeSelfAssessDialog = () => {
+    setSelfAssessReport(null);
+    setSelfAssessMsgId(null);
+    const trigger = selfAssessTriggerRef.current;
+    selfAssessTriggerRef.current = null;
+    window.requestAnimationFrame(() => {
+      if (trigger?.isConnected) trigger.focus();
+      else searchInputRef.current?.focus();
+    });
+  };
+
   return (
-    <div className="space-y-5">
-      <section className="material-card p-6 md:p-8">
-        <div className="flex flex-wrap items-start justify-between gap-5">
-          <div>
-            <span className="material-chip bg-blue-50 text-blue-700">Message Center</span>
-            <h2 className="mt-5 text-2xl font-bold tracking-tight text-slate-950">{t("消息中心")}</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-              {t("汇总审核申请、审核结果和系统通知，管理员可在此直接批准或打回审核请求。")}
-            </p>
-          </div>
-          <div className="grid w-full grid-cols-3 gap-2.5 sm:w-auto">
-            {([
-              { label: "未读", value: unreadCount, Icon: BellRing, filterValue: "unread" as FilterType, iconCls: "bg-blue-50 text-blue-600 group-hover:bg-blue-100", activeCls: "border-blue-300 bg-blue-50/70 ring-1 ring-blue-200" },
-              { label: "待审核", value: pendingReviewCount, Icon: AlertTriangle, filterValue: "review_request" as FilterType, iconCls: "bg-amber-50 text-amber-600 group-hover:bg-amber-100", activeCls: "border-amber-300 bg-amber-50/70 ring-1 ring-amber-200" },
-              { label: "共计", value: messages.length, Icon: MessageSquare, filterValue: "all" as FilterType, iconCls: "bg-slate-100 text-slate-500 group-hover:bg-slate-200", activeCls: "border-slate-300 bg-slate-50 ring-1 ring-slate-200" },
-            ]).map((item) => {
-              const active = filter === item.filterValue;
-              return (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => setFilter((cur) => (cur === item.filterValue ? "all" : item.filterValue))}
-                  aria-pressed={active}
-                  title={t("按「{label}」筛选列表", { label: t(item.label) })}
-                  className={cn(
-                    "group flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/60 sm:min-w-[118px]",
-                    active ? item.activeCls : "border-slate-200/80 bg-white shadow-sm hover:border-slate-300",
-                  )}
-                >
-                  <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors", item.iconCls)}>
-                    <item.Icon className="h-5 w-5" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-2xl font-bold leading-none tabular-nums text-slate-900">{item.value}</span>
-                    <span className="mt-1 block text-[11px] font-medium text-slate-500">{t(item.label)}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </section>
+    <main className="horizon-theme hz-page min-w-0">
+      <div className="hz-page-inner min-w-0 space-y-3">
+        <HorizonPageHeader
+          Icon={BellRing}
+          eyebrow="WORK CENTER · MESSAGE INBOX"
+          title={t("消息中心")}
+          description={t("统一处理审核申请、审核结果、系统通知、讨论提及和绩效自评任务。")}
+          meta={(
+            <>
+              <span>{canReview ? t("审核工作台") : t("个人收件箱")}</span>
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums">{loading && messages.length === 0 ? t("正在同步") : t("已加载 {n} 条", { n: messages.length })}</span>
+            </>
+          )}
+          actions={(
+            <Button type="button" variant="outline" onClick={() => void loadMessages()} disabled={loading}>
+              <RefreshCw className="size-4" aria-hidden="true" />
+              {loading ? t("同步中…") : t("刷新消息")}
+            </Button>
+          )}
+        />
 
-      <section className="material-card p-5 md:p-6">
-        {/* Toolbar */}
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <label className="relative block flex-1 min-w-[220px]">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              className="material-input pl-11"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder={t("搜索消息标题、任务名称...")}
-            />
-          </label>
-          <label className="relative block w-[180px]">
-            <Filter className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <select
-              className="material-input cursor-pointer appearance-none pl-11"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value as FilterType)}
-            >
-              {(Object.keys(filterLabels) as FilterType[]).map((k) => (
-                <option key={k} value={k}>{t(filterLabels[k])}</option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
-            onClick={() => void loadMessages()}
-          >
-            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-            {t("刷新")}
-          </button>
-        </div>
+        <HorizonMetricGrid className="!grid-cols-2 xl:!grid-cols-4">
+          <HorizonMetric Icon={MessageSquare} label={t("总消息")} value={loading && messages.length === 0 ? "—" : messages.length} note={hasMore ? t("已加载，仍有更早消息") : t("当前筛选范围内已全部加载")} tone="brand" />
+          <HorizonMetric Icon={BellRing} label={t("未读")} value={loading && messages.length === 0 ? "—" : unreadCount} note={unreadCount > 0 ? t("需要查看或确认") : t("当前没有未读消息")} tone={unreadCount > 0 ? "warning" : "success"} />
+          <HorizonMetric Icon={AlertTriangle} label={t("待审核")} value={loading && messages.length === 0 ? "—" : pendingReviewCount} note={canReview ? t("可在列表中直接处理") : t("当前账号仅可查看")} tone={pendingReviewCount > 0 ? "warning" : "neutral"} />
+          <HorizonMetric Icon={CheckCircle2} label={t("已处理")} value={loading && messages.length === 0 ? "—" : handledCount} note={t("当前已加载消息统计")} tone="success" />
+        </HorizonMetricGrid>
 
-        {/* 来源 / 分类筛选：走服务端，对全部历史生效，不只是已加载的这一页 */}
-        <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-4">
-          <FilterChipRow
-            label={t("分类")}
-            options={CATEGORY_ORDER.map((value) => ({ value, label: t(RD_MESSAGE_CATEGORY_LABELS[value]) }))}
-            selected={categoryFilter}
-            onToggle={(value) => setCategoryFilter((prev) => toggleIn(prev, value))}
-            onClear={() => setCategoryFilter([])}
-          />
-          <FilterChipRow
-            label={t("来源")}
-            options={SOURCE_ORDER.map((value) => ({ value, label: t(RD_MESSAGE_SOURCE_LABELS[value]) }))}
-            selected={sourceFilter}
-            onToggle={(value) => setSourceFilter((prev) => toggleIn(prev, value))}
-            onClear={() => setSourceFilter([])}
-          />
-        </div>
+        {selfAssessLoading ? (
+          <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-[#002fa7]" role="status" aria-live="polite">
+            <Loader2 className="size-4" aria-hidden="true" />
+            <span>{t("正在读取绩效报表，完成后将打开自评窗口…")}</span>
+          </div>
+        ) : null}
 
-        {/* Message list */}
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 py-16 text-slate-400">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <span className="text-sm">{t("加载中...")}</span>
-          </div>
-        ) : filteredMessages.length === 0 ? (
-          <div className="py-12 text-center text-sm text-slate-400">
-            {messages.length === 0 ? t("暂无消息") : t("没有匹配的消息")}
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {pagedMessages.map((msg) => {
-              const parsed = parseBody(msg.body);
-              return (
-                <MessageCard
-                  key={msg.id}
-                  msg={msg}
-                  canReview={parsed.type === "review_request" ? canReviewMessage(parsed) : canReview}
-                  isApproving={approving === msg.id}
-                  onOpen={markMessageRead}
-                  onApprove={requestApprove}
-                  onReject={(m, b) => setRejectTarget({ msg: m, body: b })}
-                  onSelfAssess={openSelfAssess}
-                  onHandle={markMessageHandled}
-                />
-              );
-            })}
-          </div>
-        )}
-
-        {/* 分页 */}
-        {!loading && filteredMessages.length > 0 && (
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-            <div className="text-xs tabular-nums text-slate-500">
-              {t("显示")} {visibleStart}-{visibleEnd}
-              <span className="mx-1 text-slate-300">/</span>
-              {t("共 {n} 条", { n: filteredMessages.length })}
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                disabled={safePage === 1}
-                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-35"
-                aria-label={t("上一页")}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <span className="min-w-[64px] px-2 text-center text-xs font-semibold tabular-nums text-slate-600">
-                {safePage} / {totalPages}
+        <section className="hz-surface min-w-0 overflow-hidden" aria-labelledby="message-workbench-title">
+          <HorizonSectionHeader
+            Icon={MessageSquare}
+            title={t("消息工作台")}
+            description={t("筛选已加载消息，或按分类与来源向服务端重新读取完整范围。")}
+            trailing={(
+              <span className="text-xs text-slate-500">
+                {t("显示")} <span className="font-semibold text-slate-700 tabular-nums">{filteredMessages.length}</span> / {messages.length}
               </span>
-              <button
-                type="button"
-                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                disabled={safePage === totalPages}
-                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-35"
-                aria-label={t("下一页")}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
+            )}
+          />
+          <h2 id="message-workbench-title" className="sr-only">{t("消息工作台")}</h2>
+
+          <div className="grid min-w-0 gap-3 border-b border-slate-200 p-4 lg:grid-cols-[minmax(260px,1fr)_200px_auto] lg:items-end">
+            <div className="min-w-0">
+              <Label htmlFor="message-center-search" className="mb-1.5 block text-xs font-semibold text-slate-700">{t("搜索消息")}</Label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Input
+                  ref={searchInputRef}
+                  id="message-center-search"
+                  className="pl-9"
+                  value={keyword}
+                  onChange={(event) => setKeyword(event.target.value)}
+                  placeholder={t("标题、任务、人员、采购编号或正文")}
+                />
+              </div>
             </div>
+            <div>
+              <Label htmlFor="message-status-filter" className="mb-1.5 block text-xs font-semibold text-slate-700">{t("消息状态")}</Label>
+              <NativeSelect id="message-status-filter" className="w-full" value={filter} onChange={(event) => setFilter(event.target.value as FilterType)}>
+                {(Object.keys(filterLabels) as FilterType[]).map((key) => <option key={key} value={key}>{t(filterLabels[key])}</option>)}
+              </NativeSelect>
+            </div>
+            <Button type="button" variant="outline" onClick={clearFilters} disabled={!filtersActive}>
+              <Filter className="size-4" aria-hidden="true" />
+              {t("清除筛选")}
+            </Button>
           </div>
-        )}
 
-        {/* 翻到已加载集合的末尾后，才向服务端再要更早的一页 */}
-        {!loading && hasMore && safePage === totalPages && (
-          <div className="mt-3 flex justify-center">
-            <button
-              type="button"
-              onClick={() => { void loadEarlier(); }}
-              disabled={loadingMore}
-              className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loadingMore ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}
-              {loadingMore ? t("加载中...") : t("加载更早的消息")}
-            </button>
+          <div className="space-y-3 border-b border-slate-200 bg-slate-50/60 px-4 py-3">
+            <FilterChipRow
+              label={t("分类")}
+              options={CATEGORY_ORDER.map((value) => ({ value, label: t(RD_MESSAGE_CATEGORY_LABELS[value]) }))}
+              selected={categoryFilter}
+              onToggle={(value) => setCategoryFilter((previous) => toggleIn(previous, value))}
+              onClear={() => setCategoryFilter([])}
+            />
+            <FilterChipRow
+              label={t("来源")}
+              options={SOURCE_ORDER.map((value) => ({ value, label: t(RD_MESSAGE_SOURCE_LABELS[value]) }))}
+              selected={sourceFilter}
+              onToggle={(value) => setSourceFilter((previous) => toggleIn(previous, value))}
+              onClear={() => setSourceFilter([])}
+            />
           </div>
-        )}
-      </section>
 
-      {canReview && (
-        <section className="material-card-flat flex items-start gap-3 p-4">
-          <ShieldCheck className="mt-0.5 h-5 w-5 text-blue-500 shrink-0" />
-          <p className="text-sm leading-6 text-slate-600">
-            {t("作为审核员，您可以在此直接批准或打回研发团队提交的审核申请。打回时请填写原因，申请人将收到通知。")}
-          </p>
+          {loadError && messages.length > 0 ? (
+            <div className="flex flex-col gap-2 border-b border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between" role="alert">
+              <p className="text-pretty text-xs text-amber-800">{loadError} {t("当前继续显示上一次成功加载的消息。")}</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => void loadMessages()}>{t("重新读取")}</Button>
+            </div>
+          ) : null}
+
+          <div className="min-w-0 p-3 sm:p-4" aria-busy={loading}>
+            {loading && messages.length === 0 ? (
+              <div className="space-y-3" role="status" aria-label={t("正在加载消息")}>
+                {Array.from({ length: 4 }, (_, index) => (
+                  <div key={index} className="rounded-xl border border-slate-200 bg-white p-4" aria-hidden="true">
+                    <div className="flex gap-2"><span className="h-6 w-14 rounded-full bg-slate-100" /><span className="h-6 w-20 rounded-full bg-slate-100" /></div>
+                    <div className="mt-3 h-4 w-2/3 rounded bg-slate-100" />
+                    <div className="mt-2 h-3 w-full rounded bg-slate-100" />
+                  </div>
+                ))}
+              </div>
+            ) : loadError && messages.length === 0 ? (
+              <HorizonEmptyState
+                Icon={RefreshCw}
+                title={t("消息读取失败")}
+                description={loadError}
+                action={<Button type="button" variant="outline" onClick={() => void loadMessages()}><RefreshCw className="size-4" aria-hidden="true" />{t("重新读取")}</Button>}
+              />
+            ) : filteredMessages.length === 0 ? (
+              <HorizonEmptyState
+                Icon={filtersActive ? Search : MessageSquare}
+                title={filtersActive ? t("没有匹配的消息") : t("暂无消息")}
+                description={filtersActive ? t("调整状态、分类、来源或关键词后重试。") : t("新审核、提及和系统通知会集中显示在这里。")}
+                action={filtersActive ? <Button type="button" variant="outline" onClick={clearFilters}>{t("清除筛选")}</Button> : <Button type="button" variant="outline" onClick={() => void loadMessages()}>{t("刷新消息")}</Button>}
+              />
+            ) : (
+              <div className="space-y-3" aria-live="polite">
+                {pagedMessages.map((message) => {
+                  const parsed = parseBody(message.body);
+                  return (
+                    <MessageCard
+                      key={message.id}
+                      msg={message}
+                      canReview={parsed.type === "review_request" ? canReviewMessage(parsed) : canReview}
+                      isApproving={approving === message.id}
+                      onOpen={markMessageRead}
+                      onApprove={requestApprove}
+                      onReject={requestReject}
+                      onSelfAssess={openSelfAssess}
+                      onHandle={markMessageHandled}
+                    />
+                  );
+                })}
+              </div>
+            )}
+
+            {!loading && filteredMessages.length > 0 ? (
+              <nav className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4" aria-label={t("消息分页")}>
+                <div className="text-xs text-slate-500 tabular-nums">{t("显示")} {visibleStart}-{visibleEnd} / {t("共 {n} 条", { n: filteredMessages.length })}</div>
+                <div className="flex items-center gap-1">
+                  <Button type="button" variant="outline" size="icon" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage === 1} aria-label={t("上一页")}>
+                    <ChevronLeft className="size-4" aria-hidden="true" />
+                  </Button>
+                  <span className="min-w-16 px-2 text-center text-xs font-semibold text-slate-600 tabular-nums">{safePage} / {totalPages}</span>
+                  <Button type="button" variant="outline" size="icon" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={safePage === totalPages} aria-label={t("下一页")}>
+                    <ChevronRight className="size-4" aria-hidden="true" />
+                  </Button>
+                </div>
+              </nav>
+            ) : null}
+
+            {!loading && hasMore && safePage === totalPages ? (
+              <div className="mt-3 text-center">
+                <Button type="button" variant="outline" size="sm" onClick={() => void loadEarlier()} disabled={loadingMore}>
+                  {loadingMore ? <Loader2 className="size-3.5" aria-hidden="true" /> : <Clock3 className="size-3.5" aria-hidden="true" />}
+                  {loadingMore ? t("加载中…") : t("加载更早的消息")}
+                </Button>
+                {loadMoreError ? <p className="mt-2 text-pretty text-xs text-red-600" role="alert">{loadMoreError}</p> : null}
+              </div>
+            ) : null}
+          </div>
         </section>
-      )}
 
-      {/* Reject reason dialog */}
-      {rejectTarget && (
+        {canReview ? (
+          <aside className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+            <ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#002fa7]" aria-hidden="true" />
+            <p className="text-pretty text-sm leading-6 text-slate-700">{t("作为审核员，您可以直接批准或打回研发及转采购审核申请。打回时必须填写原因，申请人会收到处理结果。")}</p>
+          </aside>
+        ) : null}
+      </div>
+
+      {rejectTarget ? (
         <RejectDialog
           taskTitle={rejectTarget.body.task_title}
+          submitting={rejecting === rejectTarget.msg.id}
+          actionError={rejectError}
           onConfirm={handleReject}
-          onClose={() => setRejectTarget(null)}
+          onClose={() => { if (!rejecting) { setRejectTarget(null); setRejectError(null); } }}
+          onCloseAutoFocus={restoreDialogFocus}
         />
-      )}
-      {approveTarget && (
+      ) : null}
+
+      {approveTarget ? (
         <ApproveDialog
           taskTitle={approveTarget.body.task_title}
-          taskId={approveTarget.body.review_type === "procurement_transfer"
-            ? approveTarget.body.rd_task_id || approveTarget.body.procurement_code || approveTarget.body.task_id
-            : approveTarget.body.task_id}
+          taskId={approveTarget.body.review_type === "procurement_transfer" ? approveTarget.body.rd_task_id || approveTarget.body.procurement_code || approveTarget.body.task_id : approveTarget.body.task_id}
           reviewType={approveTarget.body.review_type}
           submitterName={approveTarget.body.submitter_name}
           pendingDueDate={approveTarget.body.pending_due_date}
           currentDueDate={approveTarget.body.current_due_date}
           submitting={approving === approveTarget.msg.id}
+          actionError={approveError}
           onConfirm={handleApproveConfirm}
-          onClose={() => {
-            if (!approving) setApproveTarget(null);
-          }}
+          onClose={() => { if (!approving) { setApproveTarget(null); setApproveError(null); } }}
+          onCloseAutoFocus={restoreDialogFocus}
         />
-      )}
+      ) : null}
 
-      {/* 拉取绩效中的轻提示 */}
-      {selfAssessLoading && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40">
-          <div className="flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm text-slate-600 shadow-lg">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {t("正在读取绩效…")}
-          </div>
-        </div>
-      )}
-
-      {/* 绩效自评弹窗 */}
       <RDPerformanceScoreDialog
-        open={!!selfAssessReport}
-        onClose={() => {
-          setSelfAssessReport(null);
-          setSelfAssessMsgId(null);
-        }}
+        open={Boolean(selfAssessReport)}
+        onClose={closeSelfAssessDialog}
         report={selfAssessReport}
         mode="self"
         onSubmitted={() => {
           if (selfAssessMsgId) {
             void patchRdMessage(selfAssessMsgId, { handled: true, read: true })
               .then(() => window.dispatchEvent(new CustomEvent("rd:messages-updated")))
-              .catch(() => {});
+              .catch((error: unknown) => toast.error(error instanceof Error ? error.message : t("绩效消息状态更新失败")));
           }
           void loadMessages();
         }}
       />
-    </div>
+    </main>
   );
 }

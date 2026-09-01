@@ -30,6 +30,7 @@ import {
   useBodyScrollLock,
   useMobileOverlayBack,
 } from "./hooks/useMobileOverlay";
+import { useModalFocus } from "./hooks/useModalFocus";
 
 const MOBILE_DATA_REFRESH_INTERVAL_MS = 15_000;
 const CARD_IMAGE_OVERLAY = "rd-mobile-card-image";
@@ -37,12 +38,12 @@ const CARD_IMAGE_OVERLAY = "rd-mobile-card-image";
 // ─── 文案 / 配色映射（移动端自带一份，与桌面同口径、样式独立）────────────────────
 const STATUS_META: Record<RdTaskStatus, { label: string; dot: string; tint: string }> = {
   draft: { label: "草稿", dot: "bg-slate-400", tint: "bg-slate-100 text-slate-500" },
-  in_progress: { label: "进行中", dot: "bg-indigo-500", tint: "bg-indigo-50 text-indigo-600" },
+  in_progress: { label: "进行中", dot: "bg-[#002fa7]", tint: "bg-blue-50 text-[#002fa7]" },
   paused_leave: { label: "请假", dot: "bg-amber-500", tint: "bg-amber-50 text-amber-600" },
   paused_blocked: { label: "阻塞", dot: "bg-red-500", tint: "bg-red-50 text-red-600" },
   completed: { label: "已完成", dot: "bg-emerald-500", tint: "bg-emerald-50 text-emerald-600" },
-  pending_assign: { label: "待指派", dot: "bg-violet-500", tint: "bg-violet-50 text-violet-600" },
-  pending_review: { label: "待审核", dot: "bg-purple-500", tint: "bg-purple-50 text-purple-600" },
+  pending_assign: { label: "待指派", dot: "bg-amber-500", tint: "bg-amber-50 text-amber-700" },
+  pending_review: { label: "待审核", dot: "bg-[#002fa7]", tint: "bg-blue-50 text-[#002fa7]" },
   on_hold: { label: "已挂起", dot: "bg-slate-400", tint: "bg-slate-100 text-slate-500" },
   archived: { label: "已封存", dot: "bg-slate-400", tint: "bg-slate-100 text-slate-500" },
 };
@@ -80,7 +81,7 @@ function formatDue(due?: string): { text: string; overdue: boolean } | null {
 function progressColor(status: RdTaskStatus): string {
   if (status === "completed") return "bg-emerald-500";
   if (status === "paused_blocked" || status === "pending_assign") return "bg-red-400";
-  return "bg-indigo-500";
+  return "bg-[#002fa7]";
 }
 
 function ownerInitial(owner: string): string {
@@ -208,22 +209,21 @@ function ImageLightbox({
 }) {
   const [idx, setIdx] = useState(startIndex);
   useBodyScrollLock(true);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
+  const dialogRef = useModalFocus<HTMLDivElement>(true, onClose);
 
   const safeIdx = Math.min(Math.max(idx, 0), images.length - 1);
   const current = images[safeIdx];
 
   return createPortal(
-    <div className="fixed inset-0 z-[1000] flex flex-col overscroll-none bg-slate-950/90 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="图片预览">
+    <div
+      ref={dialogRef}
+      className="horizon-theme fixed inset-0 z-50 flex h-dvh min-w-0 flex-col overflow-x-hidden overscroll-none bg-slate-950/95"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rd-mobile-image-preview-title"
+      tabIndex={-1}
+    >
+      <h2 id="rd-mobile-image-preview-title" className="sr-only">{t("图片预览")}</h2>
       <div className="flex shrink-0 items-center justify-between px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white/90">
         <span className="text-xs tabular-nums">
           {safeIdx + 1} / {images.length}
@@ -232,13 +232,17 @@ function ImageLightbox({
           type="button"
           onClick={onClose}
           aria-label="关闭预览"
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 active:bg-white/20"
+          data-dialog-autofocus
+          className="flex size-11 items-center justify-center rounded-xl bg-white/10 active:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
         >
           <X size={20} />
         </button>
       </div>
       <div
-        className="flex min-h-0 flex-1 items-center justify-center px-4 pb-4"
+        className={cn(
+          "flex min-h-0 flex-1 items-center justify-center px-4",
+          images.length > 1 ? "pb-4" : "pb-[max(1rem,env(safe-area-inset-bottom))]",
+        )}
         onClick={(e) => e.stopPropagation()}
       >
         <MobileZoomableImage
@@ -261,8 +265,10 @@ function ImageLightbox({
               key={`${u}-${i}`}
               type="button"
               onClick={() => setIdx(i)}
+              aria-label={t("查看第 {n} 张图片", { n: i + 1 })}
+              aria-current={i === safeIdx ? "true" : undefined}
               className={cn(
-                "h-14 w-14 shrink-0 overflow-hidden rounded-lg ring-2 transition",
+                "size-14 shrink-0 overflow-hidden rounded-lg ring-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950",
                 i === safeIdx ? "ring-white" : "opacity-60 ring-transparent",
               )}
             >
@@ -320,13 +326,14 @@ function MobileFeedCard({
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onOpen();
         }
       }}
       className={cn(
-        "block w-full cursor-pointer overflow-hidden rounded-2xl border bg-white text-left shadow-sm transition active:scale-[0.99]",
+        "block min-w-0 w-full cursor-pointer overflow-hidden rounded-2xl border bg-white text-left shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2",
         isRisk ? "border-red-200" : "border-slate-200/70",
       )}
     >
@@ -341,7 +348,7 @@ function MobileFeedCard({
             status.tint,
           )}
         >
-          <span className={cn("h-1.5 w-1.5 rounded-full", status.dot)} />
+          <span className={cn("size-1.5 rounded-full", status.dot)} />
           {t(status.label)}
         </span>
         <span className="min-w-[3.5rem] flex-1 truncate text-[11px] font-medium text-slate-400">
@@ -395,7 +402,7 @@ function MobileFeedCard({
             onPreview(cover, coverThumbnails, 0);
           }}
           aria-label="预览附件图片"
-          className="mt-2.5 block w-full px-3"
+          className="mt-2.5 block min-h-11 w-full px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]"
         >
           <div className="relative overflow-hidden rounded-xl bg-slate-100">
             <img
@@ -406,7 +413,7 @@ function MobileFeedCard({
               className="aspect-[4/3] w-full object-cover"
             />
             {cover.length > 1 && (
-              <span className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-slate-900/70 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
+              <span className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-slate-900/80 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                 <ImageIcon size={10} />
                 {cover.length}
               </span>
@@ -417,19 +424,26 @@ function MobileFeedCard({
 
       {/* 进度 */}
       <div className="flex items-center gap-2 px-3 pt-2.5">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100"
+          role="progressbar"
+          aria-label={t("任务完成进度")}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progress}
+        >
           <div
             className={cn("h-full rounded-full", progressColor(task.status))}
             style={{ width: `${progress}%` }}
           />
         </div>
-        <span className="shrink-0 text-[11px] font-bold text-slate-500">{progress}%</span>
+        <span className="shrink-0 text-[11px] font-bold tabular-nums text-slate-500">{progress}%</span>
       </div>
 
       {/* 负责人行（小红书作者行）+ 最近活动时间 */}
       <div className="mt-2.5 border-t border-slate-100 px-3 py-2.5">
         <div className="flex items-center gap-1.5">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-[10px] font-bold text-indigo-600">
+          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[10px] font-bold text-[#002fa7]">
             {ownerInitial(owner)}
           </span>
           <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-500">{owner}</span>
@@ -468,6 +482,23 @@ export function MobileRDCockpit() {
   const { taskId: routeTaskId } = useParams<{ taskId: string }>();
   const { categories, loading, error, reload, risks, allTasks, personLoads } = useRDCockpitData();
   const workspaceBase = mobileWorkspaceBase(location.pathname);
+  const workspaceMeta = workspaceBase === "/us-collab-m"
+    ? {
+        eyebrow: t("中美协同工作区"),
+        title: t("协同任务总览"),
+        description: t("集中查看跨区域任务、责任人和最新进展。"),
+      }
+    : workspaceBase === "/production-m"
+      ? {
+          eyebrow: t("生产协同工作区"),
+          title: t("生产任务总览"),
+          description: t("跟踪生产协同任务、同步状态和交付风险。"),
+        }
+      : {
+          eyebrow: t("研发工作区"),
+          title: t("研发任务总览"),
+          description: t("聚合研发任务、人员负载和风险进展。"),
+        };
   const taskIndex = useMemo(() => buildMobileTaskIndex(categories), [categories]);
   const activeTask = routeTaskId ? taskIndex.byId.get(routeTaskId) ?? null : null;
 
@@ -619,6 +650,12 @@ export function MobileRDCockpit() {
     setPerson((prev) => (name && prev === name ? null : name));
     scrollTop();
   };
+  const resetFilters = () => {
+    setFilter("all");
+    setPerson(null);
+    setKeyword("");
+    scrollTop();
+  };
 
   // ── 评论未读红点（微信式）：任务级未读数，点开详情即标记已读（全端同步消失）──
   const [noteUnread, setNoteUnread] = useState<Record<string, number>>({});
@@ -665,21 +702,38 @@ export function MobileRDCockpit() {
   // 首屏加载 / 错误（仅当还没有任何数据时占满）
   if (loading && allTasks.length === 0) {
     return (
-      <div className="flex min-h-[70dvh] flex-col items-center justify-center gap-3 text-slate-400">
-        <Loader2 className="animate-spin" size={28} />
-        <span className="text-sm">{t("正在加载驾驶舱…")}</span>
+      <div
+        className="horizon-theme hz-page flex min-h-[70dvh] min-w-0 w-full flex-col overflow-x-clip bg-slate-50 px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-4"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="h-3 w-24 rounded bg-blue-100" />
+          <div className="mt-3 h-6 w-44 rounded bg-slate-200" />
+          <div className="mt-2 h-3 w-full max-w-72 rounded bg-slate-100" />
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-3" aria-hidden="true">
+          {[0, 1, 2, 3].map((item) => (
+            <div key={item} className="h-44 rounded-2xl border border-slate-200 bg-white shadow-sm" />
+          ))}
+        </div>
+        <span className="sr-only">{t("正在加载驾驶舱…")}</span>
       </div>
     );
   }
   if (error && allTasks.length === 0) {
     return (
-      <div className="flex min-h-[70dvh] flex-col items-center justify-center gap-4 px-8 text-center">
+      <div className="horizon-theme hz-page flex min-h-[70dvh] min-w-0 w-full flex-col items-center justify-center gap-4 overflow-x-clip bg-slate-50 px-8 pb-[max(2.5rem,env(safe-area-inset-bottom))] text-center" role="alert">
         <AlertTriangle className="text-red-400" size={30} />
-        <p className="text-sm text-slate-500">{error}</p>
+        <div>
+          <h1 className="text-balance text-base font-semibold text-slate-950">{t("驾驶舱加载失败")}</h1>
+          <p className="mt-1 text-pretty text-sm text-slate-500">{error}</p>
+        </div>
         <button
           type="button"
           onClick={reload}
-          className="rounded-full bg-indigo-600 px-7 py-2.5 text-sm font-semibold text-white active:bg-indigo-700"
+          className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#002fa7] px-7 text-sm font-semibold text-white active:bg-[#00247f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
         >
           {t("重试")}
         </button>
@@ -688,9 +742,25 @@ export function MobileRDCockpit() {
   }
 
   return (
-    <div className="w-full pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+    <div className="horizon-theme hz-page min-h-[70dvh] min-w-0 w-full overflow-x-clip bg-slate-50 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+      <header className="border-b border-slate-200 bg-white px-4 py-4" aria-labelledby="mobile-rd-cockpit-title">
+        <p className="text-[11px] font-semibold text-[#002fa7]">{workspaceMeta.eyebrow}</p>
+        <div className="mt-1 flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 id="mobile-rd-cockpit-title" className="text-balance text-lg font-semibold leading-6 text-slate-950">
+              {workspaceMeta.title}
+            </h1>
+            <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">{workspaceMeta.description}</p>
+          </div>
+          <div className="shrink-0 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-right">
+            <div className="text-lg font-semibold leading-none tabular-nums text-[#002fa7]">{activeCount}</div>
+            <div className="mt-1 text-[10px] font-medium text-slate-500">{t("当前任务")}</div>
+          </div>
+        </div>
+      </header>
+
       {/* ── 页头过滤区（吸顶）────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-20 border-b border-slate-200/70 bg-slate-50/95 backdrop-blur-md">
+      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white">
         {/* 状态过滤：手机宽度固定五等分，避免末项被刷新按钮挤出视口。 */}
         <div className="grid grid-cols-5 gap-1.5 px-3 pt-3 sm:flex sm:gap-2 sm:px-4">
           {FILTERS.map((f) => (
@@ -700,9 +770,9 @@ export function MobileRDCockpit() {
               onClick={() => pickStatus(f.key)}
               aria-pressed={filter === f.key}
               className={cn(
-                "min-w-0 whitespace-nowrap rounded-full px-1 py-1.5 text-[11px] font-semibold transition active:scale-[0.97] sm:shrink-0 sm:px-3.5 sm:text-[13px]",
+                "min-h-11 min-w-0 whitespace-nowrap rounded-xl px-1 text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-1 sm:shrink-0 sm:px-3.5 sm:text-[13px]",
                 filter === f.key
-                  ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-sm"
+                  ? "bg-[#002fa7] text-white shadow-sm"
                   : "bg-white text-slate-500 ring-1 ring-slate-200/70 active:bg-slate-50",
               )}
             >
@@ -724,14 +794,14 @@ export function MobileRDCockpit() {
               onChange={(event) => setKeyword(event.target.value)}
               placeholder={t("搜索任务、编号、负责人、路径")}
               aria-label={t("搜索任务")}
-              className="h-9 w-full appearance-none rounded-xl border border-slate-200/80 bg-white pl-9 pr-9 text-[13px] text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 [&::-webkit-search-cancel-button]:hidden"
+              className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-9 pr-12 text-[13px] text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-[#002fa7] focus:ring-2 focus:ring-blue-100 [&::-webkit-search-cancel-button]:hidden"
             />
             {keyword && (
               <button
                 type="button"
                 onClick={() => setKeyword("")}
                 aria-label={t("清空搜索")}
-                className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 active:bg-slate-100 active:text-slate-600"
+                className="absolute right-0 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-xl text-slate-400 active:bg-slate-100 active:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]"
               >
                 <X size={14} />
               </button>
@@ -747,8 +817,8 @@ export function MobileRDCockpit() {
               onClick={() => pickPerson(null)}
               aria-pressed={person === null}
               className={cn(
-                "flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-[12px] font-semibold transition active:scale-[0.97]",
-                person === null ? "bg-slate-900 text-white" : "bg-white text-slate-500 ring-1 ring-slate-200/70",
+                "flex min-h-11 shrink-0 items-center gap-1 rounded-xl px-3 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-1",
+                person === null ? "bg-[#002fa7] text-white" : "bg-white text-slate-500 ring-1 ring-slate-200/70",
               )}
             >
               <Users size={13} />
@@ -771,14 +841,14 @@ export function MobileRDCockpit() {
                   onClick={() => pickPerson(o.key)}
                   aria-pressed={active}
                   className={cn(
-                    "flex shrink-0 items-center gap-1.5 rounded-full py-1 pl-1 pr-2.5 text-[12px] font-semibold transition active:scale-[0.97]",
-                    active ? "bg-slate-900 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200/70",
+                    "flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl py-1 pl-1.5 pr-2.5 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-1",
+                    active ? "bg-[#002fa7] text-white" : "bg-white text-slate-600 ring-1 ring-slate-200/70",
                   )}
                 >
                   <span
                     className={cn(
-                      "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold",
-                      active ? "bg-white/20 text-white" : "bg-indigo-50 text-indigo-600",
+                      "flex size-7 items-center justify-center rounded-lg text-[10px] font-bold",
+                      active ? "bg-white/15 text-white" : "bg-blue-50 text-[#002fa7]",
                     )}
                   >
                     {ownerInitial(o.name)}
@@ -802,9 +872,9 @@ export function MobileRDCockpit() {
             onClick={reload}
             disabled={loading}
             aria-label={t("刷新")}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200/70 active:bg-slate-50 disabled:opacity-60"
+            className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white text-[#002fa7] ring-1 ring-slate-200 active:bg-blue-50 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-1"
           >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            <RefreshCw size={14} className={loading ? "animate-spin motion-reduce:animate-none" : ""} />
           </button>
         </div>
       </div>
@@ -816,7 +886,7 @@ export function MobileRDCockpit() {
           <button
             type="button"
             onClick={reload}
-            className="min-h-9 shrink-0 rounded-lg bg-white px-2.5 font-semibold text-amber-800 ring-1 ring-amber-200"
+            className="min-h-11 shrink-0 rounded-lg bg-white px-3 font-semibold text-amber-800 ring-1 ring-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
           >
             {t("重试")}
           </button>
@@ -829,13 +899,20 @@ export function MobileRDCockpit() {
           <span className="text-[13px] font-bold text-slate-900">
             {filter === "all" && !person && !normalizedKeyword ? t("全部任务") : t("筛选结果")}
           </span>
-          <span className="text-[11px] font-semibold text-slate-400">{filteredTasks.length}</span>
+          <span className="text-[11px] font-semibold tabular-nums text-slate-400">{filteredTasks.length}</span>
         </div>
 
         {shownTasks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2.5 rounded-2xl border border-dashed border-slate-200 bg-white/60 py-14 text-slate-300">
+          <div className="flex flex-col items-center justify-center gap-2.5 rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-12 text-center text-slate-300">
             <Inbox size={30} />
-            <span className="text-xs font-medium text-slate-400">{t("没有符合条件的任务")}</span>
+            <span className="text-pretty text-xs font-medium text-slate-500">{t("没有符合条件的任务")}</span>
+            <button
+              type="button"
+              onClick={allTasks.length > 0 ? resetFilters : reload}
+              className="mt-1 inline-flex min-h-11 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 text-xs font-semibold text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
+            >
+              {allTasks.length > 0 ? t("清除筛选") : t("重新加载")}
+            </button>
           </div>
         ) : (
           // 双列瀑布流：两列各自独立堆叠（非 grid 刚性行对齐），带附件封面的高卡片只撑长
@@ -864,7 +941,7 @@ export function MobileRDCockpit() {
 
         {visible < filteredTasks.length && (
           <div ref={sentinelRef} className="flex items-center justify-center py-5 text-slate-400">
-            <Loader2 className="animate-spin" size={20} />
+            <Loader2 className="animate-spin motion-reduce:animate-none" size={20} />
           </div>
         )}
       </div>
@@ -881,20 +958,7 @@ export function MobileRDCockpit() {
         />
       )}
       {routeTaskId && !activeTask && !loading && (
-        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-slate-50 px-8 text-center">
-          <AlertTriangle className="text-amber-400" size={32} />
-          <div>
-            <div className="text-base font-bold text-slate-900">{t("任务不存在或无权访问")}</div>
-            <div className="mt-1 text-xs text-slate-400">{routeTaskId}</div>
-          </div>
-          <button
-            type="button"
-            onClick={closeActiveTask}
-            className="rounded-full bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white"
-          >
-            {t("返回驾驶舱")}
-          </button>
-        </div>
+        <MissingTaskDialog taskId={routeTaskId} onClose={closeActiveTask} />
       )}
 
       {/* ── 封面缩略图点击放大 —— 页面级灯箱（层级高于详情）── */}
@@ -909,6 +973,41 @@ export function MobileRDCockpit() {
 
       {/* 常驻于任务页级别，避免讨论轮询/消息卡片重建导致附件预览被卸载。 */}
       <MobileAttachmentPreviewHost />
+    </div>
+  );
+}
+
+function MissingTaskDialog({ taskId, onClose }: { taskId: string; onClose: () => void }) {
+  useBodyScrollLock(true);
+  const dialogRef = useModalFocus<HTMLDivElement>(true, onClose);
+
+  return (
+    <div
+      ref={dialogRef}
+      className="horizon-theme fixed inset-0 z-40 flex h-dvh min-w-0 flex-col items-center justify-center gap-4 overflow-x-hidden bg-slate-50 px-8 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] text-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rd-mobile-missing-task-title"
+      aria-describedby="rd-mobile-missing-task-id"
+      tabIndex={-1}
+    >
+      <span className="flex size-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
+        <AlertTriangle size={26} />
+      </span>
+      <div>
+        <h2 id="rd-mobile-missing-task-title" className="text-balance text-base font-semibold text-slate-950">
+          {t("任务不存在或无权访问")}
+        </h2>
+        <p id="rd-mobile-missing-task-id" className="mt-1 break-all text-xs tabular-nums text-slate-500">{taskId}</p>
+      </div>
+      <button
+        type="button"
+        onClick={onClose}
+        data-dialog-autofocus
+        className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#002fa7] px-6 text-sm font-semibold text-white active:bg-[#00247f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
+      >
+        {t("返回驾驶舱")}
+      </button>
     </div>
   );
 }
@@ -936,6 +1035,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
   const [detailTab, setDetailTab] = useState<"overview" | "progress" | "conversation" | "attachments" | "activity">("progress");
   const allTaskAuditLogs = useAuditLogs({ resourceType: "task" });
   const { task: procurementTask } = useProcurementTaskLink(task.task_id);
+  const dialogRef = useModalFocus<HTMLDivElement>(true, onClose);
 
   const status = STATUS_META[task.status] ?? STATUS_META.draft;
   const owner = (task.primary_owner || "").trim() || t("未指派");
@@ -1008,22 +1108,30 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
   const completedWorkItems = workItems.filter((item) => item.done).length;
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col overscroll-none bg-slate-50" role="dialog" aria-modal="true" aria-label={t("任务详情")}>
+    <div
+      ref={dialogRef}
+      className="horizon-theme fixed inset-0 z-40 flex h-dvh min-w-0 flex-col overflow-x-hidden overscroll-none bg-slate-50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rd-mobile-task-detail-title"
+      tabIndex={-1}
+    >
       {/* 顶栏：返回 + 标题 + 状态/负责人 */}
-      <header className="flex items-center gap-1.5 border-b border-slate-200 bg-white px-2 pb-1.5 pt-[max(0.375rem,env(safe-area-inset-top))]">
+      <header className="flex min-w-0 items-center gap-1.5 border-b border-slate-200 bg-white px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onClose}
           aria-label="返回"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-500 active:bg-slate-100"
+          data-dialog-autofocus
+          className="flex size-11 shrink-0 items-center justify-center rounded-xl text-slate-500 active:bg-blue-50 active:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]"
         >
           <ArrowLeft size={20} />
         </button>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[15px] font-bold text-slate-900">{task.title}</div>
+          <h2 id="rd-mobile-task-detail-title" className="line-clamp-1 text-balance text-[15px] font-semibold text-slate-950">{task.title}</h2>
           <div className="mt-0.5 flex items-center gap-1.5 text-[11px]">
             <span className={cn("inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-semibold", status.tint)}>
-              <span className={cn("h-1.5 w-1.5 rounded-full", status.dot)} />
+              <span className={cn("size-1.5 rounded-full", status.dot)} />
               {t(status.label)}
             </span>
             <span className="min-w-0 truncate text-slate-400">{owner}</span>
@@ -1054,8 +1162,8 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
               onClick={() => setDetailTab(item.key)}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-bold transition-colors",
-                active ? "bg-indigo-50 text-indigo-700" : "text-slate-500 active:bg-slate-50",
+                "flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]",
+                active ? "bg-blue-50 text-[#002fa7]" : "text-slate-500 active:bg-slate-50",
               )}
             >
               <Icon size={14} />
@@ -1068,12 +1176,12 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
       {detailTab === "overview" && (
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {task.production_sync && (
-            <section className="rounded-2xl border border-indigo-200 bg-indigo-50 p-3">
-              <div className="flex items-center gap-2 text-sm font-bold text-indigo-700">
+            <section className="rounded-2xl border border-blue-200 bg-blue-50 p-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#002fa7]">
                 <GitBranch size={15} />
                 {t("研发同步只读任务")}
               </div>
-              <div className="mt-1 text-xs leading-relaxed text-indigo-500">
+              <div className="mt-1 text-pretty text-xs leading-relaxed text-blue-700">
                 {t("源任务")}：{task.production_sync.source_task_id} · {t("同步时间")}：{formatFullDate(task.production_sync.synced_at)}
               </div>
             </section>
@@ -1106,7 +1214,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
               ].map((item) => (
                 <div key={item.label} className="min-w-0 rounded-xl bg-slate-50 p-2.5">
                   <dt className="text-[10px] font-semibold text-slate-400">{item.label}</dt>
-                  <dd className="mt-1 break-words text-xs font-bold text-slate-700">{item.value}</dd>
+                  <dd className="mt-1 break-words text-xs font-bold tabular-nums text-slate-700">{item.value}</dd>
                 </div>
               ))}
             </dl>
@@ -1122,7 +1230,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
               {t("任务成员")}
             </div>
             <div className="flex flex-wrap gap-2">
-              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">
+              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-[#002fa7]">
                 {t("主责")} · {owner}
               </span>
               {(task.collaborators ?? []).map((collaborator) => (
@@ -1173,8 +1281,8 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
                     onClick={() => onOpenTask(groupTask.task_id)}
                     disabled={groupTask.task_id === task.task_id}
                     className={cn(
-                      "flex w-full items-start gap-2 rounded-xl px-2.5 py-2 text-left",
-                      groupTask.task_id === task.task_id ? "bg-indigo-50" : "bg-slate-50 active:bg-slate-100",
+                      "flex min-h-11 w-full items-start gap-2 rounded-xl px-2.5 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7] disabled:cursor-default",
+                      groupTask.task_id === task.task_id ? "bg-blue-50" : "bg-slate-50 active:bg-slate-100",
                     )}
                   >
                     <span className="mt-0.5 shrink-0 text-[10px] font-bold text-slate-400">{groupTask.note_count}</span>
@@ -1208,14 +1316,14 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
             <span className="text-xs font-semibold text-slate-400">{attachments.length}</span>
           </div>
           {loading ? (
-            <div className="flex justify-center py-12 text-slate-400"><Loader2 className="animate-spin" size={22} /></div>
+            <div className="flex justify-center py-12 text-slate-400" role="status" aria-label={t("正在加载附件")}><Loader2 className="animate-spin motion-reduce:animate-none" size={22} /></div>
           ) : loadError ? (
             <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-8 text-center">
               <div className="text-xs font-semibold text-rose-700">{loadError}</div>
               <button
                 type="button"
                 onClick={() => void loadNotes()}
-                className="mt-3 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-4 text-xs font-bold text-rose-700 active:bg-rose-100"
+                className="mt-3 inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-white px-4 text-xs font-bold text-rose-700 active:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2"
               >
                 <RefreshCw size={14} />
                 {t("重新加载")}
@@ -1252,6 +1360,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
 
       {detailTab === "conversation" && (
         <RDTaskConversation
+          key={`mobile-conversation:${task.task_id}`}
           taskId={task.task_id}
           taskTitle={task.title}
           notes={notes}
@@ -1263,6 +1372,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
 
       {detailTab === "progress" && (
         <RDTaskConversation
+          key={`mobile-progress:${task.task_id}`}
           taskId={task.task_id}
           taskTitle={task.title}
           notes={groupNotes}

@@ -1,10 +1,32 @@
 import React from "react";
-import { Apple, ArrowLeft, BookOpen, Download, Laptop, MonitorDown, Smartphone } from "lucide-react";
+import {
+  Apple,
+  ArrowLeft,
+  BookOpen,
+  Copy,
+  Download,
+  ExternalLink,
+  FileImage,
+  Laptop,
+  ListChecks,
+  MonitorDown,
+  Smartphone,
+  type LucideIcon,
+} from "lucide-react";
 import { Link, Navigate, useParams } from "react-router";
 import { toast } from "sonner";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
 import { cn } from "./components/ui/utils";
+import { Button } from "./components/ui/button";
 import { MobileImagePreviewLink } from "./components/MobileZoomableImage";
 import { CLASH_SUBSCRIPTION_URL } from "./lib/appConfig";
+import { useResetPageScroll } from "./hooks/useResetPageScroll";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
 
@@ -33,11 +55,7 @@ type PlatformConfig = {
   cardName: string;
   title: string;
   version: string;
-  gradient: string;
-  icon: React.ComponentType<{ className?: string; strokeWidth?: string | number }>;
-  iconClass: string;
-  shadow: string;
-  accent: string;
+  icon: LucideIcon;
   steps: TutorialStep[];
 };
 
@@ -47,11 +65,7 @@ const platformConfigs: Record<PlatformId, PlatformConfig> = {
     cardName: "Windows",
     title: "Windows 使用教程",
     version: "适用于 Windows 7 或更高版本",
-    gradient: "from-[#3f73d8] via-[#5ea7ed] to-[#79c0f7]",
     icon: MonitorDown,
-    iconClass: "text-white/28",
-    shadow: "shadow-[0_14px_26px_rgba(37,99,235,0.22)]",
-    accent: "text-[#3949ab]",
     steps: [
       {
         title: "前提概要",
@@ -127,11 +141,7 @@ const platformConfigs: Record<PlatformId, PlatformConfig> = {
     cardName: "Android",
     title: "Android 使用教程",
     version: "适用于 Android 5.0 或更高版本",
-    gradient: "from-[#67ad3a] via-[#8fd34f] to-[#b1ef62]",
     icon: Smartphone,
-    iconClass: "text-white/30",
-    shadow: "shadow-[0_14px_26px_rgba(101,163,13,0.22)]",
-    accent: "text-[#3949ab]",
     steps: [
       {
         title: "下载并安装客户端",
@@ -168,11 +178,7 @@ const platformConfigs: Record<PlatformId, PlatformConfig> = {
     cardName: "Apple",
     title: "iOS 使用教程",
     version: "适用于 iOS 9 或更高版本",
-    gradient: "from-[#050505] via-[#151515] to-[#333333]",
     icon: Apple,
-    iconClass: "text-white/18",
-    shadow: "shadow-[0_14px_26px_rgba(15,23,42,0.24)]",
-    accent: "text-[#2f67c8]",
     steps: [
       {
         title: "安装 Shadowrocket",
@@ -212,11 +218,7 @@ const platformConfigs: Record<PlatformId, PlatformConfig> = {
     cardName: "Mac",
     title: "Mac 使用教程",
     version: "适用于 macOS Sierra (10.12) 或更高版本",
-    gradient: "from-[#8c8c8c] via-[#b0b2b5] to-[#c2c5ca]",
     icon: Laptop,
-    iconClass: "text-slate-700/18",
-    shadow: "shadow-[0_14px_26px_rgba(100,116,139,0.2)]",
-    accent: "text-[#5aa7f0]",
     steps: [
       {
         title: "下载 Mac 客户端",
@@ -270,6 +272,84 @@ const platformConfigs: Record<PlatformId, PlatformConfig> = {
 
 const platforms = Object.values(platformConfigs);
 
+type TutorialStats = {
+  steps: number;
+  externalActions: number;
+  copyActions: number;
+  availableCopyActions: number;
+  visualSteps: number;
+};
+
+function getTutorialStats(platform: PlatformConfig): TutorialStats {
+  const actions = platform.steps.flatMap((step) => step.actions ?? []);
+
+  return {
+    steps: platform.steps.length,
+    externalActions: actions.filter((action) => Boolean(action.src)).length,
+    copyActions: actions.filter((action) => Object.prototype.hasOwnProperty.call(action, "value")).length,
+    availableCopyActions: actions.filter((action) => Boolean(action.value?.trim())).length,
+    visualSteps: platform.steps.filter((step) => Boolean(step.imageSrc || step.imageShape || step.visual)).length,
+  };
+}
+
+const overallTutorialStats = platforms.reduce<TutorialStats>(
+  (totals, platform) => {
+    const current = getTutorialStats(platform);
+    return {
+      steps: totals.steps + current.steps,
+      externalActions: totals.externalActions + current.externalActions,
+      copyActions: totals.copyActions + current.copyActions,
+      availableCopyActions: totals.availableCopyActions + current.availableCopyActions,
+      visualSteps: totals.visualSteps + current.visualSteps,
+    };
+  },
+  { steps: 0, externalActions: 0, copyActions: 0, availableCopyActions: 0, visualSteps: 0 },
+);
+
+function TutorialMetricStrip({ platform }: { platform?: PlatformConfig }) {
+  const stats = platform ? getTutorialStats(platform) : overallTutorialStats;
+  const platformCountWithCopyAction = platforms.filter((item) => getTutorialStats(item).copyActions > 0).length;
+  const platformCountWithAvailableCopy = platforms.filter((item) => getTutorialStats(item).availableCopyActions > 0).length;
+  const copyReady = stats.copyActions > 0 && stats.availableCopyActions === stats.copyActions;
+
+  return (
+    <HorizonMetricGrid className="!grid-cols-2 xl:!grid-cols-4">
+      <HorizonMetric
+        Icon={platform ? ListChecks : MonitorDown}
+        label={platform ? "教程步骤" : "客户端平台"}
+        value={platform ? stats.steps : platforms.length}
+        note={platform ? "按顺序完成配置" : "覆盖常用桌面与移动设备"}
+        tone="brand"
+      />
+      <HorizonMetric
+        Icon={platform ? ExternalLink : ListChecks}
+        label={platform ? "下载入口" : "教程步骤"}
+        value={platform ? stats.externalActions : stats.steps}
+        note={platform ? "均在新窗口安全打开" : "完整图文配置流程"}
+        tone="neutral"
+      />
+      <HorizonMetric
+        Icon={platform ? Copy : ExternalLink}
+        label={platform ? "订阅状态" : "下载入口"}
+        value={platform ? (stats.copyActions === 0 ? "无需配置" : copyReady ? "可复制" : "待配置") : stats.externalActions}
+        note={platform ? (copyReady ? "一键复制订阅地址" : "订阅地址待管理员配置") : "官方与分流下载地址"}
+        tone={platform && !copyReady ? "warning" : "success"}
+      />
+      <HorizonMetric
+        Icon={FileImage}
+        label={platform ? "图文示例" : "订阅教程"}
+        value={platform ? stats.visualSteps : `${platformCountWithCopyAction}/${platforms.length}`}
+        note={platform
+          ? "对应步骤均提供参考图"
+          : platformCountWithAvailableCopy === platforms.length
+            ? "所有平台均可直接复制"
+            : `${platformCountWithAvailableCopy}/${platforms.length} 个平台已配置订阅地址`}
+        tone={!platform && platformCountWithAvailableCopy < platforms.length ? "warning" : "neutral"}
+      />
+    </HorizonMetricGrid>
+  );
+}
+
 function TutorialImageSlot({ step }: { step: TutorialStep }) {
   const shape = step.imageShape ?? "desktop";
   const shapeClass =
@@ -286,7 +366,6 @@ function TutorialImageSlot({ step }: { step: TutorialStep }) {
           src={step.imageSrc}
           alt={step.imageAlt ?? step.title}
           title={step.title}
-          openOnDesktop={false}
           className={cn("block w-full overflow-hidden rounded-sm border border-slate-100 bg-slate-50 shadow-sm", shapeClass)}
         >
           <img src={step.imageSrc} alt={step.imageAlt ?? step.title} className="h-full w-full object-contain" />
@@ -313,8 +392,8 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
     const Icon = platform.icon;
     return (
       <div className="flex justify-center lg:justify-end">
-        <div className="flex h-64 w-64 items-center justify-center rounded-full bg-indigo-600 shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)]">
-          <Icon className="h-28 w-28 text-white" strokeWidth={1.5} />
+        <div className="flex size-64 items-center justify-center rounded-full bg-[#002fa7] shadow-md">
+          <Icon className="size-28 text-white" strokeWidth={1.5} />
         </div>
       </div>
     );
@@ -323,19 +402,19 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
   if (type === "download-list") {
     return (
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded border border-slate-200 bg-white p-4 text-xs text-indigo-700 shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-4 text-xs text-[#002fa7] shadow-sm">
           {["Clash.Verge_1.7.3_x64-setup.exe", "Clash.Verge_1.7.3_x64.dmg", "Clash.Verge_1.7.3_arm64.dmg", "Clash.Verge_1.7.3_portable.zip"].map((item) => (
             <div key={item} className="break-all border-b border-slate-100 py-2 underline">
               {item}
             </div>
           ))}
         </div>
-        <div className="rounded border border-slate-200 bg-white p-4 font-serif text-sm text-slate-800 shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-4 font-serif text-sm text-slate-800 shadow-sm">
           <div className="mb-3 text-xl font-bold">Index of /clash-verge/1.7.2</div>
           <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 text-xs">
             {["Clash Verge 1.7.2 arm64.dmg", "Clash Verge 1.7.2 x64-setup.exe", "Clash Verge 1.7.2 x64.dmg"].map((item) => (
               <React.Fragment key={item}>
-                <span className="min-w-0 truncate text-indigo-700 underline">{item}</span>
+                <span className="min-w-0 truncate text-[#002fa7] underline">{item}</span>
                 <span>2024-07-03</span>
                 <span>35M</span>
               </React.Fragment>
@@ -367,7 +446,7 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
         </div>
         {type === "installer" ? (
           <div className="grid grid-cols-[86px_1fr] gap-4">
-            <div className="h-36 rounded bg-[#1c1688]" />
+            <div className="h-36 rounded bg-[#002fa7]" />
             <div className="space-y-3">
               <div className="h-4 rounded bg-slate-300" />
               <div className="h-3 rounded bg-slate-200" />
@@ -417,8 +496,8 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
           </div>
         ) : type === "mac-about" ? (
           <div className="flex items-center gap-5 rounded bg-black p-5 text-white">
-            <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-indigo-600">
-              <Laptop className="h-12 w-12" />
+            <div className="flex size-24 items-center justify-center rounded-3xl bg-[#002fa7]">
+              <Laptop className="size-12" />
             </div>
             <div>
               <div className="text-lg font-bold">Clash Verge</div>
@@ -433,37 +512,75 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
 }
 
 function TutorialActionButton({ action }: { action: TutorialAction }) {
+  const [copyStatus, setCopyStatus] = React.useState<"idle" | "success" | "error">("idle");
+  const statusId = React.useId();
+
+  if (action.src) {
+    return (
+      <Button asChild variant={action.tone === "secondary" ? "outline" : "default"} className={cn("min-h-10 rounded-lg", action.tone !== "secondary" && "hz-primary-action")}>
+        <a
+          href={action.src}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`${action.label}（在新窗口打开）`}
+        >
+          <ExternalLink className="size-4" aria-hidden="true" />
+          <span>{action.label}</span>
+          <span className="text-xs font-normal opacity-75">新窗口</span>
+        </a>
+      </Button>
+    );
+  }
+
+  const copyValue = action.value?.trim() ?? "";
+
+  if (!copyValue) {
+    return (
+      <div className="inline-flex flex-col items-start gap-1">
+        <Button type="button" disabled aria-describedby={statusId} className="min-h-10 rounded-lg">
+          <Copy className="size-4" aria-hidden="true" />
+          {action.label}
+        </Button>
+        <span id={statusId} className="text-xs font-medium text-amber-700">
+          订阅地址尚未配置，请联系管理员
+        </span>
+      </div>
+    );
+  }
+
   const handleClick = async () => {
-    if (action.src) {
-      window.open(action.src)
-      return;
+    try {
+      await navigator.clipboard.writeText(copyValue);
+      setCopyStatus("success");
+      toast.success("已复制到剪贴板");
+    } catch {
+      setCopyStatus("error");
+      toast.error("复制失败，请手动复制");
     }
-
-    if (action.value) {
-      try {
-        await navigator.clipboard.writeText(action.value);
-        toast.success("已复制到剪贴板");
-      } catch {
-        toast.error("复制失败，请手动复制");
-      }
-      return;
-    }
-
-    toast.success(`${action.label} 已触发`);
   };
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      className={cn(
-        "inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold shadow-[0_10px_18px_rgba(15,23,42,0.14)] transition hover:-translate-y-0.5 cursor-pointer",
-        action.tone === "secondary" ? "bg-white text-slate-700" : "bg-indigo-600 hover:bg-indigo-700 text-white",
-      )}
-    >
-      <Download className="h-4 w-4" />
-      {action.label}
-    </button>
+    <div className="inline-flex flex-col items-start gap-1">
+      <Button
+        type="button"
+        variant={action.tone === "secondary" ? "outline" : "default"}
+        onClick={handleClick}
+        aria-describedby={copyStatus === "idle" ? undefined : statusId}
+        className={cn("min-h-10 rounded-lg", action.tone !== "secondary" && "hz-primary-action")}
+      >
+        <Copy className="size-4" aria-hidden="true" />
+        {action.label}
+      </Button>
+      {copyStatus !== "idle" ? (
+        <span
+          id={statusId}
+          role="status"
+          className={cn("text-xs text-emerald-700", copyStatus === "error" && "text-red-600")}
+        >
+          {copyStatus === "success" ? "订阅地址已复制" : "复制失败，请手动复制"}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -471,7 +588,7 @@ function TutorialBody({ body }: { body: TutorialStep["body"] }) {
   const paragraphs = Array.isArray(body) ? body : [body];
 
   return (
-    <div className="mt-5 space-y-3 text-base leading-8 text-slate-600">
+    <div className="mt-4 space-y-3 text-pretty text-sm leading-7 text-slate-600 sm:text-base sm:leading-8">
       {paragraphs.map((paragraph) => (
         <p key={paragraph}>{paragraph}</p>
       ))}
@@ -480,88 +597,181 @@ function TutorialBody({ body }: { body: TutorialStep["body"] }) {
 }
 
 export function DownloadTutorialPage() {
+  const downloadsPath = routePath("page:downloads", "/downloads");
+  const pageRef = useResetPageScroll<HTMLElement>();
+
   return (
-    <div className="mx-auto max-w-[1680px] space-y-5 sm:space-y-7">
-      <section className="rounded-sm border border-slate-200/70 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)] sm:px-5 sm:py-5">
-        <h2 className="text-xl font-bold tracking-tight text-[#222a52]">下载和教程</h2>
-      </section>
+    <main ref={pageRef} className="horizon-theme hz-page">
+      <div className="hz-page-inner mx-auto w-full max-w-[1680px] space-y-4">
+        <HorizonPageHeader
+          Icon={Download}
+          eyebrow="系统管理 / 客户端支持"
+          title="下载和教程"
+          description="按设备选择客户端，依次完成下载、订阅配置与代理启用。"
+          meta={
+            <>
+              <span>{platforms.length} 个客户端平台</span>
+              <span aria-hidden="true">·</span>
+              <span>{overallTutorialStats.steps} 个图文步骤</span>
+            </>
+          }
+        />
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:gap-6">
-        {platforms.map((platform) => {
-          const Icon = platform.icon;
+        <TutorialMetricStrip />
 
-          return (
-            <Link
-              key={platform.id}
-              to={`${routePath("page:downloads", "/downloads")}/${platform.id}`}
-              className={cn(
-                "group relative min-h-[170px] overflow-hidden rounded-[4px] bg-gradient-to-r px-5 py-6 text-white transition duration-200 hover:-translate-y-0.5 sm:min-h-[190px] sm:px-9 sm:py-9",
-                platform.gradient,
-                platform.shadow,
-              )}
-            >
-              <div className="relative z-10">
-                <h3 className="text-3xl font-bold leading-none tracking-normal text-white sm:text-[2.75rem]">{platform.cardName}</h3>
-                <p className="mt-4 text-base font-semibold text-white/95">{platform.version}</p>
-                <div className="mt-7 inline-flex items-center gap-2 rounded border border-white/25 bg-white/12 px-4 py-2 text-sm font-semibold text-white/85 backdrop-blur transition group-hover:bg-white/22 group-hover:text-white">
-                  <BookOpen className="h-4 w-4" />
-                  查看教程
-                </div>
-              </div>
+        <section className="hz-surface overflow-hidden" aria-label="客户端平台">
+          <HorizonSectionHeader
+            Icon={MonitorDown}
+            title="选择客户端平台"
+            description="进入与当前设备对应的教程，外部下载地址会在新窗口打开。"
+            trailing={<span className="text-xs font-semibold tabular-nums text-slate-500">{platforms.length} 个平台</span>}
+          />
 
-              <Icon className={cn("pointer-events-none absolute right-3 top-4 h-24 w-24 opacity-45 sm:-right-2 sm:-top-2 sm:h-40 sm:w-40 sm:opacity-80", platform.iconClass)} strokeWidth={1.35} />
-              <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.08),rgba(255,255,255,0.08))]" />
-            </Link>
-          );
-        })}
-      </section>
-    </div>
+          {platforms.length > 0 ? (
+            <div className="grid gap-3 p-4 md:grid-cols-2 xl:gap-4 xl:p-5">
+              {platforms.map((platform, index) => {
+                const Icon = platform.icon;
+                const stats = getTutorialStats(platform);
+
+                return (
+                  <Link
+                    key={platform.id}
+                    to={`${downloadsPath}/${platform.id}`}
+                    aria-label={`查看${platform.title}，共 ${stats.steps} 个步骤`}
+                    className="group flex min-h-44 flex-col justify-between gap-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-colors hover:border-[#b7c7ee] hover:bg-[#f8faff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2 sm:p-6"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <span className="flex size-12 items-center justify-center rounded-xl bg-[#eef3ff] text-[#002fa7]" aria-hidden="true">
+                        <Icon className="size-6" strokeWidth={1.7} />
+                      </span>
+                      <span className="text-xs font-semibold tabular-nums text-slate-400">平台 {String(index + 1).padStart(2, "0")}</span>
+                    </div>
+
+                    <div className="min-w-0">
+                      <h3 className="text-balance text-xl font-bold text-[#1b2559]">{platform.cardName}</h3>
+                      <p className="mt-2 text-pretty text-sm leading-6 text-slate-600">{platform.version}</p>
+                      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 tabular-nums">{stats.steps} 个步骤</span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 tabular-nums">{stats.externalActions} 个下载入口</span>
+                      </div>
+                      <span className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#ccd8f5] bg-[#eef3ff] px-3 text-sm font-semibold text-[#002fa7] transition-colors group-hover:border-[#9fb4e8] group-hover:bg-[#e4ecff]">
+                        <BookOpen className="size-4" aria-hidden="true" />
+                        查看教程
+                      </span>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          ) : (
+            <HorizonEmptyState
+              Icon={BookOpen}
+              title="暂无客户端教程"
+              description="教程内容暂时不可用，请刷新页面后重试。"
+              action={<Button type="button" variant="outline" onClick={() => window.location.reload()}>重新加载</Button>}
+            />
+          )}
+        </section>
+      </div>
+    </main>
   );
 }
 
 export function PlatformTutorialPage() {
   const { platformId } = useParams();
   const platform = platformConfigs[platformId as PlatformId];
+  const downloadsPath = routePath("page:downloads", "/downloads");
+  const pageRef = useResetPageScroll<HTMLElement>();
 
-  if (!platform) return <Navigate to={routePath("page:downloads", "/downloads")} replace />;
+  if (!platform) return <Navigate to={downloadsPath} replace />;
+
+  const stats = getTutorialStats(platform);
 
   return (
-    <div className="mx-auto max-w-[1680px] overflow-hidden rounded-sm bg-white shadow-[0_12px_28px_rgba(15,23,42,0.06)]">
-      <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-slate-100 bg-white px-4 py-4 shadow-[0_6px_18px_rgba(15,23,42,0.06)] sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-          <Link to={routePath("page:downloads", "/downloads")} className="flex h-9 w-9 items-center justify-center rounded-full text-indigo-600 transition hover:bg-indigo-50">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <h2 className="min-w-0 truncate text-xl font-bold tracking-tight text-[#20264f] sm:text-2xl">{platform.title}</h2>
-        </div>
-        <Link to={routePath("page:downloads", "/downloads")} className="inline-flex justify-center rounded bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_14px_rgba(79,70,229,0.28)] transition hover:bg-indigo-600">
-          其他客户端
-        </Link>
+    <main ref={pageRef} className="horizon-theme hz-page">
+      <div className="hz-page-inner mx-auto w-full max-w-[1680px] space-y-4">
+        <HorizonPageHeader
+          Icon={platform.icon}
+          eyebrow="系统管理 / 客户端教程"
+          title={platform.title}
+          description={platform.version}
+          meta={
+            <>
+              <span>{stats.steps} 个配置步骤</span>
+              <span aria-hidden="true">·</span>
+              <span>{stats.externalActions} 个外部下载入口</span>
+            </>
+          }
+          actions={
+            <Button asChild variant="outline">
+              <Link to={downloadsPath} aria-label="返回客户端列表">
+                <ArrowLeft className="size-4" aria-hidden="true" />
+                返回客户端列表
+              </Link>
+            </Button>
+          }
+        />
+
+        <TutorialMetricStrip platform={platform} />
+
+        <section className="hz-surface overflow-hidden" aria-label={`${platform.title}分步教程`}>
+          <HorizonSectionHeader
+            Icon={BookOpen}
+            title="分步教程"
+            description="建议按顺序完成每一步；下载链接会在新窗口打开，订阅地址可直接复制。"
+            trailing={<span className="text-xs font-semibold tabular-nums text-slate-500">{stats.steps} 个步骤</span>}
+          />
+
+          {platform.steps.length > 0 ? (
+            <ol className="divide-y divide-slate-100">
+              {platform.steps.map((step, index) => {
+                const stepNumber = index + (platform.id === "windows" ? 0 : 1);
+                const headingId = `${platform.id}-tutorial-step-${index}`;
+
+                return (
+                  <li key={`${platform.id}-${step.title}`}>
+                    <section
+                      aria-labelledby={headingId}
+                      className="grid min-h-[240px] gap-6 px-4 py-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,430px)] lg:items-start lg:gap-8 lg:px-6 lg:py-8"
+                    >
+                      <div className="min-w-0 max-w-4xl">
+                        <span className="inline-flex min-h-8 items-center rounded-lg bg-[#eef3ff] px-3 text-sm font-bold tabular-nums text-[#002fa7]">
+                          步骤 {stepNumber}
+                        </span>
+                        <h3 id={headingId} className="mt-3 text-balance text-lg font-bold leading-7 text-[#1b2559]">{step.title}</h3>
+                        <TutorialBody body={step.body} />
+
+                        {step.actions?.length ? (
+                          <div className="mt-6 flex flex-wrap items-start gap-3">
+                            {step.actions.map((action) => (
+                              <TutorialActionButton key={action.label} action={action} />
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {step.note ? <p className="mt-5 text-pretty text-sm leading-7 text-slate-500">{step.note}</p> : null}
+                      </div>
+
+                      <TutorialVisual step={step} platform={platform} />
+                    </section>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            <HorizonEmptyState
+              Icon={BookOpen}
+              title="暂无教程步骤"
+              description="当前客户端尚未配置教程，请返回列表选择其他客户端。"
+              action={
+                <Button asChild variant="outline">
+                  <Link to={downloadsPath}>返回客户端列表</Link>
+                </Button>
+              }
+            />
+          )}
+        </section>
       </div>
-
-      <div className="divide-y divide-slate-100">
-        {platform.steps.map((step, index) => (
-          <section key={`${platform.id}-${step.title}`} className="grid min-h-[240px] gap-6 px-4 py-7 lg:grid-cols-[minmax(0,1fr)_minmax(280px,430px)] lg:items-start lg:gap-8 lg:px-7 lg:py-9">
-            <div className="min-w-0 max-w-4xl">
-              <div className={cn("text-4xl font-bold leading-none", platform.accent)}>{index + (platform.id === "windows" ? 0 : 1)}.</div>
-              <h3 className="mt-3 text-base font-semibold leading-7 text-slate-600">{step.title}</h3>
-              <TutorialBody body={step.body} />
-
-              {step.actions?.length ? (
-                <div className="mt-6 flex flex-wrap gap-3">
-                  {step.actions.map((action) => (
-                    <TutorialActionButton key={action.label} action={action} />
-                  ))}
-                </div>
-              ) : null}
-
-              {step.note ? <p className="mt-5 text-sm leading-7 text-slate-500">{step.note}</p> : null}
-            </div>
-
-            <TutorialVisual step={step} platform={platform} />
-          </section>
-        ))}
-      </div>
-    </div>
+    </main>
   );
 }

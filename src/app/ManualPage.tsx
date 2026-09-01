@@ -10,14 +10,34 @@
  *
  * 正文和截图均随全站语言切换。
  */
-import React from "react";
-import { ArrowLeft, BookOpen, GanttChartSquare, LayoutGrid } from "lucide-react";
+import { useState } from "react";
+import {
+  ArrowLeft,
+  BookOpen,
+  GanttChartSquare,
+  Images,
+  Layers3,
+  LayoutGrid,
+  ListChecks,
+  Search,
+  TableProperties,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { Link, Navigate, useParams } from "react-router";
+import {
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
 import { cn } from "./components/ui/utils";
 import { MobileImagePreviewLink } from "./components/MobileZoomableImage";
 import { t, useI18n, type I18nLang } from "./lib/i18n";
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "./lib/routePaths";
+import { useResetPageScroll } from "./hooks/useResetPageScroll";
 
 type ShotMarker = { n: number; x: number; y: number };
 
@@ -115,10 +135,7 @@ type ManualTopic = {
   summary: string;
   /** public/manual-shots/{shot}-{lang}.{png|jpg} */
   shot: string;
-  icon: React.ComponentType<{ className?: string; strokeWidth?: string | number }>;
-  gradient: string;
-  shadow: string;
-  accent: string;
+  icon: LucideIcon;
   /** 页面定位：一句话说清「这页是干嘛的」 */
   purpose: string;
   /** 谁会用到这页、来这儿干什么 */
@@ -140,9 +157,6 @@ const TOPICS: ManualTopic[] = [
     summary: "全局看板：所有人的协同任务、风险与日报一屏掌握",
     shot: "cockpit-overview",
     icon: LayoutGrid,
-    gradient: "from-[#3f73d8] via-[#5ea7ed] to-[#79c0f7]",
-    shadow: "shadow-[0_14px_26px_rgba(37,99,235,0.22)]",
-    accent: "text-[#3949ab]",
     purpose: "驾驶舱是管理视角：看协同池里所有人的任务。只看自己的任务请用「协同工作台」。这里能做的是「调度」——分派、转派、盯风险、看日报；具体干活（填进度、传附件）在工作台或任务详情页。",
     audience: [
       "组长 / 项目负责人：早上扫一眼风险和阻塞，决定今天盯谁。",
@@ -325,9 +339,6 @@ const TOPICS: ManualTopic[] = [
     summary: "个人视角：只看与我有关的任务，日常干活的主入口",
     shot: "workspace-overview",
     icon: GanttChartSquare,
-    gradient: "from-[#0f766e] via-[#14b8a6] to-[#5eead4]",
-    shadow: "shadow-[0_14px_26px_rgba(13,148,136,0.22)]",
-    accent: "text-[#0f766e]",
     purpose: "工作台只显示与你有关的任务（你主责的 + 你协作的），是每天干活的地方：填进度、传附件、@同事、提交成果、处理审批通知。看全员情况请用「协同任务驾驶舱」。",
     audience: [
       "所有协同成员：这是你每天打开的第一个页面。",
@@ -528,9 +539,6 @@ const TOPICS: ManualTopic[] = [
     summary: "协同专属资料库，按权限分值控制谁能看到哪份文件",
     shot: "kb-overview",
     icon: BookOpen,
-    gradient: "from-[#7e22ce] via-[#a855f7] to-[#d8b4fe]",
-    shadow: "shadow-[0_14px_26px_rgba(126,34,206,0.22)]",
-    accent: "text-[#7e22ce]",
     purpose: "协同知识库是协同团队专属的资料库，和研发知识库是两个完全独立的库，内容互不可见。它比其他部门知识库多一层「权限分值」：每份文件有分值，每个人也有分值，只有你的分值不低于文件的分值，才看得到这份文件。",
     audience: [
       "协同成员：查资料、上传资料。看得到哪些文件由你的权限分值决定。",
@@ -704,9 +712,8 @@ const TOPICS: ManualTopic[] = [
 
 function SectionHeading({ title, desc }: { title: string; desc?: string }) {
   return (
-    <div className="mb-3 border-l-[3px] border-indigo-500 pl-3">
-      <h3 className="text-base font-semibold leading-6 text-slate-900">{title}</h3>
-      {desc ? <p className="mt-0.5 text-xs leading-5 text-slate-500">{desc}</p> : null}
+    <div className="mb-3">
+      <HorizonSectionHeader title={title} description={desc} />
     </div>
   );
 }
@@ -715,7 +722,14 @@ function ManualShotImage({ shot, lang, alt }: { shot: string; lang: I18nLang; al
   const markers = lang === "en" ? (EN_SHOT_MARKERS[shot] ?? []) : [];
   return (
     <span className="relative block">
-      <img src={manualShotSrc(shot, lang)} alt={alt} className="block h-auto w-full cursor-zoom-in" loading="lazy" />
+      <img
+        src={manualShotSrc(shot, lang)}
+        alt={alt}
+        width={1280}
+        height={720}
+        className="block h-auto w-full cursor-zoom-in"
+        loading="lazy"
+      />
       {markers.map((marker) => (
         <span
           key={marker.n}
@@ -736,49 +750,155 @@ function TopicIndexCard({ topic }: { topic: ManualTopic }) {
   return (
     <Link
       to={`${routePath("page:manual", "/manual")}/${topic.id}`}
-      className={cn(
-        "group relative min-h-[170px] overflow-hidden rounded-[4px] bg-gradient-to-r px-5 py-6 text-white transition duration-200 hover:-translate-y-0.5 sm:min-h-[190px] sm:px-9 sm:py-9",
-        topic.gradient,
-        topic.shadow,
-      )}
+      className="group flex min-h-56 min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-colors hover:border-[#002fa7]/35 hover:bg-[#f8faff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 focus-visible:ring-offset-2"
     >
-      <div className="relative z-10">
-        <h3 className="text-2xl font-bold leading-tight tracking-normal text-white sm:text-[2rem]">{t(topic.title)}</h3>
-        {/* max-w-sm 而非 md：右上角装饰图标占 160px，英文摘要比中文长，md 会被图标压住 */}
-        <p className="mt-4 max-w-sm text-sm font-medium leading-6 text-white/95">{t(topic.summary)}</p>
-        <div className="mt-7 inline-flex items-center gap-2 rounded border border-white/25 bg-white/12 px-4 py-2 text-sm font-semibold text-white/85 backdrop-blur transition group-hover:bg-white/22 group-hover:text-white">
-          <BookOpen className="h-4 w-4" />
-          {t("查看手册")}
-        </div>
+      <div className="flex min-w-0 items-start justify-between gap-4">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#eef3ff] text-[#002fa7]" aria-hidden="true">
+          <Icon className="size-5" />
+        </span>
+        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">
+          {t(topic.navLabel)}
+        </span>
       </div>
-      <Icon className="pointer-events-none absolute right-3 top-4 h-24 w-24 opacity-45 sm:-right-2 sm:-top-2 sm:h-40 sm:w-40 sm:opacity-80" strokeWidth={1.35} />
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.08),rgba(255,255,255,0.08))]" />
+      <div className="mt-5 min-w-0 flex-1">
+        <h3 className="text-balance text-xl font-semibold leading-7 text-slate-950">{t(topic.title)}</h3>
+        <p className="mt-2 text-pretty text-sm leading-6 text-slate-600">{t(topic.summary)}</p>
+      </div>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+        <span className="text-xs text-slate-500">
+          {t("{points} 个导览点 · {steps} 个操作流程", {
+            points: topic.points.length,
+            steps: topic.howTos?.length ?? 0,
+          })}
+        </span>
+        <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#002fa7]">
+          <BookOpen className="size-4" aria-hidden="true" />
+          {t("查看手册")}
+        </span>
+      </div>
     </Link>
   );
 }
 
 export function ManualPage() {
   useI18n();
+  const pageRef = useResetPageScroll<HTMLDivElement>();
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredTopics = normalizedQuery
+    ? TOPICS.filter((topic) => {
+        const searchable = [
+          topic.navLabel,
+          topic.title,
+          topic.summary,
+          topic.purpose,
+          ...(topic.audience ?? []),
+          ...topic.points.flatMap((point) => [point.title, point.body]),
+          ...(topic.howTos ?? []).flatMap((guide) => [guide.title, guide.when ?? "", ...guide.steps, guide.note ?? ""]),
+          ...(topic.deepDives ?? []).flatMap((detail) => [
+            detail.title,
+            detail.entry,
+            detail.note ?? "",
+            ...detail.points.flatMap((point) => [point.title, point.body]),
+          ]),
+          ...(topic.tables ?? []).flatMap((table) => [table.title, table.intro ?? "", ...table.columns, ...table.rows.flat()]),
+          ...(topic.faqs ?? []).flatMap((faq) => [faq.q, faq.a]),
+          ...(topic.tips ?? []),
+        ];
+        return searchable.some((value) => t(value).toLocaleLowerCase().includes(normalizedQuery));
+      })
+    : TOPICS;
+  const guideCount = TOPICS.reduce((total, topic) => total + (topic.howTos?.length ?? 0), 0);
+  const mediaCount = TOPICS.reduce((total, topic) => total + 1 + (topic.deepDives?.length ?? 0), 0);
+  const referenceCount = TOPICS.reduce(
+    (total, topic) => total + (topic.tables ?? []).reduce((rows, table) => rows + table.rows.length, 0),
+    0,
+  );
+
   return (
-    <div className="mx-auto max-w-[1680px] space-y-5 sm:space-y-7">
-      <section className="rounded-sm border border-slate-200/70 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)] sm:px-5 sm:py-5">
-        <h2 className="text-xl font-bold tracking-tight text-[#222a52]">{t("操作手册")}</h2>
-        <p className="mt-1.5 text-sm leading-6 text-slate-500">
-          {t("按页面讲清怎么用。截图取自真实界面，与你看到的一致。")}
-        </p>
+    <div ref={pageRef} className="horizon-theme hz-page mx-auto w-full max-w-[1680px]">
+      <HorizonPageHeader
+        Icon={BookOpen}
+        eyebrow={t("系统指南")}
+        title={t("操作手册")}
+        description={t("按页面定位操作流程、权限边界与常见问题；截图来自真实界面，并随语言切换。")}
+        meta={
+          <>
+            <span>{t("适用范围：中美协同")}</span>
+            <span>{t("内容与实际业务数据隔离")}</span>
+          </>
+        }
+      />
+
+      <HorizonMetricGrid>
+        <HorizonMetric Icon={Layers3} label={t("手册主题")} value={TOPICS.length} note={t("覆盖当前协同核心入口")} tone="brand" />
+        <HorizonMetric Icon={ListChecks} label={t("操作流程")} value={guideCount} note={t("按任务逐步执行")} tone="success" />
+        <HorizonMetric Icon={Images} label={t("真实界面图")} value={mediaCount} note={t("支持点击放大预览")} tone="neutral" />
+        <HorizonMetric Icon={TableProperties} label={t("速查条目")} value={referenceCount} note={t("状态、权限与规则")} tone="warning" />
+      </HorizonMetricGrid>
+
+      <section className="hz-panel overflow-hidden">
+        <HorizonSectionHeader
+          Icon={Search}
+          title={t("查找手册")}
+          description={t("搜索页面名称、操作步骤、权限说明或常见问题。")}
+          trailing={<span className="text-xs text-slate-500 tabular-nums">{t("{shown} / {total} 个主题", { shown: filteredTopics.length, total: TOPICS.length })}</span>}
+        />
+        <div className="border-t border-slate-100 p-4 sm:p-5">
+          <label htmlFor="manual-topic-search" className="sr-only">{t("搜索操作手册")}</label>
+          <div className="relative max-w-2xl">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <input
+              id="manual-topic-search"
+              name="manual-topic-search"
+              type="search"
+              autoComplete="off"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t("例如：批量转派、权限分值、上传文件…")}
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-10 text-sm text-slate-800 shadow-sm outline-none transition-colors placeholder:text-slate-400 focus-visible:border-[#002fa7] focus-visible:ring-2 focus-visible:ring-[#002fa7]/15"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label={t("清除搜索")}
+                className="absolute right-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
+              >
+                <X className="size-4" aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+        </div>
       </section>
 
-      <section className="rounded-sm border border-slate-200/70 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)] sm:px-5 sm:py-5">
-        <h3 className="text-base font-semibold text-slate-900">{t("中美协同")}</h3>
-        <p className="mt-1 text-sm leading-6 text-slate-500">
-          {t("美国团队使用、中国研发团队支持。协同模块的任务、人员与资料都与研发模块完全隔离。")}
-        </p>
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:gap-6">
-        {TOPICS.map((topic) => (
-          <TopicIndexCard key={topic.id} topic={topic} />
-        ))}
+      <section aria-labelledby="manual-topics-heading">
+        <div id="manual-topics-heading">
+          <HorizonSectionHeader
+            Icon={BookOpen}
+            title={t("中美协同手册")}
+            description={t("美国团队使用、中国研发团队支持；任务、人员与资料和研发模块完全隔离。")}
+          />
+        </div>
+        {filteredTopics.length > 0 ? (
+          <div className="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {filteredTopics.map((topic) => <TopicIndexCard key={topic.id} topic={topic} />)}
+          </div>
+        ) : (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-white">
+            <HorizonEmptyState
+              Icon={Search}
+              title={t("没有匹配的手册主题")}
+              description={t("换一个页面名称、业务动作或权限关键词，或清除当前搜索。")}
+              action={
+                <button type="button" onClick={() => setQuery("")} className="hz-secondary-action">
+                  <X className="size-4" aria-hidden="true" />
+                  {t("清除搜索")}
+                </button>
+              }
+            />
+          </div>
+        )}
       </section>
     </div>
   );
@@ -787,6 +907,7 @@ export function ManualPage() {
 export function ManualTopicPage() {
   const { lang } = useI18n();
   const { topicId } = useParams();
+  const pageRef = useResetPageScroll<HTMLDivElement>();
   const topic = TOPICS.find((item) => item.id === topicId);
 
   if (!topic) return <Navigate to={routePath("page:manual", "/manual")} replace />;
@@ -794,22 +915,35 @@ export function ManualTopicPage() {
   const shotSrc = manualShotSrc(topic.shot, lang);
 
   return (
-    <div className="mx-auto max-w-[1680px] overflow-hidden rounded-sm bg-white shadow-[0_12px_28px_rgba(15,23,42,0.06)]">
-      <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-slate-100 bg-white px-4 py-4 shadow-[0_6px_18px_rgba(15,23,42,0.06)] sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-          <Link to={routePath("page:manual", "/manual")} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-indigo-600 transition hover:bg-indigo-50">
-            <ArrowLeft className="h-5 w-5" />
+    <div ref={pageRef} className="horizon-theme hz-page mx-auto w-full max-w-[1680px]">
+      <HorizonPageHeader
+        Icon={topic.icon}
+        eyebrow={t("中美协同 · 操作手册")}
+        title={t(topic.title)}
+        description={t(topic.summary)}
+        meta={
+          <>
+            <span>{t("侧边栏入口")}：{t("中美协同")} › {t(topic.navLabel)}</span>
+            <span className="tabular-nums">{t("{points} 个导览点", { points: topic.points.length })}</span>
+            <span className="tabular-nums">{t("{steps} 个操作流程", { steps: topic.howTos?.length ?? 0 })}</span>
+            <span className="tabular-nums">{t("{references} 组快捷参考", { references: topic.tables?.length ?? 0 })}</span>
+          </>
+        }
+        actions={
+          <Link
+            to={routePath("page:manual", "/manual")}
+            aria-label={t("返回操作手册索引")}
+            title={t("返回操作手册索引")}
+            className="hz-secondary-action flex size-9 items-center justify-center p-0"
+          >
+            <ArrowLeft className="size-4" aria-hidden="true" />
           </Link>
-          <div className="min-w-0">
-            <h2 className="min-w-0 truncate text-xl font-bold tracking-tight text-[#20264f] sm:text-2xl">{t(topic.title)}</h2>
-            <p className="mt-0.5 truncate text-xs text-slate-500">
-              {t("侧边栏入口")}：{t("中美协同")} › {t(topic.navLabel)}
-            </p>
-          </div>
-        </div>
-        {/* 页内导航：单页很长（4000px+），没有它用户找不到「常见操作」在哪。
-            锚点跳转用原生 hash，配合各 section 的 scroll-mt 避开这条 sticky 头。 */}
-        <nav className="flex min-w-0 flex-wrap items-center gap-1.5">
+        }
+      />
+
+      {/* 页内导航：单页很长，原生 hash 与既有 section id 保持可深链。 */}
+      <nav aria-label={t("本页目录")} className="hz-panel flex min-w-0 flex-wrap items-center gap-2 p-3 sm:p-4">
+        <span className="mr-1 text-xs font-semibold text-slate-500">{t("本页目录")}</span>
           {[
             { id: "tour", label: "界面导览" },
             ...(topic.howTos?.length ? [{ id: "howto", label: "常见操作" }] : []),
@@ -820,18 +954,17 @@ export function ManualTopicPage() {
             <a
               key={item.id}
               href={`#${item.id}`}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-[#002fa7]/30 hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
             >
               {t(item.label)}
             </a>
           ))}
-          <Link to={routePath("page:manual", "/manual")} className="ml-1 inline-flex shrink-0 justify-center rounded bg-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-[0_8px_14px_rgba(79,70,229,0.28)] transition hover:bg-indigo-600">
+          <Link to={routePath("page:manual", "/manual")} className="hz-primary-action ml-auto shrink-0 text-xs">
             {t("其他页面")}
           </Link>
-        </nav>
-      </div>
+      </nav>
 
-      <div className="space-y-6 px-4 py-6 lg:px-7 lg:py-8">
+      <div className="space-y-6">
         {/* 页面定位：先说清「这页是干嘛的」，避免驾驶舱/工作台被用混 */}
         <div className="rounded border border-blue-100 bg-blue-50/60 px-4 py-3.5">
           <p className="text-sm leading-6 text-blue-900">{t(topic.purpose)}</p>
@@ -855,7 +988,7 @@ export function ManualTopicPage() {
             src={shotSrc}
             alt={t(topic.title)}
             title={t(topic.title)}
-            className="block overflow-hidden rounded border border-slate-200 bg-slate-50 transition hover:border-indigo-300"
+            className="block overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition-colors hover:border-[#002fa7]/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
           >
             <ManualShotImage shot={topic.shot} lang={lang} alt={t(topic.title)} />
           </MobileImagePreviewLink>
@@ -918,7 +1051,7 @@ export function ManualTopicPage() {
                     src={manualShotSrc(dive.shot, lang)}
                     alt={t(dive.title)}
                     title={t(dive.title)}
-                    className="block overflow-hidden rounded border border-slate-200 bg-slate-50 transition hover:border-indigo-300"
+                    className="block overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition-colors hover:border-[#002fa7]/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
                   >
                     <ManualShotImage shot={dive.shot} lang={lang} alt={t(dive.title)} />
                   </MobileImagePreviewLink>
@@ -959,10 +1092,11 @@ export function ManualTopicPage() {
                 {/* 表格在窄屏自己横向滚动，不撑破页面 */}
                 <div className="mt-2 overflow-x-auto rounded border border-slate-200">
                   <table className="w-full min-w-[520px] border-collapse text-left">
+                    <caption className="sr-only">{t(table.title)}</caption>
                     <thead>
-                      <tr className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                      <tr className="bg-slate-50 text-[11px] font-semibold uppercase text-slate-500">
                         {table.columns.map((col) => (
-                          <th key={col} className="border-b border-slate-200 px-3 py-2">{t(col)}</th>
+                          <th key={col} scope="col" className="border-b border-slate-200 px-3 py-2">{t(col)}</th>
                         ))}
                       </tr>
                     </thead>
@@ -1006,7 +1140,7 @@ export function ManualTopicPage() {
 
         {topic.tips?.length ? (
           <div className="rounded border border-amber-100 bg-amber-50/50 px-4 py-3.5">
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">{t("提示")}</div>
+            <div className="text-xs font-semibold uppercase text-amber-700">{t("提示")}</div>
             <ul className="mt-2 space-y-1.5">
               {topic.tips.map((tip) => (
                 <li key={tip} className="flex gap-2 text-sm leading-6 text-amber-900">

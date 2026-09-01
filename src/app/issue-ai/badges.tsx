@@ -38,7 +38,7 @@ export function StatusBadge({ value, className }: { value: IssueStatus; classNam
 }
 
 export function SourceTag({ value, className }: { value: IssueSource; className?: string }) {
-  return <span className={cn("text-xs text-slate-500 dark:text-slate-400", className)}>{t(SOURCE_LABEL[value])}</span>;
+  return <span className={cn("text-xs text-slate-500", className)}>{t(SOURCE_LABEL[value])}</span>;
 }
 
 export function SolutionTypeBadge({ value, className }: { value: SolutionType; className?: string }) {

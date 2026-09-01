@@ -2,8 +2,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Input } from "../../components/ui/input";
 import { AlertTriangle, ExternalLink, Loader2, Paperclip, RotateCcw, ShoppingCart, Upload, X } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+import { cn } from "../../components/ui/utils";
 import { toast } from "sonner";
 
 import { useAuth } from "../../auth";
@@ -86,7 +87,7 @@ export function ProcurementLinkChip({ task, onJump }: { task: ProcurementTask; o
   const statusLabel = PROC_STATUS_META[task.status]?.label ?? task.status;
   if (task.status === "pending_rd_review" || !canOpenProcurementCockpit) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
+      <span className="inline-flex items-center gap-1 rounded-full border border-[#c9d8ff] bg-[#eef3ff] px-2 py-0.5 text-[11px] font-medium text-[#002fa7]">
         {t("转采购：")}{t(statusLabel)}
       </span>
     );
@@ -95,7 +96,7 @@ export function ProcurementLinkChip({ task, onJump }: { task: ProcurementTask; o
     <button
       type="button"
       onClick={() => onJump(task.id)}
-      className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-600 hover:bg-indigo-100"
+      className="inline-flex items-center gap-1 rounded-full border border-[#c9d8ff] bg-[#eef3ff] px-2 py-0.5 text-[11px] font-medium text-[#002fa7] hover:bg-[#dce6ff]"
       title={t("打开采购任务 {code}", { code: task.code })}
     >
       {t("关联采购：")}{t(statusLabel)}
@@ -109,16 +110,16 @@ export function ProcurementActivitySection({ task }: { task: ProcurementTask }) 
   const { t } = useI18n();
   const statusLabel = PROC_STATUS_META[task.status]?.label ?? task.status;
   return (
-    <div className="rd-procurement-activity rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
+    <div className="rd-procurement-activity rounded-xl border border-[#dce6ff] bg-[#eef3ff]/70 p-3">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="text-sm font-semibold text-indigo-700">{t("采购动态")}</div>
-        <div className="text-[11px] text-indigo-500">{task.code} · {t(statusLabel)}</div>
+        <div className="text-sm font-semibold text-[#002fa7]">{t("采购动态")}</div>
+        <div className="text-[11px] text-[#002fa7]/70">{task.code} · {t(statusLabel)}</div>
       </div>
       {task.logs.length > 0 ? (
         <ul className="space-y-2">
           {task.logs.slice(-5).reverse().map((event, index) => (
             <li key={`${event.at}-${index}`} className="flex gap-3 text-sm">
-              <span className="rd-procurement-activity__dot mt-1.5 h-2 w-2 shrink-0 rounded-full bg-violet-500" />
+              <span className="rd-procurement-activity__dot mt-1.5 size-2 shrink-0 rounded-full bg-[#002fa7]" />
               <div>
                 <AutoTranslatedText as="div" className="text-slate-600" text={event.text} />
                 <div className="text-[11px] text-slate-400">{event.at}</div>
@@ -159,6 +160,8 @@ type TransferModalProps = {
   onClose: () => void;
 };
 
+type TransferErrors = Partial<Record<"materialName" | "quantity" | "files" | "submit", string>>;
+
 /** 转采购确认弹窗。研发已有附件直接复用 OSS 引用，新增附件先上传再提交。 */
 export function TransferToProcurementModal({
   taskId,
@@ -177,6 +180,7 @@ export function TransferToProcurementModal({
   const { user } = useAuth();
   const products = useProcurementProducts();
   const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<TransferErrors>({});
   const [form, setForm] = useState({
     productId: resubmitFrom?.productId ?? productId,
     materialName: resubmitFrom?.materialName
@@ -216,28 +220,34 @@ export function TransferToProcurementModal({
       mimeType: file.type || undefined,
     }));
     setFiles((current) => [...current, ...added]);
+    setErrors((current) => ({ ...current, files: undefined, submit: undefined }));
   };
 
   const restoreTaskRows = () => {
     setFiles((current) => [...taskRows.filter((row) => !current.some((item) => item.key === row.key)), ...current]);
+    setErrors((current) => ({ ...current, files: undefined, submit: undefined }));
   };
 
   const submit = async () => {
     const materialName = form.materialName.trim();
     const quantity = Number(form.quantity);
+    const nextErrors: TransferErrors = {};
     if (!materialName) {
-      toast.error(t("请填写物料名称"));
-      return;
+      nextErrors.materialName = t("请填写物料名称");
     }
     if (!Number.isFinite(quantity) || quantity <= 0) {
-      toast.error(t("请填写正确的数量"));
-      return;
+      nextErrors.quantity = t("请填写正确的数量");
     }
     if (files.length === 0) {
-      toast.error(t("转采购必须携带至少一份图纸附件"));
+      nextErrors.files = t("转采购必须携带至少一份图纸附件");
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
+      toast.error(nextErrors.materialName ?? nextErrors.quantity ?? nextErrors.files ?? t("请检查表单"));
       return;
     }
 
+    setErrors({});
     setSubmitting(true);
     try {
       const attachmentInputs = await Promise.all(files.map(async (row) => {
@@ -294,7 +304,9 @@ export function TransferToProcurementModal({
         : t("已提交转采购审核 {code}", { code: procTask.code }));
       onClose();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("转采购失败，请稍后重试"));
+      const message = error instanceof Error ? error.message : t("转采购失败，请稍后重试");
+      setErrors({ submit: message });
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
@@ -306,32 +318,44 @@ export function TransferToProcurementModal({
       {type === "date" ? (
         <DateInput
           value={form[key]}
-          onChange={(value) => setForm((current) => ({ ...current, [key]: value }))}
+          onChange={(value) => { setForm((current) => ({ ...current, [key]: value })); setErrors((current) => ({ ...current, submit: undefined })); }}
+          ariaLabel={t(label)}
           className="mt-1"
         />
       ) : (
         <Input
           type={type}
           value={form[key]}
-          onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))}
+          aria-label={t(label)}
+          aria-invalid={Boolean(key === "materialName" ? errors.materialName : key === "quantity" ? errors.quantity : false)}
+          onChange={(event) => { setForm((current) => ({ ...current, [key]: event.target.value })); setErrors((current) => ({ ...current, [key === "materialName" ? "materialName" : key === "quantity" ? "quantity" : "submit"]: undefined, submit: undefined })); }}
           placeholder={placeholder ? t(placeholder) : ""}
-          className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300"
+          className={cn("mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15", type === "number" && "tabular-nums", (key === "materialName" ? errors.materialName : key === "quantity" ? errors.quantity : false) && "border-rose-300")}
         />
       )}
       {hint && <span className="mt-0.5 block text-[10px] text-slate-400">{t(hint)}</span>}
+      {key === "materialName" && errors.materialName && <span role="alert" className="mt-1 flex items-center gap-1 text-pretty text-[11px] text-rose-700"><AlertTriangle className="size-3 shrink-0" />{errors.materialName}</span>}
+      {key === "quantity" && errors.quantity && <span role="alert" className="mt-1 flex items-center gap-1 text-pretty text-[11px] text-rose-700"><AlertTriangle className="size-3 shrink-0" />{errors.quantity}</span>}
     </div>
   );
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o && !submitting) onClose(); }}>
-      <DialogContent aria-describedby={undefined} className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
+      <DialogContent className="horizon-theme horizon-portal proc-horizon-overlay gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
         <DialogHeader className="border-b border-slate-100 px-6 py-4">
-          <DialogTitle className="text-base font-bold text-slate-900">
+          <DialogTitle className="text-balance text-base font-bold text-slate-900">
             {resubmitFrom ? t("转采购 · 重新提交 {code}", { code: resubmitFrom.code }) : t("转采购 · 生成采购任务")}
           </DialogTitle>
+          <DialogDescription className="mt-0.5 text-pretty text-xs text-slate-400">{t("核对采购物料、数量和图纸附件，提交后先进入研发管理员审核。")}</DialogDescription>
         </DialogHeader>
+        <div className="grid grid-cols-3 border-b border-slate-100 bg-slate-50/70 px-6 py-2.5">
+          {[t("核对物料"), t("确认图纸附件"), t("提交审核")].map((label, index) => {
+            const active = !form.materialName.trim() || !(Number(form.quantity) > 0) ? 0 : files.length === 0 ? 1 : 2;
+            return <div key={label} className={cn("flex items-center gap-1.5 text-[11px]", index === active ? "font-semibold text-[#002fa7]" : index < active ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === active ? "border-[#002fa7] bg-[#002fa7] text-white" : index < active ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index + 1}</span><span className="truncate">{label}</span></div>;
+          })}
+        </div>
         <div className="max-h-[70vh] overflow-y-auto px-6 py-4">
-          <div className="mb-3 flex items-start gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs text-indigo-700">
+          <div className="mb-3 flex items-start gap-2 rounded-xl border border-[#dce6ff] bg-[#eef3ff] px-3 py-2 text-pretty text-xs text-[#002fa7]">
             <ShoppingCart className="mt-0.5 h-4 w-4 shrink-0" />
             {resubmitFrom
               ? t("已沿用上次提交的内容与附件，可直接修改；提交后在原单号上重走研发管理员审核。")
@@ -341,8 +365,8 @@ export function TransferToProcurementModal({
             <div className="col-span-2">
               <span className="text-xs font-medium text-slate-500">{t("归属产品系统")}</span>
               <Select value={form.productId} onValueChange={(value) => setForm((current) => ({ ...current, productId: value }))}>
-                <SelectTrigger className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
+                <SelectTrigger aria-label={t("归属产品系统")} className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent className="proc-horizon-overlay">
                   {products.map((product) => (
                     <SelectItem key={product.id} value={product.id}>{t(product.name)}</SelectItem>
                   ))}
@@ -364,11 +388,11 @@ export function TransferToProcurementModal({
                 </span>
                 <div className="flex items-center gap-2">
                   {removedTaskCount > 0 && (
-                    <button type="button" onClick={restoreTaskRows} className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-indigo-600">
+                    <button type="button" onClick={restoreTaskRows} className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-[#002fa7]">
                       <RotateCcw className="h-3 w-3" />{t("恢复任务附件（{count}）", { count: removedTaskCount })}
                     </button>
                   )}
-                  <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-indigo-200 px-2 py-1 text-[11px] font-medium text-indigo-600 hover:bg-indigo-50">
+                  <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-[#c9d8ff] px-2 py-1 text-[11px] font-medium text-[#002fa7] hover:bg-[#eef3ff]">
                     <Upload className="h-3 w-3" />{t("新增附件")}
                     <Input type="file" multiple className="hidden" onChange={(event) => { addManualFiles(event.target.files); event.target.value = ""; }} />
                   </label>
@@ -381,8 +405,8 @@ export function TransferToProcurementModal({
                       <Paperclip className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                       <span className="min-w-0 flex-1 truncate" title={row.name}>{row.name}</span>
                       {row.size ? <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(row.size)}</span> : null}
-                      <span className={row.source === "task" ? "shrink-0 rounded-full bg-indigo-50 px-1.5 text-[10px] text-indigo-500" : "shrink-0 rounded-full bg-emerald-50 px-1.5 text-[10px] text-emerald-600"}>{t(row.source === "task" ? "任务附件" : "新增附件")}</span>
-                      <button type="button" onClick={() => setFiles((current) => current.filter((item) => item.key !== row.key))} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-white hover:text-rose-500" title={t("移除")}><X className="h-3.5 w-3.5" /></button>
+                      <span className={row.source === "task" ? "shrink-0 rounded-full bg-[#eef3ff] px-1.5 text-[10px] text-[#002fa7]" : "shrink-0 rounded-full bg-emerald-50 px-1.5 text-[10px] text-emerald-600"}>{t(row.source === "task" ? "任务附件" : "新增附件")}</span>
+                      <button type="button" aria-label={t("移除附件：{name}", { name: row.name })} onClick={() => { setFiles((current) => current.filter((item) => item.key !== row.key)); setErrors((current) => ({ ...current, files: undefined, submit: undefined })); }} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-white hover:text-rose-500" title={t("移除")}><X className="h-3.5 w-3.5" /></button>
                     </li>
                   ))}
                 </ul>
@@ -392,12 +416,14 @@ export function TransferToProcurementModal({
                   {t("转采购必须携带至少一份图纸附件，请恢复任务附件或上传新图纸")}
                 </div>
               )}
+              {errors.files && <p role="alert" className="mt-1 flex items-center gap-1 text-pretty text-[11px] text-rose-700"><AlertTriangle className="size-3 shrink-0" />{errors.files}</p>}
             </div>
             <label className="col-span-2 block">
               <span className="text-xs font-medium text-slate-500">{t("低值易耗品备注")}</span>
-              <Input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder={t("如为低值易耗品可备注按年用量备货")} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300" />
+              <Input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder={t("如为低值易耗品可备注按年用量备货")} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15" />
             </label>
           </div>
+          {errors.submit && <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{errors.submit}</div>}
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
           <button type="button" disabled={submitting} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t("取消")}</button>

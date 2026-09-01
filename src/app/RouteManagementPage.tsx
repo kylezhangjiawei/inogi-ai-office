@@ -5,41 +5,51 @@ import {
   Eye,
   EyeOff,
   FileText,
-  FolderOpen,
   Folder,
+  FolderOpen,
+  Layers3,
+  Minus,
   MousePointerClick,
+  Plus,
   RefreshCw,
   Search,
+  ShieldCheck,
   Trash2,
-  Plus,
-  Minus,
-  Layers,
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { cn } from "./components/ui/utils";
-import { Button } from "./components/ui/button";
-import { Input } from "./components/ui/input";
-import { Textarea } from "./components/ui/textarea";
-import { Label } from "./components/ui/label";
-import { Badge } from "./components/ui/badge";
-import { Checkbox } from "./components/ui/checkbox";
-import { Separator } from "./components/ui/separator";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./components/ui/select";
+  HorizonEmptyState,
+  HorizonMetric,
+  HorizonMetricGrid,
+  HorizonPageHeader,
+  HorizonSectionHeader,
+} from "./components/horizon/HorizonPage";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
+import { Button } from "./components/ui/button";
+import { Checkbox } from "./components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "./components/ui/dialog";
+import { Input } from "./components/ui/input";
+import { Label } from "./components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
+import { Textarea } from "./components/ui/textarea";
+import { cn } from "./components/ui/utils";
 import {
   PermissionCatalogItem,
   SavePermissionCatalogItemPayload,
@@ -48,6 +58,8 @@ import {
 import { cacheRoutePaths } from "./lib/routePaths";
 
 type DialogMode = "create" | "edit" | "delete" | null;
+type FormField = "code" | "label" | "groupLabel" | "routePath";
+type FormErrors = Partial<Record<FormField, string>>;
 
 type RouteTreeBranch = {
   key: string;
@@ -61,7 +73,7 @@ type RouteTreeRoot = {
   branches: RouteTreeBranch[];
 };
 
-const emptyForm: SavePermissionCatalogItemPayload = {
+const EMPTY_FORM: SavePermissionCatalogItemPayload = {
   code: "",
   label: "",
   description: "",
@@ -72,6 +84,9 @@ const emptyForm: SavePermissionCatalogItemPayload = {
   navHidden: false,
   sortOrder: 1000,
 };
+
+const TABLE_HEADER_CLASS = "px-4 py-3 text-xs font-semibold text-slate-600 whitespace-nowrap";
+const TABLE_CELL_CLASS = "px-4 py-3.5 align-top text-sm text-slate-700";
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -104,7 +119,6 @@ function buildRouteTree(items: PermissionCatalogItem[]): RouteTreeRoot[] {
     const group = splitGroupLabel(item.groupLabel);
     const root = roots.get(group.root) ?? { label: group.root, items: [], branches: [] };
     root.items.push(item);
-
     let branch = root.branches.find((candidate) => candidate.label === group.branch);
     if (!branch) {
       branch = { key: `${group.root}::${group.branch}`, label: group.branch, items: [] };
@@ -129,95 +143,157 @@ function buildRouteTree(items: PermissionCatalogItem[]): RouteTreeRoot[] {
     });
 }
 
+function TypeBadge({ type }: { type: PermissionCatalogItem["type"] }) {
+  return type === "page" ? (
+    <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-[#002fa7]">
+      <FileText className="size-3" aria-hidden="true" />页面
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+      <MousePointerClick className="size-3" aria-hidden="true" />按钮
+    </span>
+  );
+}
+
+function LoadingTable() {
+  return (
+    <div className="overflow-x-auto" aria-label="正在加载权限目录" aria-busy="true">
+      <table className="w-full min-w-[1080px] table-fixed text-left">
+        <caption className="sr-only">权限目录正在加载</caption>
+        <thead className="bg-slate-50/90">
+          <tr>
+            {["权限项", "类型", "访问路径", "状态", "导航", "更新时间", "操作"].map((column) => (
+              <th key={column} scope="col" className={TABLE_HEADER_CLASS}>{column}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {Array.from({ length: 4 }, (_, index) => (
+            <tr key={index} aria-hidden="true">
+              <td colSpan={7} className="px-4 py-4"><div className="h-10 rounded-lg bg-slate-100" /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function RouteManagementPage() {
   const [items, setItems] = useState<PermissionCatalogItem[]>([]);
   const [keyword, setKeyword] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "page" | "action">("all");
   const [navFilter, setNavFilter] = useState<"all" | "visible" | "hidden">("all");
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
-  /** 编辑弹窗打开时的原始访问路径，用于判断保存后是否需要提示刷新（新建时为空串）。 */
-  const originalRoutePathRef = useRef("");
-  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [busyItemIds, setBusyItemIds] = useState<Set<string>>(new Set());
+  const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
+  const [dialogError, setDialogError] = useState("");
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [selected, setSelected] = useState<PermissionCatalogItem | null>(null);
-  const [form, setForm] = useState<SavePermissionCatalogItemPayload>(emptyForm);
+  const [form, setForm] = useState<SavePermissionCatalogItemPayload>(EMPTY_FORM);
   const [expandedRoots, setExpandedRoots] = useState<Set<string>>(new Set());
   const [expandedBranches, setExpandedBranches] = useState<Set<string>>(new Set());
+
+  const originalRoutePathRef = useRef("");
+  const itemsRequestRef = useRef(0);
+  const busyItemIdsRef = useRef<Set<string>>(new Set());
+  const dialogTriggerRef = useRef<HTMLElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const codeInputRef = useRef<HTMLInputElement | null>(null);
+  const labelInputRef = useRef<HTMLInputElement | null>(null);
+  const groupInputRef = useRef<HTMLInputElement | null>(null);
+  const routePathInputRef = useRef<HTMLInputElement | null>(null);
 
   const groupOptions = useMemo(
     () => Array.from(new Set(items.map((item) => item.groupLabel))).sort((a, b) => a.localeCompare(b, "zh-CN")),
     [items],
   );
-
   const filteredItems = useMemo(() => {
     const normalized = keyword.trim().toLowerCase();
     return items.filter((item) => {
       const typeMatched = typeFilter === "all" || item.type === typeFilter;
-      const navMatched =
-        navFilter === "all" ||
-        (navFilter === "visible" && !item.navHidden) ||
-        (navFilter === "hidden" && item.navHidden);
-      const keywordMatched =
-        !normalized ||
-        item.code.toLowerCase().includes(normalized) ||
-        item.label.toLowerCase().includes(normalized) ||
-        item.groupLabel.toLowerCase().includes(normalized) ||
-        item.routePath.toLowerCase().includes(normalized);
+      const navMatched = navFilter === "all" || (navFilter === "visible" && !item.navHidden) || (navFilter === "hidden" && item.navHidden);
+      const keywordMatched = !normalized || [item.code, item.label, item.groupLabel, item.routePath, item.description]
+        .some((value) => value.toLowerCase().includes(normalized));
       return typeMatched && navMatched && keywordMatched;
     });
   }, [items, keyword, typeFilter, navFilter]);
-
   const routeTree = useMemo(() => buildRouteTree(filteredItems), [filteredItems]);
-
   const isFiltering = keyword.trim() !== "" || typeFilter !== "all" || navFilter !== "all";
-
-  useEffect(() => {
-    if (isFiltering) {
-      const roots = new Set<string>();
-      const branches = new Set<string>();
-      for (const root of routeTree) {
-        roots.add(root.label);
-        for (const branch of root.branches) branches.add(branch.key);
-      }
-      setExpandedRoots(roots);
-      setExpandedBranches(branches);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyword, typeFilter, navFilter]);
+  const pageCount = items.filter((item) => item.type === "page").length;
+  const actionCount = items.length - pageCount;
+  const hiddenCount = items.filter((item) => item.type === "page" && item.navHidden).length;
+  const visibleCount = pageCount - hiddenCount;
+  const enabledCount = items.filter((item) => item.enabled).length;
+  const allExpanded = routeTree.length > 0 && routeTree.every((root) => (
+    expandedRoots.has(root.label) && root.branches.every((branch) => expandedBranches.has(branch.key))
+  ));
 
   const loadItems = useCallback(async () => {
+    const requestId = ++itemsRequestRef.current;
     setLoading(true);
+    setLoadError("");
     try {
       const fresh = await permissionCatalogApi.listItems();
+      if (requestId !== itemsRequestRef.current) return null;
       setItems(fresh);
       return fresh;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "页面路由目录加载失败");
+      if (requestId !== itemsRequestRef.current) return null;
+      const message = error instanceof Error ? error.message : "页面路由目录加载失败";
+      setLoadError(message);
+      toast.error(message);
       return null;
     } finally {
-      setLoading(false);
+      if (requestId === itemsRequestRef.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void loadItems();
+    return () => { itemsRequestRef.current += 1; };
   }, [loadItems]);
 
+  function invalidatePendingLoads() {
+    itemsRequestRef.current += 1;
+    setLoading(false);
+  }
+
+  function beginItemWrite(itemId?: string) {
+    if (itemId && busyItemIdsRef.current.has(itemId)) return false;
+    if (itemId) {
+      const next = new Set(busyItemIdsRef.current);
+      next.add(itemId);
+      busyItemIdsRef.current = next;
+      setBusyItemIds(next);
+    }
+    invalidatePendingLoads();
+    return true;
+  }
+
+  function finishItemWrite(itemId?: string) {
+    if (!itemId) return;
+    const next = new Set(busyItemIdsRef.current);
+    next.delete(itemId);
+    busyItemIdsRef.current = next;
+    setBusyItemIds(next);
+  }
+
   function toggleRoot(rootLabel: string) {
-    setExpandedRoots((prev) => {
-      const next = new Set(prev);
-      if (next.has(rootLabel)) next.delete(rootLabel);
-      else next.add(rootLabel);
+    setExpandedRoots((current) => {
+      const next = new Set(current);
+      if (next.has(rootLabel)) next.delete(rootLabel); else next.add(rootLabel);
       return next;
     });
   }
 
   function toggleBranch(branchKey: string) {
-    setExpandedBranches((prev) => {
-      const next = new Set(prev);
-      if (next.has(branchKey)) next.delete(branchKey);
-      else next.add(branchKey);
+    setExpandedBranches((current) => {
+      const next = new Set(current);
+      if (next.has(branchKey)) next.delete(branchKey); else next.add(branchKey);
       return next;
     });
   }
@@ -238,19 +314,34 @@ export function RouteManagementPage() {
     setExpandedBranches(new Set());
   }
 
-  function openCreate() {
+  function clearFilters() {
+    setKeyword("");
+    setTypeFilter("all");
+    setNavFilter("all");
+  }
+
+  function clearFieldError(field: FormField) {
+    setFormErrors((current) => current[field] ? { ...current, [field]: undefined } : current);
+    if (dialogError) setDialogError("");
+  }
+
+  function openCreate(trigger: HTMLElement) {
+    dialogTriggerRef.current = trigger;
     setSelected(null);
     setForm({
-      ...emptyForm,
+      ...EMPTY_FORM,
       groupLabel: groupOptions[0] ?? "页面访问 · 系统管理",
       sortOrder: (items[items.length - 1]?.sortOrder ?? 1000) + 10,
     });
-    // 清掉上一次编辑残留的路径，否则新增时会与旧值比较、误触发「刷新后生效」提示
+    setFormErrors({});
+    setDialogError("");
     originalRoutePathRef.current = "";
     setDialogMode("create");
   }
 
-  function openEdit(item: PermissionCatalogItem) {
+  function openEdit(item: PermissionCatalogItem, trigger: HTMLElement) {
+    if (busyItemIdsRef.current.has(item.id)) return;
+    dialogTriggerRef.current = trigger;
     setSelected(item);
     setForm({
       id: item.id,
@@ -264,33 +355,78 @@ export function RouteManagementPage() {
       navHidden: item.navHidden,
       sortOrder: item.sortOrder,
     });
-    // 记下打开时的路径，保存后据此判断是否需要提示「刷新才生效」
+    setFormErrors({});
+    setDialogError("");
     originalRoutePathRef.current = item.routePath ?? "";
     setDialogMode("edit");
   }
 
-  function openDelete(item: PermissionCatalogItem) {
+  function openDelete(item: PermissionCatalogItem, trigger: HTMLElement) {
+    if (item.builtIn || busyItemIdsRef.current.has(item.id)) return;
+    dialogTriggerRef.current = trigger;
     setSelected(item);
+    setDialogError("");
     setDialogMode("delete");
   }
 
   function closeDialog() {
     setDialogMode(null);
     setSelected(null);
-    setForm(emptyForm);
+    setForm(EMPTY_FORM);
+    setFormErrors({});
+    setDialogError("");
+  }
+
+  function validateForm() {
+    const errors: FormErrors = {};
+    const code = form.code.trim();
+    const routePath = form.routePath?.trim() ?? "";
+    if (!code) errors.code = "请填写权限编码。";
+    else if (items.some((item) => item.id !== form.id && item.code.toLowerCase() === code.toLowerCase())) errors.code = "该权限编码已存在，请使用唯一编码。";
+    if (!form.label.trim()) errors.label = "请填写显示名称。";
+    if (!form.groupLabel.trim()) errors.groupLabel = "请填写权限分组。";
+    if (form.type === "page") {
+      if (!routePath) errors.routePath = "页面权限需要填写访问路径。";
+      else if (!routePath.startsWith("/")) errors.routePath = "访问路径必须以 / 开头，例如 /rd-sheet。";
+      else if (/[\s?#]/.test(routePath)) errors.routePath = "访问路径不能包含空格、? 或 #。";
+      else if (routePath.includes("*")) errors.routePath = "访问路径不支持通配符 *。";
+      else if (routePath !== "/" && routePath.endsWith("/")) errors.routePath = "访问路径结尾不能有 /。";
+      else {
+        const clash = items.find((item) => item.id !== form.id && item.type === "page" && item.routePath.trim() === routePath);
+        if (clash) errors.routePath = `该路径已被“${clash.label}”（${clash.code}）占用。`;
+      }
+    }
+    return errors;
+  }
+
+  function focusFirstInvalidField(errors: FormErrors) {
+    const refs: Array<[FormField, React.RefObject<HTMLInputElement | null>]> = [
+      ["code", codeInputRef],
+      ["label", labelInputRef],
+      ["groupLabel", groupInputRef],
+      ["routePath", routePathInputRef],
+    ];
+    const first = refs.find(([field]) => Boolean(errors[field]));
+    requestAnimationFrame(() => first?.[1].current?.focus());
   }
 
   async function handleSave() {
-    if (!form.code.trim() || !form.label.trim() || !form.groupLabel.trim()) {
-      toast.error("请填写权限编码、名称和分组");
+    const errors = validateForm();
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      setDialogError("请检查标记的字段后再保存。");
+      focusFirstInvalidField(errors);
       return;
     }
-    if (form.type === "page" && !form.routePath?.trim()) {
-      toast.error("页面权限需要填写路由路径");
+    const mode = dialogMode;
+    const nextRoutePath = form.routePath?.trim() ?? "";
+    const busyItemId = form.id;
+    if (!beginItemWrite(busyItemId)) {
+      setDialogError("该权限项正在保存，请稍候再试。");
       return;
     }
-
     setSaving(true);
+    setDialogError("");
     try {
       await permissionCatalogApi.saveItem({
         ...form,
@@ -298,46 +434,61 @@ export function RouteManagementPage() {
         label: form.label.trim(),
         description: form.description?.trim(),
         groupLabel: form.groupLabel.trim(),
-        routePath: form.routePath?.trim(),
+        routePath: nextRoutePath,
       });
-      toast.success(dialogMode === "edit" ? "权限目录已更新" : "权限目录已新增");
-      // 路由表在页面加载时建立，改了访问路径必须刷新才会应用；不提示的话管理员会以为没生效。
-      // 仅编辑既有页面时提示：新增的权限码尚无页面组件绑定，谈不上"路径变更生效"。
-      if (dialogMode === "edit" && form.type === "page" && form.routePath?.trim() !== originalRoutePathRef.current) {
+      toast.success(mode === "edit" ? "权限目录已更新" : "权限目录已新增");
+      if (mode === "edit" && form.type === "page" && nextRoutePath !== originalRoutePathRef.current) {
         toast.info("访问路径已变更，刷新页面后全站生效（导航、页内跳转一并更新）", { duration: 6000 });
       }
       closeDialog();
       const fresh = await loadItems();
-      // 立刻把最新路径写入缓存。否则要刷两次才生效：第一次刷新时 navGroups/路由表已在
-      // 模块加载阶段用旧缓存求值完毕，本次拉取只更新了缓存，要等第二次刷新才被读到。
-      // 实测确认过这个行为，这里补上使「保存 → 刷新一次」即可全站生效。
       if (fresh) cacheRoutePaths(fresh);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存权限目录失败");
+      const message = error instanceof Error ? error.message : "保存权限目录失败";
+      setDialogError(message);
+      if (message.includes("访问路径")) {
+        const nextErrors: FormErrors = { routePath: message };
+        setFormErrors((current) => ({ ...current, ...nextErrors }));
+        focusFirstInvalidField(nextErrors);
+      }
+      toast.error(message);
     } finally {
       setSaving(false);
+      finishItemWrite(busyItemId);
     }
   }
 
   async function handleDelete() {
-    if (!selected) return;
+    if (!selected || selected.builtIn) return;
+    const busyItemId = selected.id;
+    if (!beginItemWrite(busyItemId)) {
+      setDialogError("该权限项正在保存，请稍候再试。");
+      return;
+    }
     setSaving(true);
+    setDialogError("");
     try {
       await permissionCatalogApi.deleteItem(selected.id);
       toast.success("权限目录已删除");
+      dialogTriggerRef.current = searchInputRef.current;
       closeDialog();
-      await loadItems();
+      const fresh = await loadItems();
+      if (fresh) cacheRoutePaths(fresh);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除权限目录失败");
+      const message = error instanceof Error ? error.message : "删除权限目录失败";
+      setDialogError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
+      finishItemWrite(busyItemId);
     }
   }
 
   async function handleToggleNavHidden(item: PermissionCatalogItem) {
-    setTogglingId(item.id);
+    if (!beginItemWrite(item.id)) return;
+    setActionError(null);
     try {
-      await permissionCatalogApi.saveItem({
+      const saved = await permissionCatalogApi.saveItem({
         id: item.id,
         code: item.code,
         label: item.label,
@@ -349,505 +500,462 @@ export function RouteManagementPage() {
         navHidden: !item.navHidden,
         sortOrder: item.sortOrder,
       });
-      toast.success(item.navHidden ? `「${item.label}」已设为导航显示` : `「${item.label}」已设为导航隐藏`);
-      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, navHidden: !item.navHidden } : i)));
+      toast.success(item.navHidden ? `“${item.label}”已设为导航显示` : `“${item.label}”已设为导航隐藏`);
+      setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, ...saved, builtIn: candidate.builtIn } : candidate));
+      const fresh = await loadItems();
+      if (fresh) cacheRoutePaths(fresh);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "操作失败");
+      const message = error instanceof Error ? error.message : "导航状态更新失败";
+      setActionError({ id: item.id, message });
+      toast.error(message);
     } finally {
-      setTogglingId(null);
+      finishItemWrite(item.id);
     }
   }
 
-  const hiddenCount = items.filter((i) => i.type === "page" && i.navHidden).length;
-  const visibleCount = items.filter((i) => i.type === "page" && !i.navHidden).length;
-  const allExpanded = routeTree.length > 0 && routeTree.every((root) => expandedRoots.has(root.label));
-
   return (
-    <div className="space-y-5 animate-rd-fade-in">
-      {/* ── Header ───────────────────────────────────────────────────── */}
-      <section className="material-card overflow-hidden">
-        {/* top accent line */}
-        <div className="h-0.5 bg-primary" />
-        <div className="flex flex-col gap-5 p-6 xl:flex-row xl:items-center xl:justify-between md:p-8">
-          <div>
-            <span className="material-chip bg-indigo-50 text-indigo-700 text-xs tracking-wide">Route Permission Catalog</span>
-            <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-950">页面路由管理</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-              维护页面访问权限和按钮操作权限。角色权限矩阵会实时从这里读取。
-            </p>
-            <p className="mt-1 text-xs text-slate-400 leading-5">
-              <strong className="font-medium text-slate-600">导航显示</strong>：页面出现在侧边栏中；
-              <strong className="font-medium text-slate-600">导航隐藏</strong>：页面可正常访问，但不出现在导航栏（可通过链接直接进入）。隐藏页面仍然在角色权限中显示，可以为角色授权。
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
-            {/* Stats */}
-            <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5">
-              <Eye className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-              <span className="text-xs text-slate-500">导航显示</span>
-              <span className="ml-1 text-sm font-bold text-slate-800">{visibleCount}</span>
-              <Separator orientation="vertical" className="mx-2 h-3.5" />
-              <EyeOff className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-              <span className="text-xs text-slate-500">导航隐藏</span>
-              <span className="ml-1 text-sm font-bold text-slate-800">{hiddenCount}</span>
-            </div>
-            {/*<Button*/}
-            {/*  variant="outline"*/}
-            {/*  size="sm"*/}
-            {/*  onClick={() => void loadItems()}*/}
-            {/*  disabled={loading}*/}
-            {/*  className="gap-1.5"*/}
-            {/*>*/}
-            {/*  <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />*/}
-            {/*  刷新*/}
-            {/*</Button>*/}
-            <Button size="sm" onClick={openCreate} className="gap-1.5">
-              <Plus className="h-3.5 w-3.5" />
-              新增权限
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Tree Card ────────────────────────────────────────────────── */}
-      <section className="material-card overflow-hidden">
-        {/* Filter bar */}
-        <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/60 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap gap-2.5 items-center">
-            <div className="relative w-64">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-              <Input
-                className="pl-9 h-8 text-sm"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                placeholder="搜索编码、名称、分组、路由"
-              />
-            </div>
-            <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
-              <SelectTrigger size="sm" className="w-32 h-8 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部类型</SelectItem>
-                <SelectItem value="page">页面权限</SelectItem>
-                <SelectItem value="action">按钮权限</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={navFilter} onValueChange={(v) => setNavFilter(v as typeof navFilter)}>
-              <SelectTrigger size="sm" className="w-36 h-8 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部导航状态</SelectItem>
-                <SelectItem value="visible">导航显示</SelectItem>
-                <SelectItem value="hidden">导航隐藏</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2.5 shrink-0">
-            <Badge variant="secondary" className="text-xs px-2.5 py-1 font-medium">
-              {filteredItems.length} 项权限
-            </Badge>
-            {routeTree.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1 text-xs px-2.5"
-                onClick={allExpanded ? collapseAll : expandAll}
-              >
-                {allExpanded ? (
-                  <><Minus className="h-3 w-3" />折叠全部</>
-                ) : (
-                  <><Layers className="h-3 w-3" />展开全部</>
-                )}
+    <div className="horizon-theme hz-page">
+      <div className="hz-page-inner space-y-3">
+        <HorizonPageHeader
+          Icon={Layers3}
+          eyebrow="SYSTEM GOVERNANCE · ROUTE CATALOG"
+          title="页面路由管理"
+          description="统一维护页面访问与按钮操作权限，控制角色授权目录、实际访问路径和侧边栏可见性。"
+          meta={(
+            <>
+              <span>权限目录</span>
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums">{loading ? "正在同步" : `${items.length} 项配置`}</span>
+            </>
+          )}
+          actions={(
+            <>
+              <Button type="button" variant="outline" onClick={() => void loadItems()} disabled={loading || busyItemIds.size > 0}>
+                <RefreshCw className="size-4" aria-hidden="true" />
+                {loading ? "读取中…" : "刷新目录"}
               </Button>
+              <Button type="button" className="hz-primary-action" onClick={(event) => openCreate(event.currentTarget)}>
+                <Plus className="size-4" aria-hidden="true" />
+                新增权限
+              </Button>
+            </>
+          )}
+        />
+
+        <HorizonMetricGrid className="!grid-cols-2 xl:!grid-cols-4">
+          <HorizonMetric Icon={ShieldCheck} label="权限总数" value={loading && items.length === 0 ? "—" : items.length} note={`${enabledCount} 项当前启用`} tone="brand" />
+          <HorizonMetric Icon={FileText} label="页面权限" value={loading && items.length === 0 ? "—" : pageCount} note="控制页面访问路径" tone="brand" />
+          <HorizonMetric Icon={MousePointerClick} label="按钮权限" value={loading && items.length === 0 ? "—" : actionCount} note="控制页面内操作" tone="neutral" />
+          <HorizonMetric Icon={EyeOff} label="导航隐藏" value={loading && items.length === 0 ? "—" : hiddenCount} note={`${visibleCount} 个页面显示在导航`} tone={hiddenCount > 0 ? "warning" : "success"} />
+        </HorizonMetricGrid>
+
+        <section className="hz-surface min-w-0 overflow-hidden" aria-label="路由权限目录工作台">
+          <HorizonSectionHeader
+            Icon={FolderOpen}
+            title="权限目录"
+            description="按分组查看权限项，检索编码、名称、路径或说明，并维护路由与导航状态。"
+            trailing={(
+              <span className="text-xs text-slate-500">
+                显示 <span className="tabular-nums font-semibold text-slate-700">{filteredItems.length}</span> / {items.length} 项
+              </span>
             )}
-          </div>
-        </div>
+          />
 
-        {/* Tree content */}
-        {routeTree.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-400">
-            {loading ? (
-              <RefreshCw className="h-6 w-6 animate-spin text-slate-300" />
-            ) : (
-              <FolderOpen className="h-8 w-8 text-slate-200" />
-            )}
-            <span className="text-sm">{loading ? "加载中…" : "暂无匹配的权限项"}</span>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {routeTree.map((root) => {
-              const pageCount = root.items.filter((item) => item.type === "page").length;
-              const actionCount = root.items.length - pageCount;
-              const hiddenPages = root.items.filter((item) => item.type === "page" && item.navHidden).length;
-              const isRootExpanded = expandedRoots.has(root.label);
-
-              return (
-                <div key={root.label}>
-                  {/* Root accordion header */}
-                  <button
-                    type="button"
-                    onClick={() => toggleRoot(root.label)}
-                    className="group flex w-full cursor-pointer items-center gap-3 px-5 py-3.5 text-left transition-colors duration-150 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-200"
-                  >
-                    <ChevronRight
-                      className={cn(
-                        "h-4 w-4 shrink-0 text-slate-400 transition-transform duration-250 ease-out",
-                        isRootExpanded && "rotate-90 text-indigo-500",
-                      )}
-                    />
-                    <span
-                      className={cn(
-                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors duration-150",
-                        isRootExpanded
-                          ? "bg-indigo-100 text-indigo-600 ring-1 ring-indigo-200"
-                          : "bg-slate-100 text-slate-500 ring-1 ring-slate-200 group-hover:bg-indigo-50 group-hover:text-indigo-500",
-                      )}
-                    >
-                      {isRootExpanded ? <FolderOpen className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5" />}
-                    </span>
-                    <span className="flex-1 text-sm font-semibold text-slate-800">{root.label}</span>
-                    <span className="hidden items-center gap-2.5 text-xs text-slate-400 sm:flex">
-                      <span>{root.branches.length} 分组</span>
-                      <span className="h-3 w-px bg-slate-200" />
-                      <span className="flex items-center gap-1">
-                        <FileText className="h-3 w-3" />{pageCount}
-                      </span>
-                      <span className="h-3 w-px bg-slate-200" />
-                      <span className="flex items-center gap-1">
-                        <MousePointerClick className="h-3 w-3" />{actionCount}
-                      </span>
-                      {hiddenPages > 0 && (
-                        <>
-                          <span className="h-3 w-px bg-slate-200" />
-                          <span className="flex items-center gap-1 text-amber-500">
-                            <EyeOff className="h-3 w-3" />{hiddenPages}
-                          </span>
-                        </>
-                      )}
-                    </span>
-                  </button>
-
-                  {/* Animated branches wrapper */}
-                  <div
-                    className={cn(
-                      "grid transition-all duration-300 ease-out",
-                      isRootExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-                    )}
-                  >
-                    <div className="overflow-hidden border-t border-slate-100 bg-slate-50/40">
-                      {root.branches.map((branch) => {
-                        const branchPageCount = branch.items.filter((item) => item.type === "page").length;
-                        const isBranchExpanded = expandedBranches.has(branch.key);
-
-                        return (
-                          <div key={branch.key} className="border-b border-slate-100/80 last:border-b-0">
-                            {/* Branch header */}
-                            <button
-                              type="button"
-                              onClick={() => toggleBranch(branch.key)}
-                              className="group/branch flex w-full cursor-pointer items-center gap-2 px-5 py-2.5 pl-14 text-left transition-colors duration-150 hover:bg-indigo-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-200"
-                            >
-                              <ChevronRight
-                                className={cn(
-                                  "h-3.5 w-3.5 shrink-0 text-slate-300 transition-transform duration-200 ease-out group-hover/branch:text-slate-400",
-                                  isBranchExpanded && "rotate-90 text-indigo-400! group-hover/branch:text-indigo-400!",
-                                )}
-                              />
-                              <span className={cn(
-                                "flex-1 text-xs font-semibold tracking-wide transition-colors duration-150",
-                                isBranchExpanded ? "text-indigo-600" : "text-slate-600",
-                              )}>
-                                {branch.label}
-                              </span>
-                              <span className="text-[11px] text-slate-400">
-                                {branch.items.length} 项 · {branchPageCount} 页面 · {branch.items.length - branchPageCount} 按钮
-                              </span>
-                            </button>
-
-                            {/* Animated items wrapper */}
-                            <div
-                              className={cn(
-                                "grid transition-all duration-250 ease-out",
-                                isBranchExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-                              )}
-                            >
-                              <div className="overflow-hidden divide-y divide-slate-100/60 bg-white">
-                                {branch.items.map((item) => (
-                                  <div
-                                    key={item.id}
-                                    className="group/item flex items-start gap-3 px-5 py-3 pl-20 transition-colors duration-150 hover:bg-slate-50/80"
-                                  >
-                                    {/* Type badge */}
-                                    {item.type === "page" ? (
-                                      <Badge className="mt-0.5 shrink-0 bg-indigo-50 text-indigo-600 border-indigo-100 text-[11px] px-1.5 py-0 h-5 font-medium gap-1 hover:bg-indigo-50">
-                                        <FileText className="h-2.5 w-2.5" />
-                                        页面
-                                      </Badge>
-                                    ) : (
-                                      <Badge className="mt-0.5 shrink-0 bg-emerald-50 text-emerald-600 border-emerald-100 text-[11px] px-1.5 py-0 h-5 font-medium gap-1 hover:bg-emerald-50">
-                                        <MousePointerClick className="h-2.5 w-2.5" />
-                                        按钮
-                                      </Badge>
-                                    )}
-
-                                    {/* Content */}
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                                        <span className="text-sm font-medium text-slate-800">{item.label}</span>
-                                        <span className="font-mono text-[11px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{item.code}</span>
-                                        {item.routePath && (
-                                          <span className="font-mono text-[11px] text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">{item.routePath}</span>
-                                        )}
-                                      </div>
-                                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                        <Badge
-                                          variant="outline"
-                                          className={cn(
-                                            "text-[11px] px-1.5 py-0 h-4.5 font-medium border",
-                                            item.enabled
-                                              ? "bg-emerald-50 text-emerald-600 border-emerald-100"
-                                              : "bg-slate-100 text-slate-400 border-slate-200",
-                                          )}
-                                        >
-                                          {item.enabled ? "启用" : "停用"}
-                                        </Badge>
-                                        {item.type === "page" && (
-                                          <Tooltip>
-                                            <TooltipTrigger asChild>
-                                              <button
-                                                type="button"
-                                                disabled={togglingId === item.id}
-                                                onClick={() => void handleToggleNavHidden(item)}
-                                                className={cn(
-                                                  "inline-flex cursor-pointer items-center gap-1 rounded border px-1.5 text-[11px] font-medium transition-all duration-150 h-[18px]",
-                                                  "hover:scale-105 active:scale-95",
-                                                  item.navHidden
-                                                    ? "bg-amber-50 text-amber-600 border-amber-100 hover:bg-amber-100"
-                                                    : "bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100",
-                                                  togglingId === item.id && "cursor-not-allowed opacity-50",
-                                                )}
-                                              >
-                                                {item.navHidden ? (
-                                                  <><EyeOff className="h-2.5 w-2.5" />导航隐藏</>
-                                                ) : (
-                                                  <><Eye className="h-2.5 w-2.5" />导航显示</>
-                                                )}
-                                              </button>
-                                            </TooltipTrigger>
-                                            <TooltipContent side="top" sideOffset={4}>
-                                              {item.navHidden ? "点击设为导航显示" : "点击设为导航隐藏"}
-                                            </TooltipContent>
-                                          </Tooltip>
-                                        )}
-                                        {item.description && (
-                                          <span className="text-[11px] text-slate-400 line-clamp-1 max-w-xs">{item.description}</span>
-                                        )}
-                                      </div>
-                                      <div className="mt-1 text-[10px] text-slate-300">更新 {formatDate(item.updatedAt)}</div>
-                                    </div>
-
-                                    {/* Actions — fade in on hover */}
-                                    <div className="flex shrink-0 gap-1 opacity-0 transition-opacity duration-150 group-hover/item:opacity-100">
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
-                                            onClick={() => openEdit(item)}
-                                          >
-                                            <Edit3 className="h-3.5 w-3.5" />
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" sideOffset={4}>编辑</TooltipContent>
-                                      </Tooltip>
-                                      {/* 内置条目删了会被 ensureDefaults 补回、且页面由代码提供，
-                                          删除对它无意义。禁用而非隐藏，配合提示说明该用「停用」。 */}
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <span>
-                                            <Button
-                                              variant="ghost"
-                                              size="icon"
-                                              disabled={item.builtIn}
-                                              className="h-7 w-7 text-slate-400 hover:text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400"
-                                              onClick={() => openDelete(item)}
-                                            >
-                                              <Trash2 className="h-3.5 w-3.5" />
-                                            </Button>
-                                          </span>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" sideOffset={4}>
-                                          {item.builtIn ? "系统内置项不可删除，如需下线请用「停用」" : "删除"}
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* ── Create / Edit dialog ─────────────────────────────────────── */}
-      <Dialog open={dialogMode === "create" || dialogMode === "edit"} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{dialogMode === "edit" ? "编辑权限目录" : "新增权限目录"}</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-1 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="perm-code">权限编码</Label>
-              <Input
-                id="perm-code"
-                value={form.code}
-                onChange={(e) => setForm((c) => ({ ...c, code: e.target.value }))}
-                placeholder="如 page:route-management"
-              />
+          <div className="grid gap-3 border-b border-slate-200 p-4 lg:grid-cols-[minmax(260px,1fr)_180px_200px_auto] lg:items-end">
+            <div className="min-w-0">
+              <Label htmlFor="route-catalog-search" className="mb-1.5 block text-xs font-semibold text-slate-700">搜索权限</Label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Input
+                  ref={searchInputRef}
+                  id="route-catalog-search"
+                  className="pl-9"
+                  value={keyword}
+                  onChange={(event) => setKeyword(event.target.value)}
+                  placeholder="编码、名称、分组、路由或说明"
+                />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="perm-label">显示名称</Label>
-              <Input
-                id="perm-label"
-                value={form.label}
-                onChange={(e) => setForm((c) => ({ ...c, label: e.target.value }))}
-                placeholder="如 页面路由管理"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="perm-group">权限分组</Label>
-              <Input
-                id="perm-group"
-                list="permission-group-options"
-                value={form.groupLabel}
-                onChange={(e) => setForm((c) => ({ ...c, groupLabel: e.target.value }))}
-                placeholder="如 页面访问 · 系统管理"
-              />
-              <datalist id="permission-group-options">
-                {groupOptions.map((group) => <option key={group} value={group} />)}
-              </datalist>
-            </div>
-            <div className="space-y-1.5">
-              <Label>类型</Label>
-              <Select
-                value={form.type}
-                onValueChange={(v) => setForm((c) => ({ ...c, type: v as "page" | "action" }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+            <div>
+              <Label htmlFor="route-type-filter" className="mb-1.5 block text-xs font-semibold text-slate-700">权限类型</Label>
+              <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value as typeof typeFilter)}>
+                <SelectTrigger id="route-type-filter" className="w-full" aria-label="筛选权限类型"><SelectValue /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="all">全部类型</SelectItem>
                   <SelectItem value="page">页面权限</SelectItem>
                   <SelectItem value="action">按钮权限</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="perm-path">路由路径</Label>
-              <Input
-                id="perm-path"
-                value={form.routePath ?? ""}
-                onChange={(e) => setForm((c) => ({ ...c, routePath: e.target.value }))}
-                placeholder="页面权限填写，如 /roles"
-              />
-              {form.type === "page" && (
-                <p className="text-[11px] leading-4 text-slate-500">
-                  改此路径会同步改变侧边栏链接与页面实际地址，刷新后全站生效。
-                  不支持参数与通配符——详情页等子路由会按主路径自动派生。
-                  {dialogMode !== "edit" && (
-                    <span className="mt-1 block text-amber-600">
-                      注意：新增页面码只是登记了「可授权的页面」，页面本身仍需在代码中绑定组件；
-                      未绑定时该路径不会存在，勾了权限也打不开。
-                    </span>
-                  )}
-                </p>
-              )}
+            <div>
+              <Label htmlFor="route-nav-filter" className="mb-1.5 block text-xs font-semibold text-slate-700">导航状态</Label>
+              <Select value={navFilter} onValueChange={(value) => setNavFilter(value as typeof navFilter)}>
+                <SelectTrigger id="route-nav-filter" className="w-full" aria-label="筛选导航状态"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部导航状态</SelectItem>
+                  <SelectItem value="visible">导航显示</SelectItem>
+                  <SelectItem value="hidden">导航隐藏</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="perm-sort">排序</Label>
-              <Input
-                id="perm-sort"
-                type="number"
-                min={0}
-                value={form.sortOrder}
-                onChange={(e) => setForm((c) => ({ ...c, sortOrder: Number(e.target.value) || 0 }))}
-              />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="perm-desc">描述</Label>
-              <Textarea
-                id="perm-desc"
-                value={form.description ?? ""}
-                onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))}
-                placeholder="说明该权限控制的页面或按钮"
-                className="min-h-[72px]"
-              />
-            </div>
-            <div className="flex flex-col gap-3 sm:col-span-2 sm:flex-row">
-              <label className="flex flex-1 cursor-pointer items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 transition-colors hover:bg-slate-100/60">
-                <Checkbox
-                  checked={form.enabled}
-                  onCheckedChange={(checked) => setForm((c) => ({ ...c, enabled: !!checked }))}
-                />
-                <div>
-                  <div className="text-sm font-medium text-slate-700">启用该权限</div>
-                  <div className="text-xs text-slate-500">停用后角色权限矩阵不显示此项</div>
-                </div>
-              </label>
-              {form.type === "page" && (
-                <label className="flex flex-1 cursor-pointer items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 transition-colors hover:bg-slate-100/60">
-                  <Checkbox
-                    checked={!form.navHidden}
-                    onCheckedChange={(checked) => setForm((c) => ({ ...c, navHidden: !checked }))}
-                  />
-                  <div>
-                    <div className="text-sm font-medium text-slate-700">显示在导航栏</div>
-                    <div className="text-xs text-slate-500">取消勾选则页面可访问但不出现在侧边栏</div>
-                  </div>
-                </label>
-              )}
-            </div>
+            <Button type="button" variant="outline" onClick={clearFilters} disabled={!isFiltering}>清除筛选</Button>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog} disabled={saving}>取消</Button>
-            <Button onClick={() => void handleSave()} disabled={saving}>
-              {saving && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
-              保存
-            </Button>
-          </DialogFooter>
+
+          <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-pretty text-slate-600">
+              导航隐藏仅影响侧边栏展示，页面仍可通过链接访问，并继续出现在角色授权目录中。
+            </p>
+            {routeTree.length > 0 ? (
+              isFiltering ? (
+                <span className="shrink-0 text-xs font-medium text-[#002fa7]">筛选结果已展开</span>
+              ) : (
+                <Button type="button" variant="outline" size="sm" onClick={allExpanded ? collapseAll : expandAll}>
+                  {allExpanded ? <Minus className="size-3.5" aria-hidden="true" /> : <Layers3 className="size-3.5" aria-hidden="true" />}
+                  {allExpanded ? "折叠全部" : "展开全部"}
+                </Button>
+              )
+            ) : null}
+          </div>
+
+          {loading && items.length === 0 ? (
+            <LoadingTable />
+          ) : routeTree.length === 0 ? (
+            <HorizonEmptyState
+              Icon={isFiltering ? Search : loadError ? RefreshCw : FolderOpen}
+              title={isFiltering ? "没有匹配的权限项" : loadError ? "权限目录读取失败" : "尚未建立权限目录"}
+              description={isFiltering ? "调整搜索词或筛选条件后重试。" : loadError || "新增首个权限项，建立统一的页面与操作授权目录。"}
+              action={isFiltering ? (
+                <Button type="button" variant="outline" onClick={clearFilters}>清除筛选</Button>
+              ) : loadError ? (
+                <Button type="button" variant="outline" onClick={() => void loadItems()}><RefreshCw className="size-4" aria-hidden="true" />重新读取</Button>
+              ) : (
+                <Button type="button" className="hz-primary-action" onClick={(event) => openCreate(event.currentTarget)}><Plus className="size-4" aria-hidden="true" />新增权限</Button>
+              )}
+            />
+          ) : (
+            <div className="divide-y divide-slate-200">
+              {routeTree.map((root, rootIndex) => {
+                const rootExpanded = isFiltering || expandedRoots.has(root.label);
+                const rootPanelId = `route-root-${rootIndex}`;
+                const rootPageCount = root.items.filter((item) => item.type === "page").length;
+                const rootHiddenCount = root.items.filter((item) => item.type === "page" && item.navHidden).length;
+
+                return (
+                  <article key={root.label}>
+                    <h3>
+                      <button
+                        type="button"
+                        className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left hover:bg-blue-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 disabled:cursor-default disabled:hover:bg-transparent"
+                        onClick={() => toggleRoot(root.label)}
+                        disabled={isFiltering}
+                        aria-expanded={rootExpanded}
+                        aria-controls={rootPanelId}
+                      >
+                        <ChevronRight className={cn("size-4 shrink-0 text-slate-400", rootExpanded && "rotate-90 text-[#002fa7]")} aria-hidden="true" />
+                        <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-xl", rootExpanded ? "bg-blue-100 text-[#002fa7]" : "bg-slate-100 text-slate-600")} aria-hidden="true">
+                          {rootExpanded ? <FolderOpen className="size-4" /> : <Folder className="size-4" />}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-slate-900">{root.label}</span>
+                          <span className="mt-0.5 block text-xs text-slate-500">
+                            <span className="tabular-nums">{root.branches.length}</span> 个分组 · <span className="tabular-nums">{rootPageCount}</span> 个页面 · <span className="tabular-nums">{root.items.length - rootPageCount}</span> 个按钮
+                          </span>
+                        </span>
+                        {rootHiddenCount > 0 ? <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 tabular-nums">{rootHiddenCount} 个导航隐藏</span> : null}
+                      </button>
+                    </h3>
+
+                    {rootExpanded ? (
+                      <div id={rootPanelId} className="border-t border-slate-200 bg-slate-50/50">
+                        {root.branches.map((branch, branchIndex) => {
+                          const branchExpanded = isFiltering || expandedBranches.has(branch.key);
+                          const branchPanelId = `route-branch-${rootIndex}-${branchIndex}`;
+                          const branchPageCount = branch.items.filter((item) => item.type === "page").length;
+
+                          return (
+                            <section key={branch.key} className="border-b border-slate-200 last:border-b-0" aria-labelledby={`${branchPanelId}-title`}>
+                              <h4 id={`${branchPanelId}-title`}>
+                                <button
+                                  type="button"
+                                  className="flex w-full cursor-pointer items-center gap-2 px-5 py-3 text-left hover:bg-blue-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 disabled:cursor-default disabled:hover:bg-transparent sm:pl-14"
+                                  onClick={() => toggleBranch(branch.key)}
+                                  disabled={isFiltering}
+                                  aria-expanded={branchExpanded}
+                                  aria-controls={branchPanelId}
+                                >
+                                  <ChevronRight className={cn("size-3.5 shrink-0 text-slate-400", branchExpanded && "rotate-90 text-[#002fa7]")} aria-hidden="true" />
+                                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700">{branch.label}</span>
+                                  <span className="shrink-0 text-xs text-slate-500 tabular-nums">{branch.items.length} 项 · {branchPageCount} 页面 · {branch.items.length - branchPageCount} 按钮</span>
+                                </button>
+                              </h4>
+
+                              {branchExpanded ? (
+                                <div id={branchPanelId} className="overflow-x-auto bg-white">
+                                  <table className="w-full min-w-[1180px] table-fixed text-left">
+                                    <caption className="sr-only">{root.label}中的{branch.label}权限项</caption>
+                                    <colgroup>
+                                      <col className="w-[320px]" />
+                                      <col className="w-[100px]" />
+                                      <col className="w-[250px]" />
+                                      <col className="w-[100px]" />
+                                      <col className="w-[170px]" />
+                                      <col className="w-[150px]" />
+                                      <col className="w-[90px]" />
+                                    </colgroup>
+                                    <thead className="bg-slate-50/90">
+                                      <tr>
+                                        {["权限项", "类型", "访问路径", "状态", "导航", "更新时间", "操作"].map((column) => (
+                                          <th key={column} scope="col" className={cn(TABLE_HEADER_CLASS, column === "操作" && "text-right")}>{column}</th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                      {branch.items.map((item) => {
+                                        const itemBusy = busyItemIds.has(item.id);
+                                        return (
+                                        <tr key={item.id} className="hover:bg-blue-50/35" aria-busy={itemBusy}>
+                                          <td className={TABLE_CELL_CLASS}>
+                                            <div className="font-semibold text-slate-900">{item.label}</div>
+                                            <div className="mt-1 break-all font-mono text-xs text-slate-500">{item.code}</div>
+                                            {item.description ? <p className="mt-1.5 line-clamp-2 text-pretty text-xs leading-5 text-slate-500">{item.description}</p> : null}
+                                          </td>
+                                          <td className={TABLE_CELL_CLASS}><TypeBadge type={item.type} /></td>
+                                          <td className={TABLE_CELL_CLASS}>
+                                            {item.routePath ? <code className="break-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">{item.routePath}</code> : <span className="text-slate-400">不适用</span>}
+                                          </td>
+                                          <td className={TABLE_CELL_CLASS}>
+                                            <span className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", item.enabled ? "border-green-200 bg-green-50 text-green-700" : "border-slate-200 bg-slate-100 text-slate-600")}>
+                                              {item.enabled ? "启用" : "停用"}
+                                            </span>
+                                          </td>
+                                          <td className={TABLE_CELL_CLASS}>
+                                            {item.type === "page" ? (
+                                              <div>
+                                                <button
+                                                  type="button"
+                                                  disabled={itemBusy}
+                                                  onClick={() => void handleToggleNavHidden(item)}
+                                                  className={cn(
+                                                    "inline-flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60",
+                                                    item.navHidden ? "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100" : "border-green-200 bg-green-50 text-green-700 hover:bg-green-100",
+                                                  )}
+                                                  aria-label={`${item.navHidden ? "显示" : "隐藏"}“${item.label}”的侧边栏导航`}
+                                                >
+                                                  {item.navHidden ? <EyeOff className="size-3" aria-hidden="true" /> : <Eye className="size-3" aria-hidden="true" />}
+                                                  {itemBusy ? "更新中…" : item.navHidden ? "导航隐藏" : "导航显示"}
+                                                </button>
+                                                {actionError?.id === item.id ? <p role="alert" className="mt-1.5 text-pretty text-xs font-medium text-red-600">{actionError.message}</p> : null}
+                                              </div>
+                                            ) : <span className="text-slate-400">不适用</span>}
+                                          </td>
+                                          <td className={cn(TABLE_CELL_CLASS, "text-xs text-slate-500 tabular-nums")}>{formatDate(item.updatedAt)}</td>
+                                          <td className={cn(TABLE_CELL_CLASS, "text-right")}>
+                                            <div className="flex justify-end gap-1">
+                                              <Button type="button" variant="ghost" size="icon" disabled={itemBusy} onClick={(event) => openEdit(item, event.currentTarget)} aria-label={`编辑权限 ${item.label}`} title="编辑权限">
+                                                <Edit3 className="size-4" aria-hidden="true" />
+                                              </Button>
+                                              <span title={item.builtIn ? "系统内置项不可删除，如需下线请改为停用" : "删除权限"}>
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="text-red-600 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:text-slate-400"
+                                                  disabled={Boolean(item.builtIn) || itemBusy}
+                                                  onClick={(event) => openDelete(item, event.currentTarget)}
+                                                  aria-label={item.builtIn ? `${item.label}为系统内置项，不可删除` : `删除权限 ${item.label}`}
+                                                >
+                                                  <Trash2 className="size-4" aria-hidden="true" />
+                                                </Button>
+                                              </span>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : null}
+                            </section>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <Dialog open={dialogMode === "create" || dialogMode === "edit"} onOpenChange={(open) => { if (!open && !saving) closeDialog(); }}>
+        <DialogContent
+          className="horizon-portal max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = dialogTriggerRef.current;
+            dialogTriggerRef.current = null;
+            if (trigger?.isConnected) trigger.focus();
+          }}
+        >
+          <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} noValidate className="space-y-5">
+            <DialogHeader>
+              <DialogTitle className="text-balance text-slate-900">{dialogMode === "edit" ? "编辑权限目录" : "新增权限目录"}</DialogTitle>
+              <DialogDescription className="text-pretty">维护权限编码、授权分组、页面路径与导航状态。页面路径变更会在刷新后全站生效。</DialogDescription>
+            </DialogHeader>
+
+            {dialogError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-pretty text-sm text-red-700">{dialogError}</p> : null}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="perm-code" className="mb-1.5 block text-sm font-semibold text-slate-700">权限编码 <span className="text-red-600">*</span></Label>
+                <Input
+                  ref={codeInputRef}
+                  id="perm-code"
+                  autoFocus
+                  maxLength={120}
+                  value={form.code}
+                  onChange={(event) => { setForm((current) => ({ ...current, code: event.target.value })); clearFieldError("code"); }}
+                  placeholder="如 page:route-management"
+                  aria-invalid={Boolean(formErrors.code)}
+                  aria-describedby={formErrors.code ? "perm-code-error" : "perm-code-help"}
+                />
+                {formErrors.code ? <p id="perm-code-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{formErrors.code}</p> : <p id="perm-code-help" className="mt-1.5 text-xs text-slate-500">编码用于角色授权与接口校验，必须保持唯一。</p>}
+              </div>
+              <div>
+                <Label htmlFor="perm-label" className="mb-1.5 block text-sm font-semibold text-slate-700">显示名称 <span className="text-red-600">*</span></Label>
+                <Input
+                  ref={labelInputRef}
+                  id="perm-label"
+                  maxLength={80}
+                  value={form.label}
+                  onChange={(event) => { setForm((current) => ({ ...current, label: event.target.value })); clearFieldError("label"); }}
+                  placeholder="如 页面路由管理"
+                  aria-invalid={Boolean(formErrors.label)}
+                  aria-describedby={formErrors.label ? "perm-label-error" : undefined}
+                />
+                {formErrors.label ? <p id="perm-label-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{formErrors.label}</p> : null}
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="perm-group" className="mb-1.5 block text-sm font-semibold text-slate-700">权限分组 <span className="text-red-600">*</span></Label>
+                <Input
+                  ref={groupInputRef}
+                  id="perm-group"
+                  list="permission-group-options"
+                  maxLength={80}
+                  value={form.groupLabel}
+                  onChange={(event) => { setForm((current) => ({ ...current, groupLabel: event.target.value })); clearFieldError("groupLabel"); }}
+                  placeholder="如 页面访问 · 系统管理"
+                  aria-invalid={Boolean(formErrors.groupLabel)}
+                  aria-describedby={formErrors.groupLabel ? "perm-group-error" : "perm-group-help"}
+                />
+                <datalist id="permission-group-options">{groupOptions.map((group) => <option key={group} value={group} />)}</datalist>
+                {formErrors.groupLabel ? <p id="perm-group-error" role="alert" className="mt-1.5 text-xs font-medium text-red-600">{formErrors.groupLabel}</p> : <p id="perm-group-help" className="mt-1.5 text-xs text-slate-500">使用“一级分组 · 二级分组”形成目录层级。</p>}
+              </div>
+              <div>
+                <Label htmlFor="perm-type" className="mb-1.5 block text-sm font-semibold text-slate-700">权限类型</Label>
+                <Select value={form.type} onValueChange={(value) => { setForm((current) => ({ ...current, type: value as "page" | "action" })); clearFieldError("routePath"); }}>
+                  <SelectTrigger id="perm-type" className="w-full" aria-label="选择权限类型"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="page">页面权限</SelectItem>
+                    <SelectItem value="action">按钮权限</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_160px]">
+              <div>
+                <Label htmlFor="perm-path" className="mb-1.5 block text-sm font-semibold text-slate-700">访问路径 {form.type === "page" ? <span className="text-red-600">*</span> : null}</Label>
+                <Input
+                  ref={routePathInputRef}
+                  id="perm-path"
+                  maxLength={160}
+                  value={form.routePath ?? ""}
+                  onChange={(event) => { setForm((current) => ({ ...current, routePath: event.target.value })); clearFieldError("routePath"); }}
+                  placeholder={form.type === "page" ? "如 /roles" : "按钮权限无需填写"}
+                  aria-invalid={Boolean(formErrors.routePath)}
+                  aria-describedby={formErrors.routePath ? "perm-path-error" : "perm-path-help"}
+                />
+                {formErrors.routePath ? <p id="perm-path-error" role="alert" className="mt-1.5 text-pretty text-xs font-medium text-red-600">{formErrors.routePath}</p> : (
+                  <p id="perm-path-help" className="mt-1.5 text-pretty text-xs leading-5 text-slate-500">
+                    {form.type === "page" ? "必须以 / 开头且不能与其他页面重复；可登记详情页参数路径，不支持空格、查询串、哈希或通配符。" : "按钮权限不参与前端路由，访问路径可留空。"}
+                  </p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="perm-sort" className="mb-1.5 block text-sm font-semibold text-slate-700">排序</Label>
+                <Input id="perm-sort" type="number" min={0} value={form.sortOrder} onChange={(event) => setForm((current) => ({ ...current, sortOrder: Number(event.target.value) || 0 }))} />
+              </div>
+            </div>
+
+            {form.type === "page" && dialogMode === "create" ? (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-pretty text-xs leading-5 text-amber-800">
+                新增页面权限只会登记可授权页面；页面组件仍需在代码中绑定，未绑定的路径不会产生可访问页面。
+              </p>
+            ) : null}
+
+            <div>
+              <Label htmlFor="perm-desc" className="mb-1.5 block text-sm font-semibold text-slate-700">权限说明</Label>
+              <Textarea id="perm-desc" maxLength={240} rows={3} value={form.description ?? ""} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder="说明该权限控制的页面或操作" />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <Checkbox id="perm-enabled" checked={form.enabled} onCheckedChange={(checked) => setForm((current) => ({ ...current, enabled: checked === true }))} />
+                <div className="min-w-0">
+                  <Label htmlFor="perm-enabled" className="cursor-pointer text-sm font-semibold text-slate-800">启用该权限</Label>
+                  <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">停用后该权限对所有普通账号失效，并从角色矩阵中移除。</p>
+                </div>
+              </div>
+              {form.type === "page" ? (
+                <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <Checkbox id="perm-nav-visible" checked={!form.navHidden} onCheckedChange={(checked) => setForm((current) => ({ ...current, navHidden: checked !== true }))} />
+                  <div className="min-w-0">
+                    <Label htmlFor="perm-nav-visible" className="cursor-pointer text-sm font-semibold text-slate-800">显示在导航栏</Label>
+                    <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">取消后页面仍可访问，也仍可分配给角色。</p>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeDialog} disabled={saving}>取消</Button>
+              <Button type="submit" className="hz-primary-action" disabled={saving}>{saving ? "保存中…" : "保存权限"}</Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
-      {/* ── Delete dialog ────────────────────────────────────────────── */}
-      <Dialog open={dialogMode === "delete"} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>删除权限目录</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm leading-6 text-slate-600">
-            确认删除「<strong className="text-slate-800">{selected?.label}</strong>」？
-            已分配给角色的权限编码不会自动清理，但后续权限矩阵不再显示该项。
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog} disabled={saving}>取消</Button>
-            <Button variant="destructive" onClick={() => void handleDelete()} disabled={saving}>
-              {saving && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
-              删除
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AlertDialog open={dialogMode === "delete"} onOpenChange={(open) => { if (!open && !saving) closeDialog(); }}>
+        <AlertDialogContent
+          className="horizon-portal sm:max-w-md"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const trigger = dialogTriggerRef.current;
+            dialogTriggerRef.current = null;
+            if (trigger?.isConnected) trigger.focus();
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-balance text-slate-900">确认删除权限项？</AlertDialogTitle>
+            <AlertDialogDescription className="text-pretty leading-6">
+              即将删除“{selected?.label ?? "当前权限"}”。已分配给角色的权限编码不会自动清理，但后续权限矩阵将不再显示该项。此操作不可恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {dialogError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-pretty text-sm text-red-700">{dialogError}</p> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>保留权限</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600" disabled={saving} onClick={(event) => { event.preventDefault(); void handleDelete(); }}>
+              {saving ? "删除中…" : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

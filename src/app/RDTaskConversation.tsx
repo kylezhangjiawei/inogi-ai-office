@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
   ChevronDown,
@@ -33,6 +33,7 @@ import {
   createRdTaskDiscussionMessage,
   fetchRdPeople,
   fetchRdTaskDiscussion,
+  isUsCollabWorkspace,
   markRdTaskDiscussionRead,
   type RdDiscussionAnchorType,
   type RdTaskDiscussionMessage,
@@ -46,7 +47,6 @@ import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { useAvatarDirectory } from "./lib/userAvatar";
 import { formatRdFileSize, ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope } from "./RDProgressEvidence";
 
-const CHAT_EASE = [0.22, 1, 0.36, 1] as const;
 const DISCUSSION_MAX_FILES = 10;
 const DISCUSSION_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const DISCUSSION_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
@@ -119,9 +119,11 @@ function blockedAttachment(file: Pick<File, "type" | "name">): boolean {
 
 function PendingAttachment({
   file,
+  disabled,
   onRemove,
 }: {
   file: File;
+  disabled?: boolean;
   onRemove: () => void;
 }) {
   const kind = fileKind(file);
@@ -168,6 +170,7 @@ function PendingAttachment({
       <button
         type="button"
         onClick={onRemove}
+        disabled={disabled}
         className="absolute right-1.5 top-1.5 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-slate-950/72 text-white shadow-sm transition-colors hover:bg-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
         aria-label={t("移除附件")}
       >
@@ -218,7 +221,7 @@ function ConversationAvatar({
   return (
     <span
       className={cn(dimensions, textSize, "flex shrink-0 items-center justify-center rounded-full font-bold text-white shadow-sm ring-2 ring-white")}
-      style={{ background: `linear-gradient(145deg, hsl(${hue} 64% 62%), hsl(${hue} 58% 48%))` }}
+      style={{ background: `hsl(${hue} 58% 48%)` }}
       title={name}
     >
       {name.trim().slice(0, 1) || "?"}
@@ -282,11 +285,11 @@ function formatDayLabel(iso: string) {
 function DateDivider({ iso }: { iso: string }) {
   return (
     <div className="rd-conversation-date-divider flex items-center gap-2 py-2" role="separator" aria-label={formatDayLabel(iso)}>
-      <span className="h-px flex-1 bg-gradient-to-r from-transparent to-slate-200" />
+      <span className="h-px flex-1 bg-slate-200" />
       <span className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[10px] font-semibold text-slate-500 shadow-sm">
         {formatDayLabel(iso)}
       </span>
-      <span className="h-px flex-1 bg-gradient-to-l from-transparent to-slate-200" />
+      <span className="h-px flex-1 bg-slate-200" />
     </div>
   );
 }
@@ -318,12 +321,11 @@ function formatTimelineDate(iso: string) {
     : { primary: numericDate, secondary: "" };
 }
 
-function summaryFor(
-  summaries: RdTaskDiscussionThreadSummary[],
-  type: "progress_note" | "message",
+function discussionSummaryKey(
+  type: RdDiscussionAnchorType,
   id: string,
 ) {
-  return summaries.find((item) => item.anchor_type === type && item.anchor_id === id);
+  return `${type}:${id}`;
 }
 
 function mergeDiscussionMessages(
@@ -470,7 +472,7 @@ function LoadEarlierButton({
         type="button"
         onClick={onClick}
         disabled={loading}
-        className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-[10px] font-bold text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 disabled:cursor-wait disabled:opacity-60"
+        className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-[10px] font-bold text-slate-600 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 disabled:cursor-wait disabled:opacity-60"
       >
         {loading && <Loader2 className="h-3 w-3 animate-spin" />}
         {loading ? t("正在加载…") : t("加载更早消息")}
@@ -509,9 +511,9 @@ function progressTone(progress?: number) {
     };
   }
   return {
-    border: "border-l-indigo-500",
-    header: "bg-indigo-50/70",
-    badge: "bg-indigo-600",
+    border: "border-l-[#002fa7]",
+    header: "bg-blue-50/70",
+    badge: "bg-[#002fa7]",
   };
 }
 
@@ -533,16 +535,16 @@ function ThreadButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "group inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1",
+        "group inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 focus-visible:ring-offset-1",
         inverted
-          ? "bg-white/12 text-indigo-50 hover:bg-white/20"
+          ? "bg-white/12 text-blue-50 hover:bg-white/20"
           : count > 0
-            ? "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+            ? "bg-blue-50 text-[#002fa7] hover:bg-blue-100"
             : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
       )}
       aria-label={count > 0 ? t("查看 {n} 条讨论", { n: count }) : label}
     >
-      <MessageCircleMore className="h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5" />
+      <MessageCircleMore className="h-3 w-3" />
       <span>{count > 0 ? t("{n} 条讨论", { n: count }) : label}</span>
       {unread > 0 && (
         <span className="min-w-4 rounded-full bg-rose-500 px-1 text-center text-[9px] leading-4 text-white">
@@ -659,10 +661,10 @@ function InlineCommentItem({
       className={cn(
         "relative flex min-w-0 gap-2 rounded-lg px-2 py-1.5 transition-colors",
         depthClass,
-        mine ? "bg-indigo-50/70" : "hover:bg-white",
+        mine ? "bg-blue-50/70" : "hover:bg-white",
       )}
     >
-      {depth > 0 ? <span className="absolute -left-2 top-0 h-full w-px bg-indigo-100" aria-hidden="true" /> : null}
+      {depth > 0 ? <span className="absolute -left-2 top-0 h-full w-px bg-blue-100" aria-hidden="true" /> : null}
       <ConversationAvatar name={message.author_name} userId={message.author_id} size="xs" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 text-[11px] leading-4">
@@ -670,13 +672,13 @@ function InlineCommentItem({
           {message.reply_to ? (
             <>
               <span className="text-slate-400">{t("回复")}</span>
-              <span className="font-semibold text-indigo-700">{message.reply_to.author_name}</span>
+              <span className="font-semibold text-[#002fa7]">{message.reply_to.author_name}</span>
             </>
           ) : null}
-          {mine ? <span className="rounded bg-indigo-100 px-1 text-[9px] font-semibold text-indigo-700">{t("我")}</span> : null}
+          {mine ? <span className="rounded bg-blue-100 px-1 text-[9px] font-semibold text-[#002fa7]">{t("我")}</span> : null}
         </div>
         {message.body ? (
-          <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-[18px] text-slate-700">
+          <p className="mt-0.5 whitespace-pre-wrap break-words text-pretty text-xs leading-[18px] text-slate-700">
             {renderTextWithMentions(message.body, message.mentions)}
           </p>
         ) : null}
@@ -692,7 +694,7 @@ function InlineCommentItem({
           <button
             type="button"
             onClick={() => onReply(message)}
-            className="cursor-pointer rounded px-1 py-0.5 font-semibold text-slate-500 transition-colors hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+            className="cursor-pointer rounded px-1 py-0.5 font-semibold text-slate-500 transition-colors hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/35"
           >
             {t("回复")}
           </button>
@@ -790,7 +792,7 @@ function InlineNoteComments({
   };
 
   return (
-    <section id={id} aria-label={t("留痕留言")} className="rd-inline-note-comments mt-1.5 rounded-xl border border-indigo-100 bg-slate-50/80 p-2">
+    <section id={id} aria-label={t("留痕留言")} className="rd-inline-note-comments mt-1.5 rounded-xl border border-blue-100 bg-slate-50/80 p-2">
       {loading ? (
         <div className="space-y-2 py-1" aria-label={t("正在加载留言")}>
           {[0, 1].map((item) => (
@@ -836,7 +838,7 @@ function InlineNoteComments({
                 type="button"
                 aria-expanded={expanded}
                 onClick={() => setExpanded((current) => !current)}
-                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-[#002fa7] transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/35"
               >
                 <ChevronDown className={cn("size-3 transition-transform", expanded && "rotate-180")} />
                 {expanded ? t("收起留言") : t("展开其余 {n} 条留言", { n: hiddenCount })}
@@ -847,7 +849,7 @@ function InlineNoteComments({
                 type="button"
                 onClick={() => void loadEarlier()}
                 disabled={loadingEarlier}
-                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-slate-600 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 disabled:cursor-wait disabled:opacity-60"
+                className="inline-flex min-h-7 cursor-pointer items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-slate-600 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/35 disabled:cursor-wait disabled:opacity-60"
               >
                 {loadingEarlier ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
                 {t("加载更早留言")}
@@ -924,7 +926,7 @@ function ProgressAnchorCard({
         tone.header,
       )}>
         <span className={cn(
-          "inline-flex shrink-0 items-center gap-1 font-bold text-indigo-700",
+          "inline-flex shrink-0 items-center gap-1 font-bold text-[#002fa7]",
           timeline ? "text-[11px]" : "text-[10px]",
         )}>
           <Sparkles className="h-3 w-3" />
@@ -938,9 +940,9 @@ function ProgressAnchorCard({
             onClick={() => onActorClick({ id: note.actor.id, name: note.actor.name })}
             title={t(actorSelected ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")}
             className={cn(
-              "inline-flex min-w-0 shrink cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-indigo-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+              "inline-flex min-w-0 shrink cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-blue-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/35",
               timeline ? "text-[11px]" : "text-[10px]",
-              actorSelected && "bg-indigo-100 text-indigo-800 ring-1 ring-inset ring-indigo-200",
+              actorSelected && "bg-blue-100 text-[#002fa7] ring-1 ring-inset ring-blue-200",
             )}
           >
             <ConversationAvatar name={note.actor.name} userId={note.actor.id} size="xs" />
@@ -970,7 +972,7 @@ function ProgressAnchorCard({
               onClick={() => onOpenSourceTask?.(sourceTask.task_id)}
               disabled={!onOpenSourceTask}
               title={sourceTask.path.join(" / ")}
-              className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-1 text-[10px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-default"
+              className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md bg-blue-50 px-1.5 py-1 text-[10px] font-semibold text-[#002fa7] transition-colors hover:bg-blue-100 disabled:cursor-default"
             >
               <GitBranch className="h-3 w-3 shrink-0" />
               <span className="truncate">{sourceTask.title}</span>
@@ -984,7 +986,7 @@ function ProgressAnchorCard({
         )}
         {note.text && (
           <p className={cn(
-            "whitespace-pre-wrap text-slate-800",
+            "whitespace-pre-wrap break-words text-pretty text-slate-800",
             timeline ? "text-[13px] leading-5" : "text-[13px] leading-[18px]",
           )}>
             {renderTextWithMentions(note.text, note.mentions)}
@@ -1004,9 +1006,9 @@ function ProgressAnchorCard({
             aria-controls={commentsRegionId}
             onClick={() => setCommentsOpen((current) => !current)}
             className={cn(
-              "inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1",
+              "inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 focus-visible:ring-offset-1",
               commentsOpen || commentCount > 0
-                ? "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                ? "bg-blue-50 text-[#002fa7] hover:bg-blue-100"
                 : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
             )}
           >
@@ -1049,13 +1051,9 @@ function MessageBubble({
   highlighted?: boolean;
 }) {
   return (
-    <motion.div
+    <div
       data-message-id={message.id}
       data-mine={mine ? "true" : "false"}
-      layout="position"
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2, ease: CHAT_EASE }}
       className={cn(
         "rd-message-bubble flex items-end gap-1.5",
         mine ? "justify-end" : "justify-start",
@@ -1074,18 +1072,18 @@ function MessageBubble({
           className={cn(
             "rd-message-bubble__surface relative overflow-hidden px-3 py-2 shadow-sm transition-[box-shadow,background-color]",
             mine
-              ? "rounded-[20px] rounded-br-[7px] bg-indigo-600 text-white shadow-indigo-200/60"
+              ? "rounded-[20px] rounded-br-[7px] bg-[#002fa7] text-white shadow-[0_8px_18px_rgba(0,47,167,0.16)]"
               : "rounded-[20px] rounded-bl-[7px] border border-slate-200 bg-white text-slate-800",
             highlighted && (mine
-              ? "ring-2 ring-indigo-300 ring-offset-2"
-              : "border-indigo-300 bg-indigo-50 ring-2 ring-indigo-200 ring-offset-2"),
+              ? "ring-2 ring-[#002fa7]/30 ring-offset-2"
+              : "border-blue-300 bg-blue-50 ring-2 ring-blue-200 ring-offset-2"),
           )}
         >
           {message.reply_to && (
             <div
               className={cn(
                 "mb-1.5 rounded-lg border-l-2 px-2 py-1 text-[11px]",
-                mine ? "border-white/70 bg-white/12 text-indigo-50" : "border-indigo-400 bg-slate-50 text-slate-500",
+                mine ? "border-white/70 bg-white/12 text-blue-50" : "border-[#002fa7]/55 bg-slate-50 text-slate-500",
               )}
             >
               <div className={cn("font-semibold", mine ? "text-white" : "text-slate-700")}>{message.reply_to.author_name}</div>
@@ -1093,18 +1091,18 @@ function MessageBubble({
             </div>
           )}
           {message.body && (
-            <p className="whitespace-pre-wrap break-words text-sm leading-5">
+            <p className="whitespace-pre-wrap break-words text-pretty text-sm leading-5">
               {renderTextWithMentions(
                 message.body,
                 message.mentions,
                 mine
                   ? "rounded bg-white/20 px-1 font-semibold text-white"
-                  : "rounded bg-indigo-50 px-1 font-semibold text-indigo-700",
+                  : "rounded bg-blue-50 px-1 font-semibold text-[#002fa7]",
               )}
             </p>
           )}
           <ProgressAttachmentGrid attachments={message.attachments} compact imageDisplay="clipped-cards" className="mt-2" />
-          <div className={cn("mt-1 flex items-center justify-end gap-1 text-[10px] tabular-nums", mine ? "text-indigo-100" : "text-slate-400")}>
+          <div className={cn("mt-1 flex items-center justify-end gap-1 text-[10px] tabular-nums", mine ? "text-blue-100" : "text-slate-400")}>
             <span>{formatTime(message.created_at)}</span>
             {message.edited_at && <span>· {t("已编辑")}</span>}
           </div>
@@ -1114,7 +1112,7 @@ function MessageBubble({
             <button
               type="button"
               onClick={onQuote}
-              className="mt-1 cursor-pointer rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+              className="mt-1 cursor-pointer rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40"
             >
               {t("引用回复")}
             </button>
@@ -1124,7 +1122,7 @@ function MessageBubble({
         </div>
       </div>
       {mine && <ConversationAvatar name={message.author_name} userId={message.author_id} hidden={compactTop} />}
-    </motion.div>
+    </div>
   );
 }
 
@@ -1155,36 +1153,59 @@ function Composer({
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const [draggingFiles, setDraggingFiles] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const mountedRef = useRef(true);
+  const sendRequestRef = useRef(0);
+  const composerIdentity = `${taskId}:${anchor.type}:${anchor.id ?? ""}`;
+  const composerIdentityRef = useRef(composerIdentity);
+  composerIdentityRef.current = composerIdentity;
   const mention = useMentions({ value: text, setValue: setText, inputRef, candidates });
 
+  useEffect(() => () => {
+    mountedRef.current = false;
+    sendRequestRef.current += 1;
+  }, []);
+
   const addFiles = useCallback((picked: File[]) => {
-    if (picked.length === 0) return;
+    if (picked.length === 0 || sending) return;
     const blocked = picked.find(blockedAttachment);
     if (blocked) {
-      toast.error(t("附件 {name} 属于高风险可执行文件，不能上传", { name: blocked.name }));
+      const message = t("附件 {name} 属于高风险可执行文件，不能上传", { name: blocked.name });
+      setSubmitError(message);
+      toast.error(message);
       return;
     }
     const oversized = picked.find((file) => file.size > DISCUSSION_MAX_FILE_BYTES);
     if (oversized) {
-      toast.error(t("附件 {name} 超过单文件 25MB 限制", { name: oversized.name }));
+      const message = t("附件 {name} 超过单文件 25MB 限制", { name: oversized.name });
+      setSubmitError(message);
+      toast.error(message);
       return;
     }
     const next = [...files, ...picked];
     if (next.length > DISCUSSION_MAX_FILES) {
-      toast.error(t("每条消息最多上传 {n} 个附件", { n: DISCUSSION_MAX_FILES }));
+      const message = t("每条消息最多上传 {n} 个附件", { n: DISCUSSION_MAX_FILES });
+      setSubmitError(message);
+      toast.error(message);
       return;
     }
     const totalBytes = next.reduce((sum, file) => sum + file.size, 0);
     if (totalBytes > DISCUSSION_MAX_TOTAL_BYTES) {
-      toast.error(t("单条消息附件总大小不能超过 50MB"));
+      const message = t("单条消息附件总大小不能超过 50MB");
+      setSubmitError(message);
+      toast.error(message);
       return;
     }
+    setSubmitError("");
     setFiles(next);
-  }, [files]);
+  }, [files, sending]);
 
   const submit = async () => {
     if ((!text.trim() && files.length === 0) || sending) return;
+    const requestId = ++sendRequestRef.current;
+    const expectedIdentity = composerIdentity;
+    setSubmitError("");
     setSending(true);
     try {
       const result = await createRdTaskDiscussionMessage({
@@ -1195,6 +1216,7 @@ function Composer({
         mentions: mention.mentionsForSubmit(text),
         files,
       });
+      if (!mountedRef.current || requestId !== sendRequestRef.current || composerIdentityRef.current !== expectedIdentity) return;
       setText("");
       setFiles([]);
       mention.resetMentions();
@@ -1202,28 +1224,33 @@ function Composer({
       onSent(result.message, result.thread_id);
       announceDiscussionUpdated(taskId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("发送失败，请重试"));
+      if (!mountedRef.current || requestId !== sendRequestRef.current || composerIdentityRef.current !== expectedIdentity) return;
+      const message = error instanceof Error ? error.message : t("发送失败，请重试");
+      setSubmitError(message);
+      toast.error(message);
     } finally {
-      setSending(false);
+      if (mountedRef.current && requestId === sendRequestRef.current && composerIdentityRef.current === expectedIdentity) {
+        setSending(false);
+      }
     }
   };
 
   return (
     <div
       className={cn(
-        "rd-conversation-composer relative bg-white/95 backdrop-blur-xl",
+        "rd-conversation-composer relative bg-white",
         presentation === "inline"
           ? "mt-2 rounded-xl border border-slate-200 p-2"
           : "border-t border-slate-200 px-3 py-2",
         variant === "mobile" && presentation === "panel" && "[padding-bottom:calc(0.5rem+env(safe-area-inset-bottom))]",
       )}
       onDragEnter={(event) => {
-        if (variant !== "desktop" || !event.dataTransfer.types.includes("Files")) return;
+        if (sending || variant !== "desktop" || !event.dataTransfer.types.includes("Files")) return;
         event.preventDefault();
         setDraggingFiles(true);
       }}
       onDragOver={(event) => {
-        if (variant !== "desktop" || !event.dataTransfer.types.includes("Files")) return;
+        if (sending || variant !== "desktop" || !event.dataTransfer.types.includes("Files")) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "copy";
       }}
@@ -1232,27 +1259,20 @@ function Composer({
         setDraggingFiles(false);
       }}
       onDrop={(event) => {
-        if (variant !== "desktop") return;
+        if (sending || variant !== "desktop") return;
         event.preventDefault();
         setDraggingFiles(false);
         addFiles(Array.from(event.dataTransfer.files ?? []));
       }}
     >
-      <AnimatePresence>
-        {draggingFiles && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-2 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-indigo-300 bg-indigo-50/95 text-indigo-700 shadow-lg"
-          >
+      {draggingFiles && (
+          <div className="absolute inset-2 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/95 text-[#002fa7] shadow-lg">
             <span className="inline-flex items-center gap-2 text-sm font-bold">
               <UploadCloud className="h-5 w-5" />
               {t("松开即可添加到本条消息")}
             </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+      )}
       <MentionSuggestionPanel
         open={mention.open}
         candidates={mention.filtered}
@@ -1260,18 +1280,11 @@ function Composer({
         onPick={mention.pick}
         variant={variant}
       />
-      <AnimatePresence initial={false}>
-        {replyTarget && (
-          <motion.div
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            transition={{ duration: 0.16 }}
-            className="mb-1.5 flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-1.5"
-          >
-            <MessageCircleReply className="h-4 w-4 shrink-0 text-indigo-500" />
+      {replyTarget && (
+          <div className="mb-1.5 flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-1.5">
+            <MessageCircleReply className="h-4 w-4 shrink-0 text-[#002fa7]" />
             <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-bold text-indigo-700">{t("回复 {name}", { name: replyTarget.author_name })}</div>
+              <div className="text-[10px] font-bold text-[#002fa7]">{t("回复 {name}", { name: replyTarget.author_name })}</div>
               <div className="truncate text-xs text-slate-600">{replyTarget.body || t("附件消息")}</div>
             </div>
             <button
@@ -1282,29 +1295,33 @@ function Composer({
             >
               <X className="h-3.5 w-3.5" />
             </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+      )}
       {files.length > 0 && (
         <div className="mb-1.5 flex gap-2 overflow-x-auto pb-1" aria-label={t("待发送附件")}>
           {files.map((file, index) => (
             <PendingAttachment
               key={`${file.name}-${file.lastModified}-${index}`}
               file={file}
+              disabled={sending}
               onRemove={() => setFiles((current) => current.filter((_, i) => i !== index))}
             />
           ))}
         </div>
       )}
-      <div className="rd-conversation-composer__field flex items-end gap-2 rounded-[22px] border border-slate-200 bg-slate-50 p-1.5 transition-colors focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-50">
+      <div className="rd-conversation-composer__field flex items-end gap-2 rounded-[22px] border border-slate-200 bg-slate-50 p-1.5 transition-colors focus-within:border-blue-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-blue-50">
         <label
-          className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-white hover:text-indigo-600"
+          className={cn(
+            "flex shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-white hover:text-[#002fa7]",
+            variant === "mobile" ? "size-11" : "size-9",
+          )}
           title={t("添加附件")}
         >
           <Paperclip className="h-4 w-4" />
           <input
             type="file"
             multiple
+            disabled={sending}
             aria-label={t("选择讨论附件")}
             className="hidden"
             onChange={(event) => {
@@ -1320,8 +1337,10 @@ function Composer({
           maxLength={4000}
           aria-label={t("输入协作消息")}
           placeholder={placeholder}
+          disabled={sending}
           onChange={(event) => {
             setText(event.target.value);
+            if (submitError) setSubmitError("");
             mention.syncActiveQuery();
             event.currentTarget.style.height = "auto";
             event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 112)}px`;
@@ -1335,25 +1354,36 @@ function Composer({
               void submit();
             }
           }}
-          className="min-h-9 max-h-28 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 text-slate-800 outline-none placeholder:text-slate-400"
+          className={cn(
+            "max-h-28 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 leading-5 text-slate-800 outline-none placeholder:text-slate-400",
+            variant === "mobile" ? "min-h-11 text-base" : "min-h-9 text-sm",
+          )}
         />
-        <motion.button
+        <button
           type="button"
-          whileTap={{ scale: 0.92 }}
           onClick={() => void submit()}
           disabled={(!text.trim() && files.length === 0) || sending}
-          className="rd-conversation-composer__send flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-indigo-600 text-white shadow-[0_6px_16px_rgba(79,70,229,0.28)] transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
-          aria-label={t("发送消息")}
+          className={cn(
+            "rd-conversation-composer__send flex shrink-0 cursor-pointer items-center justify-center rounded-full bg-[#002fa7] text-white shadow-[0_6px_16px_rgba(0,47,167,0.24)] transition-colors hover:bg-[#002581] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none",
+            variant === "mobile" ? "size-11" : "size-9",
+          )}
+          aria-label={sending ? t("正在发送消息") : t("发送消息")}
+          aria-busy={sending}
         >
           {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-        </motion.button>
+        </button>
       </div>
+      {submitError ? (
+        <p className="mx-2 mt-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-pretty text-[11px] text-rose-700" role="alert">
+          {submitError}
+        </p>
+      ) : null}
       <div className="mt-1 flex items-center justify-between gap-3 px-2 text-[10px] text-slate-500">
         <span>
           {contextHint}
           {variant === "mobile" ? t(" · 可上传图片、视频或文件") : ""}
         </span>
-        <span className="hidden shrink-0 sm:inline">
+        <span className="hidden shrink-0 tabular-nums sm:inline">
           {text.length >= 3600
             ? `${text.length}/4000`
             : t("图片、视频或文件 · 最多 10 个 · Ctrl / ⌘ + Enter 发送")}
@@ -1398,11 +1428,11 @@ function AnchorPreview({
 
   return (
     <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-2">
-      <div className="flex items-center gap-2 text-[10px] font-bold tracking-[0.08em] text-indigo-600">
+      <div className="flex items-center gap-2 text-[10px] font-bold text-[#002fa7]">
         {anchor.type === "progress_note" ? <Sparkles className="h-3.5 w-3.5" /> : <MessageCircleMore className="h-3.5 w-3.5" />}
         {anchor.type === "progress_note" ? t("原始进度记录") : t("原始任务消息")}
       </div>
-      <div className="mt-1.5 rounded-lg border border-slate-200 border-l-2 border-l-indigo-400 bg-white px-2.5 py-2 shadow-sm">
+      <div className="mt-1.5 rounded-lg border border-slate-200 border-l-2 border-l-[#002fa7]/55 bg-white px-2.5 py-2 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-1.5">
             <ConversationAvatar name={anchor.author} userId={authorId} size="xs" />
@@ -1449,22 +1479,22 @@ function ThreadInvitationBanner({
   compact: boolean;
 }) {
   return (
-    <div className={cn("rd-thread-invitation border-b border-indigo-100 bg-indigo-50/70", compact ? "px-2.5 py-2" : "px-3 py-2.5")}>
-      <div className="rd-thread-invitation__content rounded-lg border border-indigo-200 bg-white/90 px-2.5 py-2 shadow-[0_2px_8px_rgba(79,70,229,0.06)]">
-        <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-700">
+    <div className={cn("rd-thread-invitation border-b border-blue-100 bg-blue-50/70", compact ? "px-2.5 py-2" : "px-3 py-2.5")}>
+      <div className="rd-thread-invitation__content rounded-lg border border-blue-200 bg-white/90 px-2.5 py-2 shadow-[0_2px_8px_rgba(0,47,167,0.06)]">
+        <div className="flex items-center gap-1.5 text-xs font-bold text-[#002fa7]">
           <Sparkles className="h-3.5 w-3.5" />
           <span>{t("{name} 邀请你参与这条讨论", { name: inviterName || t("任务成员") })}</span>
-          <span className="ml-auto shrink-0 rounded-full bg-indigo-600 px-2 py-0.5 text-[9px] text-white">{t("受邀参与")}</span>
+          <span className="ml-auto shrink-0 rounded-full bg-[#002fa7] px-2 py-0.5 text-[9px] text-white">{t("受邀参与")}</span>
         </div>
         <p className="mt-1 text-[10px] leading-4 text-slate-600">
           {t("你可以查看原始留痕并在本线程回复，不会加入整个任务。")}
         </p>
         <div className="mt-1.5 flex flex-wrap gap-1">
-          <span className="inline-flex items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-1.5 py-1 text-[9px] font-semibold text-indigo-700">
+          <span className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-1.5 py-1 text-[9px] font-semibold text-[#002fa7]">
             <Eye className="h-3 w-3" />
             {t("可查看本线程")}
           </span>
-          <span className="inline-flex items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-1.5 py-1 text-[9px] font-semibold text-indigo-700">
+          <span className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-1.5 py-1 text-[9px] font-semibold text-[#002fa7]">
             <Paperclip className="h-3 w-3" />
             {t("可回复 / 上传附件")}
           </span>
@@ -1528,16 +1558,20 @@ export function RDTaskConversation({
   useI18n();
   const { user } = useAuth();
   const reduceMotion = useReducedMotion();
+  const workspaceKey = isUsCollabWorkspace() ? "us-collab" : "rd";
   const [main, setMain] = useState<RdTaskDiscussionResponse | null>(null);
   const [mainLoading, setMainLoading] = useState(true);
+  const [mainError, setMainError] = useState("");
   const [activeAnchor, setActiveAnchor] = useState<ConversationAnchor | null>(null);
   const [thread, setThread] = useState<RdTaskDiscussionResponse | null>(null);
   const [threadLoading, setThreadLoading] = useState(false);
+  const [threadError, setThreadError] = useState("");
   const [mainEarlierLoading, setMainEarlierLoading] = useState(false);
   const [threadEarlierLoading, setThreadEarlierLoading] = useState(false);
   const [replyTarget, setReplyTarget] = useState<RdTaskDiscussionMessage | null>(null);
   const [people, setPeople] = useState<MentionCandidate[]>([]);
   const mainScrollRef = useRef<HTMLDivElement>(null);
+  const mainContentRef = useRef<HTMLElement>(null);
   const threadScrollRef = useRef<HTMLDivElement>(null);
   const preserveMainScrollRef = useRef(false);
   const preserveThreadScrollRef = useRef(false);
@@ -1546,11 +1580,42 @@ export function RDTaskConversation({
   const mainInitialScrollRef = useRef(true);
   const threadInitialScrollRef = useRef(true);
   const focusOpenedRef = useRef("");
+  const threadPanelRef = useRef<HTMLElement>(null);
+  const threadBackButtonRef = useRef<HTMLButtonElement>(null);
+  const threadReturnFocusRef = useRef<HTMLElement | null>(null);
   const onActivityRef = useRef(onActivity);
+  const mainLoadSeqRef = useRef(0);
+  const threadLoadSeqRef = useRef(0);
+  const mainPageSeqRef = useRef(0);
+  const threadPageSeqRef = useRef(0);
+  const activeTaskIdRef = useRef(taskId);
+  const activeWorkspaceKeyRef = useRef(workspaceKey);
+  const activeAnchorRef = useRef<ConversationAnchor | null>(activeAnchor);
+  activeTaskIdRef.current = taskId;
+  activeWorkspaceKeyRef.current = workspaceKey;
+  activeAnchorRef.current = activeAnchor;
+
+  const anchorIdentity = useCallback((anchor: ConversationAnchor | null) => (
+    anchor ? `${workspaceKey}:${anchor.taskId ?? taskId}:${anchor.type}:${anchor.id ?? ""}` : ""
+  ), [taskId, workspaceKey]);
 
   useEffect(() => {
     onActivityRef.current = onActivity;
   }, [onActivity]);
+
+  const [responsiveThreadOverlay, setResponsiveThreadOverlay] = useState(() => (
+    typeof window === "undefined" ? true : window.matchMedia("(max-width: 1279px)").matches
+  ));
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1279px)");
+    const update = () => setResponsiveThreadOverlay(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  const threadIsOverlay = variant === "mobile"
+    || threadLayout === "replace"
+    || (variant === "desktop" && threadLayout === "responsive" && responsiveThreadOverlay);
 
   const updateStickToBottom = useCallback((scroller: HTMLDivElement, target: { current: boolean }) => {
     const distanceFromBottom = scroller.scrollHeight - scroller.clientHeight - Math.max(0, scroller.scrollTop);
@@ -1563,6 +1628,26 @@ export function RDTaskConversation({
   }, [mode, taskId]);
 
   useEffect(() => {
+    mainLoadSeqRef.current += 1;
+    threadLoadSeqRef.current += 1;
+    mainPageSeqRef.current += 1;
+    threadPageSeqRef.current += 1;
+    activeAnchorRef.current = null;
+    setMain(null);
+    setMainLoading(true);
+    setMainError("");
+    setMainEarlierLoading(false);
+    setActiveAnchor(null);
+    setThread(null);
+    setThreadLoading(false);
+    setThreadError("");
+    setThreadEarlierLoading(false);
+    setReplyTarget(null);
+    focusOpenedRef.current = "";
+    onUnreadChange?.(0);
+  }, [mode, onUnreadChange, taskId, workspaceKey]);
+
+  useEffect(() => {
     onThreadOpenChange?.(Boolean(activeAnchor));
     return () => onThreadOpenChange?.(false);
   }, [activeAnchor, onThreadOpenChange]);
@@ -1570,13 +1655,22 @@ export function RDTaskConversation({
   const skipMainDiscussion = Boolean(focusAnchor && focusAnchor.type !== "task");
 
   const loadMain = useCallback(async (showLoading = true) => {
+    const expectedTaskId = taskId;
+    const expectedWorkspaceKey = workspaceKey;
+    const seq = ++mainLoadSeqRef.current;
     if (skipMainDiscussion) {
+      setMainError("");
       setMainLoading(false);
       return;
     }
-    if (showLoading) setMainLoading(true);
+    if (showLoading) {
+      setMainLoading(true);
+      setMainError("");
+    }
     try {
       const response = await fetchRdTaskDiscussion(taskId, { type: "task" });
+      if (seq !== mainLoadSeqRef.current || activeTaskIdRef.current !== expectedTaskId || activeWorkspaceKeyRef.current !== expectedWorkspaceKey) return;
+      setMainError("");
       const normalized = {
         ...response,
         thread: {
@@ -1600,23 +1694,30 @@ export function RDTaskConversation({
         onActivityRef.current?.();
       }
     } catch (error) {
-      if (showLoading) toast.error(error instanceof Error ? error.message : t("协作对话加载失败"));
+      if (seq !== mainLoadSeqRef.current || activeTaskIdRef.current !== expectedTaskId || activeWorkspaceKeyRef.current !== expectedWorkspaceKey) return;
+      const message = error instanceof Error ? error.message : t("协作对话加载失败");
+      if (showLoading) setMainError(message);
+      if (showLoading) toast.error(message);
     } finally {
-      if (showLoading) setMainLoading(false);
+      if (showLoading && seq === mainLoadSeqRef.current && activeTaskIdRef.current === expectedTaskId && activeWorkspaceKeyRef.current === expectedWorkspaceKey) setMainLoading(false);
     }
-  }, [mode, skipMainDiscussion, taskId]);
+  }, [mode, skipMainDiscussion, taskId, workspaceKey]);
 
   const loadEarlierMain = useCallback(async () => {
     const cursor = main?.page_info.next_cursor;
     if (!cursor || mainEarlierLoading) return;
+    const expectedTaskId = taskId;
+    const expectedWorkspaceKey = workspaceKey;
+    const pageSeq = ++mainPageSeqRef.current;
     setMainEarlierLoading(true);
     const scroller = mainScrollRef.current;
     const previousHeight = scroller?.scrollHeight ?? 0;
     const previousTop = scroller?.scrollTop ?? 0;
     try {
       const response = await fetchRdTaskDiscussion(taskId, { type: "task" }, { cursor });
+      if (pageSeq !== mainPageSeqRef.current || activeTaskIdRef.current !== expectedTaskId || activeWorkspaceKeyRef.current !== expectedWorkspaceKey) return;
       setMain((current) => {
-        if (!current) return response;
+        if (!current || current.thread.id !== response.thread.id) return current;
         const next = {
             ...current,
             messages: mergeDiscussionMessages(response.messages, current.messages),
@@ -1626,22 +1727,27 @@ export function RDTaskConversation({
       });
       preserveMainScrollRef.current = true;
       requestAnimationFrame(() => {
-        if (scroller) scroller.scrollTop = previousTop + (scroller.scrollHeight - previousHeight);
+        if (pageSeq === mainPageSeqRef.current && activeTaskIdRef.current === expectedTaskId && activeWorkspaceKeyRef.current === expectedWorkspaceKey && scroller) {
+          scroller.scrollTop = previousTop + (scroller.scrollHeight - previousHeight);
+        }
       });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("更早消息加载失败"));
+      if (pageSeq === mainPageSeqRef.current && activeTaskIdRef.current === expectedTaskId && activeWorkspaceKeyRef.current === expectedWorkspaceKey) {
+        toast.error(error instanceof Error ? error.message : t("更早消息加载失败"));
+      }
     } finally {
-      setMainEarlierLoading(false);
+      if (pageSeq === mainPageSeqRef.current && activeTaskIdRef.current === expectedTaskId && activeWorkspaceKeyRef.current === expectedWorkspaceKey) setMainEarlierLoading(false);
     }
-  }, [main?.page_info.next_cursor, mainEarlierLoading, taskId]);
+  }, [main?.page_info.next_cursor, mainEarlierLoading, taskId, workspaceKey]);
 
   useEffect(() => {
     void loadMain();
+    return () => { mainLoadSeqRef.current += 1; };
   }, [loadMain]);
 
   useEffect(() => {
     const refresh = () => {
-      if (document.visibilityState === "visible") void loadMain(false);
+      if (document.visibilityState === "visible" && !mainLoading) void loadMain(false);
     };
     const onDiscussionUpdated = (event: Event) => {
       const detail = (event as CustomEvent<{ taskId?: string }>).detail;
@@ -1660,10 +1766,11 @@ export function RDTaskConversation({
       window.removeEventListener("rd:discussion-updated", onDiscussionUpdated as EventListener);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [loadMain, taskId]);
+  }, [loadMain, mainLoading, taskId]);
 
   useEffect(() => {
     let cancelled = false;
+    setPeople([]);
     fetchRdPeople()
       .then((list) => {
         if (cancelled) return;
@@ -1675,7 +1782,7 @@ export function RDTaskConversation({
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, []);
+  }, [workspaceKey]);
 
   const candidates = useMemo(() => {
     const map = new Map<string, MentionCandidate>();
@@ -1724,17 +1831,24 @@ export function RDTaskConversation({
   const [progressFeedEl, setProgressFeedEl] = useState<HTMLDivElement | null>(null);
   // 列数不超过条数：留痕只有 1~2 条时不留空列（对齐原 grid `auto-fit` 折叠空轨道的行为）
   const progressColumns = Math.min(useProgressColumns(progressFeedEl), Math.max(1, progressFeedNotes.length));
+  const threadSummaryByAnchor = useMemo(
+    () => new Map((main?.thread_summaries ?? []).map((summary) => [
+      discussionSummaryKey(summary.anchor_type, summary.anchor_id),
+      summary,
+    ] as const)),
+    [main?.thread_summaries],
+  );
 
   const relatedProgressThreads = useMemo(() => {
     if (mode !== "task") return [];
     return notes
       .map((note) => {
-        const summary = summaryFor(main?.thread_summaries ?? [], "progress_note", note.id);
+        const summary = threadSummaryByAnchor.get(discussionSummaryKey("progress_note", note.id));
         return summary && summary.message_count > 0 ? { note, summary } : null;
       })
       .filter((item): item is { note: RdTaskProgressNote; summary: RdTaskDiscussionThreadSummary } => Boolean(item))
       .sort((a, b) => (b.summary.last_message_at ?? "").localeCompare(a.summary.last_message_at ?? ""));
-  }, [main?.thread_summaries, mode, notes]);
+  }, [mode, notes, threadSummaryByAnchor]);
 
   useEffect(() => {
     if (!main || !onUnreadChange) return;
@@ -1772,13 +1886,20 @@ export function RDTaskConversation({
   }, [feedItems.length, mainLoading, mode, notesLoading]);
 
   const loadThread = useCallback(async (anchor: ConversationAnchor, showLoading = false) => {
+    const expectedTaskId = taskId;
+    const expectedWorkspaceKey = workspaceKey;
+    const expectedAnchorIdentity = anchorIdentity(anchor);
+    const seq = ++threadLoadSeqRef.current;
     if (showLoading) {
       setThread(null);
       setThreadLoading(true);
+      setThreadError("");
     }
     try {
       const anchorTaskId = anchor.taskId ?? taskId;
       const response = await fetchRdTaskDiscussion(anchorTaskId, { type: anchor.type, id: anchor.id });
+      if (seq !== threadLoadSeqRef.current || activeTaskIdRef.current !== expectedTaskId || activeWorkspaceKeyRef.current !== expectedWorkspaceKey || anchorIdentity(activeAnchorRef.current) !== expectedAnchorIdentity) return;
+      setThreadError("");
       if (response.anchor_preview) {
         const preview = response.anchor_preview;
         setActiveAnchor((current) => {
@@ -1805,9 +1926,13 @@ export function RDTaskConversation({
         return sameDiscussionResponse(current, next) ? current : next;
       });
       if (response.thread.unread_count > 0) {
-        await markRdTaskDiscussionRead(anchorTaskId, response.thread.id);
-        announceDiscussionUpdated(anchorTaskId);
-        onActivityRef.current?.();
+        void markRdTaskDiscussionRead(anchorTaskId, response.thread.id)
+          .then(() => {
+            if (seq !== threadLoadSeqRef.current || activeTaskIdRef.current !== expectedTaskId || activeWorkspaceKeyRef.current !== expectedWorkspaceKey || anchorIdentity(activeAnchorRef.current) !== expectedAnchorIdentity) return;
+            announceDiscussionUpdated(anchorTaskId);
+            onActivityRef.current?.();
+          })
+          .catch(() => {});
       }
       if (anchorTaskId === taskId) {
         setMain((current) => {
@@ -1822,18 +1947,24 @@ export function RDTaskConversation({
         });
       }
     } catch (error) {
-      if (showLoading) {
-        toast.error(error instanceof Error ? error.message : t("讨论线程加载失败"));
-        setActiveAnchor(null);
-      }
+      if (seq !== threadLoadSeqRef.current || activeTaskIdRef.current !== expectedTaskId || activeWorkspaceKeyRef.current !== expectedWorkspaceKey || anchorIdentity(activeAnchorRef.current) !== expectedAnchorIdentity) return;
+      const message = error instanceof Error ? error.message : t("讨论线程加载失败");
+      if (showLoading) setThreadError(message);
+      if (showLoading) toast.error(message);
     } finally {
-      if (showLoading) setThreadLoading(false);
+      if (showLoading && seq === threadLoadSeqRef.current && activeTaskIdRef.current === expectedTaskId && activeWorkspaceKeyRef.current === expectedWorkspaceKey && anchorIdentity(activeAnchorRef.current) === expectedAnchorIdentity) setThreadLoading(false);
     }
-  }, [taskId]);
+  }, [anchorIdentity, taskId, workspaceKey]);
 
   const openThread = useCallback(async (anchor: ConversationAnchor) => {
+    if (document.activeElement instanceof HTMLElement && !threadPanelRef.current?.contains(document.activeElement)) {
+      threadReturnFocusRef.current = document.activeElement;
+    }
+    threadPageSeqRef.current += 1;
+    setThreadEarlierLoading(false);
     threadStickToBottomRef.current = true;
     threadInitialScrollRef.current = true;
+    activeAnchorRef.current = anchor;
     setActiveAnchor(anchor);
     setReplyTarget(null);
     await loadThread(anchor, true);
@@ -1869,6 +2000,10 @@ export function RDTaskConversation({
   const loadEarlierThread = useCallback(async () => {
     const cursor = thread?.page_info.next_cursor;
     if (!cursor || !activeAnchor || threadEarlierLoading) return;
+    const expectedTaskId = taskId;
+    const expectedWorkspaceKey = workspaceKey;
+    const expectedAnchorIdentity = anchorIdentity(activeAnchor);
+    const pageSeq = ++threadPageSeqRef.current;
     setThreadEarlierLoading(true);
     const scroller = threadScrollRef.current;
     const previousHeight = scroller?.scrollHeight ?? 0;
@@ -1879,8 +2014,9 @@ export function RDTaskConversation({
         { type: activeAnchor.type, id: activeAnchor.id },
         { cursor },
       );
+      if (pageSeq !== threadPageSeqRef.current || activeTaskIdRef.current !== expectedTaskId || activeWorkspaceKeyRef.current !== expectedWorkspaceKey || anchorIdentity(activeAnchorRef.current) !== expectedAnchorIdentity) return;
       setThread((current) => {
-        if (!current) return response;
+        if (!current || current.thread.id !== response.thread.id) return current;
         const next = {
             ...current,
             messages: mergeDiscussionMessages(response.messages, current.messages),
@@ -1890,19 +2026,23 @@ export function RDTaskConversation({
       });
       preserveThreadScrollRef.current = true;
       requestAnimationFrame(() => {
-        if (scroller) scroller.scrollTop = previousTop + (scroller.scrollHeight - previousHeight);
+        if (pageSeq === threadPageSeqRef.current && activeTaskIdRef.current === expectedTaskId && activeWorkspaceKeyRef.current === expectedWorkspaceKey && anchorIdentity(activeAnchorRef.current) === expectedAnchorIdentity && scroller) {
+          scroller.scrollTop = previousTop + (scroller.scrollHeight - previousHeight);
+        }
       });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("更早消息加载失败"));
+      if (pageSeq === threadPageSeqRef.current && activeTaskIdRef.current === expectedTaskId && activeWorkspaceKeyRef.current === expectedWorkspaceKey && anchorIdentity(activeAnchorRef.current) === expectedAnchorIdentity) {
+        toast.error(error instanceof Error ? error.message : t("更早消息加载失败"));
+      }
     } finally {
-      setThreadEarlierLoading(false);
+      if (pageSeq === threadPageSeqRef.current && activeTaskIdRef.current === expectedTaskId && activeWorkspaceKeyRef.current === expectedWorkspaceKey && anchorIdentity(activeAnchorRef.current) === expectedAnchorIdentity) setThreadEarlierLoading(false);
     }
-  }, [activeAnchor, taskId, thread?.page_info.next_cursor, threadEarlierLoading]);
+  }, [activeAnchor, anchorIdentity, taskId, thread?.page_info.next_cursor, threadEarlierLoading, workspaceKey]);
 
   useEffect(() => {
     if (!activeAnchor) return undefined;
     const refresh = () => {
-      if (document.visibilityState === "visible") void loadThread(activeAnchor, false);
+      if (document.visibilityState === "visible" && !threadLoading) void loadThread(activeAnchor, false);
     };
     const interval = window.setInterval(refresh, DISCUSSION_POLL_INTERVAL_MS);
     window.addEventListener("focus", refresh);
@@ -1910,7 +2050,7 @@ export function RDTaskConversation({
       window.clearInterval(interval);
       window.removeEventListener("focus", refresh);
     };
-  }, [activeAnchor, loadThread]);
+  }, [activeAnchor, loadThread, threadLoading]);
 
   useEffect(() => {
     if (threadLoading || !threadScrollRef.current) return;
@@ -1940,19 +2080,77 @@ export function RDTaskConversation({
     return () => cancelAnimationFrame(frame);
   }, [activeAnchor, focusMessageId, main?.messages.length, reduceMotion, thread?.messages.length]);
 
-  const closeThread = () => {
+  const closeThread = useCallback(() => {
+    const focusTarget = threadReturnFocusRef.current;
+    threadReturnFocusRef.current = null;
+    const restoreFocus = () => {
+      if (focusTarget?.isConnected) window.requestAnimationFrame(() => focusTarget.focus());
+    };
     if (focusAnchor && focusAnchor.type !== "task") {
       onCloseFocus?.();
+      restoreFocus();
       return;
     }
     const anchorTaskId = activeAnchor?.taskId ?? taskId;
+    threadLoadSeqRef.current += 1;
+    threadPageSeqRef.current += 1;
+    setThreadEarlierLoading(false);
+    activeAnchorRef.current = null;
     setActiveAnchor(null);
     setThread(null);
+    setThreadError("");
     setReplyTarget(null);
     if (anchorTaskId === taskId) void loadMain(false);
-  };
+    restoreFocus();
+  }, [activeAnchor?.taskId, focusAnchor, loadMain, onCloseFocus, taskId]);
 
-  const appendMainMessage = (message: RdTaskDiscussionMessage) => {
+  useEffect(() => {
+    if (!activeAnchor || !threadIsOverlay) return undefined;
+    const frame = window.requestAnimationFrame(() => threadBackButtonRef.current?.focus());
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeThread();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const panel = threadPanelRef.current;
+      if (!panel) return;
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => !element.hasAttribute("hidden") && element.getAttribute("aria-hidden") !== "true");
+      if (focusable.length === 0) {
+        event.preventDefault();
+        panel.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [activeAnchor, closeThread, threadIsOverlay]);
+
+  useEffect(() => {
+    const mainElement = mainContentRef.current;
+    if (!mainElement) return undefined;
+    if (activeAnchor && threadIsOverlay) mainElement.setAttribute("inert", "");
+    else mainElement.removeAttribute("inert");
+    return () => mainElement.removeAttribute("inert");
+  }, [activeAnchor, threadIsOverlay]);
+
+  const appendMainMessage = (message: RdTaskDiscussionMessage, threadId: string) => {
+    if (activeTaskIdRef.current !== taskId || activeWorkspaceKeyRef.current !== workspaceKey || !main || main.thread.id !== threadId) return;
     mainStickToBottomRef.current = true;
     setMain((current) => current
       ? {
@@ -1965,7 +2163,8 @@ export function RDTaskConversation({
     onActivity?.();
   };
 
-  const appendThreadMessage = (message: RdTaskDiscussionMessage) => {
+  const appendThreadMessage = (message: RdTaskDiscussionMessage, threadId: string) => {
+    if (activeTaskIdRef.current !== taskId || activeWorkspaceKeyRef.current !== workspaceKey || !thread || thread.thread.id !== threadId) return;
     threadStickToBottomRef.current = true;
     setThread((current) => current
       ? {
@@ -1984,11 +2183,13 @@ export function RDTaskConversation({
 
   const mainContent = (
     <section
+      ref={mainContentRef}
+      aria-hidden={activeAnchor && threadIsOverlay ? true : undefined}
       className={cn(
         "flex min-h-0 min-w-0 flex-1 flex-col",
         mode === "progress" && progressPresentation === "timeline"
           ? "bg-white"
-          : "bg-[radial-gradient(circle_at_top,_rgba(238,242,255,0.82),_rgba(248,250,252,0.64)_36%,_white_76%)]",
+          : "bg-slate-50/70",
       )}
       aria-label={`${mode === "progress" ? t("进度留痕") : t("任务讨论")}：${taskTitle}`}
     >
@@ -2013,18 +2214,33 @@ export function RDTaskConversation({
               </div>
             ))}
           </div>
+        ) : mainError && !main ? (
+          <div className="flex h-full min-h-72 flex-col items-center justify-center px-8 text-center" role="alert">
+            <span className="flex size-14 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 text-amber-600">
+              <RefreshCw className="size-6" aria-hidden="true" />
+            </span>
+            <h5 className="mt-4 text-balance text-sm font-bold text-slate-800">{t("任务讨论暂不可用")}</h5>
+            <p className="mt-1 max-w-xs text-pretty text-xs leading-5 text-slate-500">{mainError}</p>
+            <button
+              type="button"
+              onClick={() => void loadMain()}
+              className="mt-4 min-h-10 cursor-pointer rounded-xl bg-[#002fa7] px-4 text-xs font-bold text-white transition-colors hover:bg-[#002581] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 focus-visible:ring-offset-2"
+            >
+              {t("重新加载讨论")}
+            </button>
+          </div>
         ) : mode === "progress" && notesError ? (
           <div className="flex h-full min-h-72 flex-col items-center justify-center px-8 text-center">
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-rose-100 bg-rose-50 text-rose-500">
               <X className="h-6 w-6" />
             </span>
-            <h5 className="mt-4 text-sm font-bold text-slate-800">{t("进度留痕加载失败")}</h5>
-            <p className="mt-1 max-w-xs text-xs leading-5 text-slate-500">{notesError}</p>
+            <h5 className="mt-4 text-balance text-sm font-bold text-slate-800">{t("进度留痕加载失败")}</h5>
+            <p className="mt-1 max-w-xs text-pretty text-xs leading-5 text-slate-500">{notesError}</p>
             {onRetryNotes && (
               <button
                 type="button"
                 onClick={onRetryNotes}
-                className="mt-4 min-h-10 cursor-pointer rounded-xl bg-indigo-600 px-4 text-xs font-bold text-white transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2"
+                className="mt-4 min-h-10 cursor-pointer rounded-xl bg-[#002fa7] px-4 text-xs font-bold text-white transition-colors hover:bg-[#002581] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 focus-visible:ring-offset-2"
               >
                 {t("重新加载")}
               </button>
@@ -2032,13 +2248,13 @@ export function RDTaskConversation({
           </div>
         ) : feedItems.length === 0 && relatedProgressThreads.length === 0 ? (
           <div className="flex h-full min-h-72 flex-col items-center justify-center px-8 text-center">
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-indigo-100 bg-indigo-50 text-indigo-600">
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-blue-100 bg-blue-50 text-[#002fa7]">
               {mode === "progress" ? <Sparkles className="h-6 w-6" /> : <MessageCircleMore className="h-6 w-6" />}
             </span>
-            <h5 className="mt-4 text-sm font-bold text-slate-800">
+            <h5 className="mt-4 text-balance text-sm font-bold text-slate-800">
               {mode === "progress" ? t("还没有进度留痕") : t("开始这个任务的第一段讨论")}
             </h5>
-            <p className="mt-1 max-w-xs text-xs leading-5 text-slate-500">
+            <p className="mt-1 max-w-xs text-pretty text-xs leading-5 text-slate-500">
               {mode === "progress"
                 ? t("记录发生了什么；需要沟通时，可从具体记录发起讨论。")
                 : t("这里讨论整个任务；回复具体进度，请前往“进度留痕”。")}
@@ -2051,13 +2267,13 @@ export function RDTaskConversation({
               <LoadEarlierButton loading={mainEarlierLoading} onClick={() => void loadEarlierMain()} />
             )}
             {mode === "task" && relatedProgressThreads.length > 0 && (
-              <section className="rd-related-progress-threads mt-2 rounded-xl border border-indigo-100 bg-white/90 p-2.5 shadow-[0_5px_18px_rgba(79,70,229,0.05)]">
+              <section className="rd-related-progress-threads mt-2 rounded-xl border border-blue-100 bg-white/90 p-2.5 shadow-[0_5px_18px_rgba(0,47,167,0.05)]">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h5 className="text-xs font-bold text-slate-800">{t("相关进度讨论")}</h5>
                     <p className="mt-0.5 text-[10px] text-slate-500">{t("仅显示已经产生回复的进度记录")}</p>
                   </div>
-                  <span className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">
+                  <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold text-[#002fa7]">
                     {relatedProgressThreads.length}
                   </span>
                 </div>
@@ -2077,7 +2293,7 @@ export function RDTaskConversation({
                         key={note.id}
                         type="button"
                         onClick={() => void openThread(anchor)}
-                        className="rd-related-progress-threads__item group flex min-h-14 cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-left transition-colors duration-200 hover:border-indigo-200 hover:bg-indigo-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                        className="rd-related-progress-threads__item group flex min-h-14 cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-left transition-colors duration-200 hover:border-blue-200 hover:bg-blue-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40"
                       >
                         <ConversationAvatar name={note.actor.name} userId={note.actor.id} size="xs" />
                         <span className="min-w-0 flex-1">
@@ -2087,7 +2303,7 @@ export function RDTaskConversation({
                             <span className="ml-auto shrink-0 tabular-nums">{formatCompactDateTime(note.created_at)}</span>
                           </span>
                           <span className="mt-0.5 block truncate text-xs text-slate-600">{note.text || t("附件进度记录")}</span>
-                          <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700">
+                          <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-bold text-[#002fa7]">
                             {t("{n} 条讨论", { n: summary.message_count })}
                             {summary.unread_count > 0 && (
                               <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[9px] text-white">
@@ -2106,7 +2322,7 @@ export function RDTaskConversation({
               progressPresentation === "timeline" ? (
                 <ProgressTimeline
                   items={progressFeedNotes}
-                  summaries={main?.thread_summaries ?? []}
+                  summaryByAnchor={threadSummaryByAnchor}
                   onOpenThread={openProgressThread}
                   onOpenSourceTask={onOpenSourceTask}
                   selectedActor={selectedActor}
@@ -2123,7 +2339,7 @@ export function RDTaskConversation({
                         {distributeIntoColumns(group.items, Math.min(progressColumns, group.items.length)).map((column, columnIndex) => (
                           <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-1.5">
                             {column.map((item) => {
-                              const noteSummary = summaryFor(main?.thread_summaries ?? [], "progress_note", item.note.id);
+                              const noteSummary = threadSummaryByAnchor.get(discussionSummaryKey("progress_note", item.note.id));
                               const anchor: ConversationAnchor = {
                                 type: "progress_note",
                                 id: item.note.id,
@@ -2170,7 +2386,7 @@ export function RDTaskConversation({
                   previousMessage.author_name === item.message.author_name &&
                   new Date(item.message.created_at).getTime() - new Date(previousMessage.created_at).getTime() < 5 * 60_000,
                 );
-                const messageSummary = summaryFor(main?.thread_summaries ?? [], "message", item.message.id);
+                const messageSummary = threadSummaryByAnchor.get(discussionSummaryKey("message", item.message.id));
                 const anchor: ConversationAnchor = {
                   type: "message",
                   id: item.message.id,
@@ -2199,6 +2415,7 @@ export function RDTaskConversation({
       </div>
       {mode === "task" && main?.can_post ? (
         <Composer
+          key={`main-composer:${taskId}`}
           taskId={taskId}
           anchor={{ type: "task" }}
           candidates={candidates}
@@ -2217,28 +2434,24 @@ export function RDTaskConversation({
     <TaskImageGalleryScope notes={notes}>
       <div className={cn("relative flex min-h-0 flex-1 overflow-hidden bg-white", className)}>
       {mainContent}
-      <AnimatePresence initial={false}>
-        {activeAnchor && (
+      {activeAnchor && (
           <>
             {variant === "desktop" && threadLayout === "responsive" && (
-              <motion.button
+              <button
                 type="button"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
+                tabIndex={-1}
                 onClick={closeThread}
-                className="absolute inset-0 z-10 cursor-default bg-slate-950/20 backdrop-blur-[1px] xl:hidden"
+                className="absolute inset-0 z-10 cursor-default bg-slate-950/25 xl:hidden"
                 aria-label={t("关闭讨论线程")}
+                aria-hidden="true"
               />
             )}
-            <motion.aside
-              role="dialog"
-              aria-modal={variant === "mobile" || undefined}
+            <aside
+              ref={threadPanelRef}
+              role={threadIsOverlay ? "dialog" : undefined}
+              aria-modal={threadIsOverlay ? true : undefined}
+              tabIndex={threadIsOverlay ? -1 : undefined}
               aria-label={activeAnchor.type === "progress_note" ? t("关于这条进度的讨论") : t("消息讨论")}
-              initial={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 36 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 28 }}
-              transition={{ duration: reduceMotion ? 0.1 : 0.24, ease: CHAT_EASE }}
               className={cn(
                 "z-20 flex min-h-0 flex-col border-l border-slate-200 bg-white shadow-[-18px_0_50px_rgba(15,23,42,0.14)]",
                 variant === "mobile"
@@ -2250,15 +2463,16 @@ export function RDTaskConversation({
             >
               <header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-2.5">
                 <button
+                  ref={threadBackButtonRef}
                   type="button"
                   onClick={closeThread}
-                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40"
                   aria-label={mode === "progress" ? t("返回进度留痕") : t("返回任务讨论")}
                 >
                   <ArrowLeft className="h-4.5 w-4.5" />
                 </button>
                 <div className="min-w-0 flex-1">
-                  <h5 className="truncate text-sm font-bold text-slate-900">
+                  <h5 className="truncate text-balance text-sm font-bold text-slate-900">
                     {activeAnchor.type === "progress_note" ? t("关于这条进度的讨论") : t("消息讨论")}
                   </h5>
                   <p className="truncate text-[10px] text-slate-500">
@@ -2291,14 +2505,29 @@ export function RDTaskConversation({
                 aria-live="polite"
               >
                 {threadLoading ? (
-                  <div className="flex h-full items-center justify-center text-slate-400">
-                    <Loader2 className="h-5 w-5 animate-spin" />
+                  <div className="space-y-3 p-3" role="status" aria-label={t("正在读取讨论线程")}>
+                    {[0, 1, 2].map((item) => (
+                      <div key={item} className={cn("flex gap-2", item % 2 ? "justify-end" : "justify-start")}>
+                        <span className="size-7 animate-pulse rounded-full bg-slate-200 motion-reduce:animate-none" />
+                        <span className="h-14 w-[68%] animate-pulse rounded-xl bg-slate-100 motion-reduce:animate-none" />
+                      </div>
+                    ))}
+                    <span className="sr-only">{t("正在读取讨论线程")}</span>
+                  </div>
+                ) : threadError ? (
+                  <div className="flex h-full min-h-48 flex-col items-center justify-center px-8 text-center" role="alert">
+                    <RefreshCw className="size-7 text-amber-500" aria-hidden="true" />
+                    <h6 className="mt-3 text-balance text-sm font-semibold text-slate-800">{t("讨论线程加载失败")}</h6>
+                    <p className="mt-1 max-w-xs text-pretty text-xs leading-5 text-slate-500">{threadError}</p>
+                    <button type="button" onClick={() => void loadThread(activeAnchor, true)} className="mt-3 rounded-lg bg-[#002fa7] px-3 py-2 text-xs font-semibold text-white hover:bg-[#002581]">
+                      {t("重新加载线程")}
+                    </button>
                   </div>
                 ) : (thread?.messages.length ?? 0) === 0 ? (
                   <div className="flex h-full min-h-48 flex-col items-center justify-center px-8 text-center">
-                    <MessageCircleReply className="h-7 w-7 text-indigo-300" />
-                    <div className="mt-3 text-sm font-semibold text-slate-700">{t("还没有相关讨论")}</div>
-                    <div className="mt-1 max-w-xs text-xs leading-5 text-slate-500">
+                    <MessageCircleReply className="h-7 w-7 text-[#002fa7]/35" />
+                    <div className="mt-3 text-balance text-sm font-semibold text-slate-700">{t("还没有相关讨论")}</div>
+                    <div className="mt-1 max-w-xs text-pretty text-xs leading-5 text-slate-500">
                       {activeAnchor.type === "progress_note"
                         ? t("可以就这条进度提出问题、补充说明或上传材料。")
                         : t("在下面发送第一条相关讨论。")}
@@ -2341,6 +2570,7 @@ export function RDTaskConversation({
               </div>
               {thread?.can_post ? (
                 <Composer
+                  key={`thread-composer:${activeAnchor.taskId ?? taskId}:${activeAnchor.type}:${activeAnchor.id ?? ""}`}
                   taskId={activeAnchor.taskId ?? taskId}
                   anchor={{ type: activeAnchor.type, id: activeAnchor.id }}
                   candidates={candidates}
@@ -2354,10 +2584,9 @@ export function RDTaskConversation({
               ) : thread ? (
                 <ReadOnlyComposerNotice />
               ) : null}
-            </motion.aside>
+            </aside>
           </>
-        )}
-      </AnimatePresence>
+      )}
       </div>
     </TaskImageGalleryScope>
   );
@@ -2365,7 +2594,7 @@ export function RDTaskConversation({
 
 function ProgressTimeline({
   items,
-  summaries,
+  summaryByAnchor,
   onOpenThread,
   onOpenSourceTask,
   selectedActor,
@@ -2374,7 +2603,7 @@ function ProgressTimeline({
   variant,
 }: {
   items: ProgressFeedNote[];
-  summaries: RdTaskDiscussionThreadSummary[];
+  summaryByAnchor: ReadonlyMap<string, RdTaskDiscussionThreadSummary>;
   onOpenThread: (note: RdTaskProgressNote) => void;
   onOpenSourceTask?: (taskId: string) => void;
   selectedActor?: AuditActorIdentity | null;
@@ -2408,12 +2637,12 @@ function ProgressTimeline({
             <div className="relative flex justify-center" aria-hidden="true">
               {index > 0 ? <span className="rd-progress-timeline__line absolute left-1/2 top-0 h-4 w-px -translate-x-1/2 bg-slate-200" /> : null}
               {index < items.length - 1 ? <span className="rd-progress-timeline__line absolute bottom-0 left-1/2 top-4 w-px -translate-x-1/2 bg-slate-200" /> : null}
-              <span className="rd-progress-timeline__dot relative mt-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-indigo-600 shadow-[0_0_0_3px_rgba(99,102,241,0.13)]" />
+              <span className="rd-progress-timeline__dot relative mt-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-[#002fa7] shadow-[0_0_0_3px_rgba(0,47,167,0.13)]" />
             </div>
             <div className={cn("min-w-0", index < items.length - 1 ? "pb-4" : "pb-1")}>
               <ProgressAnchorCard
                 note={item.note}
-                summary={summaryFor(summaries, "progress_note", item.note.id)}
+                summary={summaryByAnchor.get(discussionSummaryKey("progress_note", item.note.id))}
                 onOpenThread={() => onOpenThread(item.note)}
                 onOpenSourceTask={onOpenSourceTask}
                 selectedActor={selectedActor}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Download, FileText, Loader2, Table2, X } from "lucide-react";
 
@@ -77,7 +77,17 @@ export function AttachmentPreviewDialog({
   const isAudio = mime.startsWith("audio/");
   const isSpreadsheet = isSpreadsheetAttachment(attachment, mime);
   const canInlinePreview = mime === "application/pdf" || mime === "text/plain" || mime === "application/json";
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   useBodyScrollLock(true);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusFrame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      previousFocus?.focus();
+    };
+  }, []);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -89,7 +99,7 @@ export function AttachmentPreviewDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center overscroll-none bg-slate-950/72 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] backdrop-blur-sm"
+      className="horizon-portal fixed inset-0 z-50 flex items-center justify-center overscroll-none bg-slate-950/75 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]"
       role="dialog"
       aria-modal="true"
       aria-label={t("附件预览：{name}", { name: attachment.name })}
@@ -97,11 +107,11 @@ export function AttachmentPreviewDialog({
         if (!isMobileRoute() && event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="relative flex max-h-[88dvh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-white/10 bg-white shadow-2xl">
+      <div className="relative flex max-h-[88dvh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-900">{attachment.name}</div>
-            <div className="mt-0.5 text-xs text-slate-500">{mime} · {formatFileSize(attachment.size)}</div>
+            <div className="truncate text-balance text-sm font-semibold text-[#1b2559]">{attachment.name}</div>
+            <div className="mt-0.5 text-xs tabular-nums text-slate-500">{mime} · {formatFileSize(attachment.size)}</div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <a
@@ -109,15 +119,16 @@ export function AttachmentPreviewDialog({
               download={attachment.name}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dce6ff] bg-white px-3 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
             >
               <Download className="h-3.5 w-3.5" />
               {t("下载")}
             </a>
             <button
+              ref={closeButtonRef}
               type="button"
               onClick={onClose}
-              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+              className="flex size-8 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
               aria-label={t("关闭预览")}
             >
               <X className="h-4 w-4" />
@@ -174,8 +185,8 @@ function UnsupportedPreview() {
   return (
     <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white px-8 text-center">
       <FileText className="h-10 w-10 text-slate-300" />
-      <div className="mt-4 text-sm font-semibold text-slate-900">{t("当前格式暂不支持内嵌预览")}</div>
-      <p className="mt-2 text-xs leading-5 text-slate-500">{t("文件已保留在当前任务中，可直接下载查看，不会离开采购驾驶舱页面。")}</p>
+      <div className="mt-4 text-balance text-sm font-semibold text-[#1b2559]">{t("当前格式暂不支持内嵌预览")}</div>
+      <p className="mt-2 text-pretty text-xs leading-5 text-slate-500">{t("文件已保留在当前任务中，可直接下载查看，不会离开采购驾驶舱页面。")}</p>
     </div>
   );
 }
@@ -209,8 +220,8 @@ function XlsxTablePreview({ url }: { url: string }) {
     return (
       <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white px-8 text-center">
         <FileText className="h-10 w-10 text-slate-300" />
-        <div className="mt-4 text-sm font-semibold text-slate-900">{t("表格预览失败")}</div>
-        <p className="mt-2 text-xs leading-5 text-slate-500">{error}，{t("可点右上角“下载”打开。")}</p>
+        <div className="mt-4 text-balance text-sm font-semibold text-[#1b2559]">{t("表格预览失败")}</div>
+        <p className="mt-2 text-pretty text-xs leading-5 text-slate-500">{error}，{t("可点右上角“下载”打开。")}</p>
       </div>
     );
   }
@@ -226,8 +237,8 @@ function XlsxTablePreview({ url }: { url: string }) {
     return (
       <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white px-8 text-center">
         <Table2 className="h-10 w-10 text-slate-300" />
-        <div className="mt-4 text-sm font-semibold text-slate-900">{t("这张表是空的")}</div>
-        <p className="mt-2 text-xs leading-5 text-slate-500">{t("未读取到任何单元格内容。")}</p>
+        <div className="mt-4 text-balance text-sm font-semibold text-[#1b2559]">{t("这张表是空的")}</div>
+        <p className="mt-2 text-pretty text-xs leading-5 text-slate-500">{t("未读取到任何单元格内容。")}</p>
       </div>
     );
   }
@@ -243,8 +254,8 @@ function XlsxTablePreview({ url }: { url: string }) {
               type="button"
               onClick={() => setActive(index)}
               className={cn(
-                "shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition",
-                index === active ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:bg-white/70 hover:text-slate-700",
+                "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
+                index === active ? "bg-white text-[#002fa7] shadow-sm" : "text-slate-500 hover:bg-white hover:text-slate-700",
               )}
             >
               {item.name}

@@ -165,7 +165,7 @@ export function KnowledgeBaseEntryPage({ scope }: { scope?: "rd" } = {}) {
       value={activeValue}
       onValueChange={(value) => goTo(value)}
       aria-label={t("切换知识库")}
-      className="rd-kb-switcher h-9 w-auto min-w-[10rem] rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+      className="rd-kb-switcher h-9 w-auto min-w-[10rem] rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition-shadow focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/10"
     >
       {options.map((option) => (
         <option key={option.value} value={option.value}>{t(option.label)}</option>
@@ -178,6 +178,7 @@ export function KnowledgeBaseEntryPage({ scope }: { scope?: "rd" } = {}) {
     <RDKnowledgeBasePage
       key={activeDept.id}
       kbScope={{ kbId: activeDept.id, label: labelOf(activeDept) }}
+      visualVariant="rd-horizon"
       toolbarLeading={switcher}
     />
   ) : (
