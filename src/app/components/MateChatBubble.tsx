@@ -1399,6 +1399,12 @@ export function MateChatBubble() {
               ? prev.map((message) => (message.id === tempAiId ? regenerateMessage : message))
               : prev.filter((m) => m.id !== tempAiId));
           }
+        } else if (streamedContent.trim()) {
+          // 连接中断但正文已经流出：绝不当场抹掉用户看到的内容。后端在断开时会把
+          // 半截回答落库（收尾发生在断开之后），复用停止生成的轮询对账等它出现；
+          // 万一没落库，对账也不会删本地气泡，内容仍留给用户。
+          toast.error("网络连接中断，已保留当前生成的内容");
+          void reconcileAfterStop(activeId, realUserId, sendSeq, regenerateMessage?.id);
         } else {
           toast.error(err instanceof Error ? err.message : "发送失败");
           setMessages((prev) => isRegenerate && regenerateMessage

@@ -743,6 +743,7 @@ export class ChatService {
     const abortController = new AbortController();
     let clientAborted = false;
     res.on('close', () => {
+      clearInterval(streamKeepalive); // 无论正常结束还是中断，连接一关保活即停，杜绝定时器泄漏
       if (res.writableEnded) return; // 正常 res.end() 之后也会触发 close，不是中断
       clientAborted = true;
       abortController.abort();
@@ -753,6 +754,11 @@ export class ChatService {
       if (clientAborted || res.writableEnded) return; // 连接已断，写入无意义且会报 ERR_STREAM_DESTROYED
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
+
+    // ── 全程保活：上游 TTFT / 多轮工具后的二次 TTFT / 联网融合等待都可能静默数十秒，
+    //    nginx 等中间层的空闲读超时会直接掐断 SSE（前端表现为 network error、正文当场消失）。
+    //    每 15s 推一个 ping（前端对未知事件类型安全忽略），覆盖从建流到 res.end 的全部静默窗口。
+    const streamKeepalive = setInterval(() => send({ type: 'ping' }), 15_000);
 
     /**
      * 首字之前的阶段提示。上游 TTFT 实测 12~34 秒且不在我们控制内，这段时间界面只有三个点在跳，
@@ -902,8 +908,14 @@ export class ChatService {
     // ── 联网兜底（与内部检索并行发起，不拖慢首答；模型无关，任何主模型都能用检索结果）──
     // 内部未命中 → 等联网结果融合作答；命中 → 主回答完成后作为「互联网参考」附录，供用户对照选择。
     // 带附件的提问同样发起联网（如"结合这份报告查下最新行业标准"），但只走附录路径不阻塞首答。
+    // 创建时就挂好 catch：这个 promise 在「内部命中」场景要等回答完成后才被消费，
+    // 若在此之前 reject（如查搜索代理配置时 DB 抖动），未处理的 rejection 会直接崩掉进程，
+    // 表现为所有在途 SSE 同时断线（前端只看到一句 network error）。
     const webSearchPromise: Promise<WebSearchResult | null> = content
-      ? this.webSearchService.search(searchQuery)
+      ? this.webSearchService.search(searchQuery).catch((err) => {
+          this.logger.warn(`联网检索失败: ${err instanceof Error ? err.message : err}`);
+          return null;
+        })
       : Promise.resolve(null);
 
     // ── 智能检索：并行做"结构化关键词搜索"+"向量语义检索"，结果合并进 system prompt ──
@@ -1277,6 +1289,8 @@ export class ChatService {
       const loopMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
       // file-export 块出现后停止转发 delta（JSON 数据不该滚屏），结束后由 content_final 统一修正
       let deltaSuppressed = false;
+      // 上游把流掐断在半途（网络抖动/上游网关截断）：已写出的正文按截断收尾落库，不整体作废
+      let streamInterrupted = false;
       let toolStepSeq = 0;
       // 本轮生成过写操作确认卡：操作型请求，回答后不再追加「互联网参考」附录（必是噪音）
       let hadPendingAction = false;
@@ -1366,6 +1380,18 @@ export class ChatService {
         } catch (iterationError) {
           // 中断掐断流会从这里抛出：跳出循环走正常收尾，已生成的正文照常落库
           if (clientAborted) break;
+          // 首个分片之后上游才断流（此前的失败由网关在首分片前降级重试兜住）：
+          // 用户已经看到的内容不能一错全丢——标注截断后走正常收尾落库并发 done，
+          // 前端保留正文；一个字都没写出才按整体失败抛出，走 error 事件让用户重试
+          if (fullContent.trim()) {
+            streamInterrupted = true;
+            this.logger.warn(
+              `会话 ${conversationId} 上游流中途断开，保留已生成的 ${fullContent.length} 字收尾: ${
+                iterationError instanceof Error ? iterationError.message : iterationError
+              }`,
+            );
+            break;
+          }
           throw iterationError;
         }
 
@@ -1383,7 +1409,7 @@ export class ChatService {
             function: { name: c.name, arguments: c.args || '{}' },
           })),
         });
-        // 单轮多工具并行执行：一个共享 keepalive 覆盖整批；running 先全部推，
+        // 单轮多工具并行执行（保活由全程 streamKeepalive 覆盖）：running 先全部推，
         // 各工具完成即推 ok/error 与副作用事件（顺序无关的即时反馈），
         // 顺序相关的收集（tool 消息 / 轨迹 / 附件落库）在并行结束后按原序补齐，保证确定性。
         const baseSeq = toolStepSeq;
@@ -1406,7 +1432,6 @@ export class ChatService {
             thought: s.thought,
           });
         }
-        const keepalive = setInterval(() => send({ type: 'ping' }), 15_000);
         const toolBatchStartedAt = Date.now();
         let results: ChatToolResult[];
         try {
@@ -1448,7 +1473,6 @@ export class ChatService {
             ),
           );
         } finally {
-          clearInterval(keepalive);
           // 各轮工具批次耗时累加：区分"模型慢"和"工具慢"
           timings.tools = (timings.tools ?? 0) + (Date.now() - toolBatchStartedAt);
           timings.toolRounds = (timings.toolRounds ?? 0) + 1;
@@ -1493,13 +1517,21 @@ export class ChatService {
         const markerAt = fullContent.indexOf(FILE_EXPORT_MARKER);
         if (markerAt >= 0) fullContent = fullContent.slice(0, markerAt).trimEnd();
         if (fullContent) fullContent += '\n\n（已停止生成）';
+      } else if (streamInterrupted) {
+        // 上游断流：同样防止半截 file-export 裸露；截断说明也要推给前端展示
+        fullContent = fullContent.trimEnd();
+        const markerAt = fullContent.indexOf(FILE_EXPORT_MARKER);
+        if (markerAt >= 0) fullContent = fullContent.slice(0, markerAt).trimEnd();
+        const notice = '\n\n（网络传输中断，以上回答可能不完整——可点击「重新回答」重试）';
+        fullContent += notice;
+        if (!deltaSuppressed) send({ type: 'delta', delta: notice });
       }
 
       // 未走融合注入的场景（内部命中 / 带附件提问）：并行的联网检索此刻通常已完成
       // → 作为「互联网参考」附录给用户对照选择。附录并入 content 落库，历史回放/复制分享都保留。
       // 模型输出了 file-export 块 = 明确的创作/导出类请求，联网结果必是噪音，跳过附录；
       // 生成了写操作确认卡（立项/催办）同理——操作型请求不需要互联网参考。
-      if (!clientAborted && !webResult && !fullContent.includes(FILE_EXPORT_MARKER) && !hadPendingAction) {
+      if (!clientAborted && !streamInterrupted && !webResult && !fullContent.includes(FILE_EXPORT_MARKER) && !hadPendingAction) {
         // 附录是锦上添花：主回答完成后最多再等 20s（联网检索全程 ~35s，与主回答并行，
         // 此刻通常只差尾巴几秒），拿不到就放弃，不为附录拖住对话结束
         const extra = await Promise.race([
@@ -1620,6 +1652,8 @@ export class ChatService {
               toolSchemaChars,
               // 用户中途停止：回答是半截的，分析口径上要能和正常完成区分开
               ...(clientAborted ? { aborted: true } : {}),
+              // 上游断流截断：与正常完成/主动停止都区分开，便于监控断流频率
+              ...(streamInterrupted ? { interrupted: true } : {}),
             },
           },
         });
@@ -1705,6 +1739,7 @@ export class ChatService {
         this.logger.warn(`回答失败埋点写入失败: ${eventError instanceof Error ? eventError.message : eventError}`);
       });
     } finally {
+      clearInterval(streamKeepalive);
       res.end();
     }
   }
