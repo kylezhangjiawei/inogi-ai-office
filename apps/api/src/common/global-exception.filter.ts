@@ -25,6 +25,18 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<{ method?: string; url?: string }>();
 
+    // SSE / 流式响应：响应头已经发出（甚至已经 res.write 过正文），此时再调 response.json()
+    // 会抛 ERR_HTTP_HEADERS_SENT，异常从过滤器内部逃逸 → 顶层 unhandled rejection。
+    // 单实例部署下这会连带掐断所有在途连接。已发头就只记日志并确保连接收尾，不再写响应体。
+    if (response.headersSent) {
+      this.logger.error(
+        `Exception after headers sent on ${request?.method ?? '-'} ${request?.url ?? '-'}`,
+        exception instanceof Error ? exception.stack : String(exception),
+      );
+      if (!response.writableEnded) response.end();
+      return;
+    }
+
     if (exception instanceof HttpException) {
       // 保持框架默认契约：状态码与响应体原样返回，前端错误提示不受影响。
       response.status(exception.getStatus()).json(exception.getResponse());

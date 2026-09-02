@@ -2,11 +2,34 @@ import 'reflect-metadata';
 
 import { gzip } from 'node:zlib';
 
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { json, text, urlencoded, type NextFunction, type Request, type Response } from 'express';
 
 import { AppModule } from './app.module';
+
+/**
+ * 进程级兜底：任何未被捕获的 Promise rejection / 同步异常，只记日志、不退出进程。
+ *
+ * 背景：SSE 长连接（MateChat 流式对话）一旦有一处 await 的 rejection 逃逸到顶层，
+ * Node 默认 `--unhandled-rejections=throw` 会直接结束进程；单实例部署下，这会让
+ * 所有在途的 SSE 连接同时断线（前端表现为一句 network error，且未落库的回答一起消失）。
+ * 生产不能因为单个请求的边角异常而全站中断——这里把「进程存活」与「单请求失败」解耦，
+ * 请求级的错误仍由全局异常过滤器 / 各自的 catch 正常处理并回报给该请求。
+ */
+const processLogger = new Logger('Process');
+process.on('unhandledRejection', (reason) => {
+  processLogger.error(
+    `未处理的 Promise rejection（已忽略，进程继续运行）: ${
+      reason instanceof Error ? reason.stack ?? reason.message : String(reason)
+    }`,
+  );
+});
+process.on('uncaughtException', (error) => {
+  processLogger.error(
+    `未捕获的异常（已忽略，进程继续运行）: ${error instanceof Error ? error.stack ?? error.message : String(error)}`,
+  );
+});
 
 /**
  * 研发数据表快照响应 gzip（零依赖，Node 内置 zlib 异步压缩，不阻塞事件循环）。

@@ -25,24 +25,40 @@ export class OpenAiCompatibleAdapter {
   ): Promise<AsyncIterable<AiGatewayStreamChunk>> {
     const isQwenTarget = this.isQwenTarget(target);
     const client = this.buildClient(target, request.timeoutMs, isQwenTarget);
-    return client.chat.completions.create(
-      {
-        model: target.model,
-        messages: request.messages,
-        stream: true,
-        stream_options: { include_usage: true },
-        ...(request.tools?.length ? { tools: request.tools } : {}),
-        ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {}),
-        ...(typeof request.maxTokens === 'number' ? { max_tokens: request.maxTokens } : {}),
-        ...(isQwenTarget ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
-        // enable_search 只有阿里 compatible-mode 认；按目标端点判断，避免降级到其他
-        // 厂商的连接时带着未知参数被 400。
-        ...(request.webSearch && isAliyunOpenAiEndpoint(target.baseUrl)
-          ? ({ enable_search: true, search_options: { forced_search: false } } as Record<string, unknown>)
-          : {}),
-      },
-      { ...(request.signal ? { signal: request.signal } : {}) },
-    );
+    const buildParams = (withThinkingFlag: boolean) => ({
+      model: target.model,
+      messages: request.messages,
+      stream: true as const,
+      stream_options: { include_usage: true },
+      ...(request.tools?.length ? { tools: request.tools } : {}),
+      ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {}),
+      ...(typeof request.maxTokens === 'number' ? { max_tokens: request.maxTokens } : {}),
+      ...(isQwenTarget && withThinkingFlag ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      // enable_search 只有阿里 compatible-mode 认；按目标端点判断，避免降级到其他
+      // 厂商的连接时带着未知参数被 400。
+      ...(request.webSearch && isAliyunOpenAiEndpoint(target.baseUrl)
+        ? ({ enable_search: true, search_options: { forced_search: false } } as Record<string, unknown>)
+        : {}),
+    });
+    const options = { ...(request.signal ? { signal: request.signal } : {}) };
+    try {
+      return await client.chat.completions.create(buildParams(true), options);
+    } catch (error) {
+      // 部分 qwen 模型（如 qwen3.8-max-preview / qwen3.7-max）强制 enable_thinking=true，
+      // 不接受 false → 直接 400。去掉该参数用模型默认重试（与简历筛选模块同款兜底）。
+      // 首字节尚未产出，这里重试不会重复已流出的内容。
+      if (isQwenTarget && this.isEnableThinkingRejection(error)) {
+        return await client.chat.completions.create(buildParams(false), options);
+      }
+      throw error;
+    }
+  }
+
+  /** 上游是否因 enable_thinking 参数不被接受而 400（用于删参重试判定）。 */
+  private isEnableThinkingRejection(error: unknown): boolean {
+    const status = (error as { status?: number })?.status;
+    const message = error instanceof Error ? error.message : String(error);
+    return (status === undefined || status === 400) && /enable_thinking/i.test(message);
   }
 
   async complete(
