@@ -19,6 +19,31 @@ export type AiGatewayTarget = {
 export type AiGatewayStrategy = 'priority' | 'round_robin' | 'weighted' | 'lowest_latency';
 
 /**
+ * 网关场景白名单——路由保存接口据此校验，堵住「scene 写错一个字符 → 死路由静默不生效」。
+ * ⚠️ 与前端 src/app/AiModelManagementPage.tsx 的 GATEWAY_SCENES 是同一份清单的两个副本：
+ * 后端新增场景字面量时必须同步两处（前端负责展示文案，这里负责准入）。
+ */
+export const AI_GATEWAY_SCENES = [
+  'chat.completion',
+  'chat.daily_motivation',
+  'chat.utility_completion',
+  'rd.task_brief',
+  'rd.reporting',
+  'rd.performance_review',
+  'rd.progress_assessment',
+  'rd.project_structuring',
+  'ops.error_analysis',
+  'external_docs.version_compare',
+  'rag.knowledge_answer',
+  'image.prompt_optimization',
+  'hr.resume_screening',
+  'procurement.requirement_parse',
+  'procurement.material_intelligence',
+  'procurement.erp_matching',
+  'i18n.translation',
+] as const;
+
+/**
  * 本次调用的选模来源，随请求落库（AiGatewayRequest.routeSource/strategy）。
  * 没有它，「路由策略是否生效」在系统里完全不可观测——resolveTargets 算出的 source
  * 曾经全仓无人消费，控制台只能展示与之语义完全不同的 fallbackUsed（跨连接故障转移）。

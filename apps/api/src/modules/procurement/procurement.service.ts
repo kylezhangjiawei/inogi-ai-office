@@ -603,6 +603,9 @@ export class ProcurementService {
           '未提及的字段省略，不要编造。只输出 JSON。',
         ].join('\n'),
         messages: [{ role: 'user', content: text }],
+        // 显式声明场景：漏传时会落进 chat.utility_completion 兜底，导致控制台里的
+        // 「采购需求解析」成为永远匹配不上的死场景（配了路由也不生效）
+        scene: 'procurement.requirement_parse',
         json: true,
         temperature: 0,
         timeoutMs: 30_000,

@@ -531,9 +531,10 @@ export const integrationManagementApi = {
     }
   },
   deleteAiModel(modelId: string) {
-    return request<{ id: string }>(`/api/integration-management/ai-models/${modelId}`, {
-      method: "DELETE",
-    });
+    return request<{ id: string; affected_routes?: Array<{ scene: string; name: string }> }>(
+      `/api/integration-management/ai-models/${modelId}`,
+      { method: "DELETE" },
+    );
   },
   listAiGatewayRoutes() {
     return request<{ items: AiGatewayRoute[] }>("/api/ai-gateway/routes");
@@ -552,6 +553,12 @@ export const integrationManagementApi = {
     return request<{ id: string; scene: string; updated_at: string }>("/api/ai-gateway/routes", {
       method: "PUT",
       body: JSON.stringify(payload),
+    });
+  },
+  /** 删除路由（场景回到「默认回退」态）。此前只能停用不能删，试探性配置会永久残留。 */
+  deleteAiGatewayRoute(scene: string) {
+    return request<{ ok: boolean; scene: string }>(`/api/ai-gateway/routes/${encodeURIComponent(scene)}`, {
+      method: "DELETE",
     });
   },
   getAiGatewayOverview(range: AiGatewayRange) {

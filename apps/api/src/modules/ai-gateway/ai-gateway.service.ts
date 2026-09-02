@@ -45,6 +45,10 @@ export class AiGatewayService {
   private readonly retryBaseDelayMs: number;
   private readonly maxRetryDelayMs: number;
   private readonly retentionDays: number;
+  /** 路由 target 的密钥/地址环境变量兜底（与主对话选模路径对称），见 toRuntimeTarget */
+  private readonly envQwenApiKey?: string;
+  private readonly envOpenaiApiKey?: string;
+  private readonly envQwenBaseUrl?: string;
 
   constructor(
     private readonly adapter: OpenAiCompatibleAdapter,
@@ -52,6 +56,11 @@ export class AiGatewayService {
     private readonly prisma: PrismaService,
     private readonly secureConfigService: SecureConfigService,
   ) {
+    // 变量名与 chat.service 完全同口径（DASHSCOPE_* 优先），保证「主对话能用 ⇒ 路由 target 也能用」
+    this.envQwenApiKey =
+      (config.get<string>('DASHSCOPE_API_KEY') ?? config.get<string>('QWEN_API_KEY'))?.trim() || undefined;
+    this.envOpenaiApiKey = config.get<string>('OPENAI_API_KEY')?.trim() || undefined;
+    this.envQwenBaseUrl = config.get<string>('DASHSCOPE_BASE_URL')?.trim().replace(/\/$/, '') || undefined;
     this.failureThreshold = this.positiveInteger(config.get('AI_GATEWAY_FAILURE_THRESHOLD'), 3);
     this.cooldownMs = this.positiveInteger(config.get('AI_GATEWAY_CIRCUIT_COOLDOWN_MS'), 60_000);
     this.maxRetriesPerTarget = this.nonNegativeInteger(config.get('AI_GATEWAY_MAX_RETRIES_PER_TARGET'), 1);
@@ -437,8 +446,14 @@ export class AiGatewayService {
         return { targets: fallbackTargets, source: 'fallback' };
       }
       const strategy = route.strategy as AiGatewayStrategy;
+      const ordered = await this.orderTargets(scene, strategy, targets, options.advanceRoundRobin !== false);
+      // 调用方自带的默认连接追加为「最后一环」（按连接+模型去重）：路由目标全部失败/熔断时
+      // 降级到调用方本来就能用的模型，而不是直接 503 全场不可用。策略排序只作用于路由目标，
+      // 追加项永远排在最后，不改变路由的调度语义。
+      const seenKeys = new Set(ordered.map((target) => this.targetKey(target)));
+      const lastResort = fallbackTargets.filter((target) => !seenKeys.has(this.targetKey(target)));
       return {
-        targets: await this.orderTargets(scene, strategy, targets, options.advanceRoundRobin !== false),
+        targets: [...ordered, ...lastResort],
         timeoutMs: route.timeoutMs,
         source: 'route',
         strategy,
@@ -731,23 +746,34 @@ export class AiGatewayService {
   }): AiGatewayTarget | null {
     const model = config.model?.trim();
     if (!model) return null;
+    const provider = config.provider?.trim() || 'openai';
+    // qwen 判定与 chat.service 同口径：厂商名或模型名带 qwen/通义/dashscope 即视为阿里系
+    const isQwen = /qwen|tongyi|dashscope|阿里|通义/i.test(`${provider} ${model}`);
     let apiKey = '';
     try {
       apiKey = this.secureConfigService.decryptFromStorage(config.encryptedSecret);
     } catch {
-      return null;
+      apiKey = '';
     }
+    // 环境变量兜底，与主对话选模路径（chat.service resolveModelConfig）对称：
+    // 同一条连接在 MateChat 里「明明能用」（靠 env 兜底），配进路由却被整条丢掉，
+    // 这种不对称此前让路由 target 静默消失、无从排查。
+    if (!apiKey) apiKey = isQwen ? (this.envQwenApiKey ?? this.envOpenaiApiKey ?? '') : (this.envOpenaiApiKey ?? '');
     if (!apiKey) return null;
     const metadata = config.metadata && typeof config.metadata === 'object' && !Array.isArray(config.metadata)
       ? config.metadata as Record<string, unknown>
       : {};
+    const storedBaseUrl = typeof metadata.base_url === 'string' ? metadata.base_url.trim() : '';
+    // qwen 连接缺 base_url 会被打到 api.openai.com → 401 → 熔断；兜到 DashScope 兼容端点
+    const baseUrl = storedBaseUrl
+      || (isQwen ? (this.envQwenBaseUrl ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1') : '');
     return {
       id: config.id,
       connectionId: config.id,
-      provider: config.provider?.trim() || 'openai',
+      provider,
       model,
       apiKey,
-      baseUrl: typeof metadata.base_url === 'string' ? metadata.base_url.trim() : undefined,
+      baseUrl: baseUrl || undefined,
     };
   }
 

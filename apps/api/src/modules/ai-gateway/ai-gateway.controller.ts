@@ -1,14 +1,17 @@
-import { BadRequestException, Body, Controller, Get, Post, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { AiGatewayService } from './ai-gateway.service';
+import { AI_GATEWAY_SCENES } from './ai-gateway.types';
 
 class SaveAiGatewayRouteDto {
+  // 白名单校验：scene 是自由文本时，填错一个字符就是一条永不命中的死路由，且界面看不出异常
   @IsString()
   @MaxLength(100)
+  @IsIn([...AI_GATEWAY_SCENES])
   scene!: string;
 
   @IsString()
@@ -168,6 +171,21 @@ export class AiGatewayController {
       return saved;
     });
     return { id: route.id, scene: route.scene, updated_at: route.updatedAt.toISOString() };
+  }
+
+  /**
+   * 删除一条路由（连同其 targets 级联删除）。此前只能停用不能删：试探性保存过的场景
+   * 永久留在表里，卡片显示「专用路由已停用」，看上去像凭空多出来的配置。
+   * 删除后该场景回到「默认回退」态（调用方自带模型），与从未配置过完全等价。
+   */
+  @Delete('routes/:scene')
+  async deleteRoute(@Param('scene') sceneInput: string) {
+    const scene = sceneInput.trim();
+    if (!scene) throw new BadRequestException('场景标识不能为空');
+    const route = await this.prisma.aiGatewayRoute.findUnique({ where: { scene }, select: { id: true } });
+    if (!route) throw new BadRequestException('该场景没有已保存的路由');
+    await this.prisma.aiGatewayRoute.delete({ where: { id: route.id } });
+    return { ok: true, scene };
   }
 
   @Get('overview')

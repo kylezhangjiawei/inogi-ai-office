@@ -520,8 +520,22 @@ export class IntegrationManagementService {
       throw new NotFoundException('AI 模型配置不存在');
     }
 
+    // 删除前先查它被哪些网关路由引用：外键 ON DELETE CASCADE 会把这些路由里的 target
+    // 一并删掉（路由行还在但被掏空 → 该场景静默回落默认）。此前删除毫无提示，
+    // 是「路由自己变了」的唯一真实来源，排查极其困难——把受影响路由回给前端明示。
+    const referencedRoutes = await this.prisma.aiGatewayRouteTarget.findMany({
+      where: { connectionId: modelId },
+      select: { route: { select: { scene: true, name: true } } },
+    });
+
     await this.prisma.integrationConfig.delete({ where: { id: modelId } });
-    return { id: modelId };
+    return {
+      id: modelId,
+      affected_routes: referencedRoutes.map((target) => ({
+        scene: target.route.scene,
+        name: target.route.name,
+      })),
+    };
   }
 
   private shouldUseImageModelConnectionTest(provider: string, model: string) {

@@ -663,6 +663,22 @@ function GatewayRouteWorkspace({
     }
   }
 
+  /** 删除已保存的路由：场景回到「默认回退」态（各业务用自带模型），与从未配置过等价。 */
+  async function removeRoute() {
+    if (!existing) return;
+    if (!window.confirm(`确定删除「${sceneDefinition.label}」的专用路由？删除后该场景回到默认回退（各业务使用自带模型）。`)) return;
+    setSaving(true);
+    try {
+      await integrationManagementApi.deleteAiGatewayRoute(selectedScene);
+      toast.success(`${sceneDefinition.label}路由已删除，场景回到默认回退`);
+      await onReload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除路由失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
       <section className="rounded-2xl border border-slate-200 bg-slate-50/80 p-2 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
@@ -826,6 +842,9 @@ function GatewayRouteWorkspace({
             连续失败达到阈值后连接会进入临时熔断，冷却期间直接跳到下一连接，避免重复等待故障服务。
           </div>
           <button type="button" className="inline-flex h-10 w-full cursor-pointer items-center justify-center rounded-xl bg-indigo-600 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存路由策略"}</button>
+          {existing && (
+            <button type="button" className="mt-2 inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-xl border border-rose-200 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void removeRoute()}>删除此路由（回到默认回退）</button>
+          )}
         </div>
       </section>
       </div>
@@ -1821,8 +1840,19 @@ export function AiModelManagementPage() {
 
     setDeleting(true);
     try {
-      await integrationManagementApi.deleteAiModel(selectedRow.id);
-      toast.success("AI 模型已删除");
+      const result = await integrationManagementApi.deleteAiModel(selectedRow.id);
+      // 该连接曾挂在网关路由里：级联删除已把对应 target 一并移除，明示受影响场景，
+      // 否则那些路由会静默回落默认，无从排查
+      if (result.affected_routes && result.affected_routes.length > 0) {
+        toast.warning(
+          `AI 模型已删除。注意：它已从 ${result.affected_routes.length} 条路由中移除（${result.affected_routes
+            .map((route) => route.name || route.scene)
+            .join("、")}），相关场景可能回落到默认模型，请到「路由策略」确认。`,
+          { duration: 10000 },
+        );
+      } else {
+        toast.success("AI 模型已删除");
+      }
       closeDialog();
       await loadRows();
     } catch (error) {
