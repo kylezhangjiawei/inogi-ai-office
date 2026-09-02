@@ -1492,8 +1492,11 @@ export function MateChatBubble() {
 
   /** 停止生成：中止 SSE 请求，后端据此停掉 ReAct 循环（不再发起新一轮上游调用与工具批次） */
   const handleStop = useCallback(() => {
+    // 只触发中止；abortRef 的清理与 sending 复位统一交给流收尾的 finally（它按 controller 身份守卫）。
+    // ⚠️ 不要在这里把 abortRef 置 null：那样 finally 的 `abortRef.current === abortController` 守卫
+    // 就永远不匹配，setSending(false) 不执行 → 点停止后卡在「生成中」、切会话也复位不了，只能刷新。
+    // abort 后 catch 的 AbortError 分支会保留已生成内容并对账（或撤掉空占位气泡），无需在此另做处理。
     abortRef.current?.abort();
-    abortRef.current = null;
   }, []);
 
   // ── ReAct 写操作确认卡：确认执行 / 取消 ──────────────────────────────────────
