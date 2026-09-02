@@ -71,16 +71,33 @@ export class AiGatewayController {
 
   @Get('routes')
   async listRoutes() {
-    const items = await this.prisma.aiGatewayRoute.findMany({
-      orderBy: [{ scene: 'asc' }],
-      include: {
-        targets: {
-          orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
-          include: { connection: true },
+    const [items, usageRows] = await Promise.all([
+      this.prisma.aiGatewayRoute.findMany({
+        orderBy: [{ scene: 'asc' }],
+        include: {
+          targets: {
+            orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+            include: { connection: true },
+          },
         },
-      },
-    });
+      }),
+      // 近 24h 各场景的选模来源计数：路由页据此展示「走路由 N 次 / 走默认 M 次」——
+      // 配置页自带运行期反馈，「策略生效中」不再只是配置回显
+      this.prisma.aiGatewayRequest.groupBy({
+        by: ['scene', 'routeSource'],
+        where: { createdAt: { gte: new Date(Date.now() - 24 * 3600 * 1000) } },
+        _count: { _all: true },
+      }),
+    ]);
+    const usage24h: Record<string, Record<string, number>> = {};
+    for (const row of usageRows) {
+      const scene = row.scene;
+      const source = row.routeSource ?? 'unknown';
+      usage24h[scene] = usage24h[scene] ?? {};
+      usage24h[scene][source] = (usage24h[scene][source] ?? 0) + row._count._all;
+    }
     return {
+      usage_24h: usage24h,
       items: items.map((route) => ({
         id: route.id,
         scene: route.scene,

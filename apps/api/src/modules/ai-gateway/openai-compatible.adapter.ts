@@ -98,7 +98,11 @@ export class OpenAiCompatibleAdapter {
     return new OpenAI({
       apiKey: target.apiKey,
       ...(target.baseUrl ? { baseURL: target.baseUrl } : {}),
-      ...(typeof timeoutMs === 'number' ? { timeout: timeoutMs } : {}),
+      // 未配置超时（未配路由的 fallback 分支 / 视觉直连显式 undefined）时，SDK 默认是 10 分钟，
+      // 上游卡死会占住连接干等。这里兜一个 120s 默认——与路由 timeoutMs 的 schema 默认一致。
+      // 注意流式语义：openai SDK 的 timeout 在响应头到达时即失效，只保护「到首包」，
+      // 不覆盖 body 阶段（那由 chat 层的流空闲看门狗负责）。
+      timeout: typeof timeoutMs === 'number' ? timeoutMs : 120_000,
       ...(proxyFetch ? { fetch: proxyFetch } : {}),
       // The gateway owns cross-target retries. SDK retries here would multiply latency and cost.
       maxRetries: 0,

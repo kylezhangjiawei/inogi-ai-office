@@ -556,6 +556,7 @@ export function RDAiSettingsPage() {
           <div>
             <h3 className="text-base font-semibold text-slate-900">{t("AI 场景模型")}</h3>
             <p className="mt-1 text-sm text-slate-500">{t("主模型、兜底模型、提示词版本、置信度阈值和复核策略集中维护。")}</p>
+            <p className="mt-1 text-xs text-amber-600">{t("注意：若管理员在「AI 模型管理 → 路由策略」为对应研发场景配置并启用了网关路由，运行时会优先按网关路由选模，此处的主/兜底模型仅作为回退。")}</p>
           </div>
           <div className="hidden grid-cols-[1fr_1fr_140px_120px_120px] gap-3 pr-4 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400 xl:grid">
             <span>{t("主模型")}</span>

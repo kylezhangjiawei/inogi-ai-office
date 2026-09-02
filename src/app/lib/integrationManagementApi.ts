@@ -537,7 +537,11 @@ export const integrationManagementApi = {
     );
   },
   listAiGatewayRoutes() {
-    return request<{ items: AiGatewayRoute[] }>("/api/ai-gateway/routes");
+    // usage_24h：近 24h 各场景按选模来源（route/fallback/user/vision/unknown）的调用计数，
+    // 路由页据此展示运行期反馈（「策略生效中」不再只是配置回显）
+    return request<{ items: AiGatewayRoute[]; usage_24h?: Record<string, Record<string, number>> }>(
+      "/api/ai-gateway/routes",
+    );
   },
   saveAiGatewayRoute(payload: {
     scene: string;
