@@ -18,6 +18,20 @@ export type AiGatewayTarget = {
 
 export type AiGatewayStrategy = 'priority' | 'round_robin' | 'weighted' | 'lowest_latency';
 
+/**
+ * 本次调用的选模来源，随请求落库（AiGatewayRequest.routeSource/strategy）。
+ * 没有它，「路由策略是否生效」在系统里完全不可观测——resolveTargets 算出的 source
+ * 曾经全仓无人消费，控制台只能展示与之语义完全不同的 fallbackUsed（跨连接故障转移）。
+ * - route:    命中网关路由，targets 由路由决定
+ * - fallback: 场景未配路由/路由停用/目标全不可用，回落调用方自带目标
+ * - user:     用户显式选择了模型，按「用户意志优先」跳过路由（仅主对话）
+ * - vision:   需要视觉能力而跳过路由（路由目标可能是纯文本连接，仅主对话）
+ */
+export type AiGatewayRouteMeta = {
+  source: 'route' | 'fallback' | 'user' | 'vision';
+  strategy?: AiGatewayStrategy;
+};
+
 export type AiGatewayChatRequest = {
   requestId?: string;
   scene: string;
@@ -29,6 +43,8 @@ export type AiGatewayChatRequest = {
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
+  /** 选模来源（route/fallback/user/vision），仅用于观测落库，不影响调用行为。 */
+  routeMeta?: AiGatewayRouteMeta;
 };
 
 export type AiGatewayStreamRequest = {
@@ -59,6 +75,8 @@ export type AiGatewayStreamRequest = {
    * 的上下文对不上，调用方据此把后续轮次的 targets 固定成这一个。
    */
   onTargetSettled?: (target: AiGatewayTarget) => void;
+  /** 选模来源（route/fallback/user/vision），仅用于观测落库，不影响调用行为。 */
+  routeMeta?: AiGatewayRouteMeta;
 };
 
 export type AiGatewayStreamChunk = OpenAI.Chat.Completions.ChatCompletionChunk;

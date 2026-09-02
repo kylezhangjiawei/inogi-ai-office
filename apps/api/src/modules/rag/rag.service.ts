@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
-import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
+import type { AiGatewayRouteMeta, AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { EmbeddingClient } from './embedding-client';
 import { chunkText } from './chunker';
 
@@ -389,6 +389,7 @@ export class RagService {
       const resp = await this.aiGateway.complete({
         scene: 'rag.knowledge_answer',
         targets: llmConfig.targets,
+        routeMeta: llmConfig.routeMeta,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -466,6 +467,7 @@ export class RagService {
   private async loadChatModel(): Promise<{
     targets: AiGatewayTarget[];
     timeoutMs?: number;
+    routeMeta: AiGatewayRouteMeta;
   }> {
     const configs = await this.prisma.integrationConfig.findMany({
       where: { kind: 'openai', isActive: true },
@@ -512,7 +514,11 @@ export class RagService {
     if (routing.targets.length === 0) {
       throw new BadRequestException('未配置任何可用对话模型，无法生成 RAG 回答。');
     }
-    return { targets: routing.targets, timeoutMs: routing.timeoutMs };
+    return {
+      targets: routing.targets,
+      timeoutMs: routing.timeoutMs,
+      routeMeta: { source: routing.source, strategy: routing.strategy },
+    };
   }
 
   // ─── 工具 ─────────────────────────────────────────────────────────────────

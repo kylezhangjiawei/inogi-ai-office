@@ -247,6 +247,10 @@ export interface AiGatewayRequestItem {
   latency_ms: number;
   attempt_count: number;
   fallback_used: boolean;
+  /** 选模来源：route=命中路由 / fallback=回落默认 / user=用户显式选模 / vision=视觉跳过路由；null=存量数据未知 */
+  route_source: "route" | "fallback" | "user" | "vision" | null;
+  /** 命中路由时的调度策略 */
+  strategy: string | null;
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;

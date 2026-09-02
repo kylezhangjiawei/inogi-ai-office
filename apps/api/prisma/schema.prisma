@@ -707,6 +707,10 @@ model AiGatewayRequest {
   latencyMs        Int
   attemptCount     Int
   fallbackUsed     Boolean            @default(false)
+  /// 选模来源：route=命中路由 / fallback=回落调用方默认 / user=用户显式选模 / vision=视觉跳过路由；存量行 NULL=未知
+  routeSource      String?            @db.VarChar(10)
+  /// 命中路由时使用的调度策略（priority/round_robin/weighted/lowest_latency）
+  strategy         String?            @db.VarChar(30)
   promptTokens     Int                @default(0)
   completionTokens Int                @default(0)
   totalTokens      Int                @default(0)

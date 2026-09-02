@@ -278,6 +278,32 @@ function gatewayStatusLabel(status: string) {
   return status;
 }
 
+/**
+ * 选模来源展示。与「故障转移」(fallback_used) 是两个独立维度：
+ * 前者回答「targets 是谁定的」（路由 / 回落默认 / 用户指定 / 视觉直连），
+ * 后者回答「一次调用是否跨连接切换过」。此前明细只展示后者且文案叫「首选命中」，
+ * 让人误以为它能证明路由生效——实际上路由从未参与时它也显示「首选命中」。
+ */
+const ROUTE_SOURCE_LABELS: Record<string, string> = {
+  route: "走路由",
+  fallback: "走默认",
+  user: "用户指定",
+  vision: "视觉直连",
+};
+const STRATEGY_LABELS: Record<string, string> = {
+  priority: "优先级",
+  round_robin: "轮询",
+  weighted: "权重",
+  lowest_latency: "最低延迟",
+};
+function routeSourceLabel(item: { route_source: string | null; strategy: string | null }): string {
+  if (!item.route_source) return "未知（旧数据）";
+  const base = ROUTE_SOURCE_LABELS[item.route_source] ?? item.route_source;
+  return item.route_source === "route" && item.strategy
+    ? `${base} · ${STRATEGY_LABELS[item.strategy] ?? item.strategy}`
+    : base;
+}
+
 // ── 百炼 Token Plan 预设模型目录 ──────────────────────────────────────────────
 // 与阿里云百炼「可使用模型」页面一一对应；usageKind 按页面标注的模型能力显式指定
 // （含视觉理解 → multimodal，图片生成 → image，其余 → text），避免自动推断漂移。
@@ -498,7 +524,9 @@ function GatewayRouteWorkspace({
   loading: boolean;
   onReload: () => Promise<void>;
 }) {
-  const [selectedScene, setSelectedScene] = useState<GatewayScene>("rd.task_brief");
+  // 默认选中主对话：全仓流量最高的场景。原默认 rd.task_brief 是最低频场景（唯一入口为任务
+  // 详情领导摘要），照着它配路由再验证，几乎必然「配了没感觉」。
+  const [selectedScene, setSelectedScene] = useState<GatewayScene>("chat.completion");
   const sceneDefinition = GATEWAY_SCENES.find((item) => item.value === selectedScene) ?? GATEWAY_SCENES[0];
   const existing = routes.find((route) => route.scene === selectedScene);
   const [name, setName] = useState(existing?.name ?? sceneDefinition.label);
@@ -1175,7 +1203,8 @@ function GatewayRequestDetail({ item }: { item: AiGatewayRequestItem }) {
             <div><dt className="text-slate-500">场景标识</dt><dd className="mt-1 truncate font-mono text-[11px] text-slate-700" title={item.scene}>{item.scene}</dd></div>
             <div><dt className="text-slate-500">最终模型</dt><dd className="mt-1 font-medium text-slate-800">{item.provider ? `${item.provider} / ${item.model ?? "—"}` : "未完成"}</dd></div>
             <div><dt className="text-slate-500">总延迟</dt><dd className="mt-1 font-semibold tabular-nums text-slate-800">{formatNumber(item.latency_ms)} ms</dd></div>
-            <div><dt className="text-slate-500">路由结果</dt><dd className={cn("mt-1 font-medium", item.fallback_used ? "text-amber-700" : "text-slate-800")}>{item.fallback_used ? `第 ${item.attempt_count} 次尝试成功` : "首选连接命中"}</dd></div>
+            <div><dt className="text-slate-500">选模来源</dt><dd className={cn("mt-1 font-medium", item.route_source === "route" ? "text-indigo-700" : "text-slate-800")}>{routeSourceLabel(item)}</dd></div>
+            <div><dt className="text-slate-500">故障转移</dt><dd className={cn("mt-1 font-medium", item.fallback_used ? "text-amber-700" : "text-slate-800")}>{item.fallback_used ? `跨连接切换，第 ${item.attempt_count} 次尝试成功` : "无（首个连接直接成功）"}</dd></div>
           </dl>
           <div className="mt-3 border-t border-slate-100 pt-3">
             <div className="text-[10px] text-slate-500">请求 ID</div>
@@ -1299,7 +1328,7 @@ function GatewayRequestWorkspace({
                     <td className="px-3 py-3"><div className="text-xs font-medium text-slate-800">{formatGatewayScene(item.scene)}</div><div className="mt-1 font-mono text-[9px] text-slate-400">{item.scene}</div></td>
                     <td className="px-3 py-3"><div className="text-xs text-slate-700">{item.provider ?? "—"}</div><div className="mt-1 max-w-48 truncate font-mono text-[9px] text-slate-400">{item.model ?? "未完成"}</div></td>
                     <td className="px-3 py-3"><span className={cn("material-chip", item.status === "success" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>{item.status === "success" ? <CheckCircle2 className="mr-1 size-3" /> : <XCircle className="mr-1 size-3" />}{gatewayStatusLabel(item.status)}</span></td>
-                    <td className="px-3 py-3"><div className="text-xs font-semibold tabular-nums text-slate-800">{item.attempt_count} 次</div><div className={cn("mt-1 text-[10px]", item.fallback_used ? "text-amber-700" : "text-slate-500")}>{item.fallback_used ? "已切换备用" : "首选命中"}</div></td>
+                    <td className="px-3 py-3"><div className="text-xs font-semibold tabular-nums text-slate-800">{item.attempt_count} 次</div><div className="mt-1 text-[10px]"><span className={cn(item.route_source === "route" ? "font-medium text-indigo-600" : "text-slate-500")}>{routeSourceLabel(item)}</span>{item.fallback_used && <span className="ml-1 text-amber-700">· 故障转移</span>}</div></td>
                     <td className="px-3 py-3 text-right text-xs tabular-nums text-slate-700">{formatNumber(item.latency_ms)} ms</td>
                     <td className="px-5 py-3 text-right text-xs tabular-nums text-violet-700">{formatNumber(item.total_tokens)}</td>
                   </tr>

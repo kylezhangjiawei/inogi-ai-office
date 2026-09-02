@@ -13,7 +13,7 @@ import { Response } from 'express';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
-import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
+import type { AiGatewayRouteMeta, AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { SecureConfigService } from '../security/secure-config.service';
 import { WebSearchService, type WebSearchResult } from './web-search.service';
 import { RagService, type RagUserContext, type RagChatCitation } from '../rag/rag.service';
@@ -534,6 +534,7 @@ export class ChatService {
       const result = await this.aiGateway.complete({
         scene,
         targets: routing.targets,
+        routeMeta: { source: routing.source, strategy: routing.strategy },
         messages,
         ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
         ...(typeof opts.maxTokens === 'number' ? { maxTokens: opts.maxTokens } : {}),
@@ -913,16 +914,20 @@ export class ChatService {
     // 与 buildHistoryWithAttachments 的历史图片重放对齐——重放窗口是「最近 N 条带附件
     // 的消息」而非按轮次衰减，所以只要图还会被重放，就必须路由到多模态模型，
     // 否则图片降级成文件名提示，模型会回答「看不到图」。切换对用户无感（不弹提示）。
+    // 只看「真正会被重放图片」的窗口（最新 HISTORY_IMG_MSG_WINDOW 条带附件的 user 消息），
+    // 与 buildHistoryWithAttachments 的 imgWindow 完全同口径。此前扫的是整个 40 条历史窗口，
+    // 触发面被放大约 20 倍：会话里出现过一张早已滚出重放窗口的图，之后每一轮纯文字提问
+    // 都被判定「需要视觉」而跳过网关路由。
     const hasRecentHistoryImage =
       !hasImageAttachment &&
-      conv.messages.some(
-        (m) =>
-          m.role === 'user' &&
-          m.attachments != null &&
+      conv.messages
+        .filter((m) => m.role === 'user' && m.attachments != null)
+        .slice(-ChatService.HISTORY_IMG_MSG_WINDOW)
+        .some((m) =>
           this.attachmentService
             .normalizeStored(m.attachments)
             .some((a) => this.attachmentService.isImage(a.mime)),
-      );
+        );
     if (
       (hasImageAttachment || hasRecentHistoryImage) &&
       !this.modelSupportsVision(selectedConfig.model, selectedConfig.usageKind)
@@ -1499,10 +1504,18 @@ export class ChatService {
       // 未选（「自动」态，请求不带 model）才把选模权交给网关路由，fallback 为全局默认模型。
       const explicitModelChoice = Boolean(dto.model?.trim());
       const chatRouting = needsVisionModel || explicitModelChoice
-        ? { targets: [chatFallbackTarget], timeoutMs: undefined }
+        ? {
+            targets: [chatFallbackTarget],
+            timeoutMs: undefined,
+            // 跳过路由的两种来源要区分开落库：vision=图片会话必须保视觉能力，user=用户意志优先
+            source: (needsVisionModel ? 'vision' : 'user') as AiGatewayRouteMeta['source'],
+            strategy: undefined,
+          }
         : await this.aiGateway.resolveTargets(chatScene, [chatFallbackTarget]);
       const streamTargets = chatRouting.targets;
       const streamTimeoutMs = chatRouting.timeoutMs;
+      // 选模来源随请求落库（AiGatewayRequest.routeSource）：没有它，「路由是否生效」在请求明细里无从判断。
+      const chatRouteMeta: AiGatewayRouteMeta = { source: chatRouting.source, strategy: chatRouting.strategy };
 
       // ── ReAct 循环：模型返回 tool_calls 就执行工具并带结果再调，直到给出文字回答。
       //    无工具触发时第一轮即 break，与原单次流式调用完全等价（零额外延迟/成本）──
@@ -1526,6 +1539,7 @@ export class ChatService {
           timeoutMs: streamTimeoutMs,
           signal: abortController.signal,
           retryWithoutTools: true,
+          routeMeta: chatRouteMeta,
           onTargetSettled: (target) => {
             // 自动态下路由把请求改道到了别的模型：静默告知前端把气泡徽标改成实际模型。
             // 只在首次钉定且确实换了模型时发一次；显式选模/视觉分支只有单一目标，天然不触发。

@@ -374,6 +374,9 @@ export class AiGatewayController {
         latency_ms: item.latencyMs,
         attempt_count: item.attemptCount,
         fallback_used: item.fallbackUsed,
+        // 选模来源：route/fallback/user/vision；存量行为 null（未知）
+        route_source: item.routeSource,
+        strategy: item.strategy,
         prompt_tokens: item.promptTokens,
         completion_tokens: item.completionTokens,
         total_tokens: item.totalTokens,
