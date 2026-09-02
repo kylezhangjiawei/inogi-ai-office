@@ -74,6 +74,8 @@ type ToolSpec = {
   permissions?: string[];
   /** 该工具是否计入每日生图配额（生图/改图），超额后不再下发 */
   countsAgainstImageQuota?: boolean;
+  /** 该工具是否计入每日生视频配额，超额后不再下发（视频更贵，闸门更严） */
+  countsAgainstVideoQuota?: boolean;
   /** 该工具的执行超时（缺省 TOOL_TIMEOUT_MS；生图等长任务单独放宽） */
   timeoutMs?: number;
   execute: (
@@ -164,6 +166,16 @@ const DAILY_IMAGE_TOOL_LIMIT = (() => {
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 20;
 })();
 
+/**
+ * 每日生视频闸门。生视频比生图更贵，且确认卡只挡单次、拦不住「一天确认一百次」；
+ * 故与生图同构加一道日上限。超额后当天不再下发 generate_video 工具。
+ * env MATECHAT_DAILY_VIDEO_LIMIT 可调，默认 5（比生图更严）。
+ */
+const DAILY_VIDEO_TOOL_LIMIT = (() => {
+  const raw = Number(process.env.MATECHAT_DAILY_VIDEO_LIMIT);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 5;
+})();
+
 /** 与 POST /research-development/messages 端点一致的发消息权限 */
 const SEND_MESSAGE_PERMISSIONS = [
   'page:rd-director-dashboard',
@@ -182,6 +194,17 @@ const RD_TASK_MANAGER_PERMISSIONS = [
   'rd-project:review-l2',
   'rd-people:manage',
 ];
+
+/**
+ * Agent 侧对「影响他人」的高风险写动作的额外收紧：反射到的控制器端点权限为了页面编辑而放宽
+ * （含 page:rd-my-workspace，几乎全员持有），普通成员即便被挂上这些工具，在服务层也必被归属
+ * 校验拒绝，只是白烧一轮。这里在反射门之外再 AND 一道管理权限——只收紧不放宽，不碰 HTTP
+ * 端点（页面编辑不受影响），failure-closed 不变。key 是工具名，value 是「还必须命中其一」的权限。
+ * 目前只收 reassign_task（改派他人负责人，普通成员在服务层必被拒）。
+ */
+const AGENT_ACTION_EXTRA_PERMISSIONS: Record<string, string[]> = {
+  reassign_task: RD_TASK_MANAGER_PERMISSIONS,
+};
 
 const RD_TASK_CREATE_PERMISSIONS = ['rd-task:create', 'rd-project:propose', 'rd-project:direct'];
 const RD_TASK_STRUCTURE_MANAGER_PERMISSIONS = [
@@ -616,6 +639,7 @@ export class ChatToolsService {
     generate_video: {
       label: '生成视频（待确认）',
       timeoutMs: VIDEO_TOOL_TIMEOUT_MS,
+      countsAgainstVideoQuota: true,
       definition: {
         type: 'function',
         function: {
@@ -670,10 +694,17 @@ export class ChatToolsService {
   async buildAgentTools(
     user: RagUserContext,
   ): Promise<{ definitions: OpenAI.Chat.Completions.ChatCompletionTool[]; imageQuotaExhausted: boolean }> {
-    const imageQuotaExhausted = (await this.countTodayImageUsage(user.userId)) >= DAILY_IMAGE_TOOL_LIMIT;
+    // 两个日配额并行统计，别为省事串成两次往返
+    const [imageUsedToday, videoUsedToday] = await Promise.all([
+      this.countTodayImageUsage(user.userId),
+      this.countTodayVideoUsage(user.userId),
+    ]);
+    const imageQuotaExhausted = imageUsedToday >= DAILY_IMAGE_TOOL_LIMIT;
+    const videoQuotaExhausted = videoUsedToday >= DAILY_VIDEO_TOOL_LIMIT;
     const definitions = Object.values(this.tools)
       .filter((t) => !t.permissions || this.hasAnyPermission(user, t.permissions))
       .filter((t) => !(imageQuotaExhausted && t.countsAgainstImageQuota))
+      .filter((t) => !(videoQuotaExhausted && t.countsAgainstVideoQuota))
       .map((t) => withThoughtParam(t.definition));
 
     // 注册表驱动的系统操作：权限从控制器方法反射，注册表里没有可抄错的权限码。
@@ -689,6 +720,8 @@ export class ChatToolsService {
         }
         continue;
       }
+      // 高风险写动作的额外收紧：反射门通过后，再要求命中其对应的管理权限（见常量说明）。
+      if (!this.satisfiesAgentActionExtra(action.tool, user)) continue;
       definitions.push(withThoughtParam(this.agentActionDefinition(action)));
     }
     return { definitions, imageQuotaExhausted };
@@ -711,8 +744,31 @@ export class ChatToolsService {
     }
   }
 
+  /** 今日（上海自然日）该用户已生成的视频条数。与生图同口径，用于每日生视频闸门。 */
+  private async countTodayVideoUsage(userId: string): Promise<number> {
+    try {
+      return await this.prisma.aiUsageLog.count({
+        where: { userId, modality: 'video', createdAt: { gte: shanghaiDayStart(new Date()) } },
+      });
+    } catch (error) {
+      // 与生图同理：统计失败放行，配额是成本护栏不是安全边界
+      this.logger.warn(`生视频配额统计失败，本轮放行: ${error instanceof Error ? error.message : error}`);
+      return 0;
+    }
+  }
+
   toolLabel(name: string): string {
     return this.tools[name]?.label ?? name;
+  }
+
+  /**
+   * 高风险写动作的额外权限收紧：反射到的端点权限为页面编辑而放宽，这里在其之外再 AND 一道
+   * 管理权限。三道闸门（挂载裁剪 / 执行前 / 确认时）共用它，口径一致，避免只在一处收紧。
+   * 返回 true = 满足（或该动作本就无额外要求）。
+   */
+  private satisfiesAgentActionExtra(tool: string, user: RagUserContext): boolean {
+    const extra = AGENT_ACTION_EXTRA_PERMISSIONS[tool];
+    return !extra || this.hasAnyPermission(user, extra);
   }
 
   /** 由注册表条目生成模型可见的工具定义 */
@@ -749,7 +805,7 @@ export class ChatToolsService {
     conversationId: string,
   ): Promise<ChatToolResult> {
     const verdict = checkAgentPermission(action.controller, action.handler, user.permissions ?? []);
-    if (!verdict.allowed) {
+    if (!verdict.allowed || !this.satisfiesAgentActionExtra(action.tool, user)) {
       return {
         ok: false,
         summary: '无操作权限',
@@ -1471,15 +1527,26 @@ export class ChatToolsService {
       .slice(0, 15)
       .map((t) => `- [${t.taskId}] ${t.title}｜负责人：${t.owner}｜类型：${t.pendingReviewType || '待审核'}`);
 
+    // 人员维度脱敏：按负责人排名、待审核明细（含负责人姓名）是敏感聚合，只对能看驾驶舱/管理任务
+    // 的人给全量；普通成员看总量/状态/逾期/进度这类非敏感数字，看不到「全公司谁的活最多」。
+    // 总量行里的「待审核 N」是数字统计，全员可见；脱敏的只是明细。
+    const canSeeOwnerBreakdown = this.hasAnyPermission(user, [
+      'page:rd-director-dashboard',
+      ...RD_TASK_MANAGER_PERMISSIONS,
+    ]);
     const content = [
       `研发任务总量 ${rows.length} 条：已完成 ${done.length}，未完成 ${open.length}（其中逾期 ${overdue.length}），待审核 ${pendingReview.length}。未完成任务平均进度 ${avgProgress}%。`,
-      `\n【按负责人（未完成，Top10）】\n${ownerLines.join('\n')}`,
-      pendingReview.length > 0 ? `\n【待审核队列】\n${reviewLines.join('\n')}${pendingReview.length > reviewLines.length ? `\n（另有 ${pendingReview.length - reviewLines.length} 条未列出）` : ''}` : '\n【待审核队列】无',
-    ].join('\n');
+      canSeeOwnerBreakdown ? `\n【按负责人（未完成，Top10）】\n${ownerLines.join('\n')}` : '',
+      canSeeOwnerBreakdown
+        ? (pendingReview.length > 0
+            ? `\n【待审核队列】\n${reviewLines.join('\n')}${pendingReview.length > reviewLines.length ? `\n（另有 ${pendingReview.length - reviewLines.length} 条未列出）` : ''}`
+            : '\n【待审核队列】无')
+        : (pendingReview.length > 0 ? `\n【待审核】共 ${pendingReview.length} 条（明细需管理权限查看）` : '\n【待审核】无'),
+    ].filter(Boolean).join('\n');
     return {
       ok: true,
       summary: `汇总 ${rows.length} 条任务`,
-      content: `以下是研发任务全景汇总数据，请据此为用户组织回答（可做成表格）：\n\n${content}`,
+      content: `以下是研发任务全景汇总数据${canSeeOwnerBreakdown ? '' : '（当前用户为普通成员，已隐去人员维度明细）'}，请据此为用户组织回答（可做成表格）：\n\n${content}`,
     };
   }
 
@@ -2509,7 +2576,9 @@ export class ChatToolsService {
     const agentAction = AGENT_ACTIONS.find((a) => a.tool === entry.tool);
     if (agentAction) {
       const verdict = checkAgentPermission(agentAction.controller, agentAction.handler, user.permissions ?? []);
-      if (!verdict.allowed) throw new ForbiddenException(`没有执行「${agentAction.label}」的权限`);
+      if (!verdict.allowed || !this.satisfiesAgentActionExtra(agentAction.tool, user)) {
+        throw new ForbiddenException(`没有执行「${agentAction.label}」的权限`);
+      }
       // 出口必须与发起时同源分派：field 型走 updateTask，custom 型走各自的执行体。
       // 这里若只留 updateTask 一条路，custom 型的卡会被拿错 payload 去写任务字段。
       if (!isFieldAction(agentAction)) {
