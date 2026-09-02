@@ -1418,6 +1418,9 @@ export class ChatService {
       //    轮次/节流更新」。进程中途死亡（OOM/重启/未捕获异常）时，至少留住最近一次 checkpoint 的
       //    正文与工具步骤，不再整条蒸发。重答场景保持原子替换（末尾 create 新 + delete 旧），
       //    不提前落库，避免中途崩溃在库里留下「新占位 + 旧答案」两条。 ──
+      // 首轮定下用哪个连接后钉住：换模型会让上一轮 tool_call 的上下文对不上。
+      // 声明提前到 checkpoint 闭包之前：占位/定稿落库与用量埋点都要用它拿「实际使用的模型」。
+      let pinnedTarget: AiGatewayTarget | undefined;
       let assistantPersistedId: string | null = null;
       let lastCheckpointLen = 0;
       let checkpointInFlight = false;
@@ -1431,7 +1434,8 @@ export class ChatService {
               conversationId,
               role: 'assistant',
               content: fullContent,
-              model,
+              // 记「实际使用」的模型：自动态下路由可能改道，首个产出必然发生在 target 钉定之后
+              model: pinnedTarget?.model ?? model,
               ...(toolStepRecords.length > 0
                 ? { toolSteps: toolStepRecords as unknown as Prisma.InputJsonValue }
                 : {}),
@@ -1491,13 +1495,14 @@ export class ChatService {
         ...(baseURL ? { baseUrl: baseURL } : {}),
       };
       const needsVisionModel = hasImageAttachment || hasRecentHistoryImage;
-      const chatRouting = needsVisionModel
+      // 用户在对话框显式选了模型（请求带 model）→ 严格用它，路由不覆盖用户意志；
+      // 未选（「自动」态，请求不带 model）才把选模权交给网关路由，fallback 为全局默认模型。
+      const explicitModelChoice = Boolean(dto.model?.trim());
+      const chatRouting = needsVisionModel || explicitModelChoice
         ? { targets: [chatFallbackTarget], timeoutMs: undefined }
         : await this.aiGateway.resolveTargets(chatScene, [chatFallbackTarget]);
       const streamTargets = chatRouting.targets;
       const streamTimeoutMs = chatRouting.timeoutMs;
-      // 首轮定下用哪个连接后钉住：换模型会让上一轮 tool_call 的上下文对不上
-      let pinnedTarget: AiGatewayTarget | undefined;
 
       // ── ReAct 循环：模型返回 tool_calls 就执行工具并带结果再调，直到给出文字回答。
       //    无工具触发时第一轮即 break，与原单次流式调用完全等价（零额外延迟/成本）──
@@ -1522,6 +1527,11 @@ export class ChatService {
           signal: abortController.signal,
           retryWithoutTools: true,
           onTargetSettled: (target) => {
+            // 自动态下路由把请求改道到了别的模型：静默告知前端把气泡徽标改成实际模型。
+            // 只在首次钉定且确实换了模型时发一次；显式选模/视觉分支只有单一目标，天然不触发。
+            if (!pinnedTarget && target.model !== model) {
+              send({ type: 'modelSwitched', from: model, to: target.model, reason: 'route' });
+            }
             pinnedTarget = target;
           },
           onToolsDropped: () => {
@@ -1838,7 +1848,8 @@ export class ChatService {
         // 定稿内容：有占位（非重答且已 checkpoint）→ 更新同一行；否则（重答 / 占位创建失败兜底）→ 新建。
         const messageData = {
           content: fullContent,
-          model,
+          // 「实际使用」的模型：自动态下路由可能改道，落库/回放/分享都要如实反映
+          model: pinnedTarget?.model ?? model,
           ...(allGeneratedAtts.length > 0
             ? { attachments: allGeneratedAtts as unknown as Prisma.InputJsonValue }
             : {}),
@@ -1857,7 +1868,7 @@ export class ChatService {
             eventType: 'answer_completed',
             conversationId,
             messageId: saved.id,
-            model,
+            model: pinnedTarget?.model ?? model,
             metadata: {
               latencyMs: Date.now() - requestStartedAt,
               fromDb: hasDatabaseContext,
@@ -1910,8 +1921,9 @@ export class ChatService {
         this.aiUsageService.record({
           userId,
           modality: 'chat',
-          model,
-          provider: activeConfig.provider ?? '',
+          // 用量与成本记在「实际使用」的模型/厂商头上，与网关留痕（AiGatewayRequest）对齐
+          model: pinnedTarget?.model ?? model,
+          provider: pinnedTarget?.provider ?? activeConfig.provider ?? '',
           promptTokens: estTokens(promptChars),
           completionTokens: estTokens(fullContent.length),
           estimated: true,

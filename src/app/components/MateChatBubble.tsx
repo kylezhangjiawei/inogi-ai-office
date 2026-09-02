@@ -218,6 +218,13 @@ const DISLIKE_REASONS = [
 
 /** 附件数量与单文件大小上限（与后端 uploads-temp 的 20MB 对齐） */
 const ATTACH_MAX_COUNT = 10;
+
+/**
+ * 模型选择的本地持久化键。空串 selectedModel = 「自动」态：请求不带 model，
+ * 选模权交给后端网关路由（未配路由则用全局默认模型）；存 "auto" 表示用户显式选过自动。
+ * 显式选过的具体模型跨刷新保留——用户意志优先于路由。
+ */
+const MODEL_CHOICE_STORAGE_KEY = "matechat.model-choice";
 const ATTACH_MAX_BYTES = 20 * 1024 * 1024;
 /**
  * 图片上传前压缩的触发/目标上限：对齐后端聊天视觉硬线（MAX_IMAGE_BYTES = 10MB），留 1MB 余量。
@@ -692,7 +699,19 @@ export function MateChatBubble() {
     try {
       const [convs, mds] = await Promise.all([apiListConversations(), apiListModels()]);
       setModels(mds);
-      if (mds.length > 0 && !selectedModel) setSelectedModel(mds[0].id);
+      // 默认「自动」（selectedModel 保持空串，发送时不带 model → 网关路由接管选模）。
+      // 只恢复用户显式选过、且仍然存在的模型；存的是 "auto"/已下架/读不到 → 维持自动态。
+      if (!selectedModel) {
+        let stored: string | null = null;
+        try {
+          stored = localStorage.getItem(MODEL_CHOICE_STORAGE_KEY);
+        } catch {
+          /* 隐私模式等读不到本地存储：按自动态处理 */
+        }
+        if (stored && stored !== "auto" && mds.some((m) => m.id === stored)) {
+          setSelectedModel(stored);
+        }
+      }
       if (convs.length > 0) {
         setConversations(convs);
         if (!activeId) setActiveId(convs[0].id);
@@ -2505,7 +2524,7 @@ export function MateChatBubble() {
                         <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
                         {currentModel
                           ? `${currentModel.label}${currentModel.model ? ` · ${currentModel.model}` : ""}`
-                          : models.length === 0 ? "未配置模型" : "选择模型"}
+                          : models.length === 0 ? "未配置模型" : "自动 · 跟随系统路由"}
                         <ChevronDown className="h-3 w-3 text-slate-400" />
                       </button>
                       {/* RAG 状态指示：告知用户当前是否能查到内部资料 */}
@@ -2551,11 +2570,33 @@ export function MateChatBubble() {
                           className="absolute bottom-full left-0 mb-2 min-w-[180px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg"
                           onMouseLeave={() => setShowModelMenu(false)}
                         >
+                          {/* 「自动」置顶：不带 model 发送，由网关路由选模（未配路由则用全局默认模型）。 */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedModel("");
+                              try { localStorage.setItem(MODEL_CHOICE_STORAGE_KEY, "auto"); } catch { /* 存不了就算了 */ }
+                              setShowModelMenu(false);
+                            }}
+                            className={cn(
+                              "flex w-full flex-col px-4 py-2.5 text-left text-xs transition hover:bg-slate-50",
+                              selectedModel === "" ? "font-semibold text-indigo-600" : "text-slate-700",
+                            )}
+                          >
+                            <span>自动</span>
+                            <span className={cn("mt-0.5 text-[10px]", selectedModel === "" ? "text-indigo-400" : "text-slate-400")}>
+                              跟随系统路由 · 由管理员统一调度
+                            </span>
+                          </button>
                           {models.map((m) => (
                             <button
                               key={m.id}
                               type="button"
-                              onClick={() => { setSelectedModel(m.id); setShowModelMenu(false); }}
+                              onClick={() => {
+                                setSelectedModel(m.id);
+                                try { localStorage.setItem(MODEL_CHOICE_STORAGE_KEY, m.id); } catch { /* 存不了就算了 */ }
+                                setShowModelMenu(false);
+                              }}
                               className={cn(
                                 "flex w-full flex-col px-4 py-2.5 text-left text-xs transition hover:bg-slate-50",
                                 m.id === selectedModel ? "font-semibold text-indigo-600" : "text-slate-700",
