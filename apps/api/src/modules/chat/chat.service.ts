@@ -168,8 +168,19 @@ export class ChatService {
   private static readonly HISTORY_PER_DOC_CHARS = 2000;
   /** 历史重放文档文本的总预算（新轮次优先分配） */
   private static readonly HISTORY_DOC_CHAR_BUDGET = 8000;
-  /** 历史重新注入图片的总张数上限（每张都要重新下载并 base64 内联，控制成本） */
-  private static readonly HISTORY_MAX_IMAGES = 4;
+  /**
+   * 单条历史消息正文的字符硬上限。一条异常长的历史消息（如曾经生成的超长报告/表格）不该整条
+   * 灌回上下文，既撑大 prompt token 也占内存。正常回答远低于此值，不受影响；只截异常长的那条。
+   */
+  private static readonly HISTORY_PER_MSG_TEXT_CHARS = 6000;
+  /**
+   * 单请求发给上游的全部文本（system + 历史 + 当前消息）的总字符硬上限。超出则从最旧历史开始
+   * 丢弃，保证单请求上下文体积有确定上界——这是「杜绝 OOM」的应用层保障：内存峰值不再随会话
+   * 长度无限增长。约 9 万 token，正常多轮对话远低于此，只有异常膨胀的会话才会触发裁剪。
+   */
+  private static readonly PROMPT_TOTAL_CHAR_BUDGET = 260_000;
+  /** 历史重新注入图片的总张数上限（每张都要重新下载并 base64 内联，占内存也推高每轮上游 payload） */
+  private static readonly HISTORY_MAX_IMAGES = 2;
   /**
    * "看不到图"式拒答的识别正则（视觉去毒用）：命中的历史 assistant 消息在
    * 视觉模型的上下文里会被替换成作废占位，防止新模型沿用旧模型的拒答口径。
@@ -1357,19 +1368,32 @@ export class ChatService {
         ...history,
         userMessage,
       ];
-      // 输入体积：首 token 前模型要先把整个 prompt 读一遍（prefill），故它是 TTFT 的候选driver。
-      // 记下来才能和 firstToken 做相关性判断，而不是凭感觉去裁剪调过的提示词。
-      const initialPromptChars = baseMessages.reduce((sum, m) => {
-        const content = m.content;
-        if (typeof content === 'string') return sum + content.length;
-        if (!Array.isArray(content)) return sum;
-        // 只数文本片段。图片是 base64 data URL，序列化它纯粹是为了数长度会白白复制几 MB 字符串，
-        // 而且图片的 token 成本本来就不按字符算，计进来也没有意义。
-        return (
-          sum +
-          content.reduce((partSum, part) => partSum + (part.type === 'text' ? part.text.length : 0), 0)
+      // 单条消息的文本字符数。图片是 base64 data URL，不按字符算 token，序列化它只会白复制几 MB
+      // 字符串，故不计入。
+      const messageTextLen = (m: OpenAI.Chat.Completions.ChatCompletionMessageParam): number => {
+        const c = m.content;
+        if (typeof c === 'string') return c.length;
+        if (!Array.isArray(c)) return 0;
+        return c.reduce((sum, part) => sum + (part.type === 'text' ? part.text.length : 0), 0);
+      };
+      // 单请求上下文体积硬上限：超预算就从最旧历史开始丢弃（system 与当前消息永远保留），
+      // 让发给上游的文本体积有确定上界，内存峰值不再随会话长度无限增长——配合 pm2 内存墙，
+      // 从应用层根除「超长会话把进程撑爆」这条 OOM 路径。正常多轮对话远低于预算，不触发。
+      let promptTextTotal = baseMessages.reduce((sum, m) => sum + messageTextLen(m), 0);
+      if (promptTextTotal > ChatService.PROMPT_TOTAL_CHAR_BUDGET && history.length > 0) {
+        const trimmedHistory = [...history];
+        while (trimmedHistory.length > 0 && promptTextTotal > ChatService.PROMPT_TOTAL_CHAR_BUDGET) {
+          promptTextTotal -= messageTextLen(trimmedHistory.shift() as OpenAI.Chat.Completions.ChatCompletionMessageParam);
+        }
+        // 用裁剪后的历史替换 baseMessages 中间的历史段（下标 1 起，共 history.length 个）
+        baseMessages.splice(1, history.length, ...trimmedHistory);
+        this.logger.warn(
+          `会话 ${conversationId} 上下文超体积预算（${ChatService.PROMPT_TOTAL_CHAR_BUDGET} 字符），已从最旧历史裁剪至 ${trimmedHistory.length} 条`,
         );
-      }, 0);
+      }
+      // 输入体积：首 token 前模型要先把整个 prompt 读一遍（prefill），故它是 TTFT 的候选 driver。
+      // 记下来才能和 firstToken 做相关性判断（这里已是裁剪后的真实体积）。
+      const initialPromptChars = baseMessages.reduce((sum, m) => sum + messageTextLen(m), 0);
       const toolSchemaChars = agentEnabled ? JSON.stringify(agentTools).length : 0;
 
       /** 工具轮次累积的消息（assistant tool_calls + tool 观察结果），追加在 baseMessages 之后 */
@@ -2451,6 +2475,7 @@ export class ChatService {
 
     const mapped = messages.map((m, idx): OpenAI.Chat.Completions.ChatCompletionMessageParam | null => {
       const role = m.role as 'user' | 'assistant';
+      // 拒答检测用原文（拒答句一般在开头，截断不影响判定）
       if (
         role === 'assistant' &&
         sanitizeRefusals &&
@@ -2458,8 +2483,13 @@ export class ChatService {
       ) {
         return null;
       }
+      // 单条历史正文硬上限：异常长的历史消息只保留前段，避免整条撑大 prompt 与内存。
+      const baseText =
+        m.content.length > ChatService.HISTORY_PER_MSG_TEXT_CHARS
+          ? m.content.slice(0, ChatService.HISTORY_PER_MSG_TEXT_CHARS) + '…（历史消息过长，已截断）'
+          : m.content;
       if (role !== 'user' || (!docBlocks.has(idx) && !imageParts.has(idx) && !plainNotes.has(idx))) {
-        return { role, content: m.content };
+        return { role, content: baseText };
       }
       const extras: string[] = [];
       const blocks = docBlocks.get(idx);
@@ -2468,7 +2498,7 @@ export class ChatService {
       }
       const note = plainNotes.get(idx);
       if (note) extras.push(note);
-      const text = extras.length > 0 ? `${m.content}\n\n${extras.join('\n\n')}`.trim() : m.content;
+      const text = extras.length > 0 ? `${baseText}\n\n${extras.join('\n\n')}`.trim() : baseText;
       const parts = imageParts.get(idx);
       if (parts?.length) {
         return { role: 'user', content: [{ type: 'text', text }, ...parts] };
