@@ -343,9 +343,14 @@ test("跳过「待到样」按供应商核对，不是「这个任务有没有�
   assert.match(service, /wanted\.every\(\(name\) => arrived\.has\(name\)\)/);
   // 多家一起选时要求每家都已寄样
   assert.match(service, /wanted\.length > 0 && wanted\.every/);
-  // 两处选定入口都要把供应商传进去，漏一处就会退化回旧判据
-  assert.match(service, /nextAfterQuoteSelected\(\s*task,\s*selectedRows\.map\(\(row\) => row\.quote\.supplierName\),\s*\)/);
+  // 两处选定入口都要把供应商传进去，漏一处就会退化回旧判据。
+  // 确认报价已改为停在「询价中」，供应商核对搬到了「完成询价」这一步：
+  // 它读的是 isSelected 的报价快照，而不是本次确认的 selectedRows。
+  assert.match(service, /nextAfterQuoteSelected\(\s*task,\s*selected\.map\(\(row\) => row\.supplierName\),\s*\)/);
   assert.match(service, /nextAfterQuoteSelected\(task, \[quotation\.supplierName\]\)/);
+  // 确认报价本身不许再自动推进——那正是「待询价直接跳到已定价」的来源
+  assert.doesNotMatch(service, /nextAfterQuoteSelected\(\s*task,\s*selectedRows\.map/);
+  assert.match(service, /任务进入「询价中」，待「完成询价」后继续/);
 });
 
 test("「选定报价」提示现拉最新任务，不吃列表里的旧快照", () => {
