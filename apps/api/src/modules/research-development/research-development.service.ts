@@ -805,6 +805,32 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+/**
+ * 从采购历史附件的 fileUrl 里还原可能的 OSS object key。
+ *
+ * 与 ProcurementService.resolveAttachmentFileKey 的取值口径保持一致：优先取同源预览
+ * 代理的 key 查询参数，其次取解码后的路径。这里刻意不做业务前缀校验——调用方拿它去和
+ * 一个明确的待删 key 集合求交集，集合本身就是比前缀更强的过滤。
+ *
+ * 判「还有人引用」时宁可多认几个候选：认多了只是漏删一个对象（占点存储），
+ * 认少了会把别的模块正在用的文件真删掉。
+ */
+export function extractObjectKeysFromUrl(fileUrl: string | null | undefined): string[] {
+  const raw = fileUrl?.trim();
+  if (!raw) return [];
+  const candidates = new Set<string>();
+  try {
+    const parsed = new URL(raw, 'http://inogi.local');
+    const queryKey = parsed.searchParams.get('key')?.trim().replace(/^\/+/, '');
+    if (queryKey) candidates.add(queryKey);
+    const pathKey = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
+    if (pathKey) candidates.add(pathKey);
+  } catch {
+    return [];
+  }
+  return [...candidates];
+}
+
 function normalizeTaskRelationIds(value: unknown): string[] {
   const ids = asArray(value).map(cleanText).filter(Boolean);
   return [...new Set(ids)];
@@ -7328,7 +7354,7 @@ export class ResearchDevelopmentService {
     return this.decorateNotesWithPreview([note])[0];
   }
 
-  /** Delete removed OSS objects only after confirming that no progress note still references them. */
+  /** Delete removed OSS objects only after confirming that nothing still references them. */
   private async deleteAttachmentObjectsIfUnreferenced(attachments: JsonRecord[]) {
     const keys = new Set(
       attachments
@@ -7345,7 +7371,37 @@ export class ResearchDevelopmentService {
         }
       }
     }
+    if (keys.size === 0) return;
+
+    // 研发留痕不是这些对象的唯一引用方：转采购会把留痕附件的 object key 原样存进
+    // 采购任务附件（procurement.service.ts 的前缀白名单显式放行 rd/progress-notes）。
+    // 不查这一张表的话，研发这边删掉留痕就会把采购还在用的图纸物理删除，两边都不会察觉。
+    await this.removeKeysReferencedByProcurement(keys);
+    if (keys.size === 0) return;
+
     await Promise.all([...keys].map((key) => this.ossService.deleteObject(key)));
+  }
+
+  /**
+   * 从待删集合里剔除采购任务仍在引用的 object key。
+   *
+   * 采购附件有两代写法：新记录直接存 fileKey；历史记录 fileKey 为空，真实 key 藏在
+   * fileUrl 的 key 参数或路径里（中文名在 URL 里是百分号编码的，只做字符串包含会漏）。
+   * 两代都要认——只认 fileKey 的话，恰恰是最老、最不可能有备份的那批附件被删成死链。
+   */
+  private async removeKeysReferencedByProcurement(keys: Set<string>) {
+    const rows = await this.prisma.procTaskAttachment.findMany({
+      where: { OR: [{ fileKey: { in: [...keys] } }, { fileKey: null }] },
+      select: { fileKey: true, fileUrl: true },
+    });
+    for (const row of rows) {
+      const direct = row.fileKey?.trim().replace(/^\/+/, '');
+      if (direct) {
+        keys.delete(direct);
+        continue;
+      }
+      for (const candidate of extractObjectKeysFromUrl(row.fileUrl)) keys.delete(candidate);
+    }
   }
 
   async deleteTaskProgressNoteAttachment(params: {
