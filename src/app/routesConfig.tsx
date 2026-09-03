@@ -108,11 +108,12 @@ const BASE_NAV_GROUPS: NavGroup[] = [
     items: [{ label: "系统首页", path: "/", icon: LayoutDashboard, requiredPermission: "page:dashboard" }],
   },
   {
-    label: "采购管理",
+    label: "供应链管理",
     items: [
-      { label: "采购任务驾驶舱", path: "/proc-cockpit", icon: ShoppingCart, requiredPermission: "page:proc-cockpit" },
+      { label: "供应链任务驾驶舱", path: "/proc-cockpit", icon: ShoppingCart, requiredPermission: "page:proc-cockpit" },
       { label: "个人工作台", path: "/proc-my-workspace", icon: GanttChartSquare, requiredPermission: "page:proc-my-workspace" },
       { label: "物料库", path: "/proc-materials", icon: Warehouse, requiredPermission: "page:proc-materials" },
+      { label: "库存齐套中心", path: "/proc-inventory-readiness", icon: PackageCheck, requiredPermission: "page:proc-inventory-readiness" },
       { label: "供应商报价库", path: "/proc-quote-book", icon: Store, requiredPermission: "page:proc-quote-book" },
     ],
   },
@@ -306,7 +307,7 @@ export const routeTitleMap = navGroups
     "/rd-task": "研发任务详情",
     "/production-task": "生产任务详情",
     "/rd-people-management": "研发人员管理",
-    "/proc-people-management": "采购人员管理",
+    "/proc-people-management": "供应链人员管理",
     "/us-collab-people-management": "协同人员管理",
     "/production-people-management": "生产人员管理",
     "/ops-center/api-errors": "接口与错误",

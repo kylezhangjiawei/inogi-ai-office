@@ -1,4 +1,4 @@
-// 采购任务驾驶舱（流程视角）：业务线 Tab + 操作行 + 统计条 + 人员泳道 + 三列瀑布流。
+// 供应链任务驾驶舱（流程视角）：指挥区 + 履约轨道 + 集中筛选栏 + 三列瀑布流。
 // 分类/物料维度的浏览在「物料库」页，此页专注任务流。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../components/ui/input";
@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 import { useNavigate, useSearchParams } from "react-router";
-import { Activity, AlertTriangle, ClipboardList, Download, FolderTree, Layers3, MoreHorizontal, PackageCheck, PackageSearch, Plus, Search, Truck, UserCog, Users, X } from "lucide-react";
+import { Activity, AlertTriangle, ClipboardList, Download, FolderTree, Layers3, MoreHorizontal, PackageCheck, PackagePlus, PackageSearch, Plus, Search, Truck, UserCog, Users, X } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
@@ -26,6 +26,7 @@ import { ProcurementSystemTree } from "./components/ProcurementSystemTree";
 import { useProcTaskAction } from "./components/taskActions";
 import { TaskDetailDrawer } from "./components/TaskDetailDrawer";
 import { MoveTaskDialog } from "./components/MoveTaskDialog";
+import { StockPlanPanel } from "./components/StockPlanPanel";
 import { BatchReassignModal, NewRequirementModal, PoMatchModal } from "./components/modals";
 import { usePermission } from "../hooks/usePermission";
 import { exportProcTasksXlsx } from "./exportTasks";
@@ -78,10 +79,36 @@ export function ProcurementCockpitPage() {
   // 必须声明在 setOpen 之后——放前面会命中 TDZ，构建器不报错但运行时直接白屏。
   const taskAction = useProcTaskAction({ onOpenDetail: setOpen });
 
-  // 业务线 Tab 作为整页作用域（统计条/人员泳道/到货付款速览均随之变化），同步到 ?line= 便于刷新与分享
+  // 页面级 Tab 与业务线筛选是两层信息架构：?tab= 切换栏目，?line= 只筛选采购任务。
+  const cockpitTab: "tasks" | "stock-plans" = params.get("tab") === "stock-plans" ? "stock-plans" : "tasks";
   const lineParam = params.get("line");
   const line: "all" | "rd" | "production" = lineParam === "rd" || lineParam === "production" ? lineParam : "all";
-  const setLine = (k: "all" | "rd" | "production") => setParams((p) => { const n = new URLSearchParams(p); if (k === "all") n.delete("line"); else n.set("line", k); return n; }, { replace: true });
+  const setCockpitTab = (nextTab: "tasks" | "stock-plans") => setParams((p) => {
+    const next = new URLSearchParams(p);
+    if (nextTab === "stock-plans") {
+      next.set("tab", "stock-plans");
+      next.delete("view");
+      next.delete("module");
+      next.delete("product");
+      next.delete("core");
+      next.delete("material");
+      next.delete("task");
+    } else {
+      next.delete("tab");
+    }
+    return next;
+  }, { replace: true });
+  const setLine = (nextLine: "all" | "rd" | "production") => {
+    // 生产任务不经过询价阶段；切换时同步清掉已选中的询价筛选，避免出现隐藏筛选。
+    if (nextLine === "production" && stat === "inquiring") setStat(null);
+    setParams((p) => {
+      const next = new URLSearchParams(p);
+      next.delete("tab");
+      if (nextLine === "all") next.delete("line");
+      else next.set("line", nextLine);
+      return next;
+    }, { replace: true });
+  };
 
   const view: "tasks" | "systems" = params.get("view") === "systems" ? "systems" : "tasks";
   const setView = (nextView: "tasks" | "systems") => setParams((p) => {
@@ -312,9 +339,56 @@ export function ProcurementCockpitPage() {
     }, { replace: true });
   };
 
+  const cockpitTabs = (
+    <Tabs value={cockpitTab} className="proc-horizon-page-tabs" onValueChange={(value) => setCockpitTab(value as typeof cockpitTab)}>
+      <TabsList aria-label={t("供应链驾驶舱栏目")}>
+        <TabsTrigger value="tasks">
+          <ClipboardList aria-hidden="true" className="size-4" />
+          {t("采购任务")}
+        </TabsTrigger>
+        <TabsTrigger value="stock-plans">
+          <PackagePlus aria-hidden="true" className="size-4" />
+          {t("备货计划")}
+        </TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
+
+  const businessLineFilter = (
+    <div className="proc-horizon-line-filter">
+      <span className="proc-horizon-line-filter-label">{t("业务线")}</span>
+      <ToggleGroup
+        type="single"
+        value={line}
+        onValueChange={(value) => value && setLine(value as typeof line)}
+        aria-label={t("按采购业务线筛选")}
+        className="proc-horizon-line-filter-list"
+      >
+        {([["all", "全部", lineCounts.all], ["production", "生产", lineCounts.production], ["rd", "研发", lineCounts.rd]] as const).map(([key, label, count]) => (
+          <ToggleGroupItem key={key} value={key} className="proc-horizon-line-filter-option">
+            <span>{t(label)}</span>
+            <span className="proc-horizon-line-filter-count tabular-nums">{count}</span>
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+    </div>
+  );
+
+  if (cockpitTab === "stock-plans") {
+    return (
+      <div className="proc-horizon proc-horizon-cockpit-shell mx-auto h-full w-full max-w-[1600px] p-3 lg:p-4">
+        <div className="proc-horizon-layout flex h-full min-h-0 flex-col">
+          {cockpitTabs}
+          <StockPlanPanel materials={materials} canCreate={canCreate} />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="proc-horizon mx-auto h-full w-full max-w-[1600px] p-3 lg:p-4">
+    <div className="proc-horizon proc-horizon-cockpit-shell mx-auto h-full w-full max-w-[1600px] p-3 lg:p-4">
       <div className="proc-horizon-layout flex h-full min-h-0 flex-col">
+      {cockpitTabs}
       {/* Horizon 指挥区：业务范围、全局操作与 KPI 共用一个信息焦点。 */}
       {view === "tasks" && (
         <section className="proc-horizon-command proc-horizon-command-cockpit mb-3">
@@ -322,22 +396,12 @@ export function ProcurementCockpitPage() {
             <div className="proc-horizon-command-heading">
               <span className="proc-horizon-command-mark"><ClipboardList className="size-5" /></span>
               <div className="proc-horizon-command-copy">
-                <h2 className="text-balance">{t("采购任务指挥台")}</h2>
+                <h2 className="text-balance">{t("供应链任务指挥台")}</h2>
                 <p className="text-pretty">
                   {treeNode
                     ? t("当前聚焦「{name}」，共 {count} 个任务", { name: treeNode.name, count: treeScopedTasks.length })
-                    : t("汇总需求、询价、下单与到货进度，共 {count} 个任务", { count: treeScopedTasks.length })}
+                    : t("集中处理待确认、询价、在途与到货异常")}
                 </p>
-                <Tabs value={line} className="proc-horizon-scope-tabs" onValueChange={(value) => setLine(value as "all" | "rd" | "production")}>
-                  <TabsList aria-label={t("采购业务线")} className="h-10 rounded-lg bg-slate-100 p-1">
-                  {([["all", "全部"], ["production", "生产"], ["rd", "研发"]] as const).map(([k, lbl]) => (
-                    <TabsTrigger key={k} value={k} className="h-8 gap-1.5 rounded-md px-4 text-sm text-slate-500 data-[state=active]:font-semibold data-[state=active]:text-[#002fa7]">
-                      {t(lbl)}
-                      <span className={cn("rounded-full px-1.5 text-[10px] font-medium tabular-nums", line === k ? "bg-[#eef3ff] text-[#002fa7]" : "bg-slate-200/70 text-slate-500")}>{lineCounts[k]}</span>
-                    </TabsTrigger>
-                  ))}
-                  </TabsList>
-                </Tabs>
               </div>
             </div>
 
@@ -384,13 +448,19 @@ export function ProcurementCockpitPage() {
               {canCreate && <button type="button" onClick={() => setNewOpen(true)} className="proc-horizon-primary-action inline-flex items-center gap-1.5 text-xs"><Plus className="size-4" />{t('新建需求')}</button>}
             </div>
 
-            <div className="proc-horizon-kpi-grid">
-              <StatCell label={t('进行中')} value={counts.inprogress} Icon={Activity} active={stat === "inprogress"} onClick={() => toggleStat("inprogress")} />
-              <StatCell label={t('待处理')} value={counts.pending} tone={counts.pending > 0 ? "red" : "slate"} badge={counts.pending > 0} Icon={ClipboardList} active={stat === "pending"} onClick={() => toggleStat("pending")} />
-              <StatCell label={t('询价中')} value={counts.inquiring} tone="indigo" Icon={Search} active={stat === "inquiring"} onClick={() => toggleStat("inquiring")} />
-              <StatCell label={t('在途')} value={counts.transit} tone="indigo" Icon={Truck} active={stat === "transit"} onClick={() => toggleStat("transit")} />
-              <StatCell label={t('逾期')} value={counts.overdue} tone="red" Icon={AlertTriangle} active={stat === "overdue"} onClick={() => toggleStat("overdue")} />
-              <StatCell label={t('本周到货')} value={counts.week} tone="emerald" Icon={PackageCheck} active={stat === "week"} onClick={() => toggleStat("week")} />
+            <div className="proc-horizon-flow-overview" aria-label={t("供应链履约轨道")}>
+              <div className="proc-horizon-flow-summary">
+                <StatCell label={t('在制任务')} value={counts.inprogress} Icon={Activity} active={stat === "inprogress"} onClick={() => toggleStat("inprogress")} />
+              </div>
+              <div className={cn("proc-horizon-kpi-grid proc-horizon-flow-rail", line === "production" && "proc-horizon-flow-rail-production")}>
+                <StatCell label={t('待确认')} value={counts.pending} tone={counts.pending > 0 ? "red" : "slate"} badge={counts.pending > 0} Icon={ClipboardList} active={stat === "pending"} onClick={() => toggleStat("pending")} />
+                {line !== "production" ? <StatCell label={t('询价中')} value={counts.inquiring} tone="indigo" Icon={Search} active={stat === "inquiring"} onClick={() => toggleStat("inquiring")} /> : null}
+                <StatCell label={t('采购在途')} value={counts.transit} tone="indigo" Icon={Truck} active={stat === "transit"} onClick={() => toggleStat("transit")} />
+                <StatCell label={t('本周到货')} value={counts.week} tone="emerald" Icon={PackageCheck} active={stat === "week"} onClick={() => toggleStat("week")} />
+              </div>
+              <div className="proc-horizon-flow-exception">
+                <StatCell label={t('逾期异常')} value={counts.overdue} tone="red" Icon={AlertTriangle} active={stat === "overdue"} onClick={() => toggleStat("overdue")} />
+              </div>
             </div>
           </div>
         </section>
@@ -424,6 +494,7 @@ export function ProcurementCockpitPage() {
         <section className="proc-horizon-task-stream flex min-h-0 min-w-0 flex-1 flex-col">
       {/* 人员泳道 */}
       <div className="proc-horizon-people-nav">
+        {businessLineFilter}
         <span className="proc-horizon-people-label"><Users className="size-3.5" />{t('采购负责人')}</span>
         <ToggleGroup
           type="single"
@@ -449,7 +520,7 @@ export function ProcurementCockpitPage() {
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-        <div className="proc-horizon-search ml-2">
+        <div className="proc-horizon-search">
           <Search className="pointer-events-none absolute left-3 top-1/2 z-10 size-3.5 -translate-y-1/2 text-slate-400" />
           <Input aria-label={t('搜索采购任务')} value={kw} onChange={(e) => setKw(e.target.value)} placeholder={t('搜索单号 / 物料 / 人员')} className="pl-8 pr-8 text-xs placeholder:text-slate-400" />
           {kw && (
@@ -496,7 +567,7 @@ export function ProcurementCockpitPage() {
               <button type="button" onClick={() => void refreshProcurement()} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</button>
             </div>
           ) : loading && tasks.length === 0 ? (
-            <div aria-label={t("正在加载采购任务")} className="columns-1 gap-3 lg:columns-2 xl:columns-3">
+            <div aria-label={t("正在加载采购任务")} className="proc-horizon-masonry columns-1 gap-3 lg:columns-2 xl:columns-3">
               {[0, 1, 2].map((item) => (
                 <div key={item} className="mb-3 min-h-52 break-inside-avoid rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="flex gap-2"><span className="h-5 w-16 rounded bg-slate-100" /><span className="h-5 w-20 rounded bg-slate-100" /></div>
@@ -519,10 +590,10 @@ export function ProcurementCockpitPage() {
             </div>
           ) : (
               <>
-                {/* 瀑布流：CSS 多列实现（待处理置顶项落在第一列顶部）；分批渲染 + 滚动加载更多 */}
+                {/* 多列瀑布流：卡片按自身高度顺次排列，不将单条任务拉伸到整行。 */}
                 <div className="proc-horizon-masonry columns-1 gap-3 lg:columns-2 xl:columns-3">
                   {visibleTasks.map((t) => (
-                    <div key={t.id} className="mb-3 break-inside-avoid">
+                    <div key={t.id} className="mb-3 min-w-0 break-inside-avoid">
                       <ProcurementTaskCard
                         task={t}
                         materials={materials}

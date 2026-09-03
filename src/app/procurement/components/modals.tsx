@@ -997,7 +997,7 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
 
       {createdCodes ? (
         <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 text-sm text-emerald-800">
-          {t('已生成 {n} 个采购任务，可在采购任务驾驶舱查看：', { n: createdCodes.length })}
+          {t('已生成 {n} 个采购任务，可在供应链任务驾驶舱查看：', { n: createdCodes.length })}
           <div className="mt-1 text-xs">{createdCodes.join('、')}</div>
         </div>
       ) : rows && (

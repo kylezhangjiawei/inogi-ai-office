@@ -110,11 +110,12 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:purchase-order-detail', label: '采购订单详情', description: '查看采购订单明细、供应商、履约、结算与备注信息', groupLabel: '页面访问 · 订单与库存', type: 'page', routePath: '/purchase-orders/:id', navHidden: true, sortOrder: 266 },
   { code: 'page:inventory-management', label: '库存管理', description: '库存台账、入库登记、预警商品与出入库记录', groupLabel: '页面访问 · 订单与库存', type: 'page', routePath: '/inventory-management', sortOrder: 270 },
 
-  // 采购管理（静态流程页面）
-  { code: 'page:proc-cockpit', label: '采购任务驾驶舱', description: '采购任务全流程视角：询价/打样/测试/下单/到货', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-cockpit', sortOrder: 45 },
-  { code: 'page:proc-my-workspace', label: '采购个人工作台', description: '成员视角：只看分配给我的采购任务，按阶段分组推进', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-my-workspace', sortOrder: 46 },
-  { code: 'page:proc-materials', label: '采购物料库', description: '物料主数据与库存/在途资产视角：分类、审核与历史价格', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-materials', sortOrder: 47 },
-  { code: 'page:proc-quote-book', label: '供应商报价库', description: '同一商品跨厂家比价：树形维护厂家报价与起订量阶梯价', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-quote-book', sortOrder: 48 },
+  // 供应链管理（采购任务、备货、物料与供应商报价）
+  { code: 'page:proc-cockpit', label: '供应链任务驾驶舱', description: '采购任务全流程视角：询价/打样/测试/下单/到货', groupLabel: '页面访问 · 供应链管理', type: 'page', routePath: '/proc-cockpit', sortOrder: 45 },
+  { code: 'page:proc-my-workspace', label: '供应链个人工作台', description: '成员视角：只看分配给我的采购任务，按阶段分组推进', groupLabel: '页面访问 · 供应链管理', type: 'page', routePath: '/proc-my-workspace', sortOrder: 46 },
+  { code: 'page:proc-materials', label: '供应链物料库', description: '物料主数据与库存/在途资产视角：分类、审核与历史价格', groupLabel: '页面访问 · 供应链管理', type: 'page', routePath: '/proc-materials', sortOrder: 47 },
+  { code: 'page:proc-inventory-readiness', label: '库存齐套中心', description: '按产品 BOM 汇总量产仓库的库存与在途，计算物料可齐套套数和瓶颈缺口', groupLabel: '页面访问 · 供应链管理', type: 'page', routePath: '/proc-inventory-readiness', sortOrder: 48 },
+  { code: 'page:proc-quote-book', label: '供应商报价库', description: '同一商品跨厂家比价：树形维护厂家报价与起订量阶梯价', groupLabel: '页面访问 · 供应链管理', type: 'page', routePath: '/proc-quote-book', sortOrder: 49 },
 
   { code: 'page:ui-design', label: 'AI 图像生成', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/ui-design', sortOrder: 300 },
   { code: 'page:image-library', label: '图像作品库', description: '历史创作、收藏作品与上游用量统计', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/image-library', sortOrder: 305 },
@@ -211,19 +212,19 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'issue:create', label: '登记问题', description: '新建问题记录并触发 AI 根因分析', groupLabel: '操作权限 · 问题记录与 AI 定位', type: 'action', sortOrder: 1500 },
   { code: 'issue:resolve', label: '问题定性 / AI 配置', description: '判定问题是否已解决（进知识库可复用），并维护本模块 AI 配置', groupLabel: '操作权限 · 问题记录与 AI 定位', type: 'action', sortOrder: 1510 },
 
-  // 采购管理 · 操作权限（下单/入库在畅捷通 T+ 内完成，本系统无采购审批码）
-  { code: 'proc-task:create', label: '新建 / 编辑采购任务', description: '采购自建需求、维护任务信息与附件、维护物料主数据', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1600 },
-  { code: 'proc-task:transfer', label: '转采购', description: '研发侧将任务转为采购需求（需带附件）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1610 },
-  { code: 'rd-procurement:review', label: '研发转采购审核', description: '研发管理员审核研发任务的转采购申请；通过后才流转并分配给采购人员', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1615 },
-  { code: 'proc-task:confirm', label: '确认接收', description: '采购确认接收流转来的任务，进入询价 / 直购分支', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1620 },
-  { code: 'proc-task:inquiry', label: '询价 / 推进状态', description: '从供应商报价库选择报价并推进任务状态（打样、测试、到货）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1630 },
-  { code: 'proc-task:select-quote', label: '选定报价', description: '在多份报价中定标，回写物料最新价格', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1640 },
-  { code: 'proc-task:order', label: '关联采购单', description: '把任务关联到畅捷通 T+ 的采购单据（本系统不创建单据）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1650 },
-  { code: 'proc-task:receive', label: '登记到货', description: '手工登记到货数量（过渡期能力，畅捷通 T+ 接通后改由同步驱动）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1655 },
-  { code: 'proc-task:reassign', label: '转派采购负责人', description: '变更任务的采购负责人', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1660 },
-  { code: 'proc-task:delete', label: '取消 / 删除任务', description: '取消进行中的采购任务或删除错误任务', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1670 },
-  { code: 'material:review', label: '物料审核', description: '审核待确认物料（通过 / 驳回）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1680 },
-  { code: 'material:import', label: '物料批量导入', description: '批量导入物料主数据', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1690 },
-  { code: 'quote-book:manage', label: '维护供应商报价库', description: '供应商报价库的厂家报价增删改与批量导入（过渡期持「询价/推进状态」也可写）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1695 },
-  { code: 'proc:sync-erp', label: '同步畅捷通 T+', description: '手动触发供应商 / 库存 / 采购单的只读同步', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1700 },
+  // 供应链管理 · 操作权限（下单/入库在畅捷通 T+ 内完成，本系统无采购审批码）
+  { code: 'proc-task:create', label: '新建 / 编辑采购任务', description: '采购自建需求、维护任务信息与附件、维护物料主数据', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1600 },
+  { code: 'proc-task:transfer', label: '转采购', description: '研发侧将任务转为采购需求（需带附件）', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1610 },
+  { code: 'rd-procurement:review', label: '研发转采购审核', description: '研发管理员审核研发任务的转采购申请；通过后才流转并分配给采购人员', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1615 },
+  { code: 'proc-task:confirm', label: '确认接收', description: '采购确认接收流转来的任务，进入询价 / 直购分支', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1620 },
+  { code: 'proc-task:inquiry', label: '询价 / 推进状态', description: '从供应商报价库选择报价并推进任务状态（打样、测试、到货）', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1630 },
+  { code: 'proc-task:select-quote', label: '选定报价', description: '在多份报价中定标，回写物料最新价格', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1640 },
+  { code: 'proc-task:order', label: '关联采购单', description: '把任务关联到畅捷通 T+ 的采购单据（本系统不创建单据）', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1650 },
+  { code: 'proc-task:receive', label: '登记到货', description: '手工登记到货数量（过渡期能力，畅捷通 T+ 接通后改由同步驱动）', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1655 },
+  { code: 'proc-task:reassign', label: '转派采购负责人', description: '变更任务的采购负责人', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1660 },
+  { code: 'proc-task:delete', label: '取消 / 删除任务', description: '取消进行中的采购任务或删除错误任务', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1670 },
+  { code: 'material:review', label: '物料审核', description: '审核待确认物料（通过 / 驳回）', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1680 },
+  { code: 'material:import', label: '物料批量导入', description: '批量导入物料主数据', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1690 },
+  { code: 'quote-book:manage', label: '维护供应商报价库', description: '供应商报价库的厂家报价增删改与批量导入（过渡期持「询价/推进状态」也可写）', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1695 },
+  { code: 'proc:sync-erp', label: '同步畅捷通 T+', description: '手动触发供应商 / 库存 / 采购单的只读同步', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1700 },
 ];

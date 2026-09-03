@@ -278,7 +278,7 @@ export function QuoteBookPage() {
     <div className="proc-horizon mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col p-4">
       <PageHeader
         Icon={Store}
-        badge={t("采购管理")}
+        badge={t("供应链管理")}
         title={t("供应商报价库")}
         description={t("同一商品跨厂家比较阶梯价、交期与有效期；仅有效报价参与最优价计算。")}
         right={

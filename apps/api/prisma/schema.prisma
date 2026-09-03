@@ -1396,6 +1396,7 @@ model ProcMaterial {
   bomNodes        ProcBomNode[]
   taskTreeNodes   ProcTaskTreeNode[]
   tasks           ProcTask[]
+  stockPlans      ProcStockPlan[]
   criticalTaskLinks ProcTaskCriticalMaterial[]
   quotations      ProcQuotation[]
   supplierQuotes  ProcSupplierQuote[]
@@ -1557,6 +1558,7 @@ model ProcSupplier {
   metadata   Json            @default("{}")
   quotations ProcQuotation[]
   supplierQuotes ProcSupplierQuote[]
+  stockPlanBatches ProcStockPlanBatch[]
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
@@ -1652,6 +1654,51 @@ model ProcPurchaseOrderRef {
 
   @@index([taskId])
   @@index([tpOrderNo])
+}
+
+/// 采购自建的备货总计划。完成状态由采购批次数量合计与 targetQty 实时计算，不单独落状态字段。
+model ProcStockPlan {
+  id            String               @id @default(cuid())
+  code          String               @unique
+  materialId    String?
+  material      ProcMaterial?        @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  /// 物料快照：主数据后续改名不影响历史备货计划。
+  materialName  String
+  spec          String               @default("")
+  unit          String               @default("")
+  targetQty     Decimal              @db.Decimal(14, 3)
+  targetDate    DateTime?
+  note          String?
+  createdBy     String?
+  createdByName String               @default("")
+  batches       ProcStockPlanBatch[]
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@index([materialId])
+  @@index([updatedAt])
+}
+
+/// 备货计划下的采购批次。不同批次可以来自不同供应商。
+model ProcStockPlanBatch {
+  id                  String         @id @default(cuid())
+  planId              String
+  plan                ProcStockPlan  @relation(fields: [planId], references: [id], onDelete: Cascade)
+  supplierId          String?
+  supplier            ProcSupplier?  @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierName        String
+  purchaseQty         Decimal        @db.Decimal(14, 3)
+  purchaseOrderNo     String?
+  orderDate           DateTime?
+  expectedArrivalDate DateTime?
+  note                String?
+  createdBy           String?
+  createdByName       String         @default("")
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  @@index([planId, createdAt])
+  @@index([supplierId])
 }
 
 /// 库存结存：T+ 只读镜像。缺料预警 = stockQty < ProcMaterial.safeStock（阈值本地维护）。

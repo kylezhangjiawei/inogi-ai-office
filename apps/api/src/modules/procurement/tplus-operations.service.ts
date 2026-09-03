@@ -264,7 +264,8 @@ export class TplusOperationsService {
     const filtered = allOrders.filter((order) => {
       const haystack = `${order.poNo} ${order.supplier} ${order.items.map((item) => `${item.sku} ${item.name}`).join(' ')}`.toLowerCase();
       if (q && !haystack.includes(q)) return false;
-      if (status && status !== 'all' && order.status !== status) return false;
+      if (status === 'in_transit' && !['已下单', '部分到货'].includes(order.status)) return false;
+      if (status && status !== 'all' && status !== 'in_transit' && order.status !== status) return false;
       if (supplier && supplier !== 'all' && order.supplier !== supplier) return false;
       if (dateFrom && order.orderDate !== '-' && order.orderDate < dateFrom) return false;
       if (dateTo && order.orderDate !== '-' && order.orderDate > dateTo) return false;

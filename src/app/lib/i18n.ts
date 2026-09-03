@@ -30,6 +30,19 @@ let currentLang: I18nLang = (() => {
  * 字典 seed 尚未同步或请求暂时失败时回退成中文，保证中美协同核心导航和操作可用。
  */
 const BUILTIN_EN_FALLBACKS: Record<string, string> = {
+  // 供应链模块品牌名称；采购负责人、采购数量等具体业务术语仍沿用 Procurement/Purchasing。
+  "供应链管理": "Supply Chain",
+  "供应链任务驾驶舱": "Supply Chain Cockpit",
+  "供应链任务指挥台": "Supply Chain Control Tower",
+  "供应链个人工作台": "Supply Chain Workspace",
+  "供应链物料库": "Supply Chain Materials",
+  "库存齐套中心": "Inventory Readiness Center",
+  "量产仓库": "Production Warehouse",
+  "可齐套套数": "Material-ready Units",
+  "供应链人员管理": "Supply Chain Team",
+  "供应链驾驶舱栏目": "Supply Chain Cockpit Sections",
+  "供应链履约轨道": "Supply Chain Fulfillment Flow",
+  "已生成 {n} 个采购任务，可在供应链任务驾驶舱查看：": "{n} procurement tasks created. View them in the Supply Chain Cockpit:",
   // MateChat ReAct：等待期阶段提示与步骤条文案
   "正在理解你的问题…": "Understanding your question…",
   "正在检索内部资料…": "Searching internal data…",

@@ -837,7 +837,7 @@ export const AUDIT_MODULE_LABELS: Record<string, string> = {
   rd: "研发任务管理",
   "us-collab": "中美协同",
   production: "生产",
-  procurement: "采购管理",
+  procurement: "供应链管理",
   auth: "登录与账号",
   chat: "智能助手",
   chat_tool: "智能助手工具",

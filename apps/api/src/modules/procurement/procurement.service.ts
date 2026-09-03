@@ -14,6 +14,8 @@ import {
   BomNodeInputDto,
   CancelProcTaskDto,
   ConfirmQuoteBookQuotesDto,
+  CreateProcStockPlanBatchDto,
+  CreateProcStockPlanDto,
   CreateProcTaskTreeNodeDto,
   CreateProcTaskDto,
   ImportBomDto,
@@ -30,6 +32,8 @@ import {
   TransitionProcTaskDto,
   UpdateProcTaskTreeNodeDto,
   UpdateProcTaskDto,
+  UpdateProcStockPlanBatchDto,
+  UpdateProcStockPlanDto,
   UpsertMaterialDto,
 } from './dto/procurement.dto';
 import {
@@ -45,6 +49,12 @@ import {
   type ProcTaskListQuery,
 } from './procurement.types';
 import { INITIAL_PROC_TASK_TREE } from './proc-task-tree.seed';
+import {
+  calculateInventoryReadiness,
+  isProductionWarehouse,
+  type InventoryReadinessBalance,
+  type InventoryReadinessBomLeaf,
+} from './inventory-readiness';
 
 const DEFAULT_PROC_PRODUCT_ID = 'prod-portable-o2';
 
@@ -85,6 +95,7 @@ export interface BomTreeNode {
   level: number;
   productLine: string;
   qtyPer: number | null;
+  remark: string | null;
   material: { id: string; name: string; spec: string; unit: string } | null;
   children: BomTreeNode[];
 }
@@ -190,7 +201,12 @@ const PROC_TASK_VIEW_INCLUDE = Prisma.validator<Prisma.ProcTaskInclude>()({
   criticalMaterials: { orderBy: { sortOrder: 'asc' } },
 });
 
+const PROC_STOCK_PLAN_VIEW_INCLUDE = Prisma.validator<Prisma.ProcStockPlanInclude>()({
+  batches: { orderBy: [{ orderDate: 'asc' }, { createdAt: 'asc' }] },
+});
+
 type ProcTaskView = Prisma.ProcTaskGetPayload<{ include: typeof PROC_TASK_VIEW_INCLUDE }>;
+type ProcStockPlanView = Prisma.ProcStockPlanGetPayload<{ include: typeof PROC_STOCK_PLAN_VIEW_INCLUDE }>;
 type ProcReviewNoticeTask = Pick<
   Prisma.ProcTaskGetPayload<object>,
   | 'id'
@@ -255,6 +271,138 @@ export class ProcurementService {
     } catch {
       return null;
     }
+  }
+
+  // ── 备货计划 ────────────────────────────────────────────────────────────────
+
+  async listStockPlans() {
+    const rows = await this.prisma.procStockPlan.findMany({
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      include: PROC_STOCK_PLAN_VIEW_INCLUDE,
+    });
+    return { items: rows.map((row) => this.serializeStockPlan(row)) };
+  }
+
+  async createStockPlan(dto: CreateProcStockPlanDto, actor: ProcActor) {
+    const row = await this.prisma.procStockPlan.create({
+      data: {
+        code: await this.nextStockPlanCode(),
+        materialId: dto.materialId?.trim() || null,
+        materialName: dto.materialName.trim(),
+        spec: dto.spec?.trim() ?? '',
+        unit: dto.unit?.trim() ?? '',
+        targetQty: new Prisma.Decimal(dto.targetQty),
+        targetDate: parseDay(dto.targetDate),
+        note: dto.note?.trim() || null,
+        createdBy: actor.id,
+        createdByName: actor.name,
+      },
+      include: PROC_STOCK_PLAN_VIEW_INCLUDE,
+    });
+    return this.serializeStockPlan(row);
+  }
+
+  async updateStockPlan(id: string, dto: UpdateProcStockPlanDto) {
+    await this.requireStockPlan(id);
+    const data: Prisma.ProcStockPlanUncheckedUpdateInput = {};
+    if (dto.materialId !== undefined) data.materialId = dto.materialId.trim() || null;
+    if (dto.materialName !== undefined) data.materialName = dto.materialName.trim();
+    if (dto.spec !== undefined) data.spec = dto.spec.trim();
+    if (dto.unit !== undefined) data.unit = dto.unit.trim();
+    if (dto.targetQty !== undefined) data.targetQty = new Prisma.Decimal(dto.targetQty);
+    if (dto.targetDate !== undefined) data.targetDate = parseDay(dto.targetDate);
+    if (dto.note !== undefined) data.note = dto.note.trim() || null;
+    const row = await this.prisma.procStockPlan.update({
+      where: { id },
+      data,
+      include: PROC_STOCK_PLAN_VIEW_INCLUDE,
+    });
+    return this.serializeStockPlan(row);
+  }
+
+  async createStockPlanBatch(id: string, dto: CreateProcStockPlanBatchDto, actor: ProcActor) {
+    await this.requireStockPlan(id);
+    const row = await this.prisma.procStockPlan.update({
+      where: { id },
+      data: {
+        batches: {
+          create: {
+            supplierId: dto.supplierId?.trim() || null,
+            supplierName: dto.supplierName.trim(),
+            purchaseQty: new Prisma.Decimal(dto.purchaseQty),
+            purchaseOrderNo: dto.purchaseOrderNo?.trim() || null,
+            orderDate: parseDay(dto.orderDate),
+            expectedArrivalDate: parseDay(dto.expectedArrivalDate),
+            note: dto.note?.trim() || null,
+            createdBy: actor.id,
+            createdByName: actor.name,
+          },
+        },
+      },
+      include: PROC_STOCK_PLAN_VIEW_INCLUDE,
+    });
+    return this.serializeStockPlan(row);
+  }
+
+  async updateStockPlanBatch(
+    planId: string,
+    batchId: string,
+    dto: UpdateProcStockPlanBatchDto,
+  ) {
+    await this.requireStockPlanBatch(planId, batchId);
+    const data: Prisma.ProcStockPlanBatchUncheckedUpdateInput = {};
+    if (dto.supplierId !== undefined) data.supplierId = dto.supplierId.trim() || null;
+    if (dto.supplierName !== undefined) data.supplierName = dto.supplierName.trim();
+    if (dto.purchaseQty !== undefined) data.purchaseQty = new Prisma.Decimal(dto.purchaseQty);
+    if (dto.purchaseOrderNo !== undefined) data.purchaseOrderNo = dto.purchaseOrderNo.trim() || null;
+    if (dto.orderDate !== undefined) data.orderDate = parseDay(dto.orderDate);
+    if (dto.expectedArrivalDate !== undefined) data.expectedArrivalDate = parseDay(dto.expectedArrivalDate);
+    if (dto.note !== undefined) data.note = dto.note.trim() || null;
+    await this.prisma.procStockPlanBatch.update({ where: { id: batchId }, data });
+    return this.getStockPlanView(planId);
+  }
+
+  async deleteStockPlanBatch(planId: string, batchId: string) {
+    await this.requireStockPlanBatch(planId, batchId);
+    await this.prisma.procStockPlanBatch.delete({ where: { id: batchId } });
+    return this.getStockPlanView(planId);
+  }
+
+  private async requireStockPlan(id: string) {
+    const plan = await this.prisma.procStockPlan.findUnique({ where: { id }, select: { id: true } });
+    if (!plan) throw new NotFoundException('备货计划不存在');
+    return plan;
+  }
+
+  private async requireStockPlanBatch(planId: string, batchId: string) {
+    const batch = await this.prisma.procStockPlanBatch.findFirst({
+      where: { id: batchId, planId },
+      select: { id: true },
+    });
+    if (!batch) throw new NotFoundException('采购批次不存在');
+    return batch;
+  }
+
+  private async getStockPlanView(id: string) {
+    const row = await this.prisma.procStockPlan.findUnique({
+      where: { id },
+      include: PROC_STOCK_PLAN_VIEW_INCLUDE,
+    });
+    if (!row) throw new NotFoundException('备货计划不存在');
+    return this.serializeStockPlan(row);
+  }
+
+  /** 备货计划编号 SP-YYYYMMDD-NNN，按天累计。 */
+  private async nextStockPlanCode() {
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const prefix = `SP-${stamp}-`;
+    const last = await this.prisma.procStockPlan.findFirst({
+      where: { code: { startsWith: prefix } },
+      orderBy: { code: 'desc' },
+      select: { code: true },
+    });
+    const seq = last ? Number(last.code.slice(prefix.length)) + 1 : 1;
+    return `${prefix}${String(Number.isFinite(seq) ? seq : 1).padStart(3, '0')}`;
   }
 
   // ── 任务 ────────────────────────────────────────────────────────────────────
@@ -2950,6 +3098,7 @@ export class ProcurementService {
         level: r.level,
         productLine: r.productLine,
         qtyPer: numOrNull(r.qtyPer),
+        remark: r.remark,
         material: r.material,
         children: [],
       });
@@ -2960,6 +3109,118 @@ export class ProcurementService {
       else roots.push(node);
     }
     return { roots };
+  }
+
+  /**
+   * 库存齐套中心：用 BOM 单机用量连接畅捷通库存镜像。
+   * 数据库先按「量产」收窄，再通过业务名称精确限定「量产仓 / 量产仓库」，
+   * 避免把「研发量产仓」、样品仓或售后备件仓计入可齐套量。
+   */
+  async getInventoryReadiness(query: Record<string, unknown>) {
+    const targetSets = Math.min(1_000_000, Math.max(0, Math.floor(Number(query.targetSets) || 0)));
+    const requestedProductLine = typeof query.productLine === 'string' ? query.productLine.trim() : '';
+    const warehouseKeyword = '量产';
+    const bomRows = await this.prisma.procBomNode.findMany({
+      orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }],
+      select: {
+        id: true,
+        parentId: true,
+        name: true,
+        code: true,
+        level: true,
+        productLine: true,
+        qtyPer: true,
+        remark: true,
+        material: { select: { name: true, spec: true, unit: true } },
+      },
+    });
+    const byId = new Map(bomRows.map((row) => [row.id, row]));
+    const parentIds = new Set(bomRows.map((row) => row.parentId).filter((id): id is string => Boolean(id)));
+    const modelMap = new Map<string, { id: string; label: string; bomLines: number }>();
+    for (const row of bomRows) {
+      const line = row.productLine.trim();
+      if (!line) continue;
+      const current = modelMap.get(line) ?? { id: line, label: line, bomLines: 0 };
+      if (row.parentId === null && row.name.trim()) current.label = row.name.trim();
+      if (!parentIds.has(row.id)) current.bomLines += 1;
+      modelMap.set(line, current);
+    }
+    const models = [...modelMap.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+    const productLine = modelMap.has(requestedProductLine)
+      ? requestedProductLine
+      : modelMap.has('Q5')
+        ? 'Q5'
+        : models[0]?.id ?? requestedProductLine;
+    const leaves: InventoryReadinessBomLeaf[] = bomRows
+      .filter((row) => row.productLine === productLine && !parentIds.has(row.id))
+      .map((row) => ({
+        id: row.id,
+        category: row.parentId ? byId.get(row.parentId)?.name ?? '未分类' : '未分类',
+        code: row.code?.trim() || null,
+        name: row.material?.name || row.name,
+        spec: row.material?.spec || row.remark || '',
+        unit: row.material?.unit || '件',
+        qtyPer: numOrNull(row.qtyPer),
+      }));
+    const codes = [...new Set(leaves.map((leaf) => leaf.code).filter((code): code is string => Boolean(code)))];
+    const inventoryCandidates = codes.length > 0
+      ? await this.prisma.procInventoryBalance.findMany({
+          where: {
+            tpInventoryCode: { in: codes },
+            warehouse: { contains: warehouseKeyword, mode: 'insensitive' },
+          },
+          select: {
+            tpInventoryCode: true,
+            warehouse: true,
+            stockQty: true,
+            availableQty: true,
+            inTransitQty: true,
+            syncedAt: true,
+            material: { select: { safeStock: true } },
+          },
+          orderBy: [{ tpInventoryCode: 'asc' }, { warehouse: 'asc' }],
+        })
+      : [];
+    const inventoryRows = inventoryCandidates.filter((row) => isProductionWarehouse(row.warehouse));
+    const balanceMap = new Map<string, InventoryReadinessBalance>();
+    for (const row of inventoryRows) {
+      const current = balanceMap.get(row.tpInventoryCode) ?? {
+        code: row.tpInventoryCode,
+        stock: 0,
+        available: 0,
+        inTransit: 0,
+        safeStock: 0,
+        syncedAt: null,
+      };
+      current.stock += num(row.stockQty);
+      current.available += num(row.availableQty);
+      current.inTransit += num(row.inTransitQty);
+      current.safeStock = Math.max(current.safeStock, num(row.material?.safeStock));
+      const syncedAt = row.syncedAt?.toISOString() ?? null;
+      if (syncedAt && (!current.syncedAt || syncedAt > current.syncedAt)) current.syncedAt = syncedAt;
+      balanceMap.set(row.tpInventoryCode, current);
+    }
+    const calculation = calculateInventoryReadiness(leaves, [...balanceMap.values()], targetSets);
+    const warehouseNames = [...new Set(inventoryRows.map((row) => row.warehouse || '未指定仓库'))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    const syncedAt = [...balanceMap.values()]
+      .map((balance) => balance.syncedAt)
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1) ?? null;
+
+    return {
+      source: 'tplus',
+      readOnly: true,
+      productLine,
+      models,
+      warehouse: {
+        keyword: warehouseKeyword,
+        label: '量产仓库',
+        matchedNames: warehouseNames,
+      },
+      syncedAt,
+      ...calculation,
+    };
   }
 
   /** 分类重命名/合并：目标名已存在即合并。分类没有独立表，直接改物料上的冗余字段。 */
@@ -3257,6 +3518,50 @@ export class ProcurementService {
   }
 
   // ── 序列化 ───────────────────────────────────────────────────────────────────
+
+  private serializeStockPlan(plan: ProcStockPlanView) {
+    const targetQty = num(plan.targetQty);
+    const purchasedQty = plan.batches.reduce((sum, batch) => sum + num(batch.purchaseQty), 0);
+    const remainingQty = Math.max(targetQty - purchasedQty, 0);
+    const status = purchasedQty >= targetQty
+      ? 'completed'
+      : purchasedQty > 0
+        ? 'in_progress'
+        : 'not_started';
+    return {
+      id: plan.id,
+      code: plan.code,
+      materialId: plan.materialId ?? undefined,
+      materialName: plan.materialName,
+      spec: plan.spec,
+      unit: plan.unit,
+      targetQty,
+      purchasedQty,
+      remainingQty,
+      progress: targetQty > 0 ? Math.min(100, (purchasedQty / targetQty) * 100) : 0,
+      status,
+      targetDate: day(plan.targetDate),
+      note: plan.note ?? undefined,
+      createdBy: plan.createdBy ?? undefined,
+      createdByName: plan.createdByName,
+      batches: plan.batches.map((batch) => ({
+        id: batch.id,
+        supplierId: batch.supplierId ?? undefined,
+        supplierName: batch.supplierName,
+        purchaseQty: num(batch.purchaseQty),
+        purchaseOrderNo: batch.purchaseOrderNo ?? undefined,
+        orderDate: day(batch.orderDate),
+        expectedArrivalDate: day(batch.expectedArrivalDate),
+        note: batch.note ?? undefined,
+        createdBy: batch.createdBy ?? undefined,
+        createdByName: batch.createdByName,
+        createdAt: batch.createdAt.toISOString(),
+        updatedAt: batch.updatedAt.toISOString(),
+      })),
+      createdAt: plan.createdAt.toISOString(),
+      updatedAt: plan.updatedAt.toISOString(),
+    };
+  }
 
   private serializeTask(
     task: ProcTaskView,

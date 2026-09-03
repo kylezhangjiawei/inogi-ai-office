@@ -117,7 +117,7 @@ export function ProcMyWorkspacePage() {
     <div className="proc-horizon mx-auto w-full max-w-[1600px] p-4">
       <PageHeader
         Icon={GanttChartSquare}
-        badge={t("采购管理")}
+        badge={t("供应链管理")}
         title={t("个人工作台")}
         description={t("只看分配给我的采购任务：按流程阶段分组，卡片上直接推进下一步。")}
       />
