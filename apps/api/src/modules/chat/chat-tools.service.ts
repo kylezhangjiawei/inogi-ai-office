@@ -1416,7 +1416,7 @@ export class ChatToolsService {
       const [mirrorRows, openTasks] = await Promise.all([
         this.prisma.procPurchaseOrderMirror.findMany({
           where: { materialId: { in: ids } },
-          select: { materialId: true, orderedQty: true, receivedQty: true, supplierName: true, unitPrice: true },
+          select: { materialId: true, orderedQty: true, receivedQty: true, supplierName: true, unitPrice: true, status: true, approvalStatus: true },
           orderBy: { orderDate: 'desc' },
         }),
         this.prisma.procTask.findMany({
@@ -1432,19 +1432,35 @@ export class ChatToolsService {
           receivedQty: Number(r.receivedQty),
           supplierName: r.supplierName,
           unitPrice: r.unitPrice === null ? null : Number(r.unitPrice),
+          status: r.status,
+          approvalStatus: r.approvalStatus,
         })),
         openTasks.map((t) => ({ materialId: t.materialId as string, quantity: Number(t.quantity), arrivedQty: Number(t.arrivedQty) })),
       ).filter((r) => hit(r.name, r.code));
-      if (rows.length === 0) {
-        return { ok: true, summary: '无缺料', content: keyword ? `没有匹配「${keyword}」的缺料物料。` : '当前没有需要补货的物料（缺口均已被在途或进行中任务覆盖）。' };
+      // covered 的物料仍然缺料，只是暂时被在途/任务覆盖，不该出现在「建议下单」清单里，
+      // 但要在结尾如实报数——在途量算错时这句是唯一的线索。
+      const actionable = rows.filter((r) => !r.covered);
+      const coveredCount = rows.length - actionable.length;
+      const coveredNote = coveredCount > 0
+        ? `另有 ${coveredCount} 项物料低于安全库存但缺口已被在途或进行中任务覆盖，暂不建议下单；若其中有物料迟迟不到货，请核对 T+ 在途数据是否过时。`
+        : '';
+      if (actionable.length === 0) {
+        const base = keyword ? `没有匹配「${keyword}」的待补货物料。` : '当前没有需要下单的物料。';
+        return { ok: true, summary: '无缺料', content: coveredNote ? `${base}${coveredNote}` : base };
       }
-      const lines = rows.slice(0, 20).map((r) =>
+      const lines = actionable.slice(0, 20).map((r) =>
         `- ${r.code} ${r.name}：库存 ${r.stock}/安全 ${r.safeStock}，在途 ${r.inTransit}，任务中 ${r.openTaskQty}，建议补 ${r.suggestQty}${r.unit ? ` ${r.unit}` : ''}${r.lastSupplier ? `（最近：${r.lastSupplier}${r.lastPrice != null ? ` ¥${r.lastPrice}` : ''}）` : ''}`,
       );
       return {
         ok: true,
-        summary: `缺料 ${rows.length} 项`,
-        content: [`共 ${rows.length} 项物料需要补货（建议量已扣除在途与进行中任务）${rows.length > 20 ? '，以下为缺口金额最大的 20 项' : ''}：`, ...lines, '', '可引导用户到「物料库」页点击「缺料预警」卡片一键生成补货采购任务。'].join('\n'),
+        summary: `缺料 ${actionable.length} 项`,
+        content: [
+          `共 ${actionable.length} 项物料需要补货（建议量已扣除在途与进行中任务）${actionable.length > 20 ? '，以下为缺口金额最大的 20 项' : ''}：`,
+          ...lines,
+          ...(coveredNote ? ['', coveredNote] : []),
+          '',
+          '可引导用户到「物料库」页点击「缺料预警」卡片一键生成补货采购任务。',
+        ].join('\n'),
       };
     }
 

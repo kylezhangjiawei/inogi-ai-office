@@ -1067,7 +1067,10 @@ export interface ReplenishSuggestion {
   safeStock: number;
   inTransit: number;
   openTaskQty: number;
+  /** 缺口已被覆盖时为 0（此时 covered 为 true） */
   suggestQty: number;
+  /** 仍低于安全库存，但缺口已被在途或进行中任务完全覆盖，暂不需要下单 */
+  covered: boolean;
   /** 包装/起订粒度（历史采购量最大公约数）；建议量已按此向上取整 */
   packStep: number | null;
   lastSupplier: string | null;

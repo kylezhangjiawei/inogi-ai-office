@@ -872,8 +872,8 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
     listReplenishSuggestions()
       .then((r) => {
         setRows(r.rows);
-        // 默认全选，量取建议值
-        setSelected(new Map(r.rows.map((row) => [row.materialId, row.suggestQty])));
+        // 默认只勾可下单的行；缺口已被在途/任务覆盖的行只作核对用，不参与建单
+        setSelected(new Map(r.rows.filter((row) => !row.covered).map((row) => [row.materialId, row.suggestQty])));
       })
       .catch((err) => setError(err instanceof Error ? err.message : t('加载失败')));
   }, []);
@@ -926,7 +926,14 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
         )}
       </>}
     >
-      <p className="mb-3 text-xs text-slate-400">{t('建议量 = 安全库存 − 当前库存 − T+ 在途 − 进行中采购任务未到量；零库存物料生成的任务自动高优先级。')}</p>
+      <p className="mb-3 text-xs text-slate-400">{t('建议量 = 安全库存 − 当前库存 − T+ 在途（不含作废单） − 进行中采购任务未到量；零库存物料生成的任务自动高优先级。')}</p>
+      {rows && rows.some((r) => r.covered) && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-800">
+          {t('{n} 项物料低于安全库存，但缺口已被在途或进行中任务覆盖，已列在末尾且不勾选。若其中有物料迟迟不到货，请核对 T+ 在途数据是否过时。', {
+            n: rows.filter((r) => r.covered).length,
+          })}
+        </div>
+      )}
 
       {error && <div className="py-8 text-center text-sm text-red-500">{error}</div>}
       {!error && !rows && <div className="py-8 text-center text-sm text-slate-400">{t('计算中')}…</div>}
@@ -938,7 +945,7 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
         </div>
       ) : rows && (
         rows.length === 0 ? (
-          <div className="py-8 text-center text-sm text-slate-400">{t('没有需要补货的物料：所有缺口已被在途或进行中任务覆盖。')}</div>
+          <div className="py-8 text-center text-sm text-slate-400">{t('没有低于安全库存的物料。')}</div>
         ) : (
           <div className="max-h-[380px] overflow-y-auto rounded-xl border border-slate-100">
             <table className="w-full text-xs">
@@ -955,21 +962,25 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.materialId} className={cn("border-t border-slate-100", !selected.has(r.materialId) && "opacity-50")}>
-                    <td className="px-2 py-1.5"><Checkbox checked={selected.has(r.materialId)} onCheckedChange={() => toggle(r.materialId, r.suggestQty)} className="size-3.5" /></td>
+                  <tr key={r.materialId} className={cn("border-t border-slate-100", !selected.has(r.materialId) && "opacity-50", r.covered && "bg-slate-50/60")}>
+                    <td className="px-2 py-1.5"><Checkbox checked={selected.has(r.materialId)} disabled={r.covered} onCheckedChange={() => toggle(r.materialId, r.suggestQty)} className="size-3.5" /></td>
                     <td className="max-w-[180px] truncate px-2 py-1.5 text-slate-700" title={r.name}>{r.code} <AutoTranslatedText as="span" text={r.name} /></td>
                     <td className={cn("px-2 py-1.5 text-right tabular-nums", r.stock <= 0 ? "font-semibold text-rose-600" : "text-amber-600")}>{r.stock.toLocaleString()} / {r.safeStock.toLocaleString()}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-slate-500">{r.inTransit.toLocaleString()}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-slate-500">{r.openTaskQty.toLocaleString()}</td>
                     <td className="px-2 py-1.5 text-right">
-                      <Input
-                        type="number"
-                        min={1}
-                        value={selected.get(r.materialId) ?? r.suggestQty}
-                        disabled={!selected.has(r.materialId)}
-                        onChange={(e) => setQty(r.materialId, Math.max(0, Math.floor(Number(e.target.value))))}
-                        className="h-6 w-20 rounded border border-slate-200 px-1.5 text-right text-xs tabular-nums outline-none focus:border-indigo-300 disabled:bg-slate-50 md:text-xs"
-                      />
+                      {r.covered ? (
+                        <span className="whitespace-nowrap text-[11px] text-slate-400">{t('已被在途覆盖')}</span>
+                      ) : (
+                        <Input
+                          type="number"
+                          min={1}
+                          value={selected.get(r.materialId) ?? r.suggestQty}
+                          disabled={!selected.has(r.materialId)}
+                          onChange={(e) => setQty(r.materialId, Math.max(0, Math.floor(Number(e.target.value))))}
+                          className="h-6 w-20 rounded border border-slate-200 px-1.5 text-right text-xs tabular-nums outline-none focus:border-indigo-300 disabled:bg-slate-50 md:text-xs"
+                        />
+                      )}
                     </td>
                     <td className="max-w-[140px] truncate px-2 py-1.5 text-slate-400" title={r.lastSupplier ?? undefined}>
                       {r.lastSupplier ? <AutoTranslatedText as="span" text={r.lastSupplier} /> : '—'}{r.lastPrice != null ? ` · ¥${r.lastPrice}` : ''}{r.packStep ? ` · ${t('按 {n} 起订', { n: r.packStep })}` : ''}
