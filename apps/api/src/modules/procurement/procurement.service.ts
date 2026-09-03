@@ -459,6 +459,53 @@ export class ProcurementService {
     }
   }
 
+  /**
+   * 畅捷通授权断链告警：通知持有「同步畅捷通 T+」权限的人。
+   *
+   * 由 TplusSyncService 在自动同步发现未授权时调用，且只在状态由正常转异常时发一次。
+   * 没有这条通知，断链只会体现为「补货建议悄悄少了几十条」——线上就这么过了一个月。
+   */
+  async notifyErpAuthBroken(reason: string, brokenSince: string): Promise<void> {
+    const users = await this.prisma.user.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, name: true, role: { select: { permissions: true } } },
+    });
+    const recipients = users.filter((user) => {
+      const permissions = Array.isArray(user.role?.permissions)
+        ? (user.role.permissions as unknown[]).filter((item): item is string => typeof item === 'string')
+        : [];
+      return permissions.includes('*') || permissions.includes('proc:sync-erp');
+    });
+    const brokenDate = brokenSince.slice(0, 10);
+    const body = JSON.stringify({
+      type: 'system_alert',
+      alert: 'tplus_auth_broken',
+      reason,
+      broken_since: brokenSince,
+      route: '/proc-materials',
+      action_label: '去重新授权',
+      next_action: '畅捷通授权已失效，自动同步已停止。请到「T+ 集成」重新授权，'
+        + '否则库存与采购单数据会持续过期，补货建议会把陈旧在途当成有效在途。',
+    });
+    for (const recipient of recipients) {
+      try {
+        await this.rdService.createMessage({
+          source: 'procurement',
+          sender: { id: null, name: '系统通知', role: 'system' },
+          recipient_id: recipient.id,
+          recipient_name: recipient.name,
+          subject: `[畅捷通 T+] 授权已失效，自动同步自 ${brokenDate} 起停止`,
+          body,
+          meta: { kind: 'tplus_auth_broken', broken_since: brokenSince },
+        });
+      } catch (error) {
+        new Logger(ProcurementService.name).warn(
+          `畅捷通授权断链通知发送失败（${recipient.name}）: ${(error as Error).message}`,
+        );
+      }
+    }
+  }
+
   /** 研发侧「转采购」：先进入研发管理员审核，通过后才进入采购侧。 */
   async transferFromRd(dto: TransferFromRdDto, actor: ProcActor) {
     const rdTaskId = dto.rdTaskId.trim();

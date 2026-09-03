@@ -25,6 +25,86 @@ import { TplusPoMatchService } from './tplus-po-match.service';
 
 const CONFIG_KIND = 'tplus';
 const DEFAULT_BASE_URL = 'https://openapi.chanjet.com';
+
+/**
+ * 鉴权请求失败。transient=true 表示网络抖动或平台侧临时故障——凭证本身没有被否定，
+ * 绝不能因此清空 refreshToken。
+ *
+ * 这里刻意「默认判为瞬时」：误判成瞬时的代价只是留着一个已死的令牌继续重试（可见、可恢复），
+ * 误判成永久失效的代价是把一个还能用的 refreshToken 删掉、逼人去畅捷通手工重新授权。
+ * 线上就是这么断的：2026-07-29 一次 `fetch failed` 让凭证被清空，此后自动同步静默停摆一个月。
+ */
+export class TplusAuthError extends ServiceUnavailableException {
+  constructor(message: string, readonly transient: boolean) {
+    super(message);
+  }
+}
+
+/** 平台明确否定凭证的信号；只有命中这些才允许清空令牌。 */
+const TOKEN_REJECTED_PATTERN =
+  /invalid[_\s-]*(refresh[_\s-]*)?token|token[_\s-]*(is[_\s-]*)?(invalid|expired|revoked)|refresh[_\s-]*token.*(invalid|expired)|unauthorized|授权(已)?(失效|过期|被撤销)|令牌(失效|过期)|请重新授权/i;
+
+/** HTTP 状态码里代表「平台明确拒绝」而非「暂时不可用」的那些。 */
+function isDefinitiveAuthStatus(status: number): boolean {
+  return status === 400 || status === 401 || status === 403;
+}
+
+export function isTransientAuthFailure(error: unknown): boolean {
+  if (error instanceof TplusAuthError) return error.transient;
+  // 非本层抛出的异常（例如 fetch 的 TypeError）一律按瞬时处理
+  return true;
+}
+
+// ── T+ 调用留痕：脱敏 ────────────────────────────────────────────────────────
+//
+// 这里的取舍是「白名单」而不是「黑名单」，因为泄一次的代价极高：
+// 刷新令牌就挂在 /auth/v2/refreshToken 的查询串上，appKey/appSecret 在请求头里，
+// 换令牌的响应体里还有 access_token / refresh_token / 永久授权码。
+// 仓库里已经有过一次教训（241b80e：477 条留痕明文存了刷新令牌，最后只能全量轮换），
+// 那次泄的是自家登录令牌，这次会是整个畅捷通账套的访问凭证。
+
+/** 查询串里允许原样保留的参数；其余一律丢弃，不做「像不像密钥」的猜测。 */
+const TPLUS_SAFE_QUERY_KEYS = new Set(['grantType', 'pageIndex', 'pageSize']);
+
+/** metadata 里保留的调用留痕条数。鉴权调用每天几次，50 条够看两周以上。 */
+const TPLUS_CALL_LOG_LIMIT = 50;
+
+/** 响应/错误文本里需要抹掉的字段名（大小写与下划线/驼峰都算）。 */
+const TPLUS_SECRET_FIELDS = [
+  'access_token', 'accessToken', 'refresh_token', 'refreshToken',
+  'openToken', 'appAccessToken', 'appTicket', 'appSecret', 'appKey',
+  'user_auth_permanent_code', 'userAuthPermanentCode',
+  'orgPermanentAuthCode', 'code', 'tempAuthCode',
+];
+
+/**
+ * 把请求目标压成可留痕的字符串：只保留路径 + 白名单查询参数。
+ * 任何未列入白名单的参数连值带键一起丢掉，不写 `key=***`——键名本身也可能有信息量。
+ */
+export function redactTplusTarget(pathWithQuery: string): string {
+  const raw = String(pathWithQuery ?? '');
+  const [path, query] = raw.split('?');
+  if (!query) return path;
+  const kept: string[] = [];
+  for (const [key, value] of new URLSearchParams(query)) {
+    if (TPLUS_SAFE_QUERY_KEYS.has(key)) kept.push(`${key}=${value}`);
+  }
+  return kept.length > 0 ? `${path}?${kept.join('&')}` : path;
+}
+
+/**
+ * 抹掉自由文本里的凭证值。用于平台返回的错误消息——它有时会把令牌原样回显。
+ * 同时截断长度，避免恶意或异常报文撑爆 metadata。
+ */
+export function redactTplusText(text: unknown, maxLength = 300): string {
+  let out = String(text ?? '');
+  for (const field of TPLUS_SECRET_FIELDS) {
+    // 匹配 field=xxx / "field":"xxx" / field: xxx 三种常见形态
+    const pattern = new RegExp(`(["']?${field}["']?\\s*[:=]\\s*["']?)([^"'&,}\\s]{4,})`, 'gi');
+    out = out.replace(pattern, '$1***');
+  }
+  return out.slice(0, maxLength);
+}
 const DEFAULT_MATERIAL_MASTER_PATH = '/tplus/api/v2/inventory/Query';
 const LEGACY_MATERIAL_MASTER_PATH = '/tplus/api/v2/inventory/QueryPage';
 const MATERIAL_MASTER_PAGE_SIZE = 1000;
@@ -175,6 +255,33 @@ export class TplusSyncService {
       tokenExpireAt: openTokenExpireAt ? new Date(openTokenExpireAt).toISOString() : null,
       refreshExpireAt: refreshTokenExpireAt ? new Date(refreshTokenExpireAt).toISOString() : null,
       updatedAt: config?.updatedAt?.toISOString() ?? null,
+      // 断链时刻与原因：让「已连续 N 天未同步」在页面上算得出来
+      authBrokenSince: typeof meta.authBrokenSince === 'string' ? meta.authBrokenSince : null,
+      authBrokenReason: typeof meta.authBrokenReason === 'string' ? meta.authBrokenReason : null,
+      /**
+       * 自愈链就绪情况。三个根凭证齐了，令牌失效才能免人工重新授权自动换新；
+       * 缺哪个必须让人看见——以前这三个在库里存没存完全不可见，
+       * 于是没人知道「自动恢复」到底有没有可能成功。
+       * appTicket 由开放平台每 10 分钟推送到 /tplus/notify，回调不通就永远拿不到。
+       */
+      selfHeal: {
+        appTicket: Boolean(meta.appTicket),
+        orgPermanentAuthCode: Boolean(meta.orgPermanentAuthCode),
+        userAuthPermanentCode: Boolean(meta.userAuthPermanentCode),
+        ready: Boolean(meta.appTicket && meta.orgPermanentAuthCode && meta.userAuthPermanentCode),
+        /**
+         * 开放平台是否往「消息接收地址」推送过任何消息。
+         * 一次都没有，基本可断定平台侧那个地址没配——三个根凭证全靠这条推送链拿到，
+         * 收不到就意味着自动续期永远不可能生效，只能反复人工授权。
+         */
+        everReceivedPush: Boolean(meta.appTicketAt)
+          || (Array.isArray(meta.notifyLog) && (meta.notifyLog as unknown[]).length > 0),
+      },
+      /**
+       * 最近的鉴权调用与失败留痕（已脱敏）。断链是间歇性的，只留「最后一次同步结果」
+       * 根本查不出规律；这份历史就是用来回答「上次到底是怎么断的」。
+       */
+      callLog: Array.isArray(meta.callLog) ? (meta.callLog as unknown[]).slice(0, 20) : [],
       // 每日自动同步：默认开启，显式 false 才关
       autoSync: meta.autoSync !== false,
       lastAutoSyncAt: typeof meta.lastAutoSyncAt === 'string' ? meta.lastAutoSyncAt : null,
@@ -368,10 +475,22 @@ export class TplusSyncService {
       throw new ServiceUnavailableException('畅捷通 T+ 未配置：请先录入 appKey / appSecret');
     }
     const url = `${cred.baseUrl.replace(/\/+$/, '')}${pathWithQuery}`;
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: { appKey: cred.appKey, appSecret: cred.appSecret, 'Content-Type': 'application/json' },
-    });
+    const startedAt = Date.now();
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'GET',
+        headers: { appKey: cred.appKey, appSecret: cred.appSecret, 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      // DNS / 连接重置 / 超时：凭证没被否定过，判为瞬时
+      const reason = (error as Error).message || '网络不可达';
+      this.logger.error(`T+ 鉴权请求网络失败 ${pathWithQuery.split('?')[0]}: ${reason}`);
+      await this.recordTplusCall({
+        kind: 'auth', target: pathWithQuery, ok: false, durationMs: Date.now() - startedAt, reason,
+      });
+      throw new TplusAuthError(`畅捷通鉴权请求失败：${reason}`, true);
+    }
     const body = (await res.json().catch(() => null)) as {
       code?: string | number;
       msg?: string;
@@ -380,9 +499,23 @@ export class TplusSyncService {
     } | null;
     if (!res.ok || !body || String(body.code) !== '200' || !body.result) {
       const reason = body?.msg ?? body?.message ?? `HTTP ${res.status}`;
-      this.logger.error(`T+ 鉴权请求失败 ${pathWithQuery.split('?')[0]}: ${reason}`);
-      throw new ServiceUnavailableException(`畅捷通鉴权失败：${reason}`);
+      // 只有平台明确拒绝（4xx 或回文点名令牌失效）才算永久失效；5xx、限流、空响应都按瞬时
+      const definitive = isDefinitiveAuthStatus(res.status) || TOKEN_REJECTED_PATTERN.test(reason);
+      this.logger.error(
+        `T+ 鉴权请求失败 ${pathWithQuery.split('?')[0]}: ${reason}（${definitive ? '平台明确拒绝' : '按瞬时故障处理'}）`,
+      );
+      await this.recordTplusCall({
+        kind: 'auth',
+        target: pathWithQuery,
+        ok: false,
+        durationMs: Date.now() - startedAt,
+        reason: `${definitive ? '平台拒绝' : '瞬时故障'}：${reason}`,
+      });
+      throw new TplusAuthError(`畅捷通鉴权失败：${reason}`, !definitive);
     }
+    await this.recordTplusCall({
+      kind: 'auth', target: pathWithQuery, ok: true, durationMs: Date.now() - startedAt,
+    });
     return body.result;
   }
 
@@ -408,6 +541,10 @@ export class TplusSyncService {
           ...(result.user_auth_permanent_code
             ? { userAuthPermanentCode: String(result.user_auth_permanent_code) }
             : {}),
+          // 拿到新令牌即视为断链恢复：清掉告警标记，下次再断才会重新通知
+          authBrokenSince: null,
+          authBrokenReason: null,
+          authAlertSentAt: null,
         } as Prisma.InputJsonObject,
       },
     });
@@ -450,34 +587,67 @@ export class TplusSyncService {
         );
       }
     }
-    try {
-      const qs = new URLSearchParams({ grantType: 'refresh_token', refreshToken });
-      const result = await this.authRequest(`/auth/v2/refreshToken?${qs.toString()}`);
-      await this.saveTokens(result);
-      return String(result.access_token ?? '');
-    } catch (error) {
-      // refresh 链断掉：先走永久授权码自愈；自愈也不行才清空令牌让前端显示「待授权」
+    // 瞬时故障重试两次再放弃：一次抖动就走到下面的清空分支，代价是人工重新授权
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        return await this.mintTokenByPermanentCode();
-      } catch (mintError) {
-        this.logger.warn(`永久授权码自愈失败：${(mintError as Error).message}`);
+        const qs = new URLSearchParams({ grantType: 'refresh_token', refreshToken });
+        const result = await this.authRequest(`/auth/v2/refreshToken?${qs.toString()}`);
+        await this.saveTokens(result);
+        return String(result.access_token ?? '');
+      } catch (error) {
+        lastError = error;
+        if (!isTransientAuthFailure(error)) break;
+        if (attempt < 2) {
+          const backoffMs = 1000 * 2 ** attempt;
+          this.logger.warn(
+            `T+ 令牌刷新遇到瞬时故障（第 ${attempt + 1} 次）：${(error as Error).message}，${backoffMs}ms 后重试`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        }
       }
-      if (config) {
-        await this.prisma.integrationConfig.update({
-          where: { id: config.id },
-          data: {
-            metadata: {
-              ...meta,
-              openToken: '',
-              refreshToken: '',
-              openTokenExpireAt: 0,
-              refreshTokenExpireAt: 0,
-            } as Prisma.InputJsonObject,
-          },
-        });
-      }
-      throw error;
     }
+
+    // refresh 链断掉：先走永久授权码自愈
+    try {
+      return await this.mintTokenByPermanentCode();
+    } catch (mintError) {
+      this.logger.warn(`永久授权码自愈失败：${(mintError as Error).message}`);
+    }
+
+    // 关键分歧点：只有平台明确否定了凭证才清空。网络抖动、5xx、限流一律保留 refreshToken
+    // 原样返回错误——留着一个可能还有效的令牌下次再试，远好过逼人去畅捷通手工重新授权。
+    if (isTransientAuthFailure(lastError)) {
+      this.logger.error(
+        `T+ 令牌刷新连续失败但未被平台否定，保留 refreshToken 待下次重试：${(lastError as Error).message}`,
+      );
+      throw lastError;
+    }
+    if (config) {
+      // 必须重读：上面几次刷新尝试已经往 callLog 里写过留痕，
+      // 拿函数开头那份 meta 去 spread 会把刚记下的失败原因整段抹掉——
+      // 而那正是事后查「这次为什么断」的唯一依据。
+      const latest = await this.findConfigRow();
+      const freshMeta = (latest?.metadata ?? meta) as Record<string, unknown>;
+      await this.prisma.integrationConfig.update({
+        where: { id: config.id },
+        data: {
+          metadata: {
+            ...freshMeta,
+            openToken: '',
+            refreshToken: '',
+            openTokenExpireAt: 0,
+            refreshTokenExpireAt: 0,
+            // 记下断链时刻，供「已连续 N 天未同步」与一次性告警判定
+            authBrokenSince: typeof freshMeta.authBrokenSince === 'string'
+              ? freshMeta.authBrokenSince
+              : new Date().toISOString(),
+            authBrokenReason: redactTplusText((lastError as Error).message),
+          } as Prisma.InputJsonObject,
+        },
+      });
+    }
+    throw lastError;
   }
 
   async status() {
@@ -947,6 +1117,7 @@ export class TplusSyncService {
     }
     const openToken = await this.ensureOpenToken();
     const url = `${cred.baseUrl.replace(/\/+$/, '')}${path}`;
+    const startedAt = Date.now();
     const res = await fetch(url, {
       // 开放平台业务接口统一 POST；三个凭据全放 header（对齐官方文档）
       method: 'POST',
@@ -961,6 +1132,10 @@ export class TplusSyncService {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       this.logger.error(`T+ 请求失败 ${path} ${res.status} ${text.slice(0, 200)}`);
+      await this.recordTplusCall({
+        kind: 'failure', target: path, ok: false, durationMs: Date.now() - startedAt,
+        reason: `HTTP ${res.status} ${text}`,
+      });
       throw new ServiceUnavailableException(this.tplusHttpErrorMessage(path, res.status, text));
     }
     const body = (await res.json()) as Record<string, unknown> | unknown[] | null;
@@ -970,6 +1145,10 @@ export class TplusSyncService {
       if (code !== '0' && code !== '200') {
         const message = String(body.message ?? body.msg ?? '未知错误');
         this.logger.error(`T+ 业务失败 ${path}: ${code} ${message}`);
+        await this.recordTplusCall({
+          kind: 'failure', target: path, ok: false, durationMs: Date.now() - startedAt,
+          reason: `业务码 ${code}：${message}`,
+        });
         throw new ServiceUnavailableException(`畅捷通 T+：${message}`);
       }
     }
@@ -1302,14 +1481,39 @@ export class TplusSyncService {
   }
 
   /**
+   * 令牌保活：每 6 小时主动续一次，不依赖同步是否成功。
+   *
+   * 原先只有同步链路会顺带刷新令牌，于是「同步连续失败几天」会直接演变成
+   * 「openToken 过期 → 需要人工重新授权」。把续期和业务同步解耦，
+   * 任何一晚的同步故障都不再危及授权本身。
+   */
+  @Cron('0 */6 * * *', { name: 'tplus-token-keepalive', timeZone: TPLUS_SYNC_TIME_ZONE })
+  async tokenKeepaliveCron() {
+    try {
+      const config = await this.findConfigRow();
+      const meta = (config?.metadata ?? {}) as Record<string, unknown>;
+      // 没有任何令牌可续时不空转报错——那是「从未授权」，不是「授权断了」
+      if (!meta.refreshToken && !meta.openToken) return;
+      await this.ensureOpenToken();
+    } catch (error) {
+      this.logger.warn(`T+ 令牌保活失败：${(error as Error).message}`);
+    }
+  }
+
+  /**
    * 全链路自动同步：物料主档 → 供应商 → 库存 → 采购单全量（含任务到货回推）→ 匹配建议。
    * 未配置/未授权/开关关闭时跳过；单步失败记日志并继续，结果摘要落 metadata 供前端展示。
    */
   async autoSync(onProgress?: (progress: string) => void, options: { force?: boolean } = {}) {
     const config = await this.getConfig();
     if (!config.configured || !config.authorized) {
-      this.logger.debug('T+ 自动同步跳过：未配置或未授权');
-      return { skipped: true as const, reason: '未配置或未授权' };
+      // 不能静默早退：以前这里只打一条 debug 又不更新时间戳，界面上就一直挂着
+      // 上一次成功那条摘要，看起来「跑过而且基本成功」，实际已经停了一个月没人知道。
+      const reason = config.configured ? '未授权（需重新授权畅捷通）' : '未配置 appKey / appSecret';
+      this.logger.warn(`T+ 自动同步跳过：${reason}`);
+      await this.recordAutoSyncOutcome(`跳过 ✗ ${reason}`);
+      if (config.configured) await this.alertAuthBrokenOnce(reason);
+      return { skipped: true as const, reason };
     }
     if (!config.autoSync && !options.force) {
       return { skipped: true as const, reason: '自动同步已关闭' };
@@ -1334,22 +1538,94 @@ export class TplusSyncService {
     await step('匹配', () => this.poMatch.runMatch());
 
     const summary = parts.join('；');
-    const row = await this.findConfigRow();
-    if (row) {
-      const meta = (row.metadata ?? {}) as Record<string, unknown>;
-      await this.prisma.integrationConfig.update({
-        where: { id: row.id },
-        data: {
-          metadata: {
-            ...meta,
-            lastAutoSyncAt: new Date().toISOString(),
-            lastAutoSyncSummary: summary.slice(0, 500),
-          } as Prisma.InputJsonObject,
-        },
-      });
-    }
+    await this.recordAutoSyncOutcome(summary);
     this.logger.log(`T+ 自动同步完成：${summary}`);
     return { skipped: false as const, summary, failedSteps };
+  }
+
+  /**
+   * T+ 调用留痕（阶段一：不建表，沿用 notifyLog 那套存在 metadata 里）。
+   *
+   * 只记两类，其余不记：鉴权调用（每天几次，正是"反复要重新授权"的唯一线索）
+   * 与任意端点的失败。业务批量调用一次同步几百次，全记下来是噪音。
+   *
+   * 写入前一律经过 redactTplusTarget / redactTplusText；调用方不要把请求头、
+   * 请求体或原始 URL 传进来。留痕失败绝不能影响同步本身，所以整段吞异常。
+   */
+  private async recordTplusCall(entry: {
+    kind: 'auth' | 'failure';
+    target: string;
+    ok: boolean;
+    durationMs: number;
+    reason?: unknown;
+  }) {
+    try {
+      const row = await this.findConfigRow();
+      if (!row) return;
+      const meta = (row.metadata ?? {}) as Record<string, unknown>;
+      const log = Array.isArray(meta.callLog) ? (meta.callLog as unknown[]) : [];
+      const next = [
+        {
+          at: new Date().toISOString(),
+          kind: entry.kind,
+          target: redactTplusTarget(entry.target),
+          ok: entry.ok,
+          durationMs: entry.durationMs,
+          ...(entry.reason === undefined ? {} : { reason: redactTplusText(entry.reason) }),
+        },
+        ...log,
+      ].slice(0, TPLUS_CALL_LOG_LIMIT);
+      await this.prisma.integrationConfig.update({
+        where: { id: row.id },
+        data: { metadata: { ...meta, callLog: next } as Prisma.InputJsonObject },
+      });
+    } catch (error) {
+      this.logger.warn(`T+ 调用留痕写入失败（不影响同步）：${(error as Error).message}`);
+    }
+  }
+
+  /** 每次自动同步都要留下时间戳——包括跳过，否则界面无从判断它是否还在跑。 */
+  private async recordAutoSyncOutcome(summary: string) {
+    const row = await this.findConfigRow();
+    if (!row) return;
+    const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    await this.prisma.integrationConfig.update({
+      where: { id: row.id },
+      data: {
+        metadata: {
+          ...meta,
+          lastAutoSyncAt: new Date().toISOString(),
+          lastAutoSyncSummary: summary.slice(0, 500),
+        } as Prisma.InputJsonObject,
+      },
+    });
+  }
+
+  /**
+   * 授权断链只在「从正常转为异常」时通知一次，不每晚重复骚扰。
+   * authBrokenSince 由清空令牌那一刻写入，saveTokens 成功时清掉。
+   */
+  private async alertAuthBrokenOnce(reason: string) {
+    const row = await this.findConfigRow();
+    if (!row) return;
+    const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    if (meta.authAlertSentAt) return;
+    const brokenSince = typeof meta.authBrokenSince === 'string' ? meta.authBrokenSince : new Date().toISOString();
+    try {
+      await this.procurement.notifyErpAuthBroken(reason, brokenSince);
+    } catch (error) {
+      this.logger.warn(`T+ 授权断链通知发送失败：${(error as Error).message}`);
+    }
+    await this.prisma.integrationConfig.update({
+      where: { id: row.id },
+      data: {
+        metadata: {
+          ...meta,
+          authBrokenSince: brokenSince,
+          authAlertSentAt: new Date().toISOString(),
+        } as Prisma.InputJsonObject,
+      },
+    });
   }
 
   /**

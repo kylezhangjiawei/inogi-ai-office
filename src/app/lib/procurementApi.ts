@@ -747,6 +747,31 @@ export interface TplusConfigState {
   authorized: boolean;
   tokenExpireAt: string | null;
   refreshExpireAt: string | null;
+  /** 授权断链时刻；非 null 表示自动同步已停 */
+  authBrokenSince: string | null;
+  /** 断链原因（平台返回的原文摘要） */
+  authBrokenReason: string | null;
+  /**
+   * 自愈链就绪情况：三者齐备时令牌失效可自动换新，免人工重新授权。
+   * appTicket 由开放平台每 10 分钟推送到回调地址，回调不通就永远拿不到。
+   */
+  selfHeal: {
+    appTicket: boolean;
+    orgPermanentAuthCode: boolean;
+    userAuthPermanentCode: boolean;
+    ready: boolean;
+    /** 开放平台是否推送过任何消息；false 基本等于平台侧没配「消息接收地址」 */
+    everReceivedPush: boolean;
+  };
+  /** 最近的鉴权调用与失败留痕（已脱敏，不含任何凭证） */
+  callLog: Array<{
+    at: string;
+    kind: 'auth' | 'failure';
+    target: string;
+    ok: boolean;
+    durationMs: number;
+    reason?: string;
+  }>;
   updatedAt: string | null;
   /** 每日自动同步（北京时间 3:00）开关，默认开。 */
   autoSync: boolean;

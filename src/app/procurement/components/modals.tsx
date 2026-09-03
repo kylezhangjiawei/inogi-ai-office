@@ -1595,6 +1595,11 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
   const lastMaterialSyncText = config?.lastMaterialSyncAt
     ? `${t('上次物料主档同步')} ${formatTplusAutoSyncTime(config.lastMaterialSyncAt)}${config.lastMaterialSyncSummary ? ` · ${config.lastMaterialSyncSummary}` : ''}`
     : t('尚未执行物料主档同步');
+  // 断链后镜像数据会一直冻结在最后一次成功的那天，而页面上只剩一条旧摘要——
+  // 把「停了多少天」直接算出来，避免再出现一个月没人发现的情况。
+  const staleDays = config?.lastAutoSyncAt
+    ? Math.floor((Date.now() - new Date(config.lastAutoSyncAt).getTime()) / 86400000)
+    : null;
 
   return (
     <Shell
@@ -1622,6 +1627,74 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
           <span className="text-slate-400">{t('已镜像')}：{t('物料')} {mirrored.materials ?? 0} · {t('供应商')} {mirrored.suppliers} · {t('库存')} {mirrored.balances} · {t('采购单')} {mirrored.purchaseOrderRefs}</span>
         )}
       </div>
+
+      {config?.configured && !config.authorized && (
+        <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50/70 px-3 py-2.5 text-xs leading-5 text-rose-800">
+          <div className="font-semibold">
+            {staleDays !== null && staleDays >= 1
+              ? t('自动同步已停止 {n} 天，需要重新授权', { n: staleDays })
+              : t('自动同步已停止，需要重新授权')}
+          </div>
+          <div className="mt-1 text-rose-700">
+            {t('镜像数据停留在最后一次成功同步那天。补货建议会把陈旧的在途量当成有效在途，导致缺料物料被挡出清单。')}
+          </div>
+          {config.authBrokenReason && (
+            <div className="mt-1 break-all font-mono text-[11px] text-rose-600">{config.authBrokenReason}</div>
+          )}
+        </div>
+      )}
+
+      {(config?.callLog?.length ?? 0) > 0 && (
+        <details className="mb-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
+          <summary className="cursor-pointer text-xs font-medium text-slate-600">
+            {t('最近鉴权与失败记录（{n} 条）', { n: config!.callLog.length })}
+          </summary>
+          <div className="material-scrollbar mt-2 max-h-52 space-y-1 overflow-y-auto">
+            {config!.callLog.map((entry, i) => (
+              <div key={i} className="flex items-start gap-2 border-b border-slate-100 pb-1 text-[11px] leading-4 last:border-0">
+                <span className={cn("mt-0.5 size-1.5 shrink-0 rounded-full", entry.ok ? "bg-emerald-500" : "bg-rose-500")} />
+                <span className="shrink-0 tabular-nums text-slate-400">{entry.at.slice(5, 16).replace('T', ' ')}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="break-all font-mono text-slate-600">{entry.target}</span>
+                  <span className="ml-1 tabular-nums text-slate-400">{entry.durationMs}ms</span>
+                  {entry.reason && <span className="mt-0.5 block break-all text-rose-600">{entry.reason}</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[10px] text-slate-400">{t('已脱敏：令牌与密钥不会被记录。')}</p>
+        </details>
+      )}
+
+      {config?.configured && (
+        <div className={cn(
+          "mb-3 rounded-lg border px-3 py-2 text-xs leading-5",
+          config.selfHeal?.ready ? "border-emerald-200 bg-emerald-50/60 text-emerald-800" : "border-amber-200 bg-amber-50/70 text-amber-800",
+        )}>
+          <span className="font-semibold">
+            {t(config.selfHeal?.ready ? '自动续期链已就绪：令牌失效可自动换新' : '自动续期链不完整：令牌一旦失效需人工重新授权')}
+          </span>
+          {!config.selfHeal?.ready && (
+            <>
+              <span className="ml-1 text-amber-700">
+                {t('缺少')}{[
+                  !config.selfHeal?.appTicket && t('应用票据'),
+                  !config.selfHeal?.orgPermanentAuthCode && t('企业永久授权码'),
+                  !config.selfHeal?.userAuthPermanentCode && t('用户永久授权码'),
+                ].filter(Boolean).join('、')}
+              </span>
+              {!config.selfHeal?.everReceivedPush && (
+                <div className="mt-1 text-amber-700">
+                  {t('开放平台从未向本系统推送过消息，通常是应用没有配置「消息接收地址」。三个根凭证都靠这条推送链下发，收不到就只能反复人工授权。')}
+                  <div className="mt-0.5 break-all font-mono text-[11px]">
+                    {(config.redirectUri || '').replace(/\/oauth\/callback$/, '/notify') || '/api/procurement/tplus/notify'}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* 凭据表单：appSecret 不回显，留空表示保留已存值 */}
       <div className="space-y-3">
