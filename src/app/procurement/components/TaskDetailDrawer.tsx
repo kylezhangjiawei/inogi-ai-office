@@ -1,6 +1,6 @@
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
 import { useEffect, useState } from "react";
-import { ChevronDown, Eye, ExternalLink, FolderTree, History, Paperclip, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, Eye, ExternalLink, FolderTree, History, Paperclip, Pencil, Trash2, Undo2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import {
   AlertDialog,
@@ -19,13 +19,13 @@ import { ScrollArea } from "../../components/ui/scroll-area";
 import { Textarea } from "../../components/ui/textarea";
 import { cn } from "../../components/ui/utils";
 import { AttachmentPreviewDialog, type PreviewableAttachment } from "../../components/AttachmentPreviewDialog";
-import { BusinessLinePill, DIRECT_FLOW, FREE_SAMPLE_ONLY_STATUSES, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, QUOTE_RESETTABLE_STATUSES, SourcePill, StatusPill, fmtMoney, useBuyerDirectory, useProcCan } from "./common";
+import { BusinessLinePill, DIRECT_FLOW, FREE_SAMPLE_ONLY_STATUSES, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, QUOTE_RESETTABLE_STATUSES, SourcePill, StatusPill, fmtMoney, rollbackCleanupHintOf, rollbackTargetsOf, useBuyerDirectory, useProcCan } from "./common";
 import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
 import { MoveTaskDialog } from "./MoveTaskDialog";
 import { applyProcTaskUpdate, refreshProcurement, taskRequester, useProcurementData, type ProcurementTask } from "../data";
-import { listQuotations, rejectProcTask, resetProcTaskQuotations, unlinkPurchaseOrder, type Quotation } from "../../lib/procurementApi";
+import { listQuotations, rejectProcTask, resetProcTaskQuotations, rollbackProcTask, unlinkPurchaseOrder, type ProcStatus, type Quotation } from "../../lib/procurementApi";
 import { toast } from "sonner";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
@@ -85,6 +85,37 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
       toast.error(err instanceof Error ? err.message : t("重新维护失败"));
     } finally {
       setResetBusy(false);
+    }
+  };
+  // 走错节点的任务要能退回去重做。回退会清掉目标节点下不该存在的数据，理由必填。
+  const rollbackTargets = rollbackTargetsOf(task.status, task.method);
+  const canRollback = can("proc-task:rollback") && rollbackTargets.length > 0;
+  const [rollbackOpen, setRollbackOpen] = useState(false);
+  const [rollbackTarget, setRollbackTarget] = useState<ProcStatus | null>(null);
+  const [rollbackReason, setRollbackReason] = useState("");
+  const [rollbackBusy, setRollbackBusy] = useState(false);
+  const rollbackHints = rollbackTarget ? rollbackCleanupHintOf(rollbackTarget) : [];
+  const closeRollback = () => {
+    if (rollbackBusy) return;
+    setRollbackOpen(false);
+    setRollbackTarget(null);
+    setRollbackReason("");
+  };
+  const submitRollback = async () => {
+    if (!rollbackTarget || !rollbackReason.trim()) return;
+    setRollbackBusy(true);
+    try {
+      const updated = await rollbackProcTask(task.id, rollbackTarget, rollbackReason.trim(), task.status);
+      applyProcTaskUpdate(updated);
+      void refreshProcurement();
+      toast.success(t("已回退到「{status}」", { status: t(PROC_STATUS_META[rollbackTarget].label) }));
+      setRollbackOpen(false);
+      setRollbackTarget(null);
+      setRollbackReason("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("回退失败"));
+    } finally {
+      setRollbackBusy(false);
     }
   };
   // 研发流转的待处理任务走「审核」语义：通过=确认提交，驳回须理由并删除采购任务
@@ -172,6 +203,11 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               {/* 归类是整理动作，终态任务也允许移动——历史任务同样需要能归到正确的子系统下 */}
               {(can("proc-task:create") || can("proc-task:reassign")) && (
                 <Button type="button" variant="outline" size="sm" onClick={() => setMoveOpen(true)} title={t('移动到其他类目')} className="h-7 rounded-lg px-2.5 text-xs text-slate-600"><FolderTree className="h-3.5 w-3.5" />{t('移动归类')}</Button>
+              )}
+              {/* 走错节点的任务在这里退回去重做；放在标题栏而不是「下一步」卡里，
+                  因为终态任务没有下一步卡，却恰恰最需要回退 */}
+              {canRollback && (
+                <Button type="button" variant="outline" size="sm" onClick={() => setRollbackOpen(true)} title={t('回退到更早的流程节点')} className="h-7 rounded-lg border-amber-200 px-2.5 text-xs text-amber-700 hover:bg-amber-50 hover:text-amber-800"><Undo2 className="h-3.5 w-3.5" />{t('回退')}</Button>
               )}
               {/* 终态任务只读；状态流转走「下一步」操作卡，这里只改任务信息 */}
               {!["completed", "cancelled"].includes(task.status) && can("proc-task:create") && (
@@ -548,6 +584,68 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               className="rounded-lg bg-amber-600 hover:bg-amber-700"
             >
               {resetBusy ? t('处理中…') : t('清空并重新维护')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* 回退确认：先选目标节点，再如实列出会被清掉的数据，理由必填 */}
+      <AlertDialog open={rollbackOpen} onOpenChange={(o) => { if (!o) closeRollback(); }}>
+        <AlertDialogContent className="rounded-2xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-900">{t('回退任务到更早的节点')}</AlertDialogTitle>
+            <AlertDialogDescription className="leading-relaxed">
+              {t('当前状态「{status}」。请选择要回退到的节点，只能往回退，不能往前跳。', { status: t(meta.label) })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-1.5">
+              {rollbackTargets.map((target) => (
+                <button
+                  key={target}
+                  type="button"
+                  disabled={rollbackBusy}
+                  onClick={() => setRollbackTarget(target)}
+                  className={cn(
+                    "rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50",
+                    rollbackTarget === target
+                      ? "border-amber-400 bg-amber-50 text-amber-800"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-amber-200 hover:bg-amber-50/50",
+                  )}
+                >
+                  {t(PROC_STATUS_META[target].label)}
+                </button>
+              ))}
+            </div>
+            {rollbackTarget && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+                {rollbackHints.length > 0 ? (
+                  <>
+                    <div className="font-semibold">{t('回退到「{status}」将清除以下数据，且不可恢复：', { status: t(PROC_STATUS_META[rollbackTarget].label) })}</div>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                      {rollbackHints.map((hint) => <li key={hint}>{t(hint)}</li>)}
+                    </ul>
+                    <div className="mt-1.5">{t('免费样品来货登记会保留；物料主数据上的最新参考价不回滚。')}</div>
+                  </>
+                ) : (
+                  <span>{t('回退到「{status}」，报价与采购单关联保持不变。', { status: t(PROC_STATUS_META[rollbackTarget].label) })}</span>
+                )}
+              </div>
+            )}
+            <Textarea
+              value={rollbackReason}
+              onChange={(e) => setRollbackReason(e.target.value)}
+              placeholder={t('回退原因（必填，会记入操作留痕）')}
+              className="min-h-[72px] rounded-lg text-sm"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={rollbackBusy} className="rounded-lg">{t('取消')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={rollbackBusy || !rollbackTarget || rollbackReason.trim().length < 2}
+              onClick={(event) => { event.preventDefault(); void submitRollback(); }}
+              className="rounded-lg bg-amber-600 text-white hover:bg-amber-700"
+            >
+              {rollbackBusy ? t('处理中…') : t('确认回退')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

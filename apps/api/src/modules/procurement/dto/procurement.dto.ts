@@ -15,6 +15,7 @@ import {
   MaxLength,
   Max,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 
@@ -360,6 +361,32 @@ export class ConfirmQuoteBookQuotesDto {
 }
 
 /** 重新维护报价：清空任务已确认的报价并退回「待询价」。 */
+/** 完成询价：只带备注，去向由服务端按需样情况判定。 */
+export class CompleteInquiryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}
+
+/**
+ * 回退到流程中更早的节点。
+ * reason 必填：回退会清掉报价/采购单关联等业务数据，留痕里必须能查到是谁、为什么退的。
+ */
+export class RollbackProcTaskDto {
+  @IsIn(PROC_STATUSES)
+  status!: string;
+
+  /** 客户端渲染这次操作时看到的状态，用于识别过期页面，语义同 TransitionProcTaskDto。 */
+  @IsIn(PROC_STATUSES)
+  from_status!: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(200)
+  reason!: string;
+}
+
 export class ResetTaskQuotationsDto {
   @IsOptional()
   @IsString()

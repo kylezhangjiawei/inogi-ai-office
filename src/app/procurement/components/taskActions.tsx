@@ -2,8 +2,8 @@
 //
 // 卡片和详情抽屉共用同一套动作语义，避免两处各写一遍流转规则：
 //   待处理   → 确认接收（二次确认）
-//   待询价   → 从供应商报价库多选报价，一次确认并自动生成任务快照
-//   询价中   → 选定报价（仅兼容历史任务；新流程不再停留于此节点）
+//   待询价   → 从供应商报价库多选报价，一次确认并生成任务快照，任务进入「询价中」
+//   询价中   → 完成询价（按需样情况去 已定价 / 待到样 / 测试中）；历史任务仍可逐条选定报价
 //   待到样   → 样品已到（二次确认）；另可登记出样单（T+ 单号或免费样品，只登记不改状态）
 //   测试中   → 录入测试结论（决策类：通过 → 已定价 / 不通过 → 改图重新出样回「待到样」，或退回询价换供应商）
 //   已定价 / 待购买 → 标记已下单（填 T+ 采购单号；直购会先打开购买链接）
@@ -37,6 +37,7 @@ import { cn } from "../../components/ui/utils";
 import { t as translate, useI18n } from "../../lib/i18n";
 import {
   cancelProcTask,
+  completeInquiry,
   confirmQuotationsFromQuoteBook,
   confirmProcTask,
   deleteProcTask,
@@ -286,7 +287,7 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
 
 const TITLES: Record<FormKind, string> = {
   quote: "选择供应商报价",
-  select: "选定报价",
+  select: "完成询价",
   order: "标记已下单",
   receive: "登记到货",
   reassign: "转派采购负责人",
@@ -423,6 +424,13 @@ function ActionModal({
     [],
   );
   const freeSampleSuppliers = fetchedFreeSampleSuppliers ?? freeSampleSuppliersOf(task);
+
+  // 「待询价」批量确认过的报价。有这些就说明价格已经定了，「询价中」这一步只剩决定去向，
+  // 不该再让用户从头选一遍供应商。
+  const confirmedQuotes = useMemo(() => quotes.filter((q) => q.isSelected), [quotes]);
+  // 所选供应商是否都已寄样：判据与服务端 nextAfterQuoteSelected 一致（每家都到才跳过「待到样」）
+  const freeSampleUnlocked = confirmedQuotes.length > 0
+    && confirmedQuotes.every((q) => freeSampleSuppliers.includes(q.supplierName.trim()));
 
   useEffect(() => {
     if (kind !== "select") return;
@@ -944,6 +952,39 @@ function ActionModal({
           {kind === "select" && (
             quotes.length === 0 ? (
               <div className="py-6 text-center text-sm text-slate-400">{t("该任务还没有报价，请先从供应商报价库选择")}</div>
+            ) : confirmedQuotes.length > 0 ? (
+              // 报价已在「待询价」一次性确认过，这一步只需决定去向，不再重新选一遍供应商
+              <div className="space-y-3">
+                <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+                  <div className="text-xs font-medium text-slate-500">{t("已确认 {count} 条报价", { count: confirmedQuotes.length })}</div>
+                  <ul className="mt-1.5 space-y-1">
+                    {confirmedQuotes.map((q) => (
+                      <li key={q.id} className="flex items-center justify-between text-sm">
+                        <span className="truncate text-slate-700">{q.supplierName}</span>
+                        <b className="shrink-0 tabular-nums text-slate-900">{fmtMoney(q.unitPrice)}</b>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <p className="text-xs leading-relaxed text-slate-500">
+                  {!task.needSample
+                    ? t("完成询价后进入「已定价」，可标记已下单。")
+                    : freeSampleUnlocked
+                      ? t("已收到所选供应商的免费样品，完成询价后直接进入「测试中」。")
+                      : t("该任务需要打样，完成询价后进入「待到样」。")}
+                </p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void onSubmit(() => completeInquiry(task.id), t("已完成询价"))}
+                  className="h-9 w-full rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {busy ? t("处理中…") : t("完成询价")}
+                </button>
+                <p className="text-center text-xs text-slate-400">
+                  {t("报价有误？关闭本框后用「重新维护报价」退回「待询价」。")}
+                </p>
+              </div>
             ) : (
               <div className="space-y-2">
                 {quotes.map((q) => (

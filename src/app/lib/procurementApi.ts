@@ -450,6 +450,34 @@ export async function transitionProcTask(
 }
 
 /**
+ * 完成询价：从「询价中」按需样情况进入 已定价 / 待到样 / 测试中。
+ * 与确认报价拆成两步，一次操作只前进一个节点。
+ */
+export async function completeInquiry(id: string, note?: string): Promise<ProcurementTask> {
+  return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/complete-inquiry`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
+/**
+ * 回退到流程中更早的任意节点，并清理该节点下不该存在的业务数据。
+ * reason 必填：回退会删数据，留痕必须能查到是谁、为什么退的。
+ */
+export async function rollbackProcTask(
+  id: string,
+  status: ProcStatus,
+  reason: string,
+  /** 发起这次操作时界面上的状态；服务端据此识别过期页面并拒绝。 */
+  fromStatus: ProcStatus,
+): Promise<ProcurementTask> {
+  return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/rollback`, {
+    method: "POST",
+    body: JSON.stringify({ status, reason, from_status: fromStatus }),
+  });
+}
+
+/**
  * 重新维护报价：清空本任务已确认的报价并退回「待询价」。
  * 仅限未下单阶段——已下单后单价已随采购单出去，需先撤销采购单关联。
  */

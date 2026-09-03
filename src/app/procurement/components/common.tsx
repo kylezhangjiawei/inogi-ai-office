@@ -119,7 +119,7 @@ export const PROC_STATUS_META: Record<ProcStatus, { label: string; pill: string;
   pending_rd_review: { label: "待研发审核", pill: "border-violet-300 bg-violet-50 text-violet-700" },
   pending_confirm: { label: "待处理", pill: "border-rose-300 bg-rose-50 text-rose-700", next: "确认提交" },
   pending_inquiry: { label: "待询价", pill: "border-amber-200 bg-amber-50 text-amber-700", next: "选择报价" },
-  inquiring: { label: "询价中", pill: "border-blue-200 bg-blue-50 text-blue-700", next: "选定报价" },
+  inquiring: { label: "询价中", pill: "border-blue-200 bg-blue-50 text-blue-700", next: "完成询价" },
   pending_sample: { label: "待到样", pill: "border-violet-200 bg-violet-50 text-violet-700", next: "样品已到" },
   testing: { label: "测试中", pill: "border-cyan-200 bg-cyan-50 text-cyan-700", next: "录入测试结论" },
   priced: { label: "已定价", pill: "border-teal-200 bg-teal-50 text-teal-700", next: "标记已下单" },
@@ -145,6 +145,44 @@ export const QUOTE_RESETTABLE_STATUSES: ProcStatus[] = ["inquiring", "pending_sa
 /** 询价长流程 / 直购短流程步骤条节点。 */
 export const INQUIRY_FLOW: ProcStatus[] = ["pending_rd_review", "pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "in_transit", "partial_arrival", "completed"];
 export const DIRECT_FLOW: ProcStatus[] = ["pending_rd_review", "pending_confirm", "pending_purchase", "in_transit", "completed"];
+
+/**
+ * 回退可选节点，与服务端 PROC_ROLLBACK_MAIN_FLOW / PROC_ROLLBACK_DIRECT_FLOW 一致。
+ *
+ * 不复用上面的 INQUIRY_FLOW / DIRECT_FLOW：那两个是步骤条的展示序列，含
+ * pending_rd_review（采购侧无权处置的审核前置环节），拿来当回退目标会给出一个
+ * 必然被服务端 400 的选项。
+ */
+const ROLLBACK_MAIN_FLOW: ProcStatus[] = ["pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "in_transit", "partial_arrival", "completed"];
+const ROLLBACK_DIRECT_FLOW: ProcStatus[] = ["pending_confirm", "pending_purchase", "in_transit", "partial_arrival", "completed"];
+
+/** 采购侧不可回退的状态，与服务端 PROC_ROLLBACK_BLOCKED_STATUSES 一致。 */
+const ROLLBACK_BLOCKED_STATUSES: ProcStatus[] = ["pending_rd_review", "cancelled"];
+
+/**
+ * 当前状态可回退到哪些节点：同一条流程线上排在它前面的全部节点，越靠后的越靠近当前。
+ * 只能往回退，不能借回退往前跳——这与服务端 rollbackTargetsOf 是同一套判据。
+ */
+export function rollbackTargetsOf(status: ProcStatus, method?: string | null): ProcStatus[] {
+  if (ROLLBACK_BLOCKED_STATUSES.includes(status)) return [];
+  const flow = method === "direct" ? ROLLBACK_DIRECT_FLOW : ROLLBACK_MAIN_FLOW;
+  const index = flow.indexOf(status);
+  if (index <= 0) return [];
+  return flow.slice(0, index);
+}
+
+/**
+ * 回退到目标节点会清掉哪些数据，用于确认框里如实告知。
+ * 判据与服务端 rollbackCleanupFor 一致：目标节点下本不该存在的数据都会被清理。
+ */
+export function rollbackCleanupHintOf(target: ProcStatus): string[] {
+  const flow = ROLLBACK_MAIN_FLOW;
+  const index = target === "pending_purchase" ? flow.indexOf("priced") : flow.indexOf(target);
+  const hints: string[] = [];
+  if (index >= 0 && index <= flow.indexOf("pending_inquiry")) hints.push("已确认的报价与报价金额");
+  if (index >= 0 && index < flow.indexOf("in_transit")) hints.push("T+ 采购单关联与到货数量");
+  return hints;
+}
 
 export function StatusPill({ status, className }: { status: ProcStatus; className?: string }) {
   useI18n();

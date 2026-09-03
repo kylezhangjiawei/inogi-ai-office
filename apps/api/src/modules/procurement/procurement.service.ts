@@ -24,6 +24,7 @@ import {
   ReceiveGoodsDto,
   RenameCategoryDto,
   ReviewMaterialDto,
+  RollbackProcTaskDto,
   SetProcCoreMaterialsDto,
   SetProcTaskCriticalMaterialsDto,
   TransferFromRdDto,
@@ -35,11 +36,14 @@ import {
 import {
   PROC_ARRIVAL_STATUSES,
   PROC_FREE_SAMPLE_ONLY_STATUSES,
+  PROC_ROLLBACK_BLOCKED_STATUSES,
   PROC_STATUS_LABELS,
   PROC_PO_LINKABLE_STATUSES,
   PROC_QUOTATION_RESETTABLE_STATUSES,
   PROC_STATUS_TRANSITIONS,
   PROC_TERMINAL_STATUSES,
+  rollbackCleanupFor,
+  rollbackTargetsOf,
   type ProcActor,
   type ProcMaterialListQuery,
   type ProcStatus,
@@ -1164,6 +1168,131 @@ export class ProcurementService {
     return allArrived ? 'testing' : 'pending_sample';
   }
 
+  /**
+   * 完成询价：由「询价中」按需样情况决定去向，是报价确认之后的第二步。
+   *
+   * 拆成独立一步是为了消灭跳步——此前「待询价」确认报价会一次性写到
+   * 已定价/待到样/测试中，用户看到的就是「点一下从待询价窜到已定价」。
+   * 现在确认报价只到「询价中」，去哪一档由这里单独决定，每次点击只走一格。
+   */
+  async completeInquiry(taskId: string, actor: ProcActor, note?: string) {
+    const task = await this.requireTask(taskId);
+    if (task.status !== 'inquiring') {
+      throw new BadRequestException(
+        `只有「询价中」的任务可完成询价，当前是「${PROC_STATUS_LABELS[task.status as ProcStatus] ?? task.status}」`,
+      );
+    }
+    const selected = await this.prisma.procQuotation.findMany({
+      where: { taskId, isSelected: true },
+      select: { supplierName: true },
+    });
+    if (selected.length === 0) {
+      throw new BadRequestException('该任务还没有已确认的报价，不能完成询价');
+    }
+    const next = await this.nextAfterQuoteSelected(
+      task,
+      selected.map((row) => row.supplierName),
+    );
+    return this.applyTransition(
+      taskId,
+      next,
+      actor,
+      note?.trim()
+        || `完成询价，进入「${PROC_STATUS_LABELS[next] ?? next}」（已确认 ${selected.length} 条报价）`,
+    );
+  }
+
+  /**
+   * 回退到流程中任意一个更早的节点。
+   *
+   * 与 transitionTask 的区别：那条路只走 PROC_STATUS_TRANSITIONS 允许的前进边，
+   * 这条路专用于纠错，可以跨多个节点往回退，但绝不允许往前跳（rollbackTargetsOf 只返回更早的节点）。
+   * 回退会连带清理目标状态下本不该存在的数据，否则任务会停在自相矛盾的状态里。
+   */
+  async rollbackTask(id: string, dto: RollbackProcTaskDto, actor: ProcActor) {
+    const task = await this.requireTask(id);
+    const current = task.status as ProcStatus;
+    const target = dto.status as ProcStatus;
+
+    if (PROC_ROLLBACK_BLOCKED_STATUSES.includes(current)) {
+      throw new BadRequestException(
+        current === 'pending_rd_review'
+          ? '该申请尚待研发管理员审核，不在采购流程内，无法回退'
+          : '已取消的任务不能回退，请重新发起采购申请',
+      );
+    }
+    // 客户端拿的是过期数据时直接拒绝，理由同 transitionTask：
+    // 用户看到的当前节点与实际不符，那他选的回退目标也未必是他真正想要的
+    if (dto.from_status !== current) {
+      throw new ConflictException(
+        `任务已是「${PROC_STATUS_LABELS[current] ?? current}」，页面数据已过期，请刷新后再操作`,
+      );
+    }
+    const targets = rollbackTargetsOf(current, task.method);
+    if (!targets.includes(target)) {
+      throw new BadRequestException(
+        `不能从「${PROC_STATUS_LABELS[current] ?? current}」回退到「${
+          PROC_STATUS_LABELS[target] ?? target
+        }」：只能回退到当前流程中更早的节点`,
+      );
+    }
+
+    const cleanup = rollbackCleanupFor(target);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // 条件更新占位：并发下别人可能刚推进了状态，那时这次回退的前提已不成立
+      const claimed = await tx.procTask.updateMany({
+        where: { id, status: current },
+        data: {
+          status: target,
+          // 回退离开终态时必须撤掉完成标记，否则任务会以「已完成」的身份继续留在统计里
+          businessDone: false,
+          // 到货量记在任务上（由采购单的 receivedQty 汇总而来），退到下单之前必须归零，
+          // 否则「待询价」的任务还挂着到货数量
+          ...(cleanup.arrivals ? { arrivedQty: new Prisma.Decimal(0) } : {}),
+          ...(cleanup.quotations
+            ? {
+                selectedQuotationId: null,
+                quotationSubtotal: null,
+                quotationDiscount: null,
+                quotationTotal: null,
+              }
+            : {}),
+        },
+      });
+      if (claimed.count !== 1) throw new ConflictException('任务状态已被其他操作更新，请刷新后重试');
+
+      const cleared: string[] = [];
+      if (cleanup.quotations) {
+        const { count } = await tx.procQuotation.deleteMany({ where: { taskId: id } });
+        if (count > 0) cleared.push(`${count} 条报价`);
+      }
+      if (cleanup.purchaseOrders) {
+        // 免费样品登记保留：它记录的是「样品已到手」这个事实，与采购单无关，
+        // 清掉会让退回询价后重新选报价时又要求多等一轮「待到样」。
+        const { count } = await tx.procPurchaseOrderRef.deleteMany({
+          where: { taskId: id, NOT: { metadata: { path: ['freeSample'], equals: true } } },
+        });
+        if (count > 0) cleared.push(`${count} 条采购单关联`);
+      }
+
+      await tx.procTaskLog.create({
+        data: {
+          taskId: id,
+          kind: 'action',
+          text: `回退到「${PROC_STATUS_LABELS[target] ?? target}」`
+            + `${cleared.length > 0 ? `，已清理 ${cleared.join('、')}` : ''}`
+            + `；原因：${dto.reason.trim()}`,
+          fromStatus: current,
+          toStatus: target,
+          actor: actor.name,
+          actorUserId: actor.id,
+        },
+      });
+      return tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
+    });
+    return this.serializeTask(updated);
+  }
+
   /** 通用状态流转：受 PROC_STATUS_TRANSITIONS 约束。 */
   async transitionTask(id: string, dto: TransitionProcTaskDto, actor: ProcActor) {
     const task = await this.requireTask(id);
@@ -1866,9 +1995,12 @@ export class ProcurementService {
   }
 
   /**
-   * 从报价库批量生成并确认任务报价。
-   * 这是「待询价」阶段的完整业务动作：一次保存多条不可变快照，并直接进入待到样/已定价，
-   * 不再要求采购人员在下一节点逐条单选。selectedQuotationId 仅保留首条用于兼容旧客户端。
+   * 从报价库批量生成并确认任务报价：「待询价」→「询价中」，只走一格。
+   *
+   * 曾经这里直接写到 已定价/待到样/测试中，于是界面上表现为「点一下从待询价窜到已定价」，
+   * 用户反复报「跳步」。报价确认与询价完成是两件事：确认的是价格快照，完成询价才决定
+   * 下一站去哪。后者现在由 completeInquiry 单独承担。
+   * selectedQuotationId 仍写首条，供旧客户端与报价汇总使用。
    */
   async confirmQuotationsFromQuoteBook(
     taskId: string,
@@ -1931,10 +2063,9 @@ export class ProcurementService {
     }
     const total = subtotal.minus(discount).toDecimalPlaces(4);
 
-    const next = await this.nextAfterQuoteSelected(
-      task,
-      selectedRows.map((row) => row.quote.supplierName),
-    );
+    // 确认报价固定停在「询价中」：去哪一档由后续的「完成询价」按需样情况决定，
+    // 一次操作只前进一个节点，避免用户看到状态跨越式跳变。
+    const next: ProcStatus = 'inquiring';
     await this.prisma.$transaction(async (tx) => {
       const snapshots: Prisma.ProcQuotationGetPayload<object>[] = [];
       for (const row of selectedRows) {
@@ -2001,7 +2132,7 @@ export class ProcurementService {
           logs: {
             create: {
               kind: 'action',
-              text: `从供应商报价库批量确认 ${snapshots.length} 条报价，报价小计 ${currency} ${subtotal.toFixed(4)}，折扣 ${discount.toFixed(4)}，最终总价 ${total.toFixed(4)}`,
+              text: `从供应商报价库批量确认 ${snapshots.length} 条报价，报价小计 ${currency} ${subtotal.toFixed(4)}，折扣 ${discount.toFixed(4)}，最终总价 ${total.toFixed(4)}；任务进入「询价中」，待「完成询价」后继续`,
               fromStatus: task.status,
               toStatus: next,
               actor: actor.name,

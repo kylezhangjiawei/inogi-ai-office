@@ -8,6 +8,7 @@ import {
   BatchReassignDto,
   MoveProcTasksDto,
   CancelProcTaskDto,
+  CompleteInquiryDto,
   ConfirmQuoteBookQuotesDto,
   CreateProcTaskTreeNodeDto,
   ImportBomDto,
@@ -20,6 +21,7 @@ import {
   ReceiveGoodsDto,
   RenameCategoryDto,
   ReviewMaterialDto,
+  RollbackProcTaskDto,
   SetProcCoreMaterialsDto,
   SetProcTaskCriticalMaterialsDto,
   TransferFromRdDto,
@@ -299,6 +301,32 @@ export class ProcurementController {
     @Request() req: AuthedRequest,
   ) {
     return this.service.confirmQuotationsFromQuoteBook(id, dto, this.actor(req));
+  }
+
+  /** 完成询价：由「询价中」按需样情况进入 已定价 / 待到样 / 测试中。 */
+  @Post('tasks/:id/complete-inquiry')
+  @Permissions('proc-task:select-quote')
+  completeInquiry(
+    @Param('id') id: string,
+    @Body() dto: CompleteInquiryDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.completeInquiry(id, this.actor(req), dto.note);
+  }
+
+  /**
+   * 回退到流程中更早的任意节点，并清理该节点下不该存在的业务数据。
+   * 单独一个权限码：它会删报价和采购单关联，不该与日常推进流程共用同一档权限，
+   * 由管理员在权限配置里按角色分配。
+   */
+  @Post('tasks/:id/rollback')
+  @Permissions('proc-task:rollback')
+  rollback(
+    @Param('id') id: string,
+    @Body() dto: RollbackProcTaskDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.rollbackTask(id, dto, this.actor(req));
   }
 
   /** 重新维护报价：清空本任务已确认的报价并退回「待询价」。仅限未下单阶段。 */
