@@ -6,6 +6,7 @@ import { test } from 'node:test';
 
 import { PERMISSIONS_KEY } from '../src/modules/auth/decorators/permissions.decorator';
 import { ChatToolsService } from '../src/modules/chat/chat-tools.service';
+import { OssService } from '../src/modules/oss/oss.service';
 import { ResearchDevelopmentController } from '../src/modules/research-development/research-development.controller';
 import { ResearchDevelopmentService } from '../src/modules/research-development/research-development.service';
 import { currentRdWorkspace, runInRdWorkspace } from '../src/modules/research-development/rd-workspace.context';
@@ -387,12 +388,21 @@ test('explicit full attachment request returns every item while keeping the payl
     extracted_text: `large OCR payload ${index}`,
   }));
   const service = Object.create(ResearchDevelopmentService.prototype) as any;
-  service.getTaskProgressNotes = async () => [{
-    id: 'note-1',
-    created_at: '2026-07-31T00:00:00.000Z',
-    text: 'note body must not be returned',
-    attachments,
+  // 全量附件端点按子树聚合，整棵子树只读一次留痕表和任务树（不再逐个子任务查库）。
+  // 此用例的任务没有子任务，聚合结果与改动前一致。
+  service.getProgressNoteMap = async () => ({
+    'task-a': [{
+      id: 'note-1',
+      created_at: '2026-07-31T00:00:00.000Z',
+      text: 'note body must not be returned',
+      attachments,
+    }],
+  });
+  service.readMergedTaskCategories = async () => [{
+    id: 'category',
+    children: [{ id: 'project', tasks: [{ task_id: 'task-a', subtasks: [] }] }],
   }];
+  service.decorateNotesWithPreview = (notes: unknown[]) => notes;
 
   const result = await service.getTaskAttachments('task-a', {
     userId: 'user-1',
@@ -407,6 +417,319 @@ test('explicit full attachment request returns every item while keeping the payl
     assert.equal('data_url' in attachment, false);
     assert.equal('text' in attachment, false);
   }
+});
+
+test('attachment views aggregate merged and created subtasks under the parent task', async () => {
+  // 主任务自己一个附件都没传，附件全在合并进来的子任务和自建子任务里。
+  const subtaskAttachment = (id: string, objectKey: string) => ({
+    id,
+    name: `${id}.pdf`,
+    mime: 'application/pdf',
+    size: 4096,
+    object_key: objectKey,
+    oss_url: `https://oss.example/${id}.pdf`,
+  });
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  const noteMap = {
+    'parent-1': [],
+    'merged-child': [{
+      id: 'note-merged',
+      created_at: '2026-08-02T00:00:00.000Z',
+      attachments: [subtaskAttachment('merged-a', 'key/merged-a.pdf')],
+    }],
+    'created-child': [{
+      id: 'note-created',
+      created_at: '2026-08-01T00:00:00.000Z',
+      // 同一个文件（object_key 相同）在孙任务里再次出现，聚合后应去重
+      attachments: [subtaskAttachment('created-a', 'key/created-a.pdf'), subtaskAttachment('dup', 'key/merged-a.pdf')],
+    }],
+    'grandchild': [{
+      id: 'note-grandchild',
+      created_at: '2026-08-03T00:00:00.000Z',
+      attachments: [subtaskAttachment('grandchild-a', 'key/grandchild-a.pdf')],
+    }],
+  };
+  service.getProgressNoteMap = async () => noteMap;
+  service.decorateNotesWithPreview = (notes: unknown[]) => notes;
+  service.readMergedTaskCategories = async () => [{
+    id: 'category',
+    children: [{
+      id: 'project',
+      tasks: [{
+        task_id: 'parent-1',
+        subtasks: [
+          { task_id: 'merged-child', subtasks: [{ task_id: 'grandchild', subtasks: [] }] },
+          { task_id: 'created-child', subtasks: [] },
+        ],
+      }],
+    }],
+  }];
+  service.decorateAttachmentForDisplay = (attachment: Record<string, unknown>) => ({ ...attachment });
+
+  const viewer = { userId: 'user-1', hasFullAccess: true, canReadAll: true };
+  const previews = await service.getTaskAttachmentPreviews(['parent-1'], viewer);
+  // 4 条留痕附件去掉 1 条重复 = 3
+  assert.equal(previews['parent-1'].attachment_count, 3);
+  assert.deepEqual(
+    previews['parent-1'].attachments.map((attachment: { id: string }) => attachment.id),
+    ['grandchild-a', 'merged-a', 'created-a'],
+  );
+
+  const full = await service.getTaskAttachments('parent-1', viewer);
+  assert.equal(full.attachment_count, 3);
+  assert.deepEqual(full.attachments.map((attachment: { id: string }) => attachment.id), ['grandchild-a', 'merged-a', 'created-a']);
+
+  // 子任务自己的视图只看自己这一支，不会反向带出父任务和兄弟任务的附件
+  const childPreviews = await service.getTaskAttachmentPreviews(['created-child'], viewer);
+  assert.equal(childPreviews['created-child'].attachment_count, 2);
+});
+
+test('task cards carry the whole subtree attachment count so the cockpit still fetches previews', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  const categories = service.applyProgressAttachmentCounts(
+    [{
+      id: 'category',
+      children: [{
+        id: 'project',
+        tasks: [{
+          task_id: 'parent-1',
+          attachments: 0,
+          subtasks: [
+            { task_id: 'merged-child', attachments: 0, subtasks: [{ task_id: 'grandchild', attachments: 0, subtasks: [] }] },
+          ],
+        }],
+      }],
+    }],
+    {
+      'parent-1': [],
+      'merged-child': [{ id: 'n1', created_at: '2026-08-01T00:00:00.000Z', attachments: [{ id: 'a1' }, { id: 'a2' }] }],
+      grandchild: [{ id: 'n2', created_at: '2026-08-02T00:00:00.000Z', attachments: [{ id: 'a3' }] }],
+    },
+  );
+
+  const parent = categories[0].children[0].tasks[0];
+  assert.equal(parent.attachments, 3);
+  assert.equal(parent.subtasks[0].attachments, 3);
+  assert.equal(parent.subtasks[0].subtasks[0].attachments, 1);
+});
+
+test('card attachment count matches what the attachment dialog can actually open', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  const dup = (id: string) => ({ id, name: `${id}.pdf`, mime: 'application/pdf', size: 1, object_key: 'k/same.pdf' });
+  const noteMap = {
+    // 同一个文件（object_key 相同）传了两次：存量计数器按 +1/-1 记成 2，去重后只有 1 个可打开
+    'task-dup': [{ id: 'n1', task_id: 'task-dup', created_at: '2026-08-01T00:00:00.000Z', attachments: [dup('a1'), dup('a2')] }],
+    // 从来没有留痕的历史任务：只能信存量计数器
+    'task-legacy-count': [],
+  };
+  const categories = service.applyProgressAttachmentCounts(
+    [{
+      id: 'category',
+      children: [{
+        id: 'project',
+        tasks: [
+          { task_id: 'task-dup', attachments: 2, subtasks: [] },
+          { task_id: 'task-no-notes', attachments: 4, subtasks: [] },
+        ],
+      }],
+    }],
+    noteMap,
+  );
+  const [dupTask, noNotesTask] = categories[0].children[0].tasks;
+  // 卡片数字 = 去重后条数，与「全部附件」弹窗一致（此前是 max(2, 1) = 2，比能打开的多一个）
+  assert.equal(dupTask.attachments, 1);
+  // 任务在 noteMap 里没有条目（从未产生留痕）时才回退存量计数器
+  assert.equal(noNotesTask.attachments, 4);
+
+  service.getProgressNoteMap = async () => noteMap;
+  service.readMergedTaskCategories = async () => [{
+    id: 'category',
+    children: [{ id: 'project', tasks: [{ task_id: 'task-dup', subtasks: [] }] }],
+  }];
+  service.decorateNotesWithPreview = (notes: unknown[]) => notes;
+  const dialog = await service.getTaskAttachments('task-dup', { hasFullAccess: true, canReadAll: true });
+  assert.equal(dialog.attachment_count, dupTask.attachments);
+});
+
+test('embedded-only attachments get a same-origin inline url instead of falling back to a data: url', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  const pdfBytes = Buffer.from('%PDF-1.4 embedded');
+  const noteMap = {
+    'task-legacy': [{
+      id: 'note-legacy',
+      task_id: 'task-legacy',
+      created_at: '2026-08-05T00:00:00.000Z',
+      attachments: [{
+        id: 'att-legacy',
+        name: '历史图纸.pdf',
+        mime: 'application/pdf',
+        size: pdfBytes.length,
+        // 早期内嵌存储：没有 object_key / oss_url
+        data_url: `data:application/pdf;base64,${pdfBytes.toString('base64')}`,
+      }],
+    }],
+  };
+  service.getProgressNoteMap = async () => noteMap;
+  service.readMergedTaskCategories = async () => [{
+    id: 'category',
+    children: [{ id: 'project', tasks: [{ task_id: 'task-legacy', subtasks: [] }] }],
+  }];
+  service.ossService = {
+    getCdnReadUrl: () => null,
+    signPreviewToken: () => ({ exp: 1, sig: 'sig' }),
+    getSignedUrl: () => null,
+  };
+
+  const result = await service.getTaskAttachments('task-legacy', {
+    userId: 'user-1', hasFullAccess: true, canReadAll: true,
+  });
+  const [attachment] = result.attachments;
+  assert.ok(attachment.preview_url.startsWith('/api/research-development/embedded-attachment?'));
+  assert.ok(attachment.preview_url.includes('task=task-legacy'));
+  assert.ok(attachment.preview_url.includes('note=note-legacy'));
+  assert.ok(attachment.download_url.includes('dl=1'));
+  // 有了同源地址就不必再把 base64 塞进列表响应
+  assert.equal('data_url' in attachment, false);
+
+  // 字节可按 留痕 id + 附件 id 取回
+  const file = await service.readEmbeddedAttachment('task-legacy', 'note-legacy', 'att-legacy');
+  assert.equal(file.name, '历史图纸.pdf');
+  assert.equal(file.mime, 'application/pdf');
+  assert.deepEqual(file.buffer, pdfBytes);
+  // 对不上的 id 不返回任何字节
+  assert.equal(await service.readEmbeddedAttachment('task-legacy', 'note-legacy', 'att-other'), null);
+  assert.equal(await service.readEmbeddedAttachment('task-legacy', 'note-missing', 'att-legacy'), null);
+  // 任务对不上也不返回：token 里的 task_id 参与签名，不能靠猜留痕 id 跨任务取字节
+  assert.equal(await service.readEmbeddedAttachment('task-other', 'note-legacy', 'att-legacy'), null);
+});
+
+test('embedded attachment delivery keeps the oss-preview security posture', async () => {
+  const handler = ResearchDevelopmentController.prototype.embeddedAttachment;
+  // 与 oss-preview 同一套能力 URL 模型：签名即授权，故不挂具体权限码
+  assert.deepEqual(Reflect.getMetadata(PERMISSIONS_KEY, handler), []);
+
+  const call = async (file: { name: string; mime: string } | null, opts: { verified?: boolean; dl?: string } = {}) => {
+    const headers: Record<string, string> = {};
+    let ended: Buffer | null = null;
+    const controller = Object.create(ResearchDevelopmentController.prototype) as any;
+    controller.ossService = { verifyPreviewToken: () => opts.verified !== false };
+    controller.rdService = {
+      readEmbeddedAttachment: async () => (file ? { ...file, buffer: Buffer.from('bytes') } : null),
+    };
+    const res = {
+      setHeader: (key: string, value: string) => { headers[key] = value; },
+      end: (buffer: Buffer) => { ended = buffer; },
+    };
+    await controller.embeddedAttachment('task-1', 'note-1', 'att-1', '1', 'sig', opts.dl, res);
+    return { headers, ended };
+  };
+
+  // 普通 PDF：原样 Content-Type + inline，iframe 才能渲染
+  const pdf = await call({ name: '历史图纸.pdf', mime: 'application/pdf' });
+  assert.equal(pdf.headers['Content-Type'], 'application/pdf');
+  assert.equal(pdf.headers['Content-Disposition'], 'inline');
+  assert.equal(pdf.headers['X-Content-Type-Options'], 'nosniff');
+  assert.equal(pdf.headers['Content-Security-Policy'], "default-src 'none'; sandbox");
+  assert.ok(pdf.ended);
+
+  // 主动内容：必须降级为 octet-stream + attachment，杜绝同源 XSS
+  for (const active of [{ name: 'p.html', mime: 'text/html' }, { name: 'p.svg', mime: 'image/svg+xml' }]) {
+    const res = await call(active);
+    assert.equal(res.headers['Content-Type'], 'application/octet-stream');
+    assert.ok(res.headers['Content-Disposition'].startsWith('attachment;'));
+  }
+
+  // dl=1 走下载分支；文件名做 UTF-8 编码
+  const download = await call({ name: '历史图纸.pdf', mime: 'application/pdf' }, { dl: '1' });
+  assert.ok(download.headers['Content-Disposition'].startsWith("attachment; filename*=UTF-8''"));
+
+  // 签名不过 / 附件不存在都必须 404，不能泄漏字节
+  await assert.rejects(() => call({ name: 'a.pdf', mime: 'application/pdf' }, { verified: false }), /Not Found/);
+  await assert.rejects(() => call(null), /Not Found/);
+});
+
+test('embedded attachment url signed by the service verifies in the controller (real HMAC round trip)', async () => {
+  // 关键：这里用真实的 OssService 签名与校验。其他用例把 sign/verify 都打了桩，
+  // 万一「签的主体串」和「验的主体串」拼得不一致，打桩测试是发现不了的。
+  const oss = Object.create(OssService.prototype) as any;
+  oss.config = { get: () => 'round-trip-secret', getOrThrow: () => 'round-trip-secret' };
+  oss.getCdnReadUrl = () => null;
+  oss.getSignedUrl = () => null;
+
+  const pdfBytes = Buffer.from('%PDF-1.4 round trip');
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.ossService = oss;
+  service.getProgressNoteMap = async () => ({
+    'task-rt': [{
+      id: 'note-rt',
+      task_id: 'task-rt',
+      created_at: '2026-08-06T00:00:00.000Z',
+      attachments: [{
+        id: 'att-rt',
+        name: '往返.pdf',
+        mime: 'application/pdf',
+        size: pdfBytes.length,
+        data_url: `data:application/pdf;base64,${pdfBytes.toString('base64')}`,
+      }],
+    }],
+  });
+  service.readMergedTaskCategories = async () => [{
+    id: 'category',
+    children: [{ id: 'project', tasks: [{ task_id: 'task-rt', subtasks: [] }] }],
+  }];
+
+  const { attachments } = await service.getTaskAttachments('task-rt', { hasFullAccess: true, canReadAll: true });
+  const query = new URLSearchParams(attachments[0].preview_url.split('?')[1]);
+
+  const headers: Record<string, string> = {};
+  let served: Buffer | null = null;
+  const controller = Object.create(ResearchDevelopmentController.prototype) as any;
+  controller.ossService = oss;
+  controller.rdService = service;
+  await controller.embeddedAttachment(
+    query.get('task')!, query.get('note')!, query.get('att')!,
+    query.get('exp')!, query.get('sig')!, undefined,
+    { setHeader: (k: string, v: string) => { headers[k] = v; }, end: (b: Buffer) => { served = b; } },
+  );
+  assert.deepEqual(served, pdfBytes);
+  assert.equal(headers['Content-Disposition'], 'inline');
+
+  // 改动任一签名字段都必须失效
+  for (const [key, tampered] of [['task', 'task-other'], ['note', 'note-other'], ['att', 'att-other']]) {
+    const q = new URLSearchParams(query);
+    q.set(key, tampered);
+    await assert.rejects(
+      () => controller.embeddedAttachment(
+        q.get('task')!, q.get('note')!, q.get('att')!, q.get('exp')!, q.get('sig')!, undefined,
+        { setHeader: () => {}, end: () => {} },
+      ),
+      /Not Found/,
+      `${key} 被篡改后仍然放行`,
+    );
+  }
+});
+
+test('embedded payloads are capped by a corruption ceiling, not by the upload limit', async () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  const embedded = (id: string, megabytes: number) => ({
+    id,
+    name: `${id}.pdf`,
+    mime: 'application/pdf',
+    data_url: `data:application/pdf;base64,${'A'.repeat(Math.ceil((megabytes * 1024 * 1024 * 4) / 3))}`,
+  });
+  service.getProgressNoteMap = async () => ({
+    'task-big': [{
+      id: 'note-big',
+      task_id: 'task-big',
+      // 30MB：超过 25MB 的新上传上限，但历史内嵌附件可能是限制生效前存进去的，
+      // 原本能靠 data_url 正常下载，不能因为加了闸门反而 404。
+      attachments: [embedded('att-legacy-big', 30), embedded('att-corrupt', 70)],
+    }],
+  });
+  const legacy = await service.readEmbeddedAttachment('task-big', 'note-big', 'att-legacy-big');
+  assert.ok(legacy, '30MB 的历史内嵌附件应当仍可下发');
+  // 70MB 明显超出防脏数据上限：解码前就拒绝，不先分配内存
+  assert.equal(await service.readEmbeddedAttachment('task-big', 'note-big', 'att-corrupt'), null);
 });
 
 test('RD JSON store reuses a short-lived read and returns an isolated copy', async () => {

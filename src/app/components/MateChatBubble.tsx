@@ -237,6 +237,13 @@ const DISLIKE_REASONS = [
 
 /** 附件数量与单文件大小上限（与后端 uploads-temp 的 20MB 对齐） */
 const ATTACH_MAX_COUNT = 10;
+
+/**
+ * 模型选择的本地持久化键。空串 selectedModel = 「自动」态：请求不带 model，
+ * 选模权交给后端网关路由（未配路由则用全局默认模型）；存 "auto" 表示用户显式选过自动。
+ * 显式选过的具体模型跨刷新保留——用户意志优先于路由。
+ */
+const MODEL_CHOICE_STORAGE_KEY = "matechat.model-choice";
 const ATTACH_MAX_BYTES = 20 * 1024 * 1024;
 /**
  * 图片上传前压缩的触发/目标上限：对齐后端聊天视觉硬线（MAX_IMAGE_BYTES = 10MB），留 1MB 余量。
@@ -695,7 +702,19 @@ export function MateChatBubble() {
     try {
       const [convs, mds] = await Promise.all([apiListConversations(), apiListModels()]);
       setModels(mds);
-      if (mds.length > 0 && !selectedModel) setSelectedModel(mds[0].id);
+      // 默认「自动」（selectedModel 保持空串，发送时不带 model → 网关路由接管选模）。
+      // 只恢复用户显式选过、且仍然存在的模型；存的是 "auto"/已下架/读不到 → 维持自动态。
+      if (!selectedModel) {
+        let stored: string | null = null;
+        try {
+          stored = localStorage.getItem(MODEL_CHOICE_STORAGE_KEY);
+        } catch {
+          /* 隐私模式等读不到本地存储：按自动态处理 */
+        }
+        if (stored && stored !== "auto" && mds.some((m) => m.id === stored)) {
+          setSelectedModel(stored);
+        }
+      }
       if (convs.length > 0) {
         setConversations(convs);
         if (!activeId) setActiveId(convs[0].id);
@@ -777,29 +796,39 @@ export function MateChatBubble() {
    * 切换会话时用，「停止生成」后也用——中断没有 done 事件，得靠重拉把乐观占位换成
    * 后端已落库的半截回答（含真实 id），否则气泡会永远停在「生成中」。
    */
-  /** 把一份服务端消息列表铺到界面上，并恢复挂在消息上的工具步骤与确认卡 */
-  const applyConversation = useCallback(async (convId: string, msgs: ApiMessage[]) => {
-    setMessages(msgs);
-    // 恢复工具步骤条：没有它，刷新后分享含任务数据的回答会跳过越权确认（见 TASK_REF_TOOLS）
-    const stepsByMsg: Record<string, ToolStep[]> = {};
-    for (const m of msgs) {
-      if (m.toolSteps && m.toolSteps.length > 0) stepsByMsg[m.id] = m.toolSteps;
-    }
-    setMsgToolSteps(stepsByMsg);
-    // 恢复未决确认卡：挂回其所属消息（无 messageId 的兜底挂到最后一条 assistant 消息）
-    const pendings = await apiGetPendingActions(convId);
-    const lastAssistantId = [...msgs].reverse().find((m) => m.role === "assistant")?.id;
-    const byMsg: Record<string, PendingActionView[]> = {};
-    for (const p of pendings) {
-      const mid = p.messageId ?? lastAssistantId;
-      if (!mid) continue;
-      (byMsg[mid] ??= []).push({ ...p.card, status: "pending" });
-    }
-    setMsgPendingActions(byMsg);
-  }, []);
+  /**
+   * 把一份服务端消息列表铺到界面上，并恢复挂在消息上的工具步骤与确认卡。
+   * isStale 在每次写 state 前检查：并发加载 / 中途切换会话时，旧的这份数据不能覆盖新会话——
+   * 否则快速切 A→B→A 时先发后至的响应会把 A 的历史铺到 B 上。
+   */
+  const applyConversation = useCallback(
+    async (convId: string, msgs: ApiMessage[], isStale?: () => boolean) => {
+      if (isStale?.()) return;
+      setMessages(msgs);
+      // 恢复工具步骤条：没有它，刷新后分享含任务数据的回答会跳过越权确认（见 TASK_REF_TOOLS）
+      const stepsByMsg: Record<string, ToolStep[]> = {};
+      for (const m of msgs) {
+        if (m.toolSteps && m.toolSteps.length > 0) stepsByMsg[m.id] = m.toolSteps;
+      }
+      setMsgToolSteps(stepsByMsg);
+      // 恢复未决确认卡：挂回其所属消息（无 messageId 的兜底挂到最后一条 assistant 消息）
+      const pendings = await apiGetPendingActions(convId);
+      if (isStale?.()) return; // 上面这个 await 期间可能已切走会话，别把过期的卡铺上去
+      const lastAssistantId = [...msgs].reverse().find((m) => m.role === "assistant")?.id;
+      const byMsg: Record<string, PendingActionView[]> = {};
+      for (const p of pendings) {
+        const mid = p.messageId ?? lastAssistantId;
+        if (!mid) continue;
+        (byMsg[mid] ??= []).push({ ...p.card, status: "pending" });
+      }
+      setMsgPendingActions(byMsg);
+    },
+    [],
+  );
 
   const hydrateConversation = useCallback(
-    async (convId: string) => applyConversation(convId, await apiGetMessages(convId)),
+    async (convId: string, isStale?: () => boolean) =>
+      applyConversation(convId, await apiGetMessages(convId), isStale),
     [applyConversation],
   );
 
@@ -841,14 +870,26 @@ export function MateChatBubble() {
   useEffect(() => {
     if (!activeId) return;
     const convId = activeId;
+    // 切换会话：先中止上一会话仍在进行的流。否则它会继续把 delta/done 写向一个已被清空的列表
+    // （全部变成空操作——回答虽在后端落库却永远不在界面出现，正是「切走再回来内容没了」的成因），
+    // 还白占一条浏览器连接。abort 后后端按「断流」把已生成的内容收尾落库，切回本会话时下面的
+    // hydrate 会重新拉到它；sendSeq 自增则让上一条流的停止对账立即作废，不至于把旧会话内容铺到新会话。
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+      sendSeqRef.current += 1;
+      setSending(false);
+    }
+    let cancelled = false;
     setLoadingMsgs(true);
     setMessages([]);
     setMsgPendingActions({});
     setExpandedSteps(new Set());
     setMsgStatus({});
-    hydrateConversation(convId)
-      .catch((err) => toast.error(err instanceof Error ? err.message : "加载消息失败"))
-      .finally(() => setLoadingMsgs(false));
+    hydrateConversation(convId, () => cancelled)
+      .catch((err) => { if (!cancelled) toast.error(err instanceof Error ? err.message : "加载消息失败"); })
+      .finally(() => { if (!cancelled) setLoadingMsgs(false); });
+    return () => { cancelled = true; };
   }, [activeId, hydrateConversation]);
 
   // ── 消息自动滚动到底部 ──────────────────────────────────────────────────────
@@ -1137,11 +1178,21 @@ export function MateChatBubble() {
 
       const tempUserId = `tmp-user-${Date.now()}`;
       const tempAiId = `tmp-ai-${Date.now()}`;
+      // 幂等键：这一次逻辑发送的唯一标识。同一条消息若因任何原因被重发（代理重放等），
+      // 后端据此只落一条用户消息、不重复提问。重新回答走 regenerateMessageId，不需要它。
+      const clientMessageId =
+        !isRegenerate && typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : undefined;
       const now = new Date().toISOString();
       // 在函数作用域声明：finally 块要访问它，不能放进 try 块（块级作用域下 finally 取不到 → ReferenceError）。
       let realUserId = tempUserId;
       // 同理提到函数作用域：中断落在 catch 里，要靠它判断「有没有写出内容」来决定保留还是撤掉气泡。
       let streamedContent = "";
+      // 本轮是否已经产出过用户可见的东西（正文之外还包括工具步骤 / 确认卡 / 生成的文件）。
+      // 多轮工具场景前几轮往往只有工具步骤而无正文，断流时不能只看 streamedContent 就把它们连同
+      // 气泡一起删掉——那些内容后端会按「断流」落库，前端要保留并对账，与后端判据保持一致。
+      let hadVisibleArtifact = false;
 
       // 普通提问追加一问一答；重新回答只在原位置替换 AI 占位，不重复创建用户问题。
       setMessages((prev) => isRegenerate && regenerateMessage
@@ -1167,6 +1218,7 @@ export function MateChatBubble() {
             model: selectedModel || undefined,
             attachments: attachPayload.length > 0 ? attachPayload : undefined,
             regenerateMessageId: regenerateMessage?.id,
+            clientMessageId,
           }),
           signal: abortController.signal,
         });
@@ -1245,6 +1297,7 @@ export function MateChatBubble() {
               }
 
               if (event.type === "tool_step") {
+                hadVisibleArtifact = true;
                 // 同 callId 原位更新（running → ok/error），新 callId 追加
                 const step: ToolStep = {
                   callId: event.callId,
@@ -1269,6 +1322,7 @@ export function MateChatBubble() {
               }
 
               if (event.type === "pending_action") {
+                hadVisibleArtifact = true;
                 const view: PendingActionView = { ...event.action, status: "pending" };
                 setMsgPendingActions((prev) => ({
                   ...prev,
@@ -1302,6 +1356,7 @@ export function MateChatBubble() {
               }
 
               if (event.type === "files_generated") {
+                hadVisibleArtifact = true;
                 const atts = event.attachments;
                 setMessages((prev) =>
                   prev.map((m) =>
@@ -1389,10 +1444,13 @@ export function MateChatBubble() {
           }
         }
       } catch (err) {
+        // 已产出的判据：正文，或工具步骤/确认卡/生成文件——任一非空都说明用户已看到东西，
+        // 后端会按「断流」把它们落库，前端就要保留并对账，不能整体作废（多轮工具场景正文常为空）。
+        const hasVisibleOutput = streamedContent.trim().length > 0 || hadVisibleArtifact;
         // 用户主动停止：不是错误，不弹 toast。
         if (err instanceof DOMException && err.name === "AbortError") {
-          if (streamedContent.trim()) {
-            // 已经写出了一部分：后端会把它落库，但那发生在中断之后（本轮若还有工具在跑会更晚），
+          if (hasVisibleOutput) {
+            // 已经产出了一部分：后端会把它落库，但那发生在中断之后（本轮若还有工具在跑会更晚），
             // 故轮询对账而不是立刻重拉，期间保留用户已看到的内容。
             void reconcileAfterStop(activeId, realUserId, sendSeq, regenerateMessage?.id);
           } else {
@@ -1402,14 +1460,25 @@ export function MateChatBubble() {
               ? prev.map((message) => (message.id === tempAiId ? regenerateMessage : message))
               : prev.filter((m) => m.id !== tempAiId));
           }
-        } else if (streamedContent.trim()) {
-          // 连接中断但正文已经流出：绝不当场抹掉用户看到的内容。后端在断开时会把
-          // 半截回答落库（收尾发生在断开之后），复用停止生成的轮询对账等它出现；
-          // 万一没落库，对账也不会删本地气泡，内容仍留给用户。
+        } else if (hasVisibleOutput) {
+          // 连接中断但已有产出：绝不当场抹掉用户看到的内容。后端在断开时会把半截回答落库
+          //（收尾发生在断开之后），复用停止生成的轮询对账等它出现；万一没落库，对账也不会删本地气泡。
           toast.error("网络连接中断，已保留当前生成的内容");
           void reconcileAfterStop(activeId, realUserId, sendSeq, regenerateMessage?.id);
         } else {
-          toast.error(err instanceof Error ? err.message : "发送失败");
+          // 一无所有的失败：给可读的中文提示，不把浏览器原生的 "Failed to fetch" 直接抛给用户。
+          // 提问已在后端落库（收到过 userMessage 事件即 realUserId 变化），故用户气泡保留、只撤 AI 占位，
+          // 用户无需、也不应手动重发（会产生重复提问）——文案据此区分。
+          const questionPersisted = realUserId !== tempUserId;
+          const message =
+            err instanceof TypeError
+              ? questionPersisted
+                ? "网络中断，回答生成失败。问题已保存，可点回答下方的重新生成，不必重复提问。"
+                : "网络连接失败，请检查网络后重试。"
+              : err instanceof Error
+                ? err.message
+                : "发送失败";
+          toast.error(message);
           setMessages((prev) => isRegenerate && regenerateMessage
             ? prev.map((message) => message.id === tempAiId ? regenerateMessage : message)
             : prev.filter((m) => m.id !== tempAiId && (realUserId !== tempUserId || m.id !== tempUserId)));
@@ -1421,8 +1490,13 @@ export function MateChatBubble() {
           const { [tempAiId]: _dropped, ...rest } = prev;
           return rest;
         });
-        abortRef.current = null;
-        setSending(false);
+        // 只有当仍是本次发送在占用锁时才复位：切换会话会主动 abort 上一条流并立刻把
+        // sending/abortRef 让给新会话，此时旧流的这段收尾若无条件清空，就会把新会话的停止
+        // 控制器和发送锁一起误清（新会话停止按钮失效、状态错乱）。按 controller 身份守卫。
+        if (abortRef.current === abortController) {
+          abortRef.current = null;
+          setSending(false);
+        }
         void (realUserId); // suppress unused warning
       }
     },
@@ -1440,8 +1514,11 @@ export function MateChatBubble() {
 
   /** 停止生成：中止 SSE 请求，后端据此停掉 ReAct 循环（不再发起新一轮上游调用与工具批次） */
   const handleStop = useCallback(() => {
+    // 只触发中止；abortRef 的清理与 sending 复位统一交给流收尾的 finally（它按 controller 身份守卫）。
+    // ⚠️ 不要在这里把 abortRef 置 null：那样 finally 的 `abortRef.current === abortController` 守卫
+    // 就永远不匹配，setSending(false) 不执行 → 点停止后卡在「生成中」、切会话也复位不了，只能刷新。
+    // abort 后 catch 的 AbortError 分支会保留已生成内容并对账（或撤掉空占位气泡），无需在此另做处理。
     abortRef.current?.abort();
-    abortRef.current = null;
   }, []);
 
   // ── ReAct 写操作确认卡：确认执行 / 取消 ──────────────────────────────────────
@@ -2403,42 +2480,17 @@ export function MateChatBubble() {
                   <div className="mt-3 flex items-center justify-between gap-3">
                     {/* 模型选择器 */}
                     <div className="relative flex items-center gap-2">
-                      <DropdownMenu open={showModelMenu && models.length > 0} onOpenChange={setShowModelMenu}>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label="选择对话模型"
-                            disabled={models.length === 0}
-                            className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <Sparkles className="h-3.5 w-3.5 text-[#002fa7]" />
-                            {currentModel
-                              ? `${currentModel.label}${currentModel.model ? ` · ${currentModel.model}` : ""}`
-                              : models.length === 0 ? "未配置模型" : "选择模型"}
-                            <ChevronDown className="h-3 w-3 text-slate-400" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          side="top"
-                          align="start"
-                          className="min-w-[220px] border-[#e9edf7] bg-white shadow-lg data-[state=closed]:animate-none data-[state=open]:animate-none"
-                        >
-                          <DropdownMenuRadioGroup value={selectedModel} onValueChange={setSelectedModel}>
-                            {models.map((m) => (
-                              <DropdownMenuRadioItem
-                                key={m.id}
-                                value={m.id}
-                                className="flex-col items-start gap-0.5 py-2 text-xs focus:bg-[#eef3ff] focus:text-[#002fa7]"
-                              >
-                                <span className={cn(m.id === selectedModel && "font-semibold text-[#002fa7]")}>{m.label}</span>
-                                <span className="text-[10px] text-slate-400">
-                                  {m.model}{m.provider ? ` · ${m.provider}` : ""}
-                                </span>
-                              </DropdownMenuRadioItem>
-                            ))}
-                          </DropdownMenuRadioGroup>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <button
+                        type="button"
+                        onClick={() => setShowModelMenu((v) => !v)}
+                        className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                      >
+                        <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
+                        {currentModel
+                          ? `${currentModel.label}${currentModel.model ? ` · ${currentModel.model}` : ""}`
+                          : models.length === 0 ? "未配置模型" : "自动 · 跟随系统路由"}
+                        <ChevronDown className="h-3 w-3 text-slate-400" />
+                      </button>
                       {/* RAG 状态指示：告知用户当前是否能查到内部资料 */}
                       {rag && (
                         rag.embeddingConfigured && rag.chunkCount > 0 ? (
@@ -2476,6 +2528,51 @@ export function MateChatBubble() {
                           <RefreshCw className={cn("h-2.5 w-2.5", backfilling && "animate-spin")} />
                           {backfilling ? "回填中…" : "一键回填"}
                         </button>
+                      )}
+                      {showModelMenu && models.length > 0 && (
+                        <div
+                          className="absolute bottom-full left-0 mb-2 min-w-[180px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg"
+                          onMouseLeave={() => setShowModelMenu(false)}
+                        >
+                          {/* 「自动」置顶：不带 model 发送，由网关路由选模（未配路由则用全局默认模型）。 */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedModel("");
+                              try { localStorage.setItem(MODEL_CHOICE_STORAGE_KEY, "auto"); } catch { /* 存不了就算了 */ }
+                              setShowModelMenu(false);
+                            }}
+                            className={cn(
+                              "flex w-full flex-col px-4 py-2.5 text-left text-xs transition hover:bg-slate-50",
+                              selectedModel === "" ? "font-semibold text-indigo-600" : "text-slate-700",
+                            )}
+                          >
+                            <span>自动</span>
+                            <span className={cn("mt-0.5 text-[10px]", selectedModel === "" ? "text-indigo-400" : "text-slate-400")}>
+                              跟随系统路由 · 由管理员统一调度
+                            </span>
+                          </button>
+                          {models.map((m) => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedModel(m.id);
+                                try { localStorage.setItem(MODEL_CHOICE_STORAGE_KEY, m.id); } catch { /* 存不了就算了 */ }
+                                setShowModelMenu(false);
+                              }}
+                              className={cn(
+                                "flex w-full flex-col px-4 py-2.5 text-left text-xs transition hover:bg-slate-50",
+                                m.id === selectedModel ? "font-semibold text-indigo-600" : "text-slate-700",
+                              )}
+                            >
+                              <span>{m.label}</span>
+                              <span className={cn("mt-0.5 text-[10px]", m.id === selectedModel ? "text-indigo-400" : "text-slate-400")}>
+                                {m.model}{m.provider ? ` · ${m.provider}` : ""}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
 

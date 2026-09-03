@@ -49,6 +49,15 @@ export class SendMessageDto {
   model?: string;
 
   /**
+   * 幂等键：前端为「一次逻辑发送」生成的唯一标识。同一逻辑请求的多次到达（网络/代理重放、
+   * 误重发）携带相同值，后端据此保证只落一条用户消息、不重复提问。省略则不做幂等（旧客户端兼容）。
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  clientMessageId?: string;
+
+  /**
    * 重新回答时传入要替换的 assistant 消息。后端校验它属于当前用户、当前会话且是最新回答，
    * 并复用原 user message，不重复创建问题记录。
    */

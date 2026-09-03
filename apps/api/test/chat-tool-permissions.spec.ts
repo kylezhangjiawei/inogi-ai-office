@@ -11,17 +11,27 @@ import { THOUGHT_PARAM } from '../src/modules/chat/react-loop';
  * 权限裁剪只是省一轮空转（execute 里各自的权限校验才是真闸门），但反过来必须成立——
  * 有权限的工具被误裁掉，用户会得到「我没有这个能力」的错误答复，且没有任何报错提示。
  *
- * buildAgentTools 除了数一次今日生图用量，只读 this.tools 与用户权限，故可用假 prisma 直接构造。
+ * buildAgentTools 数今日生图与生视频用量（各一次，按 modality 区分），只读 this.tools 与用户权限，
+ * 故可用假 prisma 直接构造。count 按 where.modality 返回对应配额，模拟两个独立日闸门。
  */
-function makeService(todayImageCount = 0) {
-  const prisma = { aiUsageLog: { count: () => Promise.resolve(todayImageCount) } };
+function makeService(todayImageCount = 0, todayVideoCount = 0) {
+  const prisma = {
+    aiUsageLog: {
+      count: (args?: { where?: { modality?: string } }) =>
+        Promise.resolve(args?.where?.modality === 'video' ? todayVideoCount : todayImageCount),
+    },
+  };
   const ctor = ChatToolsService as unknown as new (...args: unknown[]) => ChatToolsService;
   return new ctor(prisma, undefined, undefined, undefined, undefined, undefined);
 }
 
-async function mountedNames(permissions: string[], todayImageCount = 0): Promise<string[]> {
+async function mountedNames(
+  permissions: string[],
+  todayImageCount = 0,
+  todayVideoCount = 0,
+): Promise<string[]> {
   const user: RagUserContext = { userId: 'u1', permissions, name: '张三' };
-  const { definitions } = await makeService(todayImageCount).buildAgentTools(user);
+  const { definitions } = await makeService(todayImageCount, todayVideoCount).buildAgentTools(user);
   return definitions.flatMap((d) => (d.type === 'function' ? [d.function.name] : []));
 }
 
@@ -128,6 +138,16 @@ test('生图配额用尽不影响其他工具，对话能力不受牵连', async
 
   for (const tool of ['query_tasks', 'search_knowledge', 'query_members', 'create_task', 'generate_video']) {
     assert.ok(names.includes(tool), `${tool} 不该被生图配额牵连`);
+  }
+});
+
+// ── 生视频当日配额（独立于生图） ─────────────────────────────────────────────
+test('当日生视频达到上限后，生视频工具不再下发，其余工具不受牵连', async () => {
+  const names = await mountedNames(['*'], 0, 5);
+
+  assert.ok(!names.includes('generate_video'), '视频配额超额后不得再下发生视频工具');
+  for (const tool of ['generate_image', 'edit_image', 'query_tasks', 'search_knowledge']) {
+    assert.ok(names.includes(tool), `${tool} 不该被生视频配额牵连`);
   }
 });
 

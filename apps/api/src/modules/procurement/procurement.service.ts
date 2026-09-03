@@ -38,6 +38,7 @@ import {
 } from './dto/procurement.dto';
 import {
   PROC_ARRIVAL_STATUSES,
+  PROC_FREE_SAMPLE_ONLY_STATUSES,
   PROC_STATUS_LABELS,
   PROC_PO_LINKABLE_STATUSES,
   PROC_QUOTATION_RESETTABLE_STATUSES,
@@ -750,6 +751,9 @@ export class ProcurementService {
           '未提及的字段省略，不要编造。只输出 JSON。',
         ].join('\n'),
         messages: [{ role: 'user', content: text }],
+        // 显式声明场景：漏传时会落进 chat.utility_completion 兜底，导致控制台里的
+        // 「采购需求解析」成为永远匹配不上的死场景（配了路由也不生效）
+        scene: 'procurement.requirement_parse',
         json: true,
         temperature: 0,
         timeoutMs: 30_000,
@@ -1269,6 +1273,45 @@ export class ProcurementService {
     });
   }
 
+  /**
+   * 已登记免费样品来货的供应商名集合。
+   * 只能按名字匹配：采购单关联表上没有 supplierId，它与报价两侧共有的字段只有供应商名。
+   */
+  private async freeSampleSuppliers(taskId: string): Promise<Set<string>> {
+    const refs = await this.prisma.procPurchaseOrderRef.findMany({
+      where: { taskId, metadata: { path: ['freeSample'], equals: true } },
+      select: { supplierName: true },
+    });
+    return new Set(refs.map((ref) => ref.supplierName.trim()).filter(Boolean));
+  }
+
+  /** 该任务是否登记过免费样品来货（不区分供应商）。 */
+  private async hasFreeSampleArrival(taskId: string): Promise<boolean> {
+    return (await this.freeSampleSuppliers(taskId)).size > 0;
+  }
+
+  /**
+   * 选定报价后的去向：
+   *   不需要打样                    → 已定价（原有行为）
+   *   需打样 且 选定供应商都已寄样    → 测试中（跳过「待到样」）
+   *   其余                          → 待到样（原有行为）
+   *
+   * 判据必须按供应商核对，不能只看「这个任务有没有免费样品」：手上是甲家的样、
+   * 却选了乙家的报价时，乙家的样根本没到，跳过「待到样」等于跳过了本该做的收样确认。
+   * 重新维护报价换供应商后再次选定，也走的是这条路。
+   * 多家一起选时要求每家都已寄样：只要有一家没到，就还得等样。
+   */
+  private async nextAfterQuoteSelected(
+    task: { id: string; needSample: boolean },
+    selectedSuppliers: string[],
+  ): Promise<ProcStatus> {
+    if (!task.needSample) return 'priced';
+    const arrived = await this.freeSampleSuppliers(task.id);
+    const wanted = [...new Set(selectedSuppliers.map((name) => name.trim()).filter(Boolean))];
+    const allArrived = wanted.length > 0 && wanted.every((name) => arrived.has(name));
+    return allArrived ? 'testing' : 'pending_sample';
+  }
+
   /** 通用状态流转：受 PROC_STATUS_TRANSITIONS 约束。 */
   async transitionTask(id: string, dto: TransitionProcTaskDto, actor: ProcActor) {
     const task = await this.requireTask(id);
@@ -1290,6 +1333,11 @@ export class ProcurementService {
           PROC_STATUS_LABELS[target] ?? target
         }」`,
       );
+    }
+    // 「询价中 → 测试中」是样品提前到手的快捷路径，不是常规流转：静态表放行只是必要条件。
+    // 没登记过免费样品就放行，等于允许绕过打样直接进测试。
+    if (task.status === 'inquiring' && target === 'testing' && !(await this.hasFreeSampleArrival(id))) {
+      throw new BadRequestException('该任务没有登记免费样品来货，不能跳过「待到样」');
     }
     return this.applyTransition(id, target, actor, dto.note);
   }
@@ -2031,7 +2079,10 @@ export class ProcurementService {
     }
     const total = subtotal.minus(discount).toDecimalPlaces(4);
 
-    const next: ProcStatus = task.needSample ? 'pending_sample' : 'priced';
+    const next = await this.nextAfterQuoteSelected(
+      task,
+      selectedRows.map((row) => row.quote.supplierName),
+    );
     await this.prisma.$transaction(async (tx) => {
       const snapshots: Prisma.ProcQuotationGetPayload<object>[] = [];
       for (const row of selectedRows) {
@@ -2209,7 +2260,7 @@ export class ProcurementService {
         },
       });
     }
-    const next: ProcStatus = task.needSample ? 'pending_sample' : 'priced';
+    const next = await this.nextAfterQuoteSelected(task, [quotation.supplierName]);
     return this.applyTransition(
       taskId,
       next,
@@ -2288,6 +2339,16 @@ export class ProcurementService {
       tpOrderNo: (item.tpOrderNo ?? '').trim(),
       isFreeSample: Boolean(item.isFreeSample),
     }));
+    // 待询价 / 询价中放开登记，是为了让「供应商提前寄样」当场留痕，不是为了在定价前登记正式采购单：
+    // 这两档还没选定报价，T+ 里不可能有对应的采购单号。
+    if (
+      PROC_FREE_SAMPLE_ONLY_STATUSES.includes(task.status as ProcStatus)
+      && normalized.some((item) => !item.isFreeSample)
+    ) {
+      throw new BadRequestException(
+        `「${PROC_STATUS_LABELS[task.status as ProcStatus] ?? task.status}」只能登记免费样品来货，正式采购单请在定价后登记`,
+      );
+    }
     // 免费样品来货 T+ 里没有采购单，单号必然为空；其余情况仍必须给号，否则后续同步无从对账。
     if (normalized.some((item) => !item.isFreeSample && !item.tpOrderNo)) {
       throw new BadRequestException('采购单号不能为空');

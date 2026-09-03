@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { motion, useReducedMotion } from "motion/react";
 import { cn } from "./components/ui/utils";
 import { Button } from "./components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./components/ui/dialog";
@@ -50,7 +51,8 @@ import {
   type AuditLog,
   useAuditLogs,
 } from "./lib/auditLog";
-import { ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
+import { inferAttachmentMime } from "./components/AttachmentPreviewDialog";
+import { AttachmentPreviewModal, ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
 import { RDTaskConversation } from "./RDTaskConversation";
 import {
   STATUS_CONFIG,
@@ -108,6 +110,7 @@ import {
   type RdPriority,
   type RdProductDef,
   type RdTask,
+  type RdTaskProgressAttachment,
   type RdTaskProgressNote,
   type RdTaskProgressGroupTask,
   type RdProductionTaskSync,
@@ -326,6 +329,7 @@ export default function RDTaskDetailPage() {
     (id: string) => `${productionWorkspace ? "/production-task" : "/rd-task"}/${encodeURIComponent(id)}${location.search}`,
     [location.search, productionWorkspace],
   );
+  const shouldReduceMotion = useReducedMotion();
   const { lang } = useI18n(); // i18n：订阅语言切换（本页文案已 t() 化）
   void lang;
   const { user } = useAuth();
@@ -525,6 +529,9 @@ export default function RDTaskDetailPage() {
       .catch(() => setPeople([]));
   }, []);
 
+  // 附件库表格里点文件名打开的预览（与留痕附件磁贴共用同一个弹窗）
+  const [previewAttachment, setPreviewAttachment] = useState<RdTaskProgressAttachment | null>(null);
+
   const progressLoadSeqRef = useRef(0);
   const loadProgressGroup = useCallback(async (showLoading = true) => {
     const expectedTaskId = taskId;
@@ -657,15 +664,30 @@ export default function RDTaskDetailPage() {
     [activityActor, allTaskAuditLogs, progressGroupTaskIds, visibleActivityActor],
   );
 
-  const docAttachments = useMemo(
-    () =>
-      notes.flatMap((n) =>
+  // 附件库按整棵关系树聚合（与「进展留痕」Tab、移动端附件库同口径）：合并进来的子任务和
+  // 自建子任务的附件此前完全看不到——它们的留痕挂在各自的 source_task 上，被过滤掉了。
+  // 同一文件可能经多条留痕重复出现，按 object_key（无则 id）去重，保留最新一条。
+  const docAttachments = useMemo(() => {
+    const seen = new Set<string>();
+    return groupNotes
+      .flatMap((n) =>
         (n.attachments ?? [])
-          .filter((att) => !(att.mime ?? "").startsWith("image/"))
-          .map((att) => ({ att, createdAt: n.created_at, actor: n.actor?.name ?? "" })),
-      ),
-    [notes],
-  );
+          .filter((att) => !inferAttachmentMime(att).startsWith("image/"))
+          .map((att) => ({
+            att,
+            createdAt: n.created_at,
+            actor: n.actor?.name ?? "",
+            sourceTaskId: n.source_task?.task_id ?? n.task_id,
+            sourceTaskTitle: n.source_task?.title ?? "",
+          })),
+      )
+      .filter((item) => {
+        const key = item.att.object_key || item.att.id || `${item.att.name}|${item.att.size}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }, [groupNotes]);
   const detailFacts = useMemo(() => {
     const workItems = task?.work_items ?? [];
     let attachmentCount = 0;
@@ -1364,8 +1386,8 @@ export default function RDTaskDetailPage() {
 
   // 双栏大屏至少占满可用视口；内容过多时允许页面自然增长，不能裁掉留痕列表。
   return (
-    <TaskImageGalleryScope notes={notes}>
-      <div
+    <TaskImageGalleryScope notes={groupNotes}>
+      <motion.div
       ref={rootRef}
       style={viewportHeight ? { minHeight: viewportHeight } : undefined}
       className={cn(
@@ -2184,25 +2206,8 @@ export default function RDTaskDetailPage() {
               </TabsContent>
 
               <TabsContent value="attachments" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
-              {notesLoading && notes.length === 0 ? (
-                <div className="space-y-3" role="status" aria-label={t("正在加载附件库")}>
-                  <div className="h-28 animate-pulse rounded-xl bg-slate-100 motion-reduce:animate-none" />
-                  <div className="h-12 animate-pulse rounded-xl bg-slate-100 motion-reduce:animate-none" />
-                  <span className="sr-only">{t("正在加载附件库")}</span>
-                </div>
-              ) : notesError ? (
-                <div className="flex min-h-52 flex-col items-center justify-center px-5 text-center" role="alert">
-                  <AlertTriangle className="size-7 text-amber-500" aria-hidden="true" />
-                  <h3 className="mt-3 text-balance text-sm font-semibold text-slate-800">{t("附件库暂不可用")}</h3>
-                  <p className="mt-1 max-w-md text-pretty text-xs leading-5 text-slate-500">{notesError}</p>
-                  <Button type="button" size="sm" onClick={() => void loadProgressGroup()} className="mt-3 bg-[#002fa7] text-white hover:bg-[#002581]">
-                    <RefreshCw className="size-3.5" aria-hidden="true" />
-                    {t("重新加载")}
-                  </Button>
-                </div>
-              ) : (
-              <div className="space-y-3">
-                <TaskImageGallery notes={notes} />
+              <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="space-y-3">
+                <TaskImageGallery notes={groupNotes} />
                 <div>
                   <div className="mb-2 text-xs font-semibold text-slate-500">{t("文档附件（{n}）", { n: docAttachments.length })}</div>
                   {docAttachments.length === 0 ? (
@@ -2213,6 +2218,7 @@ export default function RDTaskDetailPage() {
                         <TableHeader>
                           <TableRow className="border-slate-100 hover:bg-transparent">
                             <TableHead className="text-xs text-slate-400">{t("文件名")}</TableHead>
+                            <TableHead className="text-xs text-slate-400">{t("来源任务")}</TableHead>
                             <TableHead className="text-xs text-slate-400">{t("大小")}</TableHead>
                             <TableHead className="text-xs text-slate-400">{t("上传时间")}</TableHead>
                             <TableHead className="text-xs text-slate-400">{t("上传人")}</TableHead>
@@ -2220,13 +2226,33 @@ export default function RDTaskDetailPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {docAttachments.map(({ att, createdAt, actor }) => (
+                          {docAttachments.map(({ att, createdAt, actor, sourceTaskId, sourceTaskTitle }) => (
                             <TableRow key={att.id} className="border-slate-50 hover:bg-slate-50/60">
                               <TableCell className="max-w-[320px]">
-                                <span className="flex items-center gap-1.5">
+                                {/* 文件名即预览入口：PDF / 文本 / 表格走内嵌预览，与留痕里的附件磁贴同一个弹窗 */}
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewAttachment(att)}
+                                  title={att.name}
+                                  className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left transition hover:text-indigo-700"
+                                >
                                   <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                                  <span className="min-w-0 truncate text-sm text-slate-700">{att.name}</span>
-                                </span>
+                                  <span className="min-w-0 truncate text-sm text-slate-700 hover:text-indigo-700">{att.name}</span>
+                                </button>
+                              </TableCell>
+                              <TableCell className="max-w-[200px]">
+                                {sourceTaskId && sourceTaskId !== taskId ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(taskDetailPath(sourceTaskId))}
+                                    title={sourceTaskTitle || sourceTaskId}
+                                    className="min-w-0 max-w-full cursor-pointer truncate text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                                  >
+                                    {sourceTaskTitle || sourceTaskId}
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-slate-400">{t("本任务")}</span>
+                                )}
                               </TableCell>
                               <TableCell className="whitespace-nowrap text-xs text-slate-500">{formatRdFileSize(att.size)}</TableCell>
                               <TableCell className="whitespace-nowrap text-xs text-slate-500">{formatTraceDateTime(createdAt)}</TableCell>
@@ -2237,7 +2263,7 @@ export default function RDTaskDetailPage() {
                                   download={att.name}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#002fa7] hover:text-[#002581]"
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
                                 >
                                   <Download className="h-3 w-3" />
                                   {t("下载")}
@@ -2250,8 +2276,7 @@ export default function RDTaskDetailPage() {
                     </div>
                   )}
                 </div>
-              </div>
-              )}
+              </motion.div>
               </TabsContent>
 
               <TabsContent value="relations" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
@@ -2477,7 +2502,10 @@ export default function RDTaskDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
-      </div>
+      </motion.div>
+      {previewAttachment && (
+        <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
+      )}
     </TaskImageGalleryScope>
   );
 }

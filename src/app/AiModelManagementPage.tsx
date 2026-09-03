@@ -284,6 +284,32 @@ function gatewayStatusLabel(status: string) {
   return status;
 }
 
+/**
+ * 选模来源展示。与「故障转移」(fallback_used) 是两个独立维度：
+ * 前者回答「targets 是谁定的」（路由 / 回落默认 / 用户指定 / 视觉直连），
+ * 后者回答「一次调用是否跨连接切换过」。此前明细只展示后者且文案叫「首选命中」，
+ * 让人误以为它能证明路由生效——实际上路由从未参与时它也显示「首选命中」。
+ */
+const ROUTE_SOURCE_LABELS: Record<string, string> = {
+  route: "走路由",
+  fallback: "走默认",
+  user: "用户指定",
+  vision: "视觉直连",
+};
+const STRATEGY_LABELS: Record<string, string> = {
+  priority: "优先级",
+  round_robin: "轮询",
+  weighted: "权重",
+  lowest_latency: "最低延迟",
+};
+function routeSourceLabel(item: { route_source: string | null; strategy: string | null }): string {
+  if (!item.route_source) return "未知（旧数据）";
+  const base = ROUTE_SOURCE_LABELS[item.route_source] ?? item.route_source;
+  return item.route_source === "route" && item.strategy
+    ? `${base} · ${STRATEGY_LABELS[item.strategy] ?? item.strategy}`
+    : base;
+}
+
 // ── 百炼 Token Plan 预设模型目录 ──────────────────────────────────────────────
 // 与阿里云百炼「可使用模型」页面一一对应；usageKind 按页面标注的模型能力显式指定
 // （含视觉理解 → multimodal，图片生成 → image，其余 → text），避免自动推断漂移。
@@ -517,15 +543,20 @@ function WorkspaceErrorState({ message, onRetry }: { message: string; onRetry: (
 function GatewayRouteWorkspace({
   routes,
   models,
+  usage,
   loading,
   onReload,
 }: {
   routes: AiGatewayRoute[];
   models: AiModelItem[];
+  /** 近 24h 各场景按选模来源的调用计数（scene → route/fallback/user/vision/unknown → count） */
+  usage: Record<string, Record<string, number>>;
   loading: boolean;
   onReload: () => Promise<void>;
 }) {
-  const [selectedScene, setSelectedScene] = useState<GatewayScene>("rd.task_brief");
+  // 默认选中主对话：全仓流量最高的场景。原默认 rd.task_brief 是最低频场景（唯一入口为任务
+  // 详情领导摘要），照着它配路由再验证，几乎必然「配了没感觉」。
+  const [selectedScene, setSelectedScene] = useState<GatewayScene>("chat.completion");
   const sceneDefinition = GATEWAY_SCENES.find((item) => item.value === selectedScene) ?? GATEWAY_SCENES[0];
   const existing = routes.find((route) => route.scene === selectedScene);
   const [name, setName] = useState(existing?.name ?? sceneDefinition.label);
@@ -662,8 +693,28 @@ function GatewayRouteWorkspace({
     }
   }
 
+  /** 删除已保存的路由：场景回到「默认回退」态（各业务用自带模型），与从未配置过等价。 */
+  async function removeRoute() {
+    if (!existing) return;
+    if (!window.confirm(`确定删除「${sceneDefinition.label}」的专用路由？删除后该场景回到默认回退（各业务使用自带模型）。`)) return;
+    setSaving(true);
+    try {
+      await integrationManagementApi.deleteAiGatewayRoute(selectedScene);
+      toast.success(`${sceneDefinition.label}路由已删除，场景回到默认回退`);
+      await onReload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除路由失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
+      {/* 管辖范围说明：避免误以为路由是「所有 AI 的总控」——生图/视频/向量化/OCR 走各自专用通道 */}
+      <p className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-2.5 text-[11px] leading-5 text-slate-500">
+        路由策略仅覆盖<span className="font-medium text-slate-700">文本对话类调用</span>（chat.completions）。文生图、视频生成、向量化（Embedding）、OCR 与文档直读走各自的专用通道，不经网关路由——它们的模型与密钥仍由「模型连接」统一管理。
+      </p>
       <section className="rounded-2xl border border-slate-200 bg-slate-50/80 p-2 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
         {dedicatedScenes.length > 0 ? (
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -708,6 +759,29 @@ function GatewayRouteWorkspace({
               {existing ? (existing.enabled ? "策略生效中" : "策略已停用") : "等待配置"}
             </span>
           </div>
+          {/* 运行期反馈：该场景近 24h 实际的选模来源分布。「策略生效中」只是配置回显，
+              这一行才回答「路由到底有没有接管调用」。 */}
+          {(() => {
+            const sceneUsage = usage[selectedScene] ?? {};
+            const parts = [
+              ["route", "走路由"],
+              ["fallback", "走默认"],
+              ["user", "用户指定"],
+              ["vision", "视觉直连"],
+              ["unknown", "旧数据"],
+            ] as const;
+            const rendered = parts
+              .filter(([key]) => (sceneUsage[key] ?? 0) > 0)
+              .map(([key, label]) => `${label} ${sceneUsage[key]} 次`);
+            return (
+              <p className="mt-2 text-[11px] leading-4 text-slate-500">
+                近 24 小时：{rendered.length > 0 ? rendered.join(" · ") : "无调用"}
+                {existing?.enabled && (sceneUsage.fallback ?? 0) > 0 && (sceneUsage.route ?? 0) === 0 ? (
+                  <span className="ml-1 font-medium text-amber-600">——路由已启用但没有一次走路由，请检查连接可用性</span>
+                ) : null}
+              </p>
+            );
+          })()}
         </div>
         <div className="space-y-2.5 p-4">
           {loading ? (
@@ -790,7 +864,7 @@ function GatewayRouteWorkspace({
             <input id="gateway-route-name" className={controlInputClass} value={name} onChange={(event) => setName(event.target.value)} />
           </div>
           <div>
-            <div className="mb-1.5 text-xs font-semibold text-slate-600">单次调用超时</div>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500" title="流式场景下该超时只保护「到首个字节」；正文传输阶段由业务层的流空闲看门狗兜底">单次调用超时（首包）</label>
             <RadixSelectField value={String(timeoutMs)} onValueChange={(value) => setTimeoutMs(Number(value))} options={[
               { value: "30000", label: "30 秒" },
               { value: "60000", label: "60 秒" },
@@ -799,8 +873,11 @@ function GatewayRouteWorkspace({
             ]} ariaLabel="单次调用超时" className="w-full" />
           </div>
           <div>
-            <div className="mb-1.5 text-xs font-semibold text-slate-600">调度策略</div>
-            <RadixSelectField value={strategy} onValueChange={(value) => setStrategy(value as AiGatewayStrategy)} options={GATEWAY_STRATEGIES.map((option) => ({ value: option.value, label: `${option.label} · ${option.description}` }))} ariaLabel="调度策略" className="w-full" />
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">调度策略</label>
+            <RadixSelectField value={strategy} onValueChange={(value) => setStrategy(value as AiGatewayStrategy)} options={GATEWAY_STRATEGIES.map((option) => ({ value: option.value, label: `${option.label} · ${option.description}` }))} ariaLabel="调度策略" className="w-full" disabled={connectionIds.length < 2} />
+            {connectionIds.length < 2 && (
+              <p className="mt-1 text-[10px] leading-4 text-amber-600">只有 1 条连接时所有策略行为完全相同（无从调度）；添加第 2 条连接后策略才会生效。</p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -824,7 +901,10 @@ function GatewayRouteWorkspace({
           <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs leading-5 text-amber-800">
             连续失败达到阈值后连接会进入临时熔断，冷却期间直接跳到下一连接，避免重复等待故障服务。
           </div>
-          <button type="button" className="inline-flex h-10 w-full cursor-pointer items-center justify-center rounded-xl bg-blue-700 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存路由策略"}</button>
+          <button type="button" className="inline-flex h-10 w-full cursor-pointer items-center justify-center rounded-xl bg-indigo-600 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存路由策略"}</button>
+          {existing && (
+            <button type="button" className="mt-2 inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-xl border border-rose-200 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void removeRoute()}>删除此路由（回到默认回退）</button>
+          )}
         </div>
       </section>
       </div>
@@ -943,7 +1023,7 @@ function GatewayMonitorWorkspace({
             <GatewayMetricCard icon={<GitBranch className="size-4" />} label="降级率" value={waitingForFirstLoad ? "—" : `${totals?.fallback_rate ?? 0}%`} hint="使用了备用连接" tone="amber" />
             <GatewayMetricCard icon={<Clock3 className="size-4" />} label="平均延迟" value={waitingForFirstLoad ? "—" : `${formatNumber(totals?.average_latency_ms ?? 0)} ms`} hint="从请求到最终结果" tone="sky" />
             <GatewayMetricCard icon={<Zap className="size-4" />} label="Token 消耗" value={waitingForFirstLoad ? "—" : formatNumber(totals?.total_tokens ?? 0)} hint="统计区间内总消耗" />
-            <GatewayMetricCard icon={<ShieldCheck className="size-4" />} label="熔断跳过" value={waitingForFirstLoad ? "—" : formatNumber(totals?.circuit_skips ?? 0)} hint={`${openCircuitCount} 条当前开启`} tone="amber" />
+            <GatewayMetricCard icon={<ShieldCheck className="size-4" />} label="熔断跳过" value={waitingForFirstLoad ? "—" : formatNumber(totals?.circuit_skips ?? 0)} hint={`${openCircuitCount} 条当前开启 · 熔断状态存于内存，服务重启后归零`} tone="amber" />
             <GatewayMetricCard
               icon={<Coins className="size-4" />}
               label="成本合计"
@@ -1202,7 +1282,8 @@ function GatewayRequestDetail({ item }: { item: AiGatewayRequestItem }) {
             <div><dt className="text-slate-500">场景标识</dt><dd className="mt-1 truncate font-mono text-[11px] text-slate-700" title={item.scene}>{item.scene}</dd></div>
             <div><dt className="text-slate-500">最终模型</dt><dd className="mt-1 font-medium text-slate-800">{item.provider ? `${item.provider} / ${item.model ?? "—"}` : "未完成"}</dd></div>
             <div><dt className="text-slate-500">总延迟</dt><dd className="mt-1 font-semibold tabular-nums text-slate-800">{formatNumber(item.latency_ms)} ms</dd></div>
-            <div><dt className="text-slate-500">路由结果</dt><dd className={cn("mt-1 font-medium", item.fallback_used ? "text-amber-700" : "text-slate-800")}>{item.fallback_used ? `第 ${item.attempt_count} 次尝试成功` : "首选连接命中"}</dd></div>
+            <div><dt className="text-slate-500">选模来源</dt><dd className={cn("mt-1 font-medium", item.route_source === "route" ? "text-indigo-700" : "text-slate-800")}>{routeSourceLabel(item)}</dd></div>
+            <div><dt className="text-slate-500">故障转移</dt><dd className={cn("mt-1 font-medium", item.fallback_used ? "text-amber-700" : "text-slate-800")}>{item.fallback_used ? `跨连接切换，第 ${item.attempt_count} 次尝试成功` : "无（首个连接直接成功）"}</dd></div>
           </dl>
           <div className="mt-3 border-t border-slate-100 pt-3">
             <div className="text-[10px] text-slate-500">请求 ID</div>
@@ -1326,7 +1407,7 @@ function GatewayRequestWorkspace({
                     <td className="px-3 py-3"><div className="text-xs font-medium text-slate-800">{formatGatewayScene(item.scene)}</div><div className="mt-1 font-mono text-[9px] text-slate-400">{item.scene}</div></td>
                     <td className="px-3 py-3"><div className="text-xs text-slate-700">{item.provider ?? "—"}</div><div className="mt-1 max-w-48 truncate font-mono text-[9px] text-slate-400">{item.model ?? "未完成"}</div></td>
                     <td className="px-3 py-3"><span className={cn("material-chip", item.status === "success" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>{item.status === "success" ? <CheckCircle2 className="mr-1 size-3" /> : <XCircle className="mr-1 size-3" />}{gatewayStatusLabel(item.status)}</span></td>
-                    <td className="px-3 py-3"><div className="text-xs font-semibold tabular-nums text-slate-800">{item.attempt_count} 次</div><div className={cn("mt-1 text-[10px]", item.fallback_used ? "text-amber-700" : "text-slate-500")}>{item.fallback_used ? "已切换备用" : "首选命中"}</div></td>
+                    <td className="px-3 py-3"><div className="text-xs font-semibold tabular-nums text-slate-800">{item.attempt_count} 次</div><div className="mt-1 text-[10px]"><span className={cn(item.route_source === "route" ? "font-medium text-indigo-600" : "text-slate-500")}>{routeSourceLabel(item)}</span>{item.fallback_used && <span className="ml-1 text-amber-700">· 故障转移</span>}</div></td>
                     <td className="px-3 py-3 text-right text-xs tabular-nums text-slate-700">{formatNumber(item.latency_ms)} ms</td>
                     <td className="px-5 py-3 text-right text-xs tabular-nums text-blue-700">{formatNumber(item.total_tokens)}</td>
                   </tr>
@@ -1345,6 +1426,8 @@ function GatewayRequestWorkspace({
 export function AiModelManagementPage() {
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("connections");
   const [gatewayRoutes, setGatewayRoutes] = useState<AiGatewayRoute[]>([]);
+  /** 近 24h 各场景按选模来源的调用计数（scene → source → count），路由页运行期反馈用 */
+  const [gatewayUsage, setGatewayUsage] = useState<Record<string, Record<string, number>>>({});
   const [gatewayModels, setGatewayModels] = useState<AiModelItem[]>([]);
   const [gatewayOverview, setGatewayOverview] = useState<AiGatewayOverview | null>(null);
   const [gatewayCircuits, setGatewayCircuits] = useState<AiGatewayCircuit[]>([]);
@@ -1460,6 +1543,7 @@ export function AiModelManagementPage() {
         fetchAllAiModels(),
       ]);
       setGatewayRoutes(routeResponse.items);
+      setGatewayUsage(routeResponse.usage_24h ?? {});
       setGatewayModels(models);
       setGatewayLoadedTab("routes");
     } catch (error) {
@@ -1482,6 +1566,7 @@ export function AiModelManagementPage() {
         .then(([routeResponse, models]) => {
           if (cancelled) return;
           setGatewayRoutes(routeResponse.items);
+          setGatewayUsage(routeResponse.usage_24h ?? {});
           setGatewayModels(models);
           setGatewayLoadedTab("routes");
         })
@@ -1868,8 +1953,19 @@ export function AiModelManagementPage() {
 
     setDeleting(true);
     try {
-      await integrationManagementApi.deleteAiModel(selectedRow.id);
-      toast.success("AI 模型已删除");
+      const result = await integrationManagementApi.deleteAiModel(selectedRow.id);
+      // 该连接曾挂在网关路由里：级联删除已把对应 target 一并移除，明示受影响场景，
+      // 否则那些路由会静默回落默认，无从排查
+      if (result.affected_routes && result.affected_routes.length > 0) {
+        toast.warning(
+          `AI 模型已删除。注意：它已从 ${result.affected_routes.length} 条路由中移除（${result.affected_routes
+            .map((route) => route.name || route.scene)
+            .join("、")}），相关场景可能回落到默认模型，请到「路由策略」确认。`,
+          { duration: 10000 },
+        );
+      } else {
+        toast.success("AI 模型已删除");
+      }
       closeDialog();
       await loadRows();
     } catch (error) {
@@ -2214,15 +2310,9 @@ export function AiModelManagementPage() {
 
       <div className="relative bg-slate-50/55 p-3 md:p-4">
 
-      <TabsContent value="routes" className="mt-0">
-        {gatewayError ? <WorkspaceErrorState message={gatewayError} onRetry={() => void loadGatewayRoutes()} /> : <GatewayRouteWorkspace routes={gatewayRoutes} models={gatewayModels} loading={gatewayLoading || gatewayLoadedTab !== "routes"} onReload={loadGatewayRoutes} />}
-      </TabsContent>
-      <TabsContent value="monitor" className="mt-0">
-        {gatewayError ? <WorkspaceErrorState message={gatewayError} onRetry={() => setGatewayReloadKey((key) => key + 1)} /> : <GatewayMonitorWorkspace range={gatewayRange} overview={gatewayLoadedTab === "monitor" && gatewayOverview?.range === gatewayRange ? gatewayOverview : null} circuits={gatewayLoadedTab === "monitor" ? gatewayCircuits : []} loading={gatewayLoading || gatewayLoadedTab !== "monitor"} autoRefresh={gatewayAutoRefresh} lastUpdatedAt={gatewayLastUpdatedAt} onRangeChange={(nextRange) => { setGatewayLastUpdatedAt(null); setGatewayRange(nextRange); }} onAutoRefreshChange={setGatewayAutoRefresh} onReload={() => setGatewayReloadKey((key) => key + 1)} onInspectScene={(scene) => { setGatewayRequestScene(scene); setGatewayRequestStatus(""); setGatewayRequestConnectionId(""); setGatewayRequestPage(1); setWorkspaceTab("requests"); }} onInspectConnection={(connectionId) => { setGatewayRequestScene(""); setGatewayRequestStatus(""); setGatewayRequestConnectionId(connectionId); setGatewayRequestPage(1); setWorkspaceTab("requests"); }} />}
-      </TabsContent>
-      <TabsContent value="requests" className="mt-0">
-        {gatewayError ? <WorkspaceErrorState message={gatewayError} onRetry={() => setGatewayReloadKey((key) => key + 1)} /> : <GatewayRequestWorkspace data={gatewayLoadedTab === "requests" ? gatewayRequests : null} models={gatewayModels} loading={gatewayLoading || gatewayLoadedTab !== "requests"} scene={gatewayRequestScene} status={gatewayRequestStatus} connectionId={gatewayRequestConnectionId} page={gatewayRequestPage} pageSize={gatewayRequestPageSize} onSceneChange={(value) => { setGatewayRequestScene(value); setGatewayRequestPage(1); }} onStatusChange={(value) => { setGatewayRequestStatus(value); setGatewayRequestPage(1); }} onConnectionChange={(value) => { setGatewayRequestConnectionId(value); setGatewayRequestPage(1); }} onPageChange={setGatewayRequestPage} onPageSizeChange={(value) => { setGatewayRequestPageSize(value); setGatewayRequestPage(1); }} onReload={() => setGatewayReloadKey((key) => key + 1)} />}
-      </TabsContent>
+      <TabsContent value="routes" className="mt-0"><GatewayRouteWorkspace routes={gatewayRoutes} models={gatewayModels} usage={gatewayUsage} loading={gatewayLoading || gatewayLoadedTab !== "routes"} onReload={loadGatewayRoutes} /></TabsContent>
+      <TabsContent value="monitor" className="mt-0"><GatewayMonitorWorkspace range={gatewayRange} overview={gatewayLoadedTab === "monitor" && gatewayOverview?.range === gatewayRange ? gatewayOverview : null} circuits={gatewayLoadedTab === "monitor" ? gatewayCircuits : []} loading={gatewayLoading || gatewayLoadedTab !== "monitor"} autoRefresh={gatewayAutoRefresh} lastUpdatedAt={gatewayLastUpdatedAt} onRangeChange={(nextRange) => { setGatewayLastUpdatedAt(null); setGatewayRange(nextRange); }} onAutoRefreshChange={setGatewayAutoRefresh} onReload={() => setGatewayReloadKey((key) => key + 1)} onInspectScene={(scene) => { setGatewayRequestScene(scene); setGatewayRequestStatus(""); setGatewayRequestConnectionId(""); setGatewayRequestPage(1); setWorkspaceTab("requests"); }} onInspectConnection={(connectionId) => { setGatewayRequestScene(""); setGatewayRequestStatus(""); setGatewayRequestConnectionId(connectionId); setGatewayRequestPage(1); setWorkspaceTab("requests"); }} /></TabsContent>
+      <TabsContent value="requests" className="mt-0"><GatewayRequestWorkspace data={gatewayLoadedTab === "requests" ? gatewayRequests : null} models={gatewayModels} loading={gatewayLoading || gatewayLoadedTab !== "requests"} scene={gatewayRequestScene} status={gatewayRequestStatus} connectionId={gatewayRequestConnectionId} page={gatewayRequestPage} pageSize={gatewayRequestPageSize} onSceneChange={(value) => { setGatewayRequestScene(value); setGatewayRequestPage(1); }} onStatusChange={(value) => { setGatewayRequestStatus(value); setGatewayRequestPage(1); }} onConnectionChange={(value) => { setGatewayRequestConnectionId(value); setGatewayRequestPage(1); }} onPageChange={setGatewayRequestPage} onPageSizeChange={(value) => { setGatewayRequestPageSize(value); setGatewayRequestPage(1); }} onReload={() => setGatewayReloadKey((key) => key + 1)} /></TabsContent>
 
       <TabsContent value="connections" className="mt-0"><section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]" aria-label="AI 模型连接列表" aria-busy={loading}>
         <div className="border-b border-slate-100 p-3 md:p-4">

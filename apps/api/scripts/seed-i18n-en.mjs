@@ -3815,6 +3815,14 @@ const DICT = {
   "登记本轮出样单：只保存采购单关联和预计到样日期，任务仍停在「待到样」，样品到了再点「样品已到」。": "Record this round's sample PO. Only the PO link and expected sample date are saved; the task stays in Awaiting Sample until you click Sample Received.",
   "已登记 {count} 张出样单，任务仍在「待到样」": "Recorded {count} sample PO(s); the task stays in Awaiting Sample",
   "已登记 {count} 条免费出样，任务仍在「待到样」": "Recorded {count} free sample deliveries; the task stays in Awaiting Sample",
+  // 供应商提前寄样：待询价 / 询价中登记免费样品来货，样品到手后可跳过「待到样」
+  "登记免费样品来货": "Record Free Sample Delivery",
+  "供应商提前寄样：此处只登记免费样品来货，不填采购单号，任务状态不变。登记后选定报价可直接进入「测试中」，不必再等一轮「待到样」。": "Supplier sent samples ahead of pricing. This only records a free sample delivery \u2014 no PO number, and the task status is unchanged. Once a quote is selected the task goes straight to Testing, skipping another Awaiting Sample round.",
+  "已登记 {count} 条免费样品来货，任务仍在「{status}」；选定报价后可直接进入「测试中」": "Recorded {count} free sample deliveries; the task stays in {status}. Selecting a quote will move it straight to Testing.",
+  "已收到 {suppliers} 的免费样品：选这几家直接进入「测试中」，选其他供应商仍进入「待到样」": "Free samples received from {suppliers}: choosing those suppliers goes straight to Testing; any other supplier still goes to Awaiting Sample",
+  // 同一处提示的另外两支此前未收录，只译一支会让英文态显示得像坏了
+  "选定后进入「待到样」": "Selecting a quote moves the task to Awaiting Sample",
+  "选定后直接进入「已定价」": "Selecting a quote moves the task straight to Priced",
   "预计到样": "Expected Sample Date",
   "登记总量 {total} {unit} · 任务需求 {quantity} {unit}，确认后任务采购数量将同步更新为 {total} {unit}（到货完成按此数量判定）。": "Recorded total {total} {unit} vs. requested {quantity} {unit}. On confirm, the task quantity becomes {total} {unit}, which also determines arrival completion.",
   "样品测试是否通过？通过后进入「已定价」下批量单；不通过分两种走法：同一家供应商改图再出一次样，回「待到样」；换供应商则退回「询价中」重新选报价。": "Did the sample pass? Passing moves the task to Priced for the bulk order. Failing has two paths: revise the drawing and request another sample from the same supplier (back to Awaiting Sample), or switch suppliers and return to Inquiry in Progress to pick new quotes.",

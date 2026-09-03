@@ -55,7 +55,8 @@ import {
   type AuditLog,
   useAuditLogs,
 } from "./lib/auditLog";
-import { ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
+import { inferAttachmentMime } from "./components/AttachmentPreviewDialog";
+import { AttachmentPreviewModal, ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
 import { RDTaskConversation } from "./RDTaskConversation";
 import {
   STATUS_CONFIG,
@@ -79,6 +80,8 @@ import {
   createRdTaskProgressNote,
   fetchMergedTaskCategories,
   fetchRdPeople,
+  isMentionablePerson,
+  fetchRdTaskProgressNoteGroup,
   fetchRdTaskProgressNotes,
   generateRdTaskBrief,
   getAttachmentDownloadUrl,
@@ -89,6 +92,7 @@ import {
   type RdPriority,
   type RdTask,
   type RdTaskBrief,
+  type RdTaskProgressAttachment,
   type RdTaskProgressNote,
 } from "./lib/rdApi";
 
@@ -166,6 +170,8 @@ export default function UsCollabTaskDetailPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [notes, setNotes] = useState<RdTaskProgressNote[]>([]);
+  const [groupNotes, setGroupNotes] = useState<RdTaskProgressNote[]>([]);
+  const [previewAttachment, setPreviewAttachment] = useState<RdTaskProgressAttachment | null>(null);
   const [notesLoading, setNotesLoading] = useState(true);
   const [tab, setTab] = useState<DetailTab>("notes");
   const [discussionUnread, setDiscussionUnread] = useState(0);
@@ -207,7 +213,8 @@ export default function UsCollabTaskDetailPage() {
       push(task.primary_owner, task.primary_owner_user_id, t("主责人"));
       for (const c of task.collaborators ?? []) push(c.name, c.user_id, c.role ? t(c.role) : t("协作人"));
     }
-    for (const p of people) push(p.name, p.user_id ?? null);
+    // 只在 @ 候选里排除离职/停用；其他用途仍用完整名单
+    for (const p of people.filter(isMentionablePerson)) push(p.name, p.user_id ?? null);
     return out;
   }, [task, people]);
   const mention = useMentions({ value: composerText, setValue: setComposerText, inputRef: composerRef, candidates: mentionCandidates });
@@ -272,7 +279,15 @@ export default function UsCollabTaskDetailPage() {
 
   useEffect(() => {
     fetchRdPeople()
-      .then((data) => setPeople(data.map((p) => ({ id: p.id, user_id: p.user_id ?? null, name: p.name, position: p.position ?? "" }))))
+      // status / user_status 必须带上：@ 候选要靠它们排除离职与停用账号
+      .then((data) => setPeople(data.map((p) => ({
+        id: p.id,
+        user_id: p.user_id ?? null,
+        name: p.name,
+        position: p.position ?? "",
+        status: p.status,
+        user_status: p.user_status ?? null,
+      }))))
       .catch(() => setPeople([]));
   }, []);
 
@@ -283,6 +298,16 @@ export default function UsCollabTaskDetailPage() {
       .then((data) => { if (!cancelled) { setNotes(data); void markRdTaskNotesRead(taskId).catch(() => {}); } })
       .catch(() => { if (!cancelled) setNotes([]); })
       .finally(() => { if (!cancelled) setNotesLoading(false); });
+    return () => { cancelled = true; };
+  }, [taskId]);
+
+  // 附件库要覆盖整棵关系树（合并进来的子任务 + 自建子任务），单任务留痕接口取不到；
+  // 留痕 Tab 仍按当前任务展示，所以两份数据并存而不是互相替换。
+  useEffect(() => {
+    let cancelled = false;
+    fetchRdTaskProgressNoteGroup(taskId)
+      .then((data) => { if (!cancelled) setGroupNotes(data.notes); })
+      .catch(() => { if (!cancelled) setGroupNotes([]); });
     return () => { cancelled = true; };
   }, [taskId]);
 
@@ -308,15 +333,30 @@ export default function UsCollabTaskDetailPage() {
     return activityNotes.filter((n) => n.work_item_id === noteItemFilter);
   }, [activityNotes, noteItemFilter, task?.work_items]);
 
-  const docAttachments = useMemo(
-    () =>
-      notes.flatMap((n) =>
+  // 整组接口拿不到时（任务不在任务池、镜像任务等会 404）退回当前任务的留痕：
+  // 附件库原先就是用它渲染的，不能因为多加了一次聚合请求反而把已有附件弄没了。
+  const attachmentSourceNotes = groupNotes.length > 0 ? groupNotes : notes;
+  const docAttachments = useMemo(() => {
+    const seen = new Set<string>();
+    return attachmentSourceNotes
+      .flatMap((n) =>
         (n.attachments ?? [])
-          .filter((att) => !(att.mime ?? "").startsWith("image/"))
-          .map((att) => ({ att, createdAt: n.created_at, actor: n.actor?.name ?? "" })),
-      ),
-    [notes],
-  );
+          .filter((att) => !inferAttachmentMime(att).startsWith("image/"))
+          .map((att) => ({
+            att,
+            createdAt: n.created_at,
+            actor: n.actor?.name ?? "",
+            sourceTaskId: n.source_task?.task_id ?? n.task_id,
+            sourceTaskTitle: n.source_task?.title ?? "",
+          })),
+      )
+      .filter((item) => {
+        const key = item.att.object_key || item.att.id || `${item.att.name}|${item.att.size}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }, [attachmentSourceNotes]);
 
   // 导出报告用：audit 记录 + 无对应 audit 的留痕合成条目（保证报告时间线完整）
   const reportLogs = useMemo<AuditLog[]>(() => {
@@ -649,7 +689,7 @@ export default function UsCollabTaskDetailPage() {
 
   // 大屏（xl+）视口内布局：整页不滚，AI 小结/时间线各自内滚；窄屏维持自然文档流
   return (
-    <TaskImageGalleryScope notes={notes}>
+    <TaskImageGalleryScope notes={attachmentSourceNotes}>
       <motion.div
       ref={rootRef}
       initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
@@ -1003,7 +1043,7 @@ export default function UsCollabTaskDetailPage() {
 
               <TabsContent value="attachments" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
               <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="space-y-3">
-                <TaskImageGallery notes={notes} />
+                <TaskImageGallery notes={attachmentSourceNotes} />
                 <div>
                   <div className="mb-2 text-xs font-semibold text-slate-500">{t("文档附件（{n}）", { n: docAttachments.length })}</div>
                   {docAttachments.length === 0 ? (
@@ -1014,6 +1054,7 @@ export default function UsCollabTaskDetailPage() {
                         <TableHeader>
                           <TableRow className="border-slate-100 hover:bg-transparent">
                             <TableHead className="text-xs text-slate-400">{t("文件名")}</TableHead>
+                            <TableHead className="text-xs text-slate-400">{t("来源任务")}</TableHead>
                             <TableHead className="text-xs text-slate-400">{t("大小")}</TableHead>
                             <TableHead className="text-xs text-slate-400">{t("上传时间")}</TableHead>
                             <TableHead className="text-xs text-slate-400">{t("上传人")}</TableHead>
@@ -1021,12 +1062,23 @@ export default function UsCollabTaskDetailPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {docAttachments.map(({ att, createdAt, actor }) => (
+                          {docAttachments.map(({ att, createdAt, actor, sourceTaskId, sourceTaskTitle }) => (
                             <TableRow key={att.id} className="border-slate-50 hover:bg-slate-50/60">
                               <TableCell className="max-w-[320px]">
-                                <span className="flex items-center gap-1.5">
+                                {/* 文件名即预览入口：与留痕里的附件磁贴共用同一个弹窗 */}
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewAttachment(att)}
+                                  title={att.name}
+                                  className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left transition hover:text-indigo-700"
+                                >
                                   <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                                  <span className="min-w-0 truncate text-sm text-slate-700">{att.name}</span>
+                                  <span className="min-w-0 truncate text-sm text-slate-700 hover:text-indigo-700">{att.name}</span>
+                                </button>
+                              </TableCell>
+                              <TableCell className="max-w-[200px]">
+                                <span className="block min-w-0 truncate text-xs text-slate-500" title={sourceTaskTitle || sourceTaskId}>
+                                  {sourceTaskId && sourceTaskId !== taskId ? (sourceTaskTitle || sourceTaskId) : t("本任务")}
                                 </span>
                               </TableCell>
                               <TableCell className="whitespace-nowrap text-xs text-slate-500">{formatRdFileSize(att.size)}</TableCell>
@@ -1253,6 +1305,9 @@ export default function UsCollabTaskDetailPage() {
         </DialogContent>
       </Dialog>
       </motion.div>
+      {previewAttachment && (
+        <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
+      )}
     </TaskImageGalleryScope>
   );
 }

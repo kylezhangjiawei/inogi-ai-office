@@ -96,22 +96,28 @@ model ChatConversation {
 }
 
 model ChatMessage {
-  id             String           @id @default(cuid())
-  conversationId String
-  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  role           String
-  content        String
-  model          String?
-  reaction       String?
+  id              String           @id @default(cuid())
+  conversationId  String
+  conversation    ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role            String
+  content         String
+  model           String?
+  reaction        String?
   // 用户消息附带的图片/文件附件，结构：[{ fileId, name, mime, size, objectKey }]
-  attachments    Json?
+  attachments     Json?
   /// assistant 消息的 ReAct 工具调用步骤，结构：[{ callId, tool, label, status, detail, args, output }]。
   /// args/output 是截断后的调用参数与观察值，供步骤条展开查看（仅会话本人可见）。
   /// 落库而非只走 SSE：刷新后步骤条要能回放，且「分享给同事」的越权确认要靠它判断
   /// 回答是否引用了具体任务数据（见前端 TASK_REF_TOOLS）。
-  toolSteps      Json?
-  feedback       ChatFeedback?
-  createdAt      DateTime         @default(now())
+  toolSteps       Json?
+  /// 前端为「一次逻辑发送」生成的幂等键（可选）。配合下方唯一约束，让同一逻辑请求的多次到达
+  /// （网络层/代理重放、误重发等）只落一条用户消息，不产生重复提问。历史行为 null，不参与
+  /// 唯一性（Postgres 允许多行 NULL 并存），故对存量数据零影响。
+  clientMessageId String?
+  feedback        ChatFeedback?
+  createdAt       DateTime         @default(now())
+
+  @@unique([conversationId, clientMessageId])
 }
 
 /// 用户对单条 AI 回答的显式反馈。reaction 仍同步保留在 ChatMessage，兼容旧客户端。
@@ -167,20 +173,20 @@ model RefreshToken {
 /// 研发/中美协同/生产三个池的语义留痕原先各存一份 SystemSetting KV（上限 1000 条滚动淘汰），
 /// 已并入本表并用 module 区分，页面据此做跨模块筛选。
 model AuditLog {
-  id           String   @id @default(cuid())
-  userId       String?
-  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action       String
-  resource     String
-  resourceId   String?
-  meta         Json     @default("{}")
-  ip           String?
-  createdAt    DateTime @default(now())
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  resource   String
+  resourceId String?
+  meta       Json     @default("{}")
+  ip         String?
+  createdAt  DateTime @default(now())
 
   /// 模块归属，留痕页筛选主维度：rd / us-collab / production / procurement / auth / chat / ...
-  module       String   @default("other")
+  module       String  @default("other")
   /// 记录来源：web=页面业务操作，api=拦截器抓到的写请求，ai=智能体代执行，system=后台任务
-  source       String   @default("api")
+  source       String  @default("api")
   /// 操作人姓名快照。user 关系在账号删除时被置空，快照保证历史留痕仍追溯得到人
   actorName    String?
   /// 资源名称快照（任务标题、立项名等）。HTTP 原始留痕留空
@@ -188,7 +194,7 @@ model AuditLog {
   /// 可读文案（语义留痕的 comment），HTTP 原始留痕留空
   summary      String?
   /// 事后补充的备注，元素形如 { id, text, actor, created_at }
-  notes        Json     @default("[]")
+  notes        Json    @default("[]")
 
   /// 默认视图不带模块筛选，按时间倒序翻页；上面几条复合索引的首列都对不上，
   /// 没有这条会退化成全表排序。
@@ -285,20 +291,20 @@ model RdTaskDiscussionThread {
 
 /// 讨论消息与进度留痕相互独立：聊天可以引用、回复，正式进度/审计仍保持不可变。
 model RdTaskDiscussionMessage {
-  id         String                    @id @default(cuid())
-  threadId   String
-  thread     RdTaskDiscussionThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  authorId   String?
-  authorName String
-  authorRole String?
-  body       String                    @db.Text
-  attachments Json                    @default("[]")
-  mentions   Json                      @default("[]")
-  replyToId  String?
-  replyTo    RdTaskDiscussionMessage?  @relation("RdTaskDiscussionReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies    RdTaskDiscussionMessage[] @relation("RdTaskDiscussionReplies")
-  createdAt  DateTime                  @default(now())
-  editedAt   DateTime?
+  id          String                    @id @default(cuid())
+  threadId    String
+  thread      RdTaskDiscussionThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  authorId    String?
+  authorName  String
+  authorRole  String?
+  body        String                    @db.Text
+  attachments Json                      @default("[]")
+  mentions    Json                      @default("[]")
+  replyToId   String?
+  replyTo     RdTaskDiscussionMessage?  @relation("RdTaskDiscussionReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies     RdTaskDiscussionMessage[] @relation("RdTaskDiscussionReplies")
+  createdAt   DateTime                  @default(now())
+  editedAt    DateTime?
 
   @@index([threadId, createdAt])
   @@index([replyToId])
@@ -306,9 +312,9 @@ model RdTaskDiscussionMessage {
 
 /// 每位成员在每个线程里的已读游标；打开一个线程不会误清除其他讨论的未读。
 model RdTaskDiscussionRead {
-  threadId  String
-  thread    RdTaskDiscussionThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  userId    String
+  threadId   String
+  thread     RdTaskDiscussionThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId     String
   lastReadAt DateTime               @default(now())
 
   @@id([threadId, userId])
@@ -701,6 +707,10 @@ model AiGatewayRequest {
   latencyMs        Int
   attemptCount     Int
   fallbackUsed     Boolean            @default(false)
+  /// 选模来源：route=命中路由 / fallback=回落调用方默认 / user=用户显式选模 / vision=视觉跳过路由；存量行 NULL=未知
+  routeSource      String?            @db.VarChar(10)
+  /// 命中路由时使用的调度策略（priority/round_robin/weighted/lowest_latency）
+  strategy         String?            @db.VarChar(30)
   promptTokens     Int                @default(0)
   completionTokens Int                @default(0)
   totalTokens      Int                @default(0)
@@ -737,38 +747,38 @@ model AiGatewayAttempt {
 }
 
 model GeneratedImage {
-  id                         String   @id @default(cuid())
+  id                         String         @id @default(cuid())
   userId                     String
-  user                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   prompt                     String
-  revisedPrompt              String   @default("")
-  style                      String   @default("vivid")
-  size                       String   @default("1024x1024")
-  quality                    String   @default("standard")
+  revisedPrompt              String         @default("")
+  style                      String         @default("vivid")
+  size                       String         @default("1024x1024")
+  quality                    String         @default("standard")
   imageData                  String // base64 data URL (保留用于编辑操作)
-  imageUrl                   String   @default("") // OSS 公网 URL，列表接口优先使用此字段
-  model                      String   @default("dall-e-3")
-  isFavorite                 Boolean  @default(false)
+  imageUrl                   String         @default("") // OSS 公网 URL，列表接口优先使用此字段
+  model                      String         @default("dall-e-3")
+  isFavorite                 Boolean        @default(false)
   /// 作品库分类（全局共享目录）；分类被删除时置空，图片本身保留
   categoryId                 String?
   category                   ImageCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   requestId                  String?
   parentImageId              String?
   rootImageId                String?
-  editInstruction            String   @default("")
-  editDepth                  Int      @default(0)
-  upstreamCallCount          Int      @default(0)
-  upstreamRetryCount         Int      @default(0)
-  upstreamErrorCount         Int      @default(0)
-  inputTokens                Int      @default(0)
-  inputTextTokens            Int      @default(0)
-  inputImageTokens           Int      @default(0)
-  outputTokens               Int      @default(0)
-  totalTokens                Int      @default(0)
-  estimatedCostUsd           Float    @default(0)
-  cumulativeEstimatedCostUsd Float    @default(0)
-  usageDetails               Json     @default("{}")
-  createdAt                  DateTime @default(now())
+  editInstruction            String         @default("")
+  editDepth                  Int            @default(0)
+  upstreamCallCount          Int            @default(0)
+  upstreamRetryCount         Int            @default(0)
+  upstreamErrorCount         Int            @default(0)
+  inputTokens                Int            @default(0)
+  inputTextTokens            Int            @default(0)
+  inputImageTokens           Int            @default(0)
+  outputTokens               Int            @default(0)
+  totalTokens                Int            @default(0)
+  estimatedCostUsd           Float          @default(0)
+  cumulativeEstimatedCostUsd Float          @default(0)
+  usageDetails               Json           @default("{}")
+  createdAt                  DateTime       @default(now())
 
   @@index([userId, rootImageId, createdAt])
   @@index([parentImageId])
@@ -804,44 +814,44 @@ model ImageCategory {
 /// 对话式 / 独立视频生成任务（HappyHorse i2v/t2v/r2v）。
 /// 上游为 DashScope 异步接口（分钟级）：落库而非内存，支持重启后续轮询、历史库、成本累计、通知补投。
 model VideoGeneration {
-  id               String   @id @default(cuid())
+  id               String         @id @default(cuid())
   userId           String
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// MateChat 来源对话 id（对话式生成时回填，用于完成后往对话内追加消息）；独立页生成为 null
   conversationId   String?
   /// 生成模式：i2v(图生/首帧) | t2v(文生) | r2v(参考生)
   mode             String
   /// 上游模型标识，如 happyhorse-1.1-i2v
   model            String
-  prompt           String   @default("")
+  prompt           String         @default("")
   /// i2v 首帧 / r2v 参考图（1-9）对应的来源标识（GeneratedImage id 或原始 URL），仅留痕
-  sourceImageRefs  String[] @default([])
+  sourceImageRefs  String[]       @default([])
   /// 实际提交给上游的图片 URL（i2v/r2v）
-  sourceImageUrls  String[] @default([])
-  resolution       String   @default("720P")
+  sourceImageUrls  String[]       @default([])
+  resolution       String         @default("720P")
   /// 画面比例（t2v/r2v 可选，如 16:9）；i2v 由首帧决定，留空
-  ratio            String   @default("")
-  duration         Int      @default(5)
-  watermark        Boolean  @default(true)
+  ratio            String         @default("")
+  duration         Int            @default(5)
+  watermark        Boolean        @default(true)
   seed             Int?
   /// DashScope 返回的 task_id（轮询用）
   upstreamTaskId   String?
   /// 任务状态：pending | running | succeeded | failed
-  status           String   @default("pending")
+  status           String         @default("pending")
   /// OSS 转存后的对象 key（列表接口用 getSignedUrl 生成访问 URL）
-  videoObjectKey   String   @default("")
+  videoObjectKey   String         @default("")
   /// 上游 24h 临时视频 URL（备查 / OSS 未启用时兜底）
-  upstreamVideoUrl String   @default("")
+  upstreamVideoUrl String         @default("")
   /// 计费秒数（上游 usage.duration）
-  billedSeconds    Int      @default(0)
+  billedSeconds    Int            @default(0)
   /// 本次预估 / 实际成本（人民币元）
-  costYuan         Float    @default(0)
+  costYuan         Float          @default(0)
   errorMessage     String?
   /// 视频作品库分类（全局共享目录）；分类被删除时置空，视频本身保留
   categoryId       String?
   category         VideoCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   @@index([userId, createdAt])
   @@index([userId, categoryId, createdAt])
@@ -1045,9 +1055,9 @@ model ExternalDocumentVersion {
   replacementHistory Json             @default("[]")
   fileUploadedAt     DateTime         @default(now())
   uploadedById       String?
-  uploadedByName     String            @default("")
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  uploadedByName     String           @default("")
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
   @@unique([documentId, version])
   @@index([documentId, createdAt])
@@ -1065,20 +1075,20 @@ model ExternalDocumentComparison {
   status             String           @default("comparing")
   summary            String           @default("") @db.Text
   differences        Json             @default("[]")
-  aiModel             String?
-  aiProvider          String?
-  aiGenerationMode    String?
-  aiWarning           String?          @db.Text
-  ocrProvider         String?
-  ocrConfidence       Float?
-  errorMessage        String?          @db.Text
+  aiModel            String?
+  aiProvider         String?
+  aiGenerationMode   String?
+  aiWarning          String?          @db.Text
+  ocrProvider        String?
+  ocrConfidence      Float?
+  errorMessage       String?          @db.Text
   confirmedById      String?
   confirmedByName    String?
-  startedAt          DateTime          @default(now())
+  startedAt          DateTime         @default(now())
   completedAt        DateTime?
   archivedAt         DateTime?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
   @@index([documentId, createdAt])
   @@index([status, createdAt])
@@ -1369,41 +1379,41 @@ model ProcBomNode {
 
 /// 物料主数据：合并「物料 / 零件 / 存货」三概念，safeStock 阈值由本系统维护。
 model ProcMaterial {
-  id              String                 @id @default(cuid())
-  name            String
-  spec            String                 @default("")
-  unit            String                 @default("")
-  category        String                 @default("")
-  productLine     String                 @default("")
-  erpCode         String                 @default("")
+  id                String                     @id @default(cuid())
+  name              String
+  spec              String                     @default("")
+  unit              String                     @default("")
+  category          String                     @default("")
+  productLine       String                     @default("")
+  erpCode           String                     @default("")
   /// 畅捷通 T+ 存货编码：库存/采购单同步的锚点，未对接时为空
-  tpInventoryCode String?                @unique
-  isSpecial       Boolean                @default(false)
-  isConsumable    Boolean                @default(false)
-  safeStock       Decimal                @default(0) @db.Decimal(14, 3)
-  reviewStatus    String                 @default("pending")
-  reviewSource    String?
-  reviewNote      String?
-  reviewedBy      String?
-  reviewedAt      DateTime?
-  latestPrice     Decimal?               @db.Decimal(12, 4)
-  latestSupplier  String?
-  latestQuoteDate DateTime?
+  tpInventoryCode   String?                    @unique
+  isSpecial         Boolean                    @default(false)
+  isConsumable      Boolean                    @default(false)
+  safeStock         Decimal                    @default(0) @db.Decimal(14, 3)
+  reviewStatus      String                     @default("pending")
+  reviewSource      String?
+  reviewNote        String?
+  reviewedBy        String?
+  reviewedAt        DateTime?
+  latestPrice       Decimal?                   @db.Decimal(12, 4)
+  latestSupplier    String?
+  latestQuoteDate   DateTime?
   /// 商品主图 OSS 对象 key；列表读取时动态生成签名 URL
-  imageKey        String?                @db.VarChar(500)
-  remark          String?
-  metadata        Json                   @default("{}")
-  bomNodes        ProcBomNode[]
-  taskTreeNodes   ProcTaskTreeNode[]
-  tasks           ProcTask[]
-  stockPlans      ProcStockPlan[]
+  imageKey          String?                    @db.VarChar(500)
+  remark            String?
+  metadata          Json                       @default("{}")
+  bomNodes          ProcBomNode[]
+  taskTreeNodes     ProcTaskTreeNode[]
+  tasks             ProcTask[]
   criticalTaskLinks ProcTaskCriticalMaterial[]
-  quotations      ProcQuotation[]
-  supplierQuotes  ProcSupplierQuote[]
-  balances        ProcInventoryBalance[]
-  createdBy       String?
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
+  quotations        ProcQuotation[]
+  supplierQuotes    ProcSupplierQuote[]
+  balances          ProcInventoryBalance[]
+  stockPlans        ProcStockPlan[]
+  createdBy         String?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
 
   @@index([name])
   @@index([category])
@@ -1437,38 +1447,38 @@ model ProcTaskTreeNode {
 
 /// 采购任务：全流程主体。三分支——直购 / 询价(需样) / 询价(免样)。
 model ProcTask {
-  id                  String                 @id @default(cuid())
-  code                String                 @unique
-  productId           String                 @default("prod-portable-o2")
+  id                  String                     @id @default(cuid())
+  code                String                     @unique
+  productId           String                     @default("prod-portable-o2")
   /// 显式归属的子系统节点。为空时回落到「按 materialId / 物料名」推导，保证存量任务不掉出树。
   /// 手工移动过归类的任务会写死在这里，不再随物料变化漂移。
   treeNodeId          String?
-  treeNode            ProcTaskTreeNode?      @relation(fields: [treeNodeId], references: [id], onDelete: SetNull)
+  treeNode            ProcTaskTreeNode?          @relation(fields: [treeNodeId], references: [id], onDelete: SetNull)
   materialId          String?
-  material            ProcMaterial?          @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  material            ProcMaterial?              @relation(fields: [materialId], references: [id], onDelete: SetNull)
   /// 物料快照：任务创建时冻结，物料改名不影响历史任务
   materialName        String
-  spec                String                 @default("")
-  unit                String                 @default("")
-  quantity            Decimal                @default(0) @db.Decimal(14, 3)
-  method              String                 @default("inquiry")
+  spec                String                     @default("")
+  unit                String                     @default("")
+  quantity            Decimal                    @default(0) @db.Decimal(14, 3)
+  method              String                     @default("inquiry")
   purchaseLink        String?
-  source              String                 @default("self")
-  businessLine        String                 @default("rd")
-  status              String                 @default("pending_inquiry")
-  priority            String                 @default("medium")
-  needSample          Boolean                @default(false)
+  source              String                     @default("self")
+  businessLine        String                     @default("rd")
+  status              String                     @default("pending_inquiry")
+  priority            String                     @default("medium")
+  needSample          Boolean                    @default(false)
   needDate            DateTime?
   deadline            DateTime?
   expectedArrivalDate DateTime?
   paymentDate         DateTime?
-  paymentStatus       String                 @default("unpaid")
+  paymentStatus       String                     @default("unpaid")
   paymentNote         String?
-  arrivedQty          Decimal                @default(0) @db.Decimal(14, 3)
-  buyer               String                 @default("")
+  arrivedQty          Decimal                    @default(0) @db.Decimal(14, 3)
+  buyer               String                     @default("")
   buyerUserId         String?
   /// 研发流转来源：研发任务 id / 标题快照，用于研发侧回查进度
-  rdTaskId            String?                @unique
+  rdTaskId            String?                    @unique
   rdTaskTitle         String?
   rdContact           String?
   /// 研发对接人账号快照；通知按账号投递，姓名只用于展示与兼容存量数据
@@ -1479,14 +1489,14 @@ model ProcTask {
   consumableNote      String?
   selectedQuotationId String?
   /// 已确认报价金额汇总；最终总价 = 小计 - 折扣金额
-  quotationSubtotal   Decimal?               @db.Decimal(20, 4)
-  quotationDiscount   Decimal?               @db.Decimal(20, 4)
-  quotationTotal      Decimal?               @db.Decimal(20, 4)
+  quotationSubtotal   Decimal?                   @db.Decimal(20, 4)
+  quotationDiscount   Decimal?                   @db.Decimal(20, 4)
+  quotationTotal      Decimal?                   @db.Decimal(20, 4)
   quotationCurrency   String?
   /// 业务完结：到货齐 + 结算完，与状态解耦，供统计口径使用
-  businessDone        Boolean                @default(false)
+  businessDone        Boolean                    @default(false)
   cancelReason        String?
-  metadata            Json                   @default("{}")
+  metadata            Json                       @default("{}")
   attachments         ProcTaskAttachment[]
   quotations          ProcQuotation[]
   purchaseOrderRefs   ProcPurchaseOrderRef[]
@@ -1494,8 +1504,8 @@ model ProcTask {
   criticalMaterials   ProcTaskCriticalMaterial[]
   logs                ProcTaskLog[]
   createdBy           String?
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
 
   @@index([status, updatedAt])
   @@index([productId, status])
@@ -1543,24 +1553,24 @@ model ProcTaskAttachment {
 
 /// 供应商：T+ 只读镜像（source=tplus）；未对接前允许本地录入（source=local）。
 model ProcSupplier {
-  id         String          @id @default(cuid())
-  tpCode     String?         @unique
-  name       String
-  shortName  String?
-  contact    String?
-  phone      String?
-  email      String?
-  address    String?
-  enabled    Boolean         @default(true)
-  source     String          @default("local")
-  syncedAt   DateTime?
-  remark     String?
-  metadata   Json            @default("{}")
-  quotations ProcQuotation[]
+  id             String              @id @default(cuid())
+  tpCode         String?             @unique
+  name           String
+  shortName      String?
+  contact        String?
+  phone          String?
+  email          String?
+  address        String?
+  enabled        Boolean             @default(true)
+  source         String              @default("local")
+  syncedAt       DateTime?
+  remark         String?
+  metadata       Json                @default("{}")
+  quotations     ProcQuotation[]
   supplierQuotes ProcSupplierQuote[]
   stockPlanBatches ProcStockPlanBatch[]
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@index([name])
   @@index([source])

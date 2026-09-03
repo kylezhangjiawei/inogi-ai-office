@@ -71,7 +71,25 @@ function isAbortError(error: unknown) {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
+/**
+ * 该请求方法是否可安全地自动重试。
+ *
+ * 只有幂等方法（GET/HEAD/OPTIONS）能透明重试——重试对服务端没有副作用。POST/PUT/PATCH/DELETE
+ * 是非幂等的：例如 MateChat 发消息是「先把用户消息落库、再开流式回答」，服务端 5xx 或网络中断时
+ * 用户消息其实已经写库，此时自动重发会产生重复消息（甚至重复计费、重复确认卡）。这类请求交给
+ * 调用方按业务语义决定是否重试，网络层不代劳。
+ */
+function isIdempotentMethod(init: RequestInit) {
+  const method = (init.method ?? "GET").toUpperCase();
+  return method === "GET" || method === "HEAD" || method === "OPTIONS";
+}
+
 async function fetchWithTransientRetry(url: string, init: RequestInit) {
+  // 非幂等请求：只发一次，任何失败都直接抛给调用方，绝不自动重发。
+  if (!isIdempotentMethod(init)) {
+    return fetch(url, init);
+  }
+
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt <= TRANSIENT_API_RETRY_DELAYS_MS.length; attempt += 1) {

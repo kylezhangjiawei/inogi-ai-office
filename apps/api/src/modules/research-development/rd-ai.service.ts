@@ -4,7 +4,7 @@ import OpenAI, { toFile } from 'openai';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
-import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
+import type { AiGatewayRouteMeta, AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { OcrService } from '../ocr/ocr.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { resolveRdStoreKey } from './rd-workspace.context';
@@ -2473,7 +2473,7 @@ export class RdAiService {
     legacySceneId: string,
     defaultTimeoutMs = this.timeoutMs,
     advanceRoundRobin = true,
-  ): Promise<{ targets: AiGatewayTarget[]; timeoutMs: number } | null> {
+  ): Promise<{ targets: AiGatewayTarget[]; timeoutMs: number; routeMeta: AiGatewayRouteMeta } | null> {
     const primary = await this.resolveSceneModelConfig(legacySceneId).catch(() => null);
     const fallback = primary
       ? await this.resolveSceneFallbackModelConfig(legacySceneId, primary).catch(() => null)
@@ -2486,7 +2486,11 @@ export class RdAiService {
       { advanceRoundRobin },
     );
     if (routing.targets.length === 0) return null;
-    return { targets: routing.targets, timeoutMs: routing.timeoutMs ?? defaultTimeoutMs };
+    return {
+      targets: routing.targets,
+      timeoutMs: routing.timeoutMs ?? defaultTimeoutMs,
+      routeMeta: { source: routing.source, strategy: routing.strategy },
+    };
   }
 
   private async completeTextGateway(input: {
@@ -2512,6 +2516,7 @@ export class RdAiService {
     const result = await this.aiGateway.complete({
       scene: input.scene,
       targets: routing.targets,
+      routeMeta: routing.routeMeta,
       messages: input.messages,
       ...(input.json ? { responseFormat: { type: 'json_object' } as const } : {}),
       retryWithoutResponseFormat: Boolean(input.json),
@@ -3633,6 +3638,7 @@ export class RdAiService {
       const result = await this.aiGateway.complete({
         scene: 'rd.task_brief',
         targets: routing.targets,
+        routeMeta: { source: routing.source, strategy: routing.strategy },
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },

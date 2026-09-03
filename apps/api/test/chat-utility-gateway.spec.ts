@@ -92,10 +92,14 @@ test('主对话流式回答走网关，并把 ReAct 多轮钉在同一个连接�
 
   // ReAct 多轮必须复用首轮定下的连接：换模型会让上一轮 tool_call 的上下文对不上
   assert.match(source, /targets:\s*pinnedTarget\s*\?\s*\[pinnedTarget\]\s*:\s*streamTargets/);
-  assert.match(source, /onTargetSettled:\s*\(target\)\s*=>\s*\{\s*\n\s*pinnedTarget = target;/);
+  assert.match(source, /onTargetSettled:\s*\(target\)\s*=>\s*\{[\s\S]{0,600}?pinnedTarget = target;/);
 
-  // 需要视觉能力时不参与跨模型降级，否则图片会退化成文件名
-  assert.match(source, /needsVisionModel\s*\n?\s*\?\s*\{\s*targets:\s*\[chatFallbackTarget\]/);
+  // 自动态下路由改道要把实际模型告知前端（气泡徽标如实），且只在首次钉定时发一次
+  assert.match(source, /type:\s*'modelSwitched',\s*from:\s*model,\s*to:\s*target\.model,\s*reason:\s*'route'/);
+
+  // 需要视觉能力、或用户显式选了模型（用户意志优先于路由）时不参与跨模型路由
+  assert.match(source, /needsVisionModel\s*\|\|\s*explicitModelChoice\s*\n?\s*\?\s*\{\s*targets:\s*\[chatFallbackTarget\]/);
+  assert.match(source, /explicitModelChoice = Boolean\(dto\.model\?\.trim\(\)\)/);
 
   // 上游拒绝 tools 由网关在同一连接上摘掉重试，并回调让后续轮次不再挂载
   assert.match(source, /retryWithoutTools:\s*true/);
