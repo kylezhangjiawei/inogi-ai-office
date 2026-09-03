@@ -2410,9 +2410,116 @@ export class ProcurementService {
     return this.getTask(taskId, actor);
   }
 
+  /**
+   * 撤销一条采购单关联，并撤掉这条关联自己带进来的东西。
+   *
+   * 只回滚「能证明归属于这条 ref」的增量：它同步进来的到货量、它在 T+ 镜像上占的
+   * confirmed 名额、它写进任务的预计到货日。无法判定归属的一律不猜：
+   *   - quantity 关联时可能被 syncTaskQuantity 覆写，但原值全库没有第二份留存
+   *     （日志只有中文自由文本，且会被 updateTask 改数量、多次关联等情形击穿），
+   *     猜错的代价是完成判定与缺料统计的分母错，所以只在留痕里写明当前值供人工决定。
+   *   - 更早的状态回退没有可信目标值，那是 rollbackTask 的职责。
+   *
+   * 刻意不调 recomputeArrival：它会用剩余 ref 的 receivedQty 覆盖 arrivedQty，
+   * 把 receiveGoods 手工登记的到货一次抹零，语义与「移除这一单的到货量」不符。
+   * 注意这里的定额扣减不是终态——只要任务还剩带号的 ref，夜间同步仍会整体重算。
+   */
   async unlinkPurchaseOrder(taskId: string, refId: string, actor: ProcActor) {
-    await this.requireTask(taskId);
-    await this.prisma.procPurchaseOrderRef.deleteMany({ where: { id: refId, taskId } });
+    const task = await this.requireTask(taskId);
+    const ref = await this.prisma.procPurchaseOrderRef.findFirst({ where: { id: refId, taskId } });
+    // 已经删掉了：双击垃圾桶、多标签页重复提交都应当是成功而不是红字报错
+    if (!ref) return this.getTask(taskId, actor);
+
+    const metadata = (ref.metadata ?? {}) as Prisma.JsonObject;
+    const freeSample = metadata.freeSample === true;
+    // 免费样品行在 T+ 里没有单号，同步永远不会给它写 receivedQty；
+    // 强制 delta=0 也正好兑现前端弹窗「已登记的到货数量不受影响」这句承诺。
+    const delta = freeSample ? 0 : num(ref.receivedQty);
+    const nextArrived = Math.max(0, num(task.arrivedQty) - delta);
+
+    // 到货量被扣减后状态必须跟着降档，否则会造出「部分到货但到货量为 0」
+    // 或「已完成但到货量不足」这种自相矛盾的行。
+    let nextStatus = task.status as ProcStatus;
+    if (delta > 0 && (task.status === 'partial_arrival' || task.status === 'completed')) {
+      const quantity = num(task.quantity);
+      if (nextArrived === 0) nextStatus = 'in_transit';
+      else if (quantity > 0 && nextArrived < quantity) nextStatus = 'partial_arrival';
+    }
+    const leavingCompleted = task.status === 'completed' && nextStatus !== 'completed';
+
+    // 预计到货是覆盖式写入且不留原值，只有「当前值与本条 ref 的日期完全相等」
+    // 才能证明它是这条带来的；此时回落到剩余 ref 的最早日期，没有就清空。
+    // 不清空的话，一个已无任何采购单的任务会继续被算进各页「本周到货」。
+    const refEta = ref.etaDate;
+    const ownsEta = refEta !== null && task.expectedArrivalDate?.getTime() === refEta.getTime();
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.procPurchaseOrderRef.deleteMany({ where: { id: refId, taskId } });
+
+      const data: Prisma.ProcTaskUncheckedUpdateManyInput = {};
+      if (delta > 0) data.arrivedQty = new Prisma.Decimal(nextArrived);
+      if (nextStatus !== task.status) data.status = nextStatus;
+      if (leavingCompleted) data.businessDone = false;
+      if (ownsEta) {
+        const rest = await tx.procPurchaseOrderRef.findMany({ where: { taskId }, select: { etaDate: true } });
+        data.expectedArrivalDate = rest
+          .map((row) => row.etaDate)
+          .filter((date): date is Date => date !== null)
+          .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+      }
+
+      // 条件占位必须连 arrivedQty 一起守：只守 status 挡不住并发解除另一条 ref，
+      // 也挡不住夜间同步在状态不变的情况下重算到货量，两者都会让这次扣减基于陈旧读数。
+      if (Object.keys(data).length > 0) {
+        const claimed = await tx.procTask.updateMany({
+          where: {
+            id: taskId,
+            status: task.status,
+            ...(delta > 0 ? { arrivedQty: task.arrivedQty } : {}),
+          },
+          data,
+        });
+        if (claimed.count !== 1) throw new ConflictException('任务已被其他操作更新，请刷新后重试');
+      }
+
+      // 镜像行不复位，这张 T+ 单据就在系统里死锁：自动匹配只捞未匹配的行，
+      // 重新确认会被「已确认过」挡回，忽略也被同样排除，全仓没有其它复位入口。
+      if (!freeSample && ref.tpOrderNo) {
+        // 重复关联（同单同行两条 ref）时删掉一条不该释放镜像，剩余那条仍指着它
+        const siblings = await tx.procPurchaseOrderRef.count({
+          where: { taskId, tpOrderNo: ref.tpOrderNo, tpLineNo: ref.tpLineNo },
+        });
+        if (siblings === 0) {
+          await tx.procPurchaseOrderMirror.updateMany({
+            where: {
+              tpOrderNo: ref.tpOrderNo,
+              tpLineNo: ref.tpLineNo ?? '',
+              matchTaskId: taskId,
+              matchStatus: 'confirmed',
+            },
+            data: { matchStatus: 'unmatched', matchTaskId: null, matchConfidence: null, matchReason: null },
+          });
+        }
+      }
+
+      const parts = [
+        `撤销采购单关联：${freeSample ? `免费样品·${ref.supplierName || '未指定供应商'}` : ref.tpOrderNo}`,
+        delta > 0 ? `已扣减到货量 ${delta}` : '本单无已同步到货量，到货数不变',
+        freeSample ? '' : `任务采购数量 ${num(task.quantity)} 保持不变（本单原下单数 ${num(ref.orderedQty)}）`,
+      ].filter(Boolean);
+      await tx.procTaskLog.create({
+        data: {
+          taskId,
+          kind: 'action',
+          text: parts.join('；'),
+          fromStatus: task.status,
+          toStatus: nextStatus,
+          actor: actor.name,
+          actorUserId: actor.id,
+        },
+      });
+    });
+
     return this.getTask(taskId, actor);
   }
 
