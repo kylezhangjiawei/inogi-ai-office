@@ -864,7 +864,7 @@ function GatewayRouteWorkspace({
             <input id="gateway-route-name" className={controlInputClass} value={name} onChange={(event) => setName(event.target.value)} />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500" title="流式场景下该超时只保护「到首个字节」；正文传输阶段由业务层的流空闲看门狗兜底">单次调用超时（首包）</label>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600" title="流式场景下该超时只保护「到首个字节」；正文传输阶段由业务层的流空闲看门狗兜底">单次调用超时（首包）</label>
             <RadixSelectField value={String(timeoutMs)} onValueChange={(value) => setTimeoutMs(Number(value))} options={[
               { value: "30000", label: "30 秒" },
               { value: "60000", label: "60 秒" },
@@ -873,7 +873,7 @@ function GatewayRouteWorkspace({
             ]} ariaLabel="单次调用超时" className="w-full" />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">调度策略</label>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">调度策略</label>
             <RadixSelectField value={strategy} onValueChange={(value) => setStrategy(value as AiGatewayStrategy)} options={GATEWAY_STRATEGIES.map((option) => ({ value: option.value, label: `${option.label} · ${option.description}` }))} ariaLabel="调度策略" className="w-full" disabled={connectionIds.length < 2} />
             {connectionIds.length < 2 && (
               <p className="mt-1 text-[10px] leading-4 text-amber-600">只有 1 条连接时所有策略行为完全相同（无从调度）；添加第 2 条连接后策略才会生效。</p>
@@ -901,7 +901,7 @@ function GatewayRouteWorkspace({
           <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs leading-5 text-amber-800">
             连续失败达到阈值后连接会进入临时熔断，冷却期间直接跳到下一连接，避免重复等待故障服务。
           </div>
-          <button type="button" className="inline-flex h-10 w-full cursor-pointer items-center justify-center rounded-xl bg-indigo-600 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存路由策略"}</button>
+          <button type="button" className="inline-flex h-10 w-full cursor-pointer items-center justify-center rounded-xl bg-blue-700 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存路由策略"}</button>
           {existing && (
             <button type="button" className="mt-2 inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-xl border border-rose-200 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void removeRoute()}>删除此路由（回到默认回退）</button>
           )}
@@ -1282,7 +1282,7 @@ function GatewayRequestDetail({ item }: { item: AiGatewayRequestItem }) {
             <div><dt className="text-slate-500">场景标识</dt><dd className="mt-1 truncate font-mono text-[11px] text-slate-700" title={item.scene}>{item.scene}</dd></div>
             <div><dt className="text-slate-500">最终模型</dt><dd className="mt-1 font-medium text-slate-800">{item.provider ? `${item.provider} / ${item.model ?? "—"}` : "未完成"}</dd></div>
             <div><dt className="text-slate-500">总延迟</dt><dd className="mt-1 font-semibold tabular-nums text-slate-800">{formatNumber(item.latency_ms)} ms</dd></div>
-            <div><dt className="text-slate-500">选模来源</dt><dd className={cn("mt-1 font-medium", item.route_source === "route" ? "text-indigo-700" : "text-slate-800")}>{routeSourceLabel(item)}</dd></div>
+            <div><dt className="text-slate-500">选模来源</dt><dd className={cn("mt-1 font-medium", item.route_source === "route" ? "text-blue-700" : "text-slate-800")}>{routeSourceLabel(item)}</dd></div>
             <div><dt className="text-slate-500">故障转移</dt><dd className={cn("mt-1 font-medium", item.fallback_used ? "text-amber-700" : "text-slate-800")}>{item.fallback_used ? `跨连接切换，第 ${item.attempt_count} 次尝试成功` : "无（首个连接直接成功）"}</dd></div>
           </dl>
           <div className="mt-3 border-t border-slate-100 pt-3">
@@ -1407,7 +1407,7 @@ function GatewayRequestWorkspace({
                     <td className="px-3 py-3"><div className="text-xs font-medium text-slate-800">{formatGatewayScene(item.scene)}</div><div className="mt-1 font-mono text-[9px] text-slate-400">{item.scene}</div></td>
                     <td className="px-3 py-3"><div className="text-xs text-slate-700">{item.provider ?? "—"}</div><div className="mt-1 max-w-48 truncate font-mono text-[9px] text-slate-400">{item.model ?? "未完成"}</div></td>
                     <td className="px-3 py-3"><span className={cn("material-chip", item.status === "success" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>{item.status === "success" ? <CheckCircle2 className="mr-1 size-3" /> : <XCircle className="mr-1 size-3" />}{gatewayStatusLabel(item.status)}</span></td>
-                    <td className="px-3 py-3"><div className="text-xs font-semibold tabular-nums text-slate-800">{item.attempt_count} 次</div><div className="mt-1 text-[10px]"><span className={cn(item.route_source === "route" ? "font-medium text-indigo-600" : "text-slate-500")}>{routeSourceLabel(item)}</span>{item.fallback_used && <span className="ml-1 text-amber-700">· 故障转移</span>}</div></td>
+                    <td className="px-3 py-3"><div className="text-xs font-semibold tabular-nums text-slate-800">{item.attempt_count} 次</div><div className="mt-1 text-[10px]"><span className={cn(item.route_source === "route" ? "font-medium text-blue-700" : "text-slate-500")}>{routeSourceLabel(item)}</span>{item.fallback_used && <span className="ml-1 text-amber-700">· 故障转移</span>}</div></td>
                     <td className="px-3 py-3 text-right text-xs tabular-nums text-slate-700">{formatNumber(item.latency_ms)} ms</td>
                     <td className="px-5 py-3 text-right text-xs tabular-nums text-blue-700">{formatNumber(item.total_tokens)}</td>
                   </tr>

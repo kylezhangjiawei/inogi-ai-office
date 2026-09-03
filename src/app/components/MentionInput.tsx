@@ -250,7 +250,7 @@ export function MentionSuggestionPanel({
         className,
       )}
     >
-      <div className="shrink-0 border-b border-slate-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+      <div className="shrink-0 border-b border-slate-100 px-3 py-1.5 text-[10px] font-semibold text-slate-500">
         {t("选择要提及的成员")}
       </div>
       <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">

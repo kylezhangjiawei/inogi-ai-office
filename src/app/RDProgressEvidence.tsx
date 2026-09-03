@@ -1,5 +1,4 @@
 import React, { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, PlayCircle, RefreshCw, Table2, Trash2, Video, X, ZoomIn, ZoomOut } from "lucide-react";
 import { cn } from "./components/ui/utils";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./components/ui/dialog";
@@ -13,7 +12,6 @@ import { isMobileViewport } from "./lib/mobileRouting";
 import {
   closeMobileOverlay,
   pushMobileOverlayState,
-  useBodyScrollLock,
   useMobileOverlayBack,
 } from "./hooks/useMobileOverlay";
 import {
@@ -1067,25 +1065,25 @@ export function AttachmentPreviewModal({
     mime === "text/plain" ||
     mime === "application/json";
   const inlinePreview = useInlinePreviewSrc(attachment);
-  useBodyScrollLock(true);
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center overscroll-none bg-slate-950/72 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <DialogContent
       aria-label={`附件预览：${attachment.name}`}
-      onClick={(event) => {
-        if (shouldCloseFromBackdrop(event)) onClose();
+      onOpenAutoFocus={(event) => {
+        event.preventDefault();
+        closeButtonRef.current?.focus();
       }}
+      onPointerDownOutside={(event) => { if (isMobileRoute()) event.preventDefault(); }}
+      className="horizon-portal flex max-h-[88dvh] gap-0 overflow-hidden rounded-xl border-slate-200 bg-white p-0 shadow-xl sm:max-w-5xl [&>button:last-child]:hidden"
     >
-      <div className="relative flex max-h-[88dvh] w-full max-w-5xl flex-col overflow-hidden rounded-[8px] border border-white/10 bg-white shadow-2xl">
+      <div className="relative flex min-h-0 w-full flex-col overflow-hidden">
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-900">{attachment.name}</div>
-            <div className="mt-0.5 text-xs text-slate-500">
+            <DialogTitle className="truncate text-balance text-sm font-semibold text-[#1b2559]">{attachment.name}</DialogTitle>
+            <DialogDescription className="mt-0.5 truncate text-xs tabular-nums text-slate-500">
               {mime || "未知类型"} · {formatRdFileSize(attachment.size)}
-            </div>
+            </DialogDescription>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <a
@@ -1093,15 +1091,16 @@ export function AttachmentPreviewModal({
               download={attachment.name}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dce6ff] bg-white px-3 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
             >
               <Download className="h-3.5 w-3.5" />
               下载
             </a>
             <button
+              ref={closeButtonRef}
               type="button"
               onClick={onClose}
-              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-[8px] border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+              className="flex size-8 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
               aria-label="关闭预览"
             >
               <X className="h-4 w-4" />
@@ -1170,11 +1169,10 @@ export function AttachmentPreviewModal({
           )}
         </div>
       </div>
-    </div>,
-    document.body,
+    </DialogContent>
+    </Dialog>
   );
 }
-
 /** Excel 附件的只读 HTML 表格预览：拉取文件 → exceljs 解析 → 渲染表格（支持多 sheet 切页、合并单元格）。 */
 function XlsxTablePreview({ attachment }: { attachment: RdTaskProgressAttachment }) {
   const [sheets, setSheets] = useState<XlsxPreviewSheet[] | null>(null);

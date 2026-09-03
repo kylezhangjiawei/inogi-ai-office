@@ -2480,17 +2480,53 @@ export function MateChatBubble() {
                   <div className="mt-3 flex items-center justify-between gap-3">
                     {/* 模型选择器 */}
                     <div className="relative flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowModelMenu((v) => !v)}
-                        className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
-                      >
-                        <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
-                        {currentModel
-                          ? `${currentModel.label}${currentModel.model ? ` · ${currentModel.model}` : ""}`
-                          : models.length === 0 ? "未配置模型" : "自动 · 跟随系统路由"}
-                        <ChevronDown className="h-3 w-3 text-slate-400" />
-                      </button>
+                      <DropdownMenu open={showModelMenu && models.length > 0} onOpenChange={setShowModelMenu}>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label="选择对话模型"
+                            disabled={models.length === 0}
+                            className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <Sparkles className="h-3.5 w-3.5 text-[#002fa7]" />
+                            {currentModel
+                              ? `${currentModel.label}${currentModel.model ? ` · ${currentModel.model}` : ""}`
+                              : models.length === 0 ? "未配置模型" : "自动 · 跟随系统路由"}
+                            <ChevronDown className="h-3 w-3 text-slate-400" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          side="top"
+                          align="start"
+                          className="min-w-[220px] border-[#e9edf7] bg-white shadow-lg data-[state=closed]:animate-none data-[state=open]:animate-none"
+                        >
+                          <DropdownMenuRadioGroup value={selectedModel} onValueChange={(value) => {
+                            setSelectedModel(value);
+                            try { localStorage.setItem(MODEL_CHOICE_STORAGE_KEY, value || "auto"); } catch { /* 存不了就算了 */ }
+                          }}>
+                            {/* 「自动」置顶：不带 model 发送，由网关路由选模（未配路由则用全局默认模型）。 */}
+                            <DropdownMenuRadioItem
+                              value=""
+                              className="flex-col items-start gap-0.5 py-2 text-xs focus:bg-[#eef3ff] focus:text-[#002fa7]"
+                            >
+                              <span className={cn(selectedModel === "" && "font-semibold text-[#002fa7]")}>自动</span>
+                              <span className="text-[10px] text-slate-400">跟随系统路由 · 由管理员统一调度</span>
+                            </DropdownMenuRadioItem>
+                            {models.map((m) => (
+                              <DropdownMenuRadioItem
+                                key={m.id}
+                                value={m.id}
+                                className="flex-col items-start gap-0.5 py-2 text-xs focus:bg-[#eef3ff] focus:text-[#002fa7]"
+                              >
+                                <span className={cn(m.id === selectedModel && "font-semibold text-[#002fa7]")}>{m.label}</span>
+                                <span className="text-[10px] text-slate-400">
+                                  {m.model}{m.provider ? ` · ${m.provider}` : ""}
+                                </span>
+                              </DropdownMenuRadioItem>
+                            ))}
+                          </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                       {/* RAG 状态指示：告知用户当前是否能查到内部资料 */}
                       {rag && (
                         rag.embeddingConfigured && rag.chunkCount > 0 ? (
@@ -2528,51 +2564,6 @@ export function MateChatBubble() {
                           <RefreshCw className={cn("h-2.5 w-2.5", backfilling && "animate-spin")} />
                           {backfilling ? "回填中…" : "一键回填"}
                         </button>
-                      )}
-                      {showModelMenu && models.length > 0 && (
-                        <div
-                          className="absolute bottom-full left-0 mb-2 min-w-[180px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg"
-                          onMouseLeave={() => setShowModelMenu(false)}
-                        >
-                          {/* 「自动」置顶：不带 model 发送，由网关路由选模（未配路由则用全局默认模型）。 */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedModel("");
-                              try { localStorage.setItem(MODEL_CHOICE_STORAGE_KEY, "auto"); } catch { /* 存不了就算了 */ }
-                              setShowModelMenu(false);
-                            }}
-                            className={cn(
-                              "flex w-full flex-col px-4 py-2.5 text-left text-xs transition hover:bg-slate-50",
-                              selectedModel === "" ? "font-semibold text-indigo-600" : "text-slate-700",
-                            )}
-                          >
-                            <span>自动</span>
-                            <span className={cn("mt-0.5 text-[10px]", selectedModel === "" ? "text-indigo-400" : "text-slate-400")}>
-                              跟随系统路由 · 由管理员统一调度
-                            </span>
-                          </button>
-                          {models.map((m) => (
-                            <button
-                              key={m.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedModel(m.id);
-                                try { localStorage.setItem(MODEL_CHOICE_STORAGE_KEY, m.id); } catch { /* 存不了就算了 */ }
-                                setShowModelMenu(false);
-                              }}
-                              className={cn(
-                                "flex w-full flex-col px-4 py-2.5 text-left text-xs transition hover:bg-slate-50",
-                                m.id === selectedModel ? "font-semibold text-indigo-600" : "text-slate-700",
-                              )}
-                            >
-                              <span>{m.label}</span>
-                              <span className={cn("mt-0.5 text-[10px]", m.id === selectedModel ? "text-indigo-400" : "text-slate-400")}>
-                                {m.model}{m.provider ? ` · ${m.provider}` : ""}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
                       )}
                     </div>
 

@@ -230,7 +230,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                     「待到样」是本轮打样的出样单；「待询价 / 询价中」是供应商提前寄的免费样，
                     后者登记后选定报价可直接进「测试中」，省掉一轮空等的「待到样」。 */}
                 {(task.status === "pending_sample" || FREE_SAMPLE_ONLY_STATUSES.includes(task.status)) && can("proc-task:order") && (
-                  <Button type="button" variant="outline" disabled={taskAction.busy} onClick={() => taskAction.linkSampleOrder(task)} className="rounded-lg border-indigo-200 bg-white px-4 py-2 text-sm text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700">
+                  <Button type="button" variant="outline" disabled={taskAction.busy} onClick={() => taskAction.linkSampleOrder(task)} className="rounded-lg border-[#bfd0fa] bg-white px-4 py-2 text-sm text-[#002fa7] hover:bg-[#eef3ff] hover:text-[#002581]">
                     {t(task.status === "pending_sample" ? '登记出样单' : '登记免费样品来货')}
                   </Button>
                 )}

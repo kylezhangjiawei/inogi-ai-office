@@ -2206,6 +2206,23 @@ export default function RDTaskDetailPage() {
               </TabsContent>
 
               <TabsContent value="attachments" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
+              {notesLoading && groupNotes.length === 0 ? (
+                <div className="space-y-3" role="status" aria-label={t("正在加载附件库")}>
+                  <div className="h-28 animate-pulse rounded-xl bg-slate-100 motion-reduce:animate-none" />
+                  <div className="h-12 animate-pulse rounded-xl bg-slate-100 motion-reduce:animate-none" />
+                  <span className="sr-only">{t("正在加载附件库")}</span>
+                </div>
+              ) : notesError ? (
+                <div className="flex min-h-52 flex-col items-center justify-center px-5 text-center" role="alert">
+                  <AlertTriangle className="size-7 text-amber-500" aria-hidden="true" />
+                  <h3 className="mt-3 text-balance text-sm font-semibold text-slate-800">{t("附件库暂不可用")}</h3>
+                  <p className="mt-1 max-w-md text-pretty text-xs leading-5 text-slate-500">{notesError}</p>
+                  <Button type="button" size="sm" onClick={() => void loadProgressGroup()} className="mt-3 bg-[#002fa7] text-white hover:bg-[#002581]">
+                    <RefreshCw className="size-3.5" aria-hidden="true" />
+                    {t("重新加载")}
+                  </Button>
+                </div>
+              ) : (
               <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="space-y-3">
                 <TaskImageGallery notes={groupNotes} />
                 <div>
@@ -2234,10 +2251,10 @@ export default function RDTaskDetailPage() {
                                   type="button"
                                   onClick={() => setPreviewAttachment(att)}
                                   title={att.name}
-                                  className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left transition hover:text-indigo-700"
+                                  className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left transition hover:text-[#002fa7]"
                                 >
                                   <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                                  <span className="min-w-0 truncate text-sm text-slate-700 hover:text-indigo-700">{att.name}</span>
+                                  <span className="min-w-0 truncate text-sm text-slate-700">{att.name}</span>
                                 </button>
                               </TableCell>
                               <TableCell className="max-w-[200px]">
@@ -2246,7 +2263,7 @@ export default function RDTaskDetailPage() {
                                     type="button"
                                     onClick={() => navigate(taskDetailPath(sourceTaskId))}
                                     title={sourceTaskTitle || sourceTaskId}
-                                    className="min-w-0 max-w-full cursor-pointer truncate text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                                    className="min-w-0 max-w-full cursor-pointer truncate text-xs font-medium text-[#002fa7] hover:text-[#002581]"
                                   >
                                     {sourceTaskTitle || sourceTaskId}
                                   </button>
@@ -2263,7 +2280,7 @@ export default function RDTaskDetailPage() {
                                   download={att.name}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#002fa7] hover:text-[#002581]"
                                 >
                                   <Download className="h-3 w-3" />
                                   {t("下载")}
@@ -2277,6 +2294,7 @@ export default function RDTaskDetailPage() {
                   )}
                 </div>
               </motion.div>
+              )}
               </TabsContent>
 
               <TabsContent value="relations" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
