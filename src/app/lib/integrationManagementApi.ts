@@ -86,6 +86,8 @@ export interface TestAiModelConnectionPayload {
   base_url?: string;
   usage_kind?: string;
   api_key?: string;
+  /** 测试失败时由后端直接停用该模型（仅对已保存配置的测试使用） */
+  disable_on_failure?: boolean;
 }
 
 export interface TestAiModelConnectionResult {
@@ -96,6 +98,16 @@ export interface TestAiModelConnectionResult {
   duration_ms?: number;
   output_text?: string;
   total_tokens?: number | null;
+  /** 归一化错误码（失败时） */
+  error_code?: string;
+  /** 中文一句话结论（失败时） */
+  error_reason?: string;
+  /** 可能造成失败的具体情况，按可能性排序（失败时） */
+  error_causes?: string[];
+  /** 上游原始错误（失败时） */
+  raw_error?: string;
+  /** 本次测试把模型从启用改成了停用 */
+  disabled?: boolean;
 }
 
 export type AiGatewayRange = "today" | "month" | "year";
@@ -506,6 +518,7 @@ export const integrationManagementApi = {
         model: payload.model,
         base_url: payload.base_url,
         usage_kind: payload.usage_kind,
+        disable_on_failure: payload.disable_on_failure,
         ...secretPayload,
       });
 

@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class TestAiModelConnectionDto {
   @IsOptional()
@@ -35,4 +35,13 @@ export class TestAiModelConnectionDto {
   @IsOptional()
   @IsString()
   plain_secret?: string;
+
+  /**
+   * 测试失败时把已保存的模型直接停用（isActive=false）。
+   * 列表 / 全部测试用的是已保存配置，可以放心停用；编辑对话框里测的是
+   * 未保存的表单值，不应传此标记。
+   */
+  @IsOptional()
+  @IsBoolean()
+  disable_on_failure?: boolean;
 }

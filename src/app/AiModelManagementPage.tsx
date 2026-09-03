@@ -66,6 +66,7 @@ import {
   integrationManagementApi,
 } from "./lib/integrationManagementApi";
 import { dictionaryApi } from "./lib/dictionaryApi";
+import type { TestAiModelConnectionResult } from "./lib/integrationManagementApi";
 import { cn } from "./components/ui/utils";
 import { resolveExplicitUsage, resolveModelUsageKind } from "./lib/aiModelOptions";
 
@@ -80,6 +81,62 @@ type BulkTestProgress = {
   succeeded: number;
   failed: number;
 };
+
+/** 一条连通性测试失败记录：中文结论 + 可能情况 + 原始错误，供结果面板展示 */
+type BulkTestFailure = {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  wasEnabled: boolean;
+  code: string;
+  reason: string;
+  causes: string[];
+  raw: string;
+  /** 本次测试把它从启用改成了停用 */
+  disabled: boolean;
+};
+
+type BulkTestReport = {
+  total: number;
+  succeeded: number;
+  failures: BulkTestFailure[];
+};
+
+function failureFromResult(row: AiModelItem, result: TestAiModelConnectionResult): BulkTestFailure {
+  return {
+    id: row.id,
+    name: row.name,
+    provider: row.provider,
+    model: row.model,
+    wasEnabled: row.enabled,
+    code: result.error_code ?? "UNKNOWN",
+    reason: result.error_reason ?? result.message,
+    causes: result.error_causes ?? [],
+    raw: result.raw_error ?? result.message,
+    disabled: Boolean(result.disabled),
+  };
+}
+
+/** 测试请求本身没打到后端（登录过期 / 断网 / 服务未起），后端没有记录也没有停用 */
+function failureFromException(row: AiModelItem, error: unknown): BulkTestFailure {
+  const message = error instanceof Error ? error.message : "测试请求失败";
+  return {
+    id: row.id,
+    name: row.name,
+    provider: row.provider,
+    model: row.model,
+    wasEnabled: row.enabled,
+    code: "REQUEST_FAILED",
+    reason: `测试请求未能完成：${message}`,
+    causes: [
+      "后端接口调用失败：可能是登录已过期、网络中断或 API 服务未启动",
+      "该模型的状态没有更新，也没有被停用，请稍后重试",
+    ],
+    raw: message,
+    disabled: false,
+  };
+}
 
 type DialogMode = "create" | "edit" | "delete" | null;
 type WorkspaceTab = "connections" | "routes" | "monitor" | "requests";
@@ -1430,6 +1487,10 @@ export function AiModelManagementPage() {
   // 行内"测试连通性"按钮的 loading 标记（每行独立）
   const [rowTestingId, setRowTestingId] = useState<string | null>(null);
   const [bulkTestProgress, setBulkTestProgress] = useState<BulkTestProgress | null>(null);
+  // 测试失败明细面板（全部测试 / 单模型测试 / 启用前检查共用）
+  const [bulkTestReport, setBulkTestReport] = useState<BulkTestReport | null>(null);
+  // 启用开关正在做"先测连通性再启用"的行
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [selectedRow, setSelectedRow] = useState<AiModelItem | null>(null);
   const [providerOptions, setProviderOptions] = useState<string[]>([]);
@@ -1761,13 +1822,16 @@ export function AiModelManagementPage() {
         model: row.model,
         base_url: row.base_url || undefined,
         usage_kind: row.usage_kind || "auto",
+        // 连不通的模型由后端直接停用，避免继续被路由选中
+        disable_on_failure: true,
       });
       if (result.success) {
         toast.success(
           `${row.name} 连通性正常${typeof result.duration_ms === "number" ? `，耗时 ${result.duration_ms} ms` : ""}`,
         );
       } else {
-        toast.error(`${row.name} 测试失败：${result.message}`);
+        toast.error(`${row.name} 测试失败：${result.error_reason ?? result.message}${result.disabled ? "，已自动停用" : ""}`);
+        setBulkTestReport({ total: 1, succeeded: 0, failures: [failureFromResult(row, result)] });
       }
       await loadRows(page);
     } catch (error) {
@@ -1789,7 +1853,7 @@ export function AiModelManagementPage() {
       }
 
       setBulkTestProgress({ completed: 0, total: models.length, succeeded: 0, failed: 0 });
-      const failures: string[] = [];
+      const failures: BulkTestFailure[] = [];
       let nextIndex = 0;
 
       const worker = async () => {
@@ -1807,11 +1871,13 @@ export function AiModelManagementPage() {
               model: row.model,
               base_url: row.base_url || undefined,
               usage_kind: row.usage_kind || "auto",
+              // 连不通的模型由后端直接停用，避免继续被路由选中
+              disable_on_failure: true,
             });
             succeeded = result.success;
-            if (!result.success) failures.push(`${row.name}：${result.message}`);
+            if (!result.success) failures.push(failureFromResult(row, result));
           } catch (error) {
-            failures.push(`${row.name}：${error instanceof Error ? error.message : "测试失败"}`);
+            failures.push(failureFromException(row, error));
           } finally {
             setBulkTestProgress((current) => current ? {
               ...current,
@@ -1834,12 +1900,15 @@ export function AiModelManagementPage() {
       if (failures.length === 0) {
         toast.success(`全部 ${models.length} 个 AI 模型连通性正常`);
       } else {
-        const failurePreview = failures.slice(0, 3).join("；");
-        const remaining = failures.length > 3 ? `；另有 ${failures.length - 3} 个失败` : "";
+        // 并发完成顺序是乱的，按列表原顺序排好再展示，方便和卡片对照
+        const orderIndex = new Map(models.map((item, index) => [item.id, index]));
+        failures.sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
+        const disabledCount = failures.filter((failure) => failure.disabled).length;
         toast.warning(
-          `全部测试完成：成功 ${succeededCount}，失败 ${failures.length}。${failurePreview}${remaining}`,
-          { duration: 10_000 },
+          `全部测试完成：成功 ${succeededCount}，失败 ${failures.length}${disabledCount > 0 ? `，已自动停用 ${disabledCount} 个异常模型` : ""}。失败原因见结果面板。`,
+          { duration: 8_000 },
         );
+        setBulkTestReport({ total: models.length, succeeded: succeededCount, failures });
       }
 
       await loadRows(page);
@@ -1851,7 +1920,25 @@ export function AiModelManagementPage() {
   }
 
   async function handleToggleEnabled(row: AiModelItem, checked: boolean) {
+    if (togglingId) return;
+    setTogglingId(row.id);
     try {
+      if (checked) {
+        // 只有连通性正常的模型才允许启用：先用已保存配置测一次，失败则保持停用并给出中文原因
+        const result = await integrationManagementApi.testAiModelConnection({
+          id: row.id,
+          provider: row.provider,
+          model: row.model,
+          base_url: row.base_url || undefined,
+          usage_kind: row.usage_kind || "auto",
+        });
+        if (!result.success) {
+          toast.error(`${row.name} 连通性异常，未启用：${result.error_reason ?? result.message}`, { duration: 8_000 });
+          setBulkTestReport({ total: 1, succeeded: 0, failures: [failureFromResult(row, result)] });
+          await loadRows(page);
+          return;
+        }
+      }
       const saved = await integrationManagementApi.saveAiModel({
         id: row.id,
         name: row.name,
@@ -1866,9 +1953,11 @@ export function AiModelManagementPage() {
       if (selectedRow?.id === row.id) {
         setSelectedRow(saved);
       }
-      toast.success(checked ? "AI 模型已启用" : "AI 模型已停用");
+      toast.success(checked ? `${row.name} 连通性正常，已启用` : `${row.name} 已停用`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "更新 AI 模型启用状态失败");
+    } finally {
+      setTogglingId(null);
     }
   }
 
@@ -2294,8 +2383,10 @@ export function AiModelManagementPage() {
                       <Switch
                         checked={row.enabled}
                         onCheckedChange={(checked) => void handleToggleEnabled(row, checked)}
+                        disabled={togglingId !== null || bulkTestProgress !== null}
                         aria-label={`${row.enabled ? "停用" : "启用"} ${row.name}`}
-                        className="shrink-0 data-[state=checked]:bg-indigo-600 data-[state=unchecked]:bg-slate-300"
+                        title={row.enabled ? "停用" : "启用前会先测试连通性，测试通过才会启用"}
+                        className={cn("shrink-0 data-[state=checked]:bg-indigo-600 data-[state=unchecked]:bg-slate-300", togglingId === row.id && "animate-pulse")}
                       />
                     </div>
 
@@ -2334,14 +2425,14 @@ export function AiModelManagementPage() {
         </div>
 
         <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/70 px-3 py-3 text-xs text-slate-500 md:flex-row md:items-center md:justify-between md:px-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <span>共 {total} 条 · 第 {page} / {totalPages} 页</span>
-            <div className="flex items-center gap-1.5">每页<RadixSelectField value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))} options={[9, 18, 36, 90].map((size) => ({ value: String(size), label: `${size} 条` }))} ariaLabel="每页模型数量" className="h-8 min-w-20" /></div>
+          <div className="flex shrink-0 flex-wrap items-center gap-3">
+            <span className="whitespace-nowrap">共 {total} 条 · 第 {page} / {totalPages} 页</span>
+            <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">每页<RadixSelectField value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))} options={[9, 18, 36, 90].map((size) => ({ value: String(size), label: `${size} 条` }))} ariaLabel="每页模型数量" className="h-8 min-w-20" /></div>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
             <button className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1 || loading}>上一页</button>
             <button className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages || loading}>下一页</button>
-            <label className="ml-1 flex items-center gap-1.5">
+            <label className="ml-1 flex items-center gap-1.5 whitespace-nowrap">
               跳转
               <input className="h-8 w-12 rounded-lg border border-slate-200 bg-white px-2 text-center text-xs text-slate-600 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" value={jumpInput} onChange={(event) => setJumpInput(event.target.value)} onKeyDown={(event) => event.key === "Enter" && handleJump()} placeholder={String(page)} inputMode="numeric" aria-label="跳转页码" />
             </label>
@@ -2590,6 +2681,51 @@ export function AiModelManagementPage() {
           <button type="button" className="material-button-primary" onClick={() => void handlePresetCreate()} disabled={presetSaving}>
             {presetSaving ? "新增中..." : `新增所选（${presetSelected.size}）`}
           </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 连通性测试失败明细：中文结论 + 可能情况 + 原始错误 */}
+      <Dialog open={bulkTestReport !== null} onOpenChange={(open) => !open && setBulkTestReport(null)}>
+        <DialogContent className="max-h-[88dvh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>连通性测试结果</DialogTitle>
+            <DialogDescription>
+              {bulkTestReport ? (() => {
+                const disabledCount = bulkTestReport.failures.filter((failure) => failure.disabled).length;
+                return `共测试 ${bulkTestReport.total} 个模型：成功 ${bulkTestReport.succeeded}，失败 ${bulkTestReport.failures.length}${disabledCount > 0 ? `，已自动停用 ${disabledCount} 个` : ""}。失败的模型会保持停用，修复配置后重新测试通过才能再次启用。`;
+              })() : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="material-scrollbar max-h-[60vh] space-y-2.5 overflow-y-auto pr-1">
+            {bulkTestReport?.failures.map((failure) => (
+              <article key={failure.id} className="rounded-xl border border-rose-200 bg-rose-50/40 p-3.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <XCircle className="size-4 shrink-0 text-rose-500" />
+                  <span className="text-sm font-semibold text-slate-900">{failure.name}</span>
+                  <span className="min-w-0 truncate font-mono text-[11px] text-slate-500" title={`${failure.provider} / ${failure.model}`}>{failure.provider} / {failure.model}</span>
+                  <span className={cn(
+                    "ml-auto shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+                    failure.disabled ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-600 ring-slate-200",
+                  )}>
+                    {failure.disabled ? "已自动停用" : failure.wasEnabled ? "未停用" : "此前已停用"}
+                  </span>
+                </div>
+                <div className="mt-2 text-sm font-medium leading-6 text-rose-700">{failure.reason}</div>
+                {failure.causes.length > 0 ? (
+                  <div className="mt-1.5">
+                    <div className="text-[11px] font-semibold text-slate-500">可能情况（按可能性排序）</div>
+                    <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-xs leading-5 text-slate-700">
+                      {failure.causes.map((cause, index) => <li key={index}>{cause}</li>)}
+                    </ol>
+                  </div>
+                ) : null}
+                <div className="mt-2 break-all rounded-lg bg-white px-2.5 py-2 font-mono text-[11px] leading-5 text-slate-500 ring-1 ring-inset ring-slate-200">原始错误：{failure.raw}</div>
+              </article>
+            ))}
+          </div>
+          <DialogFooter className="border-t border-slate-100 pt-4">
+            <button type="button" className="material-button-primary" onClick={() => setBulkTestReport(null)}>知道了</button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
