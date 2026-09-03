@@ -381,8 +381,32 @@ const IMPORT_COLUMNS = [
   "物料名称", "规格", "单位", "分类", "产品线", "ERP编码", "T+存货编码", "是否特殊物料", "是否耗材", "安全库存", "备注",
 ] as const;
 
-function yes(v: unknown): boolean {
-  return typeof v === "boolean" ? v : ["是", "true", "1", "y", "yes"].includes(String(v ?? "").trim().toLowerCase());
+/**
+ * 空单元格代表「这一列不改」，不是「把它设成 0 / 否」。
+ *
+ * 模板带全部列，实际用法是只填想改的几列、其余留空。后端 upsertMaterial 走的是部分更新
+ * （未传的字段保留原值），所以这里必须把空格子解析成 undefined —— 以前解析成 0 / false，
+ * 于是一次「批量补分类」就把全表留空行的安全库存清零、特殊物料标记抹掉，
+ * 这些物料随即从缺料预警和补货建议里消失，而提示语只说「更新 N 条」。
+ */
+function cellText(v: unknown): string {
+  return String(v ?? "").trim();
+}
+
+/** 空 → 不改；填了才判真假（「否」明确写入 false）。 */
+function optionalBool(v: unknown): boolean | undefined {
+  if (typeof v === "boolean") return v;
+  const text = cellText(v);
+  if (!text) return undefined;
+  return ["是", "true", "1", "y", "yes"].includes(text.toLowerCase());
+}
+
+/** 空或填了非法值 → 不改；显式填 0 才把安全库存设成 0。 */
+function optionalNonNegative(v: unknown): number | undefined {
+  const text = cellText(v);
+  if (!text) return undefined;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 async function parseImportFile(file: File): Promise<{ items: MaterialImportItem[]; skipped: number }> {
@@ -395,21 +419,20 @@ async function parseImportFile(file: File): Promise<{ items: MaterialImportItem[
   const items: MaterialImportItem[] = [];
   let skipped = 0;
   for (const row of rows) {
-    const name = String(row["物料名称"] ?? "").trim();
+    const name = cellText(row["物料名称"]);
     if (!name) { skipped += 1; continue; }
-    const safeStock = Number(row["安全库存"]);
     items.push({
       name,
-      spec: String(row["规格"] ?? "").trim() || undefined,
-      unit: String(row["单位"] ?? "").trim() || undefined,
-      category: String(row["分类"] ?? "").trim() || undefined,
-      productLine: String(row["产品线"] ?? "").trim() || undefined,
-      erpCode: String(row["ERP编码"] ?? "").trim() || undefined,
-      tpInventoryCode: String(row["T+存货编码"] ?? "").trim() || undefined,
-      isSpecial: yes(row["是否特殊物料"]),
-      isConsumable: yes(row["是否耗材"]),
-      safeStock: Number.isFinite(safeStock) && safeStock >= 0 ? safeStock : undefined,
-      remark: String(row["备注"] ?? "").trim() || undefined,
+      spec: cellText(row["规格"]) || undefined,
+      unit: cellText(row["单位"]) || undefined,
+      category: cellText(row["分类"]) || undefined,
+      productLine: cellText(row["产品线"]) || undefined,
+      erpCode: cellText(row["ERP编码"]) || undefined,
+      tpInventoryCode: cellText(row["T+存货编码"]) || undefined,
+      isSpecial: optionalBool(row["是否特殊物料"]),
+      isConsumable: optionalBool(row["是否耗材"]),
+      safeStock: optionalNonNegative(row["安全库存"]),
+      remark: cellText(row["备注"]) || undefined,
     });
   }
   return { items, skipped };
@@ -498,7 +521,7 @@ export function ImportMaterialsModal({ onClose }: { onClose: () => void }) {
         </div>
       )}
       <div className="mt-3 flex items-start justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
-        <p className="text-[11px] leading-5 text-slate-500">{t('模板列：物料名称（必填）/ 规格 / 单位 / 分类 / 产品线 / ERP编码 / T+存货编码 / 是否特殊物料 / 是否耗材 / 安全库存 / 备注。新增物料将进入审核队列，按名称+规格或 T+ 编码去重（已存在则更新）。')}</p>
+        <p className="text-[11px] leading-5 text-slate-500">{t('模板列：物料名称（必填）/ 规格 / 单位 / 分类 / 产品线 / ERP编码 / T+存货编码 / 是否特殊物料 / 是否耗材 / 安全库存 / 备注。新增物料将进入审核队列，按名称+规格或 T+ 编码去重（已存在则更新）。更新已有物料时，留空的列保持原值不变；要清零安全库存请显式填 0，要取消标记请填「否」。')}</p>
         <button type="button" onClick={() => void downloadImportTemplate()} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"><FileDown className="h-3.5 w-3.5" />{t('下载模板')}</button>
       </div>
     </Shell>
