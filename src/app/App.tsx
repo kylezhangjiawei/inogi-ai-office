@@ -70,6 +70,7 @@ const PurchaseOrdersPage = lazyNamed(() => import("./order-processing"), "Purcha
 const ProcurementCockpitPage = lazyNamed(() => import("./procurement"), "ProcurementCockpitPage");
 const ProcMyWorkspacePage = lazyNamed(() => import("./procurement"), "ProcMyWorkspacePage");
 const MaterialWorkbenchPage = lazyNamed(() => import("./procurement"), "MaterialWorkbenchPage");
+const InventoryReadinessPage = lazyNamed(() => import("./procurement"), "InventoryReadinessPage");
 const QuoteBookPage = lazyNamed(() => import("./procurement"), "QuoteBookPage");
 const ProcPeopleManagementPage = lazyNamed(() => import("./procurement"), "ProcPeopleManagementPage");
 const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");
@@ -468,6 +469,7 @@ const router = createBrowserRouter([
       // 采购分类详情二级页：注册路由与权限，但不进侧边栏菜单（routesConfig 未收录即不显示）
       { path: asChildPath(routePath("page:proc-my-workspace", "/proc-my-workspace")), element: makeLazyProtected(<ProcMyWorkspacePage />, "page:proc-my-workspace") },
       { path: asChildPath(routePath("page:proc-materials", "/proc-materials")), element: makeLazyProtected(<MaterialWorkbenchPage />, "page:proc-materials") },
+      { path: asChildPath(routePath("page:proc-inventory-readiness", "/proc-inventory-readiness")), element: makeLazyProtected(<InventoryReadinessPage />, "page:proc-inventory-readiness") },
       { path: asChildPath(routePath("page:proc-quote-book", "/proc-quote-book")), element: makeLazyProtected(<QuoteBookPage />, "page:proc-quote-book") },
       { path: "proc-audit-log", element: <Navigate to="/audit-log?module=procurement" replace /> },
       // 采购人员管理独立页：从驾驶舱进入，不进侧边栏菜单（对齐研发 rd-people-management 模式）

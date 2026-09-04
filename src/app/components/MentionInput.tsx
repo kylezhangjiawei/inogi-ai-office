@@ -230,10 +230,10 @@ export function MentionSuggestionPanel({
             // 软键盘不失焦：mousedown/touch 阶段阻止默认，避免键盘收起
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onPick(c)}
-            className="flex shrink-0 items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[13px] font-medium text-indigo-700 active:bg-indigo-100"
+            className="flex shrink-0 items-center gap-1 rounded-[4px] border border-[#b8c8ec] bg-[#eef3ff] px-3 py-1.5 text-[13px] font-medium text-[#002fa7] active:bg-[#dfe8ff]"
           >
             @{c.name}
-            {c.hint && <span className="text-[10px] text-indigo-400">{c.hint}</span>}
+            {c.hint && <span className="text-[10px] text-[#526da8]">{c.hint}</span>}
           </button>
         ))}
       </div>
@@ -250,7 +250,7 @@ export function MentionSuggestionPanel({
         className,
       )}
     >
-      <div className="shrink-0 border-b border-slate-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+      <div className="shrink-0 border-b border-slate-100 px-3 py-1.5 text-[10px] font-semibold text-slate-500">
         {t("选择要提及的成员")}
       </div>
       <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
@@ -262,7 +262,7 @@ export function MentionSuggestionPanel({
             onClick={() => onPick(c)}
             className={cn(
               "flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-1.5 text-left text-sm",
-              i === highlightIndex ? "bg-indigo-50 text-indigo-700" : "text-slate-700 hover:bg-slate-50",
+              i === highlightIndex ? "bg-[#eef3ff] text-[#002fa7]" : "text-slate-700 hover:bg-slate-50",
             )}
           >
             <span className="truncate font-medium">@{c.name}</span>
@@ -278,7 +278,7 @@ export function MentionSuggestionPanel({
 export function renderTextWithMentions(
   text: string,
   mentions?: Array<{ user_id?: string | null; name?: string | null }> | null,
-  mentionClassName = "rounded bg-indigo-50 px-1 font-semibold text-indigo-700",
+  mentionClassName = "rounded-[3px] bg-[#eef3ff] px-1 font-semibold text-[#002fa7]",
 ): React.ReactNode {
   const names = (mentions ?? [])
     .map((m) => (m.name ?? "").trim())

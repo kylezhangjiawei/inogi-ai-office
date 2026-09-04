@@ -1,6 +1,6 @@
 // 物料库（资产视角）：统计条 + 树形物料表（大类→分类→物料，过滤时切扁平分页）+ 物料详情抽屉。
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { AlertCircle, Boxes, ClipboardCheck, FolderTree, PackageCheck, PackageOpen, Plus, RefreshCw, Sparkles, Truck, Upload } from "lucide-react";
 import { useI18n } from "../lib/i18n";
 import { daysFromToday, refreshProcurement, useProcurementData, type Material, type ProcStatus } from "./data";
@@ -33,6 +33,7 @@ function MaterialWorkbenchSkeleton({ label }: { label: string }) {
 export function MaterialWorkbenchPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { tasks, materials, loading, error } = useProcurementData();
   const [detail, setDetail] = useState<Material | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -43,6 +44,7 @@ export function MaterialWorkbenchPage() {
   const [safeStockOpen, setSafeStockOpen] = useState(false);
   const [replenishOpen, setReplenishOpen] = useState(false);
   const [filters, setFilters] = useState<MaterialFilters>(EMPTY_MATERIAL_FILTERS);
+  const [focusedMaterialCode, setFocusedMaterialCode] = useState("");
   // 写操作按钮按系统管理配置的操作码显隐
   const can = useProcCan();
 
@@ -50,6 +52,19 @@ export function MaterialWorkbenchPage() {
   useEffect(() => {
     setDetail((cur) => (cur ? materials.find((m) => m.id === cur.id) ?? null : cur));
   }, [materials]);
+
+  // 支持库存齐套中心按物料编码下钻：进入物料库后自动筛选并打开对应物料详情。
+  useEffect(() => {
+    const materialCode = searchParams.get("materialCode")?.trim() ?? "";
+    if (!materialCode || focusedMaterialCode === materialCode) return;
+    setFilters((current) => ({ ...current, keyword: materialCode }));
+    const matched = materials.find((material) => (
+      material.tpInventoryCode?.trim() === materialCode || material.erpCode?.trim() === materialCode
+    ));
+    if (!matched) return;
+    setDetail(matched);
+    setFocusedMaterialCode(materialCode);
+  }, [focusedMaterialCode, materials, searchParams]);
 
   const stats = useMemo(() => {
     const active = tasks.filter((t) => !["completed", "cancelled"].includes(t.status));
@@ -70,7 +85,7 @@ export function MaterialWorkbenchPage() {
     <div className="proc-horizon mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col p-3 sm:p-4">
       <PageHeader
         Icon={Boxes}
-        badge={t("采购管理")}
+        badge={t("供应链管理")}
         title={t("物料库 · 主数据与库存")}
         description={t("物料主数据与库存/在途资产视角：按大类与分类树形浏览，管理审核、缺料预警与历史价格。")}
         right={

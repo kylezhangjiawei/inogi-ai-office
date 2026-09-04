@@ -142,6 +142,58 @@ export interface Material {
   remark?: string;
 }
 
+export type InventoryReadinessStatus = "ready" | "low" | "gap" | "shortage" | "unmatched" | "data_missing";
+
+export interface InventoryReadinessItem {
+  id: string;
+  category: string;
+  code: string | null;
+  name: string;
+  spec: string;
+  unit: string;
+  qtyPer: number | null;
+  stock: number;
+  available: number;
+  inTransit: number;
+  safeStock: number;
+  currentSets: number;
+  withTransitSets: number;
+  targetDemand: number;
+  gapAfterTransit: number;
+  status: InventoryReadinessStatus;
+  issue: "missing_code" | "missing_qty" | "inventory_unmatched" | null;
+  syncedAt: string | null;
+}
+
+export interface InventoryReadinessResponse {
+  source: "tplus";
+  readOnly: true;
+  productLine: string;
+  models: Array<{ id: string; label: string; bomLines: number }>;
+  warehouse: { keyword: string; label: string; matchedNames: string[] };
+  syncedAt: string | null;
+  summary: {
+    currentBuildableSets: number;
+    withTransitBuildableSets: number;
+    inTransitGainSets: number;
+    targetSets: number;
+    targetGapAfterTransit: number;
+    warningMaterials: number;
+    bottleneckMaterials: number;
+    inTransitMaterials: number;
+  };
+  dataQuality: {
+    totalBomLines: number;
+    usableBomLines: number;
+    invalidBomLines: number;
+    inventoryMatchedLines: number;
+    bomCompleteness: number;
+    inventoryMatchRate: number;
+    provisional: boolean;
+  };
+  items: InventoryReadinessItem[];
+}
+
 export interface ProcTaskTreeNode {
   id: string;
   productId: string;
@@ -211,6 +263,64 @@ export interface TaskQuoteBookOptions {
   quotes: TaskQuoteBookOption[];
 }
 
+export type ProcStockPlanStatus = "not_started" | "in_progress" | "completed";
+
+export interface ProcStockPlanBatch {
+  id: string;
+  supplierId?: string;
+  supplierName: string;
+  purchaseQty: number;
+  purchaseOrderNo?: string;
+  orderDate?: string;
+  expectedArrivalDate?: string;
+  note?: string;
+  createdBy?: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProcStockPlan {
+  id: string;
+  code: string;
+  materialId?: string;
+  materialName: string;
+  spec: string;
+  unit: string;
+  targetQty: number;
+  purchasedQty: number;
+  remainingQty: number;
+  progress: number;
+  status: ProcStockPlanStatus;
+  targetDate?: string;
+  note?: string;
+  createdBy?: string;
+  createdByName: string;
+  batches: ProcStockPlanBatch[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProcStockPlanInput {
+  materialId?: string;
+  materialName: string;
+  spec?: string;
+  unit?: string;
+  targetQty: number;
+  targetDate?: string;
+  note?: string;
+}
+
+export interface ProcStockPlanBatchInput {
+  supplierId?: string;
+  supplierName: string;
+  purchaseQty: number;
+  purchaseOrderNo?: string;
+  orderDate?: string;
+  expectedArrivalDate?: string;
+  note?: string;
+}
+
 export interface ProcSummary {
   byStatus: Record<string, number>;
   total: number;
@@ -230,6 +340,68 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await authFetch(`/api/procurement${path}`, init);
   if (!response.ok) throw new Error(await readErrorMessage(response, "采购接口请求失败"));
   return (await response.json()) as T;
+}
+
+export async function getInventoryReadiness(
+  params: { productLine?: string; targetSets?: number },
+  signal?: AbortSignal,
+): Promise<InventoryReadinessResponse> {
+  const search = new URLSearchParams();
+  if (params.productLine) search.set("productLine", params.productLine);
+  if (params.targetSets !== undefined) search.set("targetSets", String(params.targetSets));
+  return request(`/inventory-readiness?${search.toString()}`, { signal });
+}
+
+// ── 备货计划 ──────────────────────────────────────────────────────────────────
+
+export async function listProcStockPlans(signal?: AbortSignal): Promise<ProcStockPlan[]> {
+  const data = await request<{ items: ProcStockPlan[] }>("/stock-plans", { signal });
+  return data.items;
+}
+
+export async function createProcStockPlan(input: ProcStockPlanInput): Promise<ProcStockPlan> {
+  return request("/stock-plans", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function updateProcStockPlan(
+  id: string,
+  input: Partial<ProcStockPlanInput>,
+): Promise<ProcStockPlan> {
+  return request(`/stock-plans/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function createProcStockPlanBatch(
+  planId: string,
+  input: ProcStockPlanBatchInput,
+): Promise<ProcStockPlan> {
+  return request(`/stock-plans/${encodeURIComponent(planId)}/batches`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateProcStockPlanBatch(
+  planId: string,
+  batchId: string,
+  input: Partial<ProcStockPlanBatchInput>,
+): Promise<ProcStockPlan> {
+  return request(
+    `/stock-plans/${encodeURIComponent(planId)}/batches/${encodeURIComponent(batchId)}`,
+    { method: "PUT", body: JSON.stringify(input) },
+  );
+}
+
+export async function deleteProcStockPlanBatch(
+  planId: string,
+  batchId: string,
+): Promise<ProcStockPlan> {
+  return request(
+    `/stock-plans/${encodeURIComponent(planId)}/batches/${encodeURIComponent(batchId)}`,
+    { method: "DELETE" },
+  );
 }
 
 // ── 任务 ──────────────────────────────────────────────────────────────────────

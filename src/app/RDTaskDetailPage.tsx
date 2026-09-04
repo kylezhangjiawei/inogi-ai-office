@@ -105,7 +105,6 @@ import {
   updateRdTask,
   isProductionMirrorTask,
   isProductionWorkspace,
-  isUsCollabWorkspace,
   type RdCategory,
   type RdCollaborator,
   type RdPriority,
@@ -117,9 +116,22 @@ import {
   type RdProductionTaskSync,
 } from "./lib/rdApi";
 
+function DetailGridOrder({
+  productionWorkspace,
+  children,
+}: {
+  productionWorkspace: boolean;
+  children: React.ReactNode;
+}) {
+  const items = React.Children.toArray(children);
+  return <>{productionWorkspace ? items : [...items].reverse()}</>;
+}
+
 type DetailTab = "notes" | "conversation" | "attachments" | "audit" | "relations" | "procurement";
 /** 模块级常量：保证 useAuditLogs 的订阅条件恒定，避免任何重订阅/重拉取。 */
 const TASK_AUDIT_FILTER = { resourceType: "task" } as const;
+/** 研发与生产任务详情共用同一 Horizon 视觉作用域；工作区差异仅保留在业务逻辑中。 */
+const RD_TASK_DETAIL_HORIZON_SCOPE = "rd-horizon-module rd-horizon-task-detail";
 
 /** 管理员点选人员时允许新旧数据在一侧缺少 user id 的情况下按姓名兜底；两侧都有 id 时仍只认 id。 */
 function detailActivityActorMatches(
@@ -156,11 +168,12 @@ function TaskRelationNode({ task, currentTaskId, isRoot = false, onOpen }: TaskR
         type="button"
         aria-current={current ? "page" : undefined}
         onClick={() => onOpen(task)}
+        data-active={current}
         className={cn(
-          "flex w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+          "rd-horizon-detail-relation-node flex w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
           current
-            ? "border-[#cbd8f6] bg-[#eef3ff] text-[#001f73]"
-            : "border-slate-200 bg-white text-slate-700 hover:border-[#cbd8f6] hover:bg-slate-50",
+            ? "border-[#002fa7]/20 bg-[#eef3ff] text-[#1b2559]"
+            : "border-slate-200 bg-white text-slate-700 hover:border-[#002fa7]/20 hover:bg-slate-50",
         )}
       >
         <span className={cn("size-2 shrink-0 rounded-full", status.dot)} />
@@ -175,7 +188,7 @@ function TaskRelationNode({ task, currentTaskId, isRoot = false, onOpen }: TaskR
           <span className="flex items-center gap-1.5">
             <span className="truncate text-sm font-medium"><AutoTranslatedText text={task.title} /></span>
             {current ? (
-              <span className="shrink-0 rounded bg-[#dce5fa] px-1.5 py-0.5 text-[10px] font-semibold text-[#001f73]">
+              <span className="shrink-0 rounded bg-[#dce6ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#002fa7]">
                 {t("当前")}
               </span>
             ) : null}
@@ -241,15 +254,15 @@ function ActivityTaskFilterBar({
   summary?: React.ReactNode;
 }) {
   const taskButtonClass = (selected: boolean) => cn(
-    "inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]",
+    "inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
     selected
       ? "bg-[#002fa7] text-white shadow-sm"
-      : "border border-slate-200 bg-white text-slate-600 hover:border-[#cbd8f6] hover:text-[#001f73]",
+      : "border border-slate-200 bg-white text-slate-600 hover:border-[#002fa7]/20 hover:text-[#002fa7]",
   );
   const relatedTasks = tasks.filter((item) => item.task_id !== currentTaskId);
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-slate-200/80 bg-slate-50/70 px-3 py-2 sm:px-4">
+    <div className="rd-horizon-detail-filter flex shrink-0 items-center gap-2 border-b border-slate-200/80 bg-slate-50/70 px-3 py-2 sm:px-4">
       <div className="cockpit-scroll flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overscroll-x-contain pb-1.5 [scrollbar-gutter:stable] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
         {tasks.length > 1 ? (
           <div role="group" aria-label={t("任务范围")} className="flex shrink-0 items-center gap-2">
@@ -292,16 +305,13 @@ function ActivityTaskFilterBar({
  */
 /** 任务类型下拉里「自定义…」那一项的哨兵值。带下划线前缀，不会与真实类型撞名。 */
 const CUSTOM_TASK_TYPE_OPTION = "__custom_task_type__";
-const RD_TASK_DETAIL_HORIZON_SCOPE = "rd-horizon-module rd-horizon-task-detail";
-
-function DetailGridOrder({ productionWorkspace, children }: { productionWorkspace: boolean; children: React.ReactNode }) {
-  return <div className={cn("grid min-h-0 flex-1 gap-5", productionWorkspace
-    ? "xl:grid-cols-[340px_minmax(0,1fr)] [&>div:first-child]:xl:order-1 [&>div:last-child]:xl:order-2"
-    : "xl:grid-cols-[minmax(0,1fr)_340px]")}>{children}</div>;
-}
 
 export default function RDTaskDetailPage() {
   const { taskId = "" } = useParams();
+  // 路由参数切换不会卸载详情组件；异步操作必须同时核对“当前 URL 的任务”，
+  // 仅靠请求序号无法阻止旧任务操作在新页面发起一次更晚的刷新。
+  const activeTaskIdRef = useRef(taskId);
+  activeTaskIdRef.current = taskId;
   const navigate = useNavigate();
   const location = useLocation();
   const activityActor = useMemo<AuditActorIdentity | null>(() => {
@@ -379,7 +389,6 @@ export default function RDTaskDetailPage() {
   const [editingDescription, setEditingDescription] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
   const [descriptionSaving, setDescriptionSaving] = useState(false);
-  const [descriptionError, setDescriptionError] = useState("");
   const [showAddCollab, setShowAddCollab] = useState(false);
   const [showComplete, setShowComplete] = useState(false);
   // ── 研发侧特有动作（与驾驶舱抽屉同口径）：提交审核 / 转采购 / 生成问题 / 移动类目 ──
@@ -391,6 +400,9 @@ export default function RDTaskDetailPage() {
   const canTransferProcPermission = useAnyPermission("proc-task:transfer");
   const canTransferProc = canTransferProcPermission && !taskReadOnly;
   const [showMove, setShowMove] = useState(false);
+  const [moveLoading, setMoveLoading] = useState(false);
+  const moveRequestSeqRef = useRef(0);
+  const issueRequestSeqRef = useRef(0);
   const [categories, setCategories] = useState<RdCategory[]>([]);
   const [products, setProducts] = useState<RdProductDef[]>([]);
   // 完成质量评分区收起/展开（默认展开但限高内滚，避免长点评把 Tab 区挤出视口）
@@ -441,11 +453,9 @@ export default function RDTaskDetailPage() {
 
   // 竞态守卫：人员弹层跳转会快速切换 taskId，旧请求晚到不得覆盖新任务的状态
   const loadSeqRef = React.useRef(0);
-  const activeTaskIdRef = useRef(taskId);
-  activeTaskIdRef.current = taskId;
   const loadTask = useCallback(async (opts?: { silent?: boolean; expectedTaskId?: string }) => {
     const expectedTaskId = opts?.expectedTaskId ?? taskId;
-    if (activeTaskIdRef.current !== expectedTaskId) return;
+    if (!expectedTaskId || activeTaskIdRef.current !== expectedTaskId) return;
     const seq = ++loadSeqRef.current;
     if (!opts?.silent) setLoading(true);
     setLoadError("");
@@ -475,11 +485,8 @@ export default function RDTaskDetailPage() {
     if (hasSeed) {
       setTask(seeded!);
       setLoading(false);
-    } else {
-      setTask(null);
     }
     void loadTask({ silent: hasSeed });
-    return () => { loadSeqRef.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadTask, taskId]);
 
@@ -510,10 +517,9 @@ export default function RDTaskDetailPage() {
       setProductionSync(next);
       toast.success(next.active ? t("已同步到生产驾驶舱") : t("已撤销生产驾驶舱同步"));
     } catch (error) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : t("同步操作失败，请重试"));
     } finally {
-      if (activeTaskIdRef.current === expectedTaskId) setProductionSyncing(false);
+      setProductionSyncing(false);
     }
   };
 
@@ -527,22 +533,28 @@ export default function RDTaskDetailPage() {
   const [previewAttachment, setPreviewAttachment] = useState<RdTaskProgressAttachment | null>(null);
 
   const progressLoadSeqRef = useRef(0);
-  const loadProgressGroup = useCallback(async (showLoading = true, opts?: { expectedTaskId?: string }) => {
-    const expectedTaskId = opts?.expectedTaskId ?? taskId;
-    if (activeTaskIdRef.current !== expectedTaskId) return;
+  const loadProgressGroup = useCallback(async (showLoading = true) => {
+    const expectedTaskId = taskId;
+    if (!expectedTaskId || activeTaskIdRef.current !== expectedTaskId) return;
     const seq = ++progressLoadSeqRef.current;
-    if (showLoading) setNotesLoading(true);
-    setNotesError("");
+    if (showLoading) {
+      setNotesLoading(true);
+      setNotesError("");
+    }
     try {
       const data = await fetchRdTaskProgressNoteGroup(expectedTaskId);
       if (seq !== progressLoadSeqRef.current || activeTaskIdRef.current !== expectedTaskId) return;
+      setNotesError("");
       setGroupNotes(data.notes);
       setProgressGroupTasks(data.tasks);
       setNotes(data.notes.filter((note) => (note.source_task?.task_id ?? note.task_id) === expectedTaskId));
       void markRdTaskNotesRead(expectedTaskId).catch(() => {});
     } catch (error) {
       if (seq !== progressLoadSeqRef.current || activeTaskIdRef.current !== expectedTaskId) return;
-      setNotesError(error instanceof Error ? error.message : t("进展加载失败，请重试"));
+      setNotes([]);
+      setGroupNotes([]);
+      setProgressGroupTasks([]);
+      setNotesError(error instanceof Error ? error.message : t("进度留痕加载失败"));
     } finally {
       if (seq === progressLoadSeqRef.current && activeTaskIdRef.current === expectedTaskId) setNotesLoading(false);
     }
@@ -554,32 +566,33 @@ export default function RDTaskDetailPage() {
     setSelectedActivityActor(null);
     setEditingDescription(false);
     setDescriptionDraft("");
-    setDescriptionError("");
-    setNotes([]);
-    setGroupNotes([]);
-    setProgressGroupTasks([]);
-    setShowEditInfo(false);
-    setShowHandover(false);
-    setShowAddCollab(false);
-    setShowComplete(false);
-    setShowSubmitConfirm(false);
-    setGeneratingIssue(false);
-    setShowMove(false);
-    setShowApproval(null);
-    setShowCreateSubtask(false);
-    setShowAttachSubtasks(false);
-    setShowDetachSubtasks(false);
-    setTransferOpen(false);
-    setPreviewAttachment(null);
-    setSubmitting(false);
     setDescriptionSaving(false);
-    setSavingPriority(false);
-    setSavingTaskType(false);
-    setProductionSyncing(false);
-    setDetaching(false);
     void loadProgressGroup();
     return () => { progressLoadSeqRef.current += 1; };
   }, [loadProgressGroup, taskId]);
+
+  // 任务参数切换时关闭所有“绑定当前任务”的浮层，避免 A 任务的确认状态沿用到 B。
+  // 同时让跨任务异步请求失效；旧任务的响应不得在新任务上开窗或触发跳转。
+  useEffect(() => {
+    moveRequestSeqRef.current += 1;
+    issueRequestSeqRef.current += 1;
+    setShowCreateSubtask(false);
+    setShowAttachSubtasks(false);
+    setShowDetachSubtasks(false);
+    setShowHandover(false);
+    setShowEditInfo(false);
+    setShowAddCollab(false);
+    setShowComplete(false);
+    setShowSubmitConfirm(false);
+    setTransferOpen(false);
+    setShowMove(false);
+    setMoveLoading(false);
+    setGeneratingIssue(false);
+    setShowApproval(null);
+    setCustomTaskType(null);
+    setPersonTasksFor(null);
+    setDiscussionUnread(0);
+  }, [taskId]);
 
   const activityNotes = useMemo(
     () => visibleActivityActor
@@ -639,7 +652,7 @@ export default function RDTaskDetailPage() {
     setNoteTaskFilter(nextTaskId);
   };
 
-  const subtasks = useMemo(() => task?.subtasks ?? [], [task]);
+  const subtasks = task?.subtasks ?? [];
 
   const auditLogs = useMemo(
     () => {
@@ -675,6 +688,17 @@ export default function RDTaskDetailPage() {
         return true;
       });
   }, [groupNotes]);
+  const detailFacts = useMemo(() => {
+    const workItems = task?.work_items ?? [];
+    let attachmentCount = 0;
+    for (const note of activityGroupNotes) attachmentCount += note.attachments?.length ?? 0;
+    return {
+      workItemCount: workItems.length,
+      completedWorkItemCount: workItems.filter((item) => item.done).length,
+      noteCount: activityGroupNotes.length,
+      attachmentCount,
+    };
+  }, [activityGroupNotes, task?.work_items]);
 
   // 导出报告用：audit 记录 + 无对应 audit 的留痕合成条目（保证报告时间线完整）
   // 合成条目的 resource.id/name 取该留痕自身所属任务，主线视图下才能正确标出来源。
@@ -712,7 +736,7 @@ export default function RDTaskDetailPage() {
       const noteId = typeof log?.metadata?.note_id === "string" ? log.metadata.note_id : "";
       return noteId ? noteById.get(noteId) : undefined;
     },
-    [reportLogById, noteById],
+    [noteById, reportLogById],
   );
   // 操作记录 Tab 的完整时间线（动作 + 进展合成，时间倒序）——与驾驶舱抽屉/导出报告同一份口径
   const timelineLogs = useMemo(
@@ -739,10 +763,6 @@ export default function RDTaskDetailPage() {
     if (task.primary_owner_user_id === user.id || task.primary_owner === user.name) return true;
     return (task.collaborators ?? []).some((c) => c.user_id === user.id || c.name === user.name);
   }, [task, user]);
-  const directChangePending = !isUsCollabWorkspace() && !isProductionWorkspace()
-    && task?.status === "pending_review"
-    && ["proposal", "collaboration", "due_date", "merge"].includes(task.pending_review_type ?? "");
-  const canApplyPendingChange = directChangePending && !taskReadOnly && (canManage || isParticipant);
   // ── 管理动作（API 口径与驾驶舱抽屉完全一致） ──────────────────────────────
 
   /** 编辑标题/描述（主管）：PATCH 后乐观更新双数据源并留审计 diff */
@@ -788,7 +808,6 @@ export default function RDTaskDetailPage() {
   const startDescriptionEdit = () => {
     if (!task || !canManage || task.archived) return;
     setDescriptionDraft(task.description ?? "");
-    setDescriptionError("");
     setEditingDescription(true);
   };
 
@@ -807,14 +826,13 @@ export default function RDTaskDetailPage() {
       return;
     }
     setDescriptionSaving(true);
-    setDescriptionError("");
     try {
       await handleEditInfo(task.title, descriptionDraft);
-      if (activeTaskIdRef.current !== expectedTaskId) return;
-      setEditingDescription(false);
+      if (activeTaskIdRef.current === expectedTaskId) setEditingDescription(false);
     } catch (error) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
-      setDescriptionError(error instanceof Error ? error.message : t("保存失败，请重试"));
+      if (activeTaskIdRef.current === expectedTaskId) {
+        toast.error(error instanceof Error ? error.message : t("保存失败，请重试"));
+      }
     } finally {
       if (activeTaskIdRef.current === expectedTaskId) setDescriptionSaving(false);
     }
@@ -823,21 +841,20 @@ export default function RDTaskDetailPage() {
   const savePriority = async (next: RdPriority) => {
     if (!task || savingPriority || next === task.final_priority) return;
     const expectedTaskId = task.task_id;
-    if (activeTaskIdRef.current !== expectedTaskId) return;
+    if (activeTaskIdRef.current !== expectedTaskId || !canManage) return;
     const prev = task.final_priority;
     setSavingPriority(true);
     try {
       await updateRdTask(expectedTaskId, { final_priority: next });
       if (activeTaskIdRef.current !== expectedTaskId) return;
-      setTask((prevTask) => (prevTask ? { ...prevTask, final_priority: next } : prevTask));
+      setTask((prevTask) => (prevTask?.task_id === expectedTaskId ? { ...prevTask, final_priority: next } : prevTask));
       // 同步 allTasks，保证人员任务弹层等派生视图显示新值（task 与 allTasks 双源须一起更新）
       setAllTasks((prevAll) => prevAll.map((t) => (t.task_id === expectedTaskId ? { ...t, final_priority: next } : t)));
       toast.success(t("优先级已更新"));
     } catch (error) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "更新优先级失败");
     } finally {
-      if (activeTaskIdRef.current === expectedTaskId) setSavingPriority(false);
+      setSavingPriority(false);
     }
   };
 
@@ -848,7 +865,7 @@ export default function RDTaskDetailPage() {
   const saveTaskType = async (next: string) => {
     if (!task || savingTaskType) return;
     const expectedTaskId = task.task_id;
-    if (activeTaskIdRef.current !== expectedTaskId) return;
+    if (activeTaskIdRef.current !== expectedTaskId || !canManage) return;
     const value = next.trim();
     const current = taskTypeOf(task.category_path);
     if (!value || value === current) {
@@ -861,23 +878,22 @@ export default function RDTaskDetailPage() {
       await updateRdTask(expectedTaskId, { category_path: nextPath });
       if (activeTaskIdRef.current !== expectedTaskId) return;
       // task 与 allTasks 双源须一起更新，否则人员任务弹层等派生视图仍显示旧 tag
-      setTask((prevTask) => (prevTask ? { ...prevTask, category_path: nextPath } : prevTask));
+      setTask((prevTask) => (prevTask?.task_id === expectedTaskId ? { ...prevTask, category_path: nextPath } : prevTask));
       setAllTasks((prevAll) =>
         prevAll.map((t) => (t.task_id === expectedTaskId ? { ...t, category_path: nextPath } : t)),
       );
       setCustomTaskType(null);
       toast.success(t("任务类型已更新"));
     } catch (error) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : t("保存失败，请重试"));
     } finally {
-      if (activeTaskIdRef.current === expectedTaskId) setSavingTaskType(false);
+      setSavingTaskType(false);
     }
   };
 
   /** 审批（通过/驳回）：口径与驾驶舱抽屉 handleApproval 一致——状态裁决完全交给后端 _review_action。 */
   const handleApproval = async (reason?: string, rollbackProgress?: number) => {
-    if (!task || !showApproval) return;
+    if (!task || !showApproval || !canManage || task.status !== "pending_review") return;
     const expectedTaskId = task.task_id;
     if (activeTaskIdRef.current !== expectedTaskId) return;
     setSubmitting(true);
@@ -899,34 +915,14 @@ export default function RDTaskDetailPage() {
       setShowApproval(null);
       void loadTask({ expectedTaskId });
     } catch (error) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "操作失败");
     } finally {
-      if (activeTaskIdRef.current === expectedTaskId) setSubmitting(false);
-    }
-  };
-
-  const handleApplyPendingChange = async () => {
-    if (!task || !canApplyPendingChange || submitting) return;
-    const expectedTaskId = task.task_id;
-    if (activeTaskIdRef.current !== expectedTaskId) return;
-    setSubmitting(true);
-    try {
-      await updateRdTask(expectedTaskId, { _review_action: "approve" } as Parameters<typeof updateRdTask>[1]);
-      if (activeTaskIdRef.current !== expectedTaskId) return;
-      toast.success(t("变更已应用"));
-      await loadTask({ expectedTaskId });
-      if (activeTaskIdRef.current !== expectedTaskId) return;
-    } catch (error) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
-      toast.error(error instanceof Error ? error.message : t("操作失败"));
-    } finally {
-      if (activeTaskIdRef.current === expectedTaskId) setSubmitting(false);
+      setSubmitting(false);
     }
   };
 
   const handleHandover = async (newOwner: string) => {
-    if (!task) return;
+    if (!task || !canManage) return;
     const expectedTaskId = task.task_id;
     if (activeTaskIdRef.current !== expectedTaskId) return;
     setSubmitting(true);
@@ -940,15 +936,14 @@ export default function RDTaskDetailPage() {
       setShowHandover(false);
       void loadTask({ expectedTaskId });
     } catch (error) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "移交失败");
     } finally {
-      if (activeTaskIdRef.current === expectedTaskId) setSubmitting(false);
+      setSubmitting(false);
     }
   };
 
   const handleAddCollaborators = async (newCollaborators: RdCollaborator[]) => {
-    if (!task) return;
+    if (!task || !canManage) return;
     const expectedTaskId = task.task_id;
     if (activeTaskIdRef.current !== expectedTaskId) return;
     try {
@@ -957,13 +952,11 @@ export default function RDTaskDetailPage() {
       let baseCollaborators = task.collaborators ?? [];
       try {
         const categories = await fetchMergedTaskCategories();
-        if (activeTaskIdRef.current !== expectedTaskId) return;
         const fresh = flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks))).find(
           (t) => t.task_id === expectedTaskId,
         );
         if (fresh) baseCollaborators = fresh.collaborators ?? [];
       } catch {
-        if (activeTaskIdRef.current !== expectedTaskId) return;
         // 取最新失败时退回页面快照（后端 normalizeCollaboratorList 仍会去重）
       }
       const existingKeys = new Set(baseCollaborators.map((c) => c.user_id || c.name));
@@ -977,13 +970,12 @@ export default function RDTaskDetailPage() {
       setShowAddCollab(false);
       void loadTask({ expectedTaskId });
     } catch (error) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "添加协作人失败");
     }
   };
 
   const handleDirectComplete = async () => {
-    if (!task) return;
+    if (!task || !canManage || taskReadOnly || task.status === "completed") return;
     const expectedTaskId = task.task_id;
     if (activeTaskIdRef.current !== expectedTaskId) return;
     setSubmitting(true);
@@ -994,10 +986,9 @@ export default function RDTaskDetailPage() {
       setShowComplete(false);
       void loadTask({ expectedTaskId });
     } catch (error) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "操作失败");
     } finally {
-      if (activeTaskIdRef.current === expectedTaskId) setSubmitting(false);
+      setSubmitting(false);
     }
   };
 
@@ -1026,28 +1017,27 @@ export default function RDTaskDetailPage() {
   );
 
   const handleSubmitForReview = async () => {
-    if (!task) return;
+    if (!task || !canSubmitForReview) return;
     const expectedTaskId = task.task_id;
     if (activeTaskIdRef.current !== expectedTaskId) return;
     setSubmitting(true);
     try {
       await updateRdTask(expectedTaskId, { status: "pending_review", progress: 100 });
-      if (activeTaskIdRef.current !== expectedTaskId) return;
       const changes: { field: string; before: string; after: string }[] = [
         { field: "status", before: task.status, after: "pending_review" },
       ];
       if (task.progress !== 100) {
         changes.push({ field: "progress", before: String(task.progress), after: "100" });
       }
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.success(t("任务已提交审核，等待确认"));
       window.dispatchEvent(new CustomEvent("rd:review-submitted"));
       setShowSubmitConfirm(false);
       void loadTask({ expectedTaskId });
     } catch (error) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "提交失败");
     } finally {
-      if (activeTaskIdRef.current === expectedTaskId) setSubmitting(false);
+      setSubmitting(false);
     }
   };
 
@@ -1055,18 +1045,22 @@ export default function RDTaskDetailPage() {
   const handleGenerateIssue = async () => {
     if (!task || generatingIssue) return;
     const expectedTaskId = task.task_id;
-    if (activeTaskIdRef.current !== expectedTaskId) return;
+    const requestSeq = ++issueRequestSeqRef.current;
+    const sourceTask = task;
+    const sourceNotes = notes;
+    const isCurrentRequest = () => issueRequestSeqRef.current === requestSeq && activeTaskIdRef.current === expectedTaskId;
+    if (!isCurrentRequest()) return;
     setGeneratingIssue(true);
     try {
       const parts: string[] = [];
-      if (task.description?.trim()) parts.push(task.description.trim());
-      const noteTexts = notes.map((n) => (n.text ?? "").trim()).filter(Boolean);
+      if (sourceTask.description?.trim()) parts.push(sourceTask.description.trim());
+      const noteTexts = sourceNotes.map((n) => (n.text ?? "").trim()).filter(Boolean);
       if (noteTexts.length > 0) parts.push("【进展 / 问题记录】\n" + noteTexts.map((s, i) => `${i + 1}. ${s}`).join("\n"));
-      parts.push(`（自研发任务生成：${expectedTaskId}${task.category_path ? "｜" + task.category_path : ""}）`);
+      parts.push(`（自研发任务生成：${sourceTask.task_id}${sourceTask.category_path ? "｜" + sourceTask.category_path : ""}）`);
 
       // 把留痕附件经同源 preview_url 取回字节，走问题模块 uploadAttachment 搬运（与抽屉逻辑一致）
       const seen = new Set<string>();
-      const srcAtts = notes
+      const srcAtts = sourceNotes
         .flatMap((n) => n.attachments)
         .filter((a) => {
           const k = a.id || `${a.name}-${a.size}`;
@@ -1077,73 +1071,75 @@ export default function RDTaskDetailPage() {
       if (srcAtts.length > 0) toast.info(`正在搬运 ${srcAtts.length} 个附件到问题…`);
       const issueAttachments: NonNullable<Parameters<typeof issueService.create>[0]["attachments"]> = [];
       for (const a of srcAtts) {
+        if (!isCurrentRequest()) return;
         try {
           const url = getAttachmentPreviewUrl(a) || getAttachmentUrl(a);
           if (!url) continue;
           const resp = await fetch(url);
-          if (activeTaskIdRef.current !== expectedTaskId) return;
           if (!resp.ok) continue;
           const blob = await resp.blob();
-          if (activeTaskIdRef.current !== expectedTaskId) return;
           const raw = await issueService.uploadAttachment({
             fileName: a.name,
             fileType: a.mime || blob.type || "application/octet-stream",
             size: a.size ?? blob.size,
             dataUrl: await blobToDataUrl(blob),
           });
-          if (activeTaskIdRef.current !== expectedTaskId) return;
           const processed = await issueService.processAttachment(raw, "ai").catch(() => raw);
-          if (activeTaskIdRef.current !== expectedTaskId) return;
           const extractedText = (processed.extractedText && processed.extractedText.trim()) || (a.extracted_text && a.extracted_text.trim()) || undefined;
           issueAttachments.push({ id: processed.id, fileName: processed.fileName, fileType: processed.fileType, fileUrl: processed.fileUrl, extractedText });
         } catch {
-          if (activeTaskIdRef.current !== expectedTaskId) return;
           // 单个附件搬运失败不阻断整体生成
         }
       }
+      if (!isCurrentRequest()) return;
       if (issueAttachments.length < srcAtts.length) {
         const names = srcAtts.map((a) => a.name).join("、");
         if (names) parts.splice(parts.length - 1, 0, "【相关附件】" + names);
       }
 
       const issue = await issueService.create({
-        title: task.title,
+        title: sourceTask.title,
         description: parts.join("\n\n"),
         source: "rd",
         attachments: issueAttachments.length > 0 ? issueAttachments : undefined,
       });
-      if (activeTaskIdRef.current !== expectedTaskId) return;
+      if (!isCurrentRequest()) return;
       toast.success(`已生成问题${issueAttachments.length > 0 ? `（含 ${issueAttachments.length} 个附件）` : ""}，正在跳转…`);
       navigate(`/issue-ai?issue=${encodeURIComponent(issue.id)}`);
     } catch (e) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
-      toast.error(e instanceof Error ? e.message : "生成问题失败，请重试");
-      setGeneratingIssue(false);
+      if (isCurrentRequest()) toast.error(e instanceof Error ? e.message : "生成问题失败，请重试");
+    } finally {
+      if (isCurrentRequest()) setGeneratingIssue(false);
     }
   };
 
   /** 打开「移动到其他类目」：按需拉主产品树与产品列表（详情页平时用不到这两份数据） */
   const openMoveDialog = async () => {
-    if (!task) return;
+    if (!task || !canManage || moveLoading) return;
     const expectedTaskId = task.task_id;
+    const requestSeq = ++moveRequestSeqRef.current;
     if (activeTaskIdRef.current !== expectedTaskId) return;
+    setMoveLoading(true);
     try {
       const [cats, prods] = await Promise.all([
         categories.length > 0 ? Promise.resolve(categories) : fetchRdTaskCategories(),
         products.length > 0 ? Promise.resolve(products) : fetchRdProducts(),
       ]);
-      if (activeTaskIdRef.current !== expectedTaskId) return;
+      if (requestSeq !== moveRequestSeqRef.current || activeTaskIdRef.current !== expectedTaskId) return;
       setCategories(cats);
       setProducts(prods);
       setShowMove(true);
     } catch (error) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
-      toast.error(error instanceof Error ? error.message : "分类数据加载失败，请重试");
+      if (requestSeq === moveRequestSeqRef.current && activeTaskIdRef.current === expectedTaskId) {
+        toast.error(error instanceof Error ? error.message : "分类数据加载失败，请重试");
+      }
+    } finally {
+      if (requestSeq === moveRequestSeqRef.current && activeTaskIdRef.current === expectedTaskId) setMoveLoading(false);
     }
   };
 
   const handleMoveConfirm = async (targetProductId: string, targetCatId: string, targetSubId: string) => {
-    if (!task) return;
+    if (!task || !canManage) return;
     const expectedTaskId = task.task_id;
     if (activeTaskIdRef.current !== expectedTaskId) return;
     try {
@@ -1160,7 +1156,6 @@ export default function RDTaskDetailPage() {
       setShowMove(false);
       void loadTask({ expectedTaskId });
     } catch (err) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(err instanceof Error ? err.message : "移动失败，请重试");
     }
   };
@@ -1214,10 +1209,10 @@ export default function RDTaskDetailPage() {
     final_priority: RdPriority;
     description: string;
   }) => {
-    if (!task) return;
+    if (!task || !canManage) return;
     const expectedTaskId = task.task_id;
     if (activeTaskIdRef.current !== expectedTaskId) return;
-    const created = await createRdTask({
+    await createRdTask({
       parent_task_id: expectedTaskId,
       title: input.title,
       primary_owner: input.primary_owner,
@@ -1231,39 +1226,33 @@ export default function RDTaskDetailPage() {
     if (activeTaskIdRef.current !== expectedTaskId) return;
     toast.success(t("子任务已创建"));
     setShowCreateSubtask(false);
-    void Promise.all([loadTask({ silent: true, expectedTaskId }), loadProgressGroup(false, { expectedTaskId })]);
+    void Promise.all([loadTask({ silent: true, expectedTaskId }), loadProgressGroup(false)]);
   };
 
   const handleAttachSubtasks = async (childIds: string[]) => {
-    if (!task || childIds.length === 0) return;
+    if (!task || !canManage || childIds.length === 0) return;
     const expectedTaskId = task.task_id;
     if (activeTaskIdRef.current !== expectedTaskId) return;
     await attachRdTasksToParent(childIds, expectedTaskId);
     if (activeTaskIdRef.current !== expectedTaskId) return;
-    for (const childId of childIds) {
-      const child = allTaskById.get(childId);
-    }
     toast.success(t("已并入 {n} 个任务为子任务", { n: childIds.length }));
     setShowAttachSubtasks(false);
-    void Promise.all([loadTask({ silent: true, expectedTaskId }), loadProgressGroup(false, { expectedTaskId })]);
+    void Promise.all([loadTask({ silent: true, expectedTaskId }), loadProgressGroup(false)]);
   };
 
   const handleDetachSubtasks = async (childIds: string[]) => {
-    if (!task || childIds.length === 0) return;
+    if (!task || !canManage || childIds.length === 0) return;
     const expectedTaskId = task.task_id;
     if (activeTaskIdRef.current !== expectedTaskId) return;
     await detachRdSubtasks(childIds, expectedTaskId);
     if (activeTaskIdRef.current !== expectedTaskId) return;
-    for (const childId of childIds) {
-      const child = allTaskById.get(childId);
-    }
     toast.success(t("已取消 {n} 个子任务关系", { n: childIds.length }));
     setShowDetachSubtasks(false);
-    void Promise.all([loadTask({ silent: true, expectedTaskId }), loadProgressGroup(false, { expectedTaskId })]);
+    void Promise.all([loadTask({ silent: true, expectedTaskId }), loadProgressGroup(false)]);
   };
 
   const handleDetachSubtask = async () => {
-    if (!task || detaching) return;
+    if (!task || !canManage || detaching) return;
     const expectedTaskId = task.task_id;
     if (activeTaskIdRef.current !== expectedTaskId) return;
     setDetaching(true);
@@ -1271,12 +1260,11 @@ export default function RDTaskDetailPage() {
       await detachRdSubtask(expectedTaskId);
       if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.success(t("已取消子任务关系，该任务已提升为独立任务"));
-      void Promise.all([loadTask({ silent: true, expectedTaskId }), loadProgressGroup(false, { expectedTaskId })]);
+      void Promise.all([loadTask({ silent: true, expectedTaskId }), loadProgressGroup(false)]);
     } catch (error) {
-      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : t("取消子任务失败，请重试"));
     } finally {
-      if (activeTaskIdRef.current === expectedTaskId) setDetaching(false);
+      setDetaching(false);
     }
   };
 
@@ -1300,15 +1288,23 @@ export default function RDTaskDetailPage() {
     [allTasks],
   );
   const seqIndex = useMemo(() => taskSeq.findIndex((t) => t.task_id === taskId), [taskSeq, taskId]);
+  const taskNavigationLocked = Boolean(
+    showCreateSubtask || showAttachSubtasks || showDetachSubtasks || showHandover || showEditInfo
+    || editingDescription || showAddCollab || showComplete || showSubmitConfirm || transferOpen
+    || showMove || showApproval || customTaskType !== null || personTasksFor || submitting
+    || productionSyncing || descriptionSaving || savingPriority || savingTaskType || detaching || generatingIssue || moveLoading,
+  );
   const gotoSeq = useCallback(
     (offset: number) => {
+      if (taskNavigationLocked || document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
       const target = taskSeq[seqIndex + offset];
       if (target) navigate(taskDetailPath(target.task_id), { state: { task: target } });
     },
-    [taskSeq, seqIndex, navigate, taskDetailPath],
+    [navigate, seqIndex, taskDetailPath, taskNavigationLocked, taskSeq],
   );
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || taskNavigationLocked) return;
       const el = e.target as HTMLElement | null;
       // 输入场景不劫持按键
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
@@ -1317,40 +1313,58 @@ export default function RDTaskDetailPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [gotoSeq]);
+  }, [gotoSeq, taskNavigationLocked]);
 
   if (!canView) {
     return (
-      <div className={cn(RD_TASK_DETAIL_HORIZON_SCOPE, "flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500")}>
-        <div className="text-4xl">🔒</div>
-        <p className="text-base font-medium">您没有访问此页面的权限</p>
+      <div className={cn(RD_TASK_DETAIL_HORIZON_SCOPE, "flex min-h-[40vh] flex-col items-center justify-center gap-3 px-6 text-center text-slate-500")}>
+        <span className="flex size-12 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm">
+          <Lock className="size-5" aria-hidden="true" />
+        </span>
+        <h2 className="text-balance text-base font-semibold text-slate-800">{t("无法查看任务详情")}</h2>
+        <p className="max-w-sm text-pretty text-sm leading-6">{t("当前账号没有研发任务管理或研发主管看板的访问权限。")}</p>
       </div>
     );
   }
 
   if (loading) {
     return (
-      <div className={cn(RD_TASK_DETAIL_HORIZON_SCOPE, "flex min-h-[40vh] items-center justify-center gap-2 text-sm text-slate-400")} role="status" aria-label={t("正在加载任务详情")}>
-        <Loader2 className="h-4 w-4 animate-spin" />
-        {t("正在加载任务…")}
+      <div
+        className={cn(RD_TASK_DETAIL_HORIZON_SCOPE, "flex min-h-[40vh] w-full max-w-[1440px] flex-col gap-4 px-3 py-5 sm:px-5")}
+        role="status"
+        aria-label={t("正在加载任务详情")}
+      >
+        <span className="sr-only">{t("正在加载任务…")}</span>
+        <div className="h-9 w-44 animate-pulse rounded-lg bg-slate-200 motion-reduce:animate-none" />
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="h-40 animate-pulse rounded-xl border border-slate-200 bg-white motion-reduce:animate-none" />
+          <div className="h-40 animate-pulse rounded-xl border border-slate-200 bg-slate-50 motion-reduce:animate-none" />
+        </div>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="h-72 animate-pulse rounded-xl border border-slate-200 bg-white motion-reduce:animate-none" />
+          <div className="h-72 animate-pulse rounded-xl border border-slate-200 bg-white motion-reduce:animate-none" />
+        </div>
       </div>
     );
   }
 
   if (!task) {
     return (
-      <div className={cn(RD_TASK_DETAIL_HORIZON_SCOPE, "flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500")} role="alert">
-        <AlertTriangle className="h-8 w-8 text-amber-400" />
-        <p className="text-balance font-semibold">{t("任务详情暂不可用")}</p>
-        <p className="text-sm">{loadError || t("任务不存在")}</p>
-        <Button type="button" variant="outline" onClick={() => void loadTask()}>{t("重新加载")}</Button>
-        <button
-          type="button"
-          onClick={() => navigate(cockpitReturnPath)}
-          className="cursor-pointer rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
-        >
-          {t("返回驾驶舱")}
-        </button>
+      <div className={cn(RD_TASK_DETAIL_HORIZON_SCOPE, "flex min-h-[40vh] flex-col items-center justify-center gap-3 px-6 text-center text-slate-500")} role="alert">
+        <span className="flex size-12 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 text-amber-600">
+          <AlertTriangle className="size-5" aria-hidden="true" />
+        </span>
+        <h2 className="text-balance text-base font-semibold text-slate-800">{t("任务详情暂不可用")}</h2>
+        <p className="max-w-md text-pretty text-sm leading-6">{loadError || t("任务不存在")}</p>
+        <div className="mt-1 flex flex-wrap justify-center gap-2">
+          <Button type="button" size="sm" onClick={() => void loadTask()} className="bg-[#002fa7] text-white hover:bg-[#002581]">
+            <RefreshCw className="size-3.5" aria-hidden="true" />
+            {t("重新加载")}
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)}>
+            {t("返回驾驶舱")}
+          </Button>
+        </div>
       </div>
     );
   }
@@ -1359,10 +1373,6 @@ export default function RDTaskDetailPage() {
   const pCfg = PRIORITY_CONFIG[task.final_priority] ?? PRIORITY_CONFIG.medium;
   const blockedDays = blockedDaysOf(task);
   const workItems = task.work_items ?? [];
-  const completedWorkItemCount = workItems.filter((item) => item.done).length;
-  const attachmentCount = new Set(groupNotes.flatMap((note) => (note.attachments ?? []).map((attachment) =>
-    attachment.object_key || attachment.id || `${attachment.name}|${attachment.size}`,
-  ))).size;
   const topicPathParts = String(task.category_path ?? "")
     .split(/\s*\/\s*/)
     .map((part) => part.trim())
@@ -1379,22 +1389,31 @@ export default function RDTaskDetailPage() {
     <TaskImageGalleryScope notes={groupNotes}>
       <motion.div
       ref={rootRef}
-      initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       style={viewportHeight ? { minHeight: viewportHeight } : undefined}
       className={cn(
         RD_TASK_DETAIL_HORIZON_SCOPE,
         "mx-auto flex max-w-[1440px] flex-col gap-4 px-2 pt-4 sm:px-4",
       )}
     >
+      {loadError ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="alert">
+          <div className="min-w-0">
+            <p className="font-semibold">{t("最新数据刷新失败，当前显示进入页面时的任务快照。")}</p>
+            <p className="mt-0.5 break-words text-xs text-amber-700">{loadError}</p>
+          </div>
+          <Button type="button" variant="outline" size="sm" className="shrink-0 border-amber-300 bg-white" onClick={() => void loadTask({ expectedTaskId: task.task_id })}>
+            <RefreshCw className="size-3.5" aria-hidden="true" />
+            {t("重新同步")}
+          </Button>
+        </div>
+      ) : null}
       <div className="rd-horizon-detail-shell">
       <div className="rd-horizon-detail-context">
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="rd-horizon-detail-toolbar flex shrink-0 flex-wrap items-center gap-3">
         <div className="rd-horizon-detail-orientation">
         {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
-        <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)} className="gap-1">
+        <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)} className="rd-horizon-detail-nav-control gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
           {t("返回")}
         </Button>
@@ -1406,9 +1425,10 @@ export default function RDTaskDetailPage() {
               variant="outline"
               size="sm"
               onClick={() => gotoSeq(-1)}
-              disabled={seqIndex <= 0}
+              disabled={taskNavigationLocked || seqIndex <= 0}
               title={t("上一条任务（k）")}
-              className="h-8 w-8 p-0"
+              aria-label={t("上一条任务（k）")}
+              className="rd-horizon-detail-nav-control h-8 w-8 p-0"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -1418,9 +1438,10 @@ export default function RDTaskDetailPage() {
               variant="outline"
               size="sm"
               onClick={() => gotoSeq(1)}
-              disabled={seqIndex >= taskSeq.length - 1}
+              disabled={taskNavigationLocked || seqIndex >= taskSeq.length - 1}
               title={t("下一条任务（j）")}
-              className="h-8 w-8 p-0"
+              aria-label={t("下一条任务（j）")}
+              className="rd-horizon-detail-nav-control h-8 w-8 p-0"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
@@ -1434,20 +1455,21 @@ export default function RDTaskDetailPage() {
           </span>
         )}
         </div>
-        <div className="rd-horizon-detail-heading">
-        <h2 className="line-clamp-2 min-w-0 flex-1 text-balance text-xl font-bold text-slate-900">
-          <AutoTranslatedText text={task.title} />
+        <div className="rd-horizon-detail-heading flex min-w-0 flex-1 items-center gap-1.5">
+          <h2 className="line-clamp-2 min-w-0 flex-1 text-balance text-lg font-bold leading-snug text-slate-900 sm:text-xl">
+            <AutoTranslatedText text={task.title} />
+          </h2>
           {canManage && !task.archived && (
             <button
               type="button"
               onClick={() => setShowEditInfo(true)}
               title={t("编辑标题与描述")}
-              className="ml-2 inline-flex cursor-pointer items-center rounded p-1 align-middle text-slate-300 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              aria-label={t("编辑标题与描述")}
+              className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
           )}
-        </h2>
         </div>
         <div className="rd-horizon-detail-state">
         <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>
@@ -1504,21 +1526,10 @@ export default function RDTaskDetailPage() {
         </div>
       </div>
 
-      {loadError && <div role="alert" className="mx-5 mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-        {t("任务详情暂不可用")}：{loadError}
-        <button type="button" onClick={() => void loadTask({ silent: true })} className="ml-3 underline">{t("重新加载")}</button>
-      </div>}
-      <dl aria-label={t("任务事实摘要")} className="grid grid-cols-2 gap-3 border-t border-slate-100 px-5 py-3 text-sm sm:grid-cols-4">
-        <div><dt className="text-xs text-slate-500">{t("完成进度")}</dt><dd className="mt-1 font-semibold tabular-nums">{task.progress}%</dd></div>
-        <div><dt className="text-xs text-slate-500">{t("子任务")}</dt><dd className="mt-1 font-semibold tabular-nums">{subtasks.length}</dd></div>
-        <div><dt className="text-xs text-slate-500">{t("附件")}</dt><dd className="mt-1 font-semibold tabular-nums">{notesLoading || notesError ? "—" : attachmentCount}</dd></div>
-        <div><dt className="text-xs text-slate-500">{t("已完成工作项")}</dt><dd className="mt-1 font-semibold tabular-nums">{completedWorkItemCount} / {workItems.length}</dd></div>
-      </dl>
-
-      {/* 详情总览：保留当前项目的材料卡样式，只重排信息层级。 */}
+      {/* 详情总览：与标题共用一个 Horizon 上下文表面。 */}
       <section className="rd-horizon-detail-overview material-card overflow-hidden">
         <div className="grid lg:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="min-w-0 px-5 py-4">
+          <div className="rd-horizon-detail-description min-w-0 px-5 py-4">
             <div className="mb-2 flex items-center justify-between gap-3">
               <span className="flex items-center gap-2 text-xs font-semibold text-slate-500">
                 <FileText className="h-3.5 w-3.5 text-[#002fa7]" />
@@ -1557,7 +1568,6 @@ export default function RDTaskDetailPage() {
                   aria-label={t("任务描述")}
                   className="cockpit-scroll min-h-24 w-full resize-y rounded-lg border-slate-200 text-sm leading-6"
                 />
-                {descriptionError && <p role="alert" className="text-sm text-red-700">{descriptionError}</p>}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] text-slate-400">{t("Ctrl+Enter 保存，Esc 取消")}</span>
                   <div className="flex items-center gap-2">
@@ -1576,7 +1586,7 @@ export default function RDTaskDetailPage() {
                       size="sm"
                       disabled={descriptionSaving}
                       onClick={() => void saveDescription()}
-                      className="h-8 gap-1.5 bg-[#002fa7] px-3 text-xs text-white hover:bg-[#001f73]"
+                      className="h-8 gap-1.5 bg-[#002fa7] px-3 text-xs text-white hover:bg-[#002581]"
                     >
                       {descriptionSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                       {t("保存")}
@@ -1594,7 +1604,7 @@ export default function RDTaskDetailPage() {
               <p className="text-sm text-slate-400">{t("暂未填写任务描述")}</p>
             )}
           </div>
-          <div className="border-t border-slate-100 bg-slate-50/55 px-5 py-4 lg:border-l lg:border-t-0">
+          <div className="rd-horizon-detail-topic border-t border-slate-100 bg-slate-50/55 px-5 py-4 lg:border-l lg:border-t-0">
             <div className="mb-3 flex items-center justify-between gap-3">
               <span className="flex items-center gap-2 text-xs font-semibold text-slate-500">
                 <Layers3 className="h-3.5 w-3.5 text-[#002fa7]" />
@@ -1612,7 +1622,7 @@ export default function RDTaskDetailPage() {
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="rounded-md border border-[#dce5fa] bg-[#eef3ff] px-2 py-1 text-xs font-semibold text-[#001f73]">
+                <span className="rounded-md border border-[#002fa7]/15 bg-[#eef3ff] px-2 py-1 text-xs font-semibold text-[#002fa7]">
                   {componentLabel}
                 </span>
                 {topicLabel !== componentLabel && (
@@ -1628,13 +1638,40 @@ export default function RDTaskDetailPage() {
           </div>
         </div>
       </section>
+      <dl
+        aria-label={t("任务事实摘要")}
+        className="grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:grid-cols-3 lg:grid-cols-5"
+      >
+        {[
+          { label: t("完成进度"), value: `${task.progress}%`, detail: t(sCfg.label) },
+          { label: t("主责人"), value: displayPersonName(task.primary_owner), detail: t("当前责任范围") },
+          { label: t("截止与风险"), value: task.due_date || t("未设置"), detail: riskLabel },
+          {
+            label: t("工作项"),
+            value: `${detailFacts.completedWorkItemCount}/${detailFacts.workItemCount}`,
+            detail: t("已完成 / 全部"),
+          },
+          {
+            label: t("事实留痕"),
+            value: t("{notes} 条 · {files} 个附件", { notes: detailFacts.noteCount, files: detailFacts.attachmentCount }),
+            detail: notesError ? t("读取异常") : t("包含合并任务范围"),
+          },
+        ].map((fact) => (
+          <div key={fact.label} className="min-w-0 border-b border-r border-slate-100 px-3 py-2.5 last:border-r-0 sm:px-4">
+            <dt className="truncate text-[11px] font-medium text-slate-500">{fact.label}</dt>
+            <dd className="mt-1 truncate text-sm font-semibold tabular-nums text-slate-800" title={String(fact.value)}>{fact.value}</dd>
+            <dd className="mt-0.5 truncate text-[10px] text-slate-400">{fact.detail}</dd>
+          </div>
+        ))}
+      </dl>
       </div>
 
       {/* 美式 content-first 布局：主内容（描述/工作项/时间线）居左，Properties 侧栏居右（GitHub issue / Linear 范式） */}
-      <DetailGridOrder productionWorkspace={productionWorkspace}>
-        {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔；超高自身内滚）══ */}
-        <div className="cockpit-scroll min-h-0 xl:order-2 xl:overflow-y-auto">
-        <div className="material-card divide-y divide-slate-100">
+      <div className="rd-horizon-detail-grid grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <DetailGridOrder productionWorkspace={productionWorkspace}>
+        {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔；随页面自然滚动）══ */}
+        <div key="properties" className="rd-horizon-detail-aside cockpit-scroll min-h-0 xl:order-2 xl:overflow-y-auto">
+        <div className="rd-horizon-detail-properties material-card divide-y divide-slate-100">
           {/* 字段节 */}
           <div className="space-y-2.5 px-4 py-3.5">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-600">
@@ -1678,7 +1715,7 @@ export default function RDTaskDetailPage() {
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
                 <span className="shrink-0 text-xs text-slate-400">{row.label}</span>
-                <span className="min-w-0 flex-1 truncate text-right font-medium text-slate-700">{row.value}</span>
+                <span className="min-w-0 flex-1 truncate text-right font-medium tabular-nums text-slate-700">{row.value}</span>
               </div>
             ))}
             {/* 任务类型 = category_path 第三段，即驾驶舱卡片上那个 tag。AI 判断不准时在这里纠正。
@@ -1740,7 +1777,7 @@ export default function RDTaskDetailPage() {
 
           {/* 中间层任务可同时显示直接父任务和直接子任务，并继续向下扩展关系树。 */}
           {parentTask && (
-            <div className="bg-sky-50/60 px-4 py-3.5">
+            <div className="rd-horizon-detail-parent-task bg-sky-50/60 px-4 py-3.5">
               <div className="mb-2 flex items-center gap-1.5">
                 <SubtaskBadge task={task} />
                 <span className="text-xs font-semibold text-slate-500">{t("所属父任务")}</span>
@@ -1748,7 +1785,7 @@ export default function RDTaskDetailPage() {
               <button
                 type="button"
                 onClick={() => navigate(taskDetailPath(parentTask.task_id))}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2 text-left transition hover:border-sky-300 hover:bg-sky-50/60"
+                className="rd-horizon-detail-parent-task__link flex w-full cursor-pointer items-center gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2 text-left transition hover:border-sky-300 hover:bg-sky-50/60"
               >
                 <ChevronLeft className="h-3.5 w-3.5 shrink-0 text-sky-500" />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-700">
@@ -1842,7 +1879,7 @@ export default function RDTaskDetailPage() {
                           key={sub.task_id}
                           type="button"
                           onClick={() => navigate(taskDetailPath(sub.task_id))}
-                          className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-2.5 py-1.5 text-left transition hover:border-[#cbd8f6] hover:bg-[#eef3ff]/40"
+                          className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-2.5 py-1.5 text-left transition-colors hover:border-[#002fa7]/20 hover:bg-[#eef3ff]"
                         >
                           <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", subCfg.dot)} />
                           <SubtaskBadge task={sub} />
@@ -1886,9 +1923,9 @@ export default function RDTaskDetailPage() {
                 else setPersonTasksFor(task.primary_owner);
               }}
               className={cn(
-                "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]",
+                "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
                 canSelectActivityActor && activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner })
-                  ? "bg-[#eef3ff] ring-1 ring-inset ring-[#cbd8f6]"
+                  ? "bg-[#eef3ff] ring-1 ring-inset ring-[#002fa7]/20"
                   : "hover:bg-slate-50",
               )}
               title={canSelectActivityActor
@@ -1898,7 +1935,7 @@ export default function RDTaskDetailPage() {
               <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="sm" />
               <span className="text-sm font-medium text-slate-800">{displayPersonName(task.primary_owner)}</span>
               {canSelectActivityActor && activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner }) ? (
-                <span className="ml-auto rounded-full bg-[#dce5fa] px-2 py-0.5 text-[10px] font-semibold text-[#001f73]">{t("筛选中")}</span>
+                <span className="ml-auto rounded-full bg-[#dce6ff] px-2 py-0.5 text-[10px] font-semibold text-[#002fa7]">{t("筛选中")}</span>
               ) : null}
             </button>
             {(task.collaborators ?? []).length > 0 && (
@@ -1916,9 +1953,9 @@ export default function RDTaskDetailPage() {
                         else setPersonTasksFor(c.name);
                       }}
                       className={cn(
-                        "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]",
+                        "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
                         canSelectActivityActor && activityActorIsSelected({ id: c.user_id, name: c.name })
-                          ? "bg-[#eef3ff] ring-1 ring-inset ring-[#cbd8f6]"
+                          ? "bg-[#eef3ff] ring-1 ring-inset ring-[#002fa7]/20"
                           : "hover:bg-slate-50",
                       )}
                       title={canSelectActivityActor
@@ -1929,7 +1966,7 @@ export default function RDTaskDetailPage() {
                       <span className="text-sm text-slate-700">{c.name}</span>
                       <span className="text-[11px] text-slate-400">{t(c.role)}</span>
                       {canSelectActivityActor && activityActorIsSelected({ id: c.user_id, name: c.name }) ? (
-                        <span className="ml-auto rounded-full bg-[#dce5fa] px-2 py-0.5 text-[10px] font-semibold text-[#001f73]">{t("筛选中")}</span>
+                        <span className="ml-auto rounded-full bg-[#dce6ff] px-2 py-0.5 text-[10px] font-semibold text-[#002fa7]">{t("筛选中")}</span>
                       ) : null}
                     </button>
                   ))}
@@ -1948,17 +1985,9 @@ export default function RDTaskDetailPage() {
                 {t("提交审核")}
               </Button>
             )}
-            {canApplyPendingChange && (
+            {canManage && task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) && (
               <>
-                <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">{t("此变更已无需审核，可直接应用此前提交的申请。")}</p>
-                <Button type="button" size="sm" disabled={submitting} onClick={() => void handleApplyPendingChange()} className="h-8 w-full gap-1.5 text-xs">
-                  {t("应用变更")}
-                </Button>
-              </>
-            )}
-            {canManage && !directChangePending && task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) && (
-              <>
-                <div className="rounded-lg bg-[#eef3ff] px-3 py-2 text-xs text-[#001f73]">
+                <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-semibold text-[#002fa7]">
                   {t("待审核")}：{t(getReviewTypeMeta(task.pending_review_type)!.label)}
                 </div>
                 <Button
@@ -2044,9 +2073,9 @@ export default function RDTaskDetailPage() {
         </div>
 
         {/* ══ 主内容列（左）：纵向过程叙事——Tab 卡吃掉剩余高度，内容内滚 ══ */}
-        <div className="flex min-h-0 min-w-0 flex-col gap-4 xl:order-1">
+        <div key="workspace" className="rd-horizon-detail-main flex min-h-0 min-w-0 flex-col gap-4 xl:order-1">
           {/* 工作项（只读展示）：创建/勾选/删除入口在个人工作台，成员按需自建 */}
-          <div className="shrink-0">
+          <div className="rd-horizon-detail-work-items shrink-0">
             <WorkItemsSection
               task={task}
               canEdit={false}
@@ -2061,7 +2090,7 @@ export default function RDTaskDetailPage() {
           {task.status === "completed" && (
             <div
               className={cn(
-                "flex min-h-0 flex-col overflow-hidden rounded-[10px] border border-slate-200 bg-white",
+                "rd-horizon-detail-score flex min-h-0 flex-col overflow-hidden rounded-[10px] border border-slate-200 bg-white",
                 scoreOpen ? "max-h-[260px]" : "shrink-0",
               )}
             >
@@ -2093,9 +2122,9 @@ export default function RDTaskDetailPage() {
           )}
 
           {/* Tab：筛选条、留痕列表和卡片内留言共存时仍为列表保留可视区域；内容区各自内滚。 */}
-          <div className="material-card flex min-h-0 flex-1 flex-col overflow-hidden p-0 lg:min-h-[440px]">
+          <div className="rd-horizon-detail-activity material-card flex min-h-0 flex-1 flex-col overflow-hidden p-0 lg:min-h-[440px]">
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col gap-0">
-              <TabsList className="cockpit-scroll h-auto w-full shrink-0 justify-start gap-3 overflow-x-auto rounded-none border-b border-slate-200/80 bg-transparent p-0 px-3 sm:gap-5 sm:px-4">
+              <TabsList className="rd-horizon-detail-tabs cockpit-scroll h-auto w-full shrink-0 justify-start gap-3 overflow-x-auto rounded-none border-b border-slate-200/80 bg-transparent p-0 px-3 sm:gap-5 sm:px-4">
                 {([
                   { key: "notes", label: t("进展留痕"), count: activityGroupNotes.length },
                   { key: "conversation", label: t("任务讨论"), count: discussionUnread },
@@ -2107,7 +2136,7 @@ export default function RDTaskDetailPage() {
                   <TabsTrigger
                     key={tabItem.key}
                     value={tabItem.key}
-                    className="-mb-px flex-none cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-3.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-[#002fa7] data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
+                    className="-mb-px flex-none cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-3.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-[#002fa7] data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-[#002fa7] data-[state=active]:shadow-none"
                   >
                     {tabItem.key === "conversation" && <MessageCircleMore className="h-3.5 w-3.5 text-[#002fa7]" />}
                     {tabItem.key === "relations" && <GitBranch className="h-3.5 w-3.5 text-[#002fa7]" />}
@@ -2157,6 +2186,7 @@ export default function RDTaskDetailPage() {
                   }}
                   selectedActor={canSelectActivityActor ? selectedActivityActor : null}
                   onActorClick={canSelectActivityActor ? toggleActivityActor : undefined}
+                  className="rd-horizon-detail-conversation rd-horizon-detail-conversation--timeline"
                 />
               </TabsContent>
 
@@ -2171,22 +2201,34 @@ export default function RDTaskDetailPage() {
                   showHeader={false}
                   threadLayout="replace"
                   onUnreadChange={setDiscussionUnread}
+                  className="rd-horizon-detail-conversation rd-horizon-detail-conversation--discussion"
                 />
               </TabsContent>
 
               <TabsContent value="attachments" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
+              {notesLoading && groupNotes.length === 0 ? (
+                <div className="space-y-3" role="status" aria-label={t("正在加载附件库")}>
+                  <div className="h-28 animate-pulse rounded-xl bg-slate-100 motion-reduce:animate-none" />
+                  <div className="h-12 animate-pulse rounded-xl bg-slate-100 motion-reduce:animate-none" />
+                  <span className="sr-only">{t("正在加载附件库")}</span>
+                </div>
+              ) : notesError ? (
+                <div className="flex min-h-52 flex-col items-center justify-center px-5 text-center" role="alert">
+                  <AlertTriangle className="size-7 text-amber-500" aria-hidden="true" />
+                  <h3 className="mt-3 text-balance text-sm font-semibold text-slate-800">{t("附件库暂不可用")}</h3>
+                  <p className="mt-1 max-w-md text-pretty text-xs leading-5 text-slate-500">{notesError}</p>
+                  <Button type="button" size="sm" onClick={() => void loadProgressGroup()} className="mt-3 bg-[#002fa7] text-white hover:bg-[#002581]">
+                    <RefreshCw className="size-3.5" aria-hidden="true" />
+                    {t("重新加载")}
+                  </Button>
+                </div>
+              ) : (
               <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="space-y-3">
-                {notesError && <div role="alert" className="rounded-lg bg-red-50 px-3 py-3 text-sm text-red-700">
-                  <p className="font-semibold">{t("附件库暂不可用")}</p>
-                  <p className="mt-1 break-words text-pretty">{notesError}</p>
-                  <Button type="button" variant="outline" className="mt-2" onClick={() => void loadProgressGroup()}>{t("重新加载")}</Button>
-                </div>}
-                {notesLoading && <p role="status" className="py-3 text-sm text-slate-500">{t("正在加载附件…")}</p>}
                 <TaskImageGallery notes={groupNotes} />
                 <div>
                   <div className="mb-2 text-xs font-semibold text-slate-500">{t("文档附件（{n}）", { n: docAttachments.length })}</div>
                   {docAttachments.length === 0 ? (
-                    !notesLoading && !notesError ? <p className="py-4 text-center text-sm text-slate-400">{t("暂无文档附件")}</p> : null
+                    <p className="py-4 text-center text-sm text-slate-400">{t("暂无文档附件")}</p>
                   ) : (
                     <div className="overflow-x-auto">
                       <Table>
@@ -2209,10 +2251,10 @@ export default function RDTaskDetailPage() {
                                   type="button"
                                   onClick={() => setPreviewAttachment(att)}
                                   title={att.name}
-                                  className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left transition hover:text-[#001f73]"
+                                  className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left transition hover:text-[#002fa7]"
                                 >
                                   <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                                  <span className="min-w-0 truncate text-sm text-slate-700 hover:text-[#001f73]">{att.name}</span>
+                                  <span className="min-w-0 truncate text-sm text-slate-700">{att.name}</span>
                                 </button>
                               </TableCell>
                               <TableCell className="max-w-[200px]">
@@ -2221,7 +2263,7 @@ export default function RDTaskDetailPage() {
                                     type="button"
                                     onClick={() => navigate(taskDetailPath(sourceTaskId))}
                                     title={sourceTaskTitle || sourceTaskId}
-                                    className="min-w-0 max-w-full cursor-pointer truncate text-xs font-medium text-[#002fa7] hover:text-[#001f73]"
+                                    className="min-w-0 max-w-full cursor-pointer truncate text-xs font-medium text-[#002fa7] hover:text-[#002581]"
                                   >
                                     {sourceTaskTitle || sourceTaskId}
                                   </button>
@@ -2238,7 +2280,7 @@ export default function RDTaskDetailPage() {
                                   download={att.name}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#002fa7] hover:text-[#001f73]"
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#002fa7] hover:text-[#002581]"
                                 >
                                   <Download className="h-3 w-3" />
                                   {t("下载")}
@@ -2252,6 +2294,7 @@ export default function RDTaskDetailPage() {
                   )}
                 </div>
               </motion.div>
+              )}
               </TabsContent>
 
               <TabsContent value="relations" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
@@ -2280,13 +2323,9 @@ export default function RDTaskDetailPage() {
 
               {procTask && (
                 <TabsContent value="procurement" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
-                  <motion.div
-                    initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.16 }}
-                  >
+                  <div>
                     <ProcurementActivitySection task={procTask} />
-                  </motion.div>
+                  </div>
                 </TabsContent>
               )}
 
@@ -2301,7 +2340,7 @@ export default function RDTaskDetailPage() {
                   onChange={setAuditTaskFilter}
                 />
               )}
-              <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="cockpit-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-3">
+              <div className="cockpit-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-4 pt-3">
                 {/* 完整时间线：操作动作 + 进展留痕合成，进展条目下挂附件缩略图（与抽屉口径一致） */}
                 <AuditTimeline
                   logs={filteredTimelineLogs}
@@ -2320,13 +2359,14 @@ export default function RDTaskDetailPage() {
                     return <ProgressAttachmentGrid attachments={note.attachments} compact imageDisplay="clipped-cards" />;
                   }}
                 />
-              </motion.div>
+              </div>
               </TabsContent>
             </Tabs>
 
           </div>
         </div>
-      </DetailGridOrder>
+        </DetailGridOrder>
+      </div>
       </div>
 
       {/* ── 管理弹窗 ── */}
@@ -2341,10 +2381,10 @@ export default function RDTaskDetailPage() {
       {showHandover && (
         <HandoverDialog
           taskId={task.task_id}
-          horizonVariant
           taskTitle={task.title}
           currentOwner={task.primary_owner}
           people={people}
+          horizonVariant
           onConfirm={handleHandover}
           onCancel={() => setShowHandover(false)}
         />
@@ -2418,8 +2458,8 @@ export default function RDTaskDetailPage() {
       {showCreateSubtask && (
         <CreateSubtaskDialog
           parentTask={task}
-          horizonVariant
           people={people}
+          horizonVariant
           onConfirm={handleCreateSubtask}
           onCancel={() => setShowCreateSubtask(false)}
         />
@@ -2443,7 +2483,7 @@ export default function RDTaskDetailPage() {
 
       {/* 人员名下任务弹层（Radix Dialog）：点任务跳转到该任务的详情页 */}
       <Dialog open={Boolean(personTasksFor)} onOpenChange={(open) => { if (!open) setPersonTasksFor(null); }}>
-        <DialogContent className="max-w-md rounded-2xl border-slate-200 bg-white p-5 shadow-2xl">
+        <DialogContent className="rd-horizon-detail-dialog rounded-2xl border-slate-200 bg-white p-5 shadow-2xl sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-slate-800">
               {personTasksFor && <OwnerAvatar name={personTasksFor} size="sm" />}
@@ -2467,7 +2507,7 @@ export default function RDTaskDetailPage() {
                       setPersonTasksFor(null);
                       if (t.task_id !== taskId) navigate(taskDetailPath(t.task_id));
                     }}
-                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition hover:border-[#cbd8f6] hover:bg-[#eef3ff]/40"
+                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition-colors hover:border-[#002fa7]/20 hover:bg-[#eef3ff]"
                   >
                     <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", tCfg.dot)} />
                     <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{t.title}</span>
@@ -2505,16 +2545,17 @@ function EditTaskInfoDialog({
   const [description, setDescription] = useState(initialDescription);
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState("");
-  const previousFocusRef = useRef<HTMLElement | null>(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
   const handleSave = async () => {
-    if (saving || !title.trim()) return;
+    if (!title.trim() || saving) return;
     setSubmitError("");
     setSaving(true);
     try {
       await onConfirm(title, description);
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : t("保存失败，请重试"));
+      const message = error instanceof Error ? error.message : t("保存失败，请重试");
+      setSubmitError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -2522,24 +2563,24 @@ function EditTaskInfoDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
-      <DialogContent className="rd-horizon-detail-dialog rounded-2xl flex max-h-[85vh] flex-col gap-0 overflow-y-auto border-slate-200 bg-white p-0 sm:max-w-lg" aria-busy={saving}
-        onCloseAutoFocus={(event) => { event.preventDefault(); if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus(); }}
+      <DialogContent
+        className="rd-horizon-detail-dialog max-h-[90dvh] gap-0 overflow-y-auto rounded-xl border-slate-200 bg-white p-0 sm:max-w-md"
         onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
-        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}>
-        <DialogDescription className="sr-only">{t("编辑任务标题与描述")}</DialogDescription>
-        {submitError && <p role="alert" className="mx-6 mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{submitError}</p>}
-        <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
+        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}
+      >
+        <DialogHeader className="flex-row items-center gap-3 border-b border-slate-100 px-6 py-4 text-left">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
             <Pencil className="h-4 w-4" />
           </div>
-          <DialogTitle className="text-balance text-base font-semibold text-slate-900">{t("编辑任务信息")}</DialogTitle>
-        </div>
+          <div>
+            <DialogTitle className="text-balance text-base font-semibold text-slate-900">{t("编辑任务信息")}</DialogTitle>
+            <DialogDescription className="mt-1 text-pretty text-xs text-slate-500">{t("修改标题与描述后将同步记录到任务事实链路。")}</DialogDescription>
+          </div>
+        </DialogHeader>
         <div className="space-y-4 px-6 py-5">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("任务标题")} <span className="text-red-500">*</span></label>
             <Input
-              disabled={saving}
-              aria-label={t("任务标题")}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={120}
@@ -2550,8 +2591,6 @@ function EditTaskInfoDialog({
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("任务描述")}</label>
             <Textarea
-              disabled={saving}
-              aria-label={t("任务描述")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={5}
@@ -2560,6 +2599,7 @@ function EditTaskInfoDialog({
             />
           </div>
         </div>
+        {submitError ? <p className="mx-6 mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700" role="alert">{submitError}</p> : null}
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
           <button
             type="button"
@@ -2573,10 +2613,10 @@ function EditTaskInfoDialog({
             type="button"
             disabled={saving || !title.trim()}
             onClick={() => void handleSave()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#001f73] disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#002581] disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-            {saving ? t("保存中…") : t("保存")}
+            {saving ? t("保存中…") : t("保存任务信息")}
           </button>
         </div>
       </DialogContent>
@@ -2591,12 +2631,13 @@ function EditTaskInfoDialog({
 function CreateSubtaskDialog({
   parentTask,
   people,
+  horizonVariant = false,
   onConfirm,
   onCancel,
-  horizonVariant = false,
 }: {
   parentTask: RdTask;
   people: PersonProfile[];
+  horizonVariant?: boolean;
   onConfirm: (input: {
     title: string;
     primary_owner: string;
@@ -2606,7 +2647,6 @@ function CreateSubtaskDialog({
     description: string;
   }) => Promise<void>;
   onCancel: () => void;
-  horizonVariant?: boolean;
 }) {
   useI18n();
   const [title, setTitle] = useState("");
@@ -2616,7 +2656,6 @@ function CreateSubtaskDialog({
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState("");
-  const previousFocusRef = useRef<HTMLElement | null>(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
   const activePeople = useMemo(
     () => people.filter((p) => p.status !== "left" && p.status !== "resigned"),
@@ -2638,7 +2677,9 @@ function CreateSubtaskDialog({
         description: description.trim(),
       });
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : t("创建子任务失败，请重试"));
+      const message = error instanceof Error ? error.message : t("创建子任务失败，请重试");
+      setSubmitError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -2646,31 +2687,28 @@ function CreateSubtaskDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
-      <DialogContent className="rd-horizon-detail-dialog rounded-2xl flex max-h-[85vh] flex-col gap-0 overflow-y-auto border-slate-200 bg-white p-0 sm:max-w-lg" aria-busy={saving}
-        onCloseAutoFocus={(event) => { event.preventDefault(); if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus(); }}
+      <DialogContent
+        className="rd-horizon-detail-dialog max-h-[90dvh] gap-0 overflow-y-auto rounded-xl border-slate-200 bg-white p-0 sm:max-w-md"
         onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
-        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}>
-        <DialogDescription className="sr-only">{t("为当前任务创建子任务")}</DialogDescription>
-        {submitError && <p role="alert" className="mx-6 mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{submitError}</p>}
-        <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
+        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}
+      >
+        <DialogHeader className="flex-row items-center gap-3 border-b border-slate-100 px-6 py-4 text-left">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600">
             <FileText className="h-4 w-4" />
           </div>
           <div className="min-w-0">
             <DialogTitle className="text-balance text-base font-semibold text-slate-900">{t("新建子任务")}</DialogTitle>
-            <p className="truncate text-[11px] text-slate-400">
+            <DialogDescription className="mt-1 truncate text-[11px] text-slate-500">
               {t("父任务：{title}", { title: parentTask.title })}
-            </p>
+            </DialogDescription>
           </div>
-        </div>
+        </DialogHeader>
         <div className="space-y-4 px-6 py-5">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-700">
               {t("子任务标题")} <span className="text-red-500">*</span>
             </label>
             <Input
-              disabled={saving}
-              aria-label={t("任务标题")}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={120}
@@ -2679,11 +2717,11 @@ function CreateSubtaskDialog({
               className="h-9 rounded-lg border-slate-200 text-sm"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("主责人")}</label>
-              <Select disabled={saving} value={ownerName || "待指派"} onValueChange={setOwnerName}>
-                <SelectTrigger aria-label={t("主责人")} className="h-9 rounded-lg border-slate-200 text-sm">
+              <Select value={ownerName || "待指派"} onValueChange={setOwnerName}>
+                <SelectTrigger className="h-9 rounded-lg border-slate-200 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className={cn(horizonVariant && "rd-horizon-detail-select")}>
@@ -2698,8 +2736,8 @@ function CreateSubtaskDialog({
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("优先级")}</label>
-              <Select disabled={saving} value={priority} onValueChange={(v) => setPriority(v as RdPriority)}>
-                <SelectTrigger aria-label={t("优先级")} className="h-9 rounded-lg border-slate-200 text-sm">
+              <Select value={priority} onValueChange={(v) => setPriority(v as RdPriority)}>
+                <SelectTrigger className="h-9 rounded-lg border-slate-200 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className={cn(horizonVariant && "rd-horizon-detail-select")}>
@@ -2713,8 +2751,6 @@ function CreateSubtaskDialog({
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("截止日期")}</label>
             <Input
-              disabled={saving}
-              aria-label={t("截止日期")}
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
@@ -2724,8 +2760,6 @@ function CreateSubtaskDialog({
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("任务描述")}</label>
             <Textarea
-              disabled={saving}
-              aria-label={t("任务描述")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
@@ -2733,10 +2767,11 @@ function CreateSubtaskDialog({
               className="cockpit-scroll w-full resize-none rounded-lg border-slate-200 text-sm"
             />
           </div>
-          <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500">
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-pretty text-[11px] leading-relaxed text-slate-500">
             {t("新建项会直接归属当前任务；若要保留已有的多级任务结构，请使用「并入已有任务」。")}
           </p>
         </div>
+        {submitError ? <p className="mx-6 mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700" role="alert">{submitError}</p> : null}
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
           <button
             type="button"
@@ -2750,7 +2785,7 @@ function CreateSubtaskDialog({
             type="button"
             disabled={saving || !title.trim()}
             onClick={() => void handleSave()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#001f73] disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#002581] disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
             {saving ? t("创建中…") : t("创建子任务")}
@@ -2781,7 +2816,6 @@ function AttachSubtasksDialog({
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState("");
-  const previousFocusRef = useRef<HTMLElement | null>(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -2810,7 +2844,9 @@ function AttachSubtasksDialog({
     try {
       await onConfirm(Array.from(picked));
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : t("并入失败，请重试"));
+      const message = error instanceof Error ? error.message : t("并入失败，请重试");
+      setSubmitError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -2818,27 +2854,24 @@ function AttachSubtasksDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
-      <DialogContent className="rd-horizon-detail-dialog rounded-2xl flex max-h-[85vh] flex-col gap-0 overflow-y-auto border-slate-200 bg-white p-0 sm:max-w-lg" aria-busy={saving}
-        onCloseAutoFocus={(event) => { event.preventDefault(); if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus(); }}
+      <DialogContent
+        className="rd-horizon-detail-dialog flex max-h-[88dvh] gap-0 overflow-hidden rounded-xl border-slate-200 bg-white p-0 sm:max-w-lg"
         onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
-        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}>
-        <DialogDescription className="sr-only">{t("选择并入当前任务的独立任务")}</DialogDescription>
-        {submitError && <p role="alert" className="mx-6 mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{submitError}</p>}
-        <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
+        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}
+      >
+        <DialogHeader className="flex-row items-center gap-3 border-b border-slate-100 px-5 py-4 text-left sm:px-6">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600">
             <ChevronRight className="h-4 w-4" />
           </div>
           <div className="min-w-0">
             <DialogTitle className="text-balance text-base font-semibold text-slate-900">{t("并入已有任务为子任务")}</DialogTitle>
-            <p className="truncate text-[11px] text-slate-400">
+            <DialogDescription className="mt-1 truncate text-[11px] text-slate-500">
               {t("父任务：{title}", { title: parentTask.title })}
-            </p>
+            </DialogDescription>
           </div>
-        </div>
-        <div className="border-b border-slate-100 px-6 py-3">
+        </DialogHeader>
+        <div className="border-b border-slate-100 px-5 py-3 sm:px-6">
           <Input
-            disabled={saving}
-            aria-label={t("搜索任务标题 / 编号 / 主责人")}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             autoFocus
@@ -2846,11 +2879,12 @@ function AttachSubtasksDialog({
             className="h-9 rounded-lg border-slate-200 text-sm"
           />
         </div>
-        <div className="cockpit-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto px-6 py-3">
+        <div className="cockpit-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto px-5 py-3 sm:px-6" role="group" aria-label={t("可并入任务列表")}>
           {filtered.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-400">
-              {candidates.length === 0 ? t("没有可并入的独立任务") : t("没有匹配的任务")}
-            </p>
+            <div className="py-8 text-center">
+              <p className="text-pretty text-sm text-slate-500">{candidates.length === 0 ? t("没有可并入的独立任务") : t("没有匹配的任务")}</p>
+              {keyword ? <button type="button" onClick={() => setKeyword("")} className="mt-2 text-xs font-semibold text-[#002fa7] hover:underline">{t("清空搜索")}</button> : null}
+            </div>
           ) : (
             filtered.map((c) => {
               const cfg = STATUS_CONFIG[c.status] ?? STATUS_CONFIG.in_progress;
@@ -2859,11 +2893,10 @@ function AttachSubtasksDialog({
                 <button
                   key={c.task_id}
                   type="button"
-                  disabled={saving}
-                  aria-pressed={checked}
                   onClick={() => toggle(c.task_id)}
+                  aria-pressed={checked}
                   className={cn(
-                    "flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition",
+                    "flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
                     checked
                       ? "border-amber-300 bg-amber-50/70"
                       : "border-slate-100 hover:border-amber-200 hover:bg-amber-50/30",
@@ -2893,13 +2926,14 @@ function AttachSubtasksDialog({
             })
           )}
         </div>
-        <div className="border-t border-slate-100 px-6 py-3">
-          <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
+        <div className="border-t border-slate-100 px-5 py-3 sm:px-6">
+          {submitError ? <p className="mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700" role="alert">{submitError}</p> : null}
+          <p className="mb-2 text-pretty text-[11px] leading-relaxed text-slate-500">
             {t("并入后任务本体及其全部下级层级永久保留，仅整棵任务树的归属发生变化，可随时取消。跨产品库时，整棵任务树会一并迁入当前产品库。")}
           </p>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] text-slate-500">{t("已选 {n} 个", { n: picked.size })}</span>
-            <span className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-[11px] tabular-nums text-slate-500">{t("已选 {n} 个", { n: picked.size })}</span>
+            <span className="flex justify-end gap-2">
               <button
                 type="button"
                 disabled={saving}
@@ -2942,7 +2976,6 @@ function DetachSubtasksDialog({
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState("");
-  const previousFocusRef = useRef<HTMLElement | null>(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -2979,7 +3012,9 @@ function DetachSubtasksDialog({
     try {
       await onConfirm(Array.from(picked));
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : t("批量取消失败，请重试"));
+      const message = error instanceof Error ? error.message : t("批量取消失败，请重试");
+      setSubmitError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -2987,35 +3022,32 @@ function DetachSubtasksDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
-      <DialogContent className="rd-horizon-detail-dialog rounded-2xl flex max-h-[85vh] flex-col gap-0 overflow-y-auto border-slate-200 bg-white p-0 sm:max-w-lg" aria-busy={saving}
-        onCloseAutoFocus={(event) => { event.preventDefault(); if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus(); }}
+      <DialogContent
+        className="rd-horizon-detail-dialog flex max-h-[88dvh] gap-0 overflow-hidden rounded-xl border-slate-200 bg-white p-0 sm:max-w-lg"
         onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
-        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}>
-        <DialogDescription className="sr-only">{t("选择要取消关系的子任务")}</DialogDescription>
-        {submitError && <p role="alert" className="mx-6 mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{submitError}</p>}
-        <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
+        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}
+      >
+        <DialogHeader className="flex-row items-center gap-3 border-b border-slate-100 px-5 py-4 text-left sm:px-6">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
             <Undo2 className="size-4" />
           </div>
           <div className="min-w-0 flex-1">
             <DialogTitle className="text-balance text-base font-semibold text-slate-900">{t("批量取消子任务关系")}</DialogTitle>
-            <p className="truncate text-[11px] text-slate-400">
+            <DialogDescription className="mt-1 truncate text-[11px] text-slate-500">
               {t("父任务：{title}", { title: parentTask.title })}
-            </p>
+            </DialogDescription>
           </div>
           <button
             type="button"
             disabled={saving}
             onClick={toggleAll}
-            className="rounded px-2 py-1 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff] disabled:opacity-40"
+            className="mr-7 rounded px-2 py-1 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff] disabled:opacity-40"
           >
             {picked.size === candidates.length ? t("取消全选") : t("全选")}
           </button>
-        </div>
-        <div className="border-b border-slate-100 px-6 py-3">
+        </DialogHeader>
+        <div className="border-b border-slate-100 px-5 py-3 sm:px-6">
           <Input
-            disabled={saving}
-            aria-label={t("搜索任务标题 / 编号 / 主责人")}
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
             autoFocus
@@ -3023,19 +3055,23 @@ function DetachSubtasksDialog({
             className="h-9 rounded-lg border-slate-200 text-sm"
           />
         </div>
-        <div className="cockpit-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto px-6 py-3">
-          {filtered.map((candidate) => {
+        <div className="cockpit-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto px-5 py-3 sm:px-6" role="group" aria-label={t("可取消关系任务列表")}>
+          {filtered.length === 0 ? (
+            <div className="py-8 text-center">
+              <p className="text-pretty text-sm text-slate-500">{t("没有匹配的子任务")}</p>
+              {keyword ? <button type="button" onClick={() => setKeyword("")} className="mt-2 text-xs font-semibold text-[#002fa7] hover:underline">{t("清空搜索")}</button> : null}
+            </div>
+          ) : filtered.map((candidate) => {
             const checked = picked.has(candidate.task_id);
             const descendantCount = countRelationNodes(candidate) - 1;
             return (
               <button
                 key={candidate.task_id}
                 type="button"
-                disabled={saving}
-                aria-pressed={checked}
                 onClick={() => toggle(candidate.task_id)}
+                aria-pressed={checked}
                 className={cn(
-                  "flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition",
+                  "flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors",
                   checked
                     ? "border-slate-400 bg-slate-50"
                     : "border-slate-100 hover:border-slate-300 hover:bg-slate-50/70",
@@ -3062,13 +3098,14 @@ function DetachSubtasksDialog({
             );
           })}
         </div>
-        <div className="border-t border-slate-100 px-6 py-3">
-          <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
+        <div className="border-t border-slate-100 px-5 py-3 sm:px-6">
+          {submitError ? <p className="mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700" role="alert">{submitError}</p> : null}
+          <p className="mb-2 text-pretty text-[11px] leading-relaxed text-slate-500">
             {t("取消后，所选任务会连同其全部下级任务一起提升为独立任务，不会删除任何留痕或附件。")}
           </p>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] text-slate-500">{t("已选 {n} 个", { n: picked.size })}</span>
-            <span className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-[11px] tabular-nums text-slate-500">{t("已选 {n} 个", { n: picked.size })}</span>
+            <span className="flex justify-end gap-2">
               <button
                 type="button"
                 disabled={saving}

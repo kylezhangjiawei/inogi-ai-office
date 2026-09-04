@@ -1070,10 +1070,10 @@ export default function UsCollabTaskDetailPage() {
                                   type="button"
                                   onClick={() => setPreviewAttachment(att)}
                                   title={att.name}
-                                  className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left transition-colors hover:text-[#002fa7]"
+                                  className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left transition hover:text-[#002fa7]"
                                 >
                                   <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                                  <span className="min-w-0 truncate text-sm text-slate-700 hover:text-[#002fa7]">{att.name}</span>
+                                  <span className="min-w-0 truncate text-sm text-slate-700">{att.name}</span>
                                 </button>
                               </TableCell>
                               <TableCell className="max-w-[200px]">

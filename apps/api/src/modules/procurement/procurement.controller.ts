@@ -10,6 +10,8 @@ import {
   CancelProcTaskDto,
   CompleteInquiryDto,
   ConfirmQuoteBookQuotesDto,
+  CreateProcStockPlanBatchDto,
+  CreateProcStockPlanDto,
   CreateProcTaskTreeNodeDto,
   ImportBomDto,
   CreateProcTaskDto,
@@ -28,6 +30,8 @@ import {
   TransitionProcTaskDto,
   UpdateProcTaskTreeNodeDto,
   UpdateProcTaskDto,
+  UpdateProcStockPlanBatchDto,
+  UpdateProcStockPlanDto,
   UpsertMaterialDto,
 } from './dto/procurement.dto';
 import { getApplyJob, startApplyJob } from './apply-job.store';
@@ -116,6 +120,58 @@ export class ProcurementController {
   @Permissions('proc-task:reassign')
   autoAssignBuyerTasks(@Request() req: AuthedRequest) {
     return this.service.autoAssignUnassigned(this.actor(req));
+  }
+
+  // ── 备货计划 ────────────────────────────────────────────────────────────────
+
+  @Get('stock-plans')
+  @Permissions('page:proc-cockpit')
+  listStockPlans() {
+    return this.service.listStockPlans();
+  }
+
+  @Post('stock-plans')
+  @Permissions('proc-task:create')
+  createStockPlan(@Body() dto: CreateProcStockPlanDto, @Request() req: AuthedRequest) {
+    return this.service.createStockPlan(dto, this.actor(req));
+  }
+
+  @Put('stock-plans/:id')
+  @Permissions('proc-task:create')
+  updateStockPlan(
+    @Param('id') id: string,
+    @Body() dto: UpdateProcStockPlanDto,
+  ) {
+    return this.service.updateStockPlan(id, dto);
+  }
+
+  @Post('stock-plans/:id/batches')
+  @Permissions('proc-task:create')
+  createStockPlanBatch(
+    @Param('id') id: string,
+    @Body() dto: CreateProcStockPlanBatchDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.createStockPlanBatch(id, dto, this.actor(req));
+  }
+
+  @Put('stock-plans/:planId/batches/:batchId')
+  @Permissions('proc-task:create')
+  updateStockPlanBatch(
+    @Param('planId') planId: string,
+    @Param('batchId') batchId: string,
+    @Body() dto: UpdateProcStockPlanBatchDto,
+  ) {
+    return this.service.updateStockPlanBatch(planId, batchId, dto);
+  }
+
+  @Delete('stock-plans/:planId/batches/:batchId')
+  @Permissions('proc-task:create')
+  deleteStockPlanBatch(
+    @Param('planId') planId: string,
+    @Param('batchId') batchId: string,
+  ) {
+    return this.service.deleteStockPlanBatch(planId, batchId);
   }
 
   @Get('tasks/:id')
@@ -474,9 +530,16 @@ export class ProcurementController {
 
   /** BOM 树查询（机型/部件/组件 → 原料）。 */
   @Get('bom')
-  @Permissions('page:proc-materials', 'page:proc-cockpit')
+  @Permissions('page:proc-materials', 'page:proc-cockpit', 'page:proc-inventory-readiness')
   getBomTree() {
     return this.service.getBomTree();
+  }
+
+  /** 量产仓库库存 × 产品 BOM：计算当前及在途到货后的物料可齐套套数。 */
+  @Get('inventory-readiness')
+  @Permissions('page:proc-inventory-readiness')
+  getInventoryReadiness(@Query() query: Record<string, unknown>) {
+    return this.service.getInventoryReadiness(query);
   }
 
   /** BOM 导入：replace=true 全量替换；叶子按 T+ 存货编码匹配物料并回填产品线。 */

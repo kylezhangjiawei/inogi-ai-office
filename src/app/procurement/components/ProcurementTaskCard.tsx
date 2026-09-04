@@ -27,7 +27,7 @@ import { isImagePreviewSource } from "../../components/MobileZoomableImage";
 import { AttachmentPreviewDialog, type PreviewableAttachment } from "../../components/AttachmentPreviewDialog";
 import { useI18n } from "../../lib/i18n";
 import { isProcurementTaskOverdue, taskMainDate, taskRequester, type Material, type ProcurementTask } from "../data";
-import { BusinessLinePill, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, useProcCan } from "./common";
+import { BusinessLinePill, PROC_STATUS_META, PersonAvatar, StatusPill, useProcCan } from "./common";
 import { DECISION_STATUSES, nextPermissionOf, removalModeOf } from "./taskActions";
 import { TaskCriticalMaterials, TaskCriticalMaterialsEditor } from "./TaskCriticalMaterials";
 
@@ -87,26 +87,28 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
         <>
           <article
       aria-labelledby={titleId}
+      data-attention={isPendingConfirm}
       onClick={() => onOpen(task)}
       className={cn(
         "proc-horizon-task-card group relative h-full w-full cursor-pointer overflow-hidden rounded-2xl border border-slate-200/80 bg-white text-left shadow-[0_1px_3px_rgba(15,23,42,0.05)]",
         isPendingConfirm && "border-rose-200 ring-1 ring-rose-200",
       )}
     >
-      <div className="proc-horizon-task-card-body flex min-h-[220px] min-w-0 flex-col gap-2.5 px-4 py-3.5">
-        <div className="flex items-start gap-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-hidden">
+      <div className="proc-horizon-task-card-body min-h-[220px] min-w-0 px-4 py-3.5">
+        <div className="proc-horizon-task-card-head flex items-start gap-3">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 overflow-hidden">
             <BusinessLinePill line={task.businessLine} />
-            <SourcePill source={task.source} />
-            <MethodPill method={task.method} />
-            <StatusPill status={task.status} />
+            <span className="proc-horizon-task-route truncate text-[11px] font-medium text-slate-500">
+              {t(task.source === "rd" ? "研发流转" : "采购自建")} <span aria-hidden="true">·</span> {t(task.method === "inquiry" ? "询价采购" : "电商直购")}
+            </span>
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5">
+            <StatusPill status={task.status} />
             {task.attachments > 0 ? (
-              <span className="proc-horizon-attachment-action inline-flex h-9 items-center gap-1 rounded-lg bg-[#eef3ff] px-2 text-[10px] font-semibold text-[#002fa7]">
+              <span className="proc-horizon-attachment-action inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[10px] font-semibold text-[#002fa7]">
                 <Paperclip className="size-3" />
-                {t("附件")} <span className="tabular-nums">{task.attachments}</span>
+                <span className="sr-only">{t("附件")}</span><span className="tabular-nums">{task.attachments}</span>
               </span>
             ) : null}
             <DropdownMenu>
@@ -114,7 +116,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
                 <button
                   type="button"
                   onClick={(event) => event.stopPropagation()}
-                  className="proc-horizon-more-action flex size-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 hover:border-[#cbd8f6] hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]"
+                  className="proc-horizon-more-action flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-[#cbd8f6] hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]"
                   aria-label={t("更多操作")}
                 >
                   <MoreVertical className="size-4" />
@@ -154,141 +156,140 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-[10px] text-slate-400">
-          <span className="proc-horizon-task-code font-semibold tabular-nums">{task.code}</span>
-          {isPendingConfirm ? (
-            <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 font-semibold text-rose-700">
-              <span className="size-1.5 rounded-full bg-rose-500" />
-              {t("待采购确认")}
-            </span>
-          ) : null}
-        </div>
-
-        <h3 id={titleId} title={[task.materialName, task.spec].filter(Boolean).join(" · ")} className="line-clamp-2 text-balance text-[15px] font-bold break-words leading-snug text-slate-900">
-          <AutoTranslatedText text={task.materialName} />
-          {task.spec ? <> · <AutoTranslatedText text={task.spec} /></> : null}
-          <span className="ml-1 text-xs font-semibold text-slate-400">
-            × <span className="tabular-nums">{task.quantity.toLocaleString()}</span>{t(task.unit)}
-          </span>
-        </h3>
-
-        <AutoTranslatedText
-          as="p"
-          text={latestLog}
-          className="proc-horizon-task-summary line-clamp-2 min-h-10 text-pretty text-xs leading-5 text-slate-500"
-        />
-
-        {previewAttachments.length > 0 ? (
-          <div className="grid grid-cols-3 gap-1.5">
-            {previewAttachments.map((attachment) => {
-              const isImage = isImagePreviewSource(
-                attachment.mimeType,
-                attachment.fileName,
-                attachment.fileUrl,
-              );
-              return (
-                <button
-                  key={attachment.id}
-                  type="button"
-                  className="group/attachment min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-left hover:border-[#8fa9e8] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]"
-                  aria-label={t("预览附件：{name}", { name: attachment.fileName })}
-                  title={attachment.fileName}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setPreviewAttachment(previewModel(attachment));
-                  }}
-                >
-                  {isImage ? (
-                    // 缩略图优先用后端给的 OSS 实时缩放地址（同一对象 375KB → 13.5KB）：
-                    // 这里只有 64px 高，挂原图会让每张卡都下载整张大图。点开预览时才用原图。
-                    <img src={attachment.thumbUrl ?? attachment.fileUrl} alt={attachment.fileName} loading="lazy" decoding="async" className="h-16 w-full object-cover" />
-                  ) : (
-                    <div className="flex h-16 items-center justify-center text-slate-400"><Paperclip className="size-4" /></div>
-                  )}
-                  <p className="truncate px-1.5 py-1 text-[9px] text-slate-500 group-hover/attachment:text-[#002fa7]">{attachment.fileName}</p>
-                </button>
-              );
-            })}
+        <div className="proc-horizon-task-card-primary min-w-0">
+          <div className="flex items-center gap-2 text-[10px] text-slate-400">
+            <span className="proc-horizon-task-code font-semibold tabular-nums">{task.code}</span>
           </div>
-        ) : null}
 
-        <div className="proc-horizon-fulfillment flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[10px] text-slate-500">
-          <span className="tabular-nums">
-            {task.paymentDate ? `${t("付款")} ${task.paymentDate}` : t("未付款")}
-          </span>
-          <span>
-            {t("到货")} <strong className="tabular-nums text-slate-700">{task.arrivedQty.toLocaleString()} / {task.quantity.toLocaleString()}</strong>
-          </span>
+          <h3 id={titleId} title={[task.materialName, task.spec].filter(Boolean).join(" · ")} className="line-clamp-2 text-balance text-[15px] font-bold break-words leading-snug text-slate-900">
+            <AutoTranslatedText text={task.materialName} />
+            {task.spec ? <> · <AutoTranslatedText text={task.spec} /></> : null}
+            <span className="ml-1 text-xs font-semibold text-slate-400">
+              × <span className="tabular-nums">{task.quantity.toLocaleString()}</span>{t(task.unit)}
+            </span>
+          </h3>
+
+          <AutoTranslatedText
+            as="p"
+            text={latestLog}
+            className="proc-horizon-task-summary line-clamp-2 min-h-10 text-pretty text-xs leading-5 text-slate-500"
+          />
+
+          {previewAttachments.length > 0 ? (
+            <div className="proc-horizon-task-attachments grid grid-cols-3 gap-1.5">
+              {previewAttachments.map((attachment) => {
+                const isImage = isImagePreviewSource(
+                  attachment.mimeType,
+                  attachment.fileName,
+                  attachment.fileUrl,
+                );
+                return (
+                  <button
+                    key={attachment.id}
+                    type="button"
+                    className="group/attachment min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-left hover:border-[#8fa9e8] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]"
+                    aria-label={t("预览附件：{name}", { name: attachment.fileName })}
+                    title={attachment.fileName}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setPreviewAttachment(previewModel(attachment));
+                    }}
+                  >
+                    {isImage ? (
+                      // 缩略图优先用后端给的 OSS 实时缩放地址（同一对象 375KB → 13.5KB）：
+                      // 这里只有 64px 高，挂原图会让每张卡都下载整张大图。点开预览时才用原图。
+                      <img src={attachment.thumbUrl ?? attachment.fileUrl} alt={attachment.fileName} loading="lazy" decoding="async" className="h-16 w-full object-cover" />
+                    ) : (
+                      <div className="flex h-16 items-center justify-center text-slate-400"><Paperclip className="size-4" /></div>
+                    )}
+                    <p className="truncate px-1.5 py-1 text-[9px] text-slate-500 group-hover/attachment:text-[#002fa7]">{attachment.fileName}</p>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
 
-        <TaskCriticalMaterials task={task} materials={materials} compact />
-
-        {canAdvance ? (
-          <button
-            type="button"
-            onClick={(event) => runWithoutOpening(event, () => onNext?.(task))}
-            className={cn(
-              "inline-flex w-fit cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
-              isPendingConfirm ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-[#002fa7] text-white hover:bg-[#001f73]",
-            )}
-          >
-            {t(meta.next!)}
-            {DECISION_STATUSES.includes(task.status) ? <ChevronRight className="size-3" /> : null}
-            {task.method === "direct" && task.status === "pending_purchase" ? <ExternalLink className="size-3" /> : null}
-          </button>
-        ) : null}
-
-        <div className="mt-auto flex items-center gap-2 pt-0.5">
-          <div role="progressbar" aria-label={t("到货进度")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} className="proc-horizon-task-progress-track h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-            <div className={cn("proc-horizon-task-progress h-full rounded-full", progress >= 100 ? "bg-emerald-500" : "bg-[#002fa7]")} data-complete={progress >= 100} style={{ width: `${progress}%` }} />
+        <div className="proc-horizon-task-card-secondary min-w-0">
+          <div className="proc-horizon-fulfillment flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[10px] text-slate-500">
+            <span className="tabular-nums">
+              {task.paymentDate ? `${t("付款")} ${task.paymentDate}` : t("未付款")}
+            </span>
+            <span>
+              {t("到货")} <strong className="tabular-nums text-slate-700">{task.arrivedQty.toLocaleString()} / {task.quantity.toLocaleString()}</strong>
+            </span>
           </div>
-          <span className="w-9 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">{progress}%</span>
-        </div>
 
-        <div className="proc-horizon-task-footer flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-slate-100 pt-2 text-[10px] text-slate-500">
-          <span data-priority={task.priority} className={cn("proc-horizon-priority inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold", priority.className)}>
-            <Flame className="size-3" />
-            {t(priority.label)}
-          </span>
-          {mainDate.date ? (
-            <span className="inline-flex items-center gap-1">
-              <CalendarClock className="size-3 text-slate-400" />
-              {t(mainDate.label)}：<span className="tabular-nums">{mainDate.date.slice(5)}</span>
-            </span>
-          ) : null}
-          {overdue ? (
-            <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 font-semibold text-rose-600">
-              <AlertTriangle className="size-3" />
-              {t("逾期")}
-            </span>
+          <TaskCriticalMaterials task={task} materials={materials} compact />
+
+          {canAdvance ? (
+            <button
+              type="button"
+              onClick={(event) => runWithoutOpening(event, () => onNext?.(task))}
+              className={cn(
+                "inline-flex w-fit cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
+                isPendingConfirm ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-[#002fa7] text-white hover:bg-[#001f73]",
+              )}
+            >
+              {t(meta.next!)}
+              {DECISION_STATUSES.includes(task.status) ? <ChevronRight className="size-3" /> : null}
+              {task.method === "direct" && task.status === "pending_purchase" ? <ExternalLink className="size-3" /> : null}
+            </button>
           ) : null}
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex min-w-0 items-center gap-1.5 text-slate-400">
-                <PersonAvatar name={buyerLabel} size="xs" />
-                <span className="max-w-[72px] truncate font-medium text-slate-600">{buyerLabel}</span>
+          <div className="proc-horizon-task-progress-row mt-auto flex items-center gap-2 pt-0.5">
+            <span className="shrink-0 text-[10px] font-semibold text-slate-500">{t("到货进度")}</span>
+            <div role="progressbar" aria-label={t("到货进度")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} className="proc-horizon-task-progress-track h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+              <div className={cn("proc-horizon-task-progress h-full rounded-full", progress >= 100 ? "bg-emerald-500" : "bg-[#002fa7]")} data-complete={progress >= 100} style={{ width: `${progress}%` }} />
+            </div>
+            <span className="w-9 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">{progress}%</span>
+          </div>
+
+          <div className="proc-horizon-task-footer flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-slate-100 pt-2 text-[10px] text-slate-500">
+            <span data-priority={task.priority} className={cn("proc-horizon-priority inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold", priority.className)}>
+              <Flame className="size-3" />
+              {t(priority.label)}
+            </span>
+            {mainDate.date ? (
+              <span className="inline-flex items-center gap-1">
+                <CalendarClock className="size-3 text-slate-400" />
+                {t(mainDate.label)}：<span className="tabular-nums">{mainDate.date.slice(5)}</span>
               </span>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              {requester.name === buyerLabel
-                ? t("采购负责人")
-                : `${t("需求提出")}：${requester.name} → ${t("采购负责人")}：${buyerLabel}`}
-            </TooltipContent>
-          </Tooltip>
-          <button
-            type="button"
-            onClick={(event) => runWithoutOpening(event, () => onOpen(task))}
-            className="ml-auto inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold text-[#002fa7] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]"
-            aria-label={t("查看任务")}
-          >
-            {t("查看")} <ArrowRight className="size-3" />
-          </button>
-        </div>
+            ) : null}
+            {overdue ? (
+              <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 font-semibold text-rose-600">
+                <AlertTriangle className="size-3" />
+                {t("逾期")}
+              </span>
+            ) : null}
 
-        {task.consumableNote ? (
-          <AutoTranslatedText as="p" text={task.consumableNote} className="truncate text-[10px] text-slate-400" />
-        ) : null}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex min-w-0 items-center gap-1.5 text-slate-400">
+                  <PersonAvatar name={buyerLabel} size="xs" />
+                  <span className="max-w-[72px] truncate font-medium text-slate-600">{buyerLabel}</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {requester.name === buyerLabel
+                  ? t("采购负责人")
+                  : `${t("需求提出")}：${requester.name} → ${t("采购负责人")}：${buyerLabel}`}
+              </TooltipContent>
+            </Tooltip>
+            <button
+              type="button"
+              onClick={(event) => runWithoutOpening(event, () => onOpen(task))}
+              className="ml-auto inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold text-[#002fa7] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]"
+              aria-label={t("查看任务")}
+            >
+              {t("查看")} <ArrowRight className="size-3" />
+            </button>
+          </div>
+
+          {task.consumableNote ? (
+            <AutoTranslatedText as="p" text={task.consumableNote} className="truncate text-[10px] text-slate-400" />
+          ) : null}
+        </div>
       </div>
           </article>
           {previewAttachment ? (

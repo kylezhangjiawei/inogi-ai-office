@@ -1,5 +1,5 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import {
   AlertCircle,
@@ -60,6 +60,7 @@ import { routePath } from "../../lib/routePaths";
 export type { PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus } from '../../lib/orderProcessingApi';
 
 export const STATUS_OPTIONS: PurchaseOrderStatus[] = ['待确认', '已下单', '部分到货', '已完成', '异常'];
+const STATUS_FILTER_VALUES = new Set<string>(['all', 'in_transit', ...STATUS_OPTIONS]);
 
 const EMPTY_STATS: PurchaseOrderStats = { total: 0, open: 0, inbound: 0, abnormal: 0, amount: 0 };
 type PurchaseOrderQuery = {
@@ -97,6 +98,7 @@ export function statusBadgeClass(status: PurchaseOrderStatus) {
 
 export function PurchaseOrders() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useI18n();
   const canSync = usePermission('proc:sync-erp');
   const canViewDetail = usePermission('page:purchase-order-detail');
@@ -104,7 +106,10 @@ export function PurchaseOrders() {
   const [stats, setStats] = useState<PurchaseOrderStats>(EMPTY_STATS);
   const [suppliers, setSuppliers] = useState<string[]>([]);
   const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const requested = searchParams.get('status')?.trim() ?? '';
+    return STATUS_FILTER_VALUES.has(requested) ? requested : 'all';
+  });
   const [supplierFilter, setSupplierFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -201,6 +206,11 @@ export function PurchaseOrders() {
   const resetFilters = () => {
     setQuery('');
     setStatusFilter('all');
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('status');
+      return next;
+    }, { replace: true });
     setSupplierFilter('all');
     setDateFrom('');
     setDateTo('');
@@ -311,6 +321,12 @@ export function PurchaseOrders() {
             </div>
             <Select value={statusFilter} onValueChange={(value) => {
               setStatusFilter(value);
+              setSearchParams((current) => {
+                const next = new URLSearchParams(current);
+                if (value === 'all') next.delete('status');
+                else next.set('status', value);
+                return next;
+              }, { replace: true });
               setPage(1);
             }}>
               <SelectTrigger aria-label={t('按订单状态筛选')} className="h-9 w-full rounded-full border-slate-200 bg-white text-sm sm:w-[148px]">
@@ -318,6 +334,7 @@ export function PurchaseOrders() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t('全部状态')}</SelectItem>
+                <SelectItem value="in_transit">{t('在途未完成')}</SelectItem>
                 {STATUS_OPTIONS.map((status) => (
                   <SelectItem key={status} value={status}>
                     {t(status)}

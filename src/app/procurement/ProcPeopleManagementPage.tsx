@@ -229,8 +229,8 @@ export function ProcPeopleManagementPage() {
     <div className="proc-horizon mx-auto flex h-full min-h-0 w-full max-w-[1200px] flex-col p-4">
       <PageHeader
         Icon={Users}
-        badge={t("采购管理")}
-        title={t("采购人员管理")}
+        badge={t("供应链管理")}
+        title={t("供应链人员管理")}
         description={t("以采购成员名录展示任务负载，并保留仍有在办任务的非名录负责人；任务只能分配给具备采购个人工作台权限的成员。")}
         right={
           <div className="flex flex-wrap items-center gap-2">

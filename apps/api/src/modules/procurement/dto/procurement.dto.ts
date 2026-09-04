@@ -215,6 +215,159 @@ export class UpdateProcTaskDto {
   businessDone?: boolean;
 }
 
+/** 采购自建的备货总计划。 */
+export class CreateProcStockPlanDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  materialId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  materialName!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  spec?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  unit?: string;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0.001)
+  targetQty!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  targetDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}
+
+export class UpdateProcStockPlanDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  materialId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  materialName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  spec?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  unit?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0.001)
+  targetQty?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  targetDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}
+
+export class CreateProcStockPlanBatchDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  supplierId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  supplierName!: string;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0.001)
+  purchaseQty!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  purchaseOrderNo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  orderDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  expectedArrivalDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}
+
+export class UpdateProcStockPlanBatchDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  supplierId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  supplierName?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0.001)
+  purchaseQty?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  purchaseOrderNo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  orderDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  expectedArrivalDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}
+
 export class ProcTaskCriticalMaterialInputDto {
   @IsString()
   @IsNotEmpty()
