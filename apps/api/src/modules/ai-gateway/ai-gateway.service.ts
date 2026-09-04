@@ -12,6 +12,7 @@ import type {
   AiGatewayChatRequest,
   AiGatewayChatResult,
   AiGatewayCircuitSnapshot,
+  AiGatewayRouteMeta,
   AiGatewayStrategy,
   AiGatewayStreamChunk,
   AiGatewayStreamRequest,
@@ -44,6 +45,10 @@ export class AiGatewayService {
   private readonly retryBaseDelayMs: number;
   private readonly maxRetryDelayMs: number;
   private readonly retentionDays: number;
+  /** 路由 target 的密钥/地址环境变量兜底（与主对话选模路径对称），见 toRuntimeTarget */
+  private readonly envQwenApiKey?: string;
+  private readonly envOpenaiApiKey?: string;
+  private readonly envQwenBaseUrl?: string;
 
   constructor(
     private readonly adapter: OpenAiCompatibleAdapter,
@@ -51,6 +56,11 @@ export class AiGatewayService {
     private readonly prisma: PrismaService,
     private readonly secureConfigService: SecureConfigService,
   ) {
+    // 变量名与 chat.service 完全同口径（DASHSCOPE_* 优先），保证「主对话能用 ⇒ 路由 target 也能用」
+    this.envQwenApiKey =
+      (config.get<string>('DASHSCOPE_API_KEY') ?? config.get<string>('QWEN_API_KEY'))?.trim() || undefined;
+    this.envOpenaiApiKey = config.get<string>('OPENAI_API_KEY')?.trim() || undefined;
+    this.envQwenBaseUrl = config.get<string>('DASHSCOPE_BASE_URL')?.trim().replace(/\/$/, '') || undefined;
     this.failureThreshold = this.positiveInteger(config.get('AI_GATEWAY_FAILURE_THRESHOLD'), 3);
     this.cooldownMs = this.positiveInteger(config.get('AI_GATEWAY_CIRCUIT_COOLDOWN_MS'), 60_000);
     this.maxRetriesPerTarget = this.nonNegativeInteger(config.get('AI_GATEWAY_MAX_RETRIES_PER_TARGET'), 1);
@@ -137,7 +147,7 @@ export class AiGatewayService {
             usage: result.usage,
             attempts,
           };
-          await this.recordResult(gatewayResult);
+          await this.recordResult(gatewayResult, request.routeMeta);
           return gatewayResult;
         } catch (error) {
           targetError = error;
@@ -184,6 +194,7 @@ export class AiGatewayService {
       errorCode: finalCode,
       errorMessage: finalMessage,
       attempts,
+      routeMeta: request.routeMeta,
     });
     const exception = new ServiceUnavailableException({
       message: 'AI 服务暂时不可用，请稍后重试',
@@ -221,6 +232,7 @@ export class AiGatewayService {
         requestId,
         scene,
         status,
+        routeMeta: request.routeMeta,
         provider: settledTarget?.provider,
         model: settledTarget?.model,
         latencyMs: Date.now() - startedAt,
@@ -384,6 +396,7 @@ export class AiGatewayService {
     targets: AiGatewayTarget[];
     timeoutMs?: number;
     source: 'route' | 'fallback';
+    strategy?: AiGatewayStrategy;
   }> {
     const scene = sceneInput.trim();
     if (!scene) return { targets: fallbackTargets, source: 'fallback' };
@@ -398,40 +411,65 @@ export class AiGatewayService {
           },
         },
       });
-      if (!route?.enabled) return { targets: fallbackTargets, source: 'fallback' };
-      const targets: AiGatewayTarget[] = route.targets
-        .flatMap(({ connection, weight }) => {
-          const target = this.toRuntimeTarget(connection);
-          return target ? [{
-            ...target,
-            weight,
-            failureThreshold: route.failureThreshold,
-            cooldownMs: route.cooldownMs,
-          }] : [];
+      // 回落必须有日志：静默回落曾让「配了路由却不生效」完全无从排查。
+      // 无路由是常态走 debug；停用是管理动作走 log；配了却全不可用是异常走 warn。
+      if (!route) {
+        this.logger.debug(`场景 ${scene} 未配置路由，使用调用方默认连接`);
+        return { targets: fallbackTargets, source: 'fallback' };
+      }
+      if (!route.enabled) {
+        this.logger.log(`场景 ${scene} 的路由已停用，使用调用方默认连接`);
+        return { targets: fallbackTargets, source: 'fallback' };
+      }
+      const dropped: string[] = [];
+      const targets: AiGatewayTarget[] = [];
+      for (const { connection, weight } of route.targets) {
+        const target = this.toRuntimeTarget(connection);
+        if (!target) {
+          // toRuntimeTarget 只在缺 API Key / 缺模型名 / 解密失败时返回 null
+          dropped.push(`${connection.name || connection.id}（缺 API Key 或模型名）`);
+          continue;
+        }
+        targets.push({
+          ...target,
+          weight,
+          failureThreshold: route.failureThreshold,
+          cooldownMs: route.cooldownMs,
         });
-      return targets.length > 0
-        ? {
-            targets: await this.orderTargets(
-              scene,
-              route.strategy as AiGatewayStrategy,
-              targets,
-              options.advanceRoundRobin !== false,
-            ),
-            timeoutMs: route.timeoutMs,
-            source: 'route',
-          }
-        : { targets: fallbackTargets, source: 'fallback' };
+      }
+      if (targets.length === 0) {
+        this.logger.warn(
+          `场景 ${scene} 的路由存在但无可用目标（${
+            dropped.length > 0 ? `被丢弃：${dropped.join('、')}` : '目标为空或连接已停用/非 openai 类型'
+          }），回落到调用方默认连接`,
+        );
+        return { targets: fallbackTargets, source: 'fallback' };
+      }
+      const strategy = route.strategy as AiGatewayStrategy;
+      const ordered = await this.orderTargets(scene, strategy, targets, options.advanceRoundRobin !== false);
+      // 调用方自带的默认连接追加为「最后一环」（按连接+模型去重）：路由目标全部失败/熔断时
+      // 降级到调用方本来就能用的模型，而不是直接 503 全场不可用。策略排序只作用于路由目标，
+      // 追加项永远排在最后，不改变路由的调度语义。
+      const seenKeys = new Set(ordered.map((target) => this.targetKey(target)));
+      const lastResort = fallbackTargets.filter((target) => !seenKeys.has(this.targetKey(target)));
+      return {
+        targets: [...ordered, ...lastResort],
+        timeoutMs: route.timeoutMs,
+        source: 'route',
+        strategy,
+      };
     } catch (error) {
       this.logger.warn(`Failed to resolve persisted route for ${scene}; using fallback: ${this.errorMessage(error)}`);
       return { targets: fallbackTargets, source: 'fallback' };
     }
   }
 
-  private recordResult(result: AiGatewayChatResult): Promise<void> {
+  private recordResult(result: AiGatewayChatResult, routeMeta?: AiGatewayRouteMeta): Promise<void> {
     return this.persistRequest({
       requestId: result.requestId,
       scene: result.scene,
       status: 'success',
+      routeMeta,
       provider: result.provider,
       model: result.model,
       latencyMs: result.latencyMs,
@@ -447,11 +485,13 @@ export class AiGatewayService {
     errorCode: string;
     errorMessage?: string;
     attempts: AiGatewayAttempt[];
+    routeMeta?: AiGatewayRouteMeta;
   }): Promise<void> {
     return this.persistRequest({
       requestId: input.requestId,
       scene: input.scene,
       status: 'failed',
+      routeMeta: input.routeMeta,
       latencyMs: input.latencyMs,
       attempts: input.attempts,
       errorCode: input.errorCode,
@@ -706,23 +746,34 @@ export class AiGatewayService {
   }): AiGatewayTarget | null {
     const model = config.model?.trim();
     if (!model) return null;
+    const provider = config.provider?.trim() || 'openai';
+    // qwen 判定与 chat.service 同口径：厂商名或模型名带 qwen/通义/dashscope 即视为阿里系
+    const isQwen = /qwen|tongyi|dashscope|阿里|通义/i.test(`${provider} ${model}`);
     let apiKey = '';
     try {
       apiKey = this.secureConfigService.decryptFromStorage(config.encryptedSecret);
     } catch {
-      return null;
+      apiKey = '';
     }
+    // 环境变量兜底，与主对话选模路径（chat.service resolveModelConfig）对称：
+    // 同一条连接在 MateChat 里「明明能用」（靠 env 兜底），配进路由却被整条丢掉，
+    // 这种不对称此前让路由 target 静默消失、无从排查。
+    if (!apiKey) apiKey = isQwen ? (this.envQwenApiKey ?? this.envOpenaiApiKey ?? '') : (this.envOpenaiApiKey ?? '');
     if (!apiKey) return null;
     const metadata = config.metadata && typeof config.metadata === 'object' && !Array.isArray(config.metadata)
       ? config.metadata as Record<string, unknown>
       : {};
+    const storedBaseUrl = typeof metadata.base_url === 'string' ? metadata.base_url.trim() : '';
+    // qwen 连接缺 base_url 会被打到 api.openai.com → 401 → 熔断；兜到 DashScope 兼容端点
+    const baseUrl = storedBaseUrl
+      || (isQwen ? (this.envQwenBaseUrl ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1') : '');
     return {
       id: config.id,
       connectionId: config.id,
-      provider: config.provider?.trim() || 'openai',
+      provider,
       model,
       apiKey,
-      baseUrl: typeof metadata.base_url === 'string' ? metadata.base_url.trim() : undefined,
+      baseUrl: baseUrl || undefined,
     };
   }
 
@@ -737,6 +788,7 @@ export class AiGatewayService {
     usage?: AiGatewayChatResult['usage'];
     errorCode?: string;
     errorMessage?: string;
+    routeMeta?: AiGatewayRouteMeta;
   }): Promise<void> {
     try {
       await this.prisma.aiGatewayRequest.create({
@@ -746,6 +798,9 @@ export class AiGatewayService {
           status: input.status,
           provider: input.provider,
           model: input.model,
+          // 选模来源与策略：让「路由是否生效」可查可看。存量行为 NULL（未知）。
+          routeSource: input.routeMeta?.source,
+          strategy: input.routeMeta?.strategy,
           latencyMs: input.latencyMs,
           attemptCount: input.attempts.length,
           fallbackUsed: this.usedFallback(input.attempts),

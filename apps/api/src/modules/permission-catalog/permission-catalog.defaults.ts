@@ -221,6 +221,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'proc-task:order', label: '关联采购单', description: '把任务关联到畅捷通 T+ 的采购单据（本系统不创建单据）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1650 },
   { code: 'proc-task:receive', label: '登记到货', description: '手工登记到货数量（过渡期能力，畅捷通 T+ 接通后改由同步驱动）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1655 },
   { code: 'proc-task:reassign', label: '转派采购负责人', description: '变更任务的采购负责人', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1660 },
+  { code: 'proc-task:rollback', label: '回退流程节点', description: '把走错节点的任务退回到更早的流程节点；会清除该节点之后的报价与采购单关联，需填写原因并留痕', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1665 },
   { code: 'proc-task:delete', label: '取消 / 删除任务', description: '取消进行中的采购任务或删除错误任务', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1670 },
   { code: 'material:review', label: '物料审核', description: '审核待确认物料（通过 / 驳回）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1680 },
   { code: 'material:import', label: '物料批量导入', description: '批量导入物料主数据', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1690 },

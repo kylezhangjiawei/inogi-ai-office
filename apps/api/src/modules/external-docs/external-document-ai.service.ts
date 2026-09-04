@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
-import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
+import type { AiGatewayRouteMeta, AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { OcrService } from '../ocr/ocr.service';
 import { SecureConfigService } from '../security/secure-config.service';
 
@@ -26,6 +26,8 @@ type AiRuntimeConfig = {
   timeoutMs?: number;
   model: string;
   provider: string;
+  /** 选模来源（route/fallback），透传给网关落库，让「路由是否生效」可观测 */
+  routeMeta: AiGatewayRouteMeta;
 };
 
 type DiffOperation = { kind: 'equal' | 'removed' | 'added'; text: string };
@@ -435,6 +437,7 @@ export class ExternalDocumentAiService {
       timeoutMs: routing.timeoutMs,
       model: primary.model,
       provider: primary.provider,
+      routeMeta: { source: routing.source, strategy: routing.strategy },
     };
   }
 
@@ -503,6 +506,7 @@ export class ExternalDocumentAiService {
     const result = await this.aiGateway.complete({
       scene: 'external_docs.version_compare',
       targets: runtime.targets,
+      routeMeta: runtime.routeMeta,
       messages,
       responseFormat: { type: 'json_object' },
       retryWithoutResponseFormat: true,

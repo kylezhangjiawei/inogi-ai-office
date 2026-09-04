@@ -86,6 +86,8 @@ export interface TestAiModelConnectionPayload {
   base_url?: string;
   usage_kind?: string;
   api_key?: string;
+  /** 测试失败时由后端直接停用该模型（仅对已保存配置的测试使用） */
+  disable_on_failure?: boolean;
 }
 
 export interface TestAiModelConnectionResult {
@@ -96,6 +98,16 @@ export interface TestAiModelConnectionResult {
   duration_ms?: number;
   output_text?: string;
   total_tokens?: number | null;
+  /** 归一化错误码（失败时） */
+  error_code?: string;
+  /** 中文一句话结论（失败时） */
+  error_reason?: string;
+  /** 可能造成失败的具体情况，按可能性排序（失败时） */
+  error_causes?: string[];
+  /** 上游原始错误（失败时） */
+  raw_error?: string;
+  /** 本次测试把模型从启用改成了停用 */
+  disabled?: boolean;
 }
 
 export type AiGatewayRange = "today" | "month" | "year";
@@ -247,6 +259,10 @@ export interface AiGatewayRequestItem {
   latency_ms: number;
   attempt_count: number;
   fallback_used: boolean;
+  /** 选模来源：route=命中路由 / fallback=回落默认 / user=用户显式选模 / vision=视觉跳过路由；null=存量数据未知 */
+  route_source: "route" | "fallback" | "user" | "vision" | null;
+  /** 命中路由时的调度策略 */
+  strategy: string | null;
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
@@ -502,6 +518,7 @@ export const integrationManagementApi = {
         model: payload.model,
         base_url: payload.base_url,
         usage_kind: payload.usage_kind,
+        disable_on_failure: payload.disable_on_failure,
         ...secretPayload,
       });
 
@@ -527,12 +544,17 @@ export const integrationManagementApi = {
     }
   },
   deleteAiModel(modelId: string) {
-    return request<{ id: string }>(`/api/integration-management/ai-models/${modelId}`, {
-      method: "DELETE",
-    });
+    return request<{ id: string; affected_routes?: Array<{ scene: string; name: string }> }>(
+      `/api/integration-management/ai-models/${modelId}`,
+      { method: "DELETE" },
+    );
   },
   listAiGatewayRoutes() {
-    return request<{ items: AiGatewayRoute[] }>("/api/ai-gateway/routes");
+    // usage_24h：近 24h 各场景按选模来源（route/fallback/user/vision/unknown）的调用计数，
+    // 路由页据此展示运行期反馈（「策略生效中」不再只是配置回显）
+    return request<{ items: AiGatewayRoute[]; usage_24h?: Record<string, Record<string, number>> }>(
+      "/api/ai-gateway/routes",
+    );
   },
   saveAiGatewayRoute(payload: {
     scene: string;
@@ -548,6 +570,12 @@ export const integrationManagementApi = {
     return request<{ id: string; scene: string; updated_at: string }>("/api/ai-gateway/routes", {
       method: "PUT",
       body: JSON.stringify(payload),
+    });
+  },
+  /** 删除路由（场景回到「默认回退」态）。此前只能停用不能删，试探性配置会永久残留。 */
+  deleteAiGatewayRoute(scene: string) {
+    return request<{ ok: boolean; scene: string }>(`/api/ai-gateway/routes/${encodeURIComponent(scene)}`, {
+      method: "DELETE",
     });
   },
   getAiGatewayOverview(range: AiGatewayRange) {

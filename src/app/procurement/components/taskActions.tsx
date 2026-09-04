@@ -2,8 +2,8 @@
 //
 // 卡片和详情抽屉共用同一套动作语义，避免两处各写一遍流转规则：
 //   待处理   → 确认接收（二次确认）
-//   待询价   → 从供应商报价库多选报价，一次确认并自动生成任务快照
-//   询价中   → 选定报价（仅兼容历史任务；新流程不再停留于此节点）
+//   待询价   → 从供应商报价库多选报价，一次确认并生成任务快照，任务进入「询价中」
+//   询价中   → 完成询价（按需样情况去 已定价 / 待到样 / 测试中）；历史任务仍可逐条选定报价
 //   待到样   → 样品已到（二次确认）；另可登记出样单（T+ 单号或免费样品，只登记不改状态）
 //   测试中   → 录入测试结论（决策类：通过 → 已定价 / 不通过 → 改图重新出样回「待到样」，或退回询价换供应商）
 //   已定价 / 待购买 → 标记已下单（填 T+ 采购单号；直购会先打开购买链接）
@@ -37,11 +37,13 @@ import { cn } from "../../components/ui/utils";
 import { t as translate, useI18n } from "../../lib/i18n";
 import {
   cancelProcTask,
+  completeInquiry,
   confirmQuotationsFromQuoteBook,
   confirmProcTask,
   deleteProcTask,
   linkPurchaseOrders,
   listTaskQuoteBookOptions,
+  getProcTask,
   listQuotations,
   reassignProcTask,
   receiveProcTask,
@@ -52,7 +54,7 @@ import {
   type TaskQuoteBookOption,
 } from "../../lib/procurementApi";
 import { applyProcTaskUpdate, refreshProcurement } from "../data";
-import { BuyerComboInput, DateInput, fmtMoney, PROC_STATUS_META, useBuyerDirectory } from "./common";
+import { BuyerComboInput, DateInput, FREE_SAMPLE_ONLY_STATUSES, fmtMoney, PROC_STATUS_META, useBuyerDirectory } from "./common";
 
 type FormKind = "quote" | "select" | "order" | "receive" | "reassign" | "confirm" | "test";
 
@@ -303,7 +305,7 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
 
 const TITLES: Record<FormKind, string> = {
   quote: "选择供应商报价",
-  select: "选定报价",
+  select: "完成询价",
   order: "标记已下单",
   receive: "登记到货",
   reassign: "转派采购负责人",
@@ -477,14 +479,44 @@ function ActionModal({
     ? Math.max(0, quoteSubtotal - quoteDiscountAmount)
     : quoteSubtotal;
 
+  // 已寄来免费样品的供应商。传进来的 task 可能是列表里的旧快照——刚登记完样品就直接选报价时，
+  // 用它算出的提示会停留在上一轮结论，所以打开表单时现拉一次，拉到之前先用手头这份兜底。
+  const [fetchedFreeSampleSuppliers, setFetchedFreeSampleSuppliers] = useState<string[] | null>(null);
+  const freeSampleSuppliersOf = useCallback(
+    (source: ProcurementTask) => [...new Set(
+      (source.purchaseOrders ?? [])
+        .filter((po) => po.freeSample)
+        .map((po) => po.supplierName.trim())
+        .filter(Boolean),
+    )],
+    [],
+  );
+  const freeSampleSuppliers = fetchedFreeSampleSuppliers ?? freeSampleSuppliersOf(task);
+
+  // 「待询价」批量确认过的报价。有这些就说明价格已经定了，「询价中」这一步只剩决定去向，
+  // 不该再让用户从头选一遍供应商。
+  const confirmedQuotes = useMemo(() => quotes.filter((q) => q.isSelected), [quotes]);
+  // 所选供应商是否都已寄样：判据与服务端 nextAfterQuoteSelected 一致（每家都到才跳过「待到样」）
+  const freeSampleUnlocked = confirmedQuotes.length > 0
+    && confirmedQuotes.every((q) => freeSampleSuppliers.includes(q.supplierName.trim()));
+
   useEffect(() => {
     if (kind !== "select") return;
     let alive = true;
+    setFetchedFreeSampleSuppliers(null);
     void listQuotations({ taskId: task.id })
       .then((list) => { if (alive) setQuotes(list); })
       .catch(() => { if (alive) setQuotes([]); });
+    // 拉失败就继续用兜底那份：提示不准好过表单打不开
+    void getProcTask(task.id)
+      .then((fresh) => { if (alive) setFetchedFreeSampleSuppliers(freeSampleSuppliersOf(fresh)); })
+      .catch(() => {});
     return () => { alive = false; };
-  }, [kind, task.id]);
+  }, [kind, task.id, freeSampleSuppliersOf]);
+
+  // 声明必须在下面这个 effect 之前：它进了依赖数组，而依赖数组是渲染期求值的。
+  // 待询价 / 询价中只能登记免费样品来货，单号一律为空，勾选框锁死不可取消。
+  const isFreeSampleOnly = FREE_SAMPLE_ONLY_STATUSES.includes(task.status);
 
   useEffect(() => {
     if (kind !== "order") return;
@@ -508,7 +540,7 @@ function ActionModal({
           orderedQty: String(value.orderedQty),
           tpOrderNo: "",
           etaDate: "",
-          freeSample: false,
+          freeSample: isFreeSampleOnly,
         }));
         setPurchaseOrders(drafts.length > 0 ? drafts : [{
           key: "__direct__",
@@ -516,7 +548,7 @@ function ActionModal({
           orderedQty: String(task.quantity),
           tpOrderNo: "",
           etaDate: "",
-          freeSample: false,
+          freeSample: isFreeSampleOnly,
         }]);
       })
       .catch(() => {
@@ -527,14 +559,14 @@ function ActionModal({
           orderedQty: String(task.quantity),
           tpOrderNo: "",
           etaDate: "",
-          freeSample: false,
+          freeSample: isFreeSampleOnly,
         }]);
       })
       .finally(() => {
         if (alive) setPurchaseOrdersLoading(false);
       });
     return () => { alive = false; };
-  }, [kind, task.id, task.quantity]);
+  }, [kind, task.id, task.quantity, isFreeSampleOnly]);
 
   const updatePurchaseOrder = (key: string, patch: Partial<PurchaseOrderDraft>) => {
     setFormError("");
@@ -683,13 +715,18 @@ function ActionModal({
           })),
           { syncTaskQuantity: quantityChanged },
         ),
-        isSampleOrder
-          ? allFreeSample
-            ? t("已登记 {count} 条免费出样，任务仍在「待到样」", { count: freeSampleCount })
-            : t("已登记 {count} 张出样单，任务仍在「待到样」", { count: purchaseOrders.length })
-          : allFreeSample
-            ? t("已登记 {count} 条免费样品来货，任务转为已下单", { count: freeSampleCount })
-            : t("已关联 {count} 张采购单，任务转为已下单", { count: purchaseOrders.length }),
+        isFreeSampleOnly
+          ? t("已登记 {count} 条免费样品来货，任务仍在「{status}」；选定报价后可直接进入「测试中」", {
+              count: freeSampleCount,
+              status: t(PROC_STATUS_META[task.status].label),
+            })
+          : isSampleOrder
+            ? allFreeSample
+              ? t("已登记 {count} 条免费出样，任务仍在「待到样」", { count: freeSampleCount })
+              : t("已登记 {count} 张出样单，任务仍在「待到样」", { count: purchaseOrders.length })
+            : allFreeSample
+              ? t("已登记 {count} 条免费样品来货，任务转为已下单", { count: freeSampleCount })
+              : t("已关联 {count} 张采购单，任务转为已下单", { count: purchaseOrders.length }),
       );
       return;
     }
@@ -744,7 +781,7 @@ function ActionModal({
           <DialogTitle className="text-balance text-base font-bold text-slate-900">
             {kind === "confirm"
               ? t(confirm?.title ?? "请确认")
-              : t(kind === "order" && isSampleOrder ? "登记出样单" : TITLES[kind])}
+              : t(kind === "order" && isSampleOrder ? "登记出样单" : kind === "order" && isFreeSampleOnly ? "登记免费样品来货" : TITLES[kind])}
           </DialogTitle>
           <DialogDescription className="mt-0.5 text-pretty text-xs text-slate-400">{task.code} · {task.materialName}</DialogDescription>
         </DialogHeader>
@@ -1022,6 +1059,39 @@ function ActionModal({
           {kind === "select" && (
             quotes.length === 0 ? (
               <div className="py-6 text-center text-sm text-slate-400">{t("该任务还没有报价，请先从供应商报价库选择")}</div>
+            ) : confirmedQuotes.length > 0 ? (
+              // 报价已在「待询价」一次性确认过，这一步只需决定去向，不再重新选一遍供应商
+              <div className="space-y-3">
+                <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+                  <div className="text-xs font-medium text-slate-500">{t("已确认 {count} 条报价", { count: confirmedQuotes.length })}</div>
+                  <ul className="mt-1.5 space-y-1">
+                    {confirmedQuotes.map((q) => (
+                      <li key={q.id} className="flex items-center justify-between text-sm">
+                        <span className="truncate text-slate-700">{q.supplierName}</span>
+                        <b className="shrink-0 tabular-nums text-slate-900">{fmtMoney(q.unitPrice)}</b>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <p className="text-xs leading-relaxed text-slate-500">
+                  {!task.needSample
+                    ? t("完成询价后进入「已定价」，可标记已下单。")
+                    : freeSampleUnlocked
+                      ? t("已收到所选供应商的免费样品，完成询价后直接进入「测试中」。")
+                      : t("该任务需要打样，完成询价后进入「待到样」。")}
+                </p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void onSubmit(() => completeInquiry(task.id), t("已完成询价"))}
+                  className="h-9 w-full rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {busy ? t("处理中…") : t("完成询价")}
+                </button>
+                <p className="text-center text-xs text-slate-400">
+                  {t("报价有误？关闭本框后用「重新维护报价」退回「待询价」。")}
+                </p>
+              </div>
             ) : (
               <div className="space-y-2">
                 {quotes.map((q) => (
@@ -1040,7 +1110,13 @@ function ActionModal({
                   </button>
                 ))}
                 <p className="pt-1 text-xs text-slate-400">
-                  {task.needSample ? t("选定后进入「待到样」") : t("选定后直接进入「已定价」")}
+                  {!task.needSample
+                    ? t("选定后直接进入「已定价」")
+                    : freeSampleSuppliers.length > 0
+                      ? t("已收到 {suppliers} 的免费样品：选这几家直接进入「测试中」，选其他供应商仍进入「待到样」", {
+                          suppliers: freeSampleSuppliers.join("、"),
+                        })
+                      : t("选定后进入「待到样」")}
                 </p>
               </div>
             )
@@ -1051,6 +1127,11 @@ function ActionModal({
               {isSampleOrder && (
                 <div className="rounded-lg border border-[#dce6ff] bg-[#eef3ff] px-3 py-2 text-pretty text-xs leading-relaxed text-[#002fa7]">
                   {t("登记本轮出样单：只保存采购单关联和预计到样日期，任务仍停在「待到样」，样品到了再点「样品已到」。")}
+                </div>
+              )}
+              {isFreeSampleOnly && (
+                <div className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-xs leading-relaxed text-amber-700">
+                  {t("供应商提前寄样：此处只登记免费样品来货，不填采购单号，任务状态不变。登记后选定报价可直接进入「测试中」，不必再等一轮「待到样」。")}
                 </div>
               )}
               {purchaseOrders.length > 1 && (
@@ -1096,6 +1177,8 @@ function ActionModal({
                           <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-slate-500">
                             <Checkbox
                               checked={item.freeSample}
+                              // 询价两档本来就只收免费样品，取消勾选没有意义，锁死避免用户填了单号又被后端拒
+                              disabled={isFreeSampleOnly}
                               onCheckedChange={(checked) => updatePurchaseOrder(item.key, {
                                 freeSample: checked === true,
                                 // 勾上就把已填的单号清掉，避免留一个不会提交的脏值
@@ -1126,7 +1209,7 @@ function ActionModal({
                           />
                         </div>
                         <div>
-                          <span className={label}>{t(isSampleOrder ? "预计到样" : "预计到货")}</span>
+                          <span className={label}>{t(isSampleOrder || isFreeSampleOnly ? "预计到样" : "预计到货")}</span>
                           <DateInput
                             value={item.etaDate}
                             onChange={(value) => updatePurchaseOrder(item.key, { etaDate: value })}

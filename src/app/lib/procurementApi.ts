@@ -450,6 +450,34 @@ export async function transitionProcTask(
 }
 
 /**
+ * 完成询价：从「询价中」按需样情况进入 已定价 / 待到样 / 测试中。
+ * 与确认报价拆成两步，一次操作只前进一个节点。
+ */
+export async function completeInquiry(id: string, note?: string): Promise<ProcurementTask> {
+  return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/complete-inquiry`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
+/**
+ * 回退到流程中更早的任意节点，并清理该节点下不该存在的业务数据。
+ * reason 必填：回退会删数据，留痕必须能查到是谁、为什么退的。
+ */
+export async function rollbackProcTask(
+  id: string,
+  status: ProcStatus,
+  reason: string,
+  /** 发起这次操作时界面上的状态；服务端据此识别过期页面并拒绝。 */
+  fromStatus: ProcStatus,
+): Promise<ProcurementTask> {
+  return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/rollback`, {
+    method: "POST",
+    body: JSON.stringify({ status, reason, from_status: fromStatus }),
+  });
+}
+
+/**
  * 重新维护报价：清空本任务已确认的报价并退回「待询价」。
  * 仅限未下单阶段——已下单后单价已随采购单出去，需先撤销采购单关联。
  */
@@ -719,6 +747,31 @@ export interface TplusConfigState {
   authorized: boolean;
   tokenExpireAt: string | null;
   refreshExpireAt: string | null;
+  /** 授权断链时刻；非 null 表示自动同步已停 */
+  authBrokenSince: string | null;
+  /** 断链原因（平台返回的原文摘要） */
+  authBrokenReason: string | null;
+  /**
+   * 自愈链就绪情况：三者齐备时令牌失效可自动换新，免人工重新授权。
+   * appTicket 由开放平台每 10 分钟推送到回调地址，回调不通就永远拿不到。
+   */
+  selfHeal: {
+    appTicket: boolean;
+    orgPermanentAuthCode: boolean;
+    userAuthPermanentCode: boolean;
+    ready: boolean;
+    /** 开放平台是否推送过任何消息；false 基本等于平台侧没配「消息接收地址」 */
+    everReceivedPush: boolean;
+  };
+  /** 最近的鉴权调用与失败留痕（已脱敏，不含任何凭证） */
+  callLog: Array<{
+    at: string;
+    kind: 'auth' | 'failure';
+    target: string;
+    ok: boolean;
+    durationMs: number;
+    reason?: string;
+  }>;
   updatedAt: string | null;
   /** 每日自动同步（北京时间 3:00）开关，默认开。 */
   autoSync: boolean;
@@ -1039,7 +1092,10 @@ export interface ReplenishSuggestion {
   safeStock: number;
   inTransit: number;
   openTaskQty: number;
+  /** 缺口已被覆盖时为 0（此时 covered 为 true） */
   suggestQty: number;
+  /** 仍低于安全库存，但缺口已被在途或进行中任务完全覆盖，暂不需要下单 */
+  covered: boolean;
   /** 包装/起订粒度（历史采购量最大公约数）；建议量已按此向上取整 */
   packStep: number | null;
   lastSupplier: string | null;

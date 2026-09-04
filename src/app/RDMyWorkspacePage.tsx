@@ -29,6 +29,7 @@ import {
   Search,
   Send,
   ShieldCheck,
+  ShoppingCart,
   Sparkles,
   UploadCloud,
   User,
@@ -75,6 +76,7 @@ import {
   replaceRdNoteAttachment,
   fetchProductTaskCategories,
   fetchRdPeople,
+  isMentionablePerson,
   fetchRdProducts,
   fetchRdTaskCategories,
   fetchRdTaskAttachmentPreviews,
@@ -108,11 +110,13 @@ import {
   type RdWorkspaceNotification,
   type RdPerformanceReport,
   getAttachmentThumbUrl,
+  getAttachmentUrl,
   RD_DEFAULT_SUBPROJECT_LABEL,
   isProductionWorkspace,
 } from "./lib/rdApi";
 import { approveRdProcurementTransfer, rejectRdProcurementTransfer } from "./lib/procurementApi";
 import { announceProcurementRefresh } from "./procurement/data";
+import { ProcurementLinkChip, TransferToProcurementModal, useProcurementTaskLink } from "./procurement/components/rdInsertion";
 import { SubtaskBadge } from "./RDTaskManagementPage";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { MentionSuggestionPanel, useMentions, type MentionCandidate } from "./components/MentionInput";
@@ -129,7 +133,7 @@ type AiSuggestion = RdAiSuggestion;
 type WorkspaceNotification = RdWorkspaceNotification;
 
 type ActivePanel =
-  | { kind: "task"; task: WorkspaceTask; tab: OperationTab; openedAt: number; abandon?: boolean }
+  | { kind: "task"; task: WorkspaceTask; tab: OperationTab; openedAt: number; abandon?: boolean; transfer?: boolean }
   | { kind: "ai"; suggestion: AiSuggestion; regenerated?: boolean }
   | { kind: "notification"; notification: WorkspaceNotification };
 
@@ -997,6 +1001,7 @@ function TaskOperationDrawer({
   onCollaborationChanged,
   onSubtaskChanged,
   autoAbandon,
+  autoTransfer,
 }: {
   task: WorkspaceTask;
   initialTab: OperationTab;
@@ -1009,6 +1014,7 @@ function TaskOperationDrawer({
   /** 并入/取消子任务后：任务在树中的位置变了，只能整表重拉（无法局部乐观更新）。 */
   onSubtaskChanged: (taskId: string) => void | Promise<void>;
   autoAbandon?: boolean;
+  autoTransfer?: boolean;
 }) {
   useI18n(); // 订阅语言切换（抽屉 Tab/流程步骤/表单文案已 t() 化）
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
@@ -1079,7 +1085,8 @@ function TaskOperationDrawer({
     };
     push(task.owner, task.owner_user_id, t("主责人"));
     for (const c of task.collaborators ?? []) push(c.name, c.user_id, t("协作人"));
-    for (const p of peopleOptions) push(p.name, p.user_id ?? null);
+    // 只在 @ 候选里排除离职/停用；协作人选择等其他用途仍用完整名单
+    for (const p of peopleOptions.filter(isMentionablePerson)) push(p.name, p.user_id ?? null);
     return out;
   }, [task.owner, task.owner_user_id, task.collaborators, peopleOptions]);
   const mention = useMentions({ value: note, setValue: setNote, inputRef: noteInputRef, candidates: mentionCandidates });
@@ -1597,6 +1604,32 @@ function TaskOperationDrawer({
     task.role === "primary" &&
     ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
 
+  // 转采购：与任务详情页同一套权限（proc-task:transfer 操作码）与弹窗。提交后先经
+  // 研发管理员审核（rd-procurement:review），通过才流转采购并分配采购负责人。仅研发工作台可见。
+  const navigate = useNavigate();
+  const canTransferProcPermission = usePermission("proc-task:transfer");
+  const { task: procTask, setTask: setProcTask } = useProcurementTaskLink(isUsCollabWorkspace() ? undefined : task.task_id);
+  // 已取消的关联（含审核驳回落 cancelled 的）不挡重提，与详情页口径一致。
+  const procTaskBlocksTransfer = Boolean(procTask) && procTask?.status !== "cancelled";
+  const canTransferProc = !isUsCollabWorkspace() && canTransferProcPermission && !isTaskCompleted;
+  const [transferOpen, setTransferOpen] = useState(false);
+  /** 转采购弹窗默认带入的任务附件（全部进度留痕附件拍平），与详情页同源。 */
+  const transferAttachments = useMemo(
+    () => progressNotes.flatMap((note) => note.attachments.map((a) => ({
+      id: a.id,
+      name: a.name,
+      size: a.size,
+      mimeType: a.mime,
+      fileUrl: getAttachmentUrl(a),
+      fileKey: a.object_key,
+    }))).filter((attachment) => Boolean(attachment.fileUrl)),
+    [progressNotes],
+  );
+  // 采购关联是异步查回来的：查到在途关联就收起弹窗（即便提交也会被后端幂等挡下）。
+  useEffect(() => {
+    if (procTaskBlocksTransfer) setTransferOpen(false);
+  }, [procTaskBlocksTransfer]);
+
   const submitAbandon = async () => {
     const reason = abandonReason.trim();
     if (!reason) {
@@ -1784,6 +1817,13 @@ function TaskOperationDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 从任务卡片「转采购」进入：挂载即弹出转采购弹窗（与「申请放弃」同一联动模式）。
+  // 此刻采购关联可能尚未查回；若稍后查到在途关联，上方 effect 会自动收起弹窗。
+  useEffect(() => {
+    if (autoTransfer && canTransferProc) setTransferOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <DrawerShell
       title={task.title}
@@ -1870,6 +1910,32 @@ function TaskOperationDrawer({
                 <div className="mt-1 text-sm font-semibold text-slate-800">{task.due_date}</div>
               </div>
             </div>
+
+            {/* 转采购入口 / 已转状态：已有关联展示流转芯片（含「待研发审核」等状态；无采购
+                驾驶舱权限的成员自动降级为只读芯片），可转时展示按钮，弹窗与详情页共用。 */}
+            {(procTask || (canTransferProc && !procTaskBlocksTransfer)) && (
+              <div className="flex flex-wrap items-center gap-2">
+                {procTask && (
+                  <ProcurementLinkChip
+                    task={procTask}
+                    onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)}
+                  />
+                )}
+                {canTransferProc && !procTaskBlocksTransfer && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setTransferOpen(true)}
+                    title={t("把本任务转为采购任务（需携带图纸附件）")}
+                    className="h-7 gap-1.5 text-xs"
+                  >
+                    <ShoppingCart className="h-3.5 w-3.5" />
+                    {procTask ? t("重新转采购") : t("转采购")}
+                  </Button>
+                )}
+              </div>
+            )}
 
             {editingDueDate && !dueDateChangePending && (
               <div className="rounded-xl border border-[#cbd8f6] bg-[#eef3ff]/50 p-4">
@@ -2758,6 +2824,23 @@ function TaskOperationDrawer({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 转采购确认弹窗：与任务详情页完全同一组件。提交后进入「待研发审核」，
+          研发管理员通过后才流转采购并自动分配采购负责人。 */}
+      {transferOpen && (
+        <TransferToProcurementModal
+          taskId={task.task_id}
+          taskTitle={task.title}
+          owner={task.owner}
+          ownerUserId={task.owner_user_id ?? undefined}
+          priority={task.priority}
+          dueDate={task.due_date}
+          attachments={transferAttachments}
+          resubmitFrom={procTaskBlocksTransfer ? null : procTask}
+          onTransferred={setProcTask}
+          onClose={() => setTransferOpen(false)}
+        />
       )}
 
       {/* 并入其他任务成为子任务：选目标父任务，确认后立即生效（不走审批）。
@@ -3697,7 +3780,7 @@ function WorkspaceTaskCard({
 }: {
   task: WorkspaceTask;
   attachmentPreview?: RdTaskAttachmentPreview;
-  onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => void;
+  onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean; transfer?: boolean }) => void;
   /** 子系统全景视图下、且为自己主责的任务才允许移动/勾选。 */
   moveEnabled?: boolean;
   selected?: boolean;
@@ -3717,6 +3800,12 @@ function WorkspaceTaskCard({
   // 列表卡片直接发起「申请放弃」：仅主责人 + 活跃状态可见（与详情抽屉内 canAbandon 口径一致）。
   const canAbandon =
     !isForeignWorkspace && task.role === "primary" &&
+    ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
+  // 列表卡片直接发起「转采购」：参与人（主责/协作）+ 活跃状态 + 仅研发工作台可见。
+  // 点开即进入详情面板并自动弹出转采购弹窗（权限码 proc-task:transfer，系统管理·权限目录可配）。
+  const canTransferProcPermission = usePermission("proc-task:transfer");
+  const canTransferProcCard =
+    canTransferProcPermission && currentWorkspace === "rd" && !isForeignWorkspace &&
     ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
   const hierarchyTags = task.category_path
     .split(/[\/／>＞|]/)
@@ -3840,6 +3929,12 @@ function WorkspaceTaskCard({
                     <DropdownMenuItem onSelect={() => onMove(task)}>
                       <FolderInput className="h-4 w-4" />
                       {t("移动")}
+                    </DropdownMenuItem>
+                  )}
+                  {canTransferProcCard && (
+                    <DropdownMenuItem onSelect={() => onOpen(task, "detail", { transfer: true })}>
+                      <ShoppingCart className="h-4 w-4" />
+                      {t("转采购")}
                     </DropdownMenuItem>
                   )}
                   {canAbandon && (
@@ -3999,7 +4094,7 @@ function WorkspaceTaskTreeRow({
 }: {
   node: WorkspaceTaskTreeNode;
   depth: number;
-  onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => void;
+  onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean; transfer?: boolean }) => void;
   onKickoff?: (task: WorkspaceTask) => void;
   move?: PanoramaMoveProps;
   unreadByTask?: Record<string, number>;
@@ -4234,7 +4329,7 @@ function WorkspaceTaskTree({
   unreadByTask,
 }: {
   tasks: WorkspaceTask[];
-  onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => void;
+  onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean; transfer?: boolean }) => void;
   onKickoff?: (task: WorkspaceTask) => void;
   move?: PanoramaMoveProps;
   unreadByTask?: Record<string, number>;
@@ -4384,7 +4479,7 @@ function SubsystemPanorama({
   groups: SubsystemGroup[];
   selectedKey: string | null;
   onSelectKey: (key: string | null) => void;
-  onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => void;
+  onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean; transfer?: boolean }) => void;
   onKickoff?: (task: WorkspaceTask) => void;
   move?: PanoramaMoveProps;
   unreadByTask?: Record<string, number>;
@@ -4813,14 +4908,14 @@ export function RDMyWorkspacePage() {
     };
   }, [refreshNoteUnread]);
 
-  const openTask = (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => {
+  const openTask = (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean; transfer?: boolean }) => {
     const currentWorkspace = isUsCollabWorkspace() ? "us-collab" : "rd";
     if (task.source_workspace && task.source_workspace !== currentWorkspace) {
       const detailPath = task.source_workspace === "us-collab" ? "/us-collab-task" : "/rd-task";
       navigate(`${detailPath}/${encodeURIComponent(task.task_id)}`, { state: { task } });
       return;
     }
-    setActivePanel({ kind: "task", task, tab, openedAt: Date.now(), abandon: opts?.abandon });
+    setActivePanel({ kind: "task", task, tab, openedAt: Date.now(), abandon: opts?.abandon, transfer: opts?.transfer });
     // 正式留痕与讨论使用不同已读游标；打开任务只清正式留痕，讨论需实际打开对应会话。
     void markRdTaskNotesRead(task.task_id)
       .catch(() => {})
@@ -5509,6 +5604,7 @@ export function RDMyWorkspacePage() {
           task={activePanel.task}
           initialTab={activePanel.tab}
           autoAbandon={activePanel.abandon}
+          autoTransfer={activePanel.transfer}
           onClose={() => setActivePanel(null)}
           onProgressSave={async (taskId, progress) => {
             await updateRdTask(taskId, { progress });

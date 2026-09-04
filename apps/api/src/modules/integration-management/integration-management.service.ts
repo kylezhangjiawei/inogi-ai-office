@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr/ocr.service';
 import { OpenAiScreeningService } from '../resume-screening/openai-screening.service';
 import { SecureConfigService } from '../security/secure-config.service';
+import { diagnoseAiConnectionError } from './ai-connection-error';
 import { ListIntegrationQueryDto } from './dto/list-integration-query.dto';
 import { SaveAiModelDto } from './dto/save-ai-model.dto';
 import { SaveMailboxDto } from './dto/save-mailbox.dto';
@@ -487,27 +488,42 @@ export class IntegrationManagementService {
         total_tokens: result.usage.totalTokens,
       };
     } catch (error) {
-      const message = this.getSourceErrorMessage(error);
+      // 上游错误翻译成中文结论 + 可能情况，落库和返回都用同一份文案
+      const diagnosis = diagnoseAiConnectionError(error, this.getSourceErrorMessage(error), {
+        provider,
+        model,
+        baseUrl,
+      });
+      // 连不通的模型先停用，避免路由继续把请求打到坏连接上；只有真正从启用变为停用才算"本次停用"
+      const disabledNow = Boolean(payload.disable_on_failure) && Boolean(existing?.isActive);
 
       if (existing) {
         const runtimeMetadata = this.mergeAiRuntimeMetadata(existingMetadata, {
           base_url: baseUrl,
           current_status: '连接异常',
           last_failure_at: new Date().toISOString(),
-          last_error_message: message,
+          last_error_message: diagnosis.message,
         });
 
         await this.prisma.integrationConfig.update({
           where: { id: existing.id },
-          data: { metadata: runtimeMetadata as Prisma.InputJsonValue },
+          data: {
+            metadata: runtimeMetadata as Prisma.InputJsonValue,
+            ...(payload.disable_on_failure ? { isActive: false } : {}),
+          },
         });
       }
 
       return {
         success: false,
-        message,
+        message: diagnosis.message,
         model,
         base_url: baseUrl || null,
+        error_code: diagnosis.code,
+        error_reason: diagnosis.reason,
+        error_causes: diagnosis.causes,
+        raw_error: diagnosis.raw,
+        disabled: disabledNow,
       };
     }
   }
@@ -520,8 +536,22 @@ export class IntegrationManagementService {
       throw new NotFoundException('AI 模型配置不存在');
     }
 
+    // 删除前先查它被哪些网关路由引用：外键 ON DELETE CASCADE 会把这些路由里的 target
+    // 一并删掉（路由行还在但被掏空 → 该场景静默回落默认）。此前删除毫无提示，
+    // 是「路由自己变了」的唯一真实来源，排查极其困难——把受影响路由回给前端明示。
+    const referencedRoutes = await this.prisma.aiGatewayRouteTarget.findMany({
+      where: { connectionId: modelId },
+      select: { route: { select: { scene: true, name: true } } },
+    });
+
     await this.prisma.integrationConfig.delete({ where: { id: modelId } });
-    return { id: modelId };
+    return {
+      id: modelId,
+      affected_routes: referencedRoutes.map((target) => ({
+        scene: target.route.scene,
+        name: target.route.name,
+      })),
+    };
   }
 
   private shouldUseImageModelConnectionTest(provider: string, model: string) {

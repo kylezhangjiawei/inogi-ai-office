@@ -708,6 +708,58 @@ export class ResearchDevelopmentController {
     obj.stream.pipe(res);
   }
 
+  /**
+   * 早期内嵌存储附件（只有 data_url、没有 OSS 对象）的同源内联下发。
+   * 与 oss-preview 同一套授权模型：签名 token 只在调用方已通过留痕可见性过滤后才生成下发，
+   * 因此这里只校验签名，不再重复鉴权；内联/下载的安全约束与 oss-preview 完全一致。
+   */
+  @Public()
+  @Permissions()
+  @SkipThrottle()
+  @Get('embedded-attachment')
+  async embeddedAttachment(
+    @Query('task') taskId: string,
+    @Query('note') noteId: string,
+    @Query('att') attachmentId: string,
+    @Query('exp') exp: string,
+    @Query('sig') sig: string,
+    @Query('dl') download: string | undefined,
+    @Res() res: Response,
+  ) {
+    if (
+      !taskId
+      || !noteId
+      || !attachmentId
+      || !this.ossService.verifyPreviewToken(
+        `embedded:${taskId}:${noteId}:${attachmentId}`,
+        Number(exp),
+        sig,
+      )
+    ) {
+      throw new NotFoundException();
+    }
+    const file = await this.rdService.readEmbeddedAttachment(taskId, noteId, attachmentId);
+    if (!file) throw new NotFoundException();
+
+    // 主动内容（html/svg/js 等）一律按 octet-stream + attachment 下发，杜绝同源 XSS
+    const active = isActiveAttachmentContent(file.name, file.mime);
+    const inline = !download && canInlineAttachment(file.name, file.mime);
+    res.setHeader('Content-Type', active ? 'application/octet-stream' : file.mime);
+    res.setHeader(
+      'Content-Disposition',
+      inline
+        ? 'inline'
+        : `attachment; filename*=UTF-8''${encodeURIComponent(file.name.replace(/["\r\n]/g, '_').slice(0, 180))}`,
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Content-Length', String(file.buffer.length));
+    // 内嵌字节随留痕不可变，token 按天稳定 → 与 oss-preview 同样允许浏览器缓存一天
+    res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
+    res.end(file.buffer);
+  }
+
   @Get('task-completion-scores')
   getTaskCompletionScores(
     @Query('task_ids') taskIds: string | undefined,

@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
 import { ProcurementService } from './procurement.service';
-import { PROC_PO_LINKABLE_STATUSES } from './procurement.types';
+import { PROC_PO_MATCHABLE_STATUSES } from './procurement.types';
 import type { ProcActor } from './procurement.types';
 
 /**
@@ -96,7 +96,7 @@ export class TplusPoMatchService {
 
   private async loadOpenTasks(): Promise<OpenTask[]> {
     const tasks = await this.prisma.procTask.findMany({
-      where: { status: { in: PROC_PO_LINKABLE_STATUSES } },
+      where: { status: { in: PROC_PO_MATCHABLE_STATUSES } },
       select: {
         id: true,
         code: true,

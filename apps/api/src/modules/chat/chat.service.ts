@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -12,7 +13,7 @@ import { Response } from 'express';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
-import type { AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
+import type { AiGatewayRouteMeta, AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { SecureConfigService } from '../security/secure-config.service';
 import { WebSearchService, type WebSearchResult } from './web-search.service';
 import { RagService, type RagUserContext, type RagChatCitation } from '../rag/rag.service';
@@ -46,6 +47,9 @@ import { UpdateReactionDto } from './dto/update-reaction.dto';
 const DB_SEARCH_BUDGET_MS = 5_000;
 const RAG_SEARCH_BUDGET_MS = 8_000;
 const QUERY_REWRITE_BUDGET_MS = 4_000;
+// 上游流两个分片之间的最大静默：超过即判定上游卡死并主动中断本轮。取值需大于正常的
+// 首字/工具轮次间隙（实测 TTFT 12~34s），90s 给足余量，又不至于让真卡死时用户无限等待。
+const STREAM_IDLE_TIMEOUT_MS = 90_000;
 
 /**
  * 给 promise 加超时上限，超时返回兜底值。
@@ -164,8 +168,19 @@ export class ChatService {
   private static readonly HISTORY_PER_DOC_CHARS = 2000;
   /** 历史重放文档文本的总预算（新轮次优先分配） */
   private static readonly HISTORY_DOC_CHAR_BUDGET = 8000;
-  /** 历史重新注入图片的总张数上限（每张都要重新下载并 base64 内联，控制成本） */
-  private static readonly HISTORY_MAX_IMAGES = 4;
+  /**
+   * 单条历史消息正文的字符硬上限。一条异常长的历史消息（如曾经生成的超长报告/表格）不该整条
+   * 灌回上下文，既撑大 prompt token 也占内存。正常回答远低于此值，不受影响；只截异常长的那条。
+   */
+  private static readonly HISTORY_PER_MSG_TEXT_CHARS = 6000;
+  /**
+   * 单请求发给上游的全部文本（system + 历史 + 当前消息）的总字符硬上限。超出则从最旧历史开始
+   * 丢弃，保证单请求上下文体积有确定上界——这是「杜绝 OOM」的应用层保障：内存峰值不再随会话
+   * 长度无限增长。约 9 万 token，正常多轮对话远低于此，只有异常膨胀的会话才会触发裁剪。
+   */
+  private static readonly PROMPT_TOTAL_CHAR_BUDGET = 260_000;
+  /** 历史重新注入图片的总张数上限（每张都要重新下载并 base64 内联，占内存也推高每轮上游 payload） */
+  private static readonly HISTORY_MAX_IMAGES = 2;
   /**
    * "看不到图"式拒答的识别正则（视觉去毒用）：命中的历史 assistant 消息在
    * 视觉模型的上下文里会被替换成作废占位，防止新模型沿用旧模型的拒答口径。
@@ -182,6 +197,12 @@ export class ChatService {
   private static readonly TOOL_TRACE_MAX_PER_CONV = 8;
   /** 单条工具结果注入上下文的字符上限 */
   private static readonly TOOL_TRACE_CONTENT_CHARS = 1200;
+  /**
+   * 单个工具结果回填到 ReAct 下一轮 prompt 的字符上限。当前各工具自带行数上限，回填量可控，
+   * 但那是约定而非机制——新增一个返回大 blob 的工具就会撑爆上下文、推高 TTFT 甚至触内存墙。
+   * 这里做一道防御性硬截断（远高于正常工具输出，只挡异常大的），保证回填量始终有界。
+   */
+  private static readonly TOOL_RESULT_FEED_CHARS = 12000;
   /** KV 中最多保留的会话数（FIFO 淘汰最久未更新） */
   private static readonly TOOL_TRACE_CONV_MAX = 300;
 
@@ -513,6 +534,7 @@ export class ChatService {
       const result = await this.aiGateway.complete({
         scene,
         targets: routing.targets,
+        routeMeta: { source: routing.source, strategy: routing.strategy },
         messages,
         ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
         ...(typeof opts.maxTokens === 'number' ? { maxTokens: opts.maxTokens } : {}),
@@ -690,35 +712,75 @@ export class ChatService {
         throw new BadRequestException('消息内容不能为空');
       }
 
-      isFirstUserMsg = !conv.messages.some((message) => message.role === 'user');
-      const questionScenario = this.chatAnalyticsService.classifyQuestion(content, attachments.length > 0);
-      userMsg = await this.prisma.$transaction(async (tx) => {
-        const created = await tx.chatMessage.create({
-          data: {
-            conversationId,
-            role: 'user',
-            content,
-            ...(attachments.length
-              ? { attachments: attachments as unknown as Prisma.InputJsonValue }
-              : {}),
-          },
-        });
-        await tx.chatUsageEvent.create({
-          data: {
-            userId,
-            eventType: 'question_submitted',
-            conversationId,
-            messageId: created.id,
-            model: dto.model,
-            metadata: {
-              hadAttachments: attachments.length > 0,
-              scenarioKey: questionScenario.key,
-              scenarioLabel: questionScenario.label,
-            },
-          },
-        });
-        return created;
-      });
+      // 幂等：同一 clientMessageId 已落过用户消息 → 直接复用，不重复创建（消除重复提问）。
+      const clientMessageId = dto.clientMessageId?.trim() || null;
+      const existingByClientId = clientMessageId
+        ? await this.prisma.chatMessage.findFirst({
+            where: { conversationId, clientMessageId, role: 'user' },
+            select: { id: true, content: true, attachments: true, createdAt: true },
+          })
+        : null;
+      if (existingByClientId) {
+        userMsg = existingByClientId;
+        isFirstUserMsg = false;
+        this.logger.log(
+          `幂等命中：会话 ${conversationId} 复用用户消息 ${existingByClientId.id}（clientMessageId=${clientMessageId}）`,
+        );
+      } else {
+        isFirstUserMsg = !conv.messages.some((message) => message.role === 'user');
+        const questionScenario = this.chatAnalyticsService.classifyQuestion(content, attachments.length > 0);
+        try {
+          userMsg = await this.prisma.$transaction(async (tx) => {
+            const created = await tx.chatMessage.create({
+              data: {
+                conversationId,
+                role: 'user',
+                content,
+                ...(clientMessageId ? { clientMessageId } : {}),
+                ...(attachments.length
+                  ? { attachments: attachments as unknown as Prisma.InputJsonValue }
+                  : {}),
+              },
+            });
+            await tx.chatUsageEvent.create({
+              data: {
+                userId,
+                eventType: 'question_submitted',
+                conversationId,
+                messageId: created.id,
+                model: dto.model,
+                metadata: {
+                  hadAttachments: attachments.length > 0,
+                  scenarioKey: questionScenario.key,
+                  scenarioLabel: questionScenario.label,
+                },
+              },
+            });
+            return created;
+          });
+        } catch (err) {
+          // 并发下两个相同 clientMessageId 几乎同时到达：唯一约束 P2002 → 查出先落的那条复用，
+          // 不把「重复提交」当错误抛给用户。
+          if (
+            clientMessageId &&
+            err instanceof Prisma.PrismaClientKnownRequestError &&
+            err.code === 'P2002'
+          ) {
+            const raced = await this.prisma.chatMessage.findFirst({
+              where: { conversationId, clientMessageId, role: 'user' },
+              select: { id: true, content: true, attachments: true, createdAt: true },
+            });
+            if (!raced) throw err;
+            userMsg = raced;
+            isFirstUserMsg = false;
+            this.logger.log(
+              `幂等命中（并发）：会话 ${conversationId} 复用用户消息 ${raced.id}（clientMessageId=${clientMessageId}）`,
+            );
+          } else {
+            throw err;
+          }
+        }
+      }
     }
 
     // Auto-set title from first user message（纯附件消息用首个附件名兜底）
@@ -735,30 +797,67 @@ export class ChatService {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
+    // 立即把响应头刷给客户端：首字节之前还有 DB / OSS 等准备工作，不 flush 的话中间层
+    // 直到第一次 res.write 才看到响应开始，长准备期可能先撞上网关的响应头超时（504）。
+    res.flushHeaders?.();
 
     // ── 客户端中断：用户点「停止生成」或直接关页面 → SSE 连接断开。
     //    ReAct 循环此时可能还剩数轮上游调用与工具执行（生图单次预算 5 分钟），不中断就是纯烧钱，
     //    且 res.write 会写向已销毁的 socket。abortSignal 传给上游 SDK 立即掐断流，
     //    循环与工具批次在各检查点主动退出，已生成的正文照常落库（见循环后的收尾）。
+    //    close 监听必须在此刻就注册：若拖到保活定时器声明之后，这之前（首字节前的 DB/OSS
+    //    准备期）断开将永远不被感知，整个 ReAct 循环会对着死 socket 空跑。
     const abortController = new AbortController();
     let clientAborted = false;
+    let streamKeepalive: ReturnType<typeof setInterval> | null = null;
     res.on('close', () => {
-      clearInterval(streamKeepalive); // 无论正常结束还是中断，连接一关保活即停，杜绝定时器泄漏
+      if (streamKeepalive) clearInterval(streamKeepalive); // 连接一关保活即停，杜绝定时器泄漏
       if (res.writableEnded) return; // 正常 res.end() 之后也会触发 close，不是中断
       clientAborted = true;
       abortController.abort();
       this.logger.log(`客户端中断会话 ${conversationId}，停止 ReAct 循环`);
     });
+    // socket 层错误（中间层 RST、写入已销毁的连接等）若没有监听器，会作为 error 事件
+    // 抛成 unhandled，进而掀翻进程。这里吞掉：连接异常只影响当前请求，收尾逻辑照常走。
+    res.on('error', (err) => {
+      this.logger.warn(`SSE 连接异常（会话 ${conversationId}）: ${err instanceof Error ? err.message : err}`);
+    });
 
     const send = (data: object) => {
       if (clientAborted || res.writableEnded) return; // 连接已断，写入无意义且会报 ERR_STREAM_DESTROYED
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
+      try {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+      } catch (err) {
+        // socket 在判断与写入之间被销毁：吞掉即可，不能让它冒泡成未捕获异常炸进程。
+        this.logger.warn(`SSE 写入失败（会话 ${conversationId}）: ${err instanceof Error ? err.message : err}`);
+      }
     };
 
     // ── 全程保活：上游 TTFT / 多轮工具后的二次 TTFT / 联网融合等待都可能静默数十秒，
     //    nginx 等中间层的空闲读超时会直接掐断 SSE（前端表现为 network error、正文当场消失）。
     //    每 15s 推一个 ping（前端对未知事件类型安全忽略），覆盖从建流到 res.end 的全部静默窗口。
-    const streamKeepalive = setInterval(() => send({ type: 'ping' }), 15_000);
+    streamKeepalive = setInterval(() => send({ type: 'ping' }), 15_000);
+
+    // ── 上游流空闲看门狗：OpenAI SDK 的 timeout 只覆盖到响应头（TTFB），流体阶段一旦
+    //    上游停发（DashScope 中途卡死）就会无限期挂起——ping 照发、用户干等到自己关页面。
+    //    这里在读流期间自行计时：超过阈值没收到任何 chunk 就主动 abort，让本轮按「断流」
+    //    路径收尾（已有正文则保留落库，一字未出才报错重试），不再无限期占用连接与上游配额。
+    let streamIdleTimer: ReturnType<typeof setTimeout> | null = null;
+    const disarmStreamIdle = () => {
+      if (streamIdleTimer) {
+        clearTimeout(streamIdleTimer);
+        streamIdleTimer = null;
+      }
+    };
+    const armStreamIdle = () => {
+      disarmStreamIdle();
+      streamIdleTimer = setTimeout(() => {
+        this.logger.warn(
+          `会话 ${conversationId} 上游流空闲超过 ${STREAM_IDLE_TIMEOUT_MS}ms，判定上游卡死，主动中断本轮`,
+        );
+        abortController.abort();
+      }, STREAM_IDLE_TIMEOUT_MS);
+    };
 
     /**
      * 首字之前的阶段提示。上游 TTFT 实测 12~34 秒且不在我们控制内，这段时间界面只有三个点在跳，
@@ -815,16 +914,20 @@ export class ChatService {
     // 与 buildHistoryWithAttachments 的历史图片重放对齐——重放窗口是「最近 N 条带附件
     // 的消息」而非按轮次衰减，所以只要图还会被重放，就必须路由到多模态模型，
     // 否则图片降级成文件名提示，模型会回答「看不到图」。切换对用户无感（不弹提示）。
+    // 只看「真正会被重放图片」的窗口（最新 HISTORY_IMG_MSG_WINDOW 条带附件的 user 消息），
+    // 与 buildHistoryWithAttachments 的 imgWindow 完全同口径。此前扫的是整个 40 条历史窗口，
+    // 触发面被放大约 20 倍：会话里出现过一张早已滚出重放窗口的图，之后每一轮纯文字提问
+    // 都被判定「需要视觉」而跳过网关路由。
     const hasRecentHistoryImage =
       !hasImageAttachment &&
-      conv.messages.some(
-        (m) =>
-          m.role === 'user' &&
-          m.attachments != null &&
+      conv.messages
+        .filter((m) => m.role === 'user' && m.attachments != null)
+        .slice(-ChatService.HISTORY_IMG_MSG_WINDOW)
+        .some((m) =>
           this.attachmentService
             .normalizeStored(m.attachments)
             .some((a) => this.attachmentService.isImage(a.mime)),
-      );
+        );
     if (
       (hasImageAttachment || hasRecentHistoryImage) &&
       !this.modelSupportsVision(selectedConfig.model, selectedConfig.usageKind)
@@ -1270,19 +1373,32 @@ export class ChatService {
         ...history,
         userMessage,
       ];
-      // 输入体积：首 token 前模型要先把整个 prompt 读一遍（prefill），故它是 TTFT 的候选driver。
-      // 记下来才能和 firstToken 做相关性判断，而不是凭感觉去裁剪调过的提示词。
-      const initialPromptChars = baseMessages.reduce((sum, m) => {
-        const content = m.content;
-        if (typeof content === 'string') return sum + content.length;
-        if (!Array.isArray(content)) return sum;
-        // 只数文本片段。图片是 base64 data URL，序列化它纯粹是为了数长度会白白复制几 MB 字符串，
-        // 而且图片的 token 成本本来就不按字符算，计进来也没有意义。
-        return (
-          sum +
-          content.reduce((partSum, part) => partSum + (part.type === 'text' ? part.text.length : 0), 0)
+      // 单条消息的文本字符数。图片是 base64 data URL，不按字符算 token，序列化它只会白复制几 MB
+      // 字符串，故不计入。
+      const messageTextLen = (m: OpenAI.Chat.Completions.ChatCompletionMessageParam): number => {
+        const c = m.content;
+        if (typeof c === 'string') return c.length;
+        if (!Array.isArray(c)) return 0;
+        return c.reduce((sum, part) => sum + (part.type === 'text' ? part.text.length : 0), 0);
+      };
+      // 单请求上下文体积硬上限：超预算就从最旧历史开始丢弃（system 与当前消息永远保留），
+      // 让发给上游的文本体积有确定上界，内存峰值不再随会话长度无限增长——配合 pm2 内存墙，
+      // 从应用层根除「超长会话把进程撑爆」这条 OOM 路径。正常多轮对话远低于预算，不触发。
+      let promptTextTotal = baseMessages.reduce((sum, m) => sum + messageTextLen(m), 0);
+      if (promptTextTotal > ChatService.PROMPT_TOTAL_CHAR_BUDGET && history.length > 0) {
+        const trimmedHistory = [...history];
+        while (trimmedHistory.length > 0 && promptTextTotal > ChatService.PROMPT_TOTAL_CHAR_BUDGET) {
+          promptTextTotal -= messageTextLen(trimmedHistory.shift() as OpenAI.Chat.Completions.ChatCompletionMessageParam);
+        }
+        // 用裁剪后的历史替换 baseMessages 中间的历史段（下标 1 起，共 history.length 个）
+        baseMessages.splice(1, history.length, ...trimmedHistory);
+        this.logger.warn(
+          `会话 ${conversationId} 上下文超体积预算（${ChatService.PROMPT_TOTAL_CHAR_BUDGET} 字符），已从最旧历史裁剪至 ${trimmedHistory.length} 条`,
         );
-      }, 0);
+      }
+      // 输入体积：首 token 前模型要先把整个 prompt 读一遍（prefill），故它是 TTFT 的候选 driver。
+      // 记下来才能和 firstToken 做相关性判断（这里已是裁剪后的真实体积）。
+      const initialPromptChars = baseMessages.reduce((sum, m) => sum + messageTextLen(m), 0);
       const toolSchemaChars = agentEnabled ? JSON.stringify(agentTools).length : 0;
 
       /** 工具轮次累积的消息（assistant tool_calls + tool 观察结果），追加在 baseMessages 之后 */
@@ -1303,6 +1419,73 @@ export class ChatService {
       // 本轮生成的待确认动作 id：回答落库后回填 messageId，支撑刷新后确认卡持久化
       const pendingActionIds: string[] = [];
 
+      // ── 增量 checkpoint：把「全流程结束才一次性落库」改成「产生首个产出就落占位、之后按
+      //    轮次/节流更新」。进程中途死亡（OOM/重启/未捕获异常）时，至少留住最近一次 checkpoint 的
+      //    正文与工具步骤，不再整条蒸发。重答场景保持原子替换（末尾 create 新 + delete 旧），
+      //    不提前落库，避免中途崩溃在库里留下「新占位 + 旧答案」两条。 ──
+      // 首轮定下用哪个连接后钉住：换模型会让上一轮 tool_call 的上下文对不上。
+      // 声明提前到 checkpoint 闭包之前：占位/定稿落库与用量埋点都要用它拿「实际使用的模型」。
+      let pinnedTarget: AiGatewayTarget | undefined;
+      let assistantPersistedId: string | null = null;
+      let lastCheckpointLen = 0;
+      let checkpointInFlight = false;
+      const CHECKPOINT_MIN_CHARS = 800; // 正文每多这么多字符就 checkpoint 一次，长回答中途也能留住大部分
+      /** 幂等地落一条占位 assistant 消息并拿到稳定 id；已有待确认卡则立即绑定（消除孤儿卡）。 */
+      const ensureAssistantRow = async (): Promise<void> => {
+        if (regenerateTarget || assistantPersistedId) return;
+        try {
+          const created = await this.prisma.chatMessage.create({
+            data: {
+              conversationId,
+              role: 'assistant',
+              content: fullContent,
+              // 记「实际使用」的模型：自动态下路由可能改道，首个产出必然发生在 target 钉定之后
+              model: pinnedTarget?.model ?? model,
+              ...(toolStepRecords.length > 0
+                ? { toolSteps: toolStepRecords as unknown as Prisma.InputJsonValue }
+                : {}),
+            },
+          });
+          assistantPersistedId = created.id;
+          if (pendingActionIds.length > 0) {
+            await this.chatToolsService
+              .bindActionsToMessage(pendingActionIds, created.id)
+              .catch((err) =>
+                this.logger.warn(`确认卡绑定占位消息失败: ${err instanceof Error ? err.message : err}`),
+              );
+          }
+        } catch (err) {
+          // 占位创建失败不致命：assistantPersistedId 仍为 null，末尾收尾会走原有的一次性 create 兜底。
+          this.logger.warn(
+            `占位 assistant 消息创建失败（降级为末尾一次性落库）: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+      };
+      /** best-effort 把当前正文与工具步骤刷进占位消息；同一时刻只允许一个在途，避免堆积。 */
+      const persistCheckpoint = async (): Promise<void> => {
+        if (regenerateTarget || checkpointInFlight) return;
+        checkpointInFlight = true;
+        lastCheckpointLen = fullContent.length; // 先记锚点，让流式侧的字符阈值判断不再重复触发
+        try {
+          await ensureAssistantRow();
+          if (assistantPersistedId) {
+            await this.prisma.chatMessage.update({
+              where: { id: assistantPersistedId },
+              data: {
+                content: fullContent,
+                ...(toolStepRecords.length > 0
+                  ? { toolSteps: toolStepRecords as unknown as Prisma.InputJsonValue }
+                  : {}),
+              },
+            });
+          }
+        } catch (err) {
+          this.logger.warn(`checkpoint 落库失败（不影响本轮继续）: ${err instanceof Error ? err.message : err}`);
+        } finally {
+          checkpointInFlight = false;
+        }
+      };
+
       // ── 网关路由：主对话统一走网关，拿到首字节前降级、熔断和真实用量统计。
       //    需要视觉能力时不参与跨模型降级——路由里配的多是纯文本连接，换过去图片会
       //    退化成文件名，模型会回答「看不到图」。这种情况下只把当前连接交给网关，
@@ -1317,13 +1500,22 @@ export class ChatService {
         ...(baseURL ? { baseUrl: baseURL } : {}),
       };
       const needsVisionModel = hasImageAttachment || hasRecentHistoryImage;
-      const chatRouting = needsVisionModel
-        ? { targets: [chatFallbackTarget], timeoutMs: undefined }
+      // 用户在对话框显式选了模型（请求带 model）→ 严格用它，路由不覆盖用户意志；
+      // 未选（「自动」态，请求不带 model）才把选模权交给网关路由，fallback 为全局默认模型。
+      const explicitModelChoice = Boolean(dto.model?.trim());
+      const chatRouting = needsVisionModel || explicitModelChoice
+        ? {
+            targets: [chatFallbackTarget],
+            timeoutMs: undefined,
+            // 跳过路由的两种来源要区分开落库：vision=图片会话必须保视觉能力，user=用户意志优先
+            source: (needsVisionModel ? 'vision' : 'user') as AiGatewayRouteMeta['source'],
+            strategy: undefined,
+          }
         : await this.aiGateway.resolveTargets(chatScene, [chatFallbackTarget]);
       const streamTargets = chatRouting.targets;
       const streamTimeoutMs = chatRouting.timeoutMs;
-      // 首轮定下用哪个连接后钉住：换模型会让上一轮 tool_call 的上下文对不上
-      let pinnedTarget: AiGatewayTarget | undefined;
+      // 选模来源随请求落库（AiGatewayRequest.routeSource）：没有它，「路由是否生效」在请求明细里无从判断。
+      const chatRouteMeta: AiGatewayRouteMeta = { source: chatRouting.source, strategy: chatRouting.strategy };
 
       // ── ReAct 循环：模型返回 tool_calls 就执行工具并带结果再调，直到给出文字回答。
       //    无工具触发时第一轮即 break，与原单次流式调用完全等价（零额外延迟/成本）──
@@ -1341,11 +1533,19 @@ export class ChatService {
           targets: pinnedTarget ? [pinnedTarget] : streamTargets,
           messages: [...baseMessages, ...loopMessages],
           ...(toolsThisRound ? { tools: agentTools } : {}),
-          webSearch: webSearchEnabled,
+          // DashScope 内建联网检索只在首轮有意义（据用户原始问题判断是否需要外部实时信息）；
+          // 工具轮次是在处理已取回的内部数据，再开联网只会平白拖慢每轮 TTFT 并推高成本，故仅第 0 轮开。
+          webSearch: webSearchEnabled && round === 0,
           timeoutMs: streamTimeoutMs,
           signal: abortController.signal,
           retryWithoutTools: true,
+          routeMeta: chatRouteMeta,
           onTargetSettled: (target) => {
+            // 自动态下路由把请求改道到了别的模型：静默告知前端把气泡徽标改成实际模型。
+            // 只在首次钉定且确实换了模型时发一次；显式选模/视觉分支只有单一目标，天然不触发。
+            if (!pinnedTarget && target.model !== model) {
+              send({ type: 'modelSwitched', from: model, to: target.model, reason: 'route' });
+            }
             pinnedTarget = target;
           },
           onToolsDropped: () => {
@@ -1358,7 +1558,9 @@ export class ChatService {
         const pendingCalls: Array<{ id: string; name: string; args: string }> = [];
         let roundContent = '';
         try {
+          armStreamIdle(); // 开始等首个分片
           for await (const chunk of stream) {
+            armStreamIdle(); // 每收到一个分片就续命，只有真正持续静默才会触发中断
             const choice = chunk.choices[0];
             const delta = choice?.delta?.content ?? '';
             if (delta) {
@@ -1372,6 +1574,11 @@ export class ChatService {
                 send({ type: 'file_generating' });
               }
               if (!deltaSuppressed) send({ type: 'delta', delta });
+              // 增量 checkpoint：首个正文即落占位，之后每积累一定字符刷一次（fire-and-forget，
+              // 不阻塞流；同一时刻只一个在途）。长回答中途进程死亡也能留住已生成的大部分正文。
+              if (fullContent.length - lastCheckpointLen >= CHECKPOINT_MIN_CHARS) {
+                void persistCheckpoint();
+              }
             }
             // tool_calls 以增量分片下发：按 index 归并出完整的 name/arguments
             if (choice?.delta?.tool_calls?.length) timings.firstToken ??= Date.now() - requestStartedAt;
@@ -1381,18 +1588,27 @@ export class ChatService {
           // 中断掐断流会从这里抛出：跳出循环走正常收尾，已生成的正文照常落库
           if (clientAborted) break;
           // 首个分片之后上游才断流（此前的失败由网关在首分片前降级重试兜住）：
-          // 用户已经看到的内容不能一错全丢——标注截断后走正常收尾落库并发 done，
-          // 前端保留正文；一个字都没写出才按整体失败抛出，走 error 事件让用户重试
-          if (fullContent.trim()) {
+          // 用户已经看到的产出不能一错全丢——标注截断后走正常收尾落库并发 done，前端保留。
+          // 判据是「本轮已有任何可见产出」而非仅正文非空：多轮工具场景前几轮往往只有工具
+          // 步骤/确认卡/生成图而无正文，若仍按正文判空就会把这些已推给用户的产出整体作废。
+          // 一字一物都没产出才按整体失败抛出，走 error 事件让用户重试。
+          const hasVisibleOutput =
+            Boolean(fullContent.trim()) ||
+            toolStepRecords.length > 0 ||
+            pendingActionIds.length > 0 ||
+            toolGeneratedAtts.length > 0;
+          if (hasVisibleOutput) {
             streamInterrupted = true;
             this.logger.warn(
-              `会话 ${conversationId} 上游流中途断开，保留已生成的 ${fullContent.length} 字收尾: ${
+              `会话 ${conversationId} 上游流中途断开，保留已生成的 ${fullContent.length} 字/${toolStepRecords.length} 个工具步骤收尾: ${
                 iterationError instanceof Error ? iterationError.message : iterationError
               }`,
             );
             break;
           }
           throw iterationError;
+        } finally {
+          disarmStreamIdle(); // 本轮读流结束（正常/异常/break），撤掉看门狗，避免误触发下一轮
         }
 
         // 单轮工具数上限（防模型爆调）；无 id 的调用补稳定 id 保证与 tool 消息一一对应
@@ -1414,6 +1630,9 @@ export class ChatService {
         // 顺序相关的收集（tool 消息 / 轨迹 / 附件落库）在并行结束后按原序补齐，保证确定性。
         const baseSeq = toolStepSeq;
         toolStepSeq += toolCalls.length;
+        // 工具执行前先落占位消息：确保稍后产生的待确认卡有 messageId 可绑（消除孤儿卡），
+        // 也让本轮的工具步骤有归属。占位是幂等的，只有首轮真正 create。
+        await ensureAssistantRow();
         const steps = toolCalls.map((call, i) => ({
           call,
           stepId: `step_${baseSeq + i + 1}`,
@@ -1458,8 +1677,18 @@ export class ChatService {
                   // 写操作：把待确认动作卡推给前端渲染（确认/取消按钮走独立 REST 端点）
                   if (result.pendingAction) {
                     hadPendingAction = true;
-                    pendingActionIds.push(result.pendingAction.id);
+                    const actionId = result.pendingAction.id;
+                    pendingActionIds.push(actionId);
                     send({ type: 'pending_action', action: result.pendingAction });
+                    // 占位消息此刻已就绪（工具执行前已 ensureAssistantRow）：立即绑定，
+                    // 即便随后进程崩溃，这张卡也不会变成 messageId=null 的孤儿挂到别的消息下。
+                    if (assistantPersistedId) {
+                      void this.chatToolsService
+                        .bindActionsToMessage([actionId], assistantPersistedId)
+                        .catch((err) =>
+                          this.logger.warn(`确认卡即时绑定失败: ${err instanceof Error ? err.message : err}`),
+                        );
+                    }
                   }
                   // 生图：图片即刻推给前端展示（不等最终回答）
                   if (result.attachment) {
@@ -1481,7 +1710,12 @@ export class ChatService {
           const call = toolCalls[i];
           const result = results[i];
           if (result.attachment) toolGeneratedAtts.push(result.attachment);
-          loopMessages.push({ role: 'tool', tool_call_id: call.id, content: result.content });
+          // 回填前做防御性截断：正常工具输出远小于此上限，只有异常大的结果会被削顶，防止撑爆下一轮 prompt。
+          const feedContent =
+            result.content.length > ChatService.TOOL_RESULT_FEED_CHARS
+              ? result.content.slice(0, ChatService.TOOL_RESULT_FEED_CHARS) + '\n…（工具结果过长，已截断）'
+              : result.content;
+          loopMessages.push({ role: 'tool', tool_call_id: call.id, content: feedContent });
           toolTraceBuffer.push({
             tool: call.name,
             args: (call.args || '{}').slice(0, 200),
@@ -1506,6 +1740,9 @@ export class ChatService {
           fullContent += '\n\n';
           send({ type: 'delta', delta: '\n\n' });
         }
+        // 轮次边界是天然的 checkpoint 点：把本轮的正文与工具步骤刷进占位消息，
+        // 下一轮上游若卡死/进程崩溃，已完成轮次的产出都已落库可回放。
+        void persistCheckpoint();
       }
 
       // 已被中断：跳过所有只为「继续展示」服务的收尾（联网附录要等 20s、文件渲染要传 OSS、
@@ -1609,32 +1846,43 @@ export class ChatService {
       // and a failed regeneration keeps the previous answer intact.
       // 工具生成的图片（已即时推送）与 file-export 文件合并挂到 assistant 消息，历史回放可见
       const allGeneratedAtts = [...toolGeneratedAtts, ...generatedAtts];
-      // 中断且什么都没产出（用户刚发就停）：不落一条空的 assistant 消息污染历史
-      if (clientAborted && !fullContent && allGeneratedAtts.length === 0 && pendingActionIds.length === 0) {
+      // 中断且什么都没产出（用户刚发就停）：不落一条空的 assistant 消息污染历史。
+      // 但若已建占位（进过工具轮次或出过正文），说明有工具步骤等产出值得保留，改由下方 update
+      // 定稿，不在此 return——否则会在库里留下一条永不定稿的空占位。
+      if (
+        clientAborted &&
+        !assistantPersistedId &&
+        !fullContent &&
+        allGeneratedAtts.length === 0 &&
+        pendingActionIds.length === 0
+      ) {
         return;
       }
       const assistantMsg = await this.prisma.$transaction(async (tx) => {
-        const created = await tx.chatMessage.create({
-          data: {
-            conversationId,
-            role: 'assistant',
-            content: fullContent,
-            model,
-            ...(allGeneratedAtts.length > 0
-              ? { attachments: allGeneratedAtts as unknown as Prisma.InputJsonValue }
-              : {}),
-            ...(toolStepRecords.length > 0
-              ? { toolSteps: toolStepRecords as unknown as Prisma.InputJsonValue }
-              : {}),
-          },
-        });
+        // 定稿内容：有占位（非重答且已 checkpoint）→ 更新同一行；否则（重答 / 占位创建失败兜底）→ 新建。
+        const messageData = {
+          content: fullContent,
+          // 「实际使用」的模型：自动态下路由可能改道，落库/回放/分享都要如实反映
+          model: pinnedTarget?.model ?? model,
+          ...(allGeneratedAtts.length > 0
+            ? { attachments: allGeneratedAtts as unknown as Prisma.InputJsonValue }
+            : {}),
+          ...(toolStepRecords.length > 0
+            ? { toolSteps: toolStepRecords as unknown as Prisma.InputJsonValue }
+            : {}),
+        };
+        const saved = assistantPersistedId
+          ? await tx.chatMessage.update({ where: { id: assistantPersistedId }, data: messageData })
+          : await tx.chatMessage.create({
+              data: { conversationId, role: 'assistant', ...messageData },
+            });
         await tx.chatUsageEvent.create({
           data: {
             userId,
             eventType: 'answer_completed',
             conversationId,
-            messageId: created.id,
-            model,
+            messageId: saved.id,
+            model: pinnedTarget?.model ?? model,
             metadata: {
               latencyMs: Date.now() - requestStartedAt,
               fromDb: hasDatabaseContext,
@@ -1664,7 +1912,7 @@ export class ChatService {
           where: { id: conversationId },
           data: { summary: fullContent.slice(0, 60), updatedAt: new Date() },
         });
-        return created;
+        return saved;
       });
 
       // 待确认动作绑定到本条 assistant 消息：必须在 done 之前完成——否则前端一收到 done
@@ -1687,8 +1935,9 @@ export class ChatService {
         this.aiUsageService.record({
           userId,
           modality: 'chat',
-          model,
-          provider: activeConfig.provider ?? '',
+          // 用量与成本记在「实际使用」的模型/厂商头上，与网关留痕（AiGatewayRequest）对齐
+          model: pinnedTarget?.model ?? model,
+          provider: pinnedTarget?.provider ?? activeConfig.provider ?? '',
           promptTokens: estTokens(promptChars),
           completionTokens: estTokens(fullContent.length),
           estimated: true,
@@ -1723,7 +1972,18 @@ export class ChatService {
         this.logger.log(`会话 ${conversationId} 中断后收尾提前结束: ${err instanceof Error ? err.message : err}`);
         return;
       }
-      send({ type: 'error', message: err instanceof Error ? err.message : 'AI 调用失败' });
+      // 面向用户的文案：业务/框架异常（HttpException）本就是写给用户看的中文提示，原样透传；
+      // 其余是意外异常（Prisma / TypeError / SDK 原始错误等），只给通用可操作文案，真实原因进日志与埋点，
+      // 不把内部细节（表结构、endpoint、堆栈）暴露到对话里。
+      const userFacingMessage =
+        err instanceof HttpException
+          ? err.message
+          : 'AI 回答生成失败，请稍后重试。若反复失败，请联系管理员。';
+      const failureReason = err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300);
+      this.logger.error(
+        `会话 ${conversationId} 回答失败: ${err instanceof Error ? err.stack ?? err.message : err}`,
+      );
+      send({ type: 'error', message: userFacingMessage });
       await this.chatAnalyticsService.recordSystemEvent({
         userId,
         eventType: 'answer_failed',
@@ -1732,6 +1992,12 @@ export class ChatService {
         metadata: {
           latencyMs: Date.now() - requestStartedAt,
           failureType: err instanceof Error ? err.name.slice(0, 120) : 'unknown',
+          // 真实错误摘要 + 分段耗时 + 首字是否已产出：定位「卡在首字前」还是「多轮工具中途失败」的关键。
+          // timings 是对象，埋点 metadata 只收标量，故序列化为字符串（sanitize 会截断到 200 字）。
+          failureReason,
+          timingsJson: JSON.stringify(timings),
+          reachedFirstToken: timings.firstToken != null,
+          toolRoundsRun: timings.toolRounds ?? 0,
           userMessageId: userMsg.id,
           regenerated: Boolean(regenerateTarget),
         },
@@ -1739,8 +2005,9 @@ export class ChatService {
         this.logger.warn(`回答失败埋点写入失败: ${eventError instanceof Error ? eventError.message : eventError}`);
       });
     } finally {
-      clearInterval(streamKeepalive);
-      res.end();
+      if (streamKeepalive) clearInterval(streamKeepalive);
+      disarmStreamIdle();
+      if (!res.writableEnded) res.end();
     }
   }
 
@@ -2234,6 +2501,7 @@ export class ChatService {
 
     const mapped = messages.map((m, idx): OpenAI.Chat.Completions.ChatCompletionMessageParam | null => {
       const role = m.role as 'user' | 'assistant';
+      // 拒答检测用原文（拒答句一般在开头，截断不影响判定）
       if (
         role === 'assistant' &&
         sanitizeRefusals &&
@@ -2241,8 +2509,13 @@ export class ChatService {
       ) {
         return null;
       }
+      // 单条历史正文硬上限：异常长的历史消息只保留前段，避免整条撑大 prompt 与内存。
+      const baseText =
+        m.content.length > ChatService.HISTORY_PER_MSG_TEXT_CHARS
+          ? m.content.slice(0, ChatService.HISTORY_PER_MSG_TEXT_CHARS) + '…（历史消息过长，已截断）'
+          : m.content;
       if (role !== 'user' || (!docBlocks.has(idx) && !imageParts.has(idx) && !plainNotes.has(idx))) {
-        return { role, content: m.content };
+        return { role, content: baseText };
       }
       const extras: string[] = [];
       const blocks = docBlocks.get(idx);
@@ -2251,7 +2524,7 @@ export class ChatService {
       }
       const note = plainNotes.get(idx);
       if (note) extras.push(note);
-      const text = extras.length > 0 ? `${m.content}\n\n${extras.join('\n\n')}`.trim() : m.content;
+      const text = extras.length > 0 ? `${baseText}\n\n${extras.join('\n\n')}`.trim() : baseText;
       const parts = imageParts.get(idx);
       if (parts?.length) {
         return { role: 'user', content: [{ type: 'text', text }, ...parts] };

@@ -122,6 +122,7 @@ export class OpsAiService {
       const result = await this.aiGateway.complete({
         scene: 'ops.error_analysis',
         targets: routing.targets,
+        routeMeta: { source: routing.source, strategy: routing.strategy },
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: JSON.stringify(userPayload) },

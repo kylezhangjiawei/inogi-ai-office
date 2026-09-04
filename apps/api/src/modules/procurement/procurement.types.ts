@@ -65,7 +65,9 @@ export const PROC_STATUS_TRANSITIONS: Record<ProcStatus, ProcStatus[]> = {
   pending_rd_review: ['pending_confirm'],
   pending_confirm: ['pending_inquiry', 'pending_purchase'],
   pending_inquiry: ['inquiring'],
-  inquiring: ['pending_sample', 'priced'],
+  // testing 是条件流转：只有已登记免费样品来货（样品实际已到手）的任务才允许跳过「待到样」，
+  // 由 transitionTask 逐条校验。静态表放行是必要条件，不是充分条件。
+  inquiring: ['pending_sample', 'priced', 'testing'],
   pending_sample: ['testing'],
   // 测试不通过有两条路：同一家供应商改图再出一次样（回「待到样」），或换供应商重新询价
   testing: ['priced', 'inquiring', 'pending_sample'],
@@ -79,10 +81,29 @@ export const PROC_STATUS_TRANSITIONS: Record<ProcStatus, ProcStatus[]> = {
 
 /**
  * 允许登记 T+ 采购单关联的状态。
+ * 「待询价 / 询价中」只收免费样品来货：供应商寄样往往早于定价，T+ 里根本没有对应采购单，
+ * 带单号的正式采购单由 PROC_FREE_SAMPLE_ONLY_STATUSES 挡在这两档之外。
  * 「待到样」是打样轮次的出样单，只登记不流转；其余是正式采购单。
- * 单据匹配的候选任务也用这一份，两处各写一份必然漂移。
  */
 export const PROC_PO_LINKABLE_STATUSES: ProcStatus[] = [
+  'pending_inquiry',
+  'inquiring',
+  'pending_sample',
+  'priced',
+  'pending_purchase',
+  'in_transit',
+  'partial_arrival',
+];
+
+/** 只接受免费样品行的状态：这两档还没定价，不可能有 T+ 采购单号。 */
+export const PROC_FREE_SAMPLE_ONLY_STATUSES: ProcStatus[] = ['pending_inquiry', 'inquiring'];
+
+/**
+ * T+ 单据匹配的候选任务状态。
+ * 刻意不复用 PROC_PO_LINKABLE_STATUSES —— 这两份现在是不同的集合，不是重复定义：
+ * 询价两档只可能挂免费样品（T+ 里无单），放进候选只会让真实采购单被建议关联到还在询价的任务上。
+ */
+export const PROC_PO_MATCHABLE_STATUSES: ProcStatus[] = [
   'pending_sample',
   'priced',
   'pending_purchase',
@@ -106,6 +127,85 @@ export const PROC_QUOTATION_RESETTABLE_STATUSES: ProcStatus[] = [
 
 /** 终态：不可再流转，也不计入待办统计。 */
 export const PROC_TERMINAL_STATUSES: ProcStatus[] = ['completed', 'cancelled'];
+
+/**
+ * 主干流程顺序。回退功能据此判断「谁在谁前面」——只有排在当前状态之前的节点才是回退目标。
+ *
+ * 刻意不含 pending_purchase：直购走的是 待处理 → 待购买 → 已下单 的旁路，
+ * 与询价主干不在同一条线上，把它塞进同一个序列会让「上一个节点」失去意义。
+ * 直购任务的回退目标由 rollbackTargetsOf 单独给。
+ */
+export const PROC_ROLLBACK_MAIN_FLOW: ProcStatus[] = [
+  'pending_confirm',
+  'pending_inquiry',
+  'inquiring',
+  'pending_sample',
+  'testing',
+  'priced',
+  'in_transit',
+  'partial_arrival',
+  'completed',
+];
+
+/** 直购旁路的回退序列。 */
+export const PROC_ROLLBACK_DIRECT_FLOW: ProcStatus[] = [
+  'pending_confirm',
+  'pending_purchase',
+  'in_transit',
+  'partial_arrival',
+  'completed',
+];
+
+/**
+ * 不可回退的状态。
+ * pending_rd_review 是采购流程之前的审核环节，采购侧无权处置；
+ * cancelled 已经是作废态，要恢复走的是重新发起而不是回退。
+ */
+export const PROC_ROLLBACK_BLOCKED_STATUSES: ProcStatus[] = ['pending_rd_review', 'cancelled'];
+
+/**
+ * 回退到该状态时必须一并清理的业务数据。
+ * 回退不是单纯改一个字段：退到「待询价」却留着已确认的报价，任务会卡在
+ * 「有报价但状态说还没询价」的矛盾态，下一步动作全部失效。
+ */
+export interface ProcRollbackCleanup {
+  /** 清空本任务的报价快照与报价金额 */
+  quotations: boolean;
+  /** 解除 T+ 采购单关联（免费样品登记保留：那是收样事实，与采购单无关） */
+  purchaseOrders: boolean;
+  /** 把任务上的到货累计量归零（到货量由采购单汇总而来，没有独立的到货表） */
+  arrivals: boolean;
+}
+
+/**
+ * 回退到目标状态需要清理什么。
+ * 判据是「目标状态下这份数据本不该存在」：退回「待询价」时报价还没维护，
+ * 退回「已定价」时采购单还没下，退到「已下单」之前到货记录不可能有。
+ */
+export function rollbackCleanupFor(target: ProcStatus): ProcRollbackCleanup {
+  const index = PROC_ROLLBACK_MAIN_FLOW.indexOf(target);
+  const pricedIndex = PROC_ROLLBACK_MAIN_FLOW.indexOf('priced');
+  const inTransitIndex = PROC_ROLLBACK_MAIN_FLOW.indexOf('in_transit');
+  // 直购的「待购买」在主干序列里找不到，它排在下单之前，按 priced 同档处理
+  const effectiveIndex = target === 'pending_purchase' ? pricedIndex : index;
+  return {
+    quotations: effectiveIndex >= 0 && effectiveIndex <= PROC_ROLLBACK_MAIN_FLOW.indexOf('pending_inquiry'),
+    purchaseOrders: effectiveIndex >= 0 && effectiveIndex < inTransitIndex,
+    arrivals: effectiveIndex >= 0 && effectiveIndex < inTransitIndex,
+  };
+}
+
+/**
+ * 某状态可回退到哪些节点：同一条流程线上排在它前面的全部节点。
+ * 「可回退到任意流程节点」的边界就在这里——只能往回，不能借回退往前跳。
+ */
+export function rollbackTargetsOf(current: ProcStatus, method?: string | null): ProcStatus[] {
+  if (PROC_ROLLBACK_BLOCKED_STATUSES.includes(current)) return [];
+  const flow = method === 'direct' ? PROC_ROLLBACK_DIRECT_FLOW : PROC_ROLLBACK_MAIN_FLOW;
+  const index = flow.indexOf(current);
+  if (index <= 0) return [];
+  return flow.slice(0, index);
+}
 
 export type MaterialReviewStatus = 'pending' | 'approved' | 'rejected';
 export type MaterialReviewSource = 'import' | 'auto' | 'manual';

@@ -8,8 +8,9 @@ import { computeReplenishRows, type ReplenishRow } from './replenish-core';
 /**
  * 补货建议：把「缺料预警」从统计数字变成可行动清单。
  *
- * 建议补货量 = 安全库存 − 当前库存 − T+ 在途（镜像里未到齐的单）− 进行中采购任务未到量，
- * 三重扣减避免重复下单；≤0 说明缺口已被覆盖，不出现在清单里。
+ * 建议补货量 = 安全库存 − 当前库存 − T+ 在途（镜像里未到齐的单，作废单除外）− 进行中采购任务未到量，
+ * 三重扣减避免重复下单；≤0 的物料标记 covered 仍然列出，不静默丢弃——
+ * 丢弃会让「缺料预警 N 条」与「补货建议 M 条」长期对不上，在途量算错时也无人能发现。
  * 附最近一次采购的供应商/单价（来自 T+ 镜像）供询价参考。
  * 「生成任务」逐条复用 createTask（询价流程起点），依据写入 consumableNote 留痕。
  * 计算口径在 replenish-core.ts（与 MateChat 采购查询工具共用）。
@@ -45,7 +46,8 @@ export class MaterialReplenishService {
     if (shortage.length === 0) return { rows: [] };
     const ids = shortage.map((m) => m.id);
 
-    // T+ 在途：镜像里未到齐的单行（到货量 < 订购量）
+    // T+ 在途：镜像里未到齐的单行（到货量 < 订购量）。
+    // 必须带上单据状态：作废单永远不会到货，计入在途会把真实缺口抵消掉。
     const mirrorRows = await this.prisma.procPurchaseOrderMirror.findMany({
       where: { materialId: { in: ids } },
       select: {
@@ -55,6 +57,8 @@ export class MaterialReplenishService {
         supplierName: true,
         unitPrice: true,
         orderDate: true,
+        status: true,
+        approvalStatus: true,
       },
       orderBy: { orderDate: 'desc' },
     });
@@ -81,6 +85,8 @@ export class MaterialReplenishService {
         receivedQty: Number(r.receivedQty),
         supplierName: r.supplierName,
         unitPrice: r.unitPrice === null ? null : Number(r.unitPrice),
+        status: r.status,
+        approvalStatus: r.approvalStatus,
       })),
       openTasks.map((t) => ({
         materialId: t.materialId as string,

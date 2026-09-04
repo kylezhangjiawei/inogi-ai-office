@@ -66,14 +66,9 @@ import {
   integrationManagementApi,
 } from "./lib/integrationManagementApi";
 import { dictionaryApi } from "./lib/dictionaryApi";
+import type { TestAiModelConnectionResult } from "./lib/integrationManagementApi";
 import { cn } from "./components/ui/utils";
 import { resolveExplicitUsage, resolveModelUsageKind } from "./lib/aiModelOptions";
-import {
-  HorizonEmptyState,
-  HorizonMetric,
-  HorizonMetricGrid,
-  HorizonPageHeader,
-} from "./components/horizon/HorizonPage";
 
 const AI_PROVIDER_DICT_KEY = "ai_provider";
 
@@ -86,6 +81,62 @@ type BulkTestProgress = {
   succeeded: number;
   failed: number;
 };
+
+/** 一条连通性测试失败记录：中文结论 + 可能情况 + 原始错误，供结果面板展示 */
+type BulkTestFailure = {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  wasEnabled: boolean;
+  code: string;
+  reason: string;
+  causes: string[];
+  raw: string;
+  /** 本次测试把它从启用改成了停用 */
+  disabled: boolean;
+};
+
+type BulkTestReport = {
+  total: number;
+  succeeded: number;
+  failures: BulkTestFailure[];
+};
+
+function failureFromResult(row: AiModelItem, result: TestAiModelConnectionResult): BulkTestFailure {
+  return {
+    id: row.id,
+    name: row.name,
+    provider: row.provider,
+    model: row.model,
+    wasEnabled: row.enabled,
+    code: result.error_code ?? "UNKNOWN",
+    reason: result.error_reason ?? result.message,
+    causes: result.error_causes ?? [],
+    raw: result.raw_error ?? result.message,
+    disabled: Boolean(result.disabled),
+  };
+}
+
+/** 测试请求本身没打到后端（登录过期 / 断网 / 服务未起），后端没有记录也没有停用 */
+function failureFromException(row: AiModelItem, error: unknown): BulkTestFailure {
+  const message = error instanceof Error ? error.message : "测试请求失败";
+  return {
+    id: row.id,
+    name: row.name,
+    provider: row.provider,
+    model: row.model,
+    wasEnabled: row.enabled,
+    code: "REQUEST_FAILED",
+    reason: `测试请求未能完成：${message}`,
+    causes: [
+      "后端接口调用失败：可能是登录已过期、网络中断或 API 服务未启动",
+      "该模型的状态没有更新，也没有被停用，请稍后重试",
+    ],
+    raw: message,
+    disabled: false,
+  };
+}
 
 type DialogMode = "create" | "edit" | "delete" | null;
 type WorkspaceTab = "connections" | "routes" | "monitor" | "requests";
@@ -129,7 +180,7 @@ function RadixSelectField({
 }) {
   return (
     <Select value={value || RADIX_ALL_VALUE} onValueChange={(nextValue) => onValueChange(nextValue === RADIX_ALL_VALUE ? "" : nextValue)} disabled={disabled}>
-      <SelectTrigger aria-label={ariaLabel} className={cn("h-9 min-w-32 rounded-lg border-slate-200 bg-white px-3 text-xs text-slate-700 shadow-none hover:border-blue-300 focus:ring-blue-200", className)}>
+      <SelectTrigger aria-label={ariaLabel} className={cn("h-9 min-w-32 rounded-lg border-slate-200 bg-white px-3 text-xs text-slate-700 shadow-none hover:border-indigo-300 focus:ring-indigo-200", className)}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent className="z-[80] max-h-72 rounded-xl border-slate-200 bg-white shadow-xl">
@@ -282,6 +333,32 @@ function gatewayStatusLabel(status: string) {
   if (status === "failed") return "失败";
   if (status === "circuit_open") return "熔断跳过";
   return status;
+}
+
+/**
+ * 选模来源展示。与「故障转移」(fallback_used) 是两个独立维度：
+ * 前者回答「targets 是谁定的」（路由 / 回落默认 / 用户指定 / 视觉直连），
+ * 后者回答「一次调用是否跨连接切换过」。此前明细只展示后者且文案叫「首选命中」，
+ * 让人误以为它能证明路由生效——实际上路由从未参与时它也显示「首选命中」。
+ */
+const ROUTE_SOURCE_LABELS: Record<string, string> = {
+  route: "走路由",
+  fallback: "走默认",
+  user: "用户指定",
+  vision: "视觉直连",
+};
+const STRATEGY_LABELS: Record<string, string> = {
+  priority: "优先级",
+  round_robin: "轮询",
+  weighted: "权重",
+  lowest_latency: "最低延迟",
+};
+function routeSourceLabel(item: { route_source: string | null; strategy: string | null }): string {
+  if (!item.route_source) return "未知（旧数据）";
+  const base = ROUTE_SOURCE_LABELS[item.route_source] ?? item.route_source;
+  return item.route_source === "route" && item.strategy
+    ? `${base} · ${STRATEGY_LABELS[item.strategy] ?? item.strategy}`
+    : base;
 }
 
 // ── 百炼 Token Plan 预设模型目录 ──────────────────────────────────────────────
@@ -445,10 +522,10 @@ const statusToneMap: Record<string, string> = {
 
 const usageToneMap: Record<string, string> = {
   text: "bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-200",
-  multimodal: "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200",
+  multimodal: "bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200",
   image: "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200",
   embedding: "bg-teal-50 text-teal-700 ring-1 ring-inset ring-teal-200",
-  document: "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200",
+  document: "bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200",
   video: "bg-pink-50 text-pink-700 ring-1 ring-inset ring-pink-200",
   audio: "bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-200",
 };
@@ -467,16 +544,16 @@ function GatewayMetricCard({
   label,
   value,
   hint,
-  tone = "blue",
+  tone = "indigo",
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   hint: string;
-  tone?: "blue" | "emerald" | "amber" | "sky";
+  tone?: "indigo" | "emerald" | "amber" | "sky";
 }) {
   const toneClasses = {
-    blue: "bg-blue-50 text-blue-700 ring-blue-100",
+    indigo: "bg-indigo-50 text-indigo-700 ring-indigo-100",
     emerald: "bg-emerald-50 text-emerald-700 ring-emerald-100",
     amber: "bg-amber-50 text-amber-700 ring-amber-100",
     sky: "bg-sky-50 text-sky-700 ring-sky-100",
@@ -487,29 +564,8 @@ function GatewayMetricCard({
         <span className={cn("flex size-7 items-center justify-center rounded-lg ring-1", toneClasses[tone])}>{icon}</span>
         {label}
       </div>
-      <div className="mt-3 text-xl font-semibold text-slate-950 tabular-nums">{value}</div>
+      <div className="mt-3 text-xl font-semibold tracking-[-0.03em] text-slate-950 tabular-nums">{value}</div>
       <div className="mt-1 text-[10px] leading-4 text-slate-500">{hint}</div>
-    </div>
-  );
-}
-
-function WorkspaceErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-6" role="alert">
-      <div className="flex items-start gap-3">
-        <AlertTriangle className="mt-0.5 size-5 shrink-0 text-rose-600" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <div className="font-semibold text-rose-900">数据读取失败</div>
-          <p className="mt-1 text-sm leading-6 text-rose-700 text-pretty">{message}</p>
-          <button
-            type="button"
-            className="mt-3 inline-flex h-9 items-center justify-center rounded-lg border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-700 hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300"
-            onClick={onRetry}
-          >
-            重新加载
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -517,15 +573,20 @@ function WorkspaceErrorState({ message, onRetry }: { message: string; onRetry: (
 function GatewayRouteWorkspace({
   routes,
   models,
+  usage,
   loading,
   onReload,
 }: {
   routes: AiGatewayRoute[];
   models: AiModelItem[];
+  /** 近 24h 各场景按选模来源的调用计数（scene → route/fallback/user/vision/unknown → count） */
+  usage: Record<string, Record<string, number>>;
   loading: boolean;
   onReload: () => Promise<void>;
 }) {
-  const [selectedScene, setSelectedScene] = useState<GatewayScene>("rd.task_brief");
+  // 默认选中主对话：全仓流量最高的场景。原默认 rd.task_brief 是最低频场景（唯一入口为任务
+  // 详情领导摘要），照着它配路由再验证，几乎必然「配了没感觉」。
+  const [selectedScene, setSelectedScene] = useState<GatewayScene>("chat.completion");
   const sceneDefinition = GATEWAY_SCENES.find((item) => item.value === selectedScene) ?? GATEWAY_SCENES[0];
   const existing = routes.find((route) => route.scene === selectedScene);
   const [name, setName] = useState(existing?.name ?? sceneDefinition.label);
@@ -542,8 +603,8 @@ function GatewayRouteWorkspace({
   );
   const [saving, setSaving] = useState(false);
   const [fallbackScenesOpen, setFallbackScenesOpen] = useState(false);
-  const controlInputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
-  const iconButtonClass = "flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-35";
+  const controlInputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 hover:border-slate-300 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100";
+  const iconButtonClass = "flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-35";
 
   useEffect(() => {
     const definition = GATEWAY_SCENES.find((item) => item.value === selectedScene) ?? GATEWAY_SCENES[0];
@@ -591,13 +652,13 @@ function GatewayRouteWorkspace({
         type="button"
         onClick={() => setSelectedScene(scene.value)}
         className={cn(
-          "flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200",
+          "flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
           active
-            ? "border-blue-200 bg-white shadow-sm"
+            ? "border-indigo-200 bg-white shadow-sm"
             : "border-transparent hover:border-slate-200 hover:bg-white/80",
         )}
       >
-        <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", active ? "bg-blue-700 text-white shadow-sm" : "bg-white text-slate-500 ring-1 ring-inset ring-slate-200")}>
+        <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", active ? "bg-indigo-600 text-white shadow-sm" : "bg-white text-slate-500 ring-1 ring-inset ring-slate-200")}>
           {scene.value === "rd.task_brief"
             ? <ListTree className="size-4" />
             : scene.value === "ops.error_analysis"
@@ -620,7 +681,7 @@ function GatewayRouteWorkspace({
           </span>
           <span className="mt-1 block truncate text-[10px] text-slate-500">{scene.description}</span>
         </span>
-        <ChevronRight className={cn("size-4 shrink-0", active ? "text-blue-700" : "text-slate-400")} />
+        <ChevronRight className={cn("size-4 shrink-0", active ? "text-indigo-600" : "text-slate-400")} />
       </button>
     );
   }
@@ -662,8 +723,28 @@ function GatewayRouteWorkspace({
     }
   }
 
+  /** 删除已保存的路由：场景回到「默认回退」态（各业务用自带模型），与从未配置过等价。 */
+  async function removeRoute() {
+    if (!existing) return;
+    if (!window.confirm(`确定删除「${sceneDefinition.label}」的专用路由？删除后该场景回到默认回退（各业务使用自带模型）。`)) return;
+    setSaving(true);
+    try {
+      await integrationManagementApi.deleteAiGatewayRoute(selectedScene);
+      toast.success(`${sceneDefinition.label}路由已删除，场景回到默认回退`);
+      await onReload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除路由失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
+      {/* 管辖范围说明：避免误以为路由是「所有 AI 的总控」——生图/视频/向量化/OCR 走各自专用通道 */}
+      <p className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-2.5 text-[11px] leading-5 text-slate-500">
+        路由策略仅覆盖<span className="font-medium text-slate-700">文本对话类调用</span>（chat.completions）。文生图、视频生成、向量化（Embedding）、OCR 与文档直读走各自的专用通道，不经网关路由——它们的模型与密钥仍由「模型连接」统一管理。
+      </p>
       <section className="rounded-2xl border border-slate-200 bg-slate-50/80 p-2 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
         {dedicatedScenes.length > 0 ? (
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -675,7 +756,7 @@ function GatewayRouteWorkspace({
           </div>
         )}
         <Collapsible open={fallbackScenesOpen} onOpenChange={setFallbackScenesOpen} className="mt-2">
-          <CollapsibleTrigger className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left hover:border-blue-200 hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200">
+          <CollapsibleTrigger className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left hover:border-indigo-200 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200">
             <span>
               <span className="block text-sm font-semibold text-slate-800">默认回退场景</span>
               <span className="mt-0.5 block text-xs text-slate-500">{fallbackScenes.length} 个场景沿用各业务模块原有模型，展开后可配置专用路由。</span>
@@ -696,7 +777,7 @@ function GatewayRouteWorkspace({
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <GitBranch className="size-4 text-blue-700" />
+                <GitBranch className="size-4 text-indigo-600" />
                 故障切换链
               </div>
               <p className="mt-1 text-sm leading-6 text-slate-500">从上到下依次调用；失败、限流或熔断时自动进入下一连接。</p>
@@ -708,6 +789,29 @@ function GatewayRouteWorkspace({
               {existing ? (existing.enabled ? "策略生效中" : "策略已停用") : "等待配置"}
             </span>
           </div>
+          {/* 运行期反馈：该场景近 24h 实际的选模来源分布。「策略生效中」只是配置回显，
+              这一行才回答「路由到底有没有接管调用」。 */}
+          {(() => {
+            const sceneUsage = usage[selectedScene] ?? {};
+            const parts = [
+              ["route", "走路由"],
+              ["fallback", "走默认"],
+              ["user", "用户指定"],
+              ["vision", "视觉直连"],
+              ["unknown", "旧数据"],
+            ] as const;
+            const rendered = parts
+              .filter(([key]) => (sceneUsage[key] ?? 0) > 0)
+              .map(([key, label]) => `${label} ${sceneUsage[key]} 次`);
+            return (
+              <p className="mt-2 text-[11px] leading-4 text-slate-500">
+                近 24 小时：{rendered.length > 0 ? rendered.join(" · ") : "无调用"}
+                {existing?.enabled && (sceneUsage.fallback ?? 0) > 0 && (sceneUsage.route ?? 0) === 0 ? (
+                  <span className="ml-1 font-medium text-amber-600">——路由已启用但没有一次走路由，请检查连接可用性</span>
+                ) : null}
+              </p>
+            );
+          })()}
         </div>
         <div className="space-y-2.5 p-4">
           {loading ? (
@@ -720,7 +824,7 @@ function GatewayRouteWorkspace({
               {suggestedModel ? (
                 <button
                   type="button"
-                  className="mt-4 inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border border-blue-200 bg-white px-3 text-xs font-semibold text-blue-700 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                  className="mt-4 inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border border-indigo-200 bg-white px-3 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
                   onClick={() => {
                     setConnectionIds([suggestedModel.id]);
                     setWeights({ [suggestedModel.id]: 100 });
@@ -733,12 +837,12 @@ function GatewayRouteWorkspace({
               )}
             </div>
           ) : selectedModels.map((model, index) => (
-            <div key={model.id} className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 transition-colors hover:border-blue-200 hover:bg-blue-50/30">
-              <div className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold", index === 0 ? "bg-blue-700 text-white" : "bg-white text-slate-500 ring-1 ring-inset ring-slate-200")}>{index + 1}</div>
+            <div key={model.id} className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 transition-colors hover:border-indigo-200 hover:bg-indigo-50/30">
+              <div className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold", index === 0 ? "bg-indigo-600 text-white" : "bg-white text-slate-500 ring-1 ring-inset ring-slate-200")}>{index + 1}</div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="truncate text-sm font-semibold text-slate-900">{model.name}</span>
-                  {index === 0 ? <span className="material-chip bg-blue-50 text-blue-700">主连接</span> : <span className="material-chip bg-amber-50 text-amber-700">备用 {index}</span>}
+                  {index === 0 ? <span className="material-chip bg-indigo-50 text-indigo-700">主连接</span> : <span className="material-chip bg-amber-50 text-amber-700">备用 {index}</span>}
                 </div>
                 <div className="mt-1 truncate font-mono text-xs text-slate-500">{model.provider} · {model.model}</div>
               </div>
@@ -783,14 +887,14 @@ function GatewayRouteWorkspace({
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><ShieldCheck className="size-4 text-blue-700" />策略参数</div>
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><ShieldCheck className="size-4 text-indigo-600" />策略参数</div>
         <div className="mt-4 space-y-4">
           <div>
-            <label htmlFor="gateway-route-name" className="mb-1.5 block text-xs font-semibold text-slate-600">策略名称</label>
-            <input id="gateway-route-name" className={controlInputClass} value={name} onChange={(event) => setName(event.target.value)} />
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">策略名称</label>
+            <input className={controlInputClass} value={name} onChange={(event) => setName(event.target.value)} />
           </div>
           <div>
-            <div className="mb-1.5 text-xs font-semibold text-slate-600">单次调用超时</div>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500" title="流式场景下该超时只保护「到首个字节」；正文传输阶段由业务层的流空闲看门狗兜底">单次调用超时（首包）</label>
             <RadixSelectField value={String(timeoutMs)} onValueChange={(value) => setTimeoutMs(Number(value))} options={[
               { value: "30000", label: "30 秒" },
               { value: "60000", label: "60 秒" },
@@ -799,16 +903,19 @@ function GatewayRouteWorkspace({
             ]} ariaLabel="单次调用超时" className="w-full" />
           </div>
           <div>
-            <div className="mb-1.5 text-xs font-semibold text-slate-600">调度策略</div>
-            <RadixSelectField value={strategy} onValueChange={(value) => setStrategy(value as AiGatewayStrategy)} options={GATEWAY_STRATEGIES.map((option) => ({ value: option.value, label: `${option.label} · ${option.description}` }))} ariaLabel="调度策略" className="w-full" />
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">调度策略</label>
+            <RadixSelectField value={strategy} onValueChange={(value) => setStrategy(value as AiGatewayStrategy)} options={GATEWAY_STRATEGIES.map((option) => ({ value: option.value, label: `${option.label} · ${option.description}` }))} ariaLabel="调度策略" className="w-full" disabled={connectionIds.length < 2} />
+            {connectionIds.length < 2 && (
+              <p className="mt-1 text-[10px] leading-4 text-amber-600">只有 1 条连接时所有策略行为完全相同（无从调度）；添加第 2 条连接后策略才会生效。</p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor="gateway-failure-threshold" className="mb-1.5 block text-xs font-semibold text-slate-600">失败阈值</label>
-              <input id="gateway-failure-threshold" className={controlInputClass} type="number" min={1} max={20} value={failureThreshold} onChange={(event) => setFailureThreshold(Number(event.target.value))} />
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">失败阈值</label>
+              <input className={controlInputClass} type="number" min={1} max={20} value={failureThreshold} onChange={(event) => setFailureThreshold(Number(event.target.value))} />
             </div>
             <div>
-              <div className="mb-1.5 text-xs font-semibold text-slate-600">冷却时间</div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">冷却时间</label>
               <RadixSelectField value={String(cooldownMs)} onValueChange={(value) => setCooldownMs(Number(value))} options={[
                 { value: "30000", label: "30 秒" },
                 { value: "60000", label: "60 秒" },
@@ -819,12 +926,15 @@ function GatewayRouteWorkspace({
           </div>
           <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
             <div><div className="text-sm font-medium text-slate-700">启用专用路由</div><div className="mt-0.5 text-xs text-slate-500">关闭后回退原场景配置</div></div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} className="data-[state=checked]:bg-blue-700 data-[state=unchecked]:bg-slate-300" aria-label="启用专用路由" />
+            <Switch checked={enabled} onCheckedChange={setEnabled} className="data-[state=checked]:bg-indigo-600 data-[state=unchecked]:bg-slate-300" />
           </div>
           <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs leading-5 text-amber-800">
             连续失败达到阈值后连接会进入临时熔断，冷却期间直接跳到下一连接，避免重复等待故障服务。
           </div>
-          <button type="button" className="inline-flex h-10 w-full cursor-pointer items-center justify-center rounded-xl bg-blue-700 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存路由策略"}</button>
+          <button type="button" className="inline-flex h-10 w-full cursor-pointer items-center justify-center rounded-xl bg-indigo-600 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存路由策略"}</button>
+          {existing && (
+            <button type="button" className="mt-2 inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-xl border border-rose-200 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={() => void removeRoute()}>删除此路由（回到默认回退）</button>
+          )}
         </div>
       </section>
       </div>
@@ -864,7 +974,6 @@ function GatewayMonitorWorkspace({
   const [connectionPage, setConnectionPage] = useState(1);
   const [connectionPageSize, setConnectionPageSize] = useState(9);
   const [selectedConnection, setSelectedConnection] = useState<AiGatewayConnectionOverview | null>(null);
-  const connectionDialogTriggerRef = useRef<HTMLButtonElement | null>(null);
   const totals = overview?.totals;
   const trend = overview?.trend.slice(-14) ?? [];
   const maxTrendRequests = Math.max(1, ...trend.map((item) => item.requests));
@@ -904,31 +1013,32 @@ function GatewayMonitorWorkspace({
 
   return (
     <div className="space-y-3">
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <section className="overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 via-white to-sky-50/70 shadow-[0_10px_30px_-22px_rgba(79,70,229,0.35)]">
         <div className="relative p-4 md:p-5">
+          <div className="pointer-events-none absolute -right-20 -top-24 size-72 rounded-full bg-indigo-200/35 blur-3xl" />
           <div className="relative flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2 text-xs font-semibold text-blue-700"><Zap className="size-3.5" />Gateway Pulse</div>
-              <h3 className="mt-1.5 text-xl font-semibold text-slate-950">AI 路由运行态</h3>
+              <div className="flex items-center gap-2 text-xs font-semibold text-indigo-700"><Zap className="size-3.5" />Gateway Pulse</div>
+              <h3 className="mt-1.5 text-xl font-semibold tracking-[-0.03em] text-slate-950">AI 路由运行态</h3>
               <p className="mt-1 text-xs text-slate-600">观察业务请求在连接之间的真实流动，而不只是单个模型是否在线。</p>
             </div>
             <div className="flex flex-col items-end gap-2">
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <label className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 shadow-sm hover:border-blue-200">
+                <label className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3 text-xs font-medium text-slate-600 shadow-sm hover:border-indigo-200">
                   <Switch
                     checked={autoRefresh}
                     onCheckedChange={onAutoRefreshChange}
-                    className="data-[state=checked]:bg-blue-700 data-[state=unchecked]:bg-slate-300"
+                    className="data-[state=checked]:bg-indigo-600 data-[state=unchecked]:bg-slate-300"
                     aria-label="每 30 秒自动刷新监控"
                   />
                   自动刷新
                 </label>
-                <div className="flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+                <div className="flex rounded-xl border border-slate-200 bg-white/80 p-1 shadow-sm">
                   {RANGE_OPTIONS.map((option) => (
-                    <button key={option.value} type="button" onClick={() => onRangeChange(option.value)} className={cn("rounded-lg px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200", range === option.value ? "bg-blue-700 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100")}>{option.label}</button>
+                    <button key={option.value} type="button" onClick={() => onRangeChange(option.value)} className={cn("rounded-lg px-3 py-2 text-xs font-medium transition-colors", range === option.value ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100")}>{option.label}</button>
                   ))}
                 </div>
-                <button type="button" className="flex size-10 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-blue-200 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200" onClick={onReload} aria-label="刷新监控"><RefreshCw className={cn("size-4", loading && "animate-spin")} /></button>
+                <button type="button" className="flex size-10 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white/80 text-slate-500 shadow-sm hover:border-indigo-200 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200" onClick={onReload} aria-label="刷新监控"><RefreshCw className={cn("size-4", loading && "animate-spin")} /></button>
               </div>
               <div className="flex items-center gap-2 text-[11px] text-slate-500">
                 <span className={cn("size-1.5 rounded-full", autoRefresh ? "animate-pulse bg-emerald-500" : "bg-slate-300")} />
@@ -943,7 +1053,7 @@ function GatewayMonitorWorkspace({
             <GatewayMetricCard icon={<GitBranch className="size-4" />} label="降级率" value={waitingForFirstLoad ? "—" : `${totals?.fallback_rate ?? 0}%`} hint="使用了备用连接" tone="amber" />
             <GatewayMetricCard icon={<Clock3 className="size-4" />} label="平均延迟" value={waitingForFirstLoad ? "—" : `${formatNumber(totals?.average_latency_ms ?? 0)} ms`} hint="从请求到最终结果" tone="sky" />
             <GatewayMetricCard icon={<Zap className="size-4" />} label="Token 消耗" value={waitingForFirstLoad ? "—" : formatNumber(totals?.total_tokens ?? 0)} hint="统计区间内总消耗" />
-            <GatewayMetricCard icon={<ShieldCheck className="size-4" />} label="熔断跳过" value={waitingForFirstLoad ? "—" : formatNumber(totals?.circuit_skips ?? 0)} hint={`${openCircuitCount} 条当前开启`} tone="amber" />
+            <GatewayMetricCard icon={<ShieldCheck className="size-4" />} label="熔断跳过" value={waitingForFirstLoad ? "—" : formatNumber(totals?.circuit_skips ?? 0)} hint={`${openCircuitCount} 条当前开启 · 熔断状态存于内存，服务重启后归零`} tone="amber" />
             <GatewayMetricCard
               icon={<Coins className="size-4" />}
               label="成本合计"
@@ -995,7 +1105,7 @@ function GatewayMonitorWorkspace({
                   </ul>
                   <div className="mt-4 flex items-center justify-between gap-3">
                     <span className="text-[11px] tabular-nums text-slate-400">{formatNumber(scene.requests)} 次请求 · {scene.failed_requests} 次最终失败</span>
-                    <button type="button" className="cursor-pointer text-xs font-semibold text-blue-700 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200" onClick={() => onInspectScene(scene.scene)}>查看调用明细 →</button>
+                    <button type="button" className="cursor-pointer text-xs font-semibold text-indigo-600 hover:text-indigo-800" onClick={() => onInspectScene(scene.scene)}>查看调用明细 →</button>
                   </div>
                 </article>
               );
@@ -1011,13 +1121,13 @@ function GatewayMonitorWorkspace({
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]" aria-label="全部 AI 模型连接监控">
         <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3.5 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><ServerCog className="size-4 text-blue-700" />全部模型连接</div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><ServerCog className="size-4 text-indigo-600" />全部模型连接</div>
             <div className="mt-1 text-xs text-slate-500">覆盖全部已配置 AI 模型；未产生调用的连接也会显示为“待观察”。点击连接查看完整监控详情。</div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <label className="relative min-w-48 flex-1 xl:flex-none">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-              <input value={connectionKeyword} onChange={(event) => { setConnectionKeyword(event.target.value); setConnectionPage(1); }} className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs text-slate-700 outline-none hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 xl:w-56" placeholder="搜索名称、供应商、模型" aria-label="搜索模型连接" />
+              <input value={connectionKeyword} onChange={(event) => { setConnectionKeyword(event.target.value); setConnectionPage(1); }} className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs text-slate-700 outline-none hover:border-indigo-300 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 xl:w-56" placeholder="搜索名称、供应商、模型" aria-label="搜索模型连接" />
             </label>
             <RadixSelectField value={connectionProvider} onValueChange={(value) => { setConnectionProvider(value); setConnectionPage(1); }} options={[
               { value: "", label: "全部供应商" },
@@ -1034,7 +1144,7 @@ function GatewayMonitorWorkspace({
             {visibleConnections.map((connection) => {
               const statusMeta = connectionStatusMeta[connection.status];
               return (
-                <button key={connection.id} type="button" onClick={(event) => { connectionDialogTriggerRef.current = event.currentTarget; setSelectedConnection(connection); }} className="cursor-pointer rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200" aria-label={`查看 ${connection.name} 监控详情`}>
+                <button key={connection.id} type="button" onClick={() => setSelectedConnection(connection)} className="cursor-pointer rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200" aria-label={`查看 ${connection.name} 监控详情`}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{connection.name}</div><div className="mt-1 truncate font-mono text-[10px] text-slate-500">{connection.provider} / {connection.model}</div></div>
                     <span className={cn("material-chip shrink-0 ring-1 ring-inset", statusMeta.className)}>{statusMeta.label}</span>
@@ -1044,7 +1154,7 @@ function GatewayMonitorWorkspace({
                     <div><dt className="text-[10px] text-slate-500">成功率</dt><dd className={cn("mt-1 font-semibold tabular-nums", connection.success_rate >= 90 ? "text-emerald-700" : connection.requests ? "text-amber-700" : "text-slate-500")}>{connection.requests ? `${connection.success_rate}%` : "—"}</dd></div>
                     <div><dt className="text-[10px] text-slate-500">平均延迟</dt><dd className="mt-1 font-semibold tabular-nums text-slate-800">{connection.requests ? `${formatNumber(connection.average_latency_ms)} ms` : "—"}</dd></div>
                   </dl>
-                  <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-slate-500"><span>{connection.last_called_at ? `最近调用 ${formatDate(connection.last_called_at)}` : "尚无网关调用"}</span><span className="font-semibold text-blue-700">查看详情 →</span></div>
+                  <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-slate-500"><span>{connection.last_called_at ? `最近调用 ${formatDate(connection.last_called_at)}` : "尚无网关调用"}</span><span className="font-semibold text-indigo-600">查看详情 →</span></div>
                 </button>
               );
             })}
@@ -1052,12 +1162,12 @@ function GatewayMonitorWorkspace({
         ) : <div className="px-6 py-14 text-center text-sm text-slate-400">暂无符合筛选条件的模型连接</div>}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500">
           <div className="flex items-center gap-2"><span>共 {filteredConnections.length} 条 · 第 {safeConnectionPage} / {connectionTotalPages} 页</span><RadixSelectField value={String(connectionPageSize)} onValueChange={(value) => { setConnectionPageSize(Number(value)); setConnectionPage(1); }} options={[{ value: "6", label: "6 条/页" }, { value: "9", label: "9 条/页" }, { value: "12", label: "12 条/页" }]} ariaLabel="每页模型监控数量" className="h-8 min-w-24" /></div>
-          <div className="flex gap-2"><button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={safeConnectionPage <= 1 || loading} onClick={() => setConnectionPage(safeConnectionPage - 1)}>上一页</button><button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={safeConnectionPage >= connectionTotalPages || loading} onClick={() => setConnectionPage(safeConnectionPage + 1)}>下一页</button></div>
+          <div className="flex gap-2"><button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40" disabled={safeConnectionPage <= 1 || loading} onClick={() => setConnectionPage(safeConnectionPage - 1)}>上一页</button><button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40" disabled={safeConnectionPage >= connectionTotalPages || loading} onClick={() => setConnectionPage(safeConnectionPage + 1)}>下一页</button></div>
         </div>
       </section>
 
       <Dialog open={Boolean(selectedConnection)} onOpenChange={(open) => !open && setSelectedConnection(null)}>
-        <DialogContent className="horizon-portal max-h-[88dvh] overflow-y-auto sm:max-w-2xl" onCloseAutoFocus={(event) => { event.preventDefault(); window.setTimeout(() => connectionDialogTriggerRef.current?.focus(), 0); }}>
+        <DialogContent className="max-h-[88dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{selectedConnection?.name ?? "模型连接详情"}</DialogTitle>
             <DialogDescription>{selectedConnection ? `${selectedConnection.provider} / ${selectedConnection.model}` : "查看模型连接运行状态"}</DialogDescription>
@@ -1085,7 +1195,7 @@ function GatewayMonitorWorkspace({
               {selectedConnection.last_error_code || selectedConnection.last_error_message ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs leading-5 text-rose-800"><div className="font-semibold">{selectedConnection.last_error_code ?? "UPSTREAM_ERROR"}</div><div className="mt-1 break-words">{selectedConnection.last_error_message ?? "上游调用失败"}</div></div> : null}
             </div>
           ) : null}
-          <DialogFooter><button type="button" className="h-9 rounded-lg border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200" onClick={() => setSelectedConnection(null)}>关闭</button><button type="button" className="h-9 rounded-lg bg-blue-700 px-4 text-xs font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" onClick={() => { if (selectedConnection) onInspectConnection(selectedConnection.id); setSelectedConnection(null); }}>查看该连接的调用明细</button></DialogFooter>
+          <DialogFooter><button type="button" className="h-9 rounded-lg border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-600 hover:bg-slate-50" onClick={() => setSelectedConnection(null)}>关闭</button><button type="button" className="h-9 rounded-lg bg-indigo-600 px-4 text-xs font-semibold text-white hover:bg-indigo-700" onClick={() => { if (selectedConnection) onInspectConnection(selectedConnection.id); setSelectedConnection(null); }}>查看该连接的调用明细</button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1105,7 +1215,7 @@ function GatewayMonitorWorkspace({
                       <div className="text-slate-300">降级率 {item.fallback_rate}% · {formatNumber(item.total_tokens)} Token</div>
                     </div>
                     <div className="flex h-40 w-full items-end rounded-lg bg-slate-100 p-1">
-                      <div className="w-full rounded-md bg-blue-600 transition-colors duration-200 group-hover:bg-blue-700" style={{ height: `${Math.max(8, (item.requests / maxTrendRequests) * 100)}%` }} />
+                      <div className="w-full rounded-md bg-indigo-500 transition-colors duration-200 group-hover:bg-indigo-600" style={{ height: `${Math.max(8, (item.requests / maxTrendRequests) * 100)}%` }} />
                     </div>
                     <div className="whitespace-nowrap text-[10px] tabular-nums text-slate-400">{new Date(item.date).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })}</div>
                   </div>
@@ -1131,7 +1241,7 @@ function GatewayMonitorWorkspace({
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 px-4 py-3.5">
           <div><div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><ShieldCheck className="size-4 text-emerald-600" />连接熔断状态</div><div className="mt-1 text-xs text-slate-500">按业务场景隔离故障；开启时请求会直接尝试下一连接</div></div>
-          <button type="button" className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={!circuits.length || resettingCircuit !== null} onClick={() => void resetCircuit()}><RefreshCw className={cn("size-3.5", resettingCircuit === "all" && "animate-spin")} />全部重置</button>
+          <button type="button" className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40" disabled={!circuits.length || resettingCircuit !== null} onClick={() => void resetCircuit()}><RefreshCw className={cn("size-3.5", resettingCircuit === "all" && "animate-spin")} />全部重置</button>
         </div>
         {circuits.length ? (
           <div className="grid gap-2.5 p-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1172,11 +1282,11 @@ function GatewayMonitorWorkspace({
               <div key={`${item.provider}:${item.model}`} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-4 px-4 py-3">
                 <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-800">{item.provider}</div><div className="mt-1 truncate font-mono text-[10px] text-slate-500">{item.model}</div></div>
                 <div className="text-right"><div className="text-sm font-semibold tabular-nums text-emerald-700">{item.success_rate}%</div><div className="text-[10px] text-slate-500">{formatNumber(item.requests)} 次</div></div>
-                <div className="w-20 text-right"><div className="text-sm font-semibold tabular-nums text-blue-700">{formatNumber(item.total_tokens)}</div><div className="text-[10px] text-slate-500">入 {formatNumber(item.prompt_tokens)} / 出 {formatNumber(item.completion_tokens)}</div></div>
+                <div className="w-20 text-right"><div className="text-sm font-semibold tabular-nums text-violet-700">{formatNumber(item.total_tokens)}</div><div className="text-[10px] text-slate-500">入 {formatNumber(item.prompt_tokens)} / 出 {formatNumber(item.completion_tokens)}</div></div>
                 <div className="w-20 text-right">
                   {item.cost === null
                     ? <><div className="text-sm font-semibold tabular-nums text-slate-400">—</div><div className="text-[10px] text-slate-400">未配价</div></>
-                    : <><div className="text-sm font-semibold tabular-nums text-blue-700">{formatCost(item.cost)}</div><div className="text-[10px] text-slate-500">成本</div></>}
+                    : <><div className="text-sm font-semibold tabular-nums text-indigo-700">{formatCost(item.cost)}</div><div className="text-[10px] text-slate-500">成本</div></>}
                 </div>
               </div>
             )) : <div className="px-6 py-14 text-center text-sm text-slate-400">当前区间暂无模型调用</div>}
@@ -1193,7 +1303,7 @@ function GatewayRequestDetail({ item }: { item: AiGatewayRequestItem }) {
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.6fr)]">
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <FileSearch className="size-4 text-blue-700" />
+            <FileSearch className="size-4 text-indigo-600" />
             请求摘要
           </div>
           <dl className="mt-3 grid gap-x-4 gap-y-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
@@ -1202,7 +1312,8 @@ function GatewayRequestDetail({ item }: { item: AiGatewayRequestItem }) {
             <div><dt className="text-slate-500">场景标识</dt><dd className="mt-1 truncate font-mono text-[11px] text-slate-700" title={item.scene}>{item.scene}</dd></div>
             <div><dt className="text-slate-500">最终模型</dt><dd className="mt-1 font-medium text-slate-800">{item.provider ? `${item.provider} / ${item.model ?? "—"}` : "未完成"}</dd></div>
             <div><dt className="text-slate-500">总延迟</dt><dd className="mt-1 font-semibold tabular-nums text-slate-800">{formatNumber(item.latency_ms)} ms</dd></div>
-            <div><dt className="text-slate-500">路由结果</dt><dd className={cn("mt-1 font-medium", item.fallback_used ? "text-amber-700" : "text-slate-800")}>{item.fallback_used ? `第 ${item.attempt_count} 次尝试成功` : "首选连接命中"}</dd></div>
+            <div><dt className="text-slate-500">选模来源</dt><dd className={cn("mt-1 font-medium", item.route_source === "route" ? "text-indigo-700" : "text-slate-800")}>{routeSourceLabel(item)}</dd></div>
+            <div><dt className="text-slate-500">故障转移</dt><dd className={cn("mt-1 font-medium", item.fallback_used ? "text-amber-700" : "text-slate-800")}>{item.fallback_used ? `跨连接切换，第 ${item.attempt_count} 次尝试成功` : "无（首个连接直接成功）"}</dd></div>
           </dl>
           <div className="mt-3 border-t border-slate-100 pt-3">
             <div className="text-[10px] text-slate-500">请求 ID</div>
@@ -1212,13 +1323,13 @@ function GatewayRequestDetail({ item }: { item: AiGatewayRequestItem }) {
 
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <Zap className="size-4 text-blue-700" />
+            <Zap className="size-4 text-indigo-600" />
             Token 用量
           </div>
           <dl className="mt-3 grid grid-cols-3 divide-x divide-slate-100 rounded-lg bg-slate-50 py-3 text-center">
             <div className="px-2"><dt className="text-[10px] text-slate-500">输入</dt><dd className="mt-1 text-sm font-semibold tabular-nums text-slate-800">{formatNumber(item.prompt_tokens)}</dd></div>
             <div className="px-2"><dt className="text-[10px] text-slate-500">输出</dt><dd className="mt-1 text-sm font-semibold tabular-nums text-slate-800">{formatNumber(item.completion_tokens)}</dd></div>
-            <div className="px-2"><dt className="text-[10px] text-slate-500">合计</dt><dd className="mt-1 text-sm font-semibold tabular-nums text-blue-700">{formatNumber(item.total_tokens)}</dd></div>
+            <div className="px-2"><dt className="text-[10px] text-slate-500">合计</dt><dd className="mt-1 text-sm font-semibold tabular-nums text-indigo-700">{formatNumber(item.total_tokens)}</dd></div>
           </dl>
           <div className="mt-3 text-xs leading-5 text-slate-500">Token 由最终成功的上游响应返回。失败请求或未返回 usage 的兼容接口可能显示为 0。</div>
         </div>
@@ -1299,22 +1410,22 @@ function GatewayRequestWorkspace({
           <RadixSelectField value={scene} onValueChange={onSceneChange} options={[{ value: "", label: "全部场景" }, ...GATEWAY_SCENES.map((item) => ({ value: item.value, label: item.label }))]} ariaLabel="按业务场景筛选请求" className="min-w-40" />
           <RadixSelectField value={connectionId} onValueChange={onConnectionChange} options={[{ value: "", label: "全部模型连接" }, ...models.map((item) => ({ value: item.id, label: `${item.name} · ${item.model}` }))]} ariaLabel="按模型连接筛选请求" className="min-w-48" />
           <RadixSelectField value={status} onValueChange={(value) => onStatusChange(value as "" | "success" | "failed")} options={[{ value: "", label: "全部状态" }, { value: "success", label: "成功" }, { value: "failed", label: "失败" }]} ariaLabel="按状态筛选请求" className="min-w-28" />
-          <button type="button" className="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200" onClick={onReload} aria-label="刷新请求明细"><RefreshCw className={cn("size-4", loading && "animate-spin")} /></button>
+          <button type="button" className="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200" onClick={onReload} aria-label="刷新请求明细"><RefreshCw className={cn("size-4", loading && "animate-spin")} /></button>
         </div>
       </div>
       <div className="material-scrollbar overflow-x-auto">
         <table className="w-full min-w-[980px] text-left">
-          <thead className="bg-slate-50 text-[10px] font-semibold text-slate-500"><tr><th scope="col" className="w-12 px-5 py-3"><span className="sr-only">展开</span></th><th scope="col" className="px-3 py-3">时间 / 请求 ID</th><th scope="col" className="px-3 py-3">场景</th><th scope="col" className="px-3 py-3">最终模型</th><th scope="col" className="px-3 py-3">状态</th><th scope="col" className="px-3 py-3">路由</th><th scope="col" className="px-3 py-3 text-right">延迟</th><th scope="col" className="px-5 py-3 text-right">Token</th></tr></thead>
+          <thead className="bg-slate-50 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500"><tr><th className="w-12 px-5 py-3" /><th className="px-3 py-3">时间 / 请求 ID</th><th className="px-3 py-3">场景</th><th className="px-3 py-3">最终模型</th><th className="px-3 py-3">状态</th><th className="px-3 py-3">路由</th><th className="px-3 py-3 text-right">延迟</th><th className="px-5 py-3 text-right">Token</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
             {loading && !data ? <tr><td colSpan={8} className="px-6 py-14 text-center text-sm text-slate-400">正在读取调用明细...</td></tr> : data?.items.length ? data.items.map((item) => {
               const expanded = expandedId === item.id;
               return (
                 <React.Fragment key={item.id}>
-                  <tr className="hover:bg-blue-50/40">
+                  <tr className="hover:bg-indigo-50/40">
                     <td className="px-5 py-4 text-slate-400">
                       <button
                         type="button"
-                        className="flex size-8 cursor-pointer items-center justify-center rounded-lg hover:bg-blue-100 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                        className="flex size-8 cursor-pointer items-center justify-center rounded-lg hover:bg-indigo-100 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
                         onClick={() => setExpandedId(expanded ? null : item.id)}
                         aria-expanded={expanded}
                         aria-label={`${expanded ? "收起" : "展开"}请求 ${item.id} 明细`}
@@ -1326,9 +1437,9 @@ function GatewayRequestWorkspace({
                     <td className="px-3 py-3"><div className="text-xs font-medium text-slate-800">{formatGatewayScene(item.scene)}</div><div className="mt-1 font-mono text-[9px] text-slate-400">{item.scene}</div></td>
                     <td className="px-3 py-3"><div className="text-xs text-slate-700">{item.provider ?? "—"}</div><div className="mt-1 max-w-48 truncate font-mono text-[9px] text-slate-400">{item.model ?? "未完成"}</div></td>
                     <td className="px-3 py-3"><span className={cn("material-chip", item.status === "success" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700")}>{item.status === "success" ? <CheckCircle2 className="mr-1 size-3" /> : <XCircle className="mr-1 size-3" />}{gatewayStatusLabel(item.status)}</span></td>
-                    <td className="px-3 py-3"><div className="text-xs font-semibold tabular-nums text-slate-800">{item.attempt_count} 次</div><div className={cn("mt-1 text-[10px]", item.fallback_used ? "text-amber-700" : "text-slate-500")}>{item.fallback_used ? "已切换备用" : "首选命中"}</div></td>
+                    <td className="px-3 py-3"><div className="text-xs font-semibold tabular-nums text-slate-800">{item.attempt_count} 次</div><div className="mt-1 text-[10px]"><span className={cn(item.route_source === "route" ? "font-medium text-indigo-600" : "text-slate-500")}>{routeSourceLabel(item)}</span>{item.fallback_used && <span className="ml-1 text-amber-700">· 故障转移</span>}</div></td>
                     <td className="px-3 py-3 text-right text-xs tabular-nums text-slate-700">{formatNumber(item.latency_ms)} ms</td>
-                    <td className="px-5 py-3 text-right text-xs tabular-nums text-blue-700">{formatNumber(item.total_tokens)}</td>
+                    <td className="px-5 py-3 text-right text-xs tabular-nums text-violet-700">{formatNumber(item.total_tokens)}</td>
                   </tr>
                   {expanded ? <tr><td colSpan={8} className="bg-slate-50/80 px-6 py-5"><GatewayRequestDetail item={item} /></td></tr> : null}
                 </React.Fragment>
@@ -1337,7 +1448,7 @@ function GatewayRequestWorkspace({
           </tbody>
         </table>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500"><div className="flex items-center gap-2"><span>共 {data?.pagination.total ?? 0} 条 · 第 {page} / {data?.pagination.total_pages ?? 1} 页</span><RadixSelectField value={String(pageSize)} onValueChange={(value) => onPageSizeChange(Number(value))} options={[{ value: "10", label: "10 条/页" }, { value: "20", label: "20 条/页" }, { value: "50", label: "50 条/页" }]} ariaLabel="每页请求明细数量" className="h-8 min-w-24" /></div><div className="flex gap-2"><button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={page <= 1 || loading} onClick={() => onPageChange(page - 1)}>上一页</button><button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" disabled={page >= (data?.pagination.total_pages ?? 1) || loading} onClick={() => onPageChange(page + 1)}>下一页</button></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-500"><div className="flex items-center gap-2"><span>共 {data?.pagination.total ?? 0} 条 · 第 {page} / {data?.pagination.total_pages ?? 1} 页</span><RadixSelectField value={String(pageSize)} onValueChange={(value) => onPageSizeChange(Number(value))} options={[{ value: "10", label: "10 条/页" }, { value: "20", label: "20 条/页" }, { value: "50", label: "50 条/页" }]} ariaLabel="每页请求明细数量" className="h-8 min-w-24" /></div><div className="flex gap-2"><button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40" disabled={page <= 1 || loading} onClick={() => onPageChange(page - 1)}>上一页</button><button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40" disabled={page >= (data?.pagination.total_pages ?? 1) || loading} onClick={() => onPageChange(page + 1)}>下一页</button></div></div>
     </section>
   );
 }
@@ -1345,6 +1456,8 @@ function GatewayRequestWorkspace({
 export function AiModelManagementPage() {
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("connections");
   const [gatewayRoutes, setGatewayRoutes] = useState<AiGatewayRoute[]>([]);
+  /** 近 24h 各场景按选模来源的调用计数（scene → source → count），路由页运行期反馈用 */
+  const [gatewayUsage, setGatewayUsage] = useState<Record<string, Record<string, number>>>({});
   const [gatewayModels, setGatewayModels] = useState<AiModelItem[]>([]);
   const [gatewayOverview, setGatewayOverview] = useState<AiGatewayOverview | null>(null);
   const [gatewayCircuits, setGatewayCircuits] = useState<AiGatewayCircuit[]>([]);
@@ -1360,7 +1473,6 @@ export function AiModelManagementPage() {
   const [gatewayReloadKey, setGatewayReloadKey] = useState(0);
   const [gatewayAutoRefresh, setGatewayAutoRefresh] = useState(true);
   const [gatewayLastUpdatedAt, setGatewayLastUpdatedAt] = useState<string | null>(null);
-  const [gatewayError, setGatewayError] = useState("");
   const [rows, setRows] = useState<AiModelItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -1369,13 +1481,16 @@ export function AiModelManagementPage() {
   const [keyword, setKeyword] = useState("");
   const [jumpInput, setJumpInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [rowsError, setRowsError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   // 行内"测试连通性"按钮的 loading 标记（每行独立）
   const [rowTestingId, setRowTestingId] = useState<string | null>(null);
   const [bulkTestProgress, setBulkTestProgress] = useState<BulkTestProgress | null>(null);
+  // 测试失败明细面板（全部测试 / 单模型测试 / 启用前检查共用）
+  const [bulkTestReport, setBulkTestReport] = useState<BulkTestReport | null>(null);
+  // 启用开关正在做"先测连通性再启用"的行
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [selectedRow, setSelectedRow] = useState<AiModelItem | null>(null);
   const [providerOptions, setProviderOptions] = useState<string[]>([]);
@@ -1414,22 +1529,9 @@ export function AiModelManagementPage() {
   const [importApiKey, setImportApiKey] = useState("");
   const [importSaving, setImportSaving] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
-  const dialogReturnFocusRef = useRef<HTMLElement | null>(null);
-
-  function rememberDialogTrigger() {
-    dialogReturnFocusRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-  }
-
-  function restoreDialogFocus(event: Event) {
-    event.preventDefault();
-    window.setTimeout(() => dialogReturnFocusRef.current?.focus(), 0);
-  }
 
   const loadRows = useCallback(async (targetPage = page) => {
     setLoading(true);
-    setRowsError("");
     try {
       const response = await integrationManagementApi.listAiModels({
         page: targetPage,
@@ -1443,9 +1545,7 @@ export function AiModelManagementPage() {
         setPage(Math.max(1, response.total_pages));
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "读取 AI 模型列表失败";
-      setRowsError(message);
-      toast.error(message);
+      toast.error(error instanceof Error ? error.message : "读取 AI 模型列表失败");
     } finally {
       setLoading(false);
     }
@@ -1453,19 +1553,17 @@ export function AiModelManagementPage() {
 
   const loadGatewayRoutes = useCallback(async () => {
     setGatewayLoading(true);
-    setGatewayError("");
     try {
       const [routeResponse, models] = await Promise.all([
         integrationManagementApi.listAiGatewayRoutes(),
         fetchAllAiModels(),
       ]);
       setGatewayRoutes(routeResponse.items);
+      setGatewayUsage(routeResponse.usage_24h ?? {});
       setGatewayModels(models);
       setGatewayLoadedTab("routes");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "读取 AI 路由失败";
-      setGatewayError(message);
-      toast.error(message);
+      toast.error(error instanceof Error ? error.message : "读取 AI 路由失败");
     } finally {
       setGatewayLoading(false);
     }
@@ -1475,22 +1573,17 @@ export function AiModelManagementPage() {
     if (workspaceTab === "connections") return;
     let cancelled = false;
     setGatewayLoading(true);
-    setGatewayError("");
     if (workspaceTab !== "monitor") setGatewayLoadedTab(null);
     if (workspaceTab === "routes") {
       Promise.all([integrationManagementApi.listAiGatewayRoutes(), fetchAllAiModels()])
         .then(([routeResponse, models]) => {
           if (cancelled) return;
           setGatewayRoutes(routeResponse.items);
+          setGatewayUsage(routeResponse.usage_24h ?? {});
           setGatewayModels(models);
           setGatewayLoadedTab("routes");
         })
-        .catch((error) => {
-          if (cancelled) return;
-          const message = error instanceof Error ? error.message : "读取 AI 路由失败";
-          setGatewayError(message);
-          toast.error(message);
-        })
+        .catch((error) => !cancelled && toast.error(error instanceof Error ? error.message : "读取 AI 路由失败"))
         .finally(() => !cancelled && setGatewayLoading(false));
     } else if (workspaceTab === "monitor") {
       Promise.all([
@@ -1505,12 +1598,7 @@ export function AiModelManagementPage() {
             setGatewayLastUpdatedAt(new Date().toISOString());
           }
         })
-        .catch((error) => {
-          if (cancelled) return;
-          const message = error instanceof Error ? error.message : "读取网关监控失败";
-          setGatewayError(message);
-          toast.error(message);
-        })
+        .catch((error) => !cancelled && toast.error(error instanceof Error ? error.message : "读取网关监控失败"))
         .finally(() => !cancelled && setGatewayLoading(false));
     } else {
       Promise.all([
@@ -1530,12 +1618,7 @@ export function AiModelManagementPage() {
             setGatewayLoadedTab("requests");
           }
         })
-        .catch((error) => {
-          if (cancelled) return;
-          const message = error instanceof Error ? error.message : "读取网关请求失败";
-          setGatewayError(message);
-          toast.error(message);
-        })
+        .catch((error) => !cancelled && toast.error(error instanceof Error ? error.message : "读取网关请求失败"))
         .finally(() => !cancelled && setGatewayLoading(false));
     }
     return () => { cancelled = true; };
@@ -1607,7 +1690,6 @@ export function AiModelManagementPage() {
   }
 
   function openCreate() {
-    rememberDialogTrigger();
     setSelectedRow(null);
     resetForm();
     setDialogMode("create");
@@ -1618,7 +1700,6 @@ export function AiModelManagementPage() {
    * 预填通义 text-embedding-v3，用户只需填 name + API Key 即可保存。
    */
   function openCreateEmbedding() {
-    rememberDialogTrigger();
     setSelectedRow(null);
     setName("通义 Embedding");
     setProvider("Qwen");
@@ -1633,7 +1714,6 @@ export function AiModelManagementPage() {
   }
 
   function openEdit(row: AiModelItem) {
-    rememberDialogTrigger();
     setSelectedRow(row);
     setName(row.name);
     setProvider(row.provider || "OpenAI");
@@ -1649,20 +1729,13 @@ export function AiModelManagementPage() {
   }
 
   function openDelete(row: AiModelItem) {
-    rememberDialogTrigger();
     setSelectedRow(row);
     setDialogMode("delete");
   }
 
   async function handleSave() {
     if (!name.trim() || !provider.trim() || !model.trim()) {
-      const message = "请先填写模型名称、服务商和模型标识";
-      setDialogError(message);
-      toast.error(message);
-      window.requestAnimationFrame(() => {
-        const targetId = !name.trim() ? "ai-model-name" : "ai-model-identifier";
-        document.getElementById(targetId)?.focus();
-      });
+      toast.error("请先填写模型名称、服务商和模型标识");
       return;
     }
 
@@ -1701,10 +1774,7 @@ export function AiModelManagementPage() {
 
   async function handleTestConnection() {
     if (!model.trim()) {
-      const message = "请先填写模型标识";
-      setDialogError(message);
-      toast.error(message);
-      window.requestAnimationFrame(() => document.getElementById("ai-model-identifier")?.focus());
+      toast.error("请先填写模型标识");
       return;
     }
 
@@ -1752,13 +1822,16 @@ export function AiModelManagementPage() {
         model: row.model,
         base_url: row.base_url || undefined,
         usage_kind: row.usage_kind || "auto",
+        // 连不通的模型由后端直接停用，避免继续被路由选中
+        disable_on_failure: true,
       });
       if (result.success) {
         toast.success(
           `${row.name} 连通性正常${typeof result.duration_ms === "number" ? `，耗时 ${result.duration_ms} ms` : ""}`,
         );
       } else {
-        toast.error(`${row.name} 测试失败：${result.message}`);
+        toast.error(`${row.name} 测试失败：${result.error_reason ?? result.message}${result.disabled ? "，已自动停用" : ""}`);
+        setBulkTestReport({ total: 1, succeeded: 0, failures: [failureFromResult(row, result)] });
       }
       await loadRows(page);
     } catch (error) {
@@ -1780,7 +1853,7 @@ export function AiModelManagementPage() {
       }
 
       setBulkTestProgress({ completed: 0, total: models.length, succeeded: 0, failed: 0 });
-      const failures: string[] = [];
+      const failures: BulkTestFailure[] = [];
       let nextIndex = 0;
 
       const worker = async () => {
@@ -1798,11 +1871,13 @@ export function AiModelManagementPage() {
               model: row.model,
               base_url: row.base_url || undefined,
               usage_kind: row.usage_kind || "auto",
+              // 连不通的模型由后端直接停用，避免继续被路由选中
+              disable_on_failure: true,
             });
             succeeded = result.success;
-            if (!result.success) failures.push(`${row.name}：${result.message}`);
+            if (!result.success) failures.push(failureFromResult(row, result));
           } catch (error) {
-            failures.push(`${row.name}：${error instanceof Error ? error.message : "测试失败"}`);
+            failures.push(failureFromException(row, error));
           } finally {
             setBulkTestProgress((current) => current ? {
               ...current,
@@ -1825,12 +1900,15 @@ export function AiModelManagementPage() {
       if (failures.length === 0) {
         toast.success(`全部 ${models.length} 个 AI 模型连通性正常`);
       } else {
-        const failurePreview = failures.slice(0, 3).join("；");
-        const remaining = failures.length > 3 ? `；另有 ${failures.length - 3} 个失败` : "";
+        // 并发完成顺序是乱的，按列表原顺序排好再展示，方便和卡片对照
+        const orderIndex = new Map(models.map((item, index) => [item.id, index]));
+        failures.sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
+        const disabledCount = failures.filter((failure) => failure.disabled).length;
         toast.warning(
-          `全部测试完成：成功 ${succeededCount}，失败 ${failures.length}。${failurePreview}${remaining}`,
-          { duration: 10_000 },
+          `全部测试完成：成功 ${succeededCount}，失败 ${failures.length}${disabledCount > 0 ? `，已自动停用 ${disabledCount} 个异常模型` : ""}。失败原因见结果面板。`,
+          { duration: 8_000 },
         );
+        setBulkTestReport({ total: models.length, succeeded: succeededCount, failures });
       }
 
       await loadRows(page);
@@ -1842,7 +1920,25 @@ export function AiModelManagementPage() {
   }
 
   async function handleToggleEnabled(row: AiModelItem, checked: boolean) {
+    if (togglingId) return;
+    setTogglingId(row.id);
     try {
+      if (checked) {
+        // 只有连通性正常的模型才允许启用：先用已保存配置测一次，失败则保持停用并给出中文原因
+        const result = await integrationManagementApi.testAiModelConnection({
+          id: row.id,
+          provider: row.provider,
+          model: row.model,
+          base_url: row.base_url || undefined,
+          usage_kind: row.usage_kind || "auto",
+        });
+        if (!result.success) {
+          toast.error(`${row.name} 连通性异常，未启用：${result.error_reason ?? result.message}`, { duration: 8_000 });
+          setBulkTestReport({ total: 1, succeeded: 0, failures: [failureFromResult(row, result)] });
+          await loadRows(page);
+          return;
+        }
+      }
       const saved = await integrationManagementApi.saveAiModel({
         id: row.id,
         name: row.name,
@@ -1857,9 +1953,11 @@ export function AiModelManagementPage() {
       if (selectedRow?.id === row.id) {
         setSelectedRow(saved);
       }
-      toast.success(checked ? "AI 模型已启用" : "AI 模型已停用");
+      toast.success(checked ? `${row.name} 连通性正常，已启用` : `${row.name} 已停用`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "更新 AI 模型启用状态失败");
+    } finally {
+      setTogglingId(null);
     }
   }
 
@@ -1868,8 +1966,19 @@ export function AiModelManagementPage() {
 
     setDeleting(true);
     try {
-      await integrationManagementApi.deleteAiModel(selectedRow.id);
-      toast.success("AI 模型已删除");
+      const result = await integrationManagementApi.deleteAiModel(selectedRow.id);
+      // 该连接曾挂在网关路由里：级联删除已把对应 target 一并移除，明示受影响场景，
+      // 否则那些路由会静默回落默认，无从排查
+      if (result.affected_routes && result.affected_routes.length > 0) {
+        toast.warning(
+          `AI 模型已删除。注意：它已从 ${result.affected_routes.length} 条路由中移除（${result.affected_routes
+            .map((route) => route.name || route.scene)
+            .join("、")}），相关场景可能回落到默认模型，请到「路由策略」确认。`,
+          { duration: 10000 },
+        );
+      } else {
+        toast.success("AI 模型已删除");
+      }
       closeDialog();
       await loadRows();
     } catch (error) {
@@ -1882,7 +1991,6 @@ export function AiModelManagementPage() {
   // ── 百炼预设新增 ────────────────────────────────────────────────────────────
 
   async function openPresetDialog() {
-    rememberDialogTrigger();
     setPresetApiKey("");
     setPresetBaseUrl(BAILIAN_BASE_URL);
     try {
@@ -1971,7 +2079,6 @@ export function AiModelManagementPage() {
   // ── 导出 ────────────────────────────────────────────────────────────────────
 
   async function openExportDialog() {
-    rememberDialogTrigger();
     setExportLoading(true);
     try {
       const all = await fetchAllAiModels();
@@ -2118,17 +2225,28 @@ export function AiModelManagementPage() {
   const visibleHealthyCount = rows.filter((row) => row.current_status === "运行正常").length;
   const visibleIssueCount = rows.filter((row) => row.current_status === "连接异常").length;
   const visibleConfiguredCount = rows.filter((row) => Boolean(row.base_url)).length;
-  const headerActionButtonClass = "inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-50";
+  const headerActionButtonClass = "inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
-    <div className="horizon-theme hz-page mx-auto w-full max-w-[1680px] min-w-0">
-      <HorizonPageHeader
-        Icon={ServerCog}
-        eyebrow="平台治理 · AI 基础设施"
-        title="AI 模型控制台"
-        description="统一管理模型连接、路由优先级、运行状态与逐次故障切换记录。"
-        meta={<span className="inline-flex items-center gap-1.5 text-emerald-700"><span className="size-1.5 rounded-full bg-emerald-500" aria-hidden="true" />INOGI 内置服务</span>}
-        actions={workspaceTab === "connections" ? <div className="flex max-w-full flex-wrap items-center justify-end gap-2" aria-label="模型配置操作">
+    <div className="mx-auto w-full max-w-[1680px]">
+      <section className="relative overflow-hidden rounded-[22px] border border-slate-200 bg-white/95 text-slate-900 shadow-[0_22px_60px_-42px_rgba(79,70,229,0.32)]">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-r from-indigo-50/70 via-white to-sky-50/60" aria-hidden="true" />
+        <header className="relative flex flex-col gap-4 border-b border-slate-100 px-4 py-4 md:px-5 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_10px_24px_-12px_rgba(79,70,229,0.55)]">
+              <ServerCog className="size-5" />
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-semibold tracking-[-0.02em] text-slate-950">AI 模型控制台</h2>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                  <span className="size-1.5 rounded-full bg-emerald-500" />INOGI 内置服务
+                </span>
+              </div>
+              <p className="mt-0.5 truncate text-xs text-slate-500">连接、路由、运行态与故障切换统一管理</p>
+            </div>
+          </div>
+          {workspaceTab === "connections" ? <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               className={headerActionButtonClass}
@@ -2146,7 +2264,7 @@ export function AiModelManagementPage() {
             <button
               type="button"
               className={headerActionButtonClass}
-              onClick={() => { rememberDialogTrigger(); importFileRef.current?.click(); }}
+              onClick={() => importFileRef.current?.click()}
               title="从 JSON 文件导入模型配置（只新增，不修改现有配置）"
             >
               <Upload className="h-4 w-4" />
@@ -2176,7 +2294,6 @@ export function AiModelManagementPage() {
               type="file"
               accept="application/json,.json"
               className="hidden"
-              aria-label="选择模型配置 JSON 文件"
               onChange={(event) => void handleImportFile(event)}
             />
             <button
@@ -2188,69 +2305,61 @@ export function AiModelManagementPage() {
               <Plus className="h-4 w-4" />
               新增 Embedding
             </button>
-            <button type="button" className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg bg-blue-700 px-3.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" onClick={openCreate}>
+            <button className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 text-xs font-semibold text-white shadow-[0_10px_24px_-12px_rgba(79,70,229,0.55)] transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300" onClick={openCreate}>
               <Plus className="h-4 w-4" />
               新增模型
             </button>
           </div> : null}
-      />
-
-      <HorizonMetricGrid className="!grid-cols-2 xl:!grid-cols-4">
-        <HorizonMetric Icon={ServerCog} label="模型连接" value={loading && total === 0 ? "—" : total} note={`当前筛选共 ${total} 条配置`} tone="brand" />
-        <HorizonMetric Icon={Wifi} label="本页启用" value={loading && rows.length === 0 ? "—" : `${visibleEnabledCount}/${rows.length}`} note="按当前页实际启用状态计算" tone="success" />
-        <HorizonMetric Icon={CheckCircle2} label="连接正常" value={loading && rows.length === 0 ? "—" : visibleHealthyCount} note={`当前页 ${visibleConfiguredCount} 条使用自定义地址`} tone="success" />
-        <HorizonMetric Icon={AlertTriangle} label="连接异常" value={loading && rows.length === 0 ? "—" : visibleIssueCount} note="最近一次连通性结果为异常" tone={visibleIssueCount > 0 ? "danger" : "neutral"} />
-      </HorizonMetricGrid>
-
-      <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 text-slate-900 shadow-sm" aria-label="AI 模型与网关工作台">
+        </header>
 
       <Tabs value={workspaceTab} onValueChange={(value) => setWorkspaceTab(value as WorkspaceTab)} className="gap-0">
       <TabsList className="relative flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-none border-b border-slate-100 bg-slate-50/80 px-3 py-2" aria-label="AI 控制台工作区">
         {GATEWAY_TABS.map((tab) => {
           const Icon = tab.icon;
-          return <TabsTrigger key={tab.value} value={tab.value} title={tab.description} className="group h-10 flex-none cursor-pointer gap-2 rounded-lg border border-transparent px-3 text-left text-slate-500 data-[state=active]:border-blue-200 data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm hover:border-slate-200 hover:bg-white hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-blue-200"><Icon className="size-4 text-slate-400 group-data-[state=active]:text-blue-700" /><span className="text-xs font-semibold">{tab.label}</span></TabsTrigger>;
+          return <TabsTrigger key={tab.value} value={tab.value} title={tab.description} className="group h-10 flex-none cursor-pointer gap-2 rounded-xl border border-transparent px-3 text-left text-slate-500 data-[state=active]:border-indigo-200 data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-sm hover:border-slate-200 hover:bg-white hover:text-slate-800"><Icon className="size-4 text-slate-400 group-data-[state=active]:text-indigo-600" /><span className="text-xs font-semibold">{tab.label}</span></TabsTrigger>;
         })}
       </TabsList>
 
       <div className="relative bg-slate-50/55 p-3 md:p-4">
 
-      <TabsContent value="routes" className="mt-0">
-        {gatewayError ? <WorkspaceErrorState message={gatewayError} onRetry={() => void loadGatewayRoutes()} /> : <GatewayRouteWorkspace routes={gatewayRoutes} models={gatewayModels} loading={gatewayLoading || gatewayLoadedTab !== "routes"} onReload={loadGatewayRoutes} />}
-      </TabsContent>
-      <TabsContent value="monitor" className="mt-0">
-        {gatewayError ? <WorkspaceErrorState message={gatewayError} onRetry={() => setGatewayReloadKey((key) => key + 1)} /> : <GatewayMonitorWorkspace range={gatewayRange} overview={gatewayLoadedTab === "monitor" && gatewayOverview?.range === gatewayRange ? gatewayOverview : null} circuits={gatewayLoadedTab === "monitor" ? gatewayCircuits : []} loading={gatewayLoading || gatewayLoadedTab !== "monitor"} autoRefresh={gatewayAutoRefresh} lastUpdatedAt={gatewayLastUpdatedAt} onRangeChange={(nextRange) => { setGatewayLastUpdatedAt(null); setGatewayRange(nextRange); }} onAutoRefreshChange={setGatewayAutoRefresh} onReload={() => setGatewayReloadKey((key) => key + 1)} onInspectScene={(scene) => { setGatewayRequestScene(scene); setGatewayRequestStatus(""); setGatewayRequestConnectionId(""); setGatewayRequestPage(1); setWorkspaceTab("requests"); }} onInspectConnection={(connectionId) => { setGatewayRequestScene(""); setGatewayRequestStatus(""); setGatewayRequestConnectionId(connectionId); setGatewayRequestPage(1); setWorkspaceTab("requests"); }} />}
-      </TabsContent>
-      <TabsContent value="requests" className="mt-0">
-        {gatewayError ? <WorkspaceErrorState message={gatewayError} onRetry={() => setGatewayReloadKey((key) => key + 1)} /> : <GatewayRequestWorkspace data={gatewayLoadedTab === "requests" ? gatewayRequests : null} models={gatewayModels} loading={gatewayLoading || gatewayLoadedTab !== "requests"} scene={gatewayRequestScene} status={gatewayRequestStatus} connectionId={gatewayRequestConnectionId} page={gatewayRequestPage} pageSize={gatewayRequestPageSize} onSceneChange={(value) => { setGatewayRequestScene(value); setGatewayRequestPage(1); }} onStatusChange={(value) => { setGatewayRequestStatus(value); setGatewayRequestPage(1); }} onConnectionChange={(value) => { setGatewayRequestConnectionId(value); setGatewayRequestPage(1); }} onPageChange={setGatewayRequestPage} onPageSizeChange={(value) => { setGatewayRequestPageSize(value); setGatewayRequestPage(1); }} onReload={() => setGatewayReloadKey((key) => key + 1)} />}
-      </TabsContent>
+      <TabsContent value="routes" className="mt-0"><GatewayRouteWorkspace routes={gatewayRoutes} models={gatewayModels} usage={gatewayUsage} loading={gatewayLoading || gatewayLoadedTab !== "routes"} onReload={loadGatewayRoutes} /></TabsContent>
+      <TabsContent value="monitor" className="mt-0"><GatewayMonitorWorkspace range={gatewayRange} overview={gatewayLoadedTab === "monitor" && gatewayOverview?.range === gatewayRange ? gatewayOverview : null} circuits={gatewayLoadedTab === "monitor" ? gatewayCircuits : []} loading={gatewayLoading || gatewayLoadedTab !== "monitor"} autoRefresh={gatewayAutoRefresh} lastUpdatedAt={gatewayLastUpdatedAt} onRangeChange={(nextRange) => { setGatewayLastUpdatedAt(null); setGatewayRange(nextRange); }} onAutoRefreshChange={setGatewayAutoRefresh} onReload={() => setGatewayReloadKey((key) => key + 1)} onInspectScene={(scene) => { setGatewayRequestScene(scene); setGatewayRequestStatus(""); setGatewayRequestConnectionId(""); setGatewayRequestPage(1); setWorkspaceTab("requests"); }} onInspectConnection={(connectionId) => { setGatewayRequestScene(""); setGatewayRequestStatus(""); setGatewayRequestConnectionId(connectionId); setGatewayRequestPage(1); setWorkspaceTab("requests"); }} /></TabsContent>
+      <TabsContent value="requests" className="mt-0"><GatewayRequestWorkspace data={gatewayLoadedTab === "requests" ? gatewayRequests : null} models={gatewayModels} loading={gatewayLoading || gatewayLoadedTab !== "requests"} scene={gatewayRequestScene} status={gatewayRequestStatus} connectionId={gatewayRequestConnectionId} page={gatewayRequestPage} pageSize={gatewayRequestPageSize} onSceneChange={(value) => { setGatewayRequestScene(value); setGatewayRequestPage(1); }} onStatusChange={(value) => { setGatewayRequestStatus(value); setGatewayRequestPage(1); }} onConnectionChange={(value) => { setGatewayRequestConnectionId(value); setGatewayRequestPage(1); }} onPageChange={setGatewayRequestPage} onPageSizeChange={(value) => { setGatewayRequestPageSize(value); setGatewayRequestPage(1); }} onReload={() => setGatewayReloadKey((key) => key + 1)} /></TabsContent>
 
-      <TabsContent value="connections" className="mt-0"><section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]" aria-label="AI 模型连接列表" aria-busy={loading}>
+      <TabsContent value="connections" className="mt-0"><section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)]" aria-label="AI 模型连接列表">
         <div className="border-b border-slate-100 p-3 md:p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
               <input
-                className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 hover:border-slate-300 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 placeholder="搜索模型、服务商或模型标识"
                 aria-label="搜索模型连接"
               />
             </div>
-            <p className="text-xs text-slate-500" aria-live="polite">当前页 {rows.length} 条 · 自定义地址 {visibleConfiguredCount} 条<span className="sr-only"> · 本页启用 {visibleEnabledCount}/{rows.length}</span></p>
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]" aria-live="polite">
+              <span className="rounded-full bg-indigo-600 px-2.5 py-1 font-semibold text-white">总计 {total}</span>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-600"><span className="mr-1.5 inline-block size-1.5 rounded-full bg-emerald-500" />本页启用 {visibleEnabledCount}/{rows.length}</span>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-600"><span className="mr-1.5 inline-block size-1.5 rounded-full bg-sky-500" />正常 {visibleHealthyCount}</span>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-600"><span className="mr-1.5 inline-block size-1.5 rounded-full bg-rose-500" />异常 {visibleIssueCount}</span>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-600"><span className="mr-1.5 inline-block size-1.5 rounded-full bg-violet-500" />自定义地址 {visibleConfiguredCount}</span>
+            </div>
           </div>
         </div>
 
         <div className="p-3 md:p-4">
-          {rowsError ? (
-            <WorkspaceErrorState message={rowsError} onRetry={() => void loadRows(page)} />
-          ) : loading ? (
-            <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3" role="status" aria-live="polite" aria-label="正在读取模型连接">
-              <span className="sr-only">正在读取模型连接</span>
+          {loading ? (
+            <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: Math.min(pageSize, 6) }, (_, index) => <div key={index} className="h-52 animate-pulse rounded-xl border border-slate-200 bg-slate-100" />)}
             </div>
           ) : rows.length === 0 ? (
-            <HorizonEmptyState Icon={ServerCog} title="没有找到模型连接" description={normalizedKeyword ? "调整搜索条件，或清空关键词后重试。" : "新增一个模型连接，或从百炼预设批量导入。"} action={!normalizedKeyword ? <button type="button" className="material-button-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" onClick={openCreate}>新增模型</button> : undefined} />
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 px-6 py-16 text-center">
+              <ServerCog className="mx-auto size-8 text-slate-400" />
+              <div className="mt-3 text-sm font-semibold text-slate-700">没有找到模型连接</div>
+              <div className="mt-1 text-xs text-slate-500">调整搜索条件，或新增一个模型配置。</div>
+            </div>
           ) : (
             <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
               {rows.map((row) => {
@@ -2260,10 +2369,10 @@ export function AiModelManagementPage() {
                 const failed = row.current_status === "连接异常";
                 const providerMark = (row.provider || row.name).trim().slice(0, 2).toUpperCase();
                 return (
-                  <article key={row.id} className="group relative min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-colors hover:border-blue-200">
+                  <article key={row.id} className="group relative min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.025)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_12px_28px_-20px_rgba(79,70,229,0.35)]">
                     <div className={cn("absolute inset-x-0 top-0 h-0.5", healthy ? "bg-emerald-500" : failed ? "bg-rose-500" : "bg-slate-300")} />
                     <div className="flex items-start gap-3">
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 font-mono text-[11px] font-bold text-blue-700 ring-1 ring-inset ring-blue-100">{providerMark}</span>
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 font-mono text-[11px] font-bold text-indigo-700 ring-1 ring-inset ring-indigo-100">{providerMark}</span>
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center gap-1.5">
                           <h3 className="truncate text-sm font-semibold text-slate-900" title={row.name}>{row.name}</h3>
@@ -2274,8 +2383,10 @@ export function AiModelManagementPage() {
                       <Switch
                         checked={row.enabled}
                         onCheckedChange={(checked) => void handleToggleEnabled(row, checked)}
+                        disabled={togglingId !== null || bulkTestProgress !== null}
                         aria-label={`${row.enabled ? "停用" : "启用"} ${row.name}`}
-                        className="shrink-0 data-[state=checked]:bg-blue-700 data-[state=unchecked]:bg-slate-300"
+                        title={row.enabled ? "停用" : "启用前会先测试连通性，测试通过才会启用"}
+                        className={cn("shrink-0 data-[state=checked]:bg-indigo-600 data-[state=unchecked]:bg-slate-300", togglingId === row.id && "animate-pulse")}
                       />
                     </div>
 
@@ -2283,16 +2394,16 @@ export function AiModelManagementPage() {
                       <span className={cn("material-chip shrink-0", statusToneMap[row.current_status] ?? statusToneMap.未配置)}>{row.current_status}</span>
                       <span className={cn("material-chip shrink-0", usageToneMap[usage.kind])}>{usage.label}</span>
                       <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500">{explicitKind ? "手动" : "自动"}</span>
-                      {row.is_default_enabled ? <span className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700 ring-1 ring-inset ring-blue-200">默认</span> : null}
+                      {row.is_default_enabled ? <span className="rounded-md bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">默认</span> : null}
                     </div>
 
                     {row.last_error_message ? <div className="mt-2 truncate rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] text-rose-700" title={row.last_error_message}>{row.last_error_message}</div> : null}
 
                     <div className="mt-3 grid grid-cols-4 divide-x divide-slate-100 border-y border-slate-100 py-2.5 text-center">
-                      <div className="px-1"><div className="text-[9px] font-medium text-slate-400">延迟</div><div className="mt-1 truncate text-xs font-semibold tabular-nums text-slate-800">{typeof row.last_latency_ms === "number" ? `${row.last_latency_ms}ms` : "—"}</div></div>
-                      <div className="px-1"><div className="text-[9px] font-medium text-slate-400">请求</div><div className="mt-1 text-xs font-semibold tabular-nums text-sky-700">{formatNumber(row.today_requests)}</div></div>
-                      <div className="px-1"><div className="text-[9px] font-medium text-slate-400">今日 Token</div><div className="mt-1 text-xs font-semibold tabular-nums text-blue-700">{formatNumber(row.today_tokens)}</div></div>
-                      <div className="px-1"><div className="text-[9px] font-medium text-slate-400">累计</div><div className="mt-1 text-xs font-semibold tabular-nums text-amber-700">{formatNumber(row.total_tokens ?? row.today_tokens ?? 0)}</div></div>
+                      <div className="px-1"><div className="text-[9px] uppercase tracking-[0.1em] text-slate-400">延迟</div><div className="mt-1 truncate text-xs font-semibold tabular-nums text-slate-800">{typeof row.last_latency_ms === "number" ? `${row.last_latency_ms}ms` : "—"}</div></div>
+                      <div className="px-1"><div className="text-[9px] uppercase tracking-[0.1em] text-slate-400">请求</div><div className="mt-1 text-xs font-semibold tabular-nums text-sky-700">{formatNumber(row.today_requests)}</div></div>
+                      <div className="px-1"><div className="text-[9px] uppercase tracking-[0.1em] text-slate-400">今日 Token</div><div className="mt-1 text-xs font-semibold tabular-nums text-violet-700">{formatNumber(row.today_tokens)}</div></div>
+                      <div className="px-1"><div className="text-[9px] uppercase tracking-[0.1em] text-slate-400">累计</div><div className="mt-1 text-xs font-semibold tabular-nums text-amber-700">{formatNumber(row.total_tokens ?? row.today_tokens ?? 0)}</div></div>
                     </div>
 
                     <div className="mt-3 flex items-center justify-between gap-2">
@@ -2301,9 +2412,9 @@ export function AiModelManagementPage() {
                         <div className="truncate">最近成功 {formatDate(row.last_success_at)} · {row.operator_name}</div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        <button type="button" className="flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void handleTestRowConnection(row)} disabled={rowTestingId !== null || bulkTestProgress !== null} title="测试连通性" aria-label={`测试 ${row.name} 连通性`}><Wifi className={cn("size-3.5", (rowTestingId === row.id || bulkTestProgress !== null) && "animate-pulse text-blue-600")} /></button>
-                        <button type="button" className="flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200" onClick={() => openEdit(row)} title="编辑" aria-label={`编辑 ${row.name}`}><Pencil className="size-3.5" /></button>
-                        <button type="button" className="flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200" onClick={() => openDelete(row)} title="删除" aria-label={`删除 ${row.name}`}><Trash2 className="size-3.5" /></button>
+                        <button className="flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void handleTestRowConnection(row)} disabled={rowTestingId !== null || bulkTestProgress !== null} title="测试连通性" aria-label={`测试 ${row.name} 连通性`}><Wifi className={cn("size-3.5", (rowTestingId === row.id || bulkTestProgress !== null) && "animate-pulse text-sky-600")} /></button>
+                        <button className="flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-200" onClick={() => openEdit(row)} title="编辑" aria-label={`编辑 ${row.name}`}><Pencil className="size-3.5" /></button>
+                        <button className="flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200" onClick={() => openDelete(row)} title="删除" aria-label={`删除 ${row.name}`}><Trash2 className="size-3.5" /></button>
                       </div>
                     </div>
                   </article>
@@ -2314,18 +2425,18 @@ export function AiModelManagementPage() {
         </div>
 
         <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/70 px-3 py-3 text-xs text-slate-500 md:flex-row md:items-center md:justify-between md:px-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <span>共 {total} 条 · 第 {page} / {totalPages} 页</span>
-            <div className="flex items-center gap-1.5">每页<RadixSelectField value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))} options={[9, 18, 36, 90].map((size) => ({ value: String(size), label: `${size} 条` }))} ariaLabel="每页模型数量" className="h-8 min-w-20" /></div>
+          <div className="flex shrink-0 flex-wrap items-center gap-3">
+            <span className="whitespace-nowrap">共 {total} 条 · 第 {page} / {totalPages} 页</span>
+            <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">每页<RadixSelectField value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))} options={[9, 18, 36, 90].map((size) => ({ value: String(size), label: `${size} 条` }))} ariaLabel="每页模型数量" className="h-8 min-w-20" /></div>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1 || loading}>上一页</button>
-            <button type="button" className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages || loading}>下一页</button>
-            <label className="ml-1 flex items-center gap-1.5">
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+            <button className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1 || loading}>上一页</button>
+            <button className="h-8 cursor-pointer rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages || loading}>下一页</button>
+            <label className="ml-1 flex items-center gap-1.5 whitespace-nowrap">
               跳转
-              <input className="h-8 w-12 rounded-lg border border-slate-200 bg-white px-2 text-center text-xs text-slate-600 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" value={jumpInput} onChange={(event) => setJumpInput(event.target.value)} onKeyDown={(event) => event.key === "Enter" && handleJump()} placeholder={String(page)} inputMode="numeric" aria-label="跳转页码" />
+              <input className="h-8 w-12 rounded-lg border border-slate-200 bg-white px-2 text-center text-xs text-slate-600 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" value={jumpInput} onChange={(event) => setJumpInput(event.target.value)} onKeyDown={(event) => event.key === "Enter" && handleJump()} placeholder={String(page)} inputMode="numeric" aria-label="跳转页码" />
             </label>
-            <button type="button" className="h-8 cursor-pointer rounded-lg bg-blue-700 px-2.5 text-[10px] font-bold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-40" onClick={handleJump} disabled={loading}>跳转</button>
+            <button className="h-8 cursor-pointer rounded-lg bg-indigo-600 px-2.5 text-[10px] font-bold text-white hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-40" onClick={handleJump} disabled={loading}>GO</button>
           </div>
         </div>
       </section></TabsContent>
@@ -2338,28 +2449,27 @@ export function AiModelManagementPage() {
         open={dialogMode === "create" || dialogMode === "edit"}
         onOpenChange={(open) => { if (!open && !saving && !testingConnection) closeDialog(); }}
       >
-        <DialogContent className="horizon-portal max-h-[90dvh] overflow-y-auto sm:max-w-3xl" onCloseAutoFocus={restoreDialogFocus}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{dialogMode === "edit" ? "编辑 AI 模型" : "新增 AI 模型"}</DialogTitle>
             <DialogDescription>配置模型身份、服务地址、用途与启用状态。</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 pt-1 md:grid-cols-2">
             <div>
-              <label htmlFor="ai-model-name" className="mb-1.5 block text-xs font-semibold text-slate-600">模型名称</label>
-              <input id="ai-model-name" className="material-input w-full" value={name} onChange={(event) => setName(event.target.value)} placeholder="如：GPT-5 主模型" />
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">模型名称</label>
+              <input className="material-input w-full" value={name} onChange={(event) => setName(event.target.value)} placeholder="如：GPT-5 主模型" />
             </div>
             <div>
-              <div className="mb-1.5 text-xs font-semibold text-slate-600">服务商</div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">服务商</label>
               <RadixSelectField value={provider} onValueChange={setProvider} options={Array.from(new Set([provider, "OpenAI", "Qwen", "DeepSeek", "Zhipu", "Moonshot", "MiniMax", "HappyHorse", "Wanx", ...providerOptions].filter(Boolean))).map((option) => ({ value: option, label: option }))} ariaLabel="模型服务商" className="w-full" />
             </div>
             <div>
-              <label htmlFor="ai-model-identifier" className="mb-1.5 block text-xs font-semibold text-slate-600">模型标识</label>
-              <input id="ai-model-identifier" className="material-input w-full" value={model} onChange={(event) => setModel(event.target.value)} placeholder="如：gpt-5" />
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">模型标识</label>
+              <input className="material-input w-full" value={model} onChange={(event) => setModel(event.target.value)} placeholder="如：gpt-5" />
             </div>
             <div>
-              <label htmlFor="ai-model-api-key" className="mb-1.5 block text-xs font-semibold text-slate-600">API Key</label>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">API Key</label>
               <input
-                id="ai-model-api-key"
                 className="material-input w-full"
                 type="password"
                 value={apiKey}
@@ -2368,9 +2478,8 @@ export function AiModelManagementPage() {
               />
             </div>
             <div className="md:col-span-2">
-              <label htmlFor="ai-model-base-url" className="mb-1.5 block text-xs font-semibold text-slate-600">Base URL</label>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Base URL</label>
               <input
-                id="ai-model-base-url"
                 className="material-input w-full"
                 value={baseUrl}
                 onChange={(event) => setBaseUrl(event.target.value)}
@@ -2381,9 +2490,9 @@ export function AiModelManagementPage() {
               </p>
             </div>
             <div className="md:col-span-2">
-              <div className="mb-1.5 text-xs font-semibold text-slate-600">
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                 用途类型
-              </div>
+              </label>
               <RadixSelectField
                 value={usageKind}
                 onValueChange={setUsageKind}
@@ -2405,11 +2514,10 @@ export function AiModelManagementPage() {
               </p>
             </div>
             <div>
-              <label htmlFor="ai-model-input-price" className="mb-1.5 block text-xs font-semibold text-slate-600">
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                 输入单价（元 / 千 token）
               </label>
               <input
-                id="ai-model-input-price"
                 className="material-input w-full"
                 type="number"
                 min="0"
@@ -2420,11 +2528,10 @@ export function AiModelManagementPage() {
               />
             </div>
             <div>
-              <label htmlFor="ai-model-output-price" className="mb-1.5 block text-xs font-semibold text-slate-600">
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                 输出单价（元 / 千 token）
               </label>
               <input
-                id="ai-model-output-price"
                 className="material-input w-full"
                 type="number"
                 min="0"
@@ -2453,7 +2560,7 @@ export function AiModelManagementPage() {
               当前状态、最近成功时间、最近失败时间、最近延迟、今日请求数、今日 Token 和 Token 总使用量都由系统自动获取或自动计算。
             </div>
             {dialogError ? (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-700 md:col-span-2" role="alert">
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-700 md:col-span-2">
                 {dialogError}
               </div>
             ) : null}
@@ -2474,7 +2581,7 @@ export function AiModelManagementPage() {
       </Dialog>
 
       <AlertDialog open={dialogMode === "delete"} onOpenChange={(open) => { if (!open && !deleting) closeDialog(); }}>
-        <AlertDialogContent className="horizon-portal" onCloseAutoFocus={restoreDialogFocus}>
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>删除 AI 模型</AlertDialogTitle>
             <AlertDialogDescription>确认删除 AI 模型“{selectedRow?.name ?? "-"}”吗？此操作不可撤销。</AlertDialogDescription>
@@ -2488,7 +2595,7 @@ export function AiModelManagementPage() {
 
       {/* 百炼预设批量新增 */}
       <Dialog open={presetOpen} onOpenChange={(open) => { if (!open && !presetSaving) setPresetOpen(false); }}>
-        <DialogContent className="horizon-portal max-h-[90dvh] overflow-y-auto sm:max-w-3xl" onCloseAutoFocus={restoreDialogFocus}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader><DialogTitle>从百炼预设新增模型</DialogTitle><DialogDescription>从模型目录批量创建独立连接，Token 可在此统一填写，也可保存后逐条补充。</DialogDescription></DialogHeader>
           <div className="space-y-4 pt-1">
             <p className="text-sm leading-6 text-slate-600">
@@ -2496,9 +2603,8 @@ export function AiModelManagementPage() {
             </p>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label htmlFor="preset-api-key" className="mb-1.5 block text-xs font-semibold text-slate-600">API Key（Token，可稍后填写）</label>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">API Key（Token，可稍后填写）</label>
                 <input
-                  id="preset-api-key"
                   className="material-input w-full"
                   type="password"
                   value={presetApiKey}
@@ -2507,9 +2613,8 @@ export function AiModelManagementPage() {
                 />
               </div>
               <div>
-                <label htmlFor="preset-base-url" className="mb-1.5 block text-xs font-semibold text-slate-600">Base URL</label>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Base URL</label>
                 <input
-                  id="preset-base-url"
                   className="material-input w-full"
                   value={presetBaseUrl}
                   onChange={(event) => setPresetBaseUrl(event.target.value)}
@@ -2531,7 +2636,7 @@ export function AiModelManagementPage() {
             <div className="material-scrollbar max-h-[360px] space-y-4 overflow-y-auto rounded-2xl border border-slate-200 p-4">
               {PRESET_BRANDS.map((brand) => (
                 <div key={brand}>
-                  <div className="mb-2 text-xs font-semibold text-slate-600">{brand}</div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{brand}</div>
                   <div className="grid gap-2 md:grid-cols-2">
                     {BAILIAN_PRESET_MODELS.filter((item) => item.brand === brand).map((item) => {
                       const exists = presetExisting.has(item.model.toLowerCase());
@@ -2544,7 +2649,7 @@ export function AiModelManagementPage() {
                             exists
                               ? "cursor-not-allowed border-slate-100 bg-slate-50 opacity-60"
                               : checked
-                                ? "border-blue-200 bg-blue-50/60"
+                                ? "border-indigo-200 bg-indigo-50/60"
                                 : "border-slate-200 hover:bg-slate-50",
                           )}
                         >
@@ -2580,9 +2685,54 @@ export function AiModelManagementPage() {
         </DialogContent>
       </Dialog>
 
+      {/* 连通性测试失败明细：中文结论 + 可能情况 + 原始错误 */}
+      <Dialog open={bulkTestReport !== null} onOpenChange={(open) => !open && setBulkTestReport(null)}>
+        <DialogContent className="max-h-[88dvh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>连通性测试结果</DialogTitle>
+            <DialogDescription>
+              {bulkTestReport ? (() => {
+                const disabledCount = bulkTestReport.failures.filter((failure) => failure.disabled).length;
+                return `共测试 ${bulkTestReport.total} 个模型：成功 ${bulkTestReport.succeeded}，失败 ${bulkTestReport.failures.length}${disabledCount > 0 ? `，已自动停用 ${disabledCount} 个` : ""}。失败的模型会保持停用，修复配置后重新测试通过才能再次启用。`;
+              })() : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="material-scrollbar max-h-[60vh] space-y-2.5 overflow-y-auto pr-1">
+            {bulkTestReport?.failures.map((failure) => (
+              <article key={failure.id} className="rounded-xl border border-rose-200 bg-rose-50/40 p-3.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <XCircle className="size-4 shrink-0 text-rose-500" />
+                  <span className="text-sm font-semibold text-slate-900">{failure.name}</span>
+                  <span className="min-w-0 truncate font-mono text-[11px] text-slate-500" title={`${failure.provider} / ${failure.model}`}>{failure.provider} / {failure.model}</span>
+                  <span className={cn(
+                    "ml-auto shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+                    failure.disabled ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-slate-100 text-slate-600 ring-slate-200",
+                  )}>
+                    {failure.disabled ? "已自动停用" : failure.wasEnabled ? "未停用" : "此前已停用"}
+                  </span>
+                </div>
+                <div className="mt-2 text-sm font-medium leading-6 text-rose-700">{failure.reason}</div>
+                {failure.causes.length > 0 ? (
+                  <div className="mt-1.5">
+                    <div className="text-[11px] font-semibold text-slate-500">可能情况（按可能性排序）</div>
+                    <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-xs leading-5 text-slate-700">
+                      {failure.causes.map((cause, index) => <li key={index}>{cause}</li>)}
+                    </ol>
+                  </div>
+                ) : null}
+                <div className="mt-2 break-all rounded-lg bg-white px-2.5 py-2 font-mono text-[11px] leading-5 text-slate-500 ring-1 ring-inset ring-slate-200">原始错误：{failure.raw}</div>
+              </article>
+            ))}
+          </div>
+          <DialogFooter className="border-t border-slate-100 pt-4">
+            <button type="button" className="material-button-primary" onClick={() => setBulkTestReport(null)}>知道了</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* 导出模型配置 */}
       <Dialog open={exportOpen} onOpenChange={(open) => !open && setExportOpen(false)}>
-        <DialogContent className="horizon-portal max-h-[88dvh] overflow-y-auto sm:max-w-xl" onCloseAutoFocus={restoreDialogFocus}>
+        <DialogContent className="max-h-[88dvh] overflow-y-auto sm:max-w-xl">
           <DialogHeader><DialogTitle>导出模型配置</DialogTitle><DialogDescription>选择要写入 JSON 文件的模型连接；API Key 不会被导出。</DialogDescription></DialogHeader>
           <div className="space-y-4 pt-1">
             <p className="text-sm leading-6 text-slate-600">
@@ -2605,7 +2755,7 @@ export function AiModelManagementPage() {
                   key={row.id}
                   className={cn(
                     "flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5",
-                    exportSelected.has(row.id) ? "border-blue-200 bg-blue-50/60" : "border-slate-200 hover:bg-slate-50",
+                    exportSelected.has(row.id) ? "border-indigo-200 bg-indigo-50/60" : "border-slate-200 hover:bg-slate-50",
                   )}
                 >
                   <Checkbox className="mt-1" checked={exportSelected.has(row.id)} onCheckedChange={() => toggleExportRow(row.id)} />
@@ -2632,16 +2782,15 @@ export function AiModelManagementPage() {
 
       {/* 导入模型配置 */}
       <Dialog open={importOpen} onOpenChange={(open) => { if (!open && !importSaving) setImportOpen(false); }}>
-        <DialogContent className="horizon-portal max-h-[88dvh] overflow-y-auto sm:max-w-xl" onCloseAutoFocus={restoreDialogFocus}>
+        <DialogContent className="max-h-[88dvh] overflow-y-auto sm:max-w-xl">
           <DialogHeader><DialogTitle>导入模型配置</DialogTitle><DialogDescription>只新增模型，不覆盖现有连接；重复模型默认不勾选。</DialogDescription></DialogHeader>
           <div className="space-y-4 pt-1">
             <p className="text-sm leading-6 text-slate-600">
               导入只会<span className="font-semibold text-slate-800">新增</span>模型配置，不会修改或覆盖任何现有配置。与现有模型标识相同的条目已标记为「重复」并默认不勾选。
             </p>
             <div>
-              <label htmlFor="import-api-key" className="mb-1.5 block text-xs font-semibold text-slate-600">统一 API Key（可选）</label>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">统一 API Key（可选）</label>
               <input
-                id="import-api-key"
                 className="material-input w-full"
                 type="password"
                 value={importApiKey}
@@ -2656,7 +2805,7 @@ export function AiModelManagementPage() {
                   key={`${entry.model}-${index}`}
                   className={cn(
                     "flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5",
-                    importSelected.has(index) ? "border-blue-200 bg-blue-50/60" : "border-slate-200 hover:bg-slate-50",
+                    importSelected.has(index) ? "border-indigo-200 bg-indigo-50/60" : "border-slate-200 hover:bg-slate-50",
                   )}
                 >
                   <Checkbox className="mt-1" checked={importSelected.has(index)} onCheckedChange={() => toggleImportEntry(index)} />

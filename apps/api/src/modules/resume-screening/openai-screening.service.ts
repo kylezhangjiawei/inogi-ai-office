@@ -948,6 +948,7 @@ export class OpenAiScreeningService {
       const result = await this.aiGateway.complete({
         scene: 'hr.resume_screening',
         targets: routing.targets,
+        routeMeta: { source: routing.source, strategy: routing.strategy },
         messages: params.messages,
         ...(params.jsonMode ? { responseFormat: { type: 'json_object' } as const } : {}),
         retryWithoutResponseFormat: Boolean(params.jsonMode),

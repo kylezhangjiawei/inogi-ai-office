@@ -161,7 +161,7 @@ test('可按逐条数量计算多条报价，扣减折扣后一次确认并保�
     {} as never,
     {} as never,
   );
-  service.getTask = async () => ({ id: task.id, status: 'priced' }) as never;
+  service.getTask = async () => ({ id: task.id, status: 'inquiring' }) as never;
 
   const result = await service.confirmQuotationsFromQuoteBook(
     task.id,
@@ -191,11 +191,13 @@ test('可按逐条数量计算多条报价，扣减折扣后一次确认并保�
   );
   assert.equal(materialUpdates.length, 2);
   const taskData = taskUpdates[0]?.data as Record<string, unknown>;
-  assert.equal(taskData.status, 'priced');
+  // 确认报价只前进一格到「询价中」，去 已定价/待到样/测试中 由随后的「完成询价」决定。
+  // 曾经这里直接写 priced，界面上就表现为「待询价一点就窜到已定价」，用户按跳步反复反馈。
+  assert.equal(taskData.status, 'inquiring');
   assert.equal(taskData.selectedQuotationId, 'snapshot-1');
   assert.equal(Number(taskData.quotationSubtotal), 775);
   assert.equal(Number(taskData.quotationDiscount), 25);
   assert.equal(Number(taskData.quotationTotal), 750);
   assert.equal(taskData.quotationCurrency, 'CNY');
-  assert.deepEqual(result, { id: task.id, status: 'priced' });
+  assert.deepEqual(result, { id: task.id, status: 'inquiring' });
 });

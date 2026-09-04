@@ -897,14 +897,34 @@ if [ "$DEPLOY_PLAN_API" = "1" ]; then
   start_stage api_restart || true
   log "重启后端 pm2: $PM2_APP_NAME ..."
   if command -v pm2 >/dev/null 2>&1; then
+    # ecosystem 的启动参数（node_args / max_memory_restart / exec_mode 等）只在进程「创建」
+    # 时生效——pm2 restart --update-env 只重启并刷新环境变量，不会重载这些参数。所以按内容
+    # 哈希判断 ecosystem 是否变更：没变 → 零停机 restart；变了（或首次/算不出哈希）→ delete
+    # 后用 ecosystem 重新 start，确保新启动参数真正生效（否则改了内存墙也要手动重建，正是
+    # 之前 OOM 迟迟压不住的原因）。哈希文件与依赖锁哈希同放 .deploy-cache，复用 sha256_stdin。
+    PM2_ECO_FILE="deploy/pm2/ecosystem.config.cjs"
+    PM2_ECO_HASH_FILE="$CACHE_DIR/pm2-ecosystem.sha"
+    PM2_ECO_NEW_HASH="$({ cat "$PM2_ECO_FILE" 2>/dev/null || true; } | sha256_stdin | awk '{print $1}')"
+    PM2_ECO_OLD_HASH="$(cat "$PM2_ECO_HASH_FILE" 2>/dev/null || echo none)"
     if pm2 describe "$PM2_APP_NAME" >/dev/null 2>&1; then
-      # 复用已存在的进程定义（保留其 cwd / .env 加载方式），只更新环境变量与代码
-      APP_VERSION="$RELEASE" APP_GIT_SHA="$GIT_SHA" \
-        pm2 restart "$PM2_APP_NAME" --update-env
+      if [ -n "$PM2_ECO_NEW_HASH" ] && [ "$PM2_ECO_NEW_HASH" = "$PM2_ECO_OLD_HASH" ]; then
+        # ecosystem 未变：复用已存在的进程定义（保留 cwd / .env 加载方式），只更新环境变量与代码
+        APP_VERSION="$RELEASE" APP_GIT_SHA="$GIT_SHA" \
+          pm2 restart "$PM2_APP_NAME" --update-env
+      else
+        log "检测到 pm2 ecosystem 配置变更，重建进程以应用新启动参数（node_args / max_memory_restart）..."
+        pm2 delete "$PM2_APP_NAME" >/dev/null 2>&1 || true
+        APP_VERSION="$RELEASE" APP_GIT_SHA="$GIT_SHA" \
+          pm2 start "$PM2_ECO_FILE" --update-env
+      fi
     else
       log "pm2 进程 $PM2_APP_NAME 不存在，用 ecosystem 首次启动 ..."
       APP_VERSION="$RELEASE" APP_GIT_SHA="$GIT_SHA" \
-        pm2 start deploy/pm2/ecosystem.config.cjs --update-env
+        pm2 start "$PM2_ECO_FILE" --update-env
+    fi
+    # 记录本次生效的 ecosystem 哈希，供下次比对（写失败不影响部署）
+    if [ -n "$PM2_ECO_NEW_HASH" ]; then
+      printf '%s\n' "$PM2_ECO_NEW_HASH" > "$PM2_ECO_HASH_FILE" 2>/dev/null || true
     fi
     pm2 save >/dev/null 2>&1 || true
   else

@@ -1131,6 +1131,18 @@ export function saveRdDirectorDashboard(payload: RdDirectorDashboardPayload) {
   });
 }
 
+/**
+ * 能否作为 @ 提及候选：已离职 / 账号被停用的人排除。
+ * @ 会触发通知，而这两类人登不进系统，@ 出去等于石沉大海。
+ * 请假（on_leave）不排除——人还会回来。
+ * 只影响「新提及的候选列表」：历史留痕里的 @ 高亮走的是留痕自带的 mentions，不受影响。
+ */
+export function isMentionablePerson(
+  person: { status?: string | null; user_status?: string | null },
+): boolean {
+  return person.status !== "resigned" && person.user_status !== "DISABLED";
+}
+
 export function fetchRdPeople(options: { signal?: AbortSignal } = {}) {
   return requestJson<RdPersonLoad[]>("/people", options.signal ? { signal: options.signal } : undefined);
 }

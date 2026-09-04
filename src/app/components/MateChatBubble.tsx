@@ -42,25 +42,6 @@ import { isChatUsableModel } from "../lib/aiModelOptions";
 import { hasPermission } from "../lib/permissions";
 import { RagCitations, RagPermissionNotice } from "./RagCitations";
 import { MobileImagePreviewLink } from "./MobileZoomableImage";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./ui/sheet";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "./ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
 
 // ─── 类型 ─────────────────────────────────────────────────────────────────────
 
@@ -237,6 +218,13 @@ const DISLIKE_REASONS = [
 
 /** 附件数量与单文件大小上限（与后端 uploads-temp 的 20MB 对齐） */
 const ATTACH_MAX_COUNT = 10;
+
+/**
+ * 模型选择的本地持久化键。空串 selectedModel = 「自动」态：请求不带 model，
+ * 选模权交给后端网关路由（未配路由则用全局默认模型）；存 "auto" 表示用户显式选过自动。
+ * 显式选过的具体模型跨刷新保留——用户意志优先于路由。
+ */
+const MODEL_CHOICE_STORAGE_KEY = "matechat.model-choice";
 const ATTACH_MAX_BYTES = 20 * 1024 * 1024;
 /**
  * 图片上传前压缩的触发/目标上限：对齐后端聊天视觉硬线（MAX_IMAGE_BYTES = 10MB），留 1MB 余量。
@@ -402,16 +390,16 @@ const MarkdownContent = React.memo(function MarkdownContent({ content }: { conte
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        p: ({ children }) => <p className="my-1.5 text-pretty first:mt-0 last:mb-0">{children}</p>,
-        h1: ({ children }) => <h3 className="mb-1.5 mt-3 text-balance text-base font-bold first:mt-0">{children}</h3>,
-        h2: ({ children }) => <h3 className="mb-1.5 mt-3 text-balance text-base font-bold first:mt-0">{children}</h3>,
-        h3: ({ children }) => <h4 className="mb-1 mt-2.5 text-balance text-sm font-bold first:mt-0">{children}</h4>,
-        h4: ({ children }) => <h4 className="mb-1 mt-2.5 text-balance text-sm font-bold first:mt-0">{children}</h4>,
+        p: ({ children }) => <p className="my-1.5 first:mt-0 last:mb-0">{children}</p>,
+        h1: ({ children }) => <h3 className="mb-1.5 mt-3 text-base font-bold first:mt-0">{children}</h3>,
+        h2: ({ children }) => <h3 className="mb-1.5 mt-3 text-base font-bold first:mt-0">{children}</h3>,
+        h3: ({ children }) => <h4 className="mb-1 mt-2.5 text-sm font-bold first:mt-0">{children}</h4>,
+        h4: ({ children }) => <h4 className="mb-1 mt-2.5 text-sm font-bold first:mt-0">{children}</h4>,
         ul: ({ children }) => <ul className="my-1.5 list-disc space-y-0.5 pl-5">{children}</ul>,
         ol: ({ children }) => <ol className="my-1.5 list-decimal space-y-0.5 pl-5">{children}</ol>,
         li: ({ children }) => <li className="leading-6">{children}</li>,
         a: ({ children, href }) => (
-          <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#002fa7] underline underline-offset-2 hover:text-[#001f73]">
+          <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline underline-offset-2 hover:text-indigo-700">
             {children}
           </a>
         ),
@@ -468,6 +456,8 @@ export function MateChatBubble() {
 
   // 对话框
   const [open, setOpen] = useState(false);
+  const [rendered, setRendered] = useState(false);
+  const [visible, setVisible] = useState(false);
   const navigate = useNavigate();
 
   // 分享给同事：目标消息 + 收件人列表 + 搜索 + 发送态
@@ -676,6 +666,20 @@ export function MateChatBubble() {
     };
   }, [bubbleReady]);
 
+  // ── 对话框动画 ──────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (open) {
+      setRendered(true);
+      const t = window.setTimeout(() => setVisible(true), 16);
+      return () => window.clearTimeout(t);
+    }
+    setVisible(false);
+    if (!rendered) return;
+    const t = window.setTimeout(() => setRendered(false), 260);
+    return () => window.clearTimeout(t);
+  }, [open, rendered]);
+
   // ── 首次打开加载数据（含 5 分钟缓存，避免反复开关抽屉时重复拉取） ────────────
   const lastLoadedAt = useRef<number>(0);
   const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -695,7 +699,19 @@ export function MateChatBubble() {
     try {
       const [convs, mds] = await Promise.all([apiListConversations(), apiListModels()]);
       setModels(mds);
-      if (mds.length > 0 && !selectedModel) setSelectedModel(mds[0].id);
+      // 默认「自动」（selectedModel 保持空串，发送时不带 model → 网关路由接管选模）。
+      // 只恢复用户显式选过、且仍然存在的模型；存的是 "auto"/已下架/读不到 → 维持自动态。
+      if (!selectedModel) {
+        let stored: string | null = null;
+        try {
+          stored = localStorage.getItem(MODEL_CHOICE_STORAGE_KEY);
+        } catch {
+          /* 隐私模式等读不到本地存储：按自动态处理 */
+        }
+        if (stored && stored !== "auto" && mds.some((m) => m.id === stored)) {
+          setSelectedModel(stored);
+        }
+      }
       if (convs.length > 0) {
         setConversations(convs);
         if (!activeId) setActiveId(convs[0].id);
@@ -777,29 +793,39 @@ export function MateChatBubble() {
    * 切换会话时用，「停止生成」后也用——中断没有 done 事件，得靠重拉把乐观占位换成
    * 后端已落库的半截回答（含真实 id），否则气泡会永远停在「生成中」。
    */
-  /** 把一份服务端消息列表铺到界面上，并恢复挂在消息上的工具步骤与确认卡 */
-  const applyConversation = useCallback(async (convId: string, msgs: ApiMessage[]) => {
-    setMessages(msgs);
-    // 恢复工具步骤条：没有它，刷新后分享含任务数据的回答会跳过越权确认（见 TASK_REF_TOOLS）
-    const stepsByMsg: Record<string, ToolStep[]> = {};
-    for (const m of msgs) {
-      if (m.toolSteps && m.toolSteps.length > 0) stepsByMsg[m.id] = m.toolSteps;
-    }
-    setMsgToolSteps(stepsByMsg);
-    // 恢复未决确认卡：挂回其所属消息（无 messageId 的兜底挂到最后一条 assistant 消息）
-    const pendings = await apiGetPendingActions(convId);
-    const lastAssistantId = [...msgs].reverse().find((m) => m.role === "assistant")?.id;
-    const byMsg: Record<string, PendingActionView[]> = {};
-    for (const p of pendings) {
-      const mid = p.messageId ?? lastAssistantId;
-      if (!mid) continue;
-      (byMsg[mid] ??= []).push({ ...p.card, status: "pending" });
-    }
-    setMsgPendingActions(byMsg);
-  }, []);
+  /**
+   * 把一份服务端消息列表铺到界面上，并恢复挂在消息上的工具步骤与确认卡。
+   * isStale 在每次写 state 前检查：并发加载 / 中途切换会话时，旧的这份数据不能覆盖新会话——
+   * 否则快速切 A→B→A 时先发后至的响应会把 A 的历史铺到 B 上。
+   */
+  const applyConversation = useCallback(
+    async (convId: string, msgs: ApiMessage[], isStale?: () => boolean) => {
+      if (isStale?.()) return;
+      setMessages(msgs);
+      // 恢复工具步骤条：没有它，刷新后分享含任务数据的回答会跳过越权确认（见 TASK_REF_TOOLS）
+      const stepsByMsg: Record<string, ToolStep[]> = {};
+      for (const m of msgs) {
+        if (m.toolSteps && m.toolSteps.length > 0) stepsByMsg[m.id] = m.toolSteps;
+      }
+      setMsgToolSteps(stepsByMsg);
+      // 恢复未决确认卡：挂回其所属消息（无 messageId 的兜底挂到最后一条 assistant 消息）
+      const pendings = await apiGetPendingActions(convId);
+      if (isStale?.()) return; // 上面这个 await 期间可能已切走会话，别把过期的卡铺上去
+      const lastAssistantId = [...msgs].reverse().find((m) => m.role === "assistant")?.id;
+      const byMsg: Record<string, PendingActionView[]> = {};
+      for (const p of pendings) {
+        const mid = p.messageId ?? lastAssistantId;
+        if (!mid) continue;
+        (byMsg[mid] ??= []).push({ ...p.card, status: "pending" });
+      }
+      setMsgPendingActions(byMsg);
+    },
+    [],
+  );
 
   const hydrateConversation = useCallback(
-    async (convId: string) => applyConversation(convId, await apiGetMessages(convId)),
+    async (convId: string, isStale?: () => boolean) =>
+      applyConversation(convId, await apiGetMessages(convId), isStale),
     [applyConversation],
   );
 
@@ -841,14 +867,26 @@ export function MateChatBubble() {
   useEffect(() => {
     if (!activeId) return;
     const convId = activeId;
+    // 切换会话：先中止上一会话仍在进行的流。否则它会继续把 delta/done 写向一个已被清空的列表
+    // （全部变成空操作——回答虽在后端落库却永远不在界面出现，正是「切走再回来内容没了」的成因），
+    // 还白占一条浏览器连接。abort 后后端按「断流」把已生成的内容收尾落库，切回本会话时下面的
+    // hydrate 会重新拉到它；sendSeq 自增则让上一条流的停止对账立即作废，不至于把旧会话内容铺到新会话。
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+      sendSeqRef.current += 1;
+      setSending(false);
+    }
+    let cancelled = false;
     setLoadingMsgs(true);
     setMessages([]);
     setMsgPendingActions({});
     setExpandedSteps(new Set());
     setMsgStatus({});
-    hydrateConversation(convId)
-      .catch((err) => toast.error(err instanceof Error ? err.message : "加载消息失败"))
-      .finally(() => setLoadingMsgs(false));
+    hydrateConversation(convId, () => cancelled)
+      .catch((err) => { if (!cancelled) toast.error(err instanceof Error ? err.message : "加载消息失败"); })
+      .finally(() => { if (!cancelled) setLoadingMsgs(false); });
+    return () => { cancelled = true; };
   }, [activeId, hydrateConversation]);
 
   // ── 消息自动滚动到底部 ──────────────────────────────────────────────────────
@@ -1137,11 +1175,21 @@ export function MateChatBubble() {
 
       const tempUserId = `tmp-user-${Date.now()}`;
       const tempAiId = `tmp-ai-${Date.now()}`;
+      // 幂等键：这一次逻辑发送的唯一标识。同一条消息若因任何原因被重发（代理重放等），
+      // 后端据此只落一条用户消息、不重复提问。重新回答走 regenerateMessageId，不需要它。
+      const clientMessageId =
+        !isRegenerate && typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : undefined;
       const now = new Date().toISOString();
       // 在函数作用域声明：finally 块要访问它，不能放进 try 块（块级作用域下 finally 取不到 → ReferenceError）。
       let realUserId = tempUserId;
       // 同理提到函数作用域：中断落在 catch 里，要靠它判断「有没有写出内容」来决定保留还是撤掉气泡。
       let streamedContent = "";
+      // 本轮是否已经产出过用户可见的东西（正文之外还包括工具步骤 / 确认卡 / 生成的文件）。
+      // 多轮工具场景前几轮往往只有工具步骤而无正文，断流时不能只看 streamedContent 就把它们连同
+      // 气泡一起删掉——那些内容后端会按「断流」落库，前端要保留并对账，与后端判据保持一致。
+      let hadVisibleArtifact = false;
 
       // 普通提问追加一问一答；重新回答只在原位置替换 AI 占位，不重复创建用户问题。
       setMessages((prev) => isRegenerate && regenerateMessage
@@ -1167,6 +1215,7 @@ export function MateChatBubble() {
             model: selectedModel || undefined,
             attachments: attachPayload.length > 0 ? attachPayload : undefined,
             regenerateMessageId: regenerateMessage?.id,
+            clientMessageId,
           }),
           signal: abortController.signal,
         });
@@ -1245,6 +1294,7 @@ export function MateChatBubble() {
               }
 
               if (event.type === "tool_step") {
+                hadVisibleArtifact = true;
                 // 同 callId 原位更新（running → ok/error），新 callId 追加
                 const step: ToolStep = {
                   callId: event.callId,
@@ -1269,6 +1319,7 @@ export function MateChatBubble() {
               }
 
               if (event.type === "pending_action") {
+                hadVisibleArtifact = true;
                 const view: PendingActionView = { ...event.action, status: "pending" };
                 setMsgPendingActions((prev) => ({
                   ...prev,
@@ -1302,6 +1353,7 @@ export function MateChatBubble() {
               }
 
               if (event.type === "files_generated") {
+                hadVisibleArtifact = true;
                 const atts = event.attachments;
                 setMessages((prev) =>
                   prev.map((m) =>
@@ -1389,10 +1441,13 @@ export function MateChatBubble() {
           }
         }
       } catch (err) {
+        // 已产出的判据：正文，或工具步骤/确认卡/生成文件——任一非空都说明用户已看到东西，
+        // 后端会按「断流」把它们落库，前端就要保留并对账，不能整体作废（多轮工具场景正文常为空）。
+        const hasVisibleOutput = streamedContent.trim().length > 0 || hadVisibleArtifact;
         // 用户主动停止：不是错误，不弹 toast。
         if (err instanceof DOMException && err.name === "AbortError") {
-          if (streamedContent.trim()) {
-            // 已经写出了一部分：后端会把它落库，但那发生在中断之后（本轮若还有工具在跑会更晚），
+          if (hasVisibleOutput) {
+            // 已经产出了一部分：后端会把它落库，但那发生在中断之后（本轮若还有工具在跑会更晚），
             // 故轮询对账而不是立刻重拉，期间保留用户已看到的内容。
             void reconcileAfterStop(activeId, realUserId, sendSeq, regenerateMessage?.id);
           } else {
@@ -1402,14 +1457,25 @@ export function MateChatBubble() {
               ? prev.map((message) => (message.id === tempAiId ? regenerateMessage : message))
               : prev.filter((m) => m.id !== tempAiId));
           }
-        } else if (streamedContent.trim()) {
-          // 连接中断但正文已经流出：绝不当场抹掉用户看到的内容。后端在断开时会把
-          // 半截回答落库（收尾发生在断开之后），复用停止生成的轮询对账等它出现；
-          // 万一没落库，对账也不会删本地气泡，内容仍留给用户。
+        } else if (hasVisibleOutput) {
+          // 连接中断但已有产出：绝不当场抹掉用户看到的内容。后端在断开时会把半截回答落库
+          //（收尾发生在断开之后），复用停止生成的轮询对账等它出现；万一没落库，对账也不会删本地气泡。
           toast.error("网络连接中断，已保留当前生成的内容");
           void reconcileAfterStop(activeId, realUserId, sendSeq, regenerateMessage?.id);
         } else {
-          toast.error(err instanceof Error ? err.message : "发送失败");
+          // 一无所有的失败：给可读的中文提示，不把浏览器原生的 "Failed to fetch" 直接抛给用户。
+          // 提问已在后端落库（收到过 userMessage 事件即 realUserId 变化），故用户气泡保留、只撤 AI 占位，
+          // 用户无需、也不应手动重发（会产生重复提问）——文案据此区分。
+          const questionPersisted = realUserId !== tempUserId;
+          const message =
+            err instanceof TypeError
+              ? questionPersisted
+                ? "网络中断，回答生成失败。问题已保存，可点回答下方的重新生成，不必重复提问。"
+                : "网络连接失败，请检查网络后重试。"
+              : err instanceof Error
+                ? err.message
+                : "发送失败";
+          toast.error(message);
           setMessages((prev) => isRegenerate && regenerateMessage
             ? prev.map((message) => message.id === tempAiId ? regenerateMessage : message)
             : prev.filter((m) => m.id !== tempAiId && (realUserId !== tempUserId || m.id !== tempUserId)));
@@ -1421,8 +1487,13 @@ export function MateChatBubble() {
           const { [tempAiId]: _dropped, ...rest } = prev;
           return rest;
         });
-        abortRef.current = null;
-        setSending(false);
+        // 只有当仍是本次发送在占用锁时才复位：切换会话会主动 abort 上一条流并立刻把
+        // sending/abortRef 让给新会话，此时旧流的这段收尾若无条件清空，就会把新会话的停止
+        // 控制器和发送锁一起误清（新会话停止按钮失效、状态错乱）。按 controller 身份守卫。
+        if (abortRef.current === abortController) {
+          abortRef.current = null;
+          setSending(false);
+        }
         void (realUserId); // suppress unused warning
       }
     },
@@ -1440,8 +1511,11 @@ export function MateChatBubble() {
 
   /** 停止生成：中止 SSE 请求，后端据此停掉 ReAct 循环（不再发起新一轮上游调用与工具批次） */
   const handleStop = useCallback(() => {
+    // 只触发中止；abortRef 的清理与 sending 复位统一交给流收尾的 finally（它按 controller 身份守卫）。
+    // ⚠️ 不要在这里把 abortRef 置 null：那样 finally 的 `abortRef.current === abortController` 守卫
+    // 就永远不匹配，setSending(false) 不执行 → 点停止后卡在「生成中」、切会话也复位不了，只能刷新。
+    // abort 后 catch 的 AbortError 分支会保留已生成内容并对账（或撤掉空占位气泡），无需在此另做处理。
     abortRef.current?.abort();
-    abortRef.current = null;
   }, []);
 
   // ── ReAct 写操作确认卡：确认执行 / 取消 ──────────────────────────────────────
@@ -1682,27 +1756,26 @@ export function MateChatBubble() {
           setBubblePos({ x, y });
         }}
         onClick={() => { if (!movedRef.current) setOpen(true); movedRef.current = false; }}
-        aria-label="打开 MateChat 助手"
         className={cn(
           // 默认收成圆形（只露头像）；hover 时文字平滑展开，减少占位。
           // 定位（left/right/top）由 effect 写 inline style，靠右时右缘锚定向左展开。
-          "group fixed z-50 flex items-center rounded-full border border-white/70 bg-[#002fa7] p-2 text-white shadow-lg cursor-grab",
+          "group fixed z-50 flex items-center rounded-full border border-white/70 bg-indigo-600 p-2 text-white shadow-[0_18px_38px_rgba(79,70,229,0.28)] transition-all duration-200 cursor-grab hover:-translate-y-1 will-change-[left,top]",
           anchorRight && "flex-row-reverse",
           bubbleReady ? "opacity-100" : "opacity-0",
         )}
       >
-        <span className="relative flex size-10 shrink-0 items-center justify-center rounded-full bg-white/15">
-          <img src={AI_AVATAR} alt="MateChat" className="size-7 object-contain" />
-          <span className="absolute -inset-1 rounded-full border border-white/20" />
+        <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/14">
+          <img src={AI_AVATAR} alt="MateChat" className="h-7 w-7 object-contain" />
+          <span className="absolute inset-[-5px] rounded-full border border-indigo-300/30 animate-pulse" />
         </span>
         {/* 文字：收起态宽度为 0 隐藏，hover 展开；展开方向跟随锚定侧 */}
         <span
           className={cn(
-            "flex max-w-0 flex-col overflow-hidden whitespace-nowrap opacity-0 group-hover:max-w-[180px] group-hover:opacity-100",
+            "flex max-w-0 flex-col overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:max-w-[180px] group-hover:opacity-100",
             anchorRight ? "group-hover:mr-2 group-hover:pl-2" : "group-hover:ml-2 group-hover:pr-2",
           )}
         >
-          <span className="block text-xs font-semibold text-white/75">AI Assistant</span>
+          <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-white/72">AI Assistant</span>
           <span className="flex items-center gap-1 text-sm font-semibold">
             <Sparkles className="h-4 w-4" />
             MateChat
@@ -1710,21 +1783,33 @@ export function MateChatBubble() {
         </span>
       </button>
 
-      {/* 对话框：使用项目 Sheet 原语统一焦点管理与 Escape/遮罩关闭行为。 */}
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent
-          side="right"
-          className="horizon-theme matechat-horizon bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] h-auto w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] gap-0 overflow-hidden rounded-lg border border-[#e9edf7] bg-white p-0 shadow-xl transition-none data-[state=closed]:animate-none data-[state=open]:animate-none sm:max-w-[calc(100vw-1.5rem)] md:bottom-[max(1rem,env(safe-area-inset-bottom))] md:right-[max(1rem,env(safe-area-inset-right))] md:top-[max(1rem,env(safe-area-inset-top))] md:w-[min(1120px,calc(100vw-2rem))] md:max-w-[calc(100vw-2rem)] md:flex-row [&>button.absolute]:hidden"
+      {/* 对话框 */}
+      {rendered && (
+        <div
+          className={cn(
+            "fixed inset-0 z-[80] transition-all duration-300 ease-out",
+            visible ? "bg-slate-950/24 backdrop-blur-[2px]" : "bg-slate-950/0 backdrop-blur-[0px]",
+          )}
+          onClick={() => setOpen(false)}
         >
-          <SheetTitle className="sr-only">MateChat</SheetTitle>
-          <SheetDescription className="sr-only">与企业智能助手对话、查看引用并分享回答。</SheetDescription>
+          <div
+            className={cn(
+              "absolute inset-3 flex h-[calc(100vh-24px)] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[4px] border border-white/75 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,250,255,0.95))] shadow-[0_30px_80px_rgba(15,23,42,0.26)] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] md:inset-y-4 md:left-auto md:right-4 md:h-[calc(100vh-32px)] md:w-[min(1120px,calc(100vw-32px))] md:max-w-[calc(100vw-32px)] md:flex-row md:rounded-[32px]",
+              visible ? "translate-x-0 scale-100 opacity-100" : "translate-x-8 scale-[0.98] opacity-0",
+            )}
+            style={{borderRadius: '4px'}}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="MateChat"
+          >
             {/* 左侧会话列表 */}
             <section className="flex max-h-[38vh] min-w-0 flex-col border-b border-slate-200/70 bg-slate-50/60 md:max-h-none md:w-[30%] md:min-w-[240px] md:border-b-0 md:border-r">
               <div className="border-b border-slate-200/70 px-5 py-5">
                 <div className="mb-4 flex items-center justify-between">
                   <div>
-                    <div className="text-xs font-semibold text-[#002fa7]">MateChat</div>
-                    <h3 className="mt-1 text-balance text-slate-900">对话历史</h3>
+                    <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">MateChat</div>
+                    <h3 className="mt-1 text-slate-900">对话历史</h3>
                   </div>
                   <button
                     type="button"
@@ -1762,20 +1847,20 @@ export function MateChatBubble() {
                         type="button"
                         onClick={() => { setActiveId(conv.id); setIsRenaming(false); }}
                         className={cn(
-                          "w-full rounded-xl border p-4 text-left",
+                          "w-full rounded-[24px] border p-4 text-left transition",
                           isActive
-                            ? "border-[#bfd0fa] bg-[#eef3ff] shadow-sm"
+                            ? "border-indigo-100 bg-indigo-50 shadow-[0_8px_18px_rgba(79,70,229,0.12)]"
                             : "border-slate-200/80 bg-white/82 hover:border-slate-300 hover:bg-white",
                         )}
                       >
                         <div className="mb-2 flex items-center justify-between gap-3">
                           <div className="truncate text-sm font-semibold text-slate-900">{conv.title}</div>
-                          {conv.pinned && <Pin className="h-3.5 w-3.5 flex-shrink-0 text-[#002fa7]" />}
+                          {conv.pinned && <Pin className="h-3.5 w-3.5 flex-shrink-0 text-indigo-600" />}
                         </div>
                         {conv.summary && (
                           <div className="line-clamp-2 text-xs leading-5 text-slate-500">{conv.summary}</div>
                         )}
-                        <div className="mt-2 flex items-center gap-2 text-xs tabular-nums text-slate-400">
+                        <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
                           <Clock3 className="h-3 w-3" />
                           {fmtDateTime(conv.updatedAt)}
                         </div>
@@ -1796,10 +1881,10 @@ export function MateChatBubble() {
             >
               {/* 拖拽上传遮罩 */}
               {dragActive && (
-                <div className="pointer-events-none absolute inset-0 z-30 m-3 flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-[#9db6f5] bg-[#eef3ff]/95">
-                  <Paperclip className="size-8 text-[#002fa7]" />
-                  <div className="text-sm font-medium text-[#002fa7]">松开鼠标上传文件</div>
-                  <div className="text-pretty text-xs text-[#315bbb]">
+                <div className="pointer-events-none absolute inset-0 z-30 m-3 flex flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-indigo-300 bg-indigo-50/85 backdrop-blur-sm">
+                  <Paperclip className="h-8 w-8 text-indigo-500" />
+                  <div className="text-sm font-medium text-indigo-700">松开鼠标上传文件</div>
+                  <div className="text-xs text-indigo-400">
                     支持图片与文档，最多 {ATTACH_MAX_COUNT} 个 · 单个 ≤ 20MB
                   </div>
                 </div>
@@ -1807,8 +1892,8 @@ export function MateChatBubble() {
               {/* 顶部工具栏 */}
               <div className="flex items-center justify-between border-b border-slate-200/70 px-6 py-5">
                 <div className="min-w-0">
-                  <div className="text-xs font-semibold text-[#002fa7]">Conversation</div>
-                  <h2 className="mt-1 truncate text-balance text-[1.35rem] text-slate-900">
+                  <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Conversation</div>
+                  <h2 className="mt-1 truncate text-[1.35rem] text-slate-900">
                     {activeConv?.title ?? "MateChat"}
                   </h2>
                 </div>
@@ -1844,8 +1929,7 @@ export function MateChatBubble() {
                   <button
                     type="button"
                     onClick={() => setOpen(false)}
-                    aria-label="关闭 MateChat"
-                    className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-slate-500 transition hover:text-slate-900"
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -1866,6 +1950,36 @@ export function MateChatBubble() {
                     />
                     <button type="button" onClick={() => void confirmRename()} className="material-button-primary">保存</button>
                     <button type="button" onClick={() => setIsRenaming(false)} className="material-button-secondary">取消</button>
+                  </div>
+                </div>
+              )}
+
+              {/* 删除确认横幅 */}
+              {deleteConfirm && (
+                <div className="border-b border-red-100 bg-red-50 px-6 py-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2 text-sm text-red-700">
+                      <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                      {deleteConfirm.kind === "conversation"
+                        ? `确认删除对话「${(deleteConfirm as { label: string }).label}」及其全部消息？此操作不可撤销。`
+                        : "确认删除这条消息？此操作不可撤销。"}
+                    </div>
+                    <div className="flex flex-shrink-0 gap-2">
+                      <button
+                        type="button"
+                        onClick={confirmDelete}
+                        className="rounded-xl bg-red-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                      >
+                        确认删除
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteConfirm(null)}
+                        className="material-button-secondary !px-4 !py-1.5 text-xs"
+                      >
+                        取消
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1892,7 +2006,7 @@ export function MateChatBubble() {
                           <div className={cn("flex max-w-[82%] gap-3", isUser ? "flex-row-reverse" : "flex-row")}>
                             {/* 头像 */}
                             {isUser ? (
-                              <div className="mt-1 flex size-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#002fa7] text-sm font-semibold text-white shadow-sm">
+                              <div className="mt-1 flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#f59e90_0%,#f6c56b_58%,#a3c94c_100%)] text-sm font-semibold text-white shadow-sm">
                                 {user?.name?.slice(0, 1) ?? "U"}
                               </div>
                             ) : (
@@ -1912,7 +2026,7 @@ export function MateChatBubble() {
                                     const expanded = expandedSteps.has(stepKey);
                                     const StepIcon =
                                       step.status === "running" ? (
-                                        <Loader2 className="size-3 animate-spin text-[#002fa7]" />
+                                        <Loader2 className="h-3 w-3 animate-spin text-indigo-500" />
                                       ) : step.status === "ok" ? (
                                         <Check className="h-3 w-3 text-emerald-500" />
                                       ) : (
@@ -1934,7 +2048,7 @@ export function MateChatBubble() {
                                           aria-expanded={expandable ? expanded : undefined}
                                           className={cn(
                                             "inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-left text-xs text-slate-600",
-                                            expandable && "transition hover:border-[#bfd0fa] hover:text-[#002fa7]",
+                                            expandable && "transition hover:border-indigo-200 hover:text-indigo-600",
                                             !expandable && "cursor-default",
                                           )}
                                         >
@@ -1985,7 +2099,7 @@ export function MateChatBubble() {
                                     // 用户气泡 inline-block + text-left：收缩到文字宽度，避免被同条更宽的图片附件撑宽后
                                     // 文字被 text-right 推到右侧、左侧留白
                                     isUser
-                                      ? "inline-block text-left rounded-tr-md bg-[#eef3ff] text-slate-800"
+                                      ? "inline-block text-left rounded-tr-md bg-indigo-50 text-slate-800"
                                       : "rounded-tl-md bg-[#f5f5fb] text-slate-800",
                                     isStreaming && !msg.content && "py-4",
                                   )}
@@ -2026,10 +2140,10 @@ export function MateChatBubble() {
                                   {msgPendingActions[msg.id].map((action) => (
                                     <div
                                       key={action.id}
-                                      className="rounded-xl border border-[#bfd0fa] bg-[#eef3ff] p-4 text-left shadow-sm"
+                                      className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4 text-left shadow-sm"
                                     >
                                       <div className="flex items-center gap-2">
-                                        <Sparkles className="size-4 text-[#002fa7]" />
+                                        <Sparkles className="h-4 w-4 text-indigo-500" />
                                         <span className="text-sm font-bold text-slate-800">{action.label}</span>
                                         {action.status === "pending" && (
                                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">待确认</span>
@@ -2058,7 +2172,7 @@ export function MateChatBubble() {
                                             type="button"
                                             disabled={action.status === "submitting"}
                                             onClick={() => void handlePendingAction(msg.id, action.id, "confirm")}
-                                            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#001f73] disabled:cursor-wait disabled:opacity-60"
+                                            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
                                           >
                                             {action.status === "submitting" && <Loader2 className="h-3 w-3 animate-spin" />}
                                             确认执行
@@ -2076,7 +2190,7 @@ export function MateChatBubble() {
                                       {action.resultMessage && action.status !== "pending" && action.status !== "submitting" && (
                                         <p
                                           className={cn(
-                                            "mt-2 flex items-start gap-1.5 text-pretty text-xs leading-5",
+                                            "mt-2 flex items-start gap-1.5 text-xs leading-5",
                                             action.status === "executed" && "text-emerald-700",
                                             action.status === "canceled" && "text-slate-500",
                                             action.status === "failed" && "text-rose-600",
@@ -2121,12 +2235,12 @@ export function MateChatBubble() {
                                         className={cn(
                                           "flex max-w-[240px] items-center gap-2 rounded-2xl border px-3 py-2 text-left text-xs transition",
                                           att.url
-                                            ? "border-slate-200 bg-white hover:border-[#bfd0fa] hover:bg-[#eef3ff]"
+                                            ? "border-slate-200 bg-white hover:border-indigo-200 hover:bg-indigo-50/40"
                                             : "cursor-default border-slate-200 bg-white opacity-70",
                                         )}
                                         title={att.name}
                                       >
-                                        <span className="flex size-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#eef3ff] text-[#002fa7]">
+                                        <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-500">
                                           {att.isImage ? <ImageIcon className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
                                         </span>
                                         <span className="min-w-0">
@@ -2141,7 +2255,7 @@ export function MateChatBubble() {
                                 </div>
                               )}
                               <div className="mt-1 flex flex-wrap items-center gap-2 px-1">
-                                <span className="text-xs tabular-nums text-slate-400">{fmtTime(msg.createdAt)}</span>
+                                <span className="text-xs text-slate-400">{fmtTime(msg.createdAt)}</span>
                                 {!isUser && msg.model && (
                                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-400">
                                     {models.find((m) => m.id === msg.model)?.label ?? msg.model}
@@ -2154,7 +2268,7 @@ export function MateChatBubble() {
                                   </span>
                                 )}
                                 {!isUser && !isStreaming && msg.sources?.includes("rag") && (
-                                  <span className="flex items-center gap-1 rounded-full bg-[#eef3ff] px-2 py-0.5 text-[10px] font-medium text-[#002fa7]">
+                                  <span className="flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">
                                     <FileText className="h-2.5 w-2.5" />
                                     内部知识库
                                   </span>
@@ -2172,7 +2286,7 @@ export function MateChatBubble() {
                                   </span>
                                 )}
                                 {!isUser && !isStreaming && msg.sources?.includes("ai") && (
-                                  <span className="flex items-center gap-1 rounded-full bg-[#eef3ff] px-2 py-0.5 text-[10px] font-medium text-[#002fa7]">
+                                  <span className="flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600">
                                     <Sparkles className="h-2.5 w-2.5" />
                                     通用知识
                                   </span>
@@ -2196,7 +2310,7 @@ export function MateChatBubble() {
                                       className={cn(
                                         "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition",
                                         active
-                                          ? "border-[#bfd0fa] bg-[#eef3ff] text-[#002fa7]"
+                                          ? "border-indigo-200 bg-indigo-50 text-indigo-700"
                                           : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700",
                                       )}
                                     >
@@ -2216,14 +2330,14 @@ export function MateChatBubble() {
                                 >
                                   <div className="flex items-start justify-between gap-4">
                                     <div>
-                                      <p className="text-balance text-sm font-semibold text-slate-900">这条回答哪里需要改进？</p>
-                                      <p className="mt-1 text-pretty text-xs text-slate-500">可多选，反馈只用于问题统计与后续分析。</p>
+                                      <p className="text-sm font-semibold text-slate-900">这条回答哪里需要改进？</p>
+                                      <p className="mt-1 text-xs text-slate-500">可多选，反馈只用于问题统计与后续分析。</p>
                                     </div>
                                     <button
                                       type="button"
                                       aria-label="关闭反馈"
                                       onClick={() => setFeedbackDraft(null)}
-                                      className="cursor-pointer rounded-lg p-1 text-slate-400 transition-colors hover:bg-white hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]"
+                                      className="cursor-pointer rounded-lg p-1 text-slate-400 transition-colors hover:bg-white hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                                     >
                                       <X className="h-4 w-4" />
                                     </button>
@@ -2245,7 +2359,7 @@ export function MateChatBubble() {
                                                 : [...current.reasons, reason.value],
                                             } : current)}
                                             className={cn(
-                                              "cursor-pointer rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]",
+                                              "cursor-pointer rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
                                               selected
                                                 ? "border-rose-300 bg-white text-rose-700"
                                                 : "border-slate-200 bg-white/70 text-slate-600 hover:border-slate-300",
@@ -2267,7 +2381,7 @@ export function MateChatBubble() {
                                     rows={2}
                                     onChange={(event) => setFeedbackDraft((current) => current ? { ...current, comment: event.target.value } : current)}
                                     placeholder="例如：正确数量应该是 12，不是 9"
-                                    className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-[#9db6f5] focus:ring-2 focus:ring-[#eef3ff]"
+                                    className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                                   />
                                   <div className="mt-3 flex items-center justify-end gap-2">
                                     <button
@@ -2315,7 +2429,7 @@ export function MateChatBubble() {
                       type="button"
                       onClick={() => void handleSend(p)}
                       disabled={sending || !activeId}
-                      className="rounded-full border border-[#dbe5ff] bg-[#eef3ff] px-3 py-1.5 text-xs font-medium text-[#002fa7] transition hover:bg-[#dbe5ff] disabled:opacity-40"
+                      className="rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-40"
                     >
                       {p}
                     </button>
@@ -2345,7 +2459,7 @@ export function MateChatBubble() {
                           {a.previewUrl ? (
                             <img src={a.previewUrl} alt={a.name} className="h-8 w-8 flex-shrink-0 rounded-md object-cover" />
                           ) : (
-                            <span className="flex size-8 flex-shrink-0 items-center justify-center rounded-md bg-[#eef3ff] text-[#002fa7]">
+                            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-500">
                               <FileText className="h-4 w-4" />
                             </span>
                           )}
@@ -2353,7 +2467,7 @@ export function MateChatBubble() {
                             <span className="block truncate font-medium text-slate-700">{a.name}</span>
                             <span
                               className={cn(
-                                "block text-[10px] tabular-nums",
+                                "block text-[10px]",
                                 a.status === "error" ? "text-red-500" : "text-slate-400",
                               )}
                             >
@@ -2367,7 +2481,7 @@ export function MateChatBubble() {
                             </span>
                           </span>
                           {(a.status === "uploading" || a.status === "compressing") && (
-                            <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-[#315bbb]" />
+                            <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-indigo-400" />
                           )}
                           {a.status === "error" && (
                             <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-red-400" />
@@ -2375,8 +2489,7 @@ export function MateChatBubble() {
                           <button
                             type="button"
                             onClick={() => removeAttachment(a.localId)}
-                            aria-label={`移除附件：${a.name}`}
-                            className="absolute right-1 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full bg-slate-100 text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-slate-600 group-hover:opacity-100"
+                            className="absolute right-1 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-slate-100 text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-slate-600 group-hover:opacity-100"
                             title="移除"
                           >
                             <X className="h-3 w-3" />
@@ -2403,47 +2516,22 @@ export function MateChatBubble() {
                   <div className="mt-3 flex items-center justify-between gap-3">
                     {/* 模型选择器 */}
                     <div className="relative flex items-center gap-2">
-                      <DropdownMenu open={showModelMenu && models.length > 0} onOpenChange={setShowModelMenu}>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label="选择对话模型"
-                            disabled={models.length === 0}
-                            className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <Sparkles className="h-3.5 w-3.5 text-[#002fa7]" />
-                            {currentModel
-                              ? `${currentModel.label}${currentModel.model ? ` · ${currentModel.model}` : ""}`
-                              : models.length === 0 ? "未配置模型" : "选择模型"}
-                            <ChevronDown className="h-3 w-3 text-slate-400" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          side="top"
-                          align="start"
-                          className="min-w-[220px] border-[#e9edf7] bg-white shadow-lg data-[state=closed]:animate-none data-[state=open]:animate-none"
-                        >
-                          <DropdownMenuRadioGroup value={selectedModel} onValueChange={setSelectedModel}>
-                            {models.map((m) => (
-                              <DropdownMenuRadioItem
-                                key={m.id}
-                                value={m.id}
-                                className="flex-col items-start gap-0.5 py-2 text-xs focus:bg-[#eef3ff] focus:text-[#002fa7]"
-                              >
-                                <span className={cn(m.id === selectedModel && "font-semibold text-[#002fa7]")}>{m.label}</span>
-                                <span className="text-[10px] text-slate-400">
-                                  {m.model}{m.provider ? ` · ${m.provider}` : ""}
-                                </span>
-                              </DropdownMenuRadioItem>
-                            ))}
-                          </DropdownMenuRadioGroup>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <button
+                        type="button"
+                        onClick={() => setShowModelMenu((v) => !v)}
+                        className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                      >
+                        <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
+                        {currentModel
+                          ? `${currentModel.label}${currentModel.model ? ` · ${currentModel.model}` : ""}`
+                          : models.length === 0 ? "未配置模型" : "自动 · 跟随系统路由"}
+                        <ChevronDown className="h-3 w-3 text-slate-400" />
+                      </button>
                       {/* RAG 状态指示：告知用户当前是否能查到内部资料 */}
                       {rag && (
                         rag.embeddingConfigured && rag.chunkCount > 0 ? (
                           <span
-                            className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium tabular-nums text-emerald-700 ring-1 ring-emerald-100"
+                            className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-100"
                             title={`内部知识库已就绪 · ${rag.chunkCount} 条索引（模型：${rag.embeddingModel ?? "未知"}）`}
                           >
                             <Database className="h-2.5 w-2.5" />
@@ -2470,12 +2558,57 @@ export function MateChatBubble() {
                           type="button"
                           onClick={() => void handleBackfillRag()}
                           disabled={backfilling}
-                          className="inline-flex items-center gap-1 rounded-full border border-[#bfd0fa] bg-[#eef3ff] px-2 py-1 text-[10px] font-medium text-[#002fa7] transition hover:bg-[#dbe5ff] disabled:cursor-not-allowed disabled:opacity-60"
+                          className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-1 text-[10px] font-medium text-indigo-600 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
                           title="将知识库条目同步到 RAG 向量索引，使 AI 能检索内部资料（仅 KB 管理员可用）"
                         >
                           <RefreshCw className={cn("h-2.5 w-2.5", backfilling && "animate-spin")} />
                           {backfilling ? "回填中…" : "一键回填"}
                         </button>
+                      )}
+                      {showModelMenu && models.length > 0 && (
+                        <div
+                          className="absolute bottom-full left-0 mb-2 min-w-[180px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg"
+                          onMouseLeave={() => setShowModelMenu(false)}
+                        >
+                          {/* 「自动」置顶：不带 model 发送，由网关路由选模（未配路由则用全局默认模型）。 */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedModel("");
+                              try { localStorage.setItem(MODEL_CHOICE_STORAGE_KEY, "auto"); } catch { /* 存不了就算了 */ }
+                              setShowModelMenu(false);
+                            }}
+                            className={cn(
+                              "flex w-full flex-col px-4 py-2.5 text-left text-xs transition hover:bg-slate-50",
+                              selectedModel === "" ? "font-semibold text-indigo-600" : "text-slate-700",
+                            )}
+                          >
+                            <span>自动</span>
+                            <span className={cn("mt-0.5 text-[10px]", selectedModel === "" ? "text-indigo-400" : "text-slate-400")}>
+                              跟随系统路由 · 由管理员统一调度
+                            </span>
+                          </button>
+                          {models.map((m) => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedModel(m.id);
+                                try { localStorage.setItem(MODEL_CHOICE_STORAGE_KEY, m.id); } catch { /* 存不了就算了 */ }
+                                setShowModelMenu(false);
+                              }}
+                              className={cn(
+                                "flex w-full flex-col px-4 py-2.5 text-left text-xs transition hover:bg-slate-50",
+                                m.id === selectedModel ? "font-semibold text-indigo-600" : "text-slate-700",
+                              )}
+                            >
+                              <span>{m.label}</span>
+                              <span className={cn("mt-0.5 text-[10px]", m.id === selectedModel ? "text-indigo-400" : "text-slate-400")}>
+                                {m.model}{m.provider ? ` · ${m.provider}` : ""}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
 
@@ -2485,8 +2618,7 @@ export function MateChatBubble() {
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
                         disabled={!activeId || sending || attachments.length >= ATTACH_MAX_COUNT}
-                        aria-label="添加附件"
-                        className="flex size-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-[#bfd0fa] hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-indigo-200 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
                         title={
                           attachments.length >= ATTACH_MAX_COUNT
                             ? `最多上传 ${ATTACH_MAX_COUNT} 个附件`
@@ -2521,19 +2653,37 @@ export function MateChatBubble() {
                 </div>
               </div>
             </section>
-        </SheetContent>
-      </Sheet>
+          </div>
+        </div>
+      )}
 
       {/* 分享给同事：选一位同事，把这条回答作为站内消息发过去 */}
-      <Dialog open={Boolean(shareTarget)} onOpenChange={(nextOpen) => { if (!nextOpen) setShareTarget(null); }}>
-        {shareTarget && (
-          <DialogContent className="flex max-h-[80dvh] flex-col gap-0 overflow-hidden border-[#e9edf7] bg-white p-0 shadow-xl sm:max-w-sm">
-            <DialogHeader className="border-b border-slate-200 px-5 py-4 pr-12 text-left">
-              <DialogTitle className="text-balance text-sm font-bold text-slate-900">分享给同事</DialogTitle>
-              <DialogDescription className="text-pretty text-xs text-slate-500">
-                对方会在通知中心 / 顶栏铃铛收到这条回答
-              </DialogDescription>
-            </DialogHeader>
+      {shareTarget && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/40 p-4"
+          onClick={() => setShareTarget(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="分享给同事"
+        >
+          <div
+            className="flex max-h-[80vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">分享给同事</h3>
+                <p className="mt-0.5 text-xs text-slate-400">对方会在通知中心 / 顶栏铃铛收到这条回答</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShareTarget(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="关闭"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
             <div className="border-b border-slate-100 px-5 py-3">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -2541,12 +2691,12 @@ export function MateChatBubble() {
                   value={shareSearch}
                   onChange={(e) => setShareSearch(e.target.value)}
                   placeholder="搜索同事姓名 / 部门"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-800 outline-none focus:border-[#9db6f5] focus:bg-white focus:ring-2 focus:ring-[#eef3ff]"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-indigo-400 focus:bg-white"
                   autoFocus
                 />
               </div>
               {!shareLoading && shareRecipients.length > 0 && (
-                <p className="mt-2 px-0.5 text-pretty text-xs tabular-nums text-slate-400">
+                <p className="mt-2 px-0.5 text-xs text-slate-400">
                   {shareSearch.trim() ? `匹配到 ${shareGroups.total} 位同事` : `共 ${shareGroups.total} 位同事`}
                 </p>
               )}
@@ -2564,9 +2714,9 @@ export function MateChatBubble() {
               ) : (
                 shareGroups.groups.map((g) => (
                   <div key={g.dept} className="mb-0.5">
-                    <div className="sticky top-0 z-10 flex items-center gap-2 bg-white px-3 py-1.5">
+                    <div className="sticky top-0 z-10 flex items-center gap-2 bg-white/95 px-3 py-1.5 backdrop-blur">
                       <span className="text-xs font-semibold text-slate-500">{g.dept}</span>
-                      <span className="rounded-full bg-slate-100 px-1.5 text-[11px] font-medium leading-5 tabular-nums text-slate-400">
+                      <span className="rounded-full bg-slate-100 px-1.5 text-[11px] font-medium leading-5 text-slate-400">
                         {g.items.length}
                       </span>
                     </div>
@@ -2581,78 +2731,72 @@ export function MateChatBubble() {
                           if (refsTask) setShareConfirm(r);
                           else void shareToColleague(r);
                         }}
-                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-[#eef3ff] disabled:cursor-wait disabled:opacity-60"
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-indigo-50/60 disabled:cursor-wait disabled:opacity-60"
                       >
-                        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#eef3ff] text-xs font-semibold text-[#002fa7]">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">
                           {r.name.slice(0, 1)}
                         </span>
                         <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{r.name}</span>
-                        {shareSendingId === r.id && <Loader2 className="size-4 shrink-0 animate-spin text-[#002fa7]" />}
+                        {shareSendingId === r.id && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-indigo-500" />}
                       </button>
                     ))}
                   </div>
                 ))
               )}
             </div>
-          </DialogContent>
-        )}
-      </Dialog>
+          </div>
 
-      {/* 越权分享确认：回答引用了任务数据，收件人可能无权查看，交由发送者决断。 */}
-      <AlertDialog open={Boolean(shareConfirm)} onOpenChange={(nextOpen) => { if (!nextOpen) setShareConfirm(null); }}>
-        {shareConfirm && (
-          <AlertDialogContent className="border-[#e9edf7] bg-white shadow-xl sm:max-w-sm">
-            <AlertDialogHeader>
-              <div className="flex items-start gap-3 text-left">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
-                  <AlertTriangle className="size-5" />
-                </span>
-                <div className="min-w-0">
-                  <AlertDialogTitle className="text-balance text-sm font-bold text-slate-900">
-                    这条回答引用了任务数据
-                  </AlertDialogTitle>
-                  <AlertDialogDescription className="mt-1 text-pretty text-xs leading-relaxed text-slate-500">
-                    <span className="font-medium text-slate-700">{shareConfirm.name}</span>{" "}
-                    可能无权查看其中部分任务，分享后对方将看到完整正文。仍要分享吗？
-                  </AlertDialogDescription>
+          {/* 越权分享确认：回答引用了任务数据，收件人可能无权查看，交由发送者决断 */}
+          {shareConfirm && (
+            <div
+              className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 p-4"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShareConfirm(null);
+              }}
+            >
+              <div
+                className="w-full max-w-xs rounded-2xl bg-white p-5 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                    <AlertTriangle className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-bold text-slate-900">这条回答引用了任务数据</h4>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                      <span className="font-medium text-slate-700">{shareConfirm.name}</span>{" "}
+                      可能无权查看其中部分任务，分享后对方将看到完整正文。仍要分享吗？
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShareConfirm(null)}
+                    className="material-button-secondary !px-4 !py-1.5 text-xs"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    disabled={shareSendingId !== null}
+                    onClick={() => {
+                      const r = shareConfirm;
+                      setShareConfirm(null);
+                      void shareToColleague(r);
+                    }}
+                    className="rounded-xl bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    仍要分享
+                  </button>
                 </div>
               </div>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel className="text-xs">取消</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={shareSendingId !== null}
-                onClick={() => void shareToColleague(shareConfirm)}
-                className="bg-[#002fa7] text-xs text-white hover:bg-[#001f73]"
-              >
-                仍要分享
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        )}
-      </AlertDialog>
-
-      {/* 删除会话或消息属于不可逆操作，统一使用 AlertDialog。 */}
-      <AlertDialog open={Boolean(deleteConfirm)} onOpenChange={(nextOpen) => { if (!nextOpen) setDeleteConfirm(null); }}>
-        {deleteConfirm && (
-          <AlertDialogContent className="border-red-100 bg-white shadow-xl sm:max-w-md">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="text-balance text-slate-900">确认删除</AlertDialogTitle>
-              <AlertDialogDescription className="text-pretty text-slate-600">
-                {deleteConfirm.kind === "conversation"
-                  ? `将删除对话「${(deleteConfirm as { label: string }).label}」及其全部消息，此操作不可撤销。`
-                  : "将删除这条消息，此操作不可撤销。"}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>取消</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmDelete} className="bg-red-600 text-white hover:bg-red-700">
-                确认删除
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        )}
-      </AlertDialog>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
