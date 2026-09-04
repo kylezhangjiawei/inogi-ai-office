@@ -201,12 +201,14 @@ test('批量工具在说明里给出上限，且上限是个能防误操作的�
   }
 });
 
-test('不可逆操作的说明里必须写明「只是提交申请、仍需审核」', () => {
-  // 模型最容易犯的错就是把「已生成确认卡」说成「已删除/已合并」。
-  for (const tool of ['request_task_merge', 'request_task_abandon'] as const) {
-    assert.ok(byTool(tool).description.includes('审核'), `${tool} 的说明必须点明还要走审核`);
-    assert.ok(byTool(tool).description.includes('确认卡'), `${tool} 的说明必须点明只生成确认卡`);
-  }
+test('合并确认后直接执行，放弃仍只提交审核申请', () => {
+  const merge = byTool('request_task_merge').description;
+  assert.ok(merge.includes('确认卡'));
+  assert.ok(merge.includes('确认后直接合并'));
+  assert.ok(!merge.includes('管理员审核通过'));
+  const abandon = byTool('request_task_abandon').description;
+  assert.ok(abandon.includes('审核'));
+  assert.ok(abandon.includes('确认卡'));
 });
 
 /**

@@ -27,7 +27,7 @@ import { toast } from "sonner";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "./components/ui/utils";
 import { Button } from "./components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./components/ui/dialog";
 import { Progress } from "./components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
@@ -105,6 +105,7 @@ import {
   updateRdTask,
   isProductionMirrorTask,
   isProductionWorkspace,
+  isUsCollabWorkspace,
   type RdCategory,
   type RdCollaborator,
   type RdPriority,
@@ -158,8 +159,8 @@ function TaskRelationNode({ task, currentTaskId, isRoot = false, onOpen }: TaskR
         className={cn(
           "flex w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
           current
-            ? "border-indigo-200 bg-indigo-50 text-indigo-900"
-            : "border-slate-200 bg-white text-slate-700 hover:border-indigo-200 hover:bg-slate-50",
+            ? "border-[#cbd8f6] bg-[#eef3ff] text-[#001f73]"
+            : "border-slate-200 bg-white text-slate-700 hover:border-[#cbd8f6] hover:bg-slate-50",
         )}
       >
         <span className={cn("size-2 shrink-0 rounded-full", status.dot)} />
@@ -174,7 +175,7 @@ function TaskRelationNode({ task, currentTaskId, isRoot = false, onOpen }: TaskR
           <span className="flex items-center gap-1.5">
             <span className="truncate text-sm font-medium"><AutoTranslatedText text={task.title} /></span>
             {current ? (
-              <span className="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+              <span className="shrink-0 rounded bg-[#dce5fa] px-1.5 py-0.5 text-[10px] font-semibold text-[#001f73]">
                 {t("当前")}
               </span>
             ) : null}
@@ -240,10 +241,10 @@ function ActivityTaskFilterBar({
   summary?: React.ReactNode;
 }) {
   const taskButtonClass = (selected: boolean) => cn(
-    "inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+    "inline-flex min-h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]",
     selected
-      ? "bg-indigo-600 text-white shadow-sm"
-      : "border border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:text-indigo-700",
+      ? "bg-[#002fa7] text-white shadow-sm"
+      : "border border-slate-200 bg-white text-slate-600 hover:border-[#cbd8f6] hover:text-[#001f73]",
   );
   const relatedTasks = tasks.filter((item) => item.task_id !== currentTaskId);
 
@@ -291,6 +292,13 @@ function ActivityTaskFilterBar({
  */
 /** 任务类型下拉里「自定义…」那一项的哨兵值。带下划线前缀，不会与真实类型撞名。 */
 const CUSTOM_TASK_TYPE_OPTION = "__custom_task_type__";
+const RD_TASK_DETAIL_HORIZON_SCOPE = "rd-horizon-module rd-horizon-task-detail";
+
+function DetailGridOrder({ productionWorkspace, children }: { productionWorkspace: boolean; children: React.ReactNode }) {
+  return <div className={cn("grid min-h-0 flex-1 gap-5", productionWorkspace
+    ? "xl:grid-cols-[340px_minmax(0,1fr)] [&>div:first-child]:xl:order-1 [&>div:last-child]:xl:order-2"
+    : "xl:grid-cols-[minmax(0,1fr)_340px]")}>{children}</div>;
+}
 
 export default function RDTaskDetailPage() {
   const { taskId = "" } = useParams();
@@ -362,6 +370,7 @@ export default function RDTaskDetailPage() {
   const [noteTaskFilter, setNoteTaskFilter] = useState("all");
   const [auditTaskFilter, setAuditTaskFilter] = useState("all");
   const [notesLoading, setNotesLoading] = useState(true);
+  const [notesError, setNotesError] = useState("");
   const [tab, setTab] = useState<DetailTab>("notes");
   const [discussionUnread, setDiscussionUnread] = useState(0);
   const [people, setPeople] = useState<PersonProfile[]>([]);
@@ -370,6 +379,7 @@ export default function RDTaskDetailPage() {
   const [editingDescription, setEditingDescription] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
   const [descriptionSaving, setDescriptionSaving] = useState(false);
+  const [descriptionError, setDescriptionError] = useState("");
   const [showAddCollab, setShowAddCollab] = useState(false);
   const [showComplete, setShowComplete] = useState(false);
   // ── 研发侧特有动作（与驾驶舱抽屉同口径）：提交审核 / 转采购 / 生成问题 / 移动类目 ──
@@ -431,25 +441,29 @@ export default function RDTaskDetailPage() {
 
   // 竞态守卫：人员弹层跳转会快速切换 taskId，旧请求晚到不得覆盖新任务的状态
   const loadSeqRef = React.useRef(0);
-  const loadTask = useCallback(async (opts?: { silent?: boolean }) => {
+  const activeTaskIdRef = useRef(taskId);
+  activeTaskIdRef.current = taskId;
+  const loadTask = useCallback(async (opts?: { silent?: boolean; expectedTaskId?: string }) => {
+    const expectedTaskId = opts?.expectedTaskId ?? taskId;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     const seq = ++loadSeqRef.current;
     if (!opts?.silent) setLoading(true);
     setLoadError("");
     try {
       const categories = await fetchMergedTaskCategories();
-      if (seq !== loadSeqRef.current) return;
+      if (seq !== loadSeqRef.current || activeTaskIdRef.current !== expectedTaskId) return;
       const all = flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks)));
       setAllTasks(all);
       setSubtaskParents(buildSubtaskParentIndex(categories));
       setTopLevelTasks(collectTopLevelTasks(categories));
-      const found = all.find((t) => t.task_id === taskId) ?? null;
+      const found = all.find((t) => t.task_id === expectedTaskId) ?? null;
       if (!found) setLoadError("任务不存在或已被删除");
       setTask(found);
     } catch (error) {
-      if (seq !== loadSeqRef.current) return;
+      if (seq !== loadSeqRef.current || activeTaskIdRef.current !== expectedTaskId) return;
       setLoadError(error instanceof Error ? error.message : "任务加载失败");
     } finally {
-      if (seq === loadSeqRef.current) setLoading(false);
+      if (seq === loadSeqRef.current && activeTaskIdRef.current === expectedTaskId) setLoading(false);
     }
   }, [taskId]);
 
@@ -461,8 +475,11 @@ export default function RDTaskDetailPage() {
     if (hasSeed) {
       setTask(seeded!);
       setLoading(false);
+    } else {
+      setTask(null);
     }
     void loadTask({ silent: hasSeed });
+    return () => { loadSeqRef.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadTask, taskId]);
 
@@ -482,17 +499,21 @@ export default function RDTaskDetailPage() {
 
   const toggleProductionSync = async () => {
     if (!task || productionSyncing || productionWorkspace || !canSyncProduction) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     setProductionSyncing(true);
     try {
       const next = productionSync?.active
-        ? await revokeRdTaskProductionSync(task.task_id)
-        : await syncRdTaskToProduction(task.task_id);
+        ? await revokeRdTaskProductionSync(expectedTaskId)
+        : await syncRdTaskToProduction(expectedTaskId);
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       setProductionSync(next);
       toast.success(next.active ? t("已同步到生产驾驶舱") : t("已撤销生产驾驶舱同步"));
     } catch (error) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : t("同步操作失败，请重试"));
     } finally {
-      setProductionSyncing(false);
+      if (activeTaskIdRef.current === expectedTaskId) setProductionSyncing(false);
     }
   };
 
@@ -506,23 +527,24 @@ export default function RDTaskDetailPage() {
   const [previewAttachment, setPreviewAttachment] = useState<RdTaskProgressAttachment | null>(null);
 
   const progressLoadSeqRef = useRef(0);
-  const loadProgressGroup = useCallback(async (showLoading = true) => {
+  const loadProgressGroup = useCallback(async (showLoading = true, opts?: { expectedTaskId?: string }) => {
+    const expectedTaskId = opts?.expectedTaskId ?? taskId;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     const seq = ++progressLoadSeqRef.current;
     if (showLoading) setNotesLoading(true);
+    setNotesError("");
     try {
-      const data = await fetchRdTaskProgressNoteGroup(taskId);
-      if (seq !== progressLoadSeqRef.current) return;
+      const data = await fetchRdTaskProgressNoteGroup(expectedTaskId);
+      if (seq !== progressLoadSeqRef.current || activeTaskIdRef.current !== expectedTaskId) return;
       setGroupNotes(data.notes);
       setProgressGroupTasks(data.tasks);
-      setNotes(data.notes.filter((note) => (note.source_task?.task_id ?? note.task_id) === taskId));
-      void markRdTaskNotesRead(taskId).catch(() => {});
-    } catch {
-      if (seq !== progressLoadSeqRef.current) return;
-      setNotes([]);
-      setGroupNotes([]);
-      setProgressGroupTasks([]);
+      setNotes(data.notes.filter((note) => (note.source_task?.task_id ?? note.task_id) === expectedTaskId));
+      void markRdTaskNotesRead(expectedTaskId).catch(() => {});
+    } catch (error) {
+      if (seq !== progressLoadSeqRef.current || activeTaskIdRef.current !== expectedTaskId) return;
+      setNotesError(error instanceof Error ? error.message : t("进展加载失败，请重试"));
     } finally {
-      if (seq === progressLoadSeqRef.current) setNotesLoading(false);
+      if (seq === progressLoadSeqRef.current && activeTaskIdRef.current === expectedTaskId) setNotesLoading(false);
     }
   }, [taskId]);
 
@@ -532,6 +554,29 @@ export default function RDTaskDetailPage() {
     setSelectedActivityActor(null);
     setEditingDescription(false);
     setDescriptionDraft("");
+    setDescriptionError("");
+    setNotes([]);
+    setGroupNotes([]);
+    setProgressGroupTasks([]);
+    setShowEditInfo(false);
+    setShowHandover(false);
+    setShowAddCollab(false);
+    setShowComplete(false);
+    setShowSubmitConfirm(false);
+    setGeneratingIssue(false);
+    setShowMove(false);
+    setShowApproval(null);
+    setShowCreateSubtask(false);
+    setShowAttachSubtasks(false);
+    setShowDetachSubtasks(false);
+    setTransferOpen(false);
+    setPreviewAttachment(null);
+    setSubmitting(false);
+    setDescriptionSaving(false);
+    setSavingPriority(false);
+    setSavingTaskType(false);
+    setProductionSyncing(false);
+    setDetaching(false);
     void loadProgressGroup();
     return () => { progressLoadSeqRef.current += 1; };
   }, [loadProgressGroup, taskId]);
@@ -660,13 +705,14 @@ export default function RDTaskDetailPage() {
     return filterAuditLogsForViewer([...auditLogs, ...orphanLogs], user);
   }, [activityGroupNotes, allTaskById, auditLogs, progressGroupTaskById, task?.title, user]);
   const noteById = useMemo(() => new Map(activityGroupNotes.map((n) => [n.id, n] as const)), [activityGroupNotes]);
+  const reportLogById = useMemo(() => new Map(reportLogs.map((log) => [log.id, log] as const)), [reportLogs]);
   const reportNoteOf = useCallback(
     (logId: string) => {
-      const log = reportLogs.find((l) => l.id === logId);
+      const log = reportLogById.get(logId);
       const noteId = typeof log?.metadata?.note_id === "string" ? log.metadata.note_id : "";
       return noteId ? noteById.get(noteId) : undefined;
     },
-    [reportLogs, noteById],
+    [reportLogById, noteById],
   );
   // 操作记录 Tab 的完整时间线（动作 + 进展合成，时间倒序）——与驾驶舱抽屉/导出报告同一份口径
   const timelineLogs = useMemo(
@@ -693,11 +739,17 @@ export default function RDTaskDetailPage() {
     if (task.primary_owner_user_id === user.id || task.primary_owner === user.name) return true;
     return (task.collaborators ?? []).some((c) => c.user_id === user.id || c.name === user.name);
   }, [task, user]);
+  const directChangePending = !isUsCollabWorkspace() && !isProductionWorkspace()
+    && task?.status === "pending_review"
+    && ["proposal", "collaboration", "due_date", "merge"].includes(task.pending_review_type ?? "");
+  const canApplyPendingChange = directChangePending && !taskReadOnly && (canManage || isParticipant);
   // ── 管理动作（API 口径与驾驶舱抽屉完全一致） ──────────────────────────────
 
   /** 编辑标题/描述（主管）：PATCH 后乐观更新双数据源并留审计 diff */
   const handleEditInfo = async (nextTitle: string, nextDescription: string) => {
     if (!task) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     const title = nextTitle.trim();
     if (!title) {
       toast.error(t("标题不能为空"));
@@ -721,12 +773,13 @@ export default function RDTaskDetailPage() {
       return;
     }
     // 只提交实际变更的字段，避免把 undefined 描述静默覆写成空串
-    await updateRdTask(task.task_id, {
+    await updateRdTask(expectedTaskId, {
       ...(titleChanged ? { title } : {}),
       ...(descChanged ? { description: nextDescription } : {}),
     });
-    setTask((prev) => (prev?.task_id === task.task_id ? { ...prev, title, description: nextDescription } : prev));
-    setAllTasks((prev) => prev.map((item) => (item.task_id === task.task_id ? { ...item, title, description: nextDescription } : item)));
+    if (activeTaskIdRef.current !== expectedTaskId) return;
+    setTask((prev) => (prev?.task_id === expectedTaskId ? { ...prev, title, description: nextDescription } : prev));
+    setAllTasks((prev) => prev.map((item) => (item.task_id === expectedTaskId ? { ...item, title, description: nextDescription } : item)));
     setShowEditInfo(false);
     toast.success(t("任务信息已更新"));
   };
@@ -735,6 +788,7 @@ export default function RDTaskDetailPage() {
   const startDescriptionEdit = () => {
     if (!task || !canManage || task.archived) return;
     setDescriptionDraft(task.description ?? "");
+    setDescriptionError("");
     setEditingDescription(true);
   };
 
@@ -746,35 +800,44 @@ export default function RDTaskDetailPage() {
 
   const saveDescription = async () => {
     if (!task || descriptionSaving) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     if (descriptionDraft === (task.description ?? "")) {
       setEditingDescription(false);
       return;
     }
     setDescriptionSaving(true);
+    setDescriptionError("");
     try {
       await handleEditInfo(task.title, descriptionDraft);
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       setEditingDescription(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("保存失败，请重试"));
+      if (activeTaskIdRef.current !== expectedTaskId) return;
+      setDescriptionError(error instanceof Error ? error.message : t("保存失败，请重试"));
     } finally {
-      setDescriptionSaving(false);
+      if (activeTaskIdRef.current === expectedTaskId) setDescriptionSaving(false);
     }
   };
 
   const savePriority = async (next: RdPriority) => {
     if (!task || savingPriority || next === task.final_priority) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     const prev = task.final_priority;
     setSavingPriority(true);
     try {
-      await updateRdTask(task.task_id, { final_priority: next });
+      await updateRdTask(expectedTaskId, { final_priority: next });
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       setTask((prevTask) => (prevTask ? { ...prevTask, final_priority: next } : prevTask));
       // 同步 allTasks，保证人员任务弹层等派生视图显示新值（task 与 allTasks 双源须一起更新）
-      setAllTasks((prevAll) => prevAll.map((t) => (t.task_id === task.task_id ? { ...t, final_priority: next } : t)));
+      setAllTasks((prevAll) => prevAll.map((t) => (t.task_id === expectedTaskId ? { ...t, final_priority: next } : t)));
       toast.success(t("优先级已更新"));
     } catch (error) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "更新优先级失败");
     } finally {
-      setSavingPriority(false);
+      if (activeTaskIdRef.current === expectedTaskId) setSavingPriority(false);
     }
   };
 
@@ -784,6 +847,8 @@ export default function RDTaskDetailPage() {
    */
   const saveTaskType = async (next: string) => {
     if (!task || savingTaskType) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     const value = next.trim();
     const current = taskTypeOf(task.category_path);
     if (!value || value === current) {
@@ -793,24 +858,28 @@ export default function RDTaskDetailPage() {
     const nextPath = withTaskType(task.category_path, value);
     setSavingTaskType(true);
     try {
-      await updateRdTask(task.task_id, { category_path: nextPath });
+      await updateRdTask(expectedTaskId, { category_path: nextPath });
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       // task 与 allTasks 双源须一起更新，否则人员任务弹层等派生视图仍显示旧 tag
       setTask((prevTask) => (prevTask ? { ...prevTask, category_path: nextPath } : prevTask));
       setAllTasks((prevAll) =>
-        prevAll.map((t) => (t.task_id === task.task_id ? { ...t, category_path: nextPath } : t)),
+        prevAll.map((t) => (t.task_id === expectedTaskId ? { ...t, category_path: nextPath } : t)),
       );
       setCustomTaskType(null);
       toast.success(t("任务类型已更新"));
     } catch (error) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : t("保存失败，请重试"));
     } finally {
-      setSavingTaskType(false);
+      if (activeTaskIdRef.current === expectedTaskId) setSavingTaskType(false);
     }
   };
 
   /** 审批（通过/驳回）：口径与驾驶舱抽屉 handleApproval 一致——状态裁决完全交给后端 _review_action。 */
   const handleApproval = async (reason?: string, rollbackProgress?: number) => {
     if (!task || !showApproval) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     setSubmitting(true);
     try {
       const isApprove = showApproval === "approve";
@@ -819,81 +888,116 @@ export default function RDTaskDetailPage() {
         toast.error(t("无法识别该任务的审核类型，请刷新后重试"));
         return;
       }
-      await updateRdTask(task.task_id, {
+      await updateRdTask(expectedTaskId, {
         _review_action: isApprove ? "approve" : "reject",
         _reviewer_name: AUDIT_ACTOR.name,
         ...(isApprove ? {} : { _reject_reason: reason ?? `驳回${meta.label}` }),
         ...(!isApprove && typeof rollbackProgress === "number" ? { progress: rollbackProgress } : {}),
       } as Parameters<typeof updateRdTask>[1]);
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.success(`${t(meta.label)}${isApprove ? t("已通过") : t("已驳回")}`);
       setShowApproval(null);
-      void loadTask();
+      void loadTask({ expectedTaskId });
     } catch (error) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "操作失败");
     } finally {
-      setSubmitting(false);
+      if (activeTaskIdRef.current === expectedTaskId) setSubmitting(false);
+    }
+  };
+
+  const handleApplyPendingChange = async () => {
+    if (!task || !canApplyPendingChange || submitting) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
+    setSubmitting(true);
+    try {
+      await updateRdTask(expectedTaskId, { _review_action: "approve" } as Parameters<typeof updateRdTask>[1]);
+      if (activeTaskIdRef.current !== expectedTaskId) return;
+      toast.success(t("变更已应用"));
+      await loadTask({ expectedTaskId });
+      if (activeTaskIdRef.current !== expectedTaskId) return;
+    } catch (error) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
+      toast.error(error instanceof Error ? error.message : t("操作失败"));
+    } finally {
+      if (activeTaskIdRef.current === expectedTaskId) setSubmitting(false);
     }
   };
 
   const handleHandover = async (newOwner: string) => {
     if (!task) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     setSubmitting(true);
     try {
-      await updateRdTask(task.task_id, {
+      await updateRdTask(expectedTaskId, {
         primary_owner: newOwner,
         _actor_name: user?.name || "管理员",
       } as Partial<Omit<RdTask, "task_id">> & { _actor_name?: string });
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.success(t("任务已移交给 {name}", { name: newOwner }));
       setShowHandover(false);
-      void loadTask();
+      void loadTask({ expectedTaskId });
     } catch (error) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "移交失败");
     } finally {
-      setSubmitting(false);
+      if (activeTaskIdRef.current === expectedTaskId) setSubmitting(false);
     }
   };
 
   const handleAddCollaborators = async (newCollaborators: RdCollaborator[]) => {
     if (!task) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     try {
       // 全屏页可能停留很久，页面快照的 collaborators 会过期——提交前取服务器最新值再合并，
       // 避免全量覆盖把期间他端新增的协作人静默挤掉
       let baseCollaborators = task.collaborators ?? [];
       try {
         const categories = await fetchMergedTaskCategories();
+        if (activeTaskIdRef.current !== expectedTaskId) return;
         const fresh = flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks))).find(
-          (t) => t.task_id === task.task_id,
+          (t) => t.task_id === expectedTaskId,
         );
         if (fresh) baseCollaborators = fresh.collaborators ?? [];
       } catch {
+        if (activeTaskIdRef.current !== expectedTaskId) return;
         // 取最新失败时退回页面快照（后端 normalizeCollaboratorList 仍会去重）
       }
       const existingKeys = new Set(baseCollaborators.map((c) => c.user_id || c.name));
       const merged = [...baseCollaborators, ...newCollaborators.filter((c) => !existingKeys.has(c.user_id || c.name))];
-      await updateRdTask(task.task_id, {
+      await updateRdTask(expectedTaskId, {
         collaborators: merged,
         _actor_name: user?.name || "管理员",
       } as Partial<Omit<RdTask, "task_id">> & { _actor_name?: string });
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.success(t("已添加 {n} 位协作人", { n: newCollaborators.length }));
       setShowAddCollab(false);
-      void loadTask();
+      void loadTask({ expectedTaskId });
     } catch (error) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "添加协作人失败");
     }
   };
 
   const handleDirectComplete = async () => {
     if (!task) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     setSubmitting(true);
     try {
-      await updateRdTask(task.task_id, { status: "completed", progress: 100 });
+      await updateRdTask(expectedTaskId, { status: "completed", progress: 100 });
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.success(t("任务已标记完成"));
       setShowComplete(false);
-      void loadTask();
+      void loadTask({ expectedTaskId });
     } catch (error) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "操作失败");
     } finally {
-      setSubmitting(false);
+      if (activeTaskIdRef.current === expectedTaskId) setSubmitting(false);
     }
   };
 
@@ -923,9 +1027,12 @@ export default function RDTaskDetailPage() {
 
   const handleSubmitForReview = async () => {
     if (!task) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     setSubmitting(true);
     try {
-      await updateRdTask(task.task_id, { status: "pending_review", progress: 100 });
+      await updateRdTask(expectedTaskId, { status: "pending_review", progress: 100 });
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       const changes: { field: string; before: string; after: string }[] = [
         { field: "status", before: task.status, after: "pending_review" },
       ];
@@ -935,24 +1042,27 @@ export default function RDTaskDetailPage() {
       toast.success(t("任务已提交审核，等待确认"));
       window.dispatchEvent(new CustomEvent("rd:review-submitted"));
       setShowSubmitConfirm(false);
-      void loadTask();
+      void loadTask({ expectedTaskId });
     } catch (error) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "提交失败");
     } finally {
-      setSubmitting(false);
+      if (activeTaskIdRef.current === expectedTaskId) setSubmitting(false);
     }
   };
 
   /** 生成问题：把任务内容（描述+留痕+附件）一键建到「问题记录与 AI 定位」，与抽屉实现同源 */
   const handleGenerateIssue = async () => {
     if (!task || generatingIssue) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     setGeneratingIssue(true);
     try {
       const parts: string[] = [];
       if (task.description?.trim()) parts.push(task.description.trim());
       const noteTexts = notes.map((n) => (n.text ?? "").trim()).filter(Boolean);
       if (noteTexts.length > 0) parts.push("【进展 / 问题记录】\n" + noteTexts.map((s, i) => `${i + 1}. ${s}`).join("\n"));
-      parts.push(`（自研发任务生成：${task.task_id}${task.category_path ? "｜" + task.category_path : ""}）`);
+      parts.push(`（自研发任务生成：${expectedTaskId}${task.category_path ? "｜" + task.category_path : ""}）`);
 
       // 把留痕附件经同源 preview_url 取回字节，走问题模块 uploadAttachment 搬运（与抽屉逻辑一致）
       const seen = new Set<string>();
@@ -971,18 +1081,23 @@ export default function RDTaskDetailPage() {
           const url = getAttachmentPreviewUrl(a) || getAttachmentUrl(a);
           if (!url) continue;
           const resp = await fetch(url);
+          if (activeTaskIdRef.current !== expectedTaskId) return;
           if (!resp.ok) continue;
           const blob = await resp.blob();
+          if (activeTaskIdRef.current !== expectedTaskId) return;
           const raw = await issueService.uploadAttachment({
             fileName: a.name,
             fileType: a.mime || blob.type || "application/octet-stream",
             size: a.size ?? blob.size,
             dataUrl: await blobToDataUrl(blob),
           });
+          if (activeTaskIdRef.current !== expectedTaskId) return;
           const processed = await issueService.processAttachment(raw, "ai").catch(() => raw);
+          if (activeTaskIdRef.current !== expectedTaskId) return;
           const extractedText = (processed.extractedText && processed.extractedText.trim()) || (a.extracted_text && a.extracted_text.trim()) || undefined;
           issueAttachments.push({ id: processed.id, fileName: processed.fileName, fileType: processed.fileType, fileUrl: processed.fileUrl, extractedText });
         } catch {
+          if (activeTaskIdRef.current !== expectedTaskId) return;
           // 单个附件搬运失败不阻断整体生成
         }
       }
@@ -997,9 +1112,11 @@ export default function RDTaskDetailPage() {
         source: "rd",
         attachments: issueAttachments.length > 0 ? issueAttachments : undefined,
       });
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.success(`已生成问题${issueAttachments.length > 0 ? `（含 ${issueAttachments.length} 个附件）` : ""}，正在跳转…`);
       navigate(`/issue-ai?issue=${encodeURIComponent(issue.id)}`);
     } catch (e) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(e instanceof Error ? e.message : "生成问题失败，请重试");
       setGeneratingIssue(false);
     }
@@ -1007,34 +1124,43 @@ export default function RDTaskDetailPage() {
 
   /** 打开「移动到其他类目」：按需拉主产品树与产品列表（详情页平时用不到这两份数据） */
   const openMoveDialog = async () => {
+    if (!task) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     try {
       const [cats, prods] = await Promise.all([
         categories.length > 0 ? Promise.resolve(categories) : fetchRdTaskCategories(),
         products.length > 0 ? Promise.resolve(products) : fetchRdProducts(),
       ]);
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       setCategories(cats);
       setProducts(prods);
       setShowMove(true);
     } catch (error) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : "分类数据加载失败，请重试");
     }
   };
 
   const handleMoveConfirm = async (targetProductId: string, targetCatId: string, targetSubId: string) => {
     if (!task) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     try {
       const result = await moveRdTasks({
-        taskIds: [task.task_id],
+        taskIds: [expectedTaskId],
         targetProductId,
         targetCategoryId: targetCatId,
         targetSubId,
       });
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       const productLabel = products.find((p) => p.id === targetProductId)?.name ?? "";
       const movedPath = `${result.targetCategoryLabel} / ${result.targetSubLabel}`;
       toast.success(productLabel ? `任务已移动到 ${productLabel} · ${movedPath}` : `任务已移动到 ${movedPath}`);
       setShowMove(false);
-      void loadTask();
+      void loadTask({ expectedTaskId });
     } catch (err) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(err instanceof Error ? err.message : "移动失败，请重试");
     }
   };
@@ -1089,8 +1215,10 @@ export default function RDTaskDetailPage() {
     description: string;
   }) => {
     if (!task) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     const created = await createRdTask({
-      parent_task_id: task.task_id,
+      parent_task_id: expectedTaskId,
       title: input.title,
       primary_owner: input.primary_owner,
       primary_owner_user_id: input.primary_owner_user_id,
@@ -1100,44 +1228,55 @@ export default function RDTaskDetailPage() {
       due_date: input.due_date || undefined,
       description: input.description || undefined,
     });
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     toast.success(t("子任务已创建"));
     setShowCreateSubtask(false);
-    void Promise.all([loadTask({ silent: true }), loadProgressGroup(false)]);
+    void Promise.all([loadTask({ silent: true, expectedTaskId }), loadProgressGroup(false, { expectedTaskId })]);
   };
 
   const handleAttachSubtasks = async (childIds: string[]) => {
     if (!task || childIds.length === 0) return;
-    await attachRdTasksToParent(childIds, task.task_id);
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
+    await attachRdTasksToParent(childIds, expectedTaskId);
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     for (const childId of childIds) {
       const child = allTaskById.get(childId);
     }
     toast.success(t("已并入 {n} 个任务为子任务", { n: childIds.length }));
     setShowAttachSubtasks(false);
-    void Promise.all([loadTask({ silent: true }), loadProgressGroup(false)]);
+    void Promise.all([loadTask({ silent: true, expectedTaskId }), loadProgressGroup(false, { expectedTaskId })]);
   };
 
   const handleDetachSubtasks = async (childIds: string[]) => {
     if (!task || childIds.length === 0) return;
-    await detachRdSubtasks(childIds, task.task_id);
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
+    await detachRdSubtasks(childIds, expectedTaskId);
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     for (const childId of childIds) {
       const child = allTaskById.get(childId);
     }
     toast.success(t("已取消 {n} 个子任务关系", { n: childIds.length }));
     setShowDetachSubtasks(false);
-    void Promise.all([loadTask({ silent: true }), loadProgressGroup(false)]);
+    void Promise.all([loadTask({ silent: true, expectedTaskId }), loadProgressGroup(false, { expectedTaskId })]);
   };
 
   const handleDetachSubtask = async () => {
     if (!task || detaching) return;
+    const expectedTaskId = task.task_id;
+    if (activeTaskIdRef.current !== expectedTaskId) return;
     setDetaching(true);
     try {
-      await detachRdSubtask(task.task_id);
+      await detachRdSubtask(expectedTaskId);
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.success(t("已取消子任务关系，该任务已提升为独立任务"));
-      void Promise.all([loadTask({ silent: true }), loadProgressGroup(false)]);
+      void Promise.all([loadTask({ silent: true, expectedTaskId }), loadProgressGroup(false, { expectedTaskId })]);
     } catch (error) {
+      if (activeTaskIdRef.current !== expectedTaskId) return;
       toast.error(error instanceof Error ? error.message : t("取消子任务失败，请重试"));
     } finally {
-      setDetaching(false);
+      if (activeTaskIdRef.current === expectedTaskId) setDetaching(false);
     }
   };
 
@@ -1182,7 +1321,7 @@ export default function RDTaskDetailPage() {
 
   if (!canView) {
     return (
-      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
+      <div className={cn(RD_TASK_DETAIL_HORIZON_SCOPE, "flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500")}>
         <div className="text-4xl">🔒</div>
         <p className="text-base font-medium">您没有访问此页面的权限</p>
       </div>
@@ -1191,7 +1330,7 @@ export default function RDTaskDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center gap-2 text-sm text-slate-400">
+      <div className={cn(RD_TASK_DETAIL_HORIZON_SCOPE, "flex min-h-[40vh] items-center justify-center gap-2 text-sm text-slate-400")} role="status" aria-label={t("正在加载任务详情")}>
         <Loader2 className="h-4 w-4 animate-spin" />
         {t("正在加载任务…")}
       </div>
@@ -1200,9 +1339,11 @@ export default function RDTaskDetailPage() {
 
   if (!task) {
     return (
-      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
+      <div className={cn(RD_TASK_DETAIL_HORIZON_SCOPE, "flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500")} role="alert">
         <AlertTriangle className="h-8 w-8 text-amber-400" />
+        <p className="text-balance font-semibold">{t("任务详情暂不可用")}</p>
         <p className="text-sm">{loadError || t("任务不存在")}</p>
+        <Button type="button" variant="outline" onClick={() => void loadTask()}>{t("重新加载")}</Button>
         <button
           type="button"
           onClick={() => navigate(cockpitReturnPath)}
@@ -1218,6 +1359,10 @@ export default function RDTaskDetailPage() {
   const pCfg = PRIORITY_CONFIG[task.final_priority] ?? PRIORITY_CONFIG.medium;
   const blockedDays = blockedDaysOf(task);
   const workItems = task.work_items ?? [];
+  const completedWorkItemCount = workItems.filter((item) => item.done).length;
+  const attachmentCount = new Set(groupNotes.flatMap((note) => (note.attachments ?? []).map((attachment) =>
+    attachment.object_key || attachment.id || `${attachment.name}|${attachment.size}`,
+  ))).size;
   const topicPathParts = String(task.category_path ?? "")
     .split(/\s*\/\s*/)
     .map((part) => part.trim())
@@ -1238,10 +1383,16 @@ export default function RDTaskDetailPage() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       style={viewportHeight ? { minHeight: viewportHeight } : undefined}
-      className="mx-auto flex max-w-[1440px] flex-col gap-4 px-2 pt-4 sm:px-4"
+      className={cn(
+        RD_TASK_DETAIL_HORIZON_SCOPE,
+        "mx-auto flex max-w-[1440px] flex-col gap-4 px-2 pt-4 sm:px-4",
+      )}
     >
+      <div className="rd-horizon-detail-shell">
+      <div className="rd-horizon-detail-context">
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3">
+      <div className="rd-horizon-detail-toolbar flex shrink-0 flex-wrap items-center gap-3">
+        <div className="rd-horizon-detail-orientation">
         {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
         <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)} className="gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
@@ -1282,7 +1433,9 @@ export default function RDTaskDetailPage() {
             {t("研发同步 · 完全只读")}
           </span>
         )}
-        <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-slate-900">
+        </div>
+        <div className="rd-horizon-detail-heading">
+        <h2 className="line-clamp-2 min-w-0 flex-1 text-balance text-xl font-bold text-slate-900">
           <AutoTranslatedText text={task.title} />
           {canManage && !task.archived && (
             <button
@@ -1294,7 +1447,9 @@ export default function RDTaskDetailPage() {
               <Pencil className="h-3.5 w-3.5" />
             </button>
           )}
-        </h1>
+        </h2>
+        </div>
+        <div className="rd-horizon-detail-state">
         <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>
           <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
           {t(sCfg.label)}
@@ -1335,7 +1490,7 @@ export default function RDTaskDetailPage() {
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+            <SelectContent className="rd-horizon-detail-select rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
               <SelectItem value="high">{t("高优先")}</SelectItem>
               <SelectItem value="medium">{t("中优先")}</SelectItem>
               <SelectItem value="low">{t("低优先")}</SelectItem>
@@ -1346,15 +1501,27 @@ export default function RDTaskDetailPage() {
             {t(`${pCfg.label}优先`)}
           </span>
         )}
+        </div>
       </div>
 
+      {loadError && <div role="alert" className="mx-5 mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        {t("任务详情暂不可用")}：{loadError}
+        <button type="button" onClick={() => void loadTask({ silent: true })} className="ml-3 underline">{t("重新加载")}</button>
+      </div>}
+      <dl aria-label={t("任务事实摘要")} className="grid grid-cols-2 gap-3 border-t border-slate-100 px-5 py-3 text-sm sm:grid-cols-4">
+        <div><dt className="text-xs text-slate-500">{t("完成进度")}</dt><dd className="mt-1 font-semibold tabular-nums">{task.progress}%</dd></div>
+        <div><dt className="text-xs text-slate-500">{t("子任务")}</dt><dd className="mt-1 font-semibold tabular-nums">{subtasks.length}</dd></div>
+        <div><dt className="text-xs text-slate-500">{t("附件")}</dt><dd className="mt-1 font-semibold tabular-nums">{notesLoading || notesError ? "—" : attachmentCount}</dd></div>
+        <div><dt className="text-xs text-slate-500">{t("已完成工作项")}</dt><dd className="mt-1 font-semibold tabular-nums">{completedWorkItemCount} / {workItems.length}</dd></div>
+      </dl>
+
       {/* 详情总览：保留当前项目的材料卡样式，只重排信息层级。 */}
-      <section className="material-card overflow-hidden">
+      <section className="rd-horizon-detail-overview material-card overflow-hidden">
         <div className="grid lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="min-w-0 px-5 py-4">
             <div className="mb-2 flex items-center justify-between gap-3">
               <span className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-                <FileText className="h-3.5 w-3.5 text-indigo-500" />
+                <FileText className="h-3.5 w-3.5 text-[#002fa7]" />
                 {t("任务描述")}
               </span>
               {canManage && !task.archived && !editingDescription && (
@@ -1362,7 +1529,7 @@ export default function RDTaskDetailPage() {
                   type="button"
                   onClick={startDescriptionEdit}
                   aria-label={t("编辑任务描述")}
-                  className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-indigo-600 transition-colors hover:bg-indigo-50"
+                  className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-[#002fa7] transition-colors hover:bg-[#eef3ff]"
                 >
                   <Pencil className="h-3 w-3" />
                   {t("编辑")}
@@ -1390,6 +1557,7 @@ export default function RDTaskDetailPage() {
                   aria-label={t("任务描述")}
                   className="cockpit-scroll min-h-24 w-full resize-y rounded-lg border-slate-200 text-sm leading-6"
                 />
+                {descriptionError && <p role="alert" className="text-sm text-red-700">{descriptionError}</p>}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] text-slate-400">{t("Ctrl+Enter 保存，Esc 取消")}</span>
                   <div className="flex items-center gap-2">
@@ -1408,7 +1576,7 @@ export default function RDTaskDetailPage() {
                       size="sm"
                       disabled={descriptionSaving}
                       onClick={() => void saveDescription()}
-                      className="h-8 gap-1.5 bg-indigo-600 px-3 text-xs text-white hover:bg-indigo-700"
+                      className="h-8 gap-1.5 bg-[#002fa7] px-3 text-xs text-white hover:bg-[#001f73]"
                     >
                       {descriptionSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                       {t("保存")}
@@ -1420,7 +1588,7 @@ export default function RDTaskDetailPage() {
               <AutoTranslatedText
                 as="p"
                 text={task.description}
-                className="cockpit-scroll max-h-32 overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-slate-700"
+                className="cockpit-scroll max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-pretty text-sm leading-6 text-slate-700"
               />
             ) : (
               <p className="text-sm text-slate-400">{t("暂未填写任务描述")}</p>
@@ -1429,14 +1597,14 @@ export default function RDTaskDetailPage() {
           <div className="border-t border-slate-100 bg-slate-50/55 px-5 py-4 lg:border-l lg:border-t-0">
             <div className="mb-3 flex items-center justify-between gap-3">
               <span className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-                <Layers3 className="h-3.5 w-3.5 text-indigo-500" />
+                <Layers3 className="h-3.5 w-3.5 text-[#002fa7]" />
                 {t("主题归属")}
               </span>
               {canManage && !task.archived && (
                 <button
                   type="button"
                   onClick={() => void openMoveDialog()}
-                  className="cursor-pointer text-xs font-semibold text-indigo-600 hover:underline"
+                  className="cursor-pointer text-xs font-semibold text-[#002fa7] hover:underline"
                 >
                   {t("移动")}
                 </button>
@@ -1444,7 +1612,7 @@ export default function RDTaskDetailPage() {
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="rounded-md border border-indigo-100 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">
+                <span className="rounded-md border border-[#dce5fa] bg-[#eef3ff] px-2 py-1 text-xs font-semibold text-[#001f73]">
                   {componentLabel}
                 </span>
                 {topicLabel !== componentLabel && (
@@ -1460,16 +1628,17 @@ export default function RDTaskDetailPage() {
           </div>
         </div>
       </section>
+      </div>
 
       {/* 美式 content-first 布局：主内容（描述/工作项/时间线）居左，Properties 侧栏居右（GitHub issue / Linear 范式） */}
-      <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <DetailGridOrder productionWorkspace={productionWorkspace}>
         {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔；超高自身内滚）══ */}
         <div className="cockpit-scroll min-h-0 xl:order-2 xl:overflow-y-auto">
         <div className="material-card divide-y divide-slate-100">
           {/* 字段节 */}
           <div className="space-y-2.5 px-4 py-3.5">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-600">
-              <Layers3 className="h-3.5 w-3.5 text-indigo-500" />
+              <Layers3 className="h-3.5 w-3.5 text-[#002fa7]" />
               {t("任务信息")}
             </div>
             {[
@@ -1622,7 +1791,7 @@ export default function RDTaskDetailPage() {
                     <button
                       type="button"
                       onClick={() => setShowCreateSubtask(true)}
-                      className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50"
+                      className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-semibold text-[#002fa7] hover:bg-[#eef3ff]"
                     >
                       {t("新建")}
                     </button>
@@ -1673,7 +1842,7 @@ export default function RDTaskDetailPage() {
                           key={sub.task_id}
                           type="button"
                           onClick={() => navigate(taskDetailPath(sub.task_id))}
-                          className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-2.5 py-1.5 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40"
+                          className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-2.5 py-1.5 text-left transition hover:border-[#cbd8f6] hover:bg-[#eef3ff]/40"
                         >
                           <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", subCfg.dot)} />
                           <SubtaskBadge task={sub} />
@@ -1702,7 +1871,7 @@ export default function RDTaskDetailPage() {
                 <button
                   type="button"
                   onClick={() => setShowAddCollab(true)}
-                  className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50"
+                  className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-semibold text-[#002fa7] hover:bg-[#eef3ff]"
                 >
                   + {t("添加协作人")}
                 </button>
@@ -1717,9 +1886,9 @@ export default function RDTaskDetailPage() {
                 else setPersonTasksFor(task.primary_owner);
               }}
               className={cn(
-                "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+                "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]",
                 canSelectActivityActor && activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner })
-                  ? "bg-indigo-50 ring-1 ring-inset ring-indigo-200"
+                  ? "bg-[#eef3ff] ring-1 ring-inset ring-[#cbd8f6]"
                   : "hover:bg-slate-50",
               )}
               title={canSelectActivityActor
@@ -1729,7 +1898,7 @@ export default function RDTaskDetailPage() {
               <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="sm" />
               <span className="text-sm font-medium text-slate-800">{displayPersonName(task.primary_owner)}</span>
               {canSelectActivityActor && activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner }) ? (
-                <span className="ml-auto rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">{t("筛选中")}</span>
+                <span className="ml-auto rounded-full bg-[#dce5fa] px-2 py-0.5 text-[10px] font-semibold text-[#001f73]">{t("筛选中")}</span>
               ) : null}
             </button>
             {(task.collaborators ?? []).length > 0 && (
@@ -1747,9 +1916,9 @@ export default function RDTaskDetailPage() {
                         else setPersonTasksFor(c.name);
                       }}
                       className={cn(
-                        "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
+                        "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]",
                         canSelectActivityActor && activityActorIsSelected({ id: c.user_id, name: c.name })
-                          ? "bg-indigo-50 ring-1 ring-inset ring-indigo-200"
+                          ? "bg-[#eef3ff] ring-1 ring-inset ring-[#cbd8f6]"
                           : "hover:bg-slate-50",
                       )}
                       title={canSelectActivityActor
@@ -1760,7 +1929,7 @@ export default function RDTaskDetailPage() {
                       <span className="text-sm text-slate-700">{c.name}</span>
                       <span className="text-[11px] text-slate-400">{t(c.role)}</span>
                       {canSelectActivityActor && activityActorIsSelected({ id: c.user_id, name: c.name }) ? (
-                        <span className="ml-auto rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">{t("筛选中")}</span>
+                        <span className="ml-auto rounded-full bg-[#dce5fa] px-2 py-0.5 text-[10px] font-semibold text-[#001f73]">{t("筛选中")}</span>
                       ) : null}
                     </button>
                   ))}
@@ -1779,9 +1948,17 @@ export default function RDTaskDetailPage() {
                 {t("提交审核")}
               </Button>
             )}
-            {canManage && task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) && (
+            {canApplyPendingChange && (
               <>
-                <div className="rounded-lg bg-purple-50 px-3 py-2 text-xs text-purple-700">
+                <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">{t("此变更已无需审核，可直接应用此前提交的申请。")}</p>
+                <Button type="button" size="sm" disabled={submitting} onClick={() => void handleApplyPendingChange()} className="h-8 w-full gap-1.5 text-xs">
+                  {t("应用变更")}
+                </Button>
+              </>
+            )}
+            {canManage && !directChangePending && task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) && (
+              <>
+                <div className="rounded-lg bg-[#eef3ff] px-3 py-2 text-xs text-[#001f73]">
                   {t("待审核")}：{t(getReviewTypeMeta(task.pending_review_type)!.label)}
                 </div>
                 <Button
@@ -1894,7 +2071,7 @@ export default function RDTaskDetailPage() {
                 className="flex w-full shrink-0 cursor-pointer items-center justify-between px-4 py-2.5 text-left hover:bg-slate-50/70"
               >
                 <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-                  <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
+                  <Sparkles className="h-3.5 w-3.5 text-[#002fa7]" />
                   {t("完成质量评分")}
                 </span>
                 <span className="flex items-center gap-1 text-[11px] text-slate-400">
@@ -1930,11 +2107,11 @@ export default function RDTaskDetailPage() {
                   <TabsTrigger
                     key={tabItem.key}
                     value={tabItem.key}
-                    className="-mb-px flex-none cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-3.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
+                    className="-mb-px flex-none cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-3.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-[#002fa7] data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
                   >
-                    {tabItem.key === "conversation" && <MessageCircleMore className="h-3.5 w-3.5 text-indigo-500" />}
-                    {tabItem.key === "relations" && <GitBranch className="h-3.5 w-3.5 text-indigo-500" />}
-                    {tabItem.key === "procurement" && <ShoppingCart className="h-3.5 w-3.5 text-indigo-500" />}
+                    {tabItem.key === "conversation" && <MessageCircleMore className="h-3.5 w-3.5 text-[#002fa7]" />}
+                    {tabItem.key === "relations" && <GitBranch className="h-3.5 w-3.5 text-[#002fa7]" />}
+                    {tabItem.key === "procurement" && <ShoppingCart className="h-3.5 w-3.5 text-[#002fa7]" />}
                     {tabItem.label}
                     {tabItem.count != null && tabItem.count > 0 && (
                       <span className={cn(
@@ -1969,6 +2146,8 @@ export default function RDTaskDetailPage() {
                   mode="progress"
                   variant="desktop"
                   notesLoading={notesLoading}
+                  notesError={notesError}
+                  onRetryNotes={() => void loadProgressGroup()}
                   showHeader={false}
                   threadLayout="replace"
                   progressPresentation="timeline"
@@ -1997,11 +2176,17 @@ export default function RDTaskDetailPage() {
 
               <TabsContent value="attachments" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
               <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="space-y-3">
+                {notesError && <div role="alert" className="rounded-lg bg-red-50 px-3 py-3 text-sm text-red-700">
+                  <p className="font-semibold">{t("附件库暂不可用")}</p>
+                  <p className="mt-1 break-words text-pretty">{notesError}</p>
+                  <Button type="button" variant="outline" className="mt-2" onClick={() => void loadProgressGroup()}>{t("重新加载")}</Button>
+                </div>}
+                {notesLoading && <p role="status" className="py-3 text-sm text-slate-500">{t("正在加载附件…")}</p>}
                 <TaskImageGallery notes={groupNotes} />
                 <div>
                   <div className="mb-2 text-xs font-semibold text-slate-500">{t("文档附件（{n}）", { n: docAttachments.length })}</div>
                   {docAttachments.length === 0 ? (
-                    <p className="py-4 text-center text-sm text-slate-400">{t("暂无文档附件")}</p>
+                    !notesLoading && !notesError ? <p className="py-4 text-center text-sm text-slate-400">{t("暂无文档附件")}</p> : null
                   ) : (
                     <div className="overflow-x-auto">
                       <Table>
@@ -2024,10 +2209,10 @@ export default function RDTaskDetailPage() {
                                   type="button"
                                   onClick={() => setPreviewAttachment(att)}
                                   title={att.name}
-                                  className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left transition hover:text-indigo-700"
+                                  className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left transition hover:text-[#001f73]"
                                 >
                                   <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                                  <span className="min-w-0 truncate text-sm text-slate-700 hover:text-indigo-700">{att.name}</span>
+                                  <span className="min-w-0 truncate text-sm text-slate-700 hover:text-[#001f73]">{att.name}</span>
                                 </button>
                               </TableCell>
                               <TableCell className="max-w-[200px]">
@@ -2036,7 +2221,7 @@ export default function RDTaskDetailPage() {
                                     type="button"
                                     onClick={() => navigate(taskDetailPath(sourceTaskId))}
                                     title={sourceTaskTitle || sourceTaskId}
-                                    className="min-w-0 max-w-full cursor-pointer truncate text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                                    className="min-w-0 max-w-full cursor-pointer truncate text-xs font-medium text-[#002fa7] hover:text-[#001f73]"
                                   >
                                     {sourceTaskTitle || sourceTaskId}
                                   </button>
@@ -2053,7 +2238,7 @@ export default function RDTaskDetailPage() {
                                   download={att.name}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#002fa7] hover:text-[#001f73]"
                                 >
                                   <Download className="h-3 w-3" />
                                   {t("下载")}
@@ -2141,6 +2326,7 @@ export default function RDTaskDetailPage() {
 
           </div>
         </div>
+      </DetailGridOrder>
       </div>
 
       {/* ── 管理弹窗 ── */}
@@ -2155,6 +2341,7 @@ export default function RDTaskDetailPage() {
       {showHandover && (
         <HandoverDialog
           taskId={task.task_id}
+          horizonVariant
           taskTitle={task.title}
           currentOwner={task.primary_owner}
           people={people}
@@ -2200,6 +2387,7 @@ export default function RDTaskDetailPage() {
       )}
       {transferOpen && (
         <TransferToProcurementModal
+          key={`transfer-procurement-${task.task_id}`}
           taskId={task.task_id}
           taskTitle={task.title}
           owner={task.primary_owner}
@@ -2208,8 +2396,14 @@ export default function RDTaskDetailPage() {
           dueDate={task.due_date}
           attachments={transferAttachments}
           resubmitFrom={procTaskBlocksTransfer ? null : procTask}
-          onTransferred={setProcTask}
-          onClose={() => setTransferOpen(false)}
+          onTransferred={(nextProcTask) => {
+            if (activeTaskIdRef.current !== task.task_id) return;
+            setProcTask(nextProcTask);
+          }}
+          onClose={() => {
+            if (activeTaskIdRef.current !== task.task_id) return;
+            setTransferOpen(false);
+          }}
         />
       )}
       {showApproval && (
@@ -2224,6 +2418,7 @@ export default function RDTaskDetailPage() {
       {showCreateSubtask && (
         <CreateSubtaskDialog
           parentTask={task}
+          horizonVariant
           people={people}
           onConfirm={handleCreateSubtask}
           onCancel={() => setShowCreateSubtask(false)}
@@ -2272,7 +2467,7 @@ export default function RDTaskDetailPage() {
                       setPersonTasksFor(null);
                       if (t.task_id !== taskId) navigate(taskDetailPath(t.task_id));
                     }}
-                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40"
+                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition hover:border-[#cbd8f6] hover:bg-[#eef3ff]/40"
                   >
                     <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", tCfg.dot)} />
                     <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{t.title}</span>
@@ -2309,31 +2504,42 @@ function EditTaskInfoDialog({
   const [title, setTitle] = useState(initialTitle);
   const [description, setDescription] = useState(initialDescription);
   const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const previousFocusRef = useRef<HTMLElement | null>(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
   const handleSave = async () => {
+    if (saving || !title.trim()) return;
+    setSubmitError("");
     setSaving(true);
     try {
       await onConfirm(title, description);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("保存失败，请重试"));
+      setSubmitError(error instanceof Error ? error.message : t("保存失败，请重试"));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={saving ? undefined : onCancel}>
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <Dialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
+      <DialogContent className="rd-horizon-detail-dialog rounded-2xl flex max-h-[85vh] flex-col gap-0 overflow-y-auto border-slate-200 bg-white p-0 sm:max-w-lg" aria-busy={saving}
+        onCloseAutoFocus={(event) => { event.preventDefault(); if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus(); }}
+        onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
+        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}>
+        <DialogDescription className="sr-only">{t("编辑任务标题与描述")}</DialogDescription>
+        {submitError && <p role="alert" className="mx-6 mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{submitError}</p>}
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
             <Pencil className="h-4 w-4" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900">{t("编辑任务信息")}</h3>
+          <DialogTitle className="text-balance text-base font-semibold text-slate-900">{t("编辑任务信息")}</DialogTitle>
         </div>
         <div className="space-y-4 px-6 py-5">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("任务标题")} <span className="text-red-500">*</span></label>
             <Input
+              disabled={saving}
+              aria-label={t("任务标题")}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={120}
@@ -2344,6 +2550,8 @@ function EditTaskInfoDialog({
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("任务描述")}</label>
             <Textarea
+              disabled={saving}
+              aria-label={t("任务描述")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={5}
@@ -2365,14 +2573,14 @@ function EditTaskInfoDialog({
             type="button"
             disabled={saving || !title.trim()}
             onClick={() => void handleSave()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#001f73] disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-            {t("保存")}
+            {saving ? t("保存中…") : t("保存")}
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2385,6 +2593,7 @@ function CreateSubtaskDialog({
   people,
   onConfirm,
   onCancel,
+  horizonVariant = false,
 }: {
   parentTask: RdTask;
   people: PersonProfile[];
@@ -2397,6 +2606,7 @@ function CreateSubtaskDialog({
     description: string;
   }) => Promise<void>;
   onCancel: () => void;
+  horizonVariant?: boolean;
 }) {
   useI18n();
   const [title, setTitle] = useState("");
@@ -2405,6 +2615,8 @@ function CreateSubtaskDialog({
   const [priority, setPriority] = useState<RdPriority>(parentTask.final_priority ?? "medium");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const previousFocusRef = useRef<HTMLElement | null>(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
   const activePeople = useMemo(
     () => people.filter((p) => p.status !== "left" && p.status !== "resigned"),
@@ -2413,6 +2625,7 @@ function CreateSubtaskDialog({
 
   const handleSave = async () => {
     if (!title.trim() || saving) return;
+    setSubmitError("");
     setSaving(true);
     try {
       const picked = activePeople.find((p) => p.name === ownerName);
@@ -2425,24 +2638,26 @@ function CreateSubtaskDialog({
         description: description.trim(),
       });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("创建子任务失败，请重试"));
+      setSubmitError(error instanceof Error ? error.message : t("创建子任务失败，请重试"));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={saving ? undefined : onCancel}
-    >
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <Dialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
+      <DialogContent className="rd-horizon-detail-dialog rounded-2xl flex max-h-[85vh] flex-col gap-0 overflow-y-auto border-slate-200 bg-white p-0 sm:max-w-lg" aria-busy={saving}
+        onCloseAutoFocus={(event) => { event.preventDefault(); if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus(); }}
+        onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
+        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}>
+        <DialogDescription className="sr-only">{t("为当前任务创建子任务")}</DialogDescription>
+        {submitError && <p role="alert" className="mx-6 mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{submitError}</p>}
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600">
             <FileText className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-base font-semibold text-slate-900">{t("新建子任务")}</h3>
+            <DialogTitle className="text-balance text-base font-semibold text-slate-900">{t("新建子任务")}</DialogTitle>
             <p className="truncate text-[11px] text-slate-400">
               {t("父任务：{title}", { title: parentTask.title })}
             </p>
@@ -2454,6 +2669,8 @@ function CreateSubtaskDialog({
               {t("子任务标题")} <span className="text-red-500">*</span>
             </label>
             <Input
+              disabled={saving}
+              aria-label={t("任务标题")}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={120}
@@ -2465,11 +2682,11 @@ function CreateSubtaskDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("主责人")}</label>
-              <Select value={ownerName || "待指派"} onValueChange={setOwnerName}>
-                <SelectTrigger className="h-9 rounded-lg border-slate-200 text-sm">
+              <Select disabled={saving} value={ownerName || "待指派"} onValueChange={setOwnerName}>
+                <SelectTrigger aria-label={t("主责人")} className="h-9 rounded-lg border-slate-200 text-sm">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={cn(horizonVariant && "rd-horizon-detail-select")}>
                   <SelectItem value="待指派">{t("待指派")}</SelectItem>
                   {activePeople.map((p) => (
                     <SelectItem key={p.id} value={p.name}>
@@ -2481,11 +2698,11 @@ function CreateSubtaskDialog({
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("优先级")}</label>
-              <Select value={priority} onValueChange={(v) => setPriority(v as RdPriority)}>
-                <SelectTrigger className="h-9 rounded-lg border-slate-200 text-sm">
+              <Select disabled={saving} value={priority} onValueChange={(v) => setPriority(v as RdPriority)}>
+                <SelectTrigger aria-label={t("优先级")} className="h-9 rounded-lg border-slate-200 text-sm">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={cn(horizonVariant && "rd-horizon-detail-select")}>
                   <SelectItem value="high">{t("高")}</SelectItem>
                   <SelectItem value="medium">{t("中")}</SelectItem>
                   <SelectItem value="low">{t("低")}</SelectItem>
@@ -2496,6 +2713,8 @@ function CreateSubtaskDialog({
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("截止日期")}</label>
             <Input
+              disabled={saving}
+              aria-label={t("截止日期")}
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
@@ -2505,6 +2724,8 @@ function CreateSubtaskDialog({
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("任务描述")}</label>
             <Textarea
+              disabled={saving}
+              aria-label={t("任务描述")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
@@ -2529,14 +2750,14 @@ function CreateSubtaskDialog({
             type="button"
             disabled={saving || !title.trim()}
             onClick={() => void handleSave()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#001f73] disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-            {t("创建子任务")}
+            {saving ? t("创建中…") : t("创建子任务")}
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2559,6 +2780,8 @@ function AttachSubtasksDialog({
   const [keyword, setKeyword] = useState("");
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const previousFocusRef = useRef<HTMLElement | null>(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -2582,28 +2805,31 @@ function AttachSubtasksDialog({
 
   const handleSave = async () => {
     if (picked.size === 0 || saving) return;
+    setSubmitError("");
     setSaving(true);
     try {
       await onConfirm(Array.from(picked));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("并入失败，请重试"));
+      setSubmitError(error instanceof Error ? error.message : t("并入失败，请重试"));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={saving ? undefined : onCancel}
-    >
-      <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <Dialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
+      <DialogContent className="rd-horizon-detail-dialog rounded-2xl flex max-h-[85vh] flex-col gap-0 overflow-y-auto border-slate-200 bg-white p-0 sm:max-w-lg" aria-busy={saving}
+        onCloseAutoFocus={(event) => { event.preventDefault(); if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus(); }}
+        onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
+        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}>
+        <DialogDescription className="sr-only">{t("选择并入当前任务的独立任务")}</DialogDescription>
+        {submitError && <p role="alert" className="mx-6 mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{submitError}</p>}
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600">
             <ChevronRight className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-base font-semibold text-slate-900">{t("并入已有任务为子任务")}</h3>
+            <DialogTitle className="text-balance text-base font-semibold text-slate-900">{t("并入已有任务为子任务")}</DialogTitle>
             <p className="truncate text-[11px] text-slate-400">
               {t("父任务：{title}", { title: parentTask.title })}
             </p>
@@ -2611,6 +2837,8 @@ function AttachSubtasksDialog({
         </div>
         <div className="border-b border-slate-100 px-6 py-3">
           <Input
+            disabled={saving}
+            aria-label={t("搜索任务标题 / 编号 / 主责人")}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             autoFocus
@@ -2631,6 +2859,8 @@ function AttachSubtasksDialog({
                 <button
                   key={c.task_id}
                   type="button"
+                  disabled={saving}
+                  aria-pressed={checked}
                   onClick={() => toggle(c.task_id)}
                   className={cn(
                     "flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition",
@@ -2685,13 +2915,13 @@ function AttachSubtasksDialog({
                 className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-amber-700 disabled:opacity-60"
               >
                 {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-                {t("并入为子任务")}
+                {saving ? t("并入中…") : t("并入为子任务")}
               </button>
             </span>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2711,6 +2941,8 @@ function DetachSubtasksDialog({
   const [keyword, setKeyword] = useState("");
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const previousFocusRef = useRef<HTMLElement | null>(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -2742,31 +2974,31 @@ function DetachSubtasksDialog({
 
   const handleSave = async () => {
     if (picked.size === 0 || saving) return;
+    setSubmitError("");
     setSaving(true);
     try {
       await onConfirm(Array.from(picked));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("批量取消失败，请重试"));
+      setSubmitError(error instanceof Error ? error.message : t("批量取消失败，请重试"));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={saving ? undefined : onCancel}
-    >
-      <div
-        className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
+    <Dialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
+      <DialogContent className="rd-horizon-detail-dialog rounded-2xl flex max-h-[85vh] flex-col gap-0 overflow-y-auto border-slate-200 bg-white p-0 sm:max-w-lg" aria-busy={saving}
+        onCloseAutoFocus={(event) => { event.preventDefault(); if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus(); }}
+        onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
+        onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}>
+        <DialogDescription className="sr-only">{t("选择要取消关系的子任务")}</DialogDescription>
+        {submitError && <p role="alert" className="mx-6 mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{submitError}</p>}
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
             <Undo2 className="size-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-semibold text-slate-900">{t("批量取消子任务关系")}</h3>
+            <DialogTitle className="text-balance text-base font-semibold text-slate-900">{t("批量取消子任务关系")}</DialogTitle>
             <p className="truncate text-[11px] text-slate-400">
               {t("父任务：{title}", { title: parentTask.title })}
             </p>
@@ -2775,13 +3007,15 @@ function DetachSubtasksDialog({
             type="button"
             disabled={saving}
             onClick={toggleAll}
-            className="rounded px-2 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 disabled:opacity-40"
+            className="rounded px-2 py-1 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff] disabled:opacity-40"
           >
             {picked.size === candidates.length ? t("取消全选") : t("全选")}
           </button>
         </div>
         <div className="border-b border-slate-100 px-6 py-3">
           <Input
+            disabled={saving}
+            aria-label={t("搜索任务标题 / 编号 / 主责人")}
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
             autoFocus
@@ -2797,6 +3031,8 @@ function DetachSubtasksDialog({
               <button
                 key={candidate.task_id}
                 type="button"
+                disabled={saving}
+                aria-pressed={checked}
                 onClick={() => toggle(candidate.task_id)}
                 className={cn(
                   "flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition",
@@ -2848,12 +3084,12 @@ function DetachSubtasksDialog({
                 className="inline-flex items-center gap-1.5 rounded-md bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:opacity-60"
               >
                 {saving ? <Loader2 className="size-3 animate-spin" /> : <Undo2 className="size-3" />}
-                {t("确认取消关系")}
+                {saving ? t("取消中…") : t("确认取消关系")}
               </button>
             </span>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

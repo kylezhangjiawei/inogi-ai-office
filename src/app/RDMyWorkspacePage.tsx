@@ -999,6 +999,7 @@ function TaskOperationDrawer({
   onRequestConfirm,
   onSubmittedForReview,
   onCollaborationChanged,
+  onTaskChanged,
   onSubtaskChanged,
   autoAbandon,
   autoTransfer,
@@ -1011,6 +1012,7 @@ function TaskOperationDrawer({
   onRequestConfirm: (config: ConfirmDialogConfig) => void;
   onSubmittedForReview: (taskId: string, options?: { progress?: number }) => void | Promise<void>;
   onCollaborationChanged: (taskId: string, collaborators: RdCollaborator[], status?: TaskStatus) => void | Promise<void>;
+  onTaskChanged: () => void | Promise<void>;
   /** 并入/取消子任务后：任务在树中的位置变了，只能整表重拉（无法局部乐观更新）。 */
   onSubtaskChanged: (taskId: string) => void | Promise<void>;
   autoAbandon?: boolean;
@@ -1022,9 +1024,12 @@ function TaskOperationDrawer({
   const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
   const canReassignTask = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
+  const directTaskChanges = !isUsCollabWorkspace() && !isProductionWorkspace();
+  const directChangePending = directTaskChanges && task.status === "pending_review"
+    && ["proposal", "collaboration", "due_date", "merge"].includes(task.pending_review_type ?? "");
   // 已完成任务只读：仅保留「任务详情」页签，屏蔽进度/移交/提交等会改状态的操作。
   const isTaskCompleted = task.status === "completed";
-  const [tab, setTab] = useState<OperationTab>(isTaskCompleted ? "detail" : initialTab);
+  const [tab, setTab] = useState<OperationTab>(isTaskCompleted || directChangePending ? "detail" : initialTab);
   const [draftProgress, setDraftProgress] = useState(() => clampProgressValue(task.progress));
   const [note, setNote] = useState("");
   const [aiAssessment, setAiAssessment] = useState<ProgressAssessment | null>(null);
@@ -1281,7 +1286,7 @@ function TaskOperationDrawer({
     });
   }, [taskLogs, logNoteMatches]);
 
-  const canApplyCollaborationDirectly = canDirectProject || canReviewProjectL1 || canReviewProjectL2 || canReassignTask || canManagePeople;
+  const canApplyCollaborationDirectly = directTaskChanges || canDirectProject || canReviewProjectL1 || canReviewProjectL2 || canReassignTask || canManagePeople;
   const dueDateChangePending = task.status === "pending_review" && task.pending_review_type === "due_date";
 
   useEffect(() => {
@@ -1334,7 +1339,7 @@ function TaskOperationDrawer({
       ? [
           { label: t("选择协同人"), helper: t("可选择多个执行人"), state: selectedCollaboratorKeys.size > 0 ? "done" as const : "current" as const },
           { label: t("说明影响"), helper: t("补充协作范围和风险"), state: handoffReason.trim() ? "done" as const : "todo" as const },
-          { label: canApplyCollaborationDirectly ? t("直接生效") : t("提交审批"), helper: canApplyCollaborationDirectly ? t("主管权限直接写入任务") : t("流转给主管审核"), state: "todo" as const },
+          { label: canApplyCollaborationDirectly ? t("直接生效") : t("提交审批"), helper: canApplyCollaborationDirectly ? t("保存后更新协同人") : t("流转给主管审核"), state: "todo" as const },
         ]
       : tab === "submit"
         ? [
@@ -1511,10 +1516,12 @@ function TaskOperationDrawer({
         if (canApplyCollaborationDirectly) {
           await updateRdTask(task.task_id, {
             collaborators: selectedCollaborators,
-            pending_review_type: null,
-            pending_collaborators: [],
-            pending_collaboration_reason: null,
-            pending_collaboration_requested_at: null,
+            ...(!directTaskChanges ? {
+              pending_review_type: null,
+              pending_collaborators: [],
+              pending_collaboration_reason: null,
+              pending_collaboration_requested_at: null,
+            } : {}),
           });
           toast.success(`${task.task_id} 协同人已更新`);
           await onCollaborationChanged(task.task_id, selectedCollaborators);
@@ -1555,7 +1562,7 @@ function TaskOperationDrawer({
     });
   };
 
-  // 截止日期变更：仅走审核流程（不直接生效），审核通过后管理员侧才写入 due_date。
+  // 研发直接保存截止日期；协同与生产工作区保留原审核流程。
   const submitDueDateChange = () => {
     const next = draftDueDate.trim();
     const current = toDateInputValue(task.due_date);
@@ -1567,21 +1574,29 @@ function TaskOperationDrawer({
       toast.error(t("新的截止日期与当前一致，无需提交"));
       return;
     }
-    if (!dueDateReason.trim()) {
+    if (!directTaskChanges && !dueDateReason.trim()) {
       toast.error(t("请填写修改原因，便于管理员审核"));
       return;
     }
     onRequestConfirm({
-      title: t("确认提交截止日期变更审核"),
-      message: t("将把 {taskId} 的截止日期变更提交给管理员审核。", { taskId: task.task_id }),
-      confirmLabel: t("提交审核"),
+      title: t(directTaskChanges ? "确认修改截止日期" : "确认提交截止日期变更审核"),
+      message: t(directTaskChanges ? "将更新 {taskId} 的截止日期。" : "将把 {taskId} 的截止日期变更提交给管理员审核。", { taskId: task.task_id }),
+      confirmLabel: t(directTaskChanges ? "保存日期" : "提交审核"),
       details: [
         t("当前截止日期：{date}", { date: current || t("未设置") }),
         t("申请变更为：{date}", { date: next }),
-        t("审核通过后截止日期才会更新，任务回到进行中"),
-        t("修改原因：{reason}", { reason: dueDateReason.trim() }),
+        t(directTaskChanges ? "保存后截止日期立即更新" : "审核通过后截止日期才会更新，任务回到进行中"),
+        ...(dueDateReason.trim() ? [t("修改原因：{reason}", { reason: dueDateReason.trim() })] : []),
       ],
       onConfirm: async () => {
+        if (directTaskChanges) {
+          await updateRdTask(task.task_id, { due_date: next });
+          toast.success(t("截止日期已更新"));
+          onLog(`${task.task_id} 截止日期已更新`);
+          await onTaskChanged();
+          onClose();
+          return;
+        }
         await updateRdTask(task.task_id, {
           status: "pending_review",
           pending_review_type: "due_date",
@@ -1837,7 +1852,7 @@ function TaskOperationDrawer({
             <CheckCircle2 className="h-4 w-4 shrink-0" />
             {t("任务已完成，以下内容仅供回看。")}
           </div>
-        ) : (
+        ) : !directChangePending && (
           <>
             <div className="grid grid-cols-[repeat(auto-fit,minmax(7rem,1fr))] gap-2">
               {tabConfig.map((item) => (
@@ -1877,6 +1892,23 @@ function TaskOperationDrawer({
           </div>
         )}
 
+        {directChangePending && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-[#cbd8f6] bg-[#eef3ff] px-4 py-3">
+            <p className="text-sm text-[#001f73]">{t("此变更已无需审核，可直接应用此前提交的申请。")}</p>
+            <ActionButton variant="primary" onClick={() => onRequestConfirm({
+              title: t("应用变更"),
+              message: t("将应用 {taskId} 此前提交的变更。", { taskId: task.task_id }),
+              confirmLabel: t("应用变更"),
+              onConfirm: async () => {
+                await updateRdTask(task.task_id, { _review_action: "approve" } as Parameters<typeof updateRdTask>[1]);
+                toast.success(t("变更已应用"));
+                await onTaskChanged();
+                onClose();
+              },
+            })}>{t("应用变更")}</ActionButton>
+          </div>
+        )}
+
         {tab === "detail" && (
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
@@ -1891,7 +1923,7 @@ function TaskOperationDrawer({
               <div className="rounded-xl bg-slate-50 px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-slate-400">{t("截止日期")}</div>
-                  {isTaskCompleted ? null : dueDateChangePending ? (
+                  {isTaskCompleted || directChangePending ? null : dueDateChangePending ? (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">{t("变更审核中")}</span>
                   ) : (
                     <button
@@ -1944,7 +1976,7 @@ function TaskOperationDrawer({
                   {t("修改截止日期")}
                 </div>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                  {t("提交后任务进入待审核状态，管理员审核通过后截止日期才会更新；审核期间任务不可继续操作。")}
+                  {t(directTaskChanges ? "保存后截止日期立即更新，任务状态保持不变。" : "提交后任务进入待审核状态，管理员审核通过后截止日期才会更新；审核期间任务不可继续操作。")}
                 </p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <div>
@@ -1978,7 +2010,7 @@ function TaskOperationDrawer({
                     <div className="mt-1 text-sm font-semibold text-slate-700">{task.due_date || t("未设置")}</div>
                   </div>
                 </div>
-                <div className="mt-3">
+                {!directTaskChanges && <div className="mt-3">
                   <label className="text-xs font-medium text-slate-500">{t("修改原因")}</label>
                   <Textarea
                     value={dueDateReason}
@@ -1987,7 +2019,7 @@ function TaskOperationDrawer({
                     placeholder={t("请说明调整截止日期的原因，便于管理员审核")}
                     className="mt-1"
                   />
-                </div>
+                </div>}
                 <div className="mt-3 flex justify-end gap-2">
                   <button
                     type="button"
@@ -2005,7 +2037,7 @@ function TaskOperationDrawer({
                     onClick={submitDueDateChange}
                     className="cursor-pointer rounded-lg bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#001f73]"
                   >
-                    {t("提交审核")}
+                    {t(directTaskChanges ? "保存日期" : "提交审核")}
                   </button>
                 </div>
               </div>
@@ -3795,8 +3827,11 @@ function WorkspaceTaskCard({
   const isOverdue = isTaskOverdue(task);
   const currentWorkspace = isUsCollabWorkspace() ? "us-collab" : "rd";
   const isForeignWorkspace = Boolean(task.source_workspace && task.source_workspace !== currentWorkspace);
-  // 待审核任务默认置灰且不可点击：等待管理员审核期间不允许成员进入操作详情。
-  const isPendingReview = task.status === "pending_review";
+  // 研发已取消审核的存量申请可打开并主动应用；成果与放弃仍等待审核。
+  const isPendingReview = task.status === "pending_review" && !(
+    !isForeignWorkspace && !isUsCollabWorkspace() && !isProductionWorkspace()
+    && ["proposal", "collaboration", "due_date", "merge"].includes(task.pending_review_type ?? "")
+  );
   // 列表卡片直接发起「申请放弃」：仅主责人 + 活跃状态可见（与详情抽屉内 canAbandon 口径一致）。
   const canAbandon =
     !isForeignWorkspace && task.role === "primary" &&
@@ -5637,6 +5672,10 @@ export function RDMyWorkspacePage() {
               myTasks: updateTaskCollaboratorsList(prev.myTasks, taskId, collaborators, status),
               collabTasks: updateTaskCollaboratorsList(prev.collabTasks, taskId, collaborators, status),
             }));
+            setActivePanel(null);
+            await loadWorkspace({ silent: true });
+          }}
+          onTaskChanged={async () => {
             setActivePanel(null);
             await loadWorkspace({ silent: true });
           }}

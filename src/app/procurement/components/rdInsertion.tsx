@@ -11,6 +11,7 @@ import { useAuth } from "../../auth";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 import {
+  continueRdProcurementTransfer,
   getProcTaskByRdTask,
   transferProcTask,
   uploadProcurementAttachment,
@@ -84,7 +85,34 @@ export function useProcurementTaskLink(rdTaskId?: string) {
 export function ProcurementLinkChip({ task, onJump }: { task: ProcurementTask; onJump: (procTaskId: string) => void }) {
   const { t } = useI18n();
   const canOpenProcurementCockpit = usePermission("page:proc-cockpit");
+  const canTransfer = usePermission("proc-task:transfer");
+  const [continuing, setContinuing] = useState(false);
   const statusLabel = PROC_STATUS_META[task.status]?.label ?? task.status;
+  if (task.status === "pending_rd_review" && canTransfer) {
+    return (
+      <button
+        type="button"
+        disabled={continuing}
+        onClick={async (event) => {
+          event.stopPropagation();
+          setContinuing(true);
+          try {
+            await continueRdProcurementTransfer(task.id);
+            announceProcurementRefresh();
+            toast.success(t("已转采购并分配采购负责人"));
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : t("转采购失败，请稍后重试"));
+          } finally {
+            setContinuing(false);
+          }
+        }}
+        className="inline-flex items-center gap-1 rounded-full border border-[#c9d8ff] bg-[#eef3ff] px-2 py-0.5 text-[11px] font-medium text-[#002fa7] hover:bg-[#dce6ff] disabled:opacity-50"
+      >
+        {continuing ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShoppingCart className="h-3 w-3" />}
+        {t("继续转采购")}
+      </button>
+    );
+  }
   if (task.status === "pending_rd_review" || !canOpenProcurementCockpit) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-[#c9d8ff] bg-[#eef3ff] px-2 py-0.5 text-[11px] font-medium text-[#002fa7]">
@@ -301,7 +329,7 @@ export function TransferToProcurementModal({
       announceProcurementRefresh();
       toast.success(procTask.alreadyTransferred
         ? t("该研发任务已关联采购任务 {code}", { code: procTask.code })
-        : t("已提交转采购审核 {code}", { code: procTask.code }));
+        : t("已生成采购任务 {code}，并分配采购负责人", { code: procTask.code }));
       onClose();
     } catch (error) {
       const message = error instanceof Error ? error.message : t("转采购失败，请稍后重试");
@@ -346,10 +374,10 @@ export function TransferToProcurementModal({
           <DialogTitle className="text-balance text-base font-bold text-slate-900">
             {resubmitFrom ? t("转采购 · 重新提交 {code}", { code: resubmitFrom.code }) : t("转采购 · 生成采购任务")}
           </DialogTitle>
-          <DialogDescription className="mt-0.5 text-pretty text-xs text-slate-400">{t("核对采购物料、数量和图纸附件，提交后先进入研发管理员审核。")}</DialogDescription>
+          <DialogDescription className="mt-0.5 text-pretty text-xs text-slate-400">{t("核对采购物料、数量和图纸附件，提交后直接进入采购待处理并分配采购负责人。")}</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-3 border-b border-slate-100 bg-slate-50/70 px-6 py-2.5">
-          {[t("核对物料"), t("确认图纸附件"), t("提交审核")].map((label, index) => {
+          {[t("核对物料"), t("确认图纸附件"), t("生成采购任务")].map((label, index) => {
             const active = !form.materialName.trim() || !(Number(form.quantity) > 0) ? 0 : files.length === 0 ? 1 : 2;
             return <div key={label} className={cn("flex items-center gap-1.5 text-[11px]", index === active ? "font-semibold text-[#002fa7]" : index < active ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === active ? "border-[#002fa7] bg-[#002fa7] text-white" : index < active ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index + 1}</span><span className="truncate">{label}</span></div>;
           })}
@@ -358,8 +386,8 @@ export function TransferToProcurementModal({
           <div className="mb-3 flex items-start gap-2 rounded-xl border border-[#dce6ff] bg-[#eef3ff] px-3 py-2 text-pretty text-xs text-[#002fa7]">
             <ShoppingCart className="mt-0.5 h-4 w-4 shrink-0" />
             {resubmitFrom
-              ? t("已沿用上次提交的内容与附件，可直接修改；提交后在原单号上重走研发管理员审核。")
-              : t("已带入研发任务与附件；提交后先由研发管理员审核，通过后才进入采购驾驶舱并分配采购负责人。")}
+              ? t("已沿用上次提交的内容与附件，可直接修改；提交后原采购任务回到待处理，并重新分配采购负责人。")
+              : t("已带入研发任务与附件；提交后直接进入采购待处理，并自动分配采购负责人。")}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">

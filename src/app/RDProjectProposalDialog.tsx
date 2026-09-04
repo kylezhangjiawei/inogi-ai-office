@@ -56,6 +56,7 @@ import {
   extractRdTasksFromText,
   fetchProductTaskCategories,
   isDefaultSubProject,
+  isProductionWorkspace,
   isUsCollabWorkspace,
   RD_DEFAULT_SUBPROJECT_LABEL,
 } from "./lib/rdApi";
@@ -2048,7 +2049,7 @@ function StepReview({
             onClick={onNext}
             className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {t("手动审核流程")}
+            {t(!isUsCollabWorkspace() && !isProductionWorkspace() ? "确认立项信息" : "手动审核流程")}
             <ArrowRight className="h-3.5 w-3.5" />
           </button>
           {onQuickSubmit && quickSubmitLabel && (
@@ -2056,7 +2057,7 @@ function StepReview({
               type="button"
               disabled={tasks.length === 0 || quickSubmitDisabled || submitting || catLoading}
               onClick={onQuickSubmit}
-              title={t("跳过审核流程预览，直接按 AI 建议立项")}
+              title={t(!isUsCollabWorkspace() && !isProductionWorkspace() ? "按当前 AI 建议立项" : "跳过审核流程预览，直接按 AI 建议立项")}
               className="hz-primary-action inline-flex items-center gap-1.5 rounded-md bg-[#002fa7] px-4 py-2 text-sm font-semibold text-white hover:bg-[#002581] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
@@ -2087,6 +2088,7 @@ function StepSubmit({
   onDirectDispatch,
   canSubmitProposal,
   canDirectProject,
+  proposalApprovalRequired,
   approvalFlow,
   approvalFlowLoading,
   approvalFlowError,
@@ -2108,6 +2110,7 @@ function StepSubmit({
   onDirectDispatch: () => void;
   canSubmitProposal: boolean;
   canDirectProject: boolean;
+  proposalApprovalRequired: boolean;
   approvalFlow: ApprovalFlow;
   approvalFlowLoading: boolean;
   approvalFlowError: string | null;
@@ -2115,10 +2118,10 @@ function StepSubmit({
   /** 节点级立项时用于摘要展示，并关闭脱离父节点上下文的草稿能力。 */
   parentTask?: RdProposalParentTask;
 }) {
-  const reviewNodes = useMemo(() => getApplicableNodes(userRole, approvalFlow), [approvalFlow, userRole]);
+  const reviewNodes = useMemo(() => proposalApprovalRequired ? getApplicableNodes(userRole, approvalFlow) : [], [approvalFlow, userRole, proposalApprovalRequired]);
   const [approvalPools, setApprovalPools] = useState<Record<string, PoolMember[]>>({});
-  const canDirect = canDirectProject;
-  const directOnly = userRole === "director" && canDirectProject;
+  const canDirect = canDirectProject || (!proposalApprovalRequired && canSubmitProposal);
+  const directOnly = !proposalApprovalRequired || (userRole === "director" && canDirectProject);
   const approvalModeUnsupported = reviewNodes[0]?.mode === "all";
 
   useEffect(() => {
@@ -2178,12 +2181,12 @@ function StepSubmit({
             )}
           </div>
 
-          {approvalFlowLoading ? (
+          {proposalApprovalRequired && approvalFlowLoading ? (
             <div className="mb-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600" role="status" aria-live="polite">
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
               {t("正在读取当前审批流…")}
             </div>
-          ) : approvalFlowError ? (
+          ) : proposalApprovalRequired && approvalFlowError ? (
             <div className="mb-2 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700" role="alert">
               <span className="text-pretty">{t("审批流校验失败，暂不能提交审核：{message}", { message: approvalFlowError })}</span>
               <button type="button" className="shrink-0 font-semibold text-[#002fa7] hover:underline" onClick={onRetryApprovalFlow}>
@@ -2202,7 +2205,7 @@ function StepSubmit({
           {reviewNodes.length === 0 ? (
             <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2.5 text-xs text-emerald-700">
               <CheckCircle2 className="mr-1.5 inline h-3.5 w-3.5" />
-              {canDirect ? t("你有直接立项权限，立项可直接生效并自动分配") : t("当前审批流没有后续审核节点，请联系管理员配置审批流或分配直接立项权限")}
+              {!proposalApprovalRequired ? t("确认后立项立即生效，任务自动分配给责任人") : canDirect ? t("你有直接立项权限，立项可直接生效并自动分配") : t("当前审批流没有后续审核节点，请联系管理员配置审批流或分配直接立项权限")}
             </div>
           ) : (
             <div className="space-y-2">
@@ -2286,7 +2289,9 @@ function StepSubmit({
             </div>
           )}
           <p className="mt-1.5 text-pretty text-[11px] text-slate-400">
-            {directOnly
+            {!proposalApprovalRequired
+              ? t("请确认任务内容、责任人与截止日期后立项")
+              : directOnly
               ? t("研发主管可直接立项，无需审核")
               : canDirect
                 ? t("你有「直接立项」权限，可选择跳过审核（适用于紧急/已对齐过的立项）")
@@ -2422,6 +2427,8 @@ export function RDProjectProposalDialog({
   const { user } = useAuth();
   const canSubmitProposal = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
+  const proposalApprovalRequired = isUsCollabWorkspace() || isProductionWorkspace();
+  const canCreateDirectly = canDirectProject || (!proposalApprovalRequired && canSubmitProposal);
   const canReviewProjectL1 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L1);
   const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
   const effectiveUserRole: UserRole = canDirectProject
@@ -2431,7 +2438,7 @@ export function RDProjectProposalDialog({
       : canReviewProjectL1 || canReviewProjectL2
         ? "admin"
         : userRole;
-  const approvalModeUnsupported = effectiveUserRole !== "director"
+  const approvalModeUnsupported = proposalApprovalRequired && effectiveUserRole !== "director"
     && approvalFlow.nodes[0]?.mode === "all";
   // 个人工作台模式下需要把 owner 锁到当前用户。优先用 name，没有则回退 email/username
   const forcedOwnerName = forceOwnerToCurrentUser
@@ -2485,7 +2492,7 @@ export function RDProjectProposalDialog({
   }, []);
 
   useEffect(() => {
-    if (!open) {
+    if (!open || !proposalApprovalRequired) {
       approvalFlowRequestRef.current += 1;
       return;
     }
@@ -2493,7 +2500,7 @@ export function RDProjectProposalDialog({
     return () => {
       approvalFlowRequestRef.current += 1;
     };
-  }, [loadApprovalFlow, open]);
+  }, [loadApprovalFlow, open, proposalApprovalRequired]);
 
   useEffect(() => {
     if (open) {
@@ -2535,7 +2542,7 @@ export function RDProjectProposalDialog({
     1: t("描述内容"),
     2: t("AI 解析中"),
     3: t("审阅 AI 输出"),
-    4: t("提交审核"),
+    4: t(proposalApprovalRequired ? "提交审核" : "确认立项"),
   };
 
   const reset = () => {
@@ -2966,7 +2973,7 @@ export function RDProjectProposalDialog({
   };
 
   const handleDirectDispatch = async () => {
-    if (!canDirectProject) {
+    if (!canCreateDirectly) {
       toast.error(t("当前账号没有直接立项权限"));
       return;
     }
@@ -3114,20 +3121,20 @@ export function RDProjectProposalDialog({
             onBack={() => setStep(1)}
             onNext={() => setStep(4)}
             onQuickSubmit={
-              canDirectProject
+              canCreateDirectly
                 ? () => void handleDirectDispatch()
                 : canSubmitProposal
                   ? () => void handleSubmit()
                   : undefined
             }
             quickSubmitLabel={
-              canDirectProject
+              canCreateDirectly
                 ? t("AI 一键立项")
                 : canSubmitProposal
                   ? t("AI 一键提交审核")
                   : undefined
             }
-            quickSubmitDisabled={tasks.some((t) => !t.title.trim()) || (!canDirectProject && (approvalFlowLoading || Boolean(approvalFlowError) || approvalModeUnsupported))}
+            quickSubmitDisabled={tasks.some((t) => !t.title.trim()) || (!canCreateDirectly && (approvalFlowLoading || Boolean(approvalFlowError) || approvalModeUnsupported))}
           />
         )}
         {step === 4 && (
@@ -3147,6 +3154,7 @@ export function RDProjectProposalDialog({
             onDirectDispatch={handleDirectDispatch}
             canSubmitProposal={canSubmitProposal}
             canDirectProject={canDirectProject}
+            proposalApprovalRequired={proposalApprovalRequired}
             approvalFlow={approvalFlow}
             approvalFlowLoading={approvalFlowLoading}
             approvalFlowError={approvalFlowError}

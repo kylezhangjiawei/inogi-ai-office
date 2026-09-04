@@ -273,7 +273,8 @@ export class ProcurementService {
     if (query.priority) where.priority = query.priority;
     if (query.buyerUserId) where.buyerUserId = query.buyerUserId;
     if (query.materialId) where.materialId = query.materialId;
-    if (query.rdTaskId) where.rdTaskId = query.rdTaskId;
+    const rdTaskId = query.rdTaskId?.trim();
+    if (rdTaskId) where.rdTaskId = rdTaskId;
     const canReviewRdTransfer = actor?.permissions.includes('*')
       || actor?.permissions.includes('rd-procurement:review');
     const canReadAllProcurementTasks = actor?.permissions.includes('*')
@@ -281,8 +282,15 @@ export class ProcurementService {
       || actor?.permissions.includes('page:proc-materials');
     const canReadOwnProcurementTasks = actor?.permissions.includes('page:proc-my-workspace');
     if (query.rdLink === 'true') {
-      // 待研发审核仅允许原提交人或研发审核人通过研发任务关联查询读取。
-      if (!canReviewRdTransfer) {
+      // 指定任务的关联读取与继续转采购共用参与权限；无任务 ID 时仍限制原有列表范围。
+      if (rdTaskId) {
+        if (!actor) throw new ForbiddenException('请登录后查看研发任务的采购关联');
+        await this.rdService.requireProcurementTransferAccess(rdTaskId, {
+          userId: actor.id,
+          userName: actor.name,
+          permissions: actor.permissions,
+        });
+      } else if (!canReviewRdTransfer) {
         const actorId = actor?.id || '__missing_actor__';
         where.AND = [{ OR: [{ requesterUserId: actorId }, { rdContactUserId: actorId }] }];
       }
@@ -506,7 +514,7 @@ export class ProcurementService {
     }
   }
 
-  /** 研发侧「转采购」：先进入研发管理员审核，通过后才进入采购侧。 */
+  /** 研发侧「转采购」：直接进入采购待处理并自动分配采购负责人。 */
   async transferFromRd(dto: TransferFromRdDto, actor: ProcActor) {
     const rdTaskId = dto.rdTaskId.trim();
     const rdTask = await this.rdService.requireProcurementTransferAccess(rdTaskId, {
@@ -531,11 +539,14 @@ export class ProcurementService {
       where: { rdTaskId },
       include: PROC_TASK_VIEW_INCLUDE,
     });
+    if (existing?.status === 'pending_rd_review') {
+      return this.continueRdTransfer(existing.id, actor);
+    }
     if (existing && existing.status !== 'cancelled') {
       return { ...this.serializeTask(existing), alreadyTransferred: true };
     }
     if (existing) {
-      // 审核驳回（或取消）后的重新提交：更新需求内容、回到待处理重走审核，保留历史日志与旧附件。
+      // 取消后的重新提交：更新需求内容、回到采购待处理，保留历史日志与旧附件。
       // 弹窗默认带入研发任务全部附件，与旧附件指向同一批 OSS 对象，不去重的话每重提一次就多出
       // 一份同名附件。存量附件可能没落 fileKey、只把 key 藏在 oss-preview 的 query 里，所以三种
       // 身份（fileKey / fileUrl / url 里的 key）任一命中即视为同一份。
@@ -560,8 +571,10 @@ export class ProcurementService {
       const newAttachments = (dto.attachments ?? []).filter(
         (a) => !attachmentIdentities(a).some((id) => keptAttachmentKeys.has(id)),
       );
+      const buyer = await this.requireAutomaticRdBuyer();
       const updated = await this.prisma.procTask.update({
-        where: { id: existing.id },
+        // 同一次条件更新写入状态、附件与日志，阻止并发重提覆盖已进入采购处理的任务。
+        where: { id: existing.id, status: 'cancelled' },
         data: {
           productId: normalizeProcProductId(dto.productId ?? existing.productId),
           materialName: dto.materialName,
@@ -581,9 +594,9 @@ export class ProcurementService {
           requesterUserId: actor.id,
           requesterDept,
           consumableNote: dto.consumableNote ?? existing.consumableNote,
-          status: 'pending_rd_review',
-          buyer: '',
-          buyerUserId: null,
+          status: 'pending_confirm',
+          buyer: buyer.name,
+          buyerUserId: buyer.id,
           cancelReason: null,
           ...(newAttachments.length
             ? { attachments: { create: newAttachments.map((a) => this.attachmentData(a, actor)) } }
@@ -591,17 +604,24 @@ export class ProcurementService {
           logs: {
             create: {
               kind: 'action',
-              text: '研发修改后重新提交转采购，待研发管理员审核',
+              text: `研发修改后重新提交转采购，自动分配给采购负责人 ${buyer.name}`,
               fromStatus: 'cancelled',
-              toStatus: 'pending_rd_review',
+              toStatus: 'pending_confirm',
               actor: actor.name,
               actorUserId: actor.id,
             },
           },
         },
         include: PROC_TASK_VIEW_INCLUDE,
+      }).catch((error: unknown) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+          throw new ConflictException('该采购任务已重新提交或已进入采购处理，请刷新后查看');
+        }
+        throw error;
       });
-      await this.notifyRdAdminsOfTransferReview(updated);
+      await this.notifyBuyerOfRdTransferAssignment(updated, buyer, actor).catch((error) =>
+        new Logger(ProcurementService.name).warn(`转采购分配通知失败（${updated.code}）: ${(error as Error).message}`),
+      );
       return { ...this.serializeTask(updated), alreadyTransferred: false };
     }
     if (!dto.attachments?.length) {
@@ -611,13 +631,12 @@ export class ProcurementService {
     try {
       const created = await this.insertTask(dto, actor, {
         source: 'rd',
-        status: 'pending_rd_review',
+        status: 'pending_confirm',
         rdTaskId,
         rdTaskTitle: rdTask.title,
         rdContact: rdContactName,
         rdContactUserId,
       });
-      await this.notifyRdAdminsOfTransferReviewById(created.id);
       return created;
     } catch (error) {
       // 数据库唯一约束兜住并发双击/网络重试；若另一请求已成功，返回同一采购任务。
@@ -774,9 +793,10 @@ export class ProcurementService {
     const code = await this.nextTaskCode();
     const method = dto.method ?? 'inquiry';
     const requesterDept = await this.resolveRequesterDepartment(actor.id, dto.requesterDept);
-    const awaitsRdReview = extra.source === 'rd' && extra.status === 'pending_rd_review';
-    const requestedBuyer = awaitsRdReview ? '' : dto.buyer?.trim();
-    const automaticBuyer = awaitsRdReview || requestedBuyer ? null : await this.pickAutomaticBuyer();
+    const requestedBuyer = extra.source === 'rd' ? '' : dto.buyer?.trim();
+    const automaticBuyer = extra.source === 'rd'
+      ? await this.requireAutomaticRdBuyer()
+      : requestedBuyer ? null : await this.pickAutomaticBuyer();
     const resolvedBuyer = requestedBuyer
       ? await this.resolveAssignableBuyer(dto.buyerUserId, requestedBuyer)
       : automaticBuyer;
@@ -817,7 +837,7 @@ export class ProcurementService {
             kind: 'system',
             text:
               extra.source === 'rd'
-                ? `由研发任务「${extra.rdTaskTitle ?? extra.rdTaskId ?? '-'}」提交转采购，待研发管理员审核`
+                ? `由研发任务「${extra.rdTaskTitle ?? extra.rdTaskId ?? '-'}」转采购，自动分配给采购负责人 ${buyer}`
                 : `采购自建任务${automaticBuyer ? `；按当前负载自动分配给 ${automaticBuyer.name}` : ''}`,
             toStatus: extra.status,
             actor: actor.name,
@@ -827,6 +847,11 @@ export class ProcurementService {
       },
       include: PROC_TASK_VIEW_INCLUDE,
     });
+    if (extra.source === 'rd' && resolvedBuyer) {
+      await this.notifyBuyerOfRdTransferAssignment(task, resolvedBuyer, actor).catch((error) =>
+        new Logger(ProcurementService.name).warn(`转采购分配通知失败（${task.code}）: ${(error as Error).message}`),
+      );
+    }
     return this.serializeTask(task);
   }
 
@@ -1008,16 +1033,45 @@ export class ProcurementService {
     return updated;
   }
 
-  /** 研发管理员通过前置审核：此刻才给采购部门成员分配任务并进入采购待处理。 */
+  private async requireAutomaticRdBuyer() {
+    const buyer = await this.pickAutomaticBuyer();
+    if (!buyer) {
+      throw new BadRequestException('采购部门暂无同时具备采购个人工作台权限的在职人员，请先配置人员与角色权限');
+    }
+    return buyer;
+  }
+
+  /** 存量前置待审申请由原任务参与人继续流转；不要求研发审核权限，也不在读取时改库。 */
+  async continueRdTransfer(id: string, actor: ProcActor) {
+    const task = await this.prisma.procTask.findUnique({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
+    if (!task) throw new NotFoundException('采购任务不存在');
+    if (task.source !== 'rd' || !task.rdTaskId) {
+      throw new BadRequestException('该采购任务不是研发流转任务');
+    }
+    await this.rdService.requireProcurementTransferAccess(task.rdTaskId, {
+      userId: actor.id,
+      userName: actor.name,
+      permissions: actor.permissions,
+    });
+    if (task.status !== 'pending_rd_review') {
+      if (task.status === 'cancelled') throw new BadRequestException('已取消的采购任务请修改后重新提交');
+      return { ...this.serializeTask(task), alreadyTransferred: true };
+    }
+    return this.activateLegacyRdTransfer(task, actor, false);
+  }
+
+  /** 兼容旧版审核入口；新增流转均直接进入采购待处理。 */
   async approveRdTransfer(id: string, actor: ProcActor) {
     const task = await this.requireTask(id);
     if (task.source !== 'rd' || task.status !== 'pending_rd_review') {
       throw new BadRequestException('仅「待研发审核」的转采购申请可审核通过');
     }
-    const buyer = await this.pickAutomaticBuyer();
-    if (!buyer) {
-      throw new BadRequestException('采购部门暂无同时具备采购个人工作台权限的在职人员，请先配置人员与角色权限');
-    }
+    return this.activateLegacyRdTransfer(task, actor, true);
+  }
+
+  private async activateLegacyRdTransfer(task: ProcReviewNoticeTask, actor: ProcActor, legacyReview: boolean) {
+    const id = task.id;
+    const buyer = await this.requireAutomaticRdBuyer();
     const updated = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.procTask.updateMany({
         where: { id, source: 'rd', status: 'pending_rd_review' },
@@ -1032,7 +1086,7 @@ export class ProcurementService {
         data: {
           taskId: id,
           kind: 'action',
-          text: `研发管理员审核通过，按当前负载分配给采购负责人 ${buyer.name}`,
+          text: `研发任务继续转采购，按当前负载分配给采购负责人 ${buyer.name}`,
           fromStatus: 'pending_rd_review',
           toStatus: 'pending_confirm',
           actor: actor.name,
@@ -1044,9 +1098,11 @@ export class ProcurementService {
     await this.markRdTransferReviewMessagesHandled(id).catch((error) =>
       new Logger(ProcurementService.name).warn(`转采购待审消息置为已处理失败（${task.code}）: ${(error as Error).message}`),
     );
-    await this.notifyRdTransferReviewResult(task, actor, 'approved', '', buyer.name).catch((error) =>
-      new Logger(ProcurementService.name).warn(`转采购通过结果通知失败（${task.code}）: ${(error as Error).message}`),
-    );
+    if (legacyReview) {
+      await this.notifyRdTransferReviewResult(task, actor, 'approved', '', buyer.name).catch((error) =>
+        new Logger(ProcurementService.name).warn(`转采购通过结果通知失败（${task.code}）: ${(error as Error).message}`),
+      );
+    }
     await this.notifyBuyerOfRdTransferAssignment(task, buyer, actor).catch((error) =>
       new Logger(ProcurementService.name).warn(`转采购分配通知失败（${task.code}）: ${(error as Error).message}`),
     );
@@ -1143,7 +1199,7 @@ export class ProcurementService {
     }
   }
 
-  /** 研发前置审核通过后，明确通知实际采购负责人，避免任务只进入工作台却无人知晓。 */
+  /** 研发任务分配后通知实际采购负责人。 */
   private async notifyBuyerOfRdTransferAssignment(
     task: ProcReviewNoticeTask,
     buyer: { id: string; name: string },
@@ -1151,7 +1207,7 @@ export class ProcurementService {
   ) {
     await this.rdService.createMessage({
       source: 'procurement',
-      sender: { id: actor.id, name: actor.name, role: '研发管理员' },
+      sender: { id: actor.id, name: actor.name, role: '研发人员' },
       recipient_id: buyer.id,
       recipient_name: buyer.name,
       subject: `新采购任务已分配 · ${task.materialName}`,

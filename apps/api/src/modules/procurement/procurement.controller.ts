@@ -170,7 +170,14 @@ export class ProcurementController {
     return this.service.confirmTask(id, this.actor(req));
   }
 
-  /** 研发管理员前置审核：通过后任务才进入采购待处理并自动分配负责人。 */
+  /** 继续流转存量待研发处理的采购申请，按研发任务参与权限校验。 */
+  @Post('tasks/:id/rd-transfer/continue')
+  @Permissions('proc-task:transfer')
+  continueRdTransfer(@Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.service.continueRdTransfer(id, this.actor(req));
+  }
+
+  /** 兼容旧版审核入口；新转采购申请直接进入采购待处理。 */
   @Post('tasks/:id/rd-review/approve')
   @Permissions('rd-procurement:review')
   approveRdTransfer(@Param('id') id: string, @Request() req: AuthedRequest) {

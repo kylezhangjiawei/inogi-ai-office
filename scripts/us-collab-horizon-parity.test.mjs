@@ -52,7 +52,7 @@ test("RD 与美国协同工作台共用 Horizon 视觉，生产工作区仍排�
   );
   assert.doesNotMatch(
     workspacePage,
-    /!isUsCollabWorkspace\(\)\s*&&\s*!isProductionWorkspace\(\)/,
+    /const horizonWorkspace\s*=\s*!isUsCollabWorkspace\(\)\s*&&\s*!isProductionWorkspace\(\)/,
     "美国协同不应再被 Horizon 变体排除",
   );
 });
@@ -112,6 +112,7 @@ test("Horizon 放开不改变工作区识别、数据过滤和 API 参数隔离"
 
   assert.match(aiSettingsPage, /await fetchRdAiSettings\(\)/);
   assert.match(aiSettingsPage, /await saveRdAiSettings\(submittedSettings, submittedBaseUpdatedAt\)/);
+  assert.match(rdApi, /base_updated_at: baseUpdatedAt/);
   assert.match(rdApi, /requestJson<RdAiSettingsPayload>\("\/ai-settings"\)/);
   assert.match(rdApi, /requestJson<RdAiSettingsPayload>\("\/ai-settings", \{/);
 });

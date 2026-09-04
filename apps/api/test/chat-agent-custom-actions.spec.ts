@@ -10,8 +10,7 @@ import { ensureDefaultSubProject } from '../src/modules/research-development/res
  * custom 型 Agent 操作的**发起前校验**。
  *
  * 这些操作都是 confirm 级，真正的写发生在用户点确认之后。所以 plan 这一步是唯一还能
- * 拦住坏参数的地方——一旦坏参数进了确认卡，用户点下去就直接砸到服务层，甚至（跨库合并）
- * 要等审核通过后才在服务端日志里失败，那时源任务已经被挂成 pending_review 了。
+ * 拦住坏参数的地方——一旦坏参数进了确认卡，用户点下去才会发现任务操作无法执行。
  *
  * 注册表本身的声明（权限来源、分级、schema）在 chat-agent-actions.spec.ts 里测；那个文件
  * 刻意不碰 service，故这里单开一个带假 Prisma 的壳。
@@ -95,9 +94,7 @@ const errorOf = (result: unknown): string =>
 
 // ── 合并：跨库与状态前置 ─────────────────────────────────────────────────────
 
-test('跨库合并在发起前就被拒——放到审核通过后才失败已经来不及', async () => {
-  // applyTaskMerge 对跨库是 fire-and-forget catch：用户确认过、审核人也批过，
-  // 失败只留在服务端日志，源任务却已经被挂成 pending_review。
+test('跨库合并在生成确认卡前就被拒', async () => {
   const { runners } = makeRunners([ACTIVE], [{ task_id: 'RD-9', title: '产品库任务', status: 'in_progress' }]);
 
   const result = await runners.request_task_merge.plan(

@@ -200,18 +200,18 @@ export const AGENT_ACTIONS: AgentActionDef[] = [
   {
     kind: 'custom',
     tool: 'request_task_merge',
-    label: '申请任务合并（待确认）',
+    label: '合并任务（待确认）',
     risk: 'confirm',
     controller: ResearchDevelopmentController,
     handler: 'updateTask',
     description:
       '把一个研发任务并入另一个任务：源任务的子任务、进展留痕、附件、协作人都会并入目标任务，源任务归档保留。' +
-      '整理重复/高度重叠的任务时用它。这是审核流操作——调用后生成确认卡，用户确认后也只是「提交合并申请」，' +
-      '还需管理员审核通过才真正合并。绝不要说「已合并」，只说「已生成确认卡」。源任务与目标任务必须在同一个任务库。',
+      '整理重复/高度重叠的任务时用它。调用后生成确认卡，用户确认后直接合并。' +
+      '确认前绝不要说「已合并」，只说「已生成确认卡」。源任务与目标任务必须在同一个任务库。',
     properties: {
       source_task_id: { type: 'string', description: '被并入方（合并后归档）的任务编号' },
       target_task_id: { type: 'string', description: '保留方（合并去向）的任务编号' },
-      reason: { type: 'string', description: '合并原因，审核人据此判断，必填' },
+      reason: { type: 'string', description: '合并原因，用于记录变更依据，必填' },
     },
     required: ['source_task_id', 'target_task_id', 'reason'],
   },

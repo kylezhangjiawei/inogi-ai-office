@@ -58,7 +58,7 @@ import {
 } from "./lib/approvalFlowConfig";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { PERMISSIONS } from "./lib/permissions";
-import { isUsCollabWorkspace } from "./lib/rdApi";
+import { isProductionWorkspace, isUsCollabWorkspace } from "./lib/rdApi";
 
 type NodeField = "label" | "sla" | "mode";
 type NodeErrors = Partial<Record<NodeField, string>>;
@@ -797,7 +797,7 @@ export function RDApprovalFlowPage() {
           titleLevel={2}
           eyebrow={usCollabWorkspace ? "GLOBAL COLLAB · APPROVAL FLOW" : "R&D GOVERNANCE · APPROVAL FLOW"}
           title={t(usCollabWorkspace ? "协同审批流配置" : "审批流配置")}
-          description={t("配置审核成员路由与预留节点；当前任务审批实际执行首个节点的一阶段审核。")}
+          description={t(!usCollabWorkspace && !isProductionWorkspace() ? "研发立项已直接生效，此处立项节点不再参与审核；成果验收和放弃任务仍需审核。" : "配置审核成员路由与预留节点；当前任务审批实际执行首个节点的一阶段审核。")}
           meta={<><span>{workspaceLabel}</span><span aria-hidden="true">·</span><span>{canManageFlow ? t("可管理") : t("只读访问")}</span></>}
           actions={canManageFlow ? (
             <>
@@ -869,7 +869,7 @@ export function RDApprovalFlowPage() {
             </section>
 
             <section className="hz-surface min-w-0 overflow-hidden" aria-label={t("审批节点编排")}>
-              <HorizonSectionHeader Icon={GitBranch} title={t("审核节点配置")} description={t("当前版本仅首节点参与真实授权与审核；其余节点作为后续多阶段流程的预留配置。可维护名称、权限、模式、SLA 与成员池。")} trailing={<span className="text-xs text-slate-500 tabular-nums">{activeFlow.nodes.length} {t("个节点")}</span>} />
+              <HorizonSectionHeader Icon={GitBranch} title={t("审核节点配置")} description={t(!usCollabWorkspace && !isProductionWorkspace() ? "研发立项已直接生效，此处立项节点不再参与审核；成果验收和放弃任务仍需审核。" : "当前版本仅首节点参与真实授权与审核；其余节点作为后续多阶段流程的预留配置。可维护名称、权限、模式、SLA 与成员池。")} trailing={<span className="text-xs text-slate-500 tabular-nums">{activeFlow.nodes.length} {t("个节点")}</span>} />
               {saveError ? <p id="approval-flow-save-error" className="border-b border-red-200 bg-red-50 px-4 py-3 text-pretty text-sm text-red-700" role="alert">{saveError}</p> : null}
               <div className="min-w-0 p-3 sm:p-5">
                 {activeFlow.nodes.length === 0 ? (

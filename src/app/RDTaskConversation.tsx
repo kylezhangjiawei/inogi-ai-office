@@ -2231,7 +2231,7 @@ export function RDTaskConversation({
             </button>
           </div>
         ) : mode === "progress" && notesError ? (
-          <div className="flex h-full min-h-72 flex-col items-center justify-center px-8 text-center">
+          <div className="flex h-full min-h-72 flex-col items-center justify-center px-8 text-center" role="alert">
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-rose-100 bg-rose-50 text-rose-500">
               <X className="h-6 w-6" />
             </span>
@@ -2243,7 +2243,7 @@ export function RDTaskConversation({
                 onClick={onRetryNotes}
                 className="mt-4 min-h-10 cursor-pointer rounded-xl bg-[#002fa7] px-4 text-xs font-bold text-white transition-colors hover:bg-[#002581] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/40 focus-visible:ring-offset-2"
               >
-                {t("重新加载")}
+                {t("重新加载进度留痕")}
               </button>
             )}
           </div>

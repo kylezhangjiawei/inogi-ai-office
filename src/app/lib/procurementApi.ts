@@ -501,6 +501,11 @@ export async function approveRdProcurementTransfer(id: string): Promise<Procurem
   return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/rd-review/approve`, { method: "POST" });
 }
 
+/** 将存量待处理的研发采购申请直接分配至采购工作台。 */
+export async function continueRdProcurementTransfer(id: string): Promise<ProcurementTask> {
+  return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/rd-transfer/continue`, { method: "POST" });
+}
+
 /** 研发管理员打回转采购前置审核；删除本次流转，研发任务可修改后再次提交。 */
 export async function rejectRdProcurementTransfer(id: string, reason: string): Promise<{ ok: true; deletedId: string }> {
   return request(`/tasks/${encodeURIComponent(id)}/rd-review/reject`, {

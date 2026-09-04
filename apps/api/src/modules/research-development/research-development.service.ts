@@ -413,6 +413,11 @@ const REVIEW_APPROVE_STATUS: Record<ReviewType, 'in_progress' | 'completed' | 'a
 function isKnownReviewType(value: string): value is ReviewType {
   return (REVIEW_TYPES as string[]).includes(value);
 }
+/** 研发只保留成果、放弃审核；其他工作区沿用原流程。 */
+function isDirectRdTaskChange(value: string): boolean {
+  return currentRdWorkspace() === 'rd'
+    && ['proposal', 'collaboration', 'due_date', 'merge'].includes(value);
+}
 /** 取审核类型中文标签；未知类型回退原值（仅用于展示，不参与裁决）。 */
 function reviewTypeLabel(value: string): string {
   return REVIEW_TYPE_LABEL[value as ReviewType] ?? value;
@@ -3509,20 +3514,26 @@ export class ResearchDevelopmentService {
   }
 
   private applyTaskCreatePolicy(payload: JsonRecord, actor?: TaskCreateActor): JsonRecord {
-    if (!actor?.proposalOnly) return payload;
+    const directProposal = currentRdWorkspace() === 'rd';
+    const nextPayload = directProposal && cleanText(payload.pending_review_type) === 'proposal'
+      ? { ...payload, status: 'in_progress', pending_review_type: null }
+      : payload;
+    if (!actor?.proposalOnly) return nextPayload;
     if (
-      cleanText(payload.status) !== 'pending_review'
-      || cleanText(payload.pending_review_type) !== 'proposal'
+      directProposal
+        ? !((cleanText(payload.status) === 'in_progress' && !cleanText(payload.pending_review_type))
+          || (cleanText(payload.status) === 'pending_review' && cleanText(payload.pending_review_type) === 'proposal'))
+        : (cleanText(payload.status) !== 'pending_review' || cleanText(payload.pending_review_type) !== 'proposal')
     ) {
-      throw new ForbiddenException('立项申请只能创建待审核任务');
+      throw new ForbiddenException(directProposal ? '立项只能创建进行中的任务' : '立项申请只能创建待审核任务');
     }
     if (!cleanUserId(actor.requesterUserId) && !cleanText(actor.requesterName)) {
       throw new ForbiddenException('无法确认立项申请人身份');
     }
     return {
-      ...payload,
-      status: 'pending_review',
-      pending_review_type: 'proposal',
+      ...nextPayload,
+      status: directProposal ? 'in_progress' : 'pending_review',
+      pending_review_type: directProposal ? null : 'proposal',
       primary_owner: cleanText(actor.requesterName) || cleanText(payload.primary_owner),
       primary_owner_user_id: cleanUserId(actor.requesterUserId) || null,
     };
@@ -3730,6 +3741,11 @@ export class ResearchDevelopmentService {
         creation_request_id: normalizedRequestId,
         creation_request_index: index,
       }, actor);
+      // 升级前的逐条立项摘要包含待审状态；只用于识别旧请求，不能因此重建任务。
+      if (isDirectRdTaskChange('proposal') && cleanText(payload.pending_review_type) === 'proposal') {
+        legacyPayload.status = 'pending_review';
+        legacyPayload.pending_review_type = 'proposal';
+      }
       return createHash('sha256').update(JSON.stringify(legacyPayload)).digest('hex');
     });
     return this.withTaskTreeLock(() =>
@@ -4250,6 +4266,26 @@ export class ResearchDevelopmentService {
       await this.assertTaskReviewAuthorized(taskId, options);
     }
 
+    // 兼容聊天及旧页面的合并申请契约，研发池直接原子执行，不先写入待审核。
+    if (!_review_action && cleanText(persistPatch.status) === 'pending_review'
+      && cleanText(persistPatch.pending_review_type) === 'merge' && isDirectRdTaskChange('merge')) {
+      const merged = await this.applyTaskMerge(taskId, cleanText(persistPatch.pending_merge_target), {
+        id: cleanUserId(options?.requesterUserId),
+        name: cleanText(options?.requesterName),
+      }, options ?? {});
+      await this.recordServerAudit({
+        action: 'task.edited',
+        resource: { type: 'task', id: taskId, name: cleanText(merged.source.title) },
+        actor: { id: options?.requesterUserId, name: options?.requesterName },
+        comment: '合并任务',
+        metadata: {
+          target_task_id: cleanText(persistPatch.pending_merge_target),
+          reason: cleanText(persistPatch.pending_merge_reason),
+        },
+      });
+      return { ok: true, task_id: taskId };
+    }
+
     // 合并通过必须把“审核结案 + 源/目标合并”作为同一次任务树写入完成。
     // 独立路径会在锁外生成 AI 文案、锁内校验快照；冲突或失败时源任务仍保持待审，可安全重试。
     if (_review_action === 'approve') {
@@ -4269,7 +4305,7 @@ export class ResearchDevelopmentService {
         const currentTask = await this.findTaskAcrossStores(taskId);
         reviewType = cleanText(currentTask?.pending_review_type);
       }
-      if (reviewType === 'proposal') {
+      if (reviewType === 'proposal' && !isDirectRdTaskChange(reviewType)) {
         await this.getProposalReviewRecipients();
       }
     }
@@ -4294,6 +4330,8 @@ export class ResearchDevelopmentService {
     // approve: result-review → completed; collaboration-review → in_progress
     // reject:  always → in_progress (task sent back for revision)
     let resolvedPatch: JsonRecord = persistPatch;
+    let appliedDirectReview = false;
+    let directChangeType = '';
 
     const identity = await this.getIdentityContext();
     let found = false;
@@ -4307,6 +4345,15 @@ export class ResearchDevelopmentService {
           found = true;
           originalTask = { ...t };
 
+          const existingReviewType = cleanText(t.pending_review_type);
+          const submittedType = cleanText(persistPatch.pending_review_type) || existingReviewType;
+          const directSubmission = !_review_action && cleanText(persistPatch.status) === 'pending_review'
+            && isDirectRdTaskChange(submittedType);
+          appliedDirectReview = Boolean(_review_action && isDirectRdTaskChange(existingReviewType));
+          if (directSubmission && t.status === 'pending_review' && !isDirectRdTaskChange(existingReviewType)) {
+            throw new ConflictException('该任务仍有成果或放弃审核待处理，请先完成审核');
+          }
+
           // 越权防护（与 moveTasks 同口径）：仅持页面权限 page:rd-my-workspace 的普通成员
           // 只能修改"自己负责"的任务（主责人或协作人），且不得审批(_review_action)或移交(primary_owner)
           // ——审批/移交是任务管理员/审核人专属。管理员级权限(canEditAny)完全跳过，行为不变。
@@ -4316,11 +4363,33 @@ export class ResearchDevelopmentService {
             if (!isTaskParticipant(t as JsonRecord, options?.requesterUserId, options?.requesterName)) {
               throw new ForbiddenException('只能修改自己负责的任务');
             }
-            if (_review_action) {
+            if (_review_action && !appliedDirectReview) {
               throw new ForbiddenException('无审核权限：仅研发主管可审批任务');
             }
             if (Object.prototype.hasOwnProperty.call(persistPatch, 'primary_owner')) {
               throw new ForbiddenException('无权移交任务：仅研发主管可变更主责人');
+            }
+          }
+
+          if (directSubmission) {
+            directChangeType = submittedType;
+            resolvedPatch = {
+              ...persistPatch,
+              status: t.status === 'pending_review' || submittedType === 'proposal' ? 'in_progress' : t.status,
+              pending_review_type: null,
+            };
+            if (submittedType === 'collaboration') {
+              resolvedPatch.collaborators = asArray(persistPatch.pending_collaborators ?? t.pending_collaborators).filter(isRecord);
+              resolvedPatch.pending_collaborators = [];
+              resolvedPatch.pending_collaboration_reason = null;
+              resolvedPatch.pending_collaboration_requested_at = null;
+            } else if (submittedType === 'due_date') {
+              const nextDue = cleanText(persistPatch.pending_due_date ?? t.pending_due_date);
+              if (!nextDue) throw new BadRequestException('请选择新的截止日期');
+              resolvedPatch.due_date = nextDue;
+              resolvedPatch.pending_due_date = null;
+              resolvedPatch.pending_due_date_reason = null;
+              resolvedPatch.pending_due_date_requested_at = null;
             }
           }
 
@@ -4427,7 +4496,10 @@ export class ResearchDevelopmentService {
           // 命中：截止日期变更的申请（patch.pending_review_type==='due_date'）或其审核（本任务待审类型为 due_date）。
           const dueDateOnlyChange =
             (!!_review_action && String((t as JsonRecord).pending_review_type ?? '') === 'due_date') ||
-            (!_review_action && String((identityPatch as JsonRecord).pending_review_type ?? '') === 'due_date');
+            (!_review_action && String((identityPatch as JsonRecord).pending_review_type ?? '') === 'due_date') ||
+            directChangeType === 'due_date' ||
+            (currentRdWorkspace() === 'rd' && Object.prototype.hasOwnProperty.call(persistPatch, 'due_date')
+              && Object.keys(persistPatch).every((key) => key === 'due_date'));
           const preservedUpdatedAt =
             dueDateOnlyChange && typeof (t as JsonRecord).updated_at === 'string'
               ? ((t as JsonRecord).updated_at as string)
@@ -4481,7 +4553,7 @@ export class ResearchDevelopmentService {
     if (originalTask) {
       const auditBefore = originalTask as JsonRecord;
       const auditChanges = this.buildTaskChanges(auditBefore, resolvedPatch);
-      const review = _review_action
+      const review = _review_action && !appliedDirectReview
         ? { action: _review_action, reviewerName: _reviewer_name, rejectReason: _reject_reason }
         : undefined;
       // 无字段变化且非审批动作：多为幂等重存，不值得占一条留痕
@@ -4517,14 +4589,14 @@ export class ResearchDevelopmentService {
         void this.notifyAdminsOfPendingReview(originalTask as JsonRecord, resolvedPatch).catch((error: unknown) => {
           this.logger.warn(`待审核通知发送失败：${error instanceof Error ? error.message : String(error)}`);
         });
-      } else if (oldStatus === 'pending_review' && newStatus !== 'pending_review' && _review_action) {
+      } else if (oldStatus === 'pending_review' && newStatus !== 'pending_review' && (_review_action || directChangeType)) {
         const reviewType = String((originalTask as JsonRecord).pending_review_type ?? 'result');
         try {
           await this.markReviewRequestMessagesHandled(taskId, reviewType);
         } catch {
           // best-effort: task status has already been updated
         }
-        void (async () => {
+        if (!appliedDirectReview && _review_action) void (async () => {
           await this.notifySubmitterOfReviewResult(
             originalTask as JsonRecord,
             _review_action,
@@ -4553,11 +4625,11 @@ export class ResearchDevelopmentService {
       }
 
       // 非审核动作（管理员直接改协作人/主责人）→ 给被影响的成员发系统通知
-      if (!_review_action) {
-        const actorName = String(_actor_name ?? '管理员');
+      if (!_review_action || appliedDirectReview) {
+        const actorName = cleanText(options?.requesterName) || String(_actor_name ?? '管理员');
 
         // 1. 协作人直接添加 → 通知新加入的协作人
-        if (Object.prototype.hasOwnProperty.call(persistPatch, 'collaborators')) {
+        if (Object.prototype.hasOwnProperty.call(resolvedPatch, 'collaborators')) {
           const oldCollaborators = asArray((originalTask as JsonRecord).collaborators).filter(isRecord);
           const newCollaborators = asArray(resolvedPatch.collaborators).filter(isRecord);
           void this.notifyNewlyAddedCollaborators(
@@ -4600,7 +4672,7 @@ export class ResearchDevelopmentService {
   private async approveTaskMergeReviewAtomic(
     taskId: string,
     reviewerName: string,
-    options?: { requesterUserId?: string; requesterName?: string },
+    options?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean },
   ): Promise<{ ok: true; task_id: string }> {
     const pendingTask = await this.findTaskAcrossStores(taskId);
     if (!pendingTask) throw new NotFoundException('任务不存在');
@@ -4624,12 +4696,14 @@ export class ResearchDevelopmentService {
     };
     const effectiveReviewerName = cleanText(options?.requesterName) || cleanText(reviewerName) || '管理员';
 
+    const directChange = isDirectRdTaskChange('merge');
     let merged: { source: JsonRecord; target: JsonRecord };
     try {
-      merged = await this.applyTaskMerge(taskId, targetId, initiator);
+      merged = await this.applyTaskMerge(taskId, targetId, initiator,
+        directChange ? { ...options, applyPending: true } : undefined);
     } catch (error) {
       // 合并主写失败时不改变待审任务。失败告知仅作旁路，不得吞掉原异常或影响重试。
-      void this.notifyTaskMergeFailure(
+      if (!directChange) void this.notifyTaskMergeFailure(
         pendingTask,
         targetId,
         initiator,
@@ -4641,14 +4715,14 @@ export class ResearchDevelopmentService {
 
     try {
       await this.recordServerAudit({
-        action: 'task.review_approved',
+        action: directChange ? 'task.edited' : 'task.review_approved',
         resource: {
           type: 'task',
           id: taskId,
           name: cleanText(merged.source.title) || taskId,
         },
         actor: { id: options?.requesterUserId, name: options?.requesterName },
-        comment: '合并申请通过',
+        comment: directChange ? '应用任务合并' : '合并申请通过',
         changes: this.buildTaskChanges(merged.source, {
           status: 'archived',
           pending_review_type: null,
@@ -4673,7 +4747,7 @@ export class ResearchDevelopmentService {
         `合并审核通知置为已处理失败：${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    void this.notifySubmitterOfReviewResult(
+    if (!directChange) void this.notifySubmitterOfReviewResult(
       merged.source,
       'approve',
       effectiveReviewerName,
@@ -4789,6 +4863,10 @@ export class ResearchDevelopmentService {
     const permissions = options?.permissions ?? [];
     if (permissions.includes('*')) return;
     const reviewType = cleanText(task.pending_review_type);
+    if (isDirectRdTaskChange(reviewType)) {
+      if (options?.canEditAny || isTaskParticipant(task, options?.requesterUserId, options?.requesterName)) return;
+      throw new ForbiddenException('只能应用自己负责或协作任务的变更');
+    }
     if (reviewType !== 'proposal') {
       if (options?.canEditAny) return;
       throw new ForbiddenException('无审核权限：仅任务审核人员可处理');
@@ -5468,6 +5546,7 @@ export class ResearchDevelopmentService {
     sourceId: string,
     targetId: string,
     initiator: { id: string; name: string },
+    directActor?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean; applyPending?: boolean },
   ): Promise<{ source: JsonRecord; target: JsonRecord }> {
     if (!sourceId || !targetId || sourceId === targetId) {
       throw new BadRequestException('合并的源任务与目标任务无效');
@@ -5475,11 +5554,26 @@ export class ResearchDevelopmentService {
     const source = await this.findTaskAcrossStores(sourceId);
     const target = await this.findTaskAcrossStores(targetId);
     if (!source || !target) throw new NotFoundException('源任务或目标任务不存在');
-    if (
+    if (directActor) {
+      this.assertTaskWritable(source);
+      this.assertTaskWritable(target);
+      if (!directActor.canEditAny && (!isTaskParticipant(source, directActor.requesterUserId, directActor.requesterName)
+        || !isTaskParticipant(target, directActor.requesterUserId, directActor.requesterName))) {
+        throw new ForbiddenException('只能合并自己负责或协作的源任务与目标任务');
+      }
+      const active = ['in_progress', 'paused_leave', 'paused_blocked', 'on_hold'];
+      const sourceReady = directActor.applyPending
+        ? source.status === 'pending_review' && source.pending_review_type === 'merge' && source.pending_merge_target === targetId
+        : active.includes(cleanText(source.status));
+      if (source.archived || target.archived || !sourceReady || !active.includes(cleanText(target.status))) {
+        throw new BadRequestException('只能合并活跃任务，待审核任务请先处理现有审核或变更');
+      }
+    }
+    if (!directActor && (
       cleanText(source.status) !== 'pending_review'
       || cleanText(source.pending_review_type) !== 'merge'
       || cleanText(source.pending_merge_target) !== targetId
-    ) {
+    )) {
       throw new ConflictException('合并申请已变化，请刷新后重试');
     }
 
@@ -5557,11 +5651,11 @@ export class ResearchDevelopmentService {
           if (JSON.stringify(t) !== sourceSnapshot) {
             throw new ConflictException('源任务在合并审批期间已被修改，请刷新后重试');
           }
-          if (
+          if (!directActor && (
             cleanText(t.status) !== 'pending_review'
             || cleanText(t.pending_review_type) !== 'merge'
             || cleanText(t.pending_merge_target) !== targetId
-          ) {
+          )) {
             throw new ConflictException('合并申请已变化，请刷新后重试');
           }
           flags.fs = true;

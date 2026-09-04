@@ -1335,8 +1335,8 @@ test('creating a child under a nested task inserts it at the requested depth', a
   );
 
   assert.equal(created.parent_task_id, 'middle');
-  assert.equal(created.status, 'pending_review');
-  assert.equal(created.pending_review_type, 'proposal');
+  assert.equal(created.status, 'in_progress');
+  assert.equal(created.pending_review_type, null);
   assert.equal(created.primary_owner, '研发成员');
   assert.equal(created.primary_owner_user_id, 'user-1');
   assert.notEqual(created.task_id, 'new-child', 'task ids are server-owned and client values must be ignored');
@@ -1381,7 +1381,7 @@ test('creating a child under another user task is rejected before any write', as
   assert.equal(writes, 0);
 });
 
-test('proposal-only task creation rejects direct activation before reading task trees', async () => {
+test('协同立项仍拒绝普通成员跳过审核直接创建', async () => runInRdWorkspace('us-collab', async () => {
   let reads = 0;
   const service = Object.create(ResearchDevelopmentService.prototype) as any;
   service.readAllTaskTrees = async () => { reads += 1; return { trees: new Map(), store: {} }; };
@@ -1399,7 +1399,7 @@ test('proposal-only task creation rejects direct activation before reading task 
     /立项申请只能创建待审核任务/,
   );
   assert.equal(reads, 0);
-});
+}));
 
 test('creating a sixth-level child is rejected before any write or side effect', async () => {
   const level5 = { task_id: 'level-5', subtasks: [] };
@@ -1753,6 +1753,99 @@ test('top-level proposal batch validates every target before writing any new tas
   assert.equal((((categories[0].children as any[])[0].tasks as any[]).length), 0);
 });
 
+function createReviewPolicyHarness(task: Record<string, unknown> = {}) {
+  let stored: Record<string, unknown> = {
+    task_id: 'policy-task', title: '策略回归任务', status: 'in_progress', progress: 30,
+    primary_owner: '研发甲', primary_owner_user_id: 'user-a', collaborators: [], subtasks: [],
+    due_date: '2026-09-10', updated_at: '2026-09-01T00:00:00.000Z', ...task,
+  };
+  let notifications = 0;
+  let deletions = 0;
+  let scores = 0;
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.findTaskAcrossStores = async () => structuredClone(stored);
+  service.getIdentityContext = async () => ({ people: [], users: [] });
+  service.normalizeTaskIdentity = (value: Record<string, unknown>) => value;
+  service.mutateTaskAcrossStores = async (transform: (value: unknown[]) => any) => {
+    const result = transform([{ id: 'category', children: [{ id: 'project', tasks: [structuredClone(stored)] }] }]);
+    if (result.found) stored = result.categories[0].children[0].tasks[0];
+    return { found: result.found };
+  };
+  service.recomputeDirectorDashboard = async () => undefined;
+  service.recordServerAudit = async () => undefined;
+  service.syncTaskToRag = () => undefined;
+  service.notifyAdminsOfPendingReview = async () => { notifications += 1; };
+  service.notifySubmitterOfReviewResult = async () => undefined;
+  service.notifyCollaboratorsOfCollaborationApproval = async () => undefined;
+  service.notifyNewlyAddedCollaborators = async () => undefined;
+  service.markReviewRequestMessagesHandled = async () => undefined;
+  service.getProposalReviewRecipients = async () => { throw new Error('研发立项不应读取审批流'); };
+  service.triggerTaskCompletionScoring = async () => { scores += 1; };
+  service.deleteTask = async () => { deletions += 1; };
+  return { service, task: () => stored, notifications: () => notifications, deletions: () => deletions, scores: () => scores };
+}
+
+const policyMember = { requesterUserId: 'user-a', requesterName: '研发甲', canEditAny: false, permissions: ['rd-task:edit'] };
+
+test('研发旧立项、协作和改期提交直接生效且不产生审核通知', async () => {
+  for (const [type, fields, expected] of [
+    ['proposal', {}, {}],
+    ['collaboration', { pending_collaborators: [{ name: '研发乙', user_id: 'user-b' }] }, { collaborators: [{ name: '研发乙', user_id: 'user-b' }] }],
+    ['due_date', { pending_due_date: '2026-09-20', pending_due_date_reason: '计划调整' }, { due_date: '2026-09-20' }],
+  ] as const) {
+    const h = createReviewPolicyHarness();
+    await h.service.updateTask('policy-task', { status: 'pending_review', pending_review_type: type, ...fields }, policyMember);
+    assert.equal(h.task().status, 'in_progress', type);
+    assert.equal(h.task().pending_review_type, null, type);
+    for (const [key, value] of Object.entries(expected)) assert.deepEqual(h.task()[key], value, type);
+    assert.equal(h.notifications(), 0, type);
+  }
+});
+
+test('研发已取消的存量待审变更可由参与人应用，非参与人仍被拒绝', async () => {
+  const h = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: 'due_date', pending_due_date: '2026-09-20' });
+  await assert.rejects(() => h.service.updateTask('policy-task', { _review_action: 'approve' }, { ...policyMember, requesterUserId: 'outsider', requesterName: '其他成员' }), /只能|无权/);
+  assert.equal(h.task().status, 'pending_review');
+  await h.service.updateTask('policy-task', { _review_action: 'approve' }, policyMember);
+  assert.equal(h.task().status, 'in_progress');
+  assert.equal(h.task().due_date, '2026-09-20');
+  assert.equal(h.task().pending_review_type, null);
+});
+
+test('研发成果与放弃仍必须由管理员审核后完成或删除', async () => {
+  for (const type of ['result', 'abandon']) {
+    const h = createReviewPolicyHarness();
+    await h.service.updateTask('policy-task', { status: 'pending_review', pending_review_type: type }, policyMember);
+    assert.equal(h.task().status, 'pending_review');
+    assert.equal(h.notifications(), 1);
+    await assert.rejects(() => h.service.updateTask('policy-task', { _review_action: 'approve' }, policyMember), /无审核权限/);
+    await h.service.updateTask('policy-task', { _review_action: 'approve' }, { ...policyMember, canEditAny: true, permissions: ['rd-project:review-l1'] });
+    assert.equal(h.task().status, type === 'result' ? 'completed' : 'archived');
+    assert.equal(h.deletions(), type === 'abandon' ? 1 : 0);
+    assert.equal(h.scores(), type === 'result' ? 1 : 0);
+  }
+});
+
+test('研发免审变更不能覆盖待验收或待放弃状态', async () => {
+  for (const type of ['result', 'abandon']) {
+    const h = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: type });
+    await assert.rejects(() => h.service.updateTask('policy-task', { status: 'pending_review', pending_review_type: 'due_date', pending_due_date: '2026-09-20' }, policyMember), /审核/);
+    assert.equal(h.task().pending_review_type, type);
+  }
+});
+
+test('中美协同及生产改期仍进入审核', async () => {
+  for (const workspace of ['us-collab', 'production']) {
+    await runInRdWorkspace(workspace, async () => {
+      const h = createReviewPolicyHarness();
+      await h.service.updateTask('policy-task', { status: 'pending_review', pending_review_type: 'due_date', pending_due_date: '2026-09-20' }, policyMember);
+      assert.equal(h.task().status, 'pending_review');
+      assert.equal(h.task().due_date, '2026-09-10');
+      assert.equal(h.notifications(), 1);
+    });
+  }
+});
+
 function createTaskMergeHarness(
   mergeTaskDescriptions: (input: Record<string, unknown>) => Promise<string | null>,
 ) {
@@ -1863,6 +1956,43 @@ test('merge approval commits source settlement and target update in one task-tre
   );
 });
 
+test('研发合并请求由双方任务参与人直接执行，一次写入且不产生审核待办', async () => {
+  const h = createTaskMergeHarness(async () => '直接合并描述');
+  Object.assign(h.findTask('source-task')!, { status: 'in_progress', pending_review_type: null, pending_merge_target: null });
+  h.findTask('target-task')!.collaborators = [{ name: '研发甲', user_id: 'user-a' }];
+  let reviews = 0;
+  h.service.recordServerAudit = async () => undefined;
+  h.service.notifyAdminsOfPendingReview = async () => { reviews += 1; };
+  await h.service.updateTask('source-task', { status: 'pending_review', pending_review_type: 'merge', pending_merge_target: 'target-task' }, policyMember);
+  assert.equal(h.getWrites(), 1);
+  assert.equal(h.findTask('source-task')!.status, 'archived');
+  assert.equal(h.findTask('target-task')!.description, '直接合并描述');
+  assert.equal(reviews, 0);
+});
+
+test('研发直接合并不允许接管不参与的目标或跳过待验收状态', async () => {
+  const h = createTaskMergeHarness(async () => '不应执行');
+  Object.assign(h.findTask('source-task')!, { status: 'in_progress', pending_review_type: null });
+  const merge = () => h.service.updateTask('source-task', { status: 'pending_review', pending_review_type: 'merge', pending_merge_target: 'target-task' }, policyMember);
+  await assert.rejects(merge, /源任务与目标任务/);
+  assert.equal(h.getWrites(), 0);
+  h.findTask('target-task')!.collaborators = [{ name: '研发甲', user_id: 'user-a' }];
+  Object.assign(h.findTask('source-task')!, { status: 'pending_review', pending_review_type: 'result' });
+  await assert.rejects(merge, /待审核任务/);
+  assert.equal(h.getWrites(), 0);
+});
+
+test('研发存量合并可由双方参与人应用且保持原子写入', async () => {
+  const h = createTaskMergeHarness(async () => '应用存量描述');
+  h.findTask('target-task')!.collaborators = [{ name: '研发甲', user_id: 'user-a' }];
+  h.service.recordServerAudit = async () => undefined;
+  h.service.markReviewRequestMessagesHandled = async () => undefined;
+  await h.service.updateTask('source-task', { _review_action: 'approve' }, policyMember);
+  assert.equal(h.getWrites(), 1);
+  assert.equal(h.findTask('source-task')!.status, 'archived');
+  assert.equal(h.findTask('target-task')!.description, '应用存量描述');
+});
+
 test('merge approval CAS preserves a concurrently edited target and leaves source pending', async () => {
   let markAiStarted!: () => void;
   let finishAi!: (description: string) => void;
@@ -1891,7 +2021,7 @@ test('merge approval CAS preserves a concurrently edited target and leaves sourc
   assert.equal(harness.findTask('target-task')?.description, '管理员并发修改后的描述');
 });
 
-test('merge approval propagates core failure without first clearing pending state', async () => {
+test('协同合并审批失败仍保留原待审状态并发送失败通知', async () => runInRdWorkspace('us-collab', async () => {
   const pendingTask = {
     task_id: 'source-task',
     title: '源任务',
@@ -1922,7 +2052,7 @@ test('merge approval propagates core failure without first clearing pending stat
   assert.equal(failureNotices, 1);
   assert.equal(pendingTask.status, 'pending_review');
   assert.equal(pendingTask.pending_review_type, 'merge');
-});
+}));
 
 test('review approval fails closed if the task changes to merge after the special-path pre-read', async () => {
   const storedTask: Record<string, unknown> = {

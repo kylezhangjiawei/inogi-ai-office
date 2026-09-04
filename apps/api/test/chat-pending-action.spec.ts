@@ -1,7 +1,7 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { ChatToolsService } from '../src/modules/chat/chat-tools.service';
+import { ChatToolsService, type ChatToolResult } from '../src/modules/chat/chat-tools.service';
 import type { RagUserContext } from '../src/modules/rag/rag.service';
 
 /**
@@ -260,4 +260,95 @@ test('绑定消息 id 后，未决卡能挂回其所属的 assistant 消息', as
   const listed = await svc.listConversationPendingActions('c1', OWNER);
 
   assert.deepEqual(listed.map((x) => x.messageId), ['msg-1', 'msg-1']);
+});
+
+test('成员立项确认后直接创建进行中任务，并保留成员权限上下文', async () => {
+  const rows: Row[] = [];
+  const writes: Array<{ payload: Record<string, unknown>; options: Record<string, unknown> }> = [];
+  const ctor = ChatToolsService as unknown as new (...args: unknown[]) => ChatToolsService;
+  const svc = new ctor(fakePrisma(rows), undefined, {
+    getTaskCategories: async () => [{ id: 'cat-1', label: '电源', children: [{ id: 'sub-1', label: '电池', tasks: [] }] }],
+    createTask: async (payload: Record<string, unknown>, options: Record<string, unknown>) => {
+      writes.push({ payload, options });
+      return { task_id: 'RD-NEW', status: 'in_progress' };
+    },
+  }, undefined, undefined, undefined);
+  const member: RagUserContext = { userId: 'u1', name: '张三', permissions: ['rd-project:propose'] };
+  const prepare = svc as unknown as {
+    prepareCreateTask: (args: Record<string, unknown>, user: RagUserContext, conversationId: string) => Promise<ChatToolResult>;
+  };
+
+  const prepared = await prepare.prepareCreateTask({ title: '电池验证', category: '电源/电池' }, member, 'c1');
+
+  assert.equal(prepared.ok, true);
+  assert.equal(writes.length, 0, '生成卡时不能提前创建任务');
+  assert.ok(prepared.content.includes('确认'));
+  assert.ok(!prepared.content.includes('进入管理员审核'));
+  assert.ok(prepared.pendingAction);
+  const confirmed = await svc.confirmPendingAction(prepared.pendingAction.id, member);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].payload.status, 'in_progress');
+  assert.equal(writes[0].payload.pending_review_type, undefined);
+  assert.equal(writes[0].options.requesterUserId, 'u1');
+  assert.equal(writes[0].options.canEditAny, false);
+  assert.equal(writes[0].options.proposalOnly, true);
+  assert.match(confirmed.message, /已创建.*RD-NEW.*进行中/);
+  assert.ok(!confirmed.message.includes('等待管理员审核'));
+});
+
+test('合并确认完成后如实报告已合并，放弃确认仍报告等待审核', async () => {
+  const rows = [
+    makeRow({ id: 'merge', tool: 'request_task_merge', payload: { sourceId: 'RD-1', targetId: 'RD-2', reason: '重复' } }),
+    makeRow({ id: 'abandon', tool: 'request_task_abandon', payload: { taskId: 'RD-3', reason: '需求取消' } }),
+  ];
+  const writes: Array<{ taskId: string; payload: Record<string, unknown>; options: Record<string, unknown> }> = [];
+  const ctor = ChatToolsService as unknown as new (...args: unknown[]) => ChatToolsService;
+  const svc = new ctor(fakePrisma(rows), undefined, {
+    updateTask: async (taskId: string, payload: Record<string, unknown>, options: Record<string, unknown>) => {
+      writes.push({ taskId, payload, options });
+      return { task_id: taskId };
+    },
+  }, undefined, undefined, undefined);
+  const member: RagUserContext = { userId: 'u1', name: '张三', permissions: ['page:rd-my-workspace'] };
+
+  const merged = await svc.confirmPendingAction('merge', member);
+  assert.match(merged.message, /已合并.*RD-1.*RD-2/);
+  assert.ok(!merged.message.includes('审核'));
+  assert.equal(writes[0].payload.pending_review_type, 'merge', '沿用服务端兼容的合并契约');
+  assert.equal(writes[0].options.canEditAny, false, '免审不能变成可任意修改他人任务');
+  assert.equal(writes[0].options.requesterUserId, member.userId);
+
+  const abandoned = await svc.confirmPendingAction('abandon', member);
+  assert.match(abandoned.message, /等待管理员审核/);
+  assert.equal(writes[1].payload.pending_review_type, 'abandon');
+});
+
+test('历史免审申请显示应用变更，成果验收仍显示审批通过', async () => {
+  const rows: Row[] = [];
+  const ctor = ChatToolsService as unknown as new (...args: unknown[]) => ChatToolsService;
+  const svc = new ctor(fakePrisma(rows), undefined, {
+    updateTask: async () => ({}),
+  }, undefined, undefined, undefined);
+  const internal = svc as unknown as {
+    findTaskById: (taskId: string) => Promise<Record<string, unknown>>;
+    prepareApproveTaskReview: (args: Record<string, unknown>, user: RagUserContext, conversationId: string) => Promise<ChatToolResult>;
+  };
+  internal.findTaskById = async (taskId) => ({
+    taskId, title: '电池验证', owner: '张三', status: 'pending_review',
+    pendingReviewType: taskId === 'RD-OLD' ? 'proposal' : 'result',
+  });
+
+  const old = await internal.prepareApproveTaskReview({ task_id: 'RD-OLD', decision: 'approve' }, OWNER, 'c1');
+  assert.ok(old.pendingAction);
+  assert.equal(old.pendingAction.label, '应用变更');
+  assert.ok(!old.content.includes('审批通过'));
+  const applied = await svc.confirmPendingAction(old.pendingAction.id, OWNER);
+  assert.match(applied.message, /已应用.*变更/);
+
+  const result = await internal.prepareApproveTaskReview({ task_id: 'RD-RESULT', decision: 'approve' }, OWNER, 'c1');
+  assert.equal(result.pendingAction?.label, '审批通过');
+  const member: RagUserContext = { userId: 'u1', name: '张三', permissions: ['page:rd-my-workspace'] };
+  const denied = await internal.prepareApproveTaskReview({ task_id: 'RD-RESULT', decision: 'approve' }, member, 'c1');
+  assert.equal(denied.ok, false);
+  assert.equal(denied.summary, '无审核权限');
 });

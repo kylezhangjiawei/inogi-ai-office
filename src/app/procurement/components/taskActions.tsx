@@ -1084,7 +1084,7 @@ function ActionModal({
                   type="button"
                   disabled={busy}
                   onClick={() => void onSubmit(() => completeInquiry(task.id), t("已完成询价"))}
-                  className="h-9 w-full rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                  className="h-9 w-full rounded-lg bg-[#002fa7] text-sm font-medium text-white hover:bg-[#002581] disabled:opacity-50"
                 >
                   {busy ? t("处理中…") : t("完成询价")}
                 </button>

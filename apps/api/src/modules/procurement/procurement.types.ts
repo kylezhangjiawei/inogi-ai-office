@@ -2,7 +2,7 @@
  * 采购模块领域类型与状态机。
  *
  * 三条分支（与前端 src/mock/procurement.ts 的状态取值保持一致，前端类型不变）：
- *  研发流转前置节点：pending_rd_review → pending_confirm；研发管理员通过后才进入采购侧。
+ *  研发流转直接进入 pending_confirm；pending_rd_review 仅兼容存量待继续流转记录。
  *  1. 电商直购  pending_confirm? → pending_purchase → in_transit → partial_arrival → completed
  *  2. 询价·需样  pending_inquiry → inquiring → pending_sample → testing → priced → in_transit → ...
  *  3. 询价·免样  pending_inquiry → inquiring → priced → in_transit → ...
@@ -46,7 +46,7 @@ export const PROC_STATUSES: ProcStatus[] = [
 ];
 
 export const PROC_STATUS_LABELS: Record<ProcStatus, string> = {
-  pending_rd_review: '待研发审核',
+  pending_rd_review: '待继续转采购',
   pending_confirm: '待处理',
   pending_inquiry: '待询价',
   inquiring: '询价中',

@@ -434,7 +434,7 @@ export class ChatToolsService {
         function: {
           name: 'create_task',
           description:
-            '为用户发起研发任务立项。调用后只会生成一张「待确认动作卡」，用户在界面点击确认后任务才会真正提交（并进入管理员审核流），你自己无法直接创建任务。当用户明确要求立项/建任务时使用；分类名不确定时可先用 query_tasks 了解现有分类路径。',
+            '为用户发起研发任务立项。调用后只会生成一张「待确认动作卡」，用户在界面点击确认后才会创建进行中的任务，无需管理员审核。当用户明确要求立项/建任务时使用；分类名不确定时可先用 query_tasks 了解现有分类路径。',
           parameters: {
             type: 'object',
             properties: {
@@ -506,7 +506,7 @@ export class ChatToolsService {
         function: {
           name: 'approve_task_review',
           description:
-            '审批处于「待审核」状态的研发任务（立项/成果验收/截止日期变更/协作变更/放弃申请等，系统按任务的审核类型自动处理）。调用后只生成「待确认动作卡」，用户确认后才真正生效。仅审核人/管理员可用；task_id 从 query_tasks 结果获得（状态为 pending_review 的任务）。',
+            '审批处于「待审核」状态的研发任务成果验收或放弃申请；历史遗留的其他待审变更可选择 approve 直接应用。调用后只生成「待确认动作卡」，用户确认后才真正生效。仅审核人/管理员可用；task_id 从 query_tasks 结果获得（状态为 pending_review 的任务）。',
           parameters: {
             type: 'object',
             properties: {
@@ -932,34 +932,33 @@ export class ChatToolsService {
           const reason = text(args.reason);
           if (!sourceId || !targetId) return { error: '需要同时提供源任务编号（被并入方）与目标任务编号（保留方）。' };
           if (sourceId === targetId) return { error: '源任务与目标任务不能是同一个任务。' };
-          if (!reason) return { error: '需要提供合并原因，审核人要据此判断是否通过。' };
+          if (!reason) return { error: '需要提供合并原因，用于记录本次变更。' };
           const source = await this.findTaskById(sourceId);
           if (!source) return { error: this.taskNotFoundHint(sourceId, '源任务') };
           const target = await this.findTaskById(targetId);
           if (!target) return { error: this.taskNotFoundHint(targetId, '目标任务') };
-          // 跨库合并在 applyTaskMerge 里是「审核通过后才抛错」，那时用户已经点过确认、
-          // 审核人也已经批过，失败只留在服务端日志里。必须在发起前就挡住。
+          // 在生成确认卡前挡住跨库合并，避免用户确认后才发现目标不受支持。
           if (source.store !== target.store) {
             return {
               error: `任务合并只能在同一个任务库内进行：${sourceId} 在「${source.store}」，${targetId} 在「${target.store}」。请改选同库的目标任务。`,
             };
           }
           if (source.status === 'pending_review') {
-            return { error: `任务 ${sourceId} 正在审核中，需等当前审核结束后才能申请合并。` };
+            return { error: `任务 ${sourceId} 正在审核中，需等当前审核结束后才能合并。` };
           }
           if (source.status === 'completed' || source.status === 'archived') {
             return { error: `任务 ${sourceId} 已是「${source.status}」状态，不再支持合并。` };
           }
           return {
             payload: { sourceId, targetId, reason },
-            summary: `申请合并：${source.title} → ${target.title}`,
+            summary: `合并：${source.title} → ${target.title}`,
             fields: [
               { label: '被并入（将归档）', value: `[${source.taskId}] ${source.title}` },
               { label: '合并去向（保留）', value: `[${target.taskId}] ${target.title}` },
               { label: '合并原因', value: reason },
               { label: '影响', value: '源任务的子任务、进展留痕、附件、协作人并入目标任务；源任务归档' },
             ],
-            detail: `源任务 ${source.taskId}「${source.title}」并入目标任务 ${target.taskId}「${target.title}」，确认后提交审核`,
+            detail: `源任务 ${source.taskId}「${source.title}」并入目标任务 ${target.taskId}「${target.title}」，确认后直接生效`,
           };
         },
         apply: async (payload, user) => {
@@ -978,7 +977,7 @@ export class ChatToolsService {
             },
             user,
           );
-          return `已提交任务合并申请（${sourceId} → ${targetId}），等待管理员审核；审核通过后才会真正合并。`;
+          return `已合并任务（${sourceId} → ${targetId}），源任务已归档。`;
         },
       },
 
@@ -1597,31 +1596,35 @@ export class ChatToolsService {
         content: `任务「${task.title}」当前状态是「${task.status}」，不处于待审核状态，无法审批。`,
       };
     }
+    const directChange = ['proposal', 'due_date', 'collaboration', 'merge'].includes(task.pendingReviewType);
+    const actionLabel = directChange
+      ? (decision === 'approve' ? '应用变更' : '取消变更')
+      : (decision === 'approve' ? '审批通过' : '驳回任务');
     const typeLabel =
-      { proposal: '立项审核', result: '成果验收', due_date: '截止日期变更', collaboration: '协作变更', abandon: '放弃申请', merge: '合并申请' }[
+      { proposal: '立项', result: '成果验收', due_date: '截止日期变更', collaboration: '协作变更', abandon: '放弃申请', merge: '合并' }[
         task.pendingReviewType
       ] ?? '待审核';
     const card = await this.savePendingAction(
       user,
       conversationId,
       'approve_task_review',
-      { taskId, decision, reason, taskTitle: task.title },
+      { taskId, decision, reason, taskTitle: task.title, directChange },
       {
-        label: decision === 'approve' ? '审批通过' : '驳回任务',
-        summary: `${decision === 'approve' ? '通过' : '驳回'}「${task.title}」的${typeLabel}`,
+        label: actionLabel,
+        summary: `${actionLabel}：「${task.title}」的${typeLabel}`,
         fields: [
           { label: '任务', value: `[${taskId}] ${task.title}` },
-          { label: '审核类型', value: typeLabel },
+          { label: directChange ? '变更类型' : '审核类型', value: typeLabel },
           { label: '负责人', value: task.owner },
-          { label: '决定', value: decision === 'approve' ? '✓ 通过' : '✕ 驳回' },
+          { label: '决定', value: actionLabel },
           ...(decision === 'reject' ? [{ label: '驳回原因', value: reason.slice(0, 200) }] : []),
         ],
       },
     );
     return {
       ok: true,
-      summary: `已生成审批确认卡：${task.title}`,
-      content: `已生成「${decision === 'approve' ? '审批通过' : '驳回任务'}」待确认动作（任务「${task.title}」的${typeLabel}）。尚未生效：需要用户点击「确认执行」后才会真正审批。请告知用户核对并确认，不要声称已审批。`,
+      summary: `已生成${directChange ? '变更' : '审批'}确认卡：${task.title}`,
+      content: `已生成「${actionLabel}」待确认动作（任务「${task.title}」的${typeLabel}）。尚未生效：需要用户点击「确认执行」后才会执行。请告知用户核对并确认，不要声称已经完成。`,
       pendingAction: card,
     };
   }
@@ -2072,7 +2075,7 @@ export class ChatToolsService {
     return perms.includes('*') || required.some((p) => perms.includes(p));
   }
 
-  /** 立项（走审核流）：校验权限与分类后生成待确认动作 */
+  /** 立项：校验权限与分类后生成待确认动作，确认后直接进入进行中 */
   private async prepareCreateTask(
     args: Record<string, unknown>,
     user: RagUserContext,
@@ -2107,9 +2110,7 @@ export class ChatToolsService {
       title,
       primary_owner: ownerName,
       ...(isSelf ? { primary_owner_user_id: user.userId } : {}),
-      // 统一走成员立项审核流：管理员审批通过后进入 in_progress，避免 AI 直建绕过审核
-      status: 'pending_review',
-      pending_review_type: 'proposal',
+      status: 'in_progress',
       progress: 0,
       final_priority: priority,
       ai_priority: priority,
@@ -2126,13 +2127,13 @@ export class ChatToolsService {
         { label: '优先级', value: priority === 'high' ? '高' : priority === 'low' ? '低' : '中' },
         ...(dueDate ? [{ label: '截止日期', value: dueDate }] : []),
         ...(description ? [{ label: '描述', value: description.slice(0, 120) }] : []),
-        { label: '流程', value: '提交后进入管理员立项审核' },
+        { label: '流程', value: '确认后直接创建进行中的任务' },
       ],
     });
     return {
       ok: true,
       summary: `已生成立项确认卡：${title}`,
-      content: `已生成「发起立项」待确认动作（标题「${title}」，分类「${resolved.pathLabel}」，负责人 ${ownerName}）。任务尚未创建：需要用户在界面上点击确认卡的「确认执行」后才会提交立项并进入管理员审核。请告知用户核对信息并确认，不要声称任务已创建。`,
+      content: `已生成「发起立项」待确认动作（标题「${title}」，分类「${resolved.pathLabel}」，负责人 ${ownerName}）。任务尚未创建：需要用户在界面上点击确认卡的「确认执行」后才会直接创建进行中的任务。请告知用户核对信息并确认，不要声称任务已创建。`,
       pendingAction: card,
     };
   }
@@ -2616,7 +2617,7 @@ export class ChatToolsService {
         canEditAny: this.hasAnyPermission(user, RD_TASK_STRUCTURE_MANAGER_PERMISSIONS),
         proposalOnly: !canCreateDirectly && this.hasAnyPermission(user, ['rd-project:propose']),
       })) as Record<string, unknown>;
-      message = `已提交立项「${String(entry.payload.title ?? '')}」（任务号 ${String(task.task_id ?? '未知')}），等待管理员审核。`;
+      message = `已创建任务「${String(entry.payload.title ?? '')}」（任务号 ${String(task.task_id ?? '未知')}），状态为进行中。`;
     } else if (entry.tool === 'update_task_progress') {
       if (!this.hasAnyPermission(user, PROGRESS_NOTE_PERMISSIONS)) throw new ForbiddenException('没有记录任务进展的权限');
       const taskId = String(entry.payload.taskId ?? '');
@@ -2656,7 +2657,9 @@ export class ChatToolsService {
         } as Record<string, unknown>,
         { requesterUserId: user.userId, requesterName: user.name, canEditAny: true, permissions: user.permissions },
       );
-      message = `已${decision === 'approve' ? '审批通过' : '驳回'}任务「${String(entry.payload.taskTitle ?? taskId)}」。`;
+      message = entry.payload.directChange
+        ? `已${decision === 'approve' ? '应用' : '取消'}任务「${String(entry.payload.taskTitle ?? taskId)}」的变更。`
+        : `已${decision === 'approve' ? '审批通过' : '驳回'}任务「${String(entry.payload.taskTitle ?? taskId)}」。`;
     } else if (entry.tool === 'generate_video') {
       const p = entry.payload;
       const mode = p.mode === 'i2v' || p.mode === 't2v' || p.mode === 'r2v' ? p.mode : 't2v';
