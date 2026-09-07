@@ -9,11 +9,12 @@ const ast = ts.createSourceFile("modals.tsx", source, ts.ScriptTarget.Latest, tr
 
 // Execute the actual component body and its event handlers; replace only portal
 // rendering, hook scheduling and external requests with deterministic controls.
-function fixture(name, external = {}) {
-  const component = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
+function fixture(name, external = {}, componentAst = ast) {
+  const component = componentAst.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
   assert.ok(component, `missing ${name}`);
   const slots = [];
-  const cleanups = [];
+  const cleanups = new Map();
+  const translate = (value) => value;
   let cursor = 0;
   let writes = 0;
   const scope = {
@@ -28,23 +29,33 @@ function fixture(name, external = {}) {
       if (!(index in slots)) slots[index] = { current: initial };
       return slots[index];
     },
-    useEffect(effect) {
+    useMemo(compute, deps) {
       const index = cursor++;
-      if (!(index in slots)) { slots[index] = true; cleanups.push(effect()); }
+      if (!(index in slots) || deps.some((value, i) => !Object.is(value, slots[index].deps[i]))) slots[index] = { value: compute(), deps };
+      return slots[index].value;
     },
-    useI18n: () => ({ t: (value) => value }),
+    useEffect(effect, deps) {
+      const index = cursor++;
+      if (!(index in slots) || !deps || deps.some((value, i) => !Object.is(value, slots[index].deps?.[i]))) {
+        slots[index]?.cleanup?.();
+        const cleanup = effect();
+        slots[index] = { deps, cleanup };
+        cleanups.set(index, cleanup);
+      }
+    },
+    useI18n: () => ({ t: translate }),
     toast: { success() {}, error() {} },
     cn: (...values) => values.filter(Boolean).join(" "),
     downloadImportTemplate() {},
     ...external,
   };
   for (const name of ["Shell", "Input", "Upload", "Loader2", "FileDown", "Dialog", "DialogContent", "DialogHeader", "DialogTitle", "DialogDescription", "DialogFooter"]) scope[name] = name;
-  const code = ts.transpileModule(`${component.getText(ast).replace(/^export\s+/, "")}\nreturn ${name};`,
+  const code = ts.transpileModule(`${component.getText(componentAst).replace(/^export\s+/, "")}\nreturn ${name};`,
     { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText;
   const Component = new Function(...Object.keys(scope), code)(...Object.values(scope));
   return {
     render(props = {}) { cursor = 0; return Component(props); },
-    unmount() { for (const cleanup of cleanups) cleanup?.(); },
+    unmount() { for (const cleanup of cleanups.values()) cleanup?.(); },
     get writes() { return writes; },
   };
 }
@@ -67,6 +78,88 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 const fileInput = (tree) => find(tree, (node) => node.type === "Input" && node.props.type === "file");
 const submit = (tree) => find(tree.props.footer, (node) => node.type === "button" && node.props.className.includes("material-button-primary"));
 const pick = (tree, name) => fileInput(tree).props.onChange({ target: { files: [{ name }] } });
+
+const supplierSource = readFileSync(new URL("../src/app/procurement/components/TplusSupplierSelect.tsx", import.meta.url), "utf8");
+const supplierAst = ts.createSourceFile("TplusSupplierSelect.tsx", supplierSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const supplierUi = Object.fromEntries(["Command", "CommandInput", "CommandItem", "CommandList", "Popover", "PopoverContent", "PopoverTrigger", "Check", "ChevronsUpDown", "Loader2"].map((name) => [name, name]));
+const supplierFixture = (listQuoteSuppliers) => fixture("TplusSupplierSelect", { ...supplierUi, listQuoteSuppliers }, supplierAst);
+const text = (tree) => tree == null || typeof tree === "boolean" ? "" : typeof tree !== "object" ? String(tree) : React.Children.toArray(tree.props?.children).map(text).join("");
+const supplierRows = [
+  { id: "local", name: "本地厂家", source: "local" },
+  { id: "alpha", name: "甲方精密制造", shortName: "JMF", source: "tplus" },
+  { id: "beta", name: "乙方材料公司", shortName: "ECL", source: "tplus" },
+  { id: "blank", name: "", source: "tplus" },
+];
+
+test("T+供应商搜索名称和简称，只点选标准名称，旧值无效且有效A切换B重新通知", async () => {
+  const pending = deferred();
+  const state = supplierFixture(() => pending.promise);
+  const changed = [], validity = [];
+  let props = { id: "supplier", value: "原手填供应商", onChange: (name) => changed.push(name), onValidityChange: (valid) => validity.push({ name: props.value, valid }) };
+  let tree = state.render(props);
+  assert.equal(find(tree, (node) => node.props?.role === "combobox").props.disabled, true);
+  assert.deepEqual(validity, [{ name: "原手填供应商", valid: false }]);
+  pending.resolve(supplierRows); await settle(); tree = state.render(props);
+  assert.match(text(tree), /原手填供应商/);
+  assert.match(text(tree), /原供应商不在畅捷通目录中，请从目录重新选择/);
+  assert.doesNotMatch(text(tree), /本地厂家/);
+  find(tree, (node) => node.type === "CommandInput").props.onValueChange("ecl");
+  tree = state.render(props);
+  assert.match(text(tree), /乙方材料公司/); assert.doesNotMatch(text(tree), /甲方精密制造/);
+  assert.deepEqual(changed, [], "搜索文字不能成为供应商名称");
+  find(tree, (node) => node.type === "CommandInput").props.onValueChange("没有这家");
+  tree = state.render(props); assert.match(text(tree), /没有匹配的供应商/); assert.equal(find(tree, (node) => node.type === "CommandItem"), undefined);
+  find(tree, (node) => node.type === "CommandInput").props.onValueChange("甲方");
+  tree = state.render(props); find(tree, (node) => node.type === "CommandItem").props.onSelect();
+  assert.deepEqual(changed, ["甲方精密制造"]);
+  props = { ...props, value: changed[0] }; state.render(props);
+  props = { ...props, value: "乙方材料公司" }; state.render(props);
+  assert.deepEqual(validity.slice(-2), [{ name: "甲方精密制造", valid: true }, { name: "乙方材料公司", valid: true }]);
+  props = { ...props, value: "本地厂家" }; state.render(props);
+  assert.deepEqual(validity.at(-1), { name: "本地厂家", valid: false });
+  state.unmount();
+});
+
+test("供应商加载失败给中文重试提示且旧值无效，重试成功才恢复有效", async () => {
+  const failed = deferred(), retry = deferred();
+  let calls = 0;
+  const validity = [];
+  const state = supplierFixture(() => ++calls === 1 ? failed.promise : retry.promise);
+  const props = { id: "supplier", value: "甲方精密制造", onChange() {}, onValidityChange: (valid) => validity.push(valid) };
+  state.render(props); failed.reject(new TypeError("Failed to fetch")); await settle();
+  let tree = state.render(props);
+  assert.match(text(tree), /供应商目录加载失败，请检查网络后重试/);
+  assert.doesNotMatch(text(tree), /Failed to fetch/);
+  assert.deepEqual(validity, [false]);
+  find(tree, (node) => node.type === "button" && text(node) === "重新加载供应商").props.onClick();
+  state.render(props); tree = state.render(props);
+  assert.equal(calls, 2); assert.match(text(tree), /正在读取畅捷通供应商目录/);
+  retry.resolve(supplierRows); await settle(); tree = state.render(props);
+  assert.deepEqual(validity, [false, true]); assert.doesNotMatch(text(tree), /加载失败/);
+  state.unmount();
+});
+
+test("只有本地供应商或空名称时显示未同步空态，不能把空值当有效选择", async () => {
+  const state = supplierFixture(async () => supplierRows.filter((row) => row.source === "local" || !row.name));
+  const validity = [];
+  const props = { id: "supplier", value: "", onChange() {}, onValidityChange: (valid) => validity.push(valid) };
+  state.render(props); await settle(); const tree = state.render(props);
+  assert.match(text(tree), /暂无已同步的畅捷通供应商/);
+  assert.equal(find(tree, (node) => node.props?.role === "combobox").props.disabled, true);
+  assert.deepEqual(validity, [false]); state.unmount();
+});
+
+test("供应商目录卸载取消请求，迟到响应不能写状态；禁用时不能点选", async () => {
+  const pending = deferred(); let signal;
+  const state = supplierFixture((currentSignal) => { signal = currentSignal; return pending.promise; });
+  state.render({ id: "supplier", value: "", onChange() {} }); state.unmount();
+  assert.equal(signal.aborted, true); const writes = state.writes;
+  pending.resolve(supplierRows); await settle(); assert.equal(state.writes, writes);
+  const disabledState = supplierFixture(async () => supplierRows); let changes = 0;
+  const props = { id: "supplier", value: "", disabled: true, onChange() { changes++; } };
+  disabledState.render(props); await settle(); const tree = disabledState.render(props);
+  find(tree, (node) => node.type === "CommandItem").props.onSelect(); assert.equal(changes, 0); disabledState.unmount();
+});
 
 test("通用采购弹窗在忙碌期间阻止关闭、Escape和外部点击，空闲时允许关闭", () => {
   const state = fixture("Shell");

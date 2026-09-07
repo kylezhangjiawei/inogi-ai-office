@@ -295,7 +295,7 @@ test("物料关联任务按 materialId 匹配，同名不同 ID 的物料不互�
   assert.doesNotMatch(drawer, /t\.materialName === material\.name/);
 });
 
-// ── 供应商提前寄样：待询价 / 询价中登记免费样品，之后可跳过「待到样」 ──────────
+// ── 免费样品登记与实际到样确认必须分开 ────────────────────────────────────
 const procTypes = source("apps/api/src/modules/procurement/procurement.types.ts");
 const procCommon = source("src/app/procurement/components/common.tsx");
 
@@ -322,42 +322,35 @@ test("询价档表单锁死免费样品勾选，不给填采购单号的机会",
   assert.match(actions, /freeSample: isFreeSampleOnly/);
 });
 
-test("「选定报价」提示与服务端 nextAfterQuoteSelected 同为三分", () => {
-  // 这条是 UI 点击验证里真实抓到的缺陷：原本只有两分，
-  // 已登记免费样品时仍写「选定后进入待到样」，与实际流转（测试中）相反。
-  assert.match(actions, /freeSampleSuppliers\.length > 0/);
-  assert.match(actions, /已收到 \{suppliers\} 的免费样品/);
+test("需样报价等待实际到样确认，不把免费登记当成收样事实", () => {
   assert.match(actions, /选定后进入「待到样」/);
   assert.match(actions, /选定后直接进入「已定价」/);
-  // 服务端同样三分，且顺序一致：不打样 → 已定价；选定供应商都已寄样 → 测试中；否则 → 待到样
-  assert.match(service, /if \(!task\.needSample\) return 'priced';/);
-  assert.match(service, /allArrived \? 'testing' : 'pending_sample'/);
+  assert.match(actions, /实际收到样品后再确认「样品已到」/);
+  assert.doesNotMatch(actions, /freeSampleUnlocked|fetchedFreeSampleSuppliers/);
+  assert.doesNotMatch(service, /allArrived \? 'testing' : 'pending_sample'/);
 });
 
-test("成功提示不再对询价档谎称「任务转为已下单」", () => {
-  // 放开询价档前，非「待到样」一律讲已下单；询价档登记后状态其实不变
-  assert.match(actions, /isFreeSampleOnly\s*\n?\s*\? t\("已登记 \{count\} 条免费样品来货，任务仍在「\{status\}」/);
+test("询价阶段免费登记成功提示进入待到样，并仍锁定无采购单号", () => {
+  assert.match(actions, /isFreeSampleOnly\s*\n?\s*\? t\("已登记 \{count\} 条免费样品，任务已进入「待到样」/);
+  assert.match(actions, /登记不代表已收到样品/);
+  assert.match(actions, /disabled=\{isFreeSampleOnly\}/);
 });
 
-test("跳过「待到样」按供应商核对，不是「这个任务有没有样品」", () => {
-  // 手上是甲家的样、却选了乙家的报价时，乙家的样并没到；
-  // 重新维护报价换供应商后再次选定，走的也是这条路。
-  assert.match(service, /freeSampleSuppliers\(taskId: string\): Promise<Set<string>>/);
-  assert.match(service, /wanted\.every\(\(name\) => arrived\.has\(name\)\)/);
-  // 多家一起选时要求每家都已寄样
-  assert.match(service, /wanted\.length > 0 && wanted\.every/);
-  // 两处选定入口都要把供应商传进去，漏一处就会退化回旧判据。
-  // 确认报价已改为停在「询价中」，供应商核对搬到了「完成询价」这一步：
-  // 它读的是 isSelected 的报价快照，而不是本次确认的 selectedRows。
-  assert.match(service, /nextAfterQuoteSelected\(\s*task,\s*selected\.map\(\(row\) => row\.supplierName\),\s*\)/);
-  assert.match(service, /nextAfterQuoteSelected\(task, \[quotation\.supplierName\]\)/);
-  // 确认报价本身不许再自动推进——那正是「待询价直接跳到已定价」的来源
+test("历史免费样品通过人工确认修正，保留报价并携带当前来源状态", () => {
+  assert.match(taskDetail, /样品未到，修正为待到样/);
+  assert.match(actions, /确认本轮免费样品尚未收到/);
+  assert.match(actions, /已有免费样品登记属于本轮需求/);
+  assert.match(actions, /transitionProcTask\(task\.id, "pending_sample", "历史免费样品状态修正[^\n]*task\.status\)/);
+  assert.doesNotMatch(actions, /rollbackProcTask/);
+  assert.match(taskDetail, /can\("proc-task:inquiry"\)/);
   assert.doesNotMatch(service, /nextAfterQuoteSelected\(\s*task,\s*selectedRows\.map/);
   assert.match(service, /任务进入「询价中」，待「完成询价」后继续/);
 });
 
-test("「选定报价」提示现拉最新任务，不吃列表里的旧快照", () => {
-  // 刚登记完样品就直接选报价时，传进来的 task 可能还是登记前的版本
-  assert.match(actions, /getProcTask\(task\.id\)/);
-  assert.match(actions, /fetchedFreeSampleSuppliers \?\? freeSampleSuppliersOf\(task\)/);
+test("登记供应商必须从T+目录选择，报价读取失败可原位恢复", () => {
+  assert.match(actions, /<TplusSupplierSelect/);
+  assert.match(actions, /validSuppliers\[item\.key\] !== item\.supplierName/);
+  assert.match(actions, /请从畅捷通供应商目录中选择每一行的供应商/);
+  assert.match(actions, /purchaseOrdersError/);
+  assert.match(actions, /重新读取报价/);
 });

@@ -46,7 +46,7 @@ export class QuoteBookController {
   }
 
   @Get('suppliers')
-  @Permissions('page:proc-quote-book')
+  @Permissions('page:proc-quote-book', 'proc-task:order')
   listSuppliers() {
     return this.service.listSuppliers();
   }

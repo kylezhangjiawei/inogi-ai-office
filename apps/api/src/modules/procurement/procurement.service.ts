@@ -1460,7 +1460,7 @@ export class ProcurementService {
       throw new BadRequestException('只有「待处理」的任务需要确认');
     }
     const next: ProcStatus = task.method === 'direct' ? 'pending_purchase' : 'pending_inquiry';
-    const updated = await this.applyTransition(id, next, actor, '采购已确认接收');
+    const updated = await this.applyTransition(id, next, actor, '采购已确认接收', task.status);
     if (task.source === 'rd') {
       await this.notifyProcReviewResult(task, actor, 'approved', next);
     }
@@ -1667,45 +1667,6 @@ export class ProcurementService {
   }
 
   /**
-   * 已登记免费样品来货的供应商名集合。
-   * 只能按名字匹配：采购单关联表上没有 supplierId，它与报价两侧共有的字段只有供应商名。
-   */
-  private async freeSampleSuppliers(taskId: string): Promise<Set<string>> {
-    const refs = await this.prisma.procPurchaseOrderRef.findMany({
-      where: { taskId, metadata: { path: ['freeSample'], equals: true } },
-      select: { supplierName: true },
-    });
-    return new Set(refs.map((ref) => ref.supplierName.trim()).filter(Boolean));
-  }
-
-  /** 该任务是否登记过免费样品来货（不区分供应商）。 */
-  private async hasFreeSampleArrival(taskId: string): Promise<boolean> {
-    return (await this.freeSampleSuppliers(taskId)).size > 0;
-  }
-
-  /**
-   * 选定报价后的去向：
-   *   不需要打样                    → 已定价（原有行为）
-   *   需打样 且 选定供应商都已寄样    → 测试中（跳过「待到样」）
-   *   其余                          → 待到样（原有行为）
-   *
-   * 判据必须按供应商核对，不能只看「这个任务有没有免费样品」：手上是甲家的样、
-   * 却选了乙家的报价时，乙家的样根本没到，跳过「待到样」等于跳过了本该做的收样确认。
-   * 重新维护报价换供应商后再次选定，也走的是这条路。
-   * 多家一起选时要求每家都已寄样：只要有一家没到，就还得等样。
-   */
-  private async nextAfterQuoteSelected(
-    task: { id: string; needSample: boolean },
-    selectedSuppliers: string[],
-  ): Promise<ProcStatus> {
-    if (!task.needSample) return 'priced';
-    const arrived = await this.freeSampleSuppliers(task.id);
-    const wanted = [...new Set(selectedSuppliers.map((name) => name.trim()).filter(Boolean))];
-    const allArrived = wanted.length > 0 && wanted.every((name) => arrived.has(name));
-    return allArrived ? 'testing' : 'pending_sample';
-  }
-
-  /**
    * 完成询价：由「询价中」按需样情况决定去向，是报价确认之后的第二步。
    *
    * 拆成独立一步是为了消灭跳步——此前「待询价」确认报价会一次性写到
@@ -1726,16 +1687,15 @@ export class ProcurementService {
     if (selected.length === 0) {
       throw new BadRequestException('该任务还没有已确认的报价，不能完成询价');
     }
-    const next = await this.nextAfterQuoteSelected(
-      task,
-      selected.map((row) => row.supplierName),
-    );
+    // 免费样品登记不代表实际收样；需样任务必须等待收样确认。
+    const next: ProcStatus = task.needSample ? 'pending_sample' : 'priced';
     return this.applyTransition(
       taskId,
       next,
       actor,
       note?.trim()
         || `完成询价，进入「${PROC_STATUS_LABELS[next] ?? next}」（已确认 ${selected.length} 条报价）`,
+      task.status,
     );
   }
 
@@ -1804,8 +1764,7 @@ export class ProcurementService {
         if (count > 0) cleared.push(`${count} 条报价`);
       }
       if (cleanup.purchaseOrders) {
-        // 免费样品登记保留：它记录的是「样品已到手」这个事实，与采购单无关，
-        // 清掉会让退回询价后重新选报价时又要求多等一轮「待到样」。
+        // 免费样品登记独立于正式采购单保留；登记不能证明本轮样品已经收到。
         const { count } = await tx.procPurchaseOrderRef.deleteMany({
           where: { taskId: id, NOT: { metadata: { path: ['freeSample'], equals: true } } },
         });
@@ -1843,30 +1802,45 @@ export class ProcurementService {
         `任务已是「${PROC_STATUS_LABELS[task.status as ProcStatus] ?? task.status}」，页面数据已过期，请刷新后再操作`,
       );
     }
-    const target = dto.status as ProcStatus;
-    const allowed = PROC_STATUS_TRANSITIONS[task.status as ProcStatus] ?? [];
-    if (!allowed.includes(target)) {
-      throw new BadRequestException(
-        `不允许从「${PROC_STATUS_LABELS[task.status as ProcStatus] ?? task.status}」流转到「${
-          PROC_STATUS_LABELS[target] ?? target
-        }」`,
-      );
-    }
-    // 「询价中 → 测试中」是样品提前到手的快捷路径，不是常规流转：静态表放行只是必要条件。
-    // 没登记过免费样品就放行，等于允许绕过打样直接进测试。
-    if (task.status === 'inquiring' && target === 'testing' && !(await this.hasFreeSampleArrival(id))) {
-      throw new BadRequestException('该任务没有登记免费样品来货，不能跳过「待到样」');
-    }
-    return this.applyTransition(id, target, actor, dto.note);
+    return this.applyTransition(id, dto.status as ProcStatus, actor, dto.note, task.status as ProcStatus);
   }
 
-  private async applyTransition(id: string, next: ProcStatus, actor: ProcActor, note?: string) {
-    const task = await this.prisma.procTask.findUniqueOrThrow({ where: { id } });
+  private async applyTransition(
+    id: string,
+    next: ProcStatus,
+    actor: ProcActor,
+    note: string | undefined,
+    expectedStatus: ProcStatus,
+  ) {
     const updated = await this.prisma.$transaction(async (tx) => {
+      // 与样品登记/解除共用任务行锁，校验和写入必须基于调用方已确认的来源状态。
+      await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${id} FOR UPDATE`;
+      const task = await tx.procTask.findUniqueOrThrow({ where: { id } });
+      if (task.status !== expectedStatus) {
+        throw new ConflictException('任务状态已被其他操作更新，请刷新后重试');
+      }
+      const allowed = PROC_STATUS_TRANSITIONS[expectedStatus] ?? [];
+      if (!allowed.includes(next)) {
+        throw new BadRequestException(
+          `不允许从「${PROC_STATUS_LABELS[expectedStatus] ?? expectedStatus}」流转到「${PROC_STATUS_LABELS[next] ?? next}」`,
+        );
+      }
+      // 待询价直达待到样只用于已有免费样品登记的纠正，不放开普通任务跳过询价。
+      if (expectedStatus === 'pending_inquiry' && next === 'pending_sample') {
+        const freeSamples = await tx.procPurchaseOrderRef.findMany({
+          where: { taskId: id, metadata: { path: ['freeSample'], equals: true } },
+          select: { id: true },
+          take: 1,
+        });
+        if (freeSamples.length === 0) {
+          throw new BadRequestException('该任务没有登记免费样品，不能从「待询价」直接进入「待到样」');
+        }
+      }
       const claimed = await tx.procTask.updateMany({
-        where: { id, status: task.status },
+        where: { id, status: expectedStatus },
         data: {
           status: next,
+          ...(next === 'pending_sample' ? { needSample: true } : {}),
           businessDone: next === 'completed' ? true : task.businessDone,
         },
       });
@@ -1883,7 +1857,7 @@ export class ProcurementService {
         },
       });
       return tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     return this.serializeTask(updated);
   }
 
@@ -2515,6 +2489,7 @@ export class ProcurementService {
         'inquiring',
         actor,
         `从供应商报价库带入 ${additions.length} 条报价，进入询价中`,
+        task.status,
       );
     } else {
       await this.prisma.procTaskLog.create({
@@ -2780,12 +2755,13 @@ export class ProcurementService {
         },
       });
     }
-    const next = await this.nextAfterQuoteSelected(task, [quotation.supplierName]);
+    const next: ProcStatus = task.needSample ? 'pending_sample' : 'priced';
     return this.applyTransition(
       taskId,
       next,
       actor,
       `选定 ${quotation.supplierName}（${num(quotation.unitPrice)}）`,
+      task.status,
     );
   }
 
@@ -2860,6 +2836,7 @@ export class ProcurementService {
       tpLineNo: item.isFreeSample ? null : item.tpLineNo?.trim() || null,
       isFreeSample: Boolean(item.isFreeSample),
     }));
+    if (normalized.length === 0) throw new BadRequestException('请至少登记一条采购单或免费样品');
     // 待询价 / 询价中放开登记，是为了让「供应商提前寄样」当场留痕，不是为了在定价前登记正式采购单：
     // 这两档还没选定报价，T+ 里不可能有对应的采购单号。
     if (
@@ -2886,8 +2863,11 @@ export class ProcurementService {
       && (!item.tpLineNo || !other.tpLineNo)))) {
       throw new BadRequestException('同一采购单不能混用未指定行号和明确行号，请填写各条采购单行号');
     }
-    const nextStatus = task.status === 'priced' || task.status === 'pending_purchase' ? 'in_transit' : task.status;
-    const isSampleOrder = task.status === 'pending_sample';
+    const startsSampleWait = PROC_FREE_SAMPLE_ONLY_STATUSES.includes(task.status as ProcStatus);
+    const nextStatus = startsSampleWait
+      ? 'pending_sample'
+      : task.status === 'priced' || task.status === 'pending_purchase' ? 'in_transit' : task.status;
+    const isSampleOrder = task.status === 'pending_sample' || startsSampleWait;
     // 预计到货只有 T+ 同步会回填到任务上，免费样品和出样单没有同步可依，这里按最早的一条落回去。
     const earliestEta = normalized
       .map((item) => parseDay(item.etaDate))
@@ -2915,7 +2895,7 @@ export class ProcurementService {
       : (freeSampleOnly ? `登记 ${normalized.length} 条免费样品来货（T+ 无采购单）` : `一次关联 ${normalized.length} 张采购单`);
     const logText = `${head}：${detail}${
       syncQuantity ? `；任务采购数量由 ${num(task.quantity)} 更新为 ${orderedTotal}` : ''
-    }`;
+    }${startsSampleWait ? '；进入「待到样」，等待实际到样后确认收样' : ''}`;
     await this.prisma.$transaction(async (tx) => {
       // 所有关联入口复用这里；按任务行加锁，使历史查重与新增在并发请求中保持原子。
       await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${taskId} FOR UPDATE`;
@@ -2952,6 +2932,7 @@ export class ProcurementService {
         where: { id: taskId },
         data: {
           status: nextStatus,
+          ...(startsSampleWait ? { needSample: true } : {}),
           ...(syncQuantity ? { quantity: new Prisma.Decimal(orderedTotal) } : {}),
           ...(earliestEta ? { expectedArrivalDate: earliestEta } : {}),
           logs: {
@@ -4455,6 +4436,10 @@ export class ProcurementService {
     task: ProcTaskView,
     currentRequesterDepartment?: string | null,
   ) {
+    // 日志按时间升序读取；同状态操作不覆盖最后一次实际迁移的来源。
+    const lastTransition = task.status === 'testing'
+      ? [...task.logs].reverse().find((log) => log.fromStatus !== log.toStatus)
+      : undefined;
     return {
       id: task.id,
       code: task.code,
@@ -4471,6 +4456,8 @@ export class ProcurementService {
       source: task.source,
       businessLine: task.businessLine,
       status: task.status,
+      sampleStatusNeedsReview: task.status === 'testing'
+        && lastTransition?.fromStatus === 'inquiring' && lastTransition.toStatus === 'testing',
       priority: task.priority,
       needSample: task.needSample,
       needDate: day(task.needDate),

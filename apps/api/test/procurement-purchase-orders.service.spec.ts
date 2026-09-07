@@ -1,5 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { Prisma } from '@prisma/client';
 
 import { ProcurementService } from '../src/modules/procurement/procurement.service';
 import { PROC_PO_LINKABLE_STATUSES, PROC_STATUS_TRANSITIONS } from '../src/modules/procurement/procurement.types';
@@ -411,10 +412,9 @@ test('同步任务数量时免费样品不计入登记总量', async () => {
   assert.match(updateData.logs.create.text, /由 1 更新为 500/);
 });
 
-// ── 供应商提前寄样：待询价 / 询价中登记免费样品来货 ──────────────────────────
-// 放开这两档只为让「样品先到、报价后谈」当场留痕，正式采购单仍必须等定价之后。
+// ── 免费样品登记与实际收样是两个独立步骤 ───────────────────────────────────
 
-test('「待询价」可登记免费样品来货，任务状态原地不动', async () => {
+test('「待询价」登记免费样品后进入「待到样」，等待实际收样', async () => {
   const created: Array<Record<string, unknown>> = [];
   const taskUpdates: Array<Record<string, unknown>> = [];
   const task = { id: 'task-fs-1', status: 'pending_inquiry', quantity: 500 };
@@ -437,7 +437,7 @@ test('「待询价」可登记免费样品来货，任务状态原地不动', as
     $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(withOrderTransactionReads(tx, task)),
   };
   const service = new ProcurementService(prisma as never, {} as never, {} as never, {} as never);
-  service.getTask = async () => ({ id: task.id, status: 'pending_inquiry' }) as never;
+  service.getTask = async () => ({ id: task.id, status: 'pending_sample' }) as never;
 
   await service.linkPurchaseOrders(
     task.id,
@@ -448,10 +448,10 @@ test('「待询价」可登记免费样品来货，任务状态原地不动', as
   assert.equal(created.length, 1);
   assert.deepEqual(created[0]?.metadata, { freeSample: true });
   assert.equal(created[0]?.tpOrderNo, '');
-  const updateData = taskUpdates[0]?.data as { status: string; logs: { create: { text: string } } };
-  // 登记免费样品不是流转：待询价必须还是待询价，否则会跳过询价直接被推着走
-  assert.equal(updateData.status, 'pending_inquiry');
-  assert.match(updateData.logs.create.text, /免费样品来货/);
+  const updateData = taskUpdates[0]?.data as { status: string; needSample: boolean; logs: { create: { text: string } } };
+  assert.equal(updateData.status, 'pending_sample');
+  assert.equal(updateData.needSample, true);
+  assert.match(updateData.logs.create.text, /等待实际到样/);
   // 免费样品不是需求量的一部分，500 件的任务不能被 1 件样品改写
   assert.doesNotMatch(updateData.logs.create.text, /采购数量由/);
 });
@@ -494,59 +494,198 @@ test('「询价中」同样只收免费样品，正式采购单仍被拒', async
   );
 });
 
-test('已登记免费样品的任务可从「询价中」直接进「测试中」', async () => {
-  const task = { id: 'task-fs-4', status: 'inquiring' };
-  const queryArgs: unknown[] = [];
-  const prisma = {
-    procTask: { findUnique: async () => task },
-    procPurchaseOrderRef: {
-      findMany: async (args: unknown) => {
-        queryArgs.push(args);
-        return [{ supplierName: '供应商甲' }];
+type SampleRow = Record<string, any>;
+const sampleActor = { id: 'buyer-1', name: '采购员', permissions: ['proc-task:inquiry', 'proc-task:order', 'proc-task:select-quote'] };
+
+function sampleFlowHarness(initialTask: SampleRow, initialRefs: SampleRow[] = []) {
+  const task: SampleRow = { id: 'sample-flow', status: 'pending_inquiry', needSample: false,
+    quantity: new Prisma.Decimal(500), arrivedQty: new Prisma.Decimal(0), businessDone: false,
+    selectedQuotationId: 'quote-1', quotationSubtotal: new Prisma.Decimal(1000),
+    quotationDiscount: new Prisma.Decimal(10), quotationTotal: new Prisma.Decimal(990), quotationCurrency: 'CNY',
+    ...initialTask };
+  const refs = initialRefs.map((row) => ({ ...row }));
+  const quotes = [{ id: 'quote-1', taskId: task.id, supplierName: '供应商甲', isSelected: true,
+    unitPrice: new Prisma.Decimal(2), quantity: new Prisma.Decimal(500), currency: 'CNY' }];
+  const logs: SampleRow[] = [];
+  const locks: unknown[][] = [];
+  const hooks: { beforeTransaction?: () => void } = {};
+  const view = () => ({ ...task, attachments: [], criticalMaterials: [], purchaseOrderRefs: [...refs],
+    logs: [...logs], createdAt: new Date('2026-09-01'), updatedAt: new Date('2026-09-07') });
+  const updateTask = ({ data }: SampleRow) => {
+    const { logs: nestedLogs, ...fields } = data;
+    Object.assign(task, fields);
+    if (nestedLogs?.create) logs.push({ ...nestedLogs.create, createdAt: new Date() });
+    return view();
+  };
+  const tx = {
+    $queryRaw: async (...args: unknown[]) => { locks.push(args); return [{ id: task.id }]; },
+    procTask: {
+      findUnique: async () => view(),
+      findUniqueOrThrow: async () => view(),
+      update: async (args: SampleRow) => updateTask(args),
+      updateMany: async ({ where, data }: SampleRow) => {
+        if (task.id !== where.id || (where.status && task.status !== where.status)) return { count: 0 };
+        updateTask({ data });
+        return { count: 1 };
       },
     },
+    procPurchaseOrderRef: {
+      findMany: async ({ where }: SampleRow) => refs.filter((row) =>
+        !where.metadata || row.metadata?.freeSample === true).map((row) => ({ ...row })),
+      createMany: async ({ data }: { data: SampleRow[] }) => {
+        refs.push(...data.map((row, index) => ({ id: `new-ref-${index}`, receivedQty: new Prisma.Decimal(0), ...row })));
+        return { count: data.length };
+      },
+    },
+    procQuotation: {
+      findMany: async () => quotes.filter((quote) => quote.isSelected),
+      findUnique: async ({ where }: SampleRow) => quotes.find((quote) => quote.id === where.id),
+      updateMany: async ({ data }: SampleRow) => { quotes.forEach((quote) => Object.assign(quote, data)); return { count: quotes.length }; },
+      update: async ({ where, data }: SampleRow) => Object.assign(quotes.find((quote) => quote.id === where.id)!, data),
+    },
+    procTaskLog: { create: async ({ data }: SampleRow) => { logs.push({ ...data, createdAt: new Date() }); } },
   };
+  let tail = Promise.resolve();
+  const prisma = { ...tx, $transaction: async (run: ((client: typeof tx) => Promise<unknown>) | Promise<unknown>[]) => {
+    if (Array.isArray(run)) return Promise.all(run);
+    const previous = tail;
+    let release!: () => void;
+    tail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      hooks.beforeTransaction?.();
+      return await run(tx);
+    } finally { release(); }
+  } };
   const service = new ProcurementService(prisma as never, {} as never, {} as never, {} as never);
-  const applied: unknown[][] = [];
-  (service as unknown as { applyTransition: unknown }).applyTransition = async (...args: unknown[]) => {
-    applied.push(args);
-    return { id: task.id, status: 'testing' };
-  };
+  service.getTask = async () => (service as unknown as { serializeTask: (row: SampleRow) => never }).serializeTask(view());
+  return { service, task, refs, quotes, logs, locks, hooks };
+}
 
-  await service.transitionTask(
-    task.id,
-    { from_status: 'inquiring', status: 'testing' } as never,
-    { id: 'buyer-1', name: '采购员', permissions: ['proc-task:inquiry'] },
-  );
-
-  assert.equal(applied.length, 1);
-  assert.equal(applied[0]?.[1], 'testing');
-  // 判据必须是「登记过免费样品」，不是任意采购单关联
-  assert.deepEqual(queryArgs, [{
-    where: { taskId: task.id, metadata: { path: ['freeSample'], equals: true } },
-    select: { supplierName: true },
-  }]);
+test('询价两档登记免费样品原子进入待到样，明确收样后才进入测试，保留报价和采购数量', async () => {
+  for (const status of ['pending_inquiry', 'inquiring']) {
+    const h = sampleFlowHarness({ status }, [{ id: 'old-ref', tpOrderNo: '', supplierName: '旧供应商',
+      orderedQty: new Prisma.Decimal(1), receivedQty: new Prisma.Decimal(0), metadata: { freeSample: true } }]);
+    const originalQuotes = structuredClone(h.quotes.map((quote) => ({ ...quote, unitPrice: Number(quote.unitPrice), quantity: Number(quote.quantity) })));
+    const registered = await h.service.linkPurchaseOrders(h.task.id, [{ isFreeSample: true, orderedQty: 2, supplierName: '供应商甲' }], sampleActor, { syncTaskQuantity: true });
+    assert.equal(registered.status, 'pending_sample');
+    assert.equal(registered.needSample, true);
+    assert.equal(registered.quantity, 500);
+    assert.equal(registered.arrivedQty, 0);
+    assert.equal(registered.selectedQuotationId, 'quote-1');
+    assert.equal(registered.quotationTotal, 990);
+    assert.equal(h.refs.length, 2);
+    assert.equal(Number(h.refs[1].orderedQty), 2);
+    assert.equal(Number(h.refs[1].receivedQty), 0);
+    assert.deepEqual(h.quotes.map((quote) => ({ ...quote, unitPrice: Number(quote.unitPrice), quantity: Number(quote.quantity) })), originalQuotes);
+    assert.match(h.logs[0].text, /等待实际到样/);
+    assert.equal(h.logs[0].fromStatus, status);
+    assert.equal(h.logs[0].toStatus, 'pending_sample');
+    assert.ok(h.locks.some((args) => args[1] === h.task.id));
+    const received = await h.service.transitionTask(h.task.id, { from_status: 'pending_sample', status: 'testing', note: '样品已到，进入测试' }, sampleActor);
+    assert.equal(received.status, 'testing');
+    assert.equal(received.quantity, 500);
+    assert.equal(h.refs.length, 2);
+    assert.equal(h.logs[1].fromStatus, 'pending_sample');
+    assert.equal(h.logs[1].toStatus, 'testing');
+    assert.match(h.logs[1].text, /样品已到/);
+  }
 });
 
-test('没有免费样品来货时不许从「询价中」跳过「待到样」', async () => {
-  const task = { id: 'task-fs-5', status: 'inquiring' };
-  const prisma = {
-    procTask: { findUnique: async () => task },
-    procPurchaseOrderRef: { findMany: async () => [] },
-  };
-  const service = new ProcurementService(prisma as never, {} as never, {} as never, {} as never);
-  (service as unknown as { applyTransition: unknown }).applyTransition = async () => {
-    throw new Error('不应执行流转');
-  };
+test('历史免费样品可从询价两档纠正到待到样，未填供应商名也保留登记事实', async () => {
+  for (const status of ['pending_inquiry', 'inquiring', 'testing']) {
+    const h = sampleFlowHarness({ status }, [{ id: 'legacy-free', tpOrderNo: '', supplierName: '', orderedQty: 3,
+      receivedQty: 0, metadata: { freeSample: true } }, { id: 'legacy-paid', tpOrderNo: 'PO-SAMPLE', orderedQty: 2, receivedQty: 0 }]);
+    const refsBefore = structuredClone(h.refs);
+    const corrected = await h.service.transitionTask(h.task.id, {
+      from_status: status, status: 'pending_sample', note: '确认本轮样品尚未收到，纠正到待到样',
+    }, sampleActor);
+    assert.equal(corrected.status, 'pending_sample');
+    assert.equal(corrected.needSample, true);
+    assert.equal(corrected.quantity, 500);
+    assert.equal(corrected.quotationTotal, 990);
+    assert.equal(corrected.quotationDiscount, 10);
+    assert.equal(corrected.selectedQuotationId, 'quote-1');
+    assert.deepEqual(h.refs, refsBefore);
+    assert.equal(h.quotes.length, 1);
+    assert.match(h.logs[0].text, /本轮样品尚未收到/);
+  }
+});
 
-  await assert.rejects(
-    () => service.transitionTask(
-      task.id,
-      { from_status: 'inquiring', status: 'testing' } as never,
-      { id: 'buyer-1', name: '采购员', permissions: ['proc-task:inquiry'] },
-    ),
-    /没有登记免费样品来货，不能跳过「待到样」/,
-  );
+test('待询价没有免费登记时拒绝纠正，普通需样询价及重新出样仍可进待到样', async () => {
+  for (const refs of [[], [{ id: 'paid', tpOrderNo: 'PO-1', supplierName: '供应商甲', metadata: {} }]]) {
+    const h = sampleFlowHarness({ status: 'pending_inquiry' }, refs);
+    await assert.rejects(h.service.transitionTask(h.task.id, { from_status: 'pending_inquiry', status: 'pending_sample' }, sampleActor), /没有登记免费样品/);
+    assert.equal(h.task.status, 'pending_inquiry');
+    assert.equal(h.logs.length, 0);
+  }
+  for (const status of ['inquiring', 'testing']) {
+    const h = sampleFlowHarness({ status, needSample: true });
+    const result = await h.service.transitionTask(h.task.id, { from_status: status, status: 'pending_sample' }, sampleActor);
+    assert.equal(result.status, 'pending_sample');
+  }
+});
+
+test('询价中不能仅凭免费登记跳过实际收样，未登记同样拒绝', async () => {
+  for (const refs of [[], [{ id: 'free', tpOrderNo: '', supplierName: '供应商甲', metadata: { freeSample: true } }]]) {
+    const h = sampleFlowHarness({ status: 'inquiring', needSample: true }, refs);
+    await assert.rejects(h.service.transitionTask(h.task.id, { from_status: 'inquiring', status: 'testing' }, sampleActor), /不允许从「询价中」流转到「测试中」/);
+    assert.equal(h.task.status, 'inquiring');
+    assert.equal(h.logs.length, 0);
+  }
+});
+
+test('并发推进不能让过期来源状态覆盖新状态或重复确认收样', async () => {
+  const h = sampleFlowHarness({ status: 'inquiring', needSample: true });
+  const originalFind = (h.service as any).prisma.procTask.findUnique;
+  (h.service as any).prisma.procTask.findUnique = async (...args: unknown[]) => {
+    const preflight = await originalFind(...args);
+    h.task.status = 'testing';
+    return preflight;
+  };
+  await assert.rejects(h.service.transitionTask(h.task.id, { from_status: 'inquiring', status: 'pending_sample' }, sampleActor), /已被其他操作更新|页面数据已过期/);
+  assert.equal(h.task.status, 'testing');
+  assert.equal(h.logs.length, 0);
+
+  const receiving = sampleFlowHarness({ status: 'pending_sample', needSample: true });
+  const receive = () => receiving.service.transitionTask(receiving.task.id, { from_status: 'pending_sample', status: 'testing' }, sampleActor);
+  const results = await Promise.allSettled([receive(), receive()]);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.equal(receiving.logs.length, 1);
+});
+
+test('历史纠正进入事务后重新检查免费登记，已解除的登记不能放行', async () => {
+  const h = sampleFlowHarness({ status: 'pending_inquiry' }, [{ id: 'free', tpOrderNo: '', supplierName: '供应商甲', metadata: { freeSample: true } }]);
+  h.hooks.beforeTransaction = () => { h.refs.splice(0); };
+  await assert.rejects(h.service.transitionTask(h.task.id, { from_status: 'pending_inquiry', status: 'pending_sample' }, sampleActor), /没有登记免费样品/);
+  assert.equal(h.task.status, 'pending_inquiry');
+  assert.equal(h.logs.length, 0);
+});
+
+test('免费登记并发遇到任务状态更新时不新增样品，也不回写旧状态', async () => {
+  const h = sampleFlowHarness({ status: 'pending_inquiry' });
+  h.hooks.beforeTransaction = () => { h.task.status = 'testing'; };
+  await assert.rejects(h.service.linkPurchaseOrders(h.task.id, [{ isFreeSample: true, orderedQty: 1 }], sampleActor), /任务状态或采购数量已被更新/);
+  assert.equal(h.refs.length, 0);
+  assert.equal(h.task.status, 'testing');
+});
+
+test('空登记不能把待询价任务推进到待到样', async () => {
+  const h = sampleFlowHarness({ status: 'pending_inquiry' });
+  await assert.rejects(h.service.linkPurchaseOrders(h.task.id, [], sampleActor), /请至少登记一条/);
+  assert.equal(h.task.status, 'pending_inquiry');
+  assert.equal(h.refs.length, 0);
+  assert.equal(h.logs.length, 0);
+});
+
+test('共享状态写入保留采购确认的询价与直购分支', async () => {
+  for (const [method, expected] of [['inquiry', 'pending_inquiry'], ['direct', 'pending_purchase']]) {
+    const h = sampleFlowHarness({ status: 'pending_confirm', source: 'manual', method });
+    const result = await h.service.confirmTask(h.task.id, sampleActor);
+    assert.equal(result.status, expected);
+    assert.equal(h.logs[0].fromStatus, 'pending_confirm');
+    assert.equal(h.logs[0].toStatus, expected);
+  }
 });
 
 test('询价两档可登记免费样品，但不进 T+ 单据匹配候选', async () => {
@@ -559,52 +698,48 @@ test('询价两档可登记免费样品，但不进 T+ 单据匹配候选', asyn
     // 这两档 T+ 里没有采购单，进候选只会让真实采购单被建议关联到还在询价的任务上
     assert.ok(!PROC_PO_MATCHABLE_STATUSES.includes(status), `${status} 不应进匹配候选`);
   }
-  // 跳过「待到样」的静态放行；充分条件由 transitionTask 校验
-  assert.ok(PROC_STATUS_TRANSITIONS.inquiring.includes('testing'));
+  assert.ok(!PROC_STATUS_TRANSITIONS.inquiring.includes('testing'));
+  assert.ok(PROC_STATUS_TRANSITIONS.pending_inquiry.includes('pending_sample'));
   // 原有两条路不能被挤掉
   assert.ok(PROC_STATUS_TRANSITIONS.inquiring.includes('pending_sample'));
   assert.ok(PROC_STATUS_TRANSITIONS.inquiring.includes('priced'));
 });
 
-// ── 跳过「待到样」按供应商核对 ───────────────────────────────────────────────
-// 决策函数单独测；两个选定入口是否把供应商传进来，由 scripts/procurement-cockpit-ui.test.mjs
-// 的源码断言锁住（漏传会静默退化回旧判据，类型检查看不出来）。
-function serviceWithSamples(suppliers: string[]) {
-  const prisma = { procPurchaseOrderRef: { findMany: async () => suppliers.map((supplierName) => ({ supplierName })) } };
-  const service = new ProcurementService(prisma as never, {} as never, {} as never, {} as never);
-  return (task: { id: string; needSample: boolean }, selected: string[]) =>
-    (service as unknown as {
-      nextAfterQuoteSelected: (t: typeof task, s: string[]) => Promise<string>;
-    }).nextAfterQuoteSelected(task, selected);
-}
-
-test('选定的供应商已寄样 → 跳过「待到样」直接进「测试中」', async () => {
-  const next = serviceWithSamples(['供应商甲']);
-  assert.equal(await next({ id: 't', needSample: true }, ['供应商甲']), 'testing');
-  // 首尾空格不该让判断落空
-  assert.equal(await next({ id: 't', needSample: true }, ['  供应商甲 ']), 'testing');
+test('选定报价和完成询价均按需样情况流转，免费登记不能替代实际收样', async () => {
+  for (const entry of ['selectQuotation', 'completeInquiry'] as const) {
+    for (const needSample of [true, false]) {
+      for (const supplierName of ['供应商甲', '供应商乙', '']) {
+        const h = sampleFlowHarness({ status: 'inquiring', needSample }, [{ id: 'free', tpOrderNo: '', supplierName, metadata: { freeSample: true } }]);
+        const result = entry === 'selectQuotation'
+          ? await h.service.selectQuotation(h.task.id, 'quote-1', sampleActor)
+          : await h.service.completeInquiry(h.task.id, sampleActor);
+        assert.equal(result.status, needSample ? 'pending_sample' : 'priced', `${entry} / ${supplierName}`);
+        assert.equal(result.quantity, 500);
+        assert.equal(h.refs.length, 1);
+        assert.equal(h.quotes.length, 1);
+      }
+    }
+  }
 });
 
-test('手上是别家的样时仍进「待到样」', async () => {
-  // 重新维护报价换供应商后再次选定，走的就是这条路：甲家的样不能替乙家背书
-  const next = serviceWithSamples(['供应商甲']);
-  assert.equal(await next({ id: 't', needSample: true }, ['供应商乙']), 'pending_sample');
-});
-
-test('多家一起选定时，只要有一家没寄样就仍进「待到样」', async () => {
-  const next = serviceWithSamples(['供应商甲']);
-  assert.equal(await next({ id: 't', needSample: true }, ['供应商甲', '供应商乙']), 'pending_sample');
-  const both = serviceWithSamples(['供应商甲', '供应商乙']);
-  assert.equal(await both({ id: 't', needSample: true }, ['供应商甲', '供应商乙']), 'testing');
-});
-
-test('不需打样时不看样品，直接「已定价」', async () => {
-  const next = serviceWithSamples(['供应商甲']);
-  assert.equal(await next({ id: 't', needSample: false }, ['供应商乙']), 'priced');
-});
-
-test('供应商名为空时不算已寄样，避免空串互相匹配', async () => {
-  // 关联行允许不填供应商；空串若参与匹配，两个「未指定供应商」会互相认账
-  const next = serviceWithSamples(['', '   ']);
-  assert.equal(await next({ id: 't', needSample: true }, ['']), 'pending_sample');
+test('历史样品核对标记只识别最后一次询价直接跳测，正常收样与重新出样后收样不提示', async () => {
+  const cases = [
+    { name: '旧版直接跳测', transitions: [['inquiring', 'testing']], expected: true },
+    { name: '明确收样', transitions: [['pending_sample', 'testing']], expected: false },
+    { name: '跳测后的普通日志不改变判据', transitions: [['inquiring', 'testing'], [null, null], ['testing', 'testing']], expected: true },
+    { name: '跳测后重新出样并明确收样', transitions: [['inquiring', 'testing'], ['testing', 'pending_sample'], ['pending_sample', 'testing']], expected: false },
+    { name: '无迁移记录不能推断跳测', transitions: [], expected: false },
+  ];
+  for (const { name, transitions, expected } of cases) {
+    const h = sampleFlowHarness({ status: 'testing' });
+    h.logs.push(...transitions.map(([fromStatus, toStatus], index) => ({
+      fromStatus, toStatus, kind: 'system', text: '不依赖日志文案', createdAt: new Date(2026, 8, index + 1),
+    })));
+    const result = await h.service.getTask(h.task.id, sampleActor);
+    assert.equal((result as unknown as { sampleStatusNeedsReview?: boolean }).sampleStatusNeedsReview, expected, name);
+  }
+  const corrected = sampleFlowHarness({ status: 'pending_sample' });
+  corrected.logs.push({ fromStatus: 'inquiring', toStatus: 'testing', kind: 'system', text: '旧记录', createdAt: new Date() });
+  const result = await corrected.service.getTask(corrected.task.id, sampleActor);
+  assert.equal((result as unknown as { sampleStatusNeedsReview?: boolean }).sampleStatusNeedsReview, false);
 });

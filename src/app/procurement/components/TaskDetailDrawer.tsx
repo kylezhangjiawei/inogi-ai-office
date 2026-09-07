@@ -167,6 +167,12 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
     : 0;
   // 是否已进入下单阶段（此前「下单与付款」「到货记录」还没有内容，不展示）
   const orderStage = ["pending_purchase", "priced", "in_transit", "partial_arrival", "completed"].includes(task.status);
+  const canCheckSampleStatus = task.method === "inquiry"
+    && (FREE_SAMPLE_ONLY_STATUSES.includes(task.status) || (task.status === "testing" && task.sampleStatusNeedsReview === true))
+    && task.purchaseOrders.some((order) => order.freeSample)
+    && !task.purchaseOrders.some((order) => !order.freeSample)
+    && task.arrivedQty === 0
+    && can("proc-task:inquiry");
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -213,6 +219,15 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
 
         <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-4 px-6 py-4">
+          {canCheckSampleStatus && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <p className="text-pretty text-sm font-medium text-amber-800">{t("已有免费样品登记，请核实当前到样状态")}</p>
+              <p className="mt-1 text-pretty text-xs leading-5 text-amber-700">{t("历史登记可能仍停在询价阶段，或曾跳过待到样。请核实记录属于本轮且样品尚未收到，再修正状态；已经收到的样品无需修正。")}</p>
+              <Button type="button" variant="outline" disabled={taskAction.busy} onClick={() => taskAction.repairSampleStatus(task)} className="mt-3 rounded-lg border-amber-200 bg-white text-sm text-amber-800">
+                {t("样品未到，修正为待到样")}
+              </Button>
+            </div>
+          )}
           {/* 下一步操作卡：动作码由系统管理配置到角色，无权限者只读。
               研发流转的待处理任务是「审核」语义：通过（确认提交）或驳回（理由必填，删除采购任务并通知）。 */}
           {meta.next && can(nextPermissionOf(task)) && (
@@ -227,9 +242,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                 <Button type="button" disabled={taskAction.busy || rejectBusy} onClick={() => taskAction.runNext(task)} className="material-button-primary rounded-lg px-4 py-2 text-sm disabled:opacity-60">
                   {t(isRdReview ? '审核通过' : meta.next)}{task.method === "direct" && task.status === "pending_purchase" && <ExternalLink className="h-4 w-4" />}
                 </Button>
-                {/* 出样单 / 免费样品来货都不是状态流转，只登记关联，任务原地不动：
-                    「待到样」是本轮打样的出样单；「待询价 / 询价中」是供应商提前寄的免费样，
-                    后者登记后选定报价可直接进「测试中」，省掉一轮空等的「待到样」。 */}
+                {/* 询价阶段登记免费样品后进入待到样；已有待到样任务可继续登记本轮出样信息。 */}
                 {(task.status === "pending_sample" || FREE_SAMPLE_ONLY_STATUSES.includes(task.status)) && can("proc-task:order") && (
                   <Button type="button" variant="outline" disabled={taskAction.busy} onClick={() => taskAction.linkSampleOrder(task)} className="rounded-lg border-[#bfd0fa] bg-white px-4 py-2 text-sm text-[#002fa7] hover:bg-[#eef3ff] hover:text-[#002581]">
                     {t(task.status === "pending_sample" ? '登记出样单' : '登记免费样品来货')}

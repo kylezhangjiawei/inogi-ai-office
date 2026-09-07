@@ -104,6 +104,8 @@ export interface ProcurementTask {
   businessDone: boolean;
   cancelReason?: string;
   status: ProcStatus;
+  /** 当前测试状态是否来自旧版“询价直接跳测试”，供人工核对历史样品。 */
+  sampleStatusNeedsReview?: boolean;
   logs: ProcLog[];
   createdAt: string;
   updatedAt: string;

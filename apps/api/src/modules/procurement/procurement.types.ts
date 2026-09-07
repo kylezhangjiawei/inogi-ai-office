@@ -64,10 +64,9 @@ export const PROC_STATUS_LABELS: Record<ProcStatus, string> = {
 export const PROC_STATUS_TRANSITIONS: Record<ProcStatus, ProcStatus[]> = {
   pending_rd_review: ['pending_confirm'],
   pending_confirm: ['pending_inquiry', 'pending_purchase'],
-  pending_inquiry: ['inquiring'],
-  // testing 是条件流转：只有已登记免费样品来货（样品实际已到手）的任务才允许跳过「待到样」，
-  // 由 transitionTask 逐条校验。静态表放行是必要条件，不是充分条件。
-  inquiring: ['pending_sample', 'priced', 'testing'],
+  // 待到样仅用于纠正已有免费样品登记的任务，服务在事务中检查登记是否仍存在。
+  pending_inquiry: ['inquiring', 'pending_sample'],
+  inquiring: ['pending_sample', 'priced'],
   pending_sample: ['testing'],
   // 测试不通过有两条路：同一家供应商改图再出一次样（回「待到样」），或换供应商重新询价
   testing: ['priced', 'inquiring', 'pending_sample'],
@@ -171,7 +170,7 @@ export const PROC_ROLLBACK_BLOCKED_STATUSES: ProcStatus[] = ['pending_rd_review'
 export interface ProcRollbackCleanup {
   /** 清空本任务的报价快照与报价金额 */
   quotations: boolean;
-  /** 解除 T+ 采购单关联（免费样品登记保留：那是收样事实，与采购单无关） */
+  /** 解除 T+ 采购单关联（免费样品登记独立保留，不代表实际收样） */
   purchaseOrders: boolean;
   /** 把任务上的到货累计量归零（到货量由采购单汇总而来，没有独立的到货表） */
   arrivals: boolean;

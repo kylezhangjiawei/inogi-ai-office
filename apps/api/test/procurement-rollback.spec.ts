@@ -26,6 +26,7 @@ function makeService(task: Json, options: { selectedQuotes?: string[] } = {}) {
   const calls: Json[] = [];
   const service = Object.create(ProcurementService.prototype) as any;
   const tx = {
+    $queryRaw: async () => [{ id: task.id }],
     procTask: {
       updateMany: async (args: Json) => { calls.push({ op: 'updateTask', ...args }); return { count: 1 }; },
       update: async (args: Json) => { calls.push({ op: 'update', ...args }); return task; },
@@ -62,19 +63,18 @@ test('完成询价按需样情况决定去向，且只走一格', async () => {
   const pricedUpdate = noSample.calls.find((c) => c.op === 'updateTask') as Json;
   assert.equal((pricedUpdate.data as Json).status, 'priced');
 
-  // 需样且未寄样：询价中 → 待到样
+  // 需样：询价中 → 待到样
   const needSample = makeService({ id: 'p2', status: 'inquiring', needSample: true }, { selectedQuotes: ['明博'] });
-  (needSample.service as any).freeSampleSuppliers = async () => new Set<string>();
   await needSample.service.completeInquiry('p2', actor);
   const sampleUpdate = needSample.calls.find((c) => c.op === 'updateTask') as Json;
   assert.equal((sampleUpdate.data as Json).status, 'pending_sample');
 
-  // 需样且所选供应商都已寄样：询价中 → 测试中
+  // 免费登记不代表实际收样，仍需经过待到样
   const arrived = makeService({ id: 'p3', status: 'inquiring', needSample: true }, { selectedQuotes: ['明博'] });
-  (arrived.service as any).freeSampleSuppliers = async () => new Set(['明博']);
+  (arrived.service as any).prisma.procPurchaseOrderRef.findMany = async () => [{ supplierName: '明博', metadata: { freeSample: true } }];
   await arrived.service.completeInquiry('p3', actor);
   const testingUpdate = arrived.calls.find((c) => c.op === 'updateTask') as Json;
-  assert.equal((testingUpdate.data as Json).status, 'testing');
+  assert.equal((testingUpdate.data as Json).status, 'pending_sample');
 });
 
 test('非「询价中」不能完成询价，没有已确认报价也不行', async () => {
@@ -141,7 +141,7 @@ test('从已完成回退到待询价：清报价、清采购单关联、撤完�
 
   const deletePos = calls.find((c) => c.op === 'deletePos') as Json;
   assert.ok(deletePos, '采购单关联要清');
-  // 免费样品登记是「样品已到手」的事实，与采购单无关，清掉会让重做时白等一轮待到样
+  // 免费样品登记独立于正式采购单保留，不能据此推断本轮样品已收到
   assert.deepEqual(
     (deletePos.where as Json).NOT,
     { metadata: { path: ['freeSample'], equals: true } },

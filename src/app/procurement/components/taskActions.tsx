@@ -3,7 +3,7 @@
 // 卡片和详情抽屉共用同一套动作语义，避免两处各写一遍流转规则：
 //   待处理   → 确认接收（二次确认）
 //   待询价   → 从供应商报价库多选报价，一次确认并生成任务快照，任务进入「询价中」
-//   询价中   → 完成询价（按需样情况去 已定价 / 待到样 / 测试中）；历史任务仍可逐条选定报价
+//   询价中   → 完成询价（按需样情况去 已定价 / 待到样）；免费样品登记后也须等待确认到样
 //   待到样   → 样品已到（二次确认）；另可登记出样单（T+ 单号或免费样品，只登记不改状态）
 //   测试中   → 录入测试结论（决策类：通过 → 已定价 / 不通过 → 改图重新出样回「待到样」，或退回询价换供应商）
 //   已定价 / 待购买 → 标记已下单（填 T+ 采购单号；直购会先打开购买链接）
@@ -43,7 +43,6 @@ import {
   deleteProcTask,
   linkPurchaseOrders,
   listTaskQuoteBookOptions,
-  getProcTask,
   listQuotations,
   reassignProcTask,
   receiveProcTask,
@@ -55,6 +54,7 @@ import {
 } from "../../lib/procurementApi";
 import { applyProcTaskUpdate, captureProcurementScope, refreshProcurement } from "../data";
 import { BuyerComboInput, DateInput, FREE_SAMPLE_ONLY_STATUSES, fmtMoney, PROC_STATUS_META, useBuyerDirectory } from "./common";
+import { TplusSupplierSelect } from "./TplusSupplierSelect";
 
 type FormKind = "quote" | "select" | "order" | "receive" | "reassign" | "confirm" | "test";
 
@@ -246,6 +246,18 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
   /** 「待到样」登记出样单：不是状态流转，所以不走 runNext，由详情单独触发。 */
   const linkSampleOrder = useCallback((task: ProcurementTask) => setPending({ kind: "order", task }), []);
 
+  const repairSampleStatus = useCallback((task: ProcurementTask) => setPending({
+    kind: "confirm",
+    task,
+    confirm: {
+      title: "确认本轮免费样品尚未收到？",
+      desc: "请先核实已有免费样品登记属于本轮需求，且样品尚未实际收到。确认后修正为「待到样」，保留原有报价和样品登记，不重复录入；样品到了再点「样品已到」。已实际收到的任务无需修正。",
+      actionLabel: "确认未到样并修正",
+      run: () => transitionProcTask(task.id, "pending_sample", "历史免费样品状态修正：确认本轮样品尚未收到，进入待到样", task.status),
+      okText: "已修正为「待到样」，原有报价和样品登记已保留",
+    },
+  }), []);
+
   const remove = useCallback((task: ProcurementTask) => {
     const mode = removalModeOf(task);
     // 待研发审核的申请采购侧动不了：取消和删除后端都会 400，直接提示正确入口而不是弹一个必然失败的框
@@ -299,7 +311,7 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
     />
   ) : null;
 
-  return { runNext, reassign, remove, linkSampleOrder, modal, busy };
+  return { runNext, reassign, remove, linkSampleOrder, repairSampleStatus, modal, busy };
 }
 
 // ── 表单弹窗 ──────────────────────────────────────────────────────────────────
@@ -411,6 +423,9 @@ function ActionModal({
 
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderDraft[]>([]);
   const [purchaseOrdersLoading, setPurchaseOrdersLoading] = useState(false);
+  const [purchaseOrdersError, setPurchaseOrdersError] = useState("");
+  const [purchaseOrderLoadVersion, setPurchaseOrderLoadVersion] = useState(0);
+  const [validSuppliers, setValidSuppliers] = useState<Record<string, string>>({});
   // 只有本次在弹窗里手动改过数量才动任务需求量。存量任务里报价数量之和本就与需求量不等，
   // 不加这道闸，老任务点一次「标记已下单」就会被顺手改写需求数量。
   const [orderedQtyEdited, setOrderedQtyEdited] = useState(false);
@@ -480,40 +495,18 @@ function ActionModal({
     ? Math.max(0, quoteSubtotal - quoteDiscountAmount)
     : quoteSubtotal;
 
-  // 已寄来免费样品的供应商。传进来的 task 可能是列表里的旧快照——刚登记完样品就直接选报价时，
-  // 用它算出的提示会停留在上一轮结论，所以打开表单时现拉一次，拉到之前先用手头这份兜底。
-  const [fetchedFreeSampleSuppliers, setFetchedFreeSampleSuppliers] = useState<string[] | null>(null);
-  const freeSampleSuppliersOf = useCallback(
-    (source: ProcurementTask) => [...new Set(
-      (source.purchaseOrders ?? [])
-        .filter((po) => po.freeSample)
-        .map((po) => po.supplierName.trim())
-        .filter(Boolean),
-    )],
-    [],
-  );
-  const freeSampleSuppliers = fetchedFreeSampleSuppliers ?? freeSampleSuppliersOf(task);
-
   // 「待询价」批量确认过的报价。有这些就说明价格已经定了，「询价中」这一步只剩决定去向，
   // 不该再让用户从头选一遍供应商。
   const confirmedQuotes = useMemo(() => quotes.filter((q) => q.isSelected), [quotes]);
-  // 所选供应商是否都已寄样：判据与服务端 nextAfterQuoteSelected 一致（每家都到才跳过「待到样」）
-  const freeSampleUnlocked = confirmedQuotes.length > 0
-    && confirmedQuotes.every((q) => freeSampleSuppliers.includes(q.supplierName.trim()));
 
   useEffect(() => {
     if (kind !== "select") return;
     let alive = true;
-    setFetchedFreeSampleSuppliers(null);
     void listQuotations({ taskId: task.id })
       .then((list) => { if (alive) setQuotes(list); })
       .catch(() => { if (alive) setQuotes([]); });
-    // 拉失败就继续用兜底那份：提示不准好过表单打不开
-    void getProcTask(task.id)
-      .then((fresh) => { if (alive) setFetchedFreeSampleSuppliers(freeSampleSuppliersOf(fresh)); })
-      .catch(() => {});
     return () => { alive = false; };
-  }, [kind, task.id, freeSampleSuppliersOf]);
+  }, [kind, task.id]);
 
   // 声明必须在下面这个 effect 之前：它进了依赖数组，而依赖数组是渲染期求值的。
   // 待询价 / 询价中只能登记免费样品来货，单号一律为空，勾选框锁死不可取消。
@@ -523,6 +516,9 @@ function ActionModal({
     if (kind !== "order") return;
     let alive = true;
     setPurchaseOrdersLoading(true);
+    setPurchaseOrdersError("");
+    setPurchaseOrders([]);
+    setValidSuppliers({});
     void listQuotations({ taskId: task.id })
       .then((list) => {
         if (!alive) return;
@@ -552,22 +548,15 @@ function ActionModal({
           freeSample: isFreeSampleOnly,
         }]);
       })
-      .catch(() => {
+      .catch((cause: unknown) => {
         if (!alive) return;
-        setPurchaseOrders([{
-          key: "__direct__",
-          supplierName: "",
-          orderedQty: String(task.quantity),
-          tpOrderNo: "",
-          etaDate: "",
-          freeSample: isFreeSampleOnly,
-        }]);
+        setPurchaseOrdersError(cause instanceof Error ? cause.message : t("已确认报价读取失败，请重试"));
       })
       .finally(() => {
         if (alive) setPurchaseOrdersLoading(false);
       });
     return () => { alive = false; };
-  }, [kind, task.id, task.quantity, isFreeSampleOnly]);
+  }, [kind, task.id, task.quantity, isFreeSampleOnly, purchaseOrderLoadVersion, t]);
 
   const updatePurchaseOrder = (key: string, patch: Partial<PurchaseOrderDraft>) => {
     setFormError("");
@@ -693,6 +682,10 @@ function ActionModal({
       return;
     }
     if (kind === "order") {
+      if (purchaseOrders.some((item) => !item.supplierName.trim() || validSuppliers[item.key] !== item.supplierName)) {
+        fail(t("请从畅捷通供应商目录中选择每一行的供应商"));
+        return;
+      }
       // 免费样品来货 T+ 里没有采购单，勾了就不校验单号；其余行仍必须给号。
       if (purchaseOrders.length === 0 || purchaseOrders.some((item) => !item.freeSample && !item.tpOrderNo.trim())) {
         fail(t("请填写每家供应商的畅捷通 T+ 采购单号；免费样品请勾选「免费样品」"));
@@ -717,9 +710,8 @@ function ActionModal({
           { syncTaskQuantity: quantityChanged },
         ),
         isFreeSampleOnly
-          ? t("已登记 {count} 条免费样品来货，任务仍在「{status}」；选定报价后可直接进入「测试中」", {
+          ? t("已登记 {count} 条免费样品，任务已进入「待到样」，收到后请确认「样品已到」", {
               count: freeSampleCount,
-              status: t(PROC_STATUS_META[task.status].label),
             })
           : isSampleOrder
             ? allFreeSample
@@ -1077,9 +1069,7 @@ function ActionModal({
                 <p className="text-xs leading-relaxed text-slate-500">
                   {!task.needSample
                     ? t("完成询价后进入「已定价」，可标记已下单。")
-                    : freeSampleUnlocked
-                      ? t("已收到所选供应商的免费样品，完成询价后直接进入「测试中」。")
-                      : t("该任务需要打样，完成询价后进入「待到样」。")}
+                    : t("该任务需要打样，完成询价后进入「待到样」，实际收到样品后再确认「样品已到」。")}
                 </p>
                 <button
                   type="button"
@@ -1113,11 +1103,7 @@ function ActionModal({
                 <p className="pt-1 text-xs text-slate-400">
                   {!task.needSample
                     ? t("选定后直接进入「已定价」")
-                    : freeSampleSuppliers.length > 0
-                      ? t("已收到 {suppliers} 的免费样品：选这几家直接进入「测试中」，选其他供应商仍进入「待到样」", {
-                          suppliers: freeSampleSuppliers.join("、"),
-                        })
-                      : t("选定后进入「待到样」")}
+                    : t("选定后进入「待到样」，实际收到样品后再确认「样品已到」。")}
                 </p>
               </div>
             )
@@ -1132,7 +1118,7 @@ function ActionModal({
               )}
               {isFreeSampleOnly && (
                 <div className="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-xs leading-relaxed text-amber-700">
-                  {t("供应商提前寄样：此处只登记免费样品来货，不填采购单号，任务状态不变。登记后选定报价可直接进入「测试中」，不必再等一轮「待到样」。")}
+                  {t("供应商提前寄样：无需填写采购单号。保存后任务进入「待到样」；登记不代表已收到样品，实际收到后再点「样品已到」进入测试。")}
                 </div>
               )}
               {purchaseOrders.length > 1 && (
@@ -1143,6 +1129,11 @@ function ActionModal({
               {purchaseOrdersLoading ? (
                 <div className="flex min-h-28 items-center justify-center gap-2 text-sm text-slate-400">
                   <Loader2 className="h-4 w-4 animate-spin" />{t("正在读取已确认报价…")}
+                </div>
+              ) : purchaseOrdersError ? (
+                <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                  <p className="text-pretty">{purchaseOrdersError}</p>
+                  <button type="button" onClick={() => setPurchaseOrderLoadVersion((version) => version + 1)} className="mt-2 rounded px-2 py-1 font-medium underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">{t("重新读取报价")}</button>
                 </div>
               ) : (
                 <ScrollArea className="h-[380px] pr-3">
@@ -1202,11 +1193,15 @@ function ActionModal({
                       <div className="mt-2 grid grid-cols-2 gap-3">
                         <div>
                           <label htmlFor={`purchase-order-${index}-supplier`} className={label}>{t("供应商")}</label>
-                          <Input
+                          <TplusSupplierSelect
                             id={`purchase-order-${index}-supplier`}
                             value={item.supplierName}
-                            onChange={(event) => updatePurchaseOrder(item.key, { supplierName: event.target.value })}
-                            className={field}
+                            disabled={busy}
+                            onChange={(supplierName) => updatePurchaseOrder(item.key, { supplierName })}
+                            onValidityChange={(valid) => setValidSuppliers((current) => {
+                              const name = valid ? item.supplierName : "";
+                              return current[item.key] === name ? current : { ...current, [item.key]: name };
+                            })}
                           />
                         </div>
                         <div>
@@ -1271,7 +1266,8 @@ function ActionModal({
                 disabled={
                   busy
                   || (kind === "quote" && (quoteBookLoading || selectedQuoteIds.length === 0))
-                  || (kind === "order" && purchaseOrdersLoading)
+                  || (kind === "order" && (purchaseOrdersLoading || Boolean(purchaseOrdersError) || purchaseOrders.length === 0
+                    || purchaseOrders.some((item) => !item.supplierName.trim() || validSuppliers[item.key] !== item.supplierName)))
                 }
                 onClick={submit}
                 className={cn(

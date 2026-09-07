@@ -1,7 +1,31 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { RolesGuard } from '../src/modules/auth/guards/roles.guard';
+import { QuoteBookController } from '../src/modules/procurement/quote-book.controller';
 
 import { ProcurementService } from '../src/modules/procurement/procurement.service';
+
+test('仅采购登记权限可读供应商目录，但不能读取报价或写入报价库', async () => {
+  const allowed = (method: keyof QuoteBookController, permissions: string[]) => new RolesGuard(new Reflector()).canActivate({
+    getHandler: () => QuoteBookController.prototype[method],
+    getClass: () => QuoteBookController,
+    switchToHttp: () => ({ getRequest: () => ({ user: { permissions } }) }),
+  } as unknown as ExecutionContext);
+  assert.equal(allowed('listSuppliers', ['proc-task:order']), true);
+  assert.equal(allowed('listSuppliers', ['page:proc-quote-book']), true);
+  assert.equal(allowed('listSuppliers', []), false);
+  assert.equal(allowed('listSuppliers', ['page:proc-cockpit']), false);
+  for (const method of ['list', 'createQuote', 'updateQuote', 'deleteQuote', 'importQuotes', 'aiParseQuotes', 'ocrParseQuotes', 'clearMaterialQuotes'] as const) {
+    assert.equal(allowed(method, ['proc-task:order']), false, method);
+  }
+  assert.equal(allowed('createQuote', ['quote-book:manage']), true);
+  assert.equal(allowed('createQuote', ['proc-task:inquiry']), true);
+  const expected = { suppliers: [{ id: 'tplus-1', name: '畅捷通供应商', source: 'tplus' }] };
+  const controller = new QuoteBookController({ listSuppliers: async () => expected } as never);
+  assert.deepEqual(await controller.listSuppliers(), expected);
+});
 
 test('未绑定物料的采购任务仍可读取并搜索全库有效报价', async () => {
   const quoteQueries: Array<Record<string, unknown>> = [];
