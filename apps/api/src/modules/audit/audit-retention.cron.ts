@@ -11,6 +11,15 @@ const MIN_RETENTION_DAYS = 90;
 /** 单次最多删多少行。留痕表可能积到百万级，一次性 DELETE 会长时间持锁。 */
 const DELETE_BATCH_SIZE = 5000;
 
+/** 清理任务与运维页面共用的有效保留期，0 表示不自动清理。 */
+export function resolveAuditRetentionDays(raw: unknown): number {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return DEFAULT_RETENTION_DAYS;
+  const parsed = Number(String(raw).trim());
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_RETENTION_DAYS;
+  if (parsed === 0) return 0;
+  return Math.max(MIN_RETENTION_DAYS, Math.floor(parsed));
+}
+
 /**
  * 操作留痕的保留期清理。
  *
@@ -82,6 +91,6 @@ export class AuditRetentionCron {
       );
       return MIN_RETENTION_DAYS;
     }
-    return Math.floor(parsed);
+    return resolveAuditRetentionDays(raw);
   }
 }

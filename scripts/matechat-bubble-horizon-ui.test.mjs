@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import ts from "typescript";
 
 function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -16,6 +17,94 @@ const visualSources = {
   "MateChat 连胜卡片": streakCard,
   "MateChat 使用提醒": reminderModal,
 };
+
+const mateAst = ts.createSourceFile('MateChatBubble.tsx', mateChat, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+
+function conversationFunction(name, scope) {
+  let expression;
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === name) expression = node.getText(mateAst);
+    if (ts.isVariableDeclaration(node) && node.name.getText(mateAst) === name) expression = node.initializer.getText(mateAst);
+    ts.forEachChild(node, visit);
+  }
+  visit(mateAst);
+  assert.ok(expression, `missing ${name}`);
+  const code = ts.transpileModule(`return (${expression});`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  return new Function(...Object.keys(scope), code)(...Object.values(scope));
+}
+
+test('聊天更新对话按权限、会话失效、缺失、校验和网络故障显示中文', async () => {
+  for (const [status, body, message] of [
+    [401, { message: 'Unauthorized' }, '登录已失效，请重新登录后再试'],
+    [403, { message: 'Forbidden' }, '没有修改该对话的权限'],
+    [404, { message: 'Not Found' }, '对话不存在或已被删除，请刷新列表后重试'],
+    [429, { message: 'Too Many Requests' }, '操作过于频繁，请稍后再试'],
+    [500, { message: '服务器内部细节' }, '服务器暂时无法更新对话，请稍后重试'],
+    [400, { message: ['标题不能超过 200 个字符'] }, '标题不能超过 200 个字符'],
+    [400, { message: 'Error' }, '更新对话失败，请检查输入后重试'],
+  ]) {
+    const update = conversationFunction('apiUpdateConversation', { authFetch: async () => Response.json(body, { status }) });
+    await assert.rejects(() => update('A', { title: '新标题' }), { message });
+  }
+  const offline = conversationFunction('apiUpdateConversation', { authFetch: async () => { throw new TypeError('Failed to fetch'); } });
+  await assert.rejects(() => offline('A', { pinned: true }), { message: '网络连接异常，请检查网络后重试' });
+});
+
+for (const action of ['togglePin', 'confirmRename']) {
+  test(`${action} 失败显示提示并保留标题/置顶状态，重试成功后才更新`, async () => {
+    let fail = true;
+    const activeConv = { id: 'A', title: '原标题', pinned: false };
+    const values = { conversations: [activeConv], saving: false, renaming: true, messages: [] };
+    const update = conversationFunction('apiUpdateConversation', { authFetch: async () => fail
+      ? Response.json({ message: 'Forbidden' }, { status: 403 })
+      : Response.json({ ...activeConv, title: '新标题', pinned: true }) });
+    const scope = {
+      activeConv, renameTitle: '新标题', conversationSavingRef: { current: false },
+      apiUpdateConversation: update,
+      setConversationSaving: (value) => { values.saving = value; },
+      setConversations: (update) => { values.conversations = update(values.conversations); },
+      setIsRenaming: (value) => { values.renaming = value; },
+      toast: { error: (message) => values.messages.push(['error', message]), success: (message) => values.messages.push(['success', message]) },
+    };
+    const run = conversationFunction(action, scope);
+    await run();
+    assert.deepEqual(values.conversations, [activeConv]);
+    assert.equal(scope.renameTitle, '新标题');
+    assert.equal(values.renaming, true);
+    assert.equal(values.saving, false);
+    assert.equal(scope.conversationSavingRef.current, false);
+    assert.deepEqual(values.messages, [['error', '没有修改该对话的权限']]);
+    fail = false;
+    await run();
+    assert.equal(values.conversations[0][action === 'togglePin' ? 'pinned' : 'title'], action === 'togglePin' ? true : '新标题');
+    assert.equal(values.messages[1][0], 'success');
+    if (action === 'confirmRename') assert.equal(values.renaming, false);
+  });
+}
+
+test('聊天置顶和重命名在请求期间禁止重复提交，失败后释放操作', async () => {
+  let reject;
+  const pending = new Promise((_resolve, rejectRequest) => { reject = rejectRequest; });
+  let calls = 0;
+  let saving = false;
+  const scope = {
+    activeConv: { id: 'A', title: '原标题', pinned: false }, renameTitle: '新标题',
+    conversationSavingRef: { current: false },
+    apiUpdateConversation: () => { calls++; return pending; },
+    setConversationSaving: (value) => { saving = value; },
+    setConversations: assert.fail, setIsRenaming: assert.fail,
+    toast: { error() {}, success: assert.fail },
+  };
+  const first = conversationFunction('togglePin', scope)();
+  assert.equal(saving, true);
+  await conversationFunction('togglePin', scope)();
+  await conversationFunction('confirmRename', scope)();
+  assert.equal(calls, 1);
+  reject(new Error('连接失败'));
+  await first;
+  assert.equal(saving, false);
+  assert.equal(scope.conversationSavingRef.current, false);
+});
 
 test("MateChat 与 RAG 引用接入 Horizon/Klein Blue 初步视觉", () => {
   assert.match(mateChat, /className="horizon-theme matechat-horizon/);

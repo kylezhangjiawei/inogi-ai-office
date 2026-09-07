@@ -96,7 +96,9 @@ test('普通用户创建报销单时以后端登录身份为准，并只采用�
   const prisma = {
     $transaction: async (callback: (tx: unknown) => Promise<void>) =>
       callback({
+        $queryRaw: async () => [],
         systemSetting: {
+          findMany: async () => [{ value: linkedInvoice() }],
           create: async ({ data }: { data: Record<string, unknown> }) => {
             writes.push(data);
             return data;
@@ -120,6 +122,74 @@ test('普通用户创建报销单时以后端登录身份为准，并只采用�
   assert.equal(writes.length, 2);
   assert.match(String(writes[0].key), /^expense_reimbursement_invoice:invoice-1$/);
   assert.equal(writes[1].category, 'expense_reimbursement');
+});
+
+test('组单后修改发票金额或税额会被拒绝，元数据仍可修正且已驳回后可重新维护金额', async () => {
+  let invoice: Record<string, unknown> = linkedInvoice({ tax: 10, project: '原项目' });
+  let reimbursements = [{ id: 'EXP-1', status: '草稿', invoice_ids: ['invoice-1'] }];
+  let writes = 0;
+  const locks: string[] = [];
+  const settings = {
+    findUnique: async () => ({ value: invoice }),
+    findMany: async () => reimbursements.map((value) => ({ value })),
+    update: async ({ data }: { data: { value: typeof invoice } }) => { writes += 1; invoice = data.value; },
+    upsert: async ({ update }: { update: { value: typeof invoice } }) => { writes += 1; invoice = update.value; },
+  };
+  const tx = { systemSetting: settings, $queryRaw: async (_sql: TemplateStringsArray, key: string) => { locks.push(key); return []; } };
+  const service = createService({ systemSetting: settings, $transaction: async (run: (client: typeof tx) => unknown) => run(tx) });
+  stubExpenseRecords(service, [invoice], reimbursements);
+  for (const status of ['草稿', '审批中', '已通过', '已付款']) {
+    reimbursements = [{ ...reimbursements[0], status }];
+    for (const patch of [{ amount: 256 }, { tax: 20 }]) {
+      await assert.rejects(service.updateInvoice('invoice-1', patch as never, scope), /报销单|已报销/);
+      assert.equal(invoice.amount, 128);
+      assert.equal(invoice.tax, 10);
+    }
+  }
+  assert.equal(writes, 0);
+  await service.updateInvoice('invoice-1', { project: '修正项目' } as never, scope);
+  assert.equal(invoice.project, '修正项目');
+  reimbursements = [{ ...reimbursements[0], status: '已驳回' }];
+  await service.updateInvoice('invoice-1', { amount: 256 } as never, scope);
+  assert.equal(invoice.amount, 256);
+  assert.ok(locks.every((key) => key === 'expense-invoice:invoice-1'));
+});
+
+test('组单事务锁内发现票据已被编辑时拒绝旧金额快照，刷新后可按新金额组单', async () => {
+  let current = linkedInvoice();
+  let replaceOnLock = true;
+  let writes = 0;
+  const tx = {
+    $queryRaw: async () => { if (replaceOnLock) current = linkedInvoice({ amount: 256 }); return []; },
+    systemSetting: {
+      findMany: async () => [{ value: current }],
+      create: async ({ data }: { data: Record<string, unknown> }) => { writes += 1; return data; },
+    },
+  };
+  const service = createService({ $transaction: async (run: (client: typeof tx) => unknown) => run(tx) });
+  stubExpenseRecords(service, [linkedInvoice()]);
+  await assert.rejects(service.createReimbursement(reimbursementPayload() as never, scope, actor), /票据.*变更|票据.*更新/);
+  assert.equal(writes, 0);
+  replaceOnLock = false;
+  stubExpenseRecords(service, [current]);
+  const saved = await service.createReimbursement(reimbursementPayload() as never, scope, actor);
+  assert.equal(saved.amount, 256);
+  assert.equal(writes, 2);
+});
+
+test('历史草稿金额与发票不一致时不调用外部审批并释放操作锁', async () => {
+  const service = createService();
+  stubExpenseRecords(service, [linkedInvoice({ amount: 256 })]);
+  let released = 0;
+  let externalReads = 0;
+  const internal = service as any;
+  internal.acquireReimbursementOperation = async () => undefined;
+  internal.releaseReimbursementOperation = async () => { released += 1; };
+  internal.getReimbursementOrThrow = async () => ({ id: 'EXP-1', status: '草稿', invoice_ids: ['invoice-1'], amount: 128 });
+  internal.getResolvedIntegrationConfig = async () => { externalReads += 1; throw new Error('不应读取外部审批配置'); };
+  await assert.rejects(service.submitWeComApproval('EXP-1', scope), /金额.*不一致|票据.*变更/);
+  assert.equal(externalReads, 0);
+  assert.equal(released, 1);
 });
 
 test('归档配置会拒绝重复分类 ID，并移除指向不存在分类的映射', async () => {

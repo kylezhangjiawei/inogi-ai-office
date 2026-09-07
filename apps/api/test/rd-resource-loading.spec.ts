@@ -1826,6 +1826,54 @@ test('研发成果与放弃仍必须由管理员审核后完成或删除', async
   }
 });
 
+test('普通成员不能直接完成、封存任务或清空替换待审状态', async () => {
+  for (const patch of [{ status: 'completed', progress: 100 }, { status: 'archived' }]) {
+    const h = createReviewPolicyHarness();
+    await assert.rejects(() => h.service.updateTask('policy-task', patch, policyMember), /审核/);
+    assert.equal(h.task().status, 'in_progress');
+    assert.equal(h.task().progress, 30);
+  }
+  for (const type of ['result', 'abandon']) {
+    for (const patch of [
+      { status: 'completed', pending_review_type: null },
+      { status: 'in_progress', pending_review_type: null },
+      { pending_review_type: null },
+      { pending_review_type: 'proposal' },
+      { status: 'pending_review', pending_review_type: 'abandon' === type ? 'result' : 'abandon' },
+    ]) {
+      const h = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: type });
+      await assert.rejects(() => h.service.updateTask('policy-task', patch, policyMember), /审核/);
+      assert.equal(h.task().status, 'pending_review');
+      assert.equal(h.task().pending_review_type, type);
+      assert.equal(h.scores(), 0);
+      assert.equal(h.deletions(), 0);
+    }
+  }
+});
+
+test('详情页省略审核类型的完成提交持久化为成果待审，管理员仍可正常验收评分', async () => {
+  const h = createReviewPolicyHarness();
+  await h.service.updateTask('policy-task', { status: 'pending_review', progress: 100 }, policyMember);
+  assert.equal(h.task().status, 'pending_review');
+  assert.equal(h.task().pending_review_type, 'result');
+  assert.equal(h.notifications(), 1);
+  await h.service.updateTask('policy-task', { _review_action: 'approve' }, { ...policyMember, canEditAny: true });
+  assert.equal(h.task().status, 'completed');
+  assert.equal(h.scores(), 1);
+});
+
+test('普通成员仍能更新进展及暂停恢复，管理员仍能直接完成', async () => {
+  const h = createReviewPolicyHarness();
+  await h.service.updateTask('policy-task', { progress: 60, status: 'paused_blocked' }, policyMember);
+  assert.equal(h.task().progress, 60);
+  assert.equal(h.task().status, 'paused_blocked');
+  await h.service.updateTask('policy-task', { status: 'in_progress' }, policyMember);
+  assert.equal(h.task().status, 'in_progress');
+  await h.service.updateTask('policy-task', { status: 'completed', progress: 100 }, { ...policyMember, canEditAny: true });
+  assert.equal(h.task().status, 'completed');
+  assert.equal(h.task().progress, 100);
+});
+
 test('研发免审变更不能覆盖待验收或待放弃状态', async () => {
   for (const type of ['result', 'abandon']) {
     const h = createReviewPolicyHarness({ status: 'pending_review', pending_review_type: type });

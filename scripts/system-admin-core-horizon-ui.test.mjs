@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import ts from "typescript";
 
 function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -16,6 +17,121 @@ const pages = {
   "页面路由管理": source("src/app/RouteManagementPage.tsx"),
   "字典列表": source("src/app/DictionaryList.tsx"),
 };
+
+// Execute the page's real save request with controlled HTTP responses.
+const userSource = ts.createSourceFile("UserManagement.tsx", pages["用户管理"], ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const saveFunctions = userSource.statements
+  .filter((statement) => ts.isFunctionDeclaration(statement) && ["apiSaveUser", "readUserSaveError"].includes(statement.name?.text))
+  .map((statement) => statement.getText(userSource))
+  .join("\n");
+const createSaveUser = new Function("authFetch", "translate", `${ts.transpileModule(saveFunctions, {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+}).outputText}\nreturn apiSaveUser;`);
+const userForm = { name: "测试用户", englishName: "", username: "duplicate", department: "研发部", roleId: "role-1", status: "ACTIVE", password: "test-password" };
+
+test("保存用户按错误类型展示中文提示，避免直接展示英文 Error", async () => {
+  const cases = [
+    [409, { code: "USERNAME_ALREADY_EXISTS", message: "Error" }, "用户名已存在，请更换用户名"],
+    [409, { code: "EMAIL_ALREADY_EXISTS", message: "Conflict" }, "邮箱已被使用，请更换邮箱"],
+    [400, { message: ["姓名不能超过 80 个字符", "密码长度至少 8 位"] }, "姓名不能超过 80 个字符；密码长度至少 8 位"],
+    [400, { message: "指定的角色不存在，可能已被删除，请重新选择" }, "指定的角色不存在，可能已被删除，请重新选择"],
+    [401, { message: "Unauthorized" }, "登录已失效，请重新登录后再试"],
+    [403, { message: "Forbidden resource" }, "没有保存用户的权限，请联系管理员"],
+    [403, { message: "超级管理员账号信息不允许修改" }, "超级管理员账号信息不允许修改"],
+    [404, { message: "Not Found" }, "用户不存在或已被删除，请刷新列表后重试"],
+    [409, { message: "Conflict" }, "用户名或邮箱已被使用，请检查后重试"],
+    [429, { message: "ThrottlerException: Too Many Requests" }, "操作过于频繁，请稍后再试"],
+    [500, { message: "Internal server error", detail: "private database detail" }, "服务器暂时无法保存用户，请稍后重试"],
+    [502, null, "服务器暂时无法保存用户，请稍后重试"],
+    [400, { message: "Error" }, "用户信息有误，请检查填写内容后重试"],
+    [400, { message: [null, {}, ""] }, "用户信息有误，请检查填写内容后重试"],
+    [418, {}, "保存用户失败，请稍后重试"],
+  ];
+  for (const [status, body, expected] of cases) {
+    const save = createSaveUser(async () => new Response(JSON.stringify(body), { status }), (text) => text);
+    await assert.rejects(() => save(userForm), { message: expected }, `${status}: ${JSON.stringify(body)}`);
+  }
+});
+
+test("保存用户处理网络断开和非 JSON 错误响应，且不自动重复提交", async () => {
+  let attempts = 0;
+  const save = createSaveUser(async () => { attempts += 1; throw new TypeError("Failed to fetch"); }, (text) => text);
+  await assert.rejects(() => save(userForm), { message: "网络连接异常，请检查网络后重试" });
+  assert.equal(attempts, 1);
+  const gatewaySave = createSaveUser(async () => new Response("<html>Bad Gateway</html>", { status: 502 }), (text) => text);
+  await assert.rejects(() => gatewaySave(userForm), { message: "服务器暂时无法保存用户，请稍后重试" });
+});
+
+test("保存用户成功时保持创建和编辑请求契约", async () => {
+  for (const id of [undefined, "user-1"]) {
+    const saved = { id: id ?? "created-user", name: userForm.name };
+    const calls = [];
+    const save = createSaveUser(async (url, init) => {
+      calls.push({ url, method: init.method, body: JSON.parse(init.body) });
+      return new Response(JSON.stringify(saved), { status: 201 });
+    }, (text) => text);
+    assert.deepEqual(await save({ ...userForm, id }), saved);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "/api/users");
+    assert.equal(calls[0].method, "POST");
+    assert.equal(calls[0].body.username, userForm.username);
+    assert.equal(calls[0].body.id, id);
+    assert.equal(calls[0].body.password, id ? undefined : userForm.password);
+  }
+});
+
+const roleSource = ts.createSourceFile("RoleManagement.tsx", pages["角色权限"], ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const roleFunctions = roleSource.statements
+  .filter((statement) => ts.isFunctionDeclaration(statement) && ["apiListRoles", "apiSaveRole", "apiDeleteRole", "readRoleError"].includes(statement.name?.text))
+  .map((statement) => statement.getText(roleSource))
+  .join("\n");
+const createRoleApi = new Function("authFetch", `${ts.transpileModule(roleFunctions, {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+}).outputText}\nreturn { list: apiListRoles, save: apiSaveRole, remove: apiDeleteRole };`);
+const roleForm = { name: "项目成员", description: "说明", permissions: ["page:tasks"] };
+
+test("角色保存按重复、校验、权限、缺失与服务异常分类显示中文", async () => {
+  const cases = [
+    [409, { code: "ROLE_NAME_ALREADY_EXISTS", message: "Error" }, "角色名称已存在，请更换名称"],
+    [400, { message: ["角色名称不能为空", "权限项必须是字符串"] }, "角色名称不能为空；权限项必须是字符串"],
+    [400, { message: "Error" }, "角色信息有误，请检查填写内容后重试"],
+    [401, { message: "Unauthorized" }, "登录已失效，请重新登录后再试"],
+    [403, { message: "Forbidden resource" }, "没有保存角色的权限，请联系管理员"],
+    [403, { message: "不能管理或授予超出当前账号权限范围的角色，请联系超级管理员" }, "不能管理或授予超出当前账号权限范围的角色，请联系超级管理员"],
+    [403, { message: "超级管理员角色不允许修改" }, "超级管理员角色不允许修改"],
+    [404, { message: "Not Found" }, "角色不存在或已被删除，请刷新列表后重试"],
+    [429, { message: "Too Many Requests" }, "操作过于频繁，请稍后再试"],
+    [500, { message: "数据库详情不能显示" }, "服务器暂时无法保存角色，请稍后重试"],
+  ];
+  for (const [status, body, expected] of cases) {
+    const api = createRoleApi(async () => new Response(JSON.stringify(body), { status }));
+    await assert.rejects(() => api.save(roleForm), { message: expected });
+  }
+});
+
+test("角色读取、保存、删除的断网均显示中文且写入不重复请求", async () => {
+  for (const action of ["list", "save", "remove"]) {
+    let attempts = 0;
+    const api = createRoleApi(async () => { attempts += 1; throw new TypeError("Failed to fetch"); });
+    await assert.rejects(() => api[action](action === "save" ? roleForm : "role-1"), { message: "网络连接异常，请检查网络后重试" });
+    assert.equal(attempts, 1);
+  }
+  const api = createRoleApi(async () => new Response("<html>Bad Gateway</html>", { status: 502 }));
+  await assert.rejects(() => api.save(roleForm), { message: "服务器暂时无法保存角色，请稍后重试" });
+});
+
+test("角色创建编辑保持请求契约，成功响应仍返回保存对象", async () => {
+  for (const id of [undefined, "existing-role"]) {
+    const calls = [];
+    const saved = { ...roleForm, id: id ?? "created-role" };
+    const api = createRoleApi(async (url, init) => {
+      calls.push({ url, method: init.method, body: JSON.parse(init.body) });
+      return new Response(JSON.stringify(saved), { status: 201 });
+    });
+    assert.deepEqual(await api.save({ ...roleForm, id }), saved);
+    assert.deepEqual(calls, [{ url: "/api/roles", method: "POST", body: { ...roleForm, ...(id ? { id } : {}) } }]);
+  }
+});
 
 test("系统管理四个核心页面统一挂载 Horizon 页头和四项指标", () => {
   for (const [name, page] of Object.entries(pages)) {

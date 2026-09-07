@@ -405,22 +405,6 @@ const cloudIntegrations = [
   { name: "ARMS Trace", status: "二期待接入", detail: "接口、数据库、AI 外部调用的全链路耗时分析", icon: Activity, tone: "neutral" as Tone },
 ];
 
-const alertRules = [
-  { name: "接口 5xx 连续异常", condition: "5 分钟内 5xx >= 5 次", channel: "站内 / 钉钉", level: "严重", enabled: true },
-  { name: "AI 调用失败率过高", condition: "15 分钟失败率 >= 8%", channel: "站内 / 邮件", level: "警告", enabled: true },
-  { name: "数据库连接失败", condition: "连续 3 次健康检查失败", channel: "站内 / 短信", level: "致命", enabled: true },
-  { name: "慢接口过多", condition: "P95 > 3s 且请求数 >= 20", channel: "站内", level: "警告", enabled: false },
-  { name: "磁盘空间不足", condition: "可用空间 < 20%", channel: "站内 / 钉钉", level: "严重", enabled: true },
-];
-
-const logPolicies = [
-  { name: "接口访问日志", retention: "30 天", payload: "记录请求摘要", masking: "开启", status: "启用" },
-  { name: "接口错误日志", retention: "90 天", payload: "记录错误堆栈", masking: "开启", status: "启用" },
-  { name: "操作审计日志", retention: "180 天", payload: "记录资源与操作者", masking: "开启", status: "启用" },
-  { name: "Prisma 慢查询日志", retention: "30 天", payload: "记录模型、耗时、调用来源", masking: "开启", status: "启用" },
-  { name: "第三方调用日志", retention: "60 天", payload: "记录 request id 与响应摘要", masking: "开启", status: "启用" },
-];
-
 const statusColors: Record<Tone, string> = {
   healthy: "border-emerald-200 bg-emerald-50 text-emerald-700",
   info: "border-blue-200 bg-blue-50 text-blue-700",
@@ -606,8 +590,8 @@ function buildSectionMetrics(section: OpsSection, data: OpsCenterSectionData | n
   }
 
   if (section === "alerts-audit") {
-    const rules = getArray<any>(data, "alert_rules", alertRules);
-    const policies = getArray<any>(data, "log_policies", logPolicies);
+    const rules = getArray<any>(data, "alert_rules", []);
+    const policies = getArray<any>(data, "log_policies", []);
     const audits = getArray<any>(data, "audit_logs", auditLogs);
     const summary = data?.audit_summary as { today_events?: number; high_risk?: number; users?: number } | undefined;
     return [
@@ -1140,23 +1124,12 @@ function ServicesTasksPage({ data }: { data: OpsCenterSectionData | null }) {
   );
 }
 
-const ALERT_RULE_OVERRIDES_KEY = "ops-alert-rule-overrides";
-
 function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }) {
   const [ruleKeyword, setRuleKeyword] = useState("");
   const [ruleLevelFilter, setRuleLevelFilter] = useState("全部");
   const [policyKeyword, setPolicyKeyword] = useState("");
-  // 告警规则启停：本地可切换，「保存策略」持久化到 localStorage（后端暂无写端点）
-  const [ruleOverrides, setRuleOverrides] = useState<Record<string, boolean>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(ALERT_RULE_OVERRIDES_KEY) ?? "{}") as Record<string, boolean>;
-    } catch {
-      return {};
-    }
-  });
-  const ruleEnabled = (row: any) => ruleOverrides[row.name] ?? Boolean(row.enabled);
-  const rules = getArray(data, "alert_rules", alertRules);
-  const policies = getArray(data, "log_policies", logPolicies);
+  const rules = getArray<any>(data, "alert_rules", []);
+  const policies = getArray<any>(data, "log_policies", []);
   const deferredRuleKeyword = useDeferredValue(ruleKeyword);
   const deferredPolicyKeyword = useDeferredValue(policyKeyword);
   const filteredRules = useMemo(() => {
@@ -1193,7 +1166,7 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
     totalPages: policyTotalPages,
     pagedRows: pagedPolicies,
   } = usePagedRows(filteredPolicies, deferredPolicyKeyword, 6);
-  const settings = getArray(data, "log_settings", ["慢接口阈值：1000ms", "慢 SQL 阈值：800ms", "错误堆栈：生产环境仅管理员可见", "敏感字段：password、api_key、token、secret 自动脱敏"]);
+  const settings = getArray<string>(data, "log_settings", []);
 
   return (
     <div className="space-y-5">
@@ -1215,6 +1188,7 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
               />
             </div>
           </div>
+          <p className="mt-3 text-sm text-slate-600">自动告警尚未接入，以下为规则建议，不会发送通知。</p>
           <div className="mt-5 overflow-hidden rounded border border-slate-200">
             <Table className="min-w-[760px]">
               <TableCaption className="sr-only">告警规则与启停状态</TableCaption>
@@ -1246,14 +1220,9 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
                     <TableCell>{row.channel}</TableCell>
                     <TableCell><span className={cn(chipClass, statusColors[toneForStatus(row.level)])}>{row.level}</span></TableCell>
                     <TableCell>
-                      <button
-                        type="button"
-                        title="点击切换启停，保存策略后生效"
-                        className={cn(chipClass, "cursor-pointer transition-opacity hover:opacity-80", ruleEnabled(row) ? statusColors.healthy : statusColors.neutral)}
-                        onClick={() => setRuleOverrides((overrides) => ({ ...overrides, [row.name]: !ruleEnabled(row) }))}
-                      >
-                        {ruleEnabled(row) ? "启用" : "停用"}
-                      </button>
+                      <span className={cn(chipClass, row.enabled ? statusColors.healthy : statusColors.neutral)}>
+                        {row.status ?? (row.enabled ? "启用" : "未启用")}
+                      </span>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1269,26 +1238,7 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
             {settings.map((item: string) => (
               <div key={item} className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700">{item}</div>
             ))}
-            <button
-              type="button"
-              className={cn(primaryActionClass, "w-full")}
-              onClick={() => {
-                localStorage.setItem(ALERT_RULE_OVERRIDES_KEY, JSON.stringify(ruleOverrides));
-                const changed = Object.keys(ruleOverrides).length;
-                toast.success(changed ? `已保存 ${changed} 条告警规则的启停状态（本地生效）` : "当前无改动，配置保持不变");
-              }}
-            >
-              <Settings2 className="h-4 w-4" />
-              保存策略
-            </button>
-            <button
-              type="button"
-              className={cn(secondaryActionClass, "w-full text-red-600 hover:border-red-200 hover:bg-red-50")}
-              onClick={() => toast.info("日志清理需要后端定时任务支持，当前环境暂未接入")}
-            >
-              <Trash2 className="h-4 w-4" />
-              清理过期日志
-            </button>
+            <p className="text-sm text-slate-600">此处展示当前日志策略。审计日志按配置自动清理，暂不支持在此修改策略或手动清理。</p>
           </div>
         </section>
       </div>

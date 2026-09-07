@@ -17,8 +17,8 @@ function ruleBody(selector) {
 
 test("采购精细化样式维持单一 Horizon 设计令牌", () => {
   assert.match(css, /--proc-primary:\s*#002fa7/);
-  assert.match(css, /--proc-canvas:\s*#f7f9fc/);
-  assert.match(css, /--proc-line:\s*#e2e8f0/);
+  assert.match(css, /--proc-canvas:\s*#f6f8fb/);
+  assert.match(css, /--proc-line:\s*#dde3ec/);
   assert.match(css, /--proc-shadow-card:\s*0 1px 2px/);
   assert.match(css, /font-variant-numeric:\s*tabular-nums/);
 
@@ -31,7 +31,6 @@ test("采购主容器使用清晰边界与克制层级", () => {
   const borderedSelectors = [
     ".proc-horizon .proc-horizon-command",
     ".proc-horizon .proc-horizon-people-nav",
-    ".proc-horizon .proc-horizon-task-feed",
     ".proc-horizon .proc-horizon-system-panorama",
     ".proc-horizon .proc-horizon-surface",
     ".proc-horizon .proc-horizon-workspace-surface",
@@ -42,6 +41,10 @@ test("采购主容器使用清晰边界与克制层级", () => {
     assert.match(body, /border(?:-color)?:[^;]*var\(--proc-line\)/);
     assert.doesNotMatch(body, /border(?:-color)?:[^;]*transparent/);
   }
+
+  // 任务流已采用开放式布局，边界在筛选栏底部，不应强制再包一层卡片。
+  assert.match(ruleBody('.proc-horizon .proc-horizon-task-feed'), /border:\s*0;/);
+  assert.match(ruleBody('.proc-horizon .proc-horizon-filter-bar'), /border-bottom:\s*1px solid var\(--proc-line\)/);
 
   assert.doesNotMatch(css, /border-radius:\s*(?:18|20)px/);
 });

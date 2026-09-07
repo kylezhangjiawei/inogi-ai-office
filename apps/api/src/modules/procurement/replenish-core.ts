@@ -2,7 +2,7 @@
  * 补货建议的纯计算核心：无 DI、无 Prisma 依赖，供 MaterialReplenishService 与
  * MateChat 采购查询工具共用同一口径（后者因 Chat↔Procurement 模块循环依赖无法注入服务）。
  *
- * 口径：建议量 = 安全库存 − 当前库存 − T+ 在途（镜像未到齐行）− 进行中任务未到量，
+ * 口径：建议量 = 安全库存 − 当前库存 − T+ 在途（镜像未到齐行）− 尚未计入订单的任务未到量，
  * ≤0 标记 covered（缺口已被覆盖）但仍然列出；排序按缺口金额（建议量 × 最近单价）降序，
  * covered 行沉到末尾。
  */
@@ -30,6 +30,8 @@ export interface ReplenishMaterialInput {
 
 export interface ReplenishMirrorInput {
   materialId: string;
+  tpOrderNo?: string;
+  tpLineNo?: string | null;
   orderedQty: number;
   receivedQty: number;
   supplierName: string;
@@ -45,6 +47,14 @@ export interface ReplenishTaskInput {
   materialId: string;
   quantity: number;
   arrivedQty: number;
+  purchaseOrderRefs?: Array<{
+    tpOrderNo: string;
+    tpLineNo?: string | null;
+    orderedQty: number;
+    receivedQty: number;
+    status?: string | null;
+    approvalStatus?: string | null;
+  }>;
 }
 
 export interface ReplenishRow {
@@ -93,7 +103,15 @@ export function computeReplenishRows(
   const inTransitById = new Map<string, number>();
   const lastOrderById = new Map<string, { supplier: string | null; price: number | null }>();
   const orderedQtysById = new Map<string, number[]>();
+  const ordersByMaterial = new Map<string, Map<string, ReplenishMirrorInput>>();
   for (const row of mirrorRowsDesc) {
+    const orderNo = row.tpOrderNo?.trim();
+    if (orderNo) {
+      const key = `${row.materialId}\u0000${orderNo}`;
+      const lines = ordersByMaterial.get(key) ?? new Map<string, ReplenishMirrorInput>();
+      lines.set(row.tpLineNo?.trim() ?? '', row);
+      ordersByMaterial.set(key, lines);
+    }
     // 作废单整行跳过：既不计在途，也不当作「最近一单」的供应商/单价参考，
     // 更不参与包装粒度推断——它代表的采购从未真正发生。
     if (isVoidedOrderStatus(row.status, row.approvalStatus)) continue;
@@ -108,7 +126,28 @@ export function computeReplenishRows(
   }
   const openTaskById = new Map<string, number>();
   for (const t of openTasks) {
-    const open = Math.max(0, t.quantity - t.arrivedQty);
+    const linkedByLine = new Map<string, number>();
+    for (const ref of t.purchaseOrderRefs ?? []) {
+      const orderNo = ref.tpOrderNo.trim();
+      if (!orderNo) continue; // 免费样品没有 ERP 订单身份，不能与正式采购在途合并。
+      const orderKey = `${t.materialId}\u0000${orderNo}`;
+      const lines = ordersByMaterial.get(orderKey);
+      const lineNo = ref.tpLineNo?.trim() ?? '';
+      // 历史引用可能没有行号；只有同订单、同物料唯一一行时才可确定，不能猜第一行。
+      const mirror = lineNo
+        ? lines?.get(lineNo)
+        : lines?.get('') ?? (lines?.size === 1 ? [...lines.values()][0] : undefined);
+      if (!mirror && !isVoidedOrderStatus(ref.status, ref.approvalStatus)) continue;
+      const linkedOpen = ref.orderedQty > 0
+        ? Math.max(0, ref.orderedQty - ref.receivedQty)
+        : mirror ? Math.max(0, mirror.orderedQty - mirror.receivedQty) : 0;
+      const key = `${orderKey}\u0000${mirror?.tpLineNo?.trim() ?? lineNo}`;
+      linkedByLine.set(key, Math.max(linkedByLine.get(key) ?? 0, linkedOpen));
+    }
+    // 关联份额交由 ERP 镜像计算：已到齐/作废单不得借滞后的任务再次成为在途。
+    // 每个任务独立去掉重复来源；多任务引用同一单也只留下镜像中的一份供给。
+    const linkedOpen = [...linkedByLine.values()].reduce((sum, quantity) => sum + quantity, 0);
+    const open = Math.max(0, t.quantity - t.arrivedQty - linkedOpen);
     openTaskById.set(t.materialId, (openTaskById.get(t.materialId) ?? 0) + open);
   }
 

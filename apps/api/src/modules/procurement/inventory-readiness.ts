@@ -9,11 +9,26 @@ export type InventoryReadinessStatus =
 export interface InventoryReadinessBomLeaf {
   id: string;
   category: string;
+  bomPosition?: string;
   code: string | null;
   name: string;
   spec: string;
   unit: string;
   qtyPer: number | null;
+  sourceLines?: InventoryReadinessBomSourceLine[];
+}
+
+export interface InventoryReadinessBomSourceLine {
+  id: string;
+  name: string;
+  code: string | null;
+  qtyPer: number | null;
+  remark: string | null;
+  parentId: string | null;
+  category: string;
+  bomPosition: string;
+  updatedAt: string;
+  unit: string;
 }
 
 export interface InventoryReadinessBalance {
@@ -28,6 +43,7 @@ export interface InventoryReadinessBalance {
 export interface InventoryReadinessItem {
   id: string;
   category: string;
+  bomPosition?: string;
   code: string | null;
   name: string;
   spec: string;
@@ -44,6 +60,7 @@ export interface InventoryReadinessItem {
   status: InventoryReadinessStatus;
   issue: 'missing_code' | 'missing_qty' | 'inventory_unmatched' | null;
   syncedAt: string | null;
+  sourceLines?: InventoryReadinessBomSourceLine[];
 }
 
 export interface InventoryReadinessCalculation {
@@ -92,6 +109,7 @@ export function calculateInventoryReadiness(
   const normalizedTarget = Math.max(0, safeFloor(targetSets));
   const balanceByCode = new Map(balances.map((balance) => [balance.code, balance]));
   const aggregateByCode = new Map<string, InventoryReadinessBomLeaf & { qtyPer: number }>();
+  const positionsByCode = new Map<string, Set<string>>();
   const invalidLeaves: InventoryReadinessBomLeaf[] = [];
 
   for (const leaf of leaves) {
@@ -102,8 +120,19 @@ export function calculateInventoryReadiness(
       continue;
     }
     const current = aggregateByCode.get(code);
+    if (leaf.bomPosition) {
+      const positions = positionsByCode.get(code) ?? new Set<string>();
+      positions.add(leaf.bomPosition);
+      positionsByCode.set(code, positions);
+    }
     aggregateByCode.set(code, current
-      ? { ...current, qtyPer: current.qtyPer + qtyPer }
+      ? {
+          ...current,
+          qtyPer: current.qtyPer + qtyPer,
+          ...((current.sourceLines || leaf.sourceLines)
+            ? { sourceLines: [...(current.sourceLines ?? []), ...(leaf.sourceLines ?? [])] }
+            : {}),
+        }
       : { ...leaf, code, qtyPer });
   }
 
@@ -131,6 +160,7 @@ export function calculateInventoryReadiness(
     }
     return {
       ...leaf,
+      ...(positionsByCode.has(leaf.code!) ? { bomPosition: [...positionsByCode.get(leaf.code!)!].join('、') } : {}),
       stock,
       available,
       inTransit,

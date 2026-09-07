@@ -1,0 +1,46 @@
+import { IsIn, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+
+export class ProcurementOperationsQueryDto {
+  @IsString() @MaxLength(120) productId!: string;
+  @IsOptional() @IsString() @MaxLength(120) treeNodeId?: string;
+  @IsOptional() @IsString() @MaxLength(120) stockPlanId?: string;
+  @IsOptional() @Matches(/^\d{4}-(0[1-9]|1[0-2])$/) month?: string;
+}
+
+export class SaveProductionReportDto {
+  @IsString() @MaxLength(120) productId!: string;
+  @IsString() @MaxLength(120) treeNodeId!: string;
+  @IsOptional() @IsString() @MaxLength(120) stockPlanId?: string | null;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/) reportDate!: string;
+  @IsString() @MaxLength(80) shift!: string;
+  @IsString() @MaxLength(120) lineName!: string;
+  @IsString() @MaxLength(24) unit!: string;
+  @IsNumber({ maxDecimalPlaces: 3 }) @Min(0) @Max(99999999999.999) plannedQty!: number;
+  @IsNumber({ maxDecimalPlaces: 3 }) @Min(0) @Max(99999999999.999) actualQty!: number;
+  @IsNumber({ maxDecimalPlaces: 3 }) @Min(0) @Max(99999999999.999) goodQty!: number;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(99999999.99) workHours!: number;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 3 }) @Min(0) @Max(99999999999.999) capacityQty?: number | null;
+  @IsOptional() @IsString() @MaxLength(4000) note?: string | null;
+  @IsOptional() @IsString() @MaxLength(50) baseUpdatedAt?: string;
+}
+
+export class SaveQualityRecordDto {
+  @IsString() @MaxLength(120) productId!: string;
+  @IsString() @MaxLength(120) treeNodeId!: string;
+  @IsOptional() @IsString() @MaxLength(120) stockPlanId?: string | null;
+  @IsOptional() @IsString() @MaxLength(120) taskId?: string | null;
+  @IsOptional() @IsString() @MaxLength(120) materialId?: string | null;
+  @IsOptional() @IsString() @MaxLength(120) supplierId?: string | null;
+  @IsOptional() @IsString() @MaxLength(120) productionReportId?: string | null;
+  @IsIn(['procurement', 'production']) source!: 'procurement' | 'production';
+  @IsString() @MaxLength(120) batchNo!: string;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/) inspectionDate!: string;
+  @IsString() @MaxLength(24) unit!: string;
+  @IsNumber({ maxDecimalPlaces: 3 }) @Min(0.001) @Max(99999999999.999) inspectedQty!: number;
+  @IsNumber({ maxDecimalPlaces: 3 }) @Min(0.001) @Max(99999999999.999) defectiveQty!: number;
+  @IsString() @MaxLength(4000) issue!: string;
+  @IsIn(['pending', 'return', 'rework', 'scrap', 'concession', 'replacement']) disposition!: string;
+  @IsIn(['open', 'processing', 'closed']) status!: 'open' | 'processing' | 'closed';
+  @IsOptional() @IsString() @MaxLength(4000) resolution?: string | null;
+  @IsOptional() @IsString() @MaxLength(50) baseUpdatedAt?: string;
+}

@@ -566,6 +566,42 @@
     box-shadow: var(--m3-elevation-1);
   }
 
+  .rd-attachment-scroll {
+    --attachment-scroll-thumb: #94a3b8;
+    --attachment-scroll-track: #f1f5f9;
+    scrollbar-width: thin;
+    scrollbar-color: var(--attachment-scroll-thumb) var(--attachment-scroll-track);
+  }
+
+  .rd-attachment-scroll-dark {
+    --attachment-scroll-thumb: #94a3b8;
+    --attachment-scroll-track: #1e293b;
+    color-scheme: dark;
+  }
+
+  .rd-attachment-scroll:hover {
+    --attachment-scroll-thumb: #64748b;
+  }
+
+  .rd-attachment-scroll-dark:hover {
+    --attachment-scroll-thumb: #cbd5e1;
+  }
+
+  .rd-attachment-scroll::-webkit-scrollbar {
+    height: 8px;
+  }
+
+  .rd-attachment-scroll::-webkit-scrollbar-track {
+    background: var(--attachment-scroll-track);
+    border-radius: 9999px;
+  }
+
+  .rd-attachment-scroll::-webkit-scrollbar-thumb {
+    background: var(--attachment-scroll-thumb);
+    border: 2px solid var(--attachment-scroll-track);
+    border-radius: 9999px;
+  }
+
   .material-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: rgba(100, 116, 139, 0.45) transparent;

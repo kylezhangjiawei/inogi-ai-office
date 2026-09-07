@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import ts from "typescript";
 
 function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -20,6 +21,134 @@ const pagePaths = {
 const pages = Object.fromEntries(
   Object.entries(pagePaths).map(([name, path]) => [name, source(path)]),
 );
+
+function createInvoiceApi(authFetch) {
+  const text = source('src/modules/expense/services/expenseService.ts');
+  const ast = ts.createSourceFile('expenseService.ts', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const functions = ast.statements.filter((node) => ts.isFunctionDeclaration(node)
+    && ['request', 'appendDepartment', 'fetchAllInvoices', 'toInvoice', 'applyLocalInvoiceFilters', 'fallbackWithWarning'].includes(node.name?.text));
+  const service = ast.statements.filter(ts.isVariableStatement).flatMap((node) => [...node.declarationList.declarations])
+    .find((node) => node.name.getText(ast) === 'expenseService');
+  const methods = service.initializer.properties.filter((node) => ['listInvoices', 'listInvoicesStrict'].includes(node.name?.getText(ast)));
+  const code = ts.transpileModule(`${functions.map((node) => node.getText(ast)).join('\n')}\nreturn {${methods.map((node) => node.getText(ast)).join(',')}};`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  return new Function('authFetch', 'readErrorMessage', code)(authFetch, async (_res, fallback) => fallback);
+}
+
+test('发票超过 200 张时按后端分页完整读取，筛选和部门参数贯穿每一页', async () => {
+  const invoices = Array.from({ length: 405 }, (_, index) => ({ id: `invoice-${index}`, amount: index + 1, category_confidence: 1 }));
+  for (const method of ['listInvoices', 'listInvoicesStrict']) {
+    const calls = [];
+    const api = createInvoiceApi(async (url) => {
+      const params = new URL(url, 'http://local').searchParams;
+      const page = Number(params.get('page'));
+      calls.push(params);
+      return Response.json({ items: invoices.slice((page - 1) * 200, page * 200), page, total: 405, total_pages: 3 });
+    });
+    const result = await api[method]({ keyword: ' 发票 ', status: '待处理', category: '其他' }, 'RD');
+    assert.equal(result.length, 405);
+    assert.equal(result.at(-1).id, 'invoice-404');
+    assert.equal(result.reduce((sum, item) => sum + item.amount, 0), 82215, '下游统计和导出应拿到全部金额');
+    assert.deepEqual(calls.map((params) => params.get('page')), ['1', '2', '3']);
+    for (const params of calls) {
+      assert.equal(params.get('page_size'), '200');
+      assert.equal(params.get('department'), 'RD');
+      assert.equal(params.get('keyword'), '发票');
+      assert.equal(params.get('status'), '待处理');
+      assert.equal(params.get('category'), '其他');
+    }
+  }
+});
+
+test('发票空列表和整页边界只读实际页数，后续页失败不能返回不完整列表', async () => {
+  for (const total of [0, 200]) {
+    let calls = 0;
+    const api = createInvoiceApi(async () => {
+      calls += 1;
+      return Response.json({ items: Array.from({ length: total }, (_, index) => ({ id: String(index), amount: 1, category_confidence: 1 })), page: 1, total, total_pages: 1 });
+    });
+    assert.equal((await api.listInvoicesStrict()).length, total);
+    assert.equal(calls, 1);
+  }
+  let attempts = 0;
+  const api = createInvoiceApi(async () => {
+    attempts += 1;
+    if (attempts === 2) throw new Error('network-error');
+    return Response.json({ items: [{ id: 'one', amount: 1, category_confidence: 1 }], page: 1, total: 2, total_pages: 2 });
+  });
+  await assert.rejects(() => api.listInvoicesStrict(), { message: 'network-error' });
+  assert.equal(attempts, 2);
+});
+
+test('发票加载期间页码回退或总数变化会明确失败，避免按重复或遗漏记录统计', async () => {
+  let attempts = 0;
+  const api = createInvoiceApi(async () => {
+    attempts += 1;
+    return Response.json(attempts === 1
+      ? { items: [{ id: 'one' }], page: 1, total: 2, total_pages: 2 }
+      : { items: [{ id: 'one' }], page: 1, total: 1, total_pages: 1 });
+  });
+  await assert.rejects(() => api.listInvoicesStrict(), { message: '发票列表在加载期间发生变化，请重新加载后再统计或导出' });
+});
+
+function createAiMatch(scope) {
+  const ast = ts.createSourceFile('ExpenseModule.tsx', pages['费用管理'], ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let initializer;
+  function visit(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(ast) === 'runAiMatch') initializer = node.initializer.getText(ast);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(initializer);
+  const code = ts.transpileModule(`return ${initializer}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  return new Function(...Object.keys(scope), code)(...Object.values(scope));
+}
+
+test('自动匹配接口失败不改变本地关联状态，也不提示临时关联成功', async () => {
+  for (const [status, expected] of [[403, '没有自动匹配票据的权限，请联系管理员'], [401, '登录已失效，请重新登录后再试'], [500, 'AI 匹配服务暂不可用，请稍后重试'], [undefined, 'AI 匹配服务暂不可用，请稍后重试']]) {
+    const invoice = { id: 'invoice-1', amount: 128, issuer: '同一商户', matched: false };
+    const voucher = { id: 'voucher-1', amount: 128, vendor: '同一商户', matched: false };
+    let saving = false;
+    let updates = 0;
+    let reloads = 0;
+    const messages = [];
+    const run = createAiMatch({
+      useCallback: (fn) => fn,
+      t: (text) => text,
+      setAiMatching: (value) => { saving = value; },
+      expenseService: { autoMatchVouchers: async () => { throw Object.assign(new Error('Request failed'), { status }); } },
+      applyMatchLinks: () => { updates++; invoice.matched = true; voucher.matched = true; },
+      reloadExpenseData: async () => { reloads++; },
+      toast: { error: (text) => messages.push(['error', text]), success: (text) => messages.push(['success', text]), info: (text) => messages.push(['info', text]) },
+    });
+    await run();
+    assert.equal(updates, 0);
+    assert.equal(reloads, 0);
+    assert.equal(invoice.matched, false);
+    assert.equal(voucher.matched, false);
+    assert.equal(saving, false);
+    assert.deepEqual(messages, [['error', expected]]);
+  }
+});
+
+test('自动匹配成功只应用服务端确认的关联并重新读取持久化数据', async () => {
+  const links = [{ invoice_id: 'invoice-1', voucher_id: 'voucher-1' }];
+  const applied = [];
+  let reloads = 0;
+  let success = 0;
+  const run = createAiMatch({
+    useCallback: (fn) => fn, t: (text) => text, setAiMatching() {},
+    expenseService: { autoMatchVouchers: async () => ({ links, auto_linked: 1, manual_review: 0 }) },
+    applyMatchLinks: (value) => applied.push(value),
+    reloadExpenseData: async () => { reloads++; },
+    toast: { success: () => { success++; }, error: assert.fail, info: assert.fail },
+  });
+  await run();
+  assert.deepEqual(applied, [links]);
+  assert.equal(reloads, 1);
+  assert.equal(success, 1);
+});
 
 test("协同与人事八个实现页面统一挂载 Horizon 根、页头和指标带", () => {
   for (const [name, page] of Object.entries(pages)) {

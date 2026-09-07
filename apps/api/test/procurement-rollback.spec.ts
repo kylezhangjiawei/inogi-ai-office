@@ -215,7 +215,7 @@ test('回退是独立权限码并已登记进权限目录，管理员才能按�
   const permission = DEFAULT_PERMISSION_CATALOG.find((item) => item.code === 'proc-task:rollback');
   assert.ok(permission, 'proc-task:rollback 必须登记进权限目录');
   assert.equal(permission.type, 'action');
-  assert.equal(permission.groupLabel, '操作权限 · 采购管理');
+  assert.equal(permission.groupLabel, '操作权限 · 供应链管理');
   // 回退会删报价与采购单关联，不能与日常推进流程共用一档权限
   assert.notEqual(permission.code, 'proc-task:inquiry');
   const codes = DEFAULT_PERMISSION_CATALOG.map((item) => item.code);

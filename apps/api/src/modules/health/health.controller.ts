@@ -1,11 +1,25 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 
 import { Public } from '../auth/decorators/public.decorator';
+import { PrismaService } from '../../prisma/prisma.service';
 
 const STARTED_AT = new Date().toISOString();
 
 @Controller('health')
 export class HealthController {
+  constructor(private readonly prisma: PrismaService) {}
+
+  @Public()
+  @Get('ready')
+  async getReadiness() {
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+    } catch {
+      throw new ServiceUnavailableException({ ok: false, message: '数据库暂不可用', database: 'unavailable' });
+    }
+    return { ...this.getHealth(), database: 'ready' };
+  }
+
   @Public()
   @Get()
   getHealth() {

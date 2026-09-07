@@ -191,6 +191,37 @@ async function apiListDepartments(): Promise<DepartmentOption[]> {
   return res.json() as Promise<DepartmentOption[]>;
 }
 
+async function readUserSaveError(res: Response): Promise<string> {
+  const error = await res.json().catch(() => null) as { code?: unknown; message?: unknown } | null;
+  // 服务异常只展示可操作提示，避免把数据库或网关细节直接显示在表单中。
+  if (res.status >= 500) return translate("服务器暂时无法保存用户，请稍后重试");
+  if (res.status === 401) return translate("登录已失效，请重新登录后再试");
+  if (error?.code === "USERNAME_ALREADY_EXISTS") return translate("用户名已存在，请更换用户名");
+  if (error?.code === "EMAIL_ALREADY_EXISTS") return translate("邮箱已被使用，请更换邮箱");
+
+  const messages = Array.isArray(error?.message) ? error.message : [error?.message];
+  const readableMessages = messages
+    .filter((message): message is string => typeof message === "string" && /[\u3400-\u9fff]/.test(message))
+    .map((message) => translate(message.trim()));
+  if (readableMessages.length) return readableMessages.join("；");
+
+  switch (res.status) {
+    case 400:
+    case 422:
+      return translate("用户信息有误，请检查填写内容后重试");
+    case 403:
+      return translate("没有保存用户的权限，请联系管理员");
+    case 404:
+      return translate("用户不存在或已被删除，请刷新列表后重试");
+    case 409:
+      return translate("用户名或邮箱已被使用，请检查后重试");
+    case 429:
+      return translate("操作过于频繁，请稍后再试");
+    default:
+      return translate("保存用户失败，请稍后重试");
+  }
+}
+
 async function apiSaveUser(payload: UserFormData): Promise<User> {
   const res = await authFetch("/api/users", {
     method: "POST",
@@ -204,11 +235,14 @@ async function apiSaveUser(payload: UserFormData): Promise<User> {
       status: payload.status,
       password: !payload.id && payload.password ? payload.password : undefined,
     }),
+  }).catch((error: unknown) => {
+    if (error instanceof TypeError) {
+      throw new Error(translate("网络连接异常，请检查网络后重试"));
+    }
+    throw error;
   });
   if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { message?: string | string[] };
-    const msg = Array.isArray(err.message) ? err.message.join(", ") : (err.message ?? translate("保存失败"));
-    throw new Error(msg);
+    throw new Error(await readUserSaveError(res));
   }
   return res.json() as Promise<User>;
 }

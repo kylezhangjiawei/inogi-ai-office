@@ -68,7 +68,7 @@ function Shell({ title, onClose, children, footer, wide, busy = false }: { title
   const { t } = useI18n();
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
-      <DialogContent aria-busy={busy} onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }} onPointerDownOutside={(event) => { if (busy) event.preventDefault(); }} className={cn("gap-0 overflow-hidden rounded-2xl p-0", wide ? "sm:max-w-2xl" : "sm:max-w-lg")}>
+      <DialogContent aria-busy={busy} onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }} onPointerDownOutside={(event) => { if (busy) event.preventDefault(); }} className={cn("horizon-theme horizon-portal proc-horizon-overlay gap-0 overflow-hidden rounded-2xl p-0", wide ? "sm:max-w-2xl" : "sm:max-w-lg")}>
         <DialogHeader className="border-b border-slate-100 px-6 py-4">
           <DialogTitle className="text-balance text-base font-bold text-slate-900">{t(title)}</DialogTitle>
           <DialogDescription className="sr-only">{t(busy ? '正在处理，请等待完成后关闭。' : '请核对内容后操作。')}</DialogDescription>

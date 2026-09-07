@@ -53,7 +53,7 @@ import {
   type Quotation,
   type TaskQuoteBookOption,
 } from "../../lib/procurementApi";
-import { applyProcTaskUpdate, refreshProcurement } from "../data";
+import { applyProcTaskUpdate, captureProcurementScope, refreshProcurement } from "../data";
 import { BuyerComboInput, DateInput, FREE_SAMPLE_ONLY_STATUSES, fmtMoney, PROC_STATUS_META, useBuyerDirectory } from "./common";
 
 type FormKind = "quote" | "select" | "order" | "receive" | "reassign" | "confirm" | "test";
@@ -195,6 +195,7 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
   const onOpenDetail = options?.onOpenDetail;
 
   const run = useCallback(async (fn: () => Promise<unknown>, okText: string): Promise<ActionRunResult> => {
+    const requestScope = captureProcurementScope();
     setBusy(true);
     try {
       const result = await fn();
@@ -204,7 +205,7 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
       // 这期间界面还停在旧状态，用户看到的是「点了保存没反应」，于是再点一次——
       // 而「下一步」按钮的含义是由任务状态推导的，刷新一旦在两次点击之间落地，
       // 第二次点的其实已经是下一个动作，任务就这么一节节窜到了「已完成」。
-      if (isProcurementTask(result)) applyProcTaskUpdate(result);
+      if (isProcurementTask(result)) applyProcTaskUpdate(result, requestScope);
       toast.success(okText);
       // 整体刷新照旧在后台跑：物料聚合、列表统计等仍需要它
       void refreshProcurement();

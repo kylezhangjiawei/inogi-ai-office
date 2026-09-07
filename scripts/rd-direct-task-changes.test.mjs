@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import { getReviewTypeMeta } from "../src/app/lib/reviewTypes.ts";
 
 const proposal = readFileSync(new URL("../src/app/RDProjectProposalDialog.tsx", import.meta.url), "utf8");
 const workspace = readFileSync(new URL("../src/app/RDMyWorkspacePage.tsx", import.meta.url), "utf8");
@@ -151,17 +152,20 @@ test("成果验收和放弃任务继续提交审核", async () => {
   assert.equal(calls.reviews, 2);
 });
 
-test("只有研发已取消审批的存量申请可由参与人应用，其他工作区和成果放弃保持审批", () => {
+test("详情页当前审核入口只允许管理员，所有审核结果交由后端裁决", async () => {
   for (const area of ["rd", "us-collab", "production"]) {
     for (const review of ["proposal", "collaboration", "due_date", "merge", "result", "abandon"]) {
-      const { scope } = harness(area, {
-        task: { status: "pending_review", pending_review_type: review },
-        taskReadOnly: false, canManage: false, isParticipant: true,
-      });
-      const bindings = pageBindings(detail, ["directChangePending", "canApplyPendingChange"], scope);
-      assert.equal(bindings.canApplyPendingChange, area === "rd" && !["result", "abandon"].includes(review));
-      const unrelated = pageBindings(detail, ["directChangePending", "canApplyPendingChange"], { ...scope, isParticipant: false });
-      assert.equal(unrelated.canApplyPendingChange, false);
+      for (const canManage of [false, true]) {
+        const { calls, scope } = harness(area, {
+          task: { task_id: 'RD-1', status: "pending_review", pending_review_type: review },
+          taskReadOnly: false, canManage, showApproval: 'approve',
+          activeTaskIdRef: { current: 'RD-1' }, AUDIT_ACTOR: { name: '审核管理员' },
+          getReviewTypeMeta, setShowApproval() {}, loadTask() {},
+        });
+        await pageBindings(detail, ["handleApproval"], scope).handleApproval();
+        assert.deepEqual(calls.updates, canManage ? [{ id: 'RD-1', payload: { _review_action: 'approve', _reviewer_name: '审核管理员' } }] : []);
+        assert.deepEqual(calls.errors, []);
+      }
     }
   }
 });

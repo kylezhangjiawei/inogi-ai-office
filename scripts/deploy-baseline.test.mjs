@@ -21,8 +21,9 @@ const expectedStages = [
   "tests",
   "database_backup",
   "database_migration",
-  "frontend_activate",
   "api_restart",
+  "api_readiness",
+  "frontend_activate",
   "nginx_reload",
 ];
 
@@ -80,9 +81,16 @@ async function createFakeDeployment() {
   await Promise.all([
     writeStub(binDir, "npm"),
     writeStub(binDir, "npx"),
-    writeStub(binDir, "pm2"),
+    writeStub(binDir, "pm2", `
+if [ "\${1:-}" = "start" ] || [ "\${1:-}" = "restart" ]; then
+  printf '{"ok":true,"database":"ready","git_sha":"%s","release":"%s"}\\n' "$APP_GIT_SHA" "$APP_VERSION" > "$REPO_DIR/app-health.json"
+fi
+exit 0`),
+    writeStub(binDir, "curl", 'cat "$REPO_DIR/app-health.json"'),
     writeStub(binDir, "nginx"),
-    writeStub(binDir, "node", 'if [ "${1:-}" = "--version" ]; then echo v22.22.1; fi\nexit 0'),
+    writeStub(binDir, "node", `if [ "\${1:-}" = "--version" ]; then echo v22.22.1; exit 0; fi
+if [ "\${1:-}" = "-e" ]; then exec "${bashPath(process.execPath)}" "$@"; fi
+exit 0`),
   ]);
   return { root, repoDir, binDir, webRoot, metricsDir };
 }
@@ -104,16 +112,18 @@ async function enableChangePlanner(fixture) {
   const realNode = bashPath(process.execPath).replaceAll('"', '\\"');
   await writeStub(fixture.binDir, "node", `
 case "\${1:-}" in
-  *deploy-change-plan.mjs) exec "${realNode}" "$@" ;;
+  *deploy-change-plan.mjs|-e) exec "${realNode}" "$@" ;;
   --version) echo v22.22.1 ;;
 esac
 exit 0`);
 }
 
 function runFakeDeployment(bash, fixture, overrides = {}) {
+  const stubPath = `${bashPath(fixture.binDir)}:/usr/local/bin:/usr/bin:/bin`;
   const env = {
     ...process.env,
-    PATH: `${bashPath(fixture.binDir)}:/usr/local/bin:/usr/bin:/bin`,
+    PATH: stubPath,
+    DEPLOY_TEST_PATH: stubPath,
     REPO_DIR: bashPath(fixture.repoDir),
     WEB_ROOT: bashPath(fixture.webRoot),
     DEPLOY_METRICS_DIR: bashPath(fixture.metricsDir),
@@ -122,11 +132,14 @@ function runFakeDeployment(bash, fixture, overrides = {}) {
     DEPLOY_DB_BACKUP: "0",
     DEPLOY_CHANGE_PLAN: "0",
     DEPLOY_RUN_TESTS: "1",
+    DEPLOY_HEALTH_TIMEOUT_SECONDS: "2",
     DEPLOY_OPERATOR: 'qa"\n\u0001operator',
     DATABASE_URL: "postgresql://secret-user:secret-password@secret-host/secret-db",
     ...overrides,
   };
-  return spawnSync(bash, [bashPath(deployPath)], {
+  // Git Bash 启动时会把自带 curl 等目录插到 PATH 最前，须在启动后恢复桩优先级。
+  // source 在同一 shell 执行，避免再次启动 Bash 重排 PATH 并误调用真实基础设施。
+  return spawnSync(bash, ["-c", 'export PATH="$DEPLOY_TEST_PATH"\nsource "$1"', "deploy-test", bashPath(deployPath)], {
     cwd: fixture.repoDir,
     env,
     encoding: "utf8",
@@ -343,5 +356,36 @@ test("a frontend deployment cannot succeed or save its snapshot without WEB_ROOT
     await assert.rejects(readFile(join(fixture.repoDir, ".deploy-cache", "deploy-inputs.json")));
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("unready, stale-version or invalid health responses cannot publish the frontend or save a successful snapshot", { skip: !bash }, async () => {
+  for (const response of [
+    'exit 22',
+    `printf '%s' '{"ok":true,"database":"ready","git_sha":"old","release":"old"}'`,
+    `printf '%s' 'invalid json'`,
+  ]) {
+    const fixture = await createFakeDeployment();
+    try {
+      await enableChangePlanner(fixture);
+      await writeFile(join(fixture.webRoot, "index.html"), "previous frontend", "utf8");
+      await writeFile(join(fixture.repoDir, "dist", "index.html"), "new frontend", "utf8");
+      await writeStub(fixture.binDir, "curl", response);
+      const result = runFakeDeployment(bash, fixture, {
+        DEPLOY_CHANGE_PLAN: "1",
+        DEPLOY_HEALTH_TIMEOUT_SECONDS: "1",
+      });
+      assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+      assert.match(`${result.stdout}\n${result.stderr}`, /API 就绪检查失败/);
+      assert.equal(await readFile(join(fixture.webRoot, "index.html"), "utf8"), "previous frontend");
+      await assert.rejects(readFile(join(fixture.repoDir, ".deploy-cache", "deploy-inputs.json")));
+      const files = (await readdir(fixture.metricsDir)).filter((name) => name.endsWith(".json"));
+      const record = JSON.parse(await readFile(join(fixture.metricsDir, files[0]), "utf8"));
+      assert.equal(record.status, "failed");
+      assert.equal(record.failed_stage, "api_readiness");
+      assert.equal(record.stages.find((stage) => stage.name === "frontend_activate")?.status, "skipped");
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
   }
 });

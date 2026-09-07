@@ -8,7 +8,7 @@ import { computeReplenishRows, type ReplenishRow } from './replenish-core';
 /**
  * 补货建议：把「缺料预警」从统计数字变成可行动清单。
  *
- * 建议补货量 = 安全库存 − 当前库存 − T+ 在途（镜像里未到齐的单，作废单除外）− 进行中采购任务未到量，
+ * 建议补货量 = 安全库存 − 当前库存 − T+ 在途（作废单除外）− 尚未计入订单的采购任务未到量，
  * 三重扣减避免重复下单；≤0 的物料标记 covered 仍然列出，不静默丢弃——
  * 丢弃会让「缺料预警 N 条」与「补货建议 M 条」长期对不上，在途量算错时也无人能发现。
  * 附最近一次采购的供应商/单价（来自 T+ 镜像）供询价参考。
@@ -52,6 +52,8 @@ export class MaterialReplenishService {
       where: { materialId: { in: ids } },
       select: {
         materialId: true,
+        tpOrderNo: true,
+        tpLineNo: true,
         orderedQty: true,
         receivedQty: true,
         supplierName: true,
@@ -66,7 +68,12 @@ export class MaterialReplenishService {
     // 进行中采购任务的未到量（避免对同一缺口重复建任务）
     const openTasks = await this.prisma.procTask.findMany({
       where: { materialId: { in: ids }, status: { notIn: [...PROC_TERMINAL_STATUSES, 'pending_rd_review'] } },
-      select: { materialId: true, quantity: true, arrivedQty: true },
+      select: {
+        materialId: true, quantity: true, arrivedQty: true,
+        purchaseOrderRefs: {
+          select: { tpOrderNo: true, tpLineNo: true, orderedQty: true, receivedQty: true, status: true, approvalStatus: true },
+        },
+      },
     });
 
     const rows = computeReplenishRows(
@@ -81,6 +88,8 @@ export class MaterialReplenishService {
       })),
       mirrorRows.map((r) => ({
         materialId: r.materialId as string,
+        tpOrderNo: r.tpOrderNo,
+        tpLineNo: r.tpLineNo,
         orderedQty: Number(r.orderedQty),
         receivedQty: Number(r.receivedQty),
         supplierName: r.supplierName,
@@ -92,6 +101,11 @@ export class MaterialReplenishService {
         materialId: t.materialId as string,
         quantity: Number(t.quantity),
         arrivedQty: Number(t.arrivedQty),
+        purchaseOrderRefs: t.purchaseOrderRefs.map((ref) => ({
+          ...ref,
+          orderedQty: Number(ref.orderedQty),
+          receivedQty: Number(ref.receivedQty),
+        })),
       })),
     );
     return { rows };

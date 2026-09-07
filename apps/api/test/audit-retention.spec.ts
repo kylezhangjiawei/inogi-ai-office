@@ -2,6 +2,7 @@ import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { AuditRetentionCron } from '../src/modules/audit/audit-retention.cron';
+import { OpsCenterService } from '../src/modules/ops-center/ops-center.service';
 
 type Json = Record<string, unknown>;
 
@@ -37,6 +38,23 @@ function makeCron(retention: string | undefined, rows: Array<{ id: string; creat
 }
 
 const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 3600 * 1000);
+
+test('运维页面展示实际保留策略，未接入的告警不能显示已启用', async () => {
+  const previous = process.env.AUDIT_LOG_RETENTION_DAYS;
+  const ops = new OpsCenterService({ auditLog: { findMany: async () => [] } } as never, {} as never);
+  try {
+    for (const [raw, expected] of [['', '730 天'], ['0', '永久保留'], ['7', '90 天'], ['180', '180 天'], ['invalid', '730 天']]) {
+      process.env.AUDIT_LOG_RETENTION_DAYS = raw;
+      const settings = await ops.getAlertsAuditSettings();
+      assert.equal(settings.log_policies.find((policy) => policy.name === '操作审计日志')?.retention, expected);
+      assert.equal(settings.log_policies.find((policy) => policy.name === '接口访问日志')?.retention, '未配置自动清理');
+      assert.ok(settings.alert_rules.every((rule) => rule.enabled === false && rule.status === '未接入'));
+    }
+  } finally {
+    if (previous === undefined) delete process.env.AUDIT_LOG_RETENTION_DAYS;
+    else process.env.AUDIT_LOG_RETENTION_DAYS = previous;
+  }
+});
 
 test('保留天数缺省为 730，超期记录被删、期内记录保留', async () => {
   const { cron, deleted } = makeCron(undefined, [

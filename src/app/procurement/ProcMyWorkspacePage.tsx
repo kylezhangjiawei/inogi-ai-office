@@ -57,7 +57,7 @@ export function ProcMyWorkspacePage() {
   const mine = useMemo(
     () => tasks.filter((task) =>
       (task.buyerUserId && user?.id && task.buyerUserId === user.id) ||
-      (Boolean(task.buyer) && task.buyer === user?.name)),
+      (!task.buyerUserId && Boolean(task.buyer) && task.buyer === user?.name)),
     [tasks, user?.id, user?.name],
   );
   const active = useMemo(() => mine.filter((task) => !TERMINAL.includes(task.status)), [mine]);

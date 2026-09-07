@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { OpsAiService, type OpsErrorAnalysis } from './ops-ai.service';
+import { resolveAuditRetentionDays } from '../audit/audit-retention.cron';
 
 type Tone = 'healthy' | 'info' | 'warning' | 'danger' | 'neutral';
 
@@ -327,7 +328,7 @@ export class OpsCenterService {
       },
       log_settings: [
         '慢接口阈值：1000ms',
-        '慢 SQL 阈值：800ms',
+        '慢 SQL 日志：尚未接入采集',
         '错误堆栈：生产环境仅管理员可见',
         '敏感字段：password、api_key、token、secret 自动脱敏',
       ],
@@ -669,22 +670,24 @@ export class OpsCenterService {
   }
 
   private getAlertRules() {
+    // 当前只有规则建议，尚未接入调度与通知，不能展示为已启用。
     return [
-      { name: '接口 5xx 连续异常', condition: '5 分钟内 5xx >= 5 次', channel: '站内 / 钉钉', level: '严重', enabled: true },
-      { name: 'AI 调用失败率过高', condition: '15 分钟失败率 >= 8%', channel: '站内 / 邮件', level: '警告', enabled: true },
-      { name: '数据库连接失败', condition: '连续 3 次健康检查失败', channel: '站内 / 短信', level: '致命', enabled: true },
-      { name: '慢接口过多', condition: 'P95 > 3s 且请求数 >= 20', channel: '站内', level: '警告', enabled: false },
-      { name: '磁盘空间不足', condition: '可用空间 < 20%', channel: '站内 / 钉钉', level: '严重', enabled: true },
-    ];
+      { name: '接口 5xx 连续异常', condition: '5 分钟内 5xx >= 5 次', level: '严重' },
+      { name: 'AI 调用失败率过高', condition: '15 分钟失败率 >= 8%', level: '警告' },
+      { name: '数据库连接失败', condition: '连续 3 次健康检查失败', level: '致命' },
+      { name: '慢接口过多', condition: 'P95 > 3s 且请求数 >= 20', level: '警告' },
+      { name: '磁盘空间不足', condition: '可用空间 < 20%', level: '严重' },
+    ].map((rule) => ({ ...rule, channel: '未配置', enabled: false, status: '未接入' }));
   }
 
   private getLogPolicies() {
+    const auditDays = resolveAuditRetentionDays(process.env.AUDIT_LOG_RETENTION_DAYS);
     return [
-      { name: '接口访问日志', retention: '30 天', payload: '记录请求摘要', masking: '开启', status: '启用' },
-      { name: '接口错误日志', retention: '90 天', payload: '记录错误堆栈', masking: '开启', status: '启用' },
-      { name: '操作审计日志', retention: '180 天', payload: '记录资源与操作者', masking: '开启', status: '启用' },
-      { name: 'Prisma 慢查询日志', retention: '30 天', payload: '记录模型、耗时、调用来源', masking: '开启', status: '启用' },
-      { name: '第三方调用日志', retention: '60 天', payload: '记录 request id 与响应摘要', masking: '开启', status: '启用' },
+      { name: '接口访问日志', retention: '未配置自动清理', payload: '记录请求摘要', masking: '开启', status: '采集中' },
+      { name: '接口错误日志', retention: '未配置自动清理', payload: '记录错误摘要与堆栈', masking: '开启', status: '采集中' },
+      { name: '操作审计日志', retention: auditDays === 0 ? '永久保留' : `${auditDays} 天`, payload: '记录资源与操作者', masking: '开启', status: auditDays === 0 ? '自动清理已关闭' : '每日自动清理' },
+      { name: 'Prisma 慢查询日志', retention: '未配置', payload: '尚未接入采集', masking: '未接入', status: '未接入' },
+      { name: '第三方调用日志', retention: '随所属业务日志策略', payload: '已接入业务的调用摘要', masking: '开启', status: '部分采集' },
     ];
   }
 

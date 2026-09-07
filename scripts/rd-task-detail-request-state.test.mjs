@@ -19,14 +19,15 @@ function handler(name, scope) {
 }
 
 function taskChangeEffect(scope) {
-  let callback;
+  const callbacks = [];
   function visit(node) {
     if (ts.isCallExpression(node) && node.expression.getText(ast) === "useEffect"
-      && node.arguments[1]?.getText(ast) === "[loadProgressGroup, taskId]") callback = node.arguments[0];
+      && (node.arguments[1]?.getText(ast) === "[loadProgressGroup, taskId]"
+        || (node.arguments[1]?.getText(ast) === "[taskId]" && node.arguments[0]?.getText(ast).includes("issueRequestSeqRef")))) callbacks.push(node.arguments[0]);
     ts.forEachChild(node, visit);
   }
   visit(ast);
-  assert.ok(callback, "missing task-change effect");
+  assert.equal(callbacks.length, 2, "应执行进展重载和任务专属浮层重置两个真实 effect");
   const setters = {};
   function collect(node) {
     if (ts.isCallExpression(node) && /^set[A-Z]/.test(node.expression.getText(ast))) {
@@ -34,10 +35,11 @@ function taskChangeEffect(scope) {
     }
     ts.forEachChild(node, collect);
   }
-  collect(callback);
+  callbacks.forEach(collect);
   const bindings = { ...setters, ...scope };
-  const javascript = ts.transpileModule(`return ${callback.getText(ast)};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  return new Function(...Object.keys(bindings), javascript)(...Object.values(bindings));
+  const javascript = ts.transpileModule(`return [${callbacks.map((callback) => callback.getText(ast)).join(',')}];`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const effects = new Function(...Object.keys(bindings), javascript)(...Object.values(bindings));
+  return () => effects.forEach((effect) => effect());
 }
 
 function deferred() {
@@ -48,10 +50,12 @@ function deferred() {
 }
 
 function fixture() {
-  const values = { task: null, notes: ["existing"], groupNotes: ["existing"], notesError: "", loadError: "", refreshes: 0 };
+  const values = { task: null, notes: ["existing"], groupNotes: ["existing"], progressGroupTasks: ["existing-task"], notesError: "", loadError: "", refreshes: 0 };
   const scope = {
     taskId: "A", task: { task_id: "A", final_priority: "low" },
     activeTaskIdRef: { current: "A" }, loadSeqRef: { current: 0 }, progressLoadSeqRef: { current: 0 },
+    moveRequestSeqRef: { current: 0 }, issueRequestSeqRef: { current: 0 }, stockPlanLinkRequestRef: { current: 0 },
+    canManage: true,
     useCallback: (callback) => callback,
     t: (key) => key,
     setLoading() {}, setNotesLoading() {}, setAllTasks() {}, setSubtaskParents() {}, setTopLevelTasks() {},
@@ -59,7 +63,7 @@ function fixture() {
     setLoadError: (error) => { values.loadError = error; },
     setNotes: (notes) => { values.notes = notes; },
     setGroupNotes: (notes) => { values.groupNotes = notes; },
-    setProgressGroupTasks() {},
+    setProgressGroupTasks: (tasks) => { values.progressGroupTasks = tasks; },
     setNotesError: (error) => { values.notesError = error; },
     flattenTasks: (tasks) => tasks,
     buildSubtaskParentIndex: () => new Map(),
@@ -121,7 +125,9 @@ test("进展失败保留已加载内容，重试成功清除就地错误", async
   const load = handler("loadProgressGroup", scope);
   await load();
   assert.equal(values.notesError, "network-error");
+  assert.deepEqual(values.notes, ["existing"]);
   assert.deepEqual(values.groupNotes, ["existing"]);
+  assert.deepEqual(values.progressGroupTasks, ["existing-task"]);
   fail = false;
   await load();
   assert.equal(values.notesError, "");
@@ -138,6 +144,20 @@ test("切换任务后旧进展响应不覆盖新任务附件和进展", async ()
   request.resolve({ notes: [{ task_id: "A" }], tasks: [] });
   await pending;
   assert.deepEqual(values.groupNotes, ["B-note"]);
+});
+
+test("切换任务会清除旧进展，新任务首次加载失败不能显示上一任务内容", async () => {
+  const { scope, values } = fixture();
+  scope.taskId = "B";
+  scope.activeTaskIdRef.current = "B";
+  scope.fetchRdTaskProgressNoteGroup = async () => { throw new Error("B-load-failed"); };
+  scope.loadProgressGroup = handler("loadProgressGroup", scope);
+  taskChangeEffect(scope)();
+  await new Promise(setImmediate);
+  assert.deepEqual(values.notes, []);
+  assert.deepEqual(values.groupNotes, []);
+  assert.deepEqual(values.progressGroupTasks, []);
+  assert.equal(values.notesError, "B-load-failed");
 });
 
 test("优先级保存晚返回时不改新任务字段，子任务操作晚返回时不刷新旧任务", async () => {

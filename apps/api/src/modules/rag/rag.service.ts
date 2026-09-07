@@ -7,6 +7,8 @@ import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
 import type { AiGatewayRouteMeta, AiGatewayTarget } from '../ai-gateway/ai-gateway.types';
 import { EmbeddingClient } from './embedding-client';
 import { chunkText } from './chunker';
+import { DEPT_KB_IDS, LEVEL_FILTERED_DEPT_KB_IDS, deptKbPageCode } from '../research-development/dept-knowledge.constants';
+import { RD_WORKSPACE_IDS, isWorkspaceAllowed } from '../research-development/rd-workspace.context';
 
 // ─── 类型 ─────────────────────────────────────────────────────────────────────
 
@@ -320,11 +322,14 @@ export class RagService {
       .filter((x): x is Scored => x !== null && x.similarity >= threshold)
       .sort((a, b) => b.similarity - a.similarity);
 
+    // 旧索引和晚返回的索引写入都不能成为当前权限的事实源。
+    const kbEntries = await this.loadCurrentKbEntries(scored);
     // 3. 权限过滤，截取 topK
     let filteredByPermission = 0;
     const visible: RagSearchResult[] = [];
     for (const r of scored) {
-      if (this.hasAccess(r.metadata, user)) {
+      const currentKb = r.sourceType === 'kb' ? kbEntries.get(this.kbStoreKey(r.metadata))?.get(r.sourceId) : undefined;
+      if ((r.sourceType !== 'kb' || this.hasCurrentKbAccess(r.metadata, currentKb, user)) && this.hasAccess(r.metadata, user)) {
         visible.push({
           chunkId: r.id,
           sourceType: r.sourceType as RagSourceType,
@@ -340,6 +345,52 @@ export class RagService {
     }
 
     return { results: visible, filteredByPermission };
+  }
+
+  private kbStoreKey(meta: RagChunkMetadata): string {
+    const kbId = typeof meta.kb_id === 'string' ? meta.kb_id : '';
+    if (kbId) return DEPT_KB_IDS.has(kbId) ? `deptkb.${kbId}.knowledgeEntries` : '';
+    const key = typeof meta.kb_store_key === 'string' ? meta.kb_store_key : 'rd.knowledgeEntries';
+    return key === 'rd.knowledgeEntries' || [...RD_WORKSPACE_IDS].some((workspace) => key === `rdws.${workspace}.knowledgeEntries`)
+      ? key : '';
+  }
+
+  private async loadCurrentKbEntries(chunks: Array<{ sourceType: string; metadata: RagChunkMetadata }>) {
+    const keys = [...new Set(chunks.filter((chunk) => chunk.sourceType === 'kb')
+      .map((chunk) => this.kbStoreKey(chunk.metadata)).filter(Boolean))];
+    const result = new Map<string, Map<string, Record<string, unknown>>>();
+    if (!keys.length) return result;
+    const settings = await this.prisma.systemSetting.findMany({
+      where: { key: { in: keys } }, select: { key: true, value: true },
+    });
+    for (const setting of settings) {
+      const entries = new Map<string, Record<string, unknown>>();
+      for (const value of Array.isArray(setting.value) ? setting.value : []) {
+        if (value && typeof value === 'object' && !Array.isArray(value) && typeof value.id === 'string') {
+          entries.set(value.id, value);
+        }
+      }
+      result.set(setting.key, entries);
+    }
+    return result;
+  }
+
+  private hasCurrentKbAccess(meta: RagChunkMetadata, entry: Record<string, unknown> | undefined, user: RagUserContext): boolean {
+    if (!entry || entry.archived) return false;
+    if (meta.source_updated_at && meta.source_updated_at !== entry.updated_at) return false;
+    const level = typeof entry.permission_level === 'number'
+      ? Math.max(0, Math.min(100, Math.round(entry.permission_level)))
+      : entry.visibility === 'restricted' ? 50 : entry.visibility === 'internal' ? 20 : 0;
+    const kbId = typeof meta.kb_id === 'string' ? meta.kb_id : '';
+    if (kbId) {
+      if (!user.permissions.includes('*') && !user.permissions.includes(deptKbPageCode(kbId))) return false;
+      if (LEVEL_FILTERED_DEPT_KB_IDS.has(kbId) && level > 0) return false;
+    } else {
+      const key = this.kbStoreKey(meta);
+      const workspace = key === 'rd.knowledgeEntries' ? 'rd' : key.split('.')[1];
+      if (!isWorkspaceAllowed(workspace, user.permissions)) return false;
+    }
+    return this.hasAccess({ ...meta, permission_level: level }, user);
   }
 
   // ─── RAG 综合问答 ─────────────────────────────────────────────────────────

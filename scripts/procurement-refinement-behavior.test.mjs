@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
 
 import {
   createLatestRequestGate,
@@ -14,6 +16,119 @@ function deferred() {
   const promise = new Promise((done) => { resolve = done; });
   return { promise, resolve };
 }
+
+function procurementStoreFixture() {
+  const source = readFileSync(new URL("../src/app/procurement/data.ts", import.meta.url), "utf8");
+  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
+  let user = { id: 'A', name: '同名采购员', roleId: 'buyer', departmentCode: 'PROC', permissions: ['page:procurement'] };
+  let clearListener;
+  const requests = [];
+  const effects = [];
+  const exports = {};
+  const dependencies = {
+    react: {
+      useCallback: (fn) => fn,
+      useMemo: (fn) => fn(),
+      useEffect: (fn) => effects.push(fn),
+      useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
+    },
+    '../auth': { useAuth: () => ({ user }) },
+    '../lib/authSession': { getStoredUser: () => user, addAuthClearedListener: (fn) => { clearListener = fn; } },
+    '../lib/procurementApi': {
+      listProcTasks: () => {
+        const request = deferred();
+        requests.push({ ...request, userId: user?.id });
+        return request.promise;
+      },
+      listMaterials: async () => [],
+    },
+    '../lib/rdApi': {},
+  };
+  new Function('exports', 'require', 'window', code)(exports, (name) => {
+    assert.ok(dependencies[name], `unexpected dependency: ${name}`);
+    return dependencies[name];
+  }, undefined);
+  return {
+    api: exports, requests,
+    render() { const snapshot = exports.useProcurementData(); while (effects.length) effects.shift()(); return snapshot; },
+    switchUser(next) { user = next ? { ...user, ...next } : null; },
+    logout() { user = null; clearListener(); },
+  };
+}
+
+test('采购共享缓存退出后清空，切换账号首屏不显示上一账号数据并重新加载', async () => {
+  const store = procurementStoreFixture();
+  const first = store.api.refreshProcurement();
+  store.requests[0].resolve([{ id: 'A-task' }]);
+  await first;
+  assert.equal(store.render().tasks[0].id, 'A-task');
+  store.logout();
+  assert.deepEqual(store.render().tasks, []);
+  store.switchUser({ id: 'B', name: '同名采购员', roleId: 'buyer', permissions: ['page:procurement'] });
+  assert.deepEqual(store.render().tasks, []);
+  assert.equal(store.requests.length, 2);
+  assert.equal(store.requests[1].userId, 'B');
+  store.requests[1].resolve([{ id: 'B-task' }]);
+  await new Promise(setImmediate);
+  assert.equal(store.render().tasks[0].id, 'B-task');
+});
+
+test('旧账号在途读取、排队刷新和写结果不能回填新账号的同 ID 任务', async () => {
+  const store = procurementStoreFixture();
+  const oldRead = store.api.refreshProcurement();
+  const oldQueue = store.api.refreshProcurement();
+  const oldWriteScope = store.api.captureProcurementScope();
+  store.switchUser({ id: 'B' });
+  const nextRead = store.api.refreshProcurement();
+  store.requests[1].resolve([{ id: 'shared-task', status: 'pending_confirm', owner: 'B' }]);
+  await nextRead;
+  store.requests[0].resolve([{ id: 'shared-task', status: 'completed', owner: 'A' }]);
+  await Promise.all([oldRead, oldQueue]);
+  store.api.applyProcTaskUpdate({ id: 'shared-task', status: 'completed', owner: 'A' }, oldWriteScope);
+  assert.equal(store.requests.length, 2, '旧账号排队刷新不得启动新请求');
+  assert.deepEqual(store.render().tasks, [{ id: 'shared-task', status: 'pending_confirm', owner: 'B' }]);
+});
+
+test('同账号权限变化使缓存失效，同作用域共享加载和写后排队刷新仍有效', async () => {
+  const store = procurementStoreFixture();
+  store.render();
+  store.render();
+  assert.equal(store.requests.length, 1, '多个消费者仅首次加载一次');
+  const queued = store.api.refreshProcurement();
+  store.requests[0].resolve([{ id: 'old-snapshot' }]);
+  await new Promise(setImmediate);
+  assert.equal(store.requests.length, 2, '写后刷新必须读取晚于写入的快照');
+  store.requests[1].resolve([{ id: 'latest-snapshot' }]);
+  await queued;
+  assert.equal(store.render().tasks[0].id, 'latest-snapshot');
+  store.switchUser({ permissions: ['page:proc-my-workspace'] });
+  assert.deepEqual(store.render().tasks, []);
+  assert.equal(store.requests.length, 3);
+  store.requests[2].resolve([{ id: 'allowed-task' }]);
+  await new Promise(setImmediate);
+  const scope = store.api.captureProcurementScope();
+  store.api.applyProcTaskUpdate({ id: 'allowed-task', status: 'completed' }, scope);
+  assert.equal(store.render().tasks[0].status, 'completed');
+});
+
+test('采购个人工作台有负责人 ID 时不得用同名匹配其他账号', () => {
+  const source = readFileSync(new URL('../src/app/procurement/ProcMyWorkspacePage.tsx', import.meta.url), 'utf8');
+  const ast = ts.createSourceFile('workspace.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let initializer;
+  function visit(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(ast) === 'mine') initializer = node.initializer.getText(ast);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(initializer);
+  const body = ts.transpileModule(`return ${initializer}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const mine = new Function('tasks', 'user', 'useMemo', body)([
+    { id: 'A-task', buyerUserId: 'A', buyer: '李明' },
+    { id: 'B-task', buyerUserId: 'B', buyer: '李明' },
+    { id: 'legacy', buyer: '李明' },
+  ], { id: 'B', name: '李明' }, (fn) => fn());
+  assert.deepEqual(mine.map((task) => task.id), ['B-task', 'legacy']);
+});
 
 test("乱序采购请求只允许最后一次结果提交", async () => {
   const gate = createLatestRequestGate();

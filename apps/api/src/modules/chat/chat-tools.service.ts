@@ -1415,18 +1415,25 @@ export class ChatToolsService {
       const [mirrorRows, openTasks] = await Promise.all([
         this.prisma.procPurchaseOrderMirror.findMany({
           where: { materialId: { in: ids } },
-          select: { materialId: true, orderedQty: true, receivedQty: true, supplierName: true, unitPrice: true, status: true, approvalStatus: true },
+          select: { materialId: true, tpOrderNo: true, tpLineNo: true, orderedQty: true, receivedQty: true, supplierName: true, unitPrice: true, status: true, approvalStatus: true },
           orderBy: { orderDate: 'desc' },
         }),
         this.prisma.procTask.findMany({
           where: { materialId: { in: ids }, status: { notIn: PROC_TERMINAL_STATUSES } },
-          select: { materialId: true, quantity: true, arrivedQty: true },
+          select: {
+            materialId: true, quantity: true, arrivedQty: true,
+            purchaseOrderRefs: {
+              select: { tpOrderNo: true, tpLineNo: true, orderedQty: true, receivedQty: true, status: true, approvalStatus: true },
+            },
+          },
         }),
       ]);
       const rows = computeReplenishRows(
         shortage,
         mirrorRows.map((r) => ({
           materialId: r.materialId as string,
+          tpOrderNo: r.tpOrderNo,
+          tpLineNo: r.tpLineNo,
           orderedQty: Number(r.orderedQty),
           receivedQty: Number(r.receivedQty),
           supplierName: r.supplierName,
@@ -1434,7 +1441,16 @@ export class ChatToolsService {
           status: r.status,
           approvalStatus: r.approvalStatus,
         })),
-        openTasks.map((t) => ({ materialId: t.materialId as string, quantity: Number(t.quantity), arrivedQty: Number(t.arrivedQty) })),
+        openTasks.map((t) => ({
+          materialId: t.materialId as string,
+          quantity: Number(t.quantity),
+          arrivedQty: Number(t.arrivedQty),
+          purchaseOrderRefs: t.purchaseOrderRefs.map((ref) => ({
+            ...ref,
+            orderedQty: Number(ref.orderedQty),
+            receivedQty: Number(ref.receivedQty),
+          })),
+        })),
       ).filter((r) => hit(r.name, r.code));
       // covered 的物料仍然缺料，只是暂时被在途/任务覆盖，不该出现在「建议下单」清单里，
       // 但要在结尾如实报数——在途量算错时这句是唯一的线索。

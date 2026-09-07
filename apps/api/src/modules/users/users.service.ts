@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 
@@ -49,6 +51,13 @@ export class UsersService {
     return user;
   }
 
+  private assertRoleScope(permissions: unknown, actorPermissions: string[]) {
+    if (actorPermissions.includes('*')) return;
+    if (Array.isArray(permissions) && permissions.some((permission) => !actorPermissions.includes(permission))) {
+      throw new ForbiddenException('不能管理或分配超出当前账号权限范围的角色，请联系超级管理员');
+    }
+  }
+
   /**
    * 角色与部门的完整性校验。
    *
@@ -58,16 +67,17 @@ export class UsersService {
    * ⚠️ User.department 存的是部门**名称**而非外键（见 schema.prisma），部门改名时由
    * departments.service 级联改写。因此这里只能按 name 比对，并要求部门处于启用状态。
    */
-  private async assertRoleAndDepartment(payload: SaveUserDto, isCreate: boolean) {
+  private async assertRoleAndDepartment(payload: SaveUserDto, isCreate: boolean, actorPermissions: string[]) {
     if (isCreate && !payload.roleId) {
       throw new BadRequestException('请为用户指定角色：无角色的账号登录后没有任何权限');
     }
     if (payload.roleId) {
       const role = await this.prisma.role.findUnique({
         where: { id: payload.roleId },
-        select: { id: true },
+        select: { id: true, permissions: true },
       });
       if (!role) throw new BadRequestException('指定的角色不存在，可能已被删除，请重新选择');
+      this.assertRoleScope(role.permissions, actorPermissions);
     }
 
     const department = payload.department?.trim();
@@ -88,16 +98,48 @@ export class UsersService {
     }
   }
 
-  async save(payload: SaveUserDto) {
-    await this.assertRoleAndDepartment(payload, !payload.id);
+  private rethrowSaveError(error: unknown): never {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        const target = error.meta?.target;
+        const fields = Array.isArray(target) ? target : [target];
+        if (fields.includes('username')) {
+          throw new ConflictException({
+            statusCode: 409,
+            code: 'USERNAME_ALREADY_EXISTS',
+            message: '用户名已存在，请更换用户名',
+          });
+        }
+        if (fields.includes('email')) {
+          throw new ConflictException({
+            statusCode: 409,
+            code: 'EMAIL_ALREADY_EXISTS',
+            message: '邮箱已被使用，请更换邮箱',
+          });
+        }
+        throw new ConflictException('用户名或邮箱已存在，请检查后重试');
+      }
+      if (error.code === 'P2025') throw new NotFoundException('用户不存在');
+    }
+    throw error;
+  }
+
+  async save(payload: SaveUserDto, actor: { id: string; permissions: string[] }) {
+    const requiredPermission = payload.id ? 'user:edit' : 'user:create';
+    if (!actor.permissions.includes('*') && !actor.permissions.includes(requiredPermission)) {
+      throw new ForbiddenException(payload.id ? '没有编辑用户的权限' : '没有创建用户的权限');
+    }
+    await this.assertRoleAndDepartment(payload, !payload.id, actor.permissions);
     if (payload.id) {
       const existing = await this.prisma.user.findUnique({
         where: { id: payload.id },
         include: { role: true },
       });
-      if (existing && isSuperAdminRole(existing.role?.permissions)) {
-        throw new Error('超级管理员账号信息不允许修改');
+      if (!existing) throw new NotFoundException('用户不存在');
+      if (isSuperAdminRole(existing.role?.permissions)) {
+        throw new ForbiddenException('超级管理员账号信息不允许修改');
       }
+      this.assertRoleScope(existing.role?.permissions, actor.permissions);
 
       return this.prisma.user.update({
         where: { id: payload.id },
@@ -116,7 +158,7 @@ export class UsersService {
           status: payload.status ?? 'ACTIVE',
         },
         select: USER_SELECT,
-      });
+      }).catch((error: unknown) => this.rethrowSaveError(error));
     }
 
     // 未提供邮箱时自动生成唯一占位邮箱，避免 UNIQUE 约束冲突
@@ -140,7 +182,8 @@ export class UsersService {
       });
     }
 
-    return this.prisma.user.create({ data: createData, select: USER_SELECT });
+    return this.prisma.user.create({ data: createData, select: USER_SELECT })
+      .catch((error: unknown) => this.rethrowSaveError(error));
   }
 
   async updateStatus(id: string, status: 'ACTIVE' | 'DISABLED' | 'INVITED') {

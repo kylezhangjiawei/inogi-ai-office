@@ -214,6 +214,8 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
 
   // 供应链管理 · 操作权限（下单/入库在畅捷通 T+ 内完成，本系统无采购审批码）
   { code: 'proc-task:create', label: '新建 / 编辑采购任务', description: '采购自建需求、维护任务信息与附件、维护物料主数据', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1600 },
+  { code: 'proc-production:report', label: '登记生产报工', description: '新增及修改子系统实际产量、良品量、工时和产能记录', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1601 },
+  { code: 'proc-quality:manage', label: '处理采购 / 生产不良', description: '登记不良数量、处置进度及关闭结果', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1602 },
   { code: 'proc-task:transfer', label: '转采购', description: '研发侧将任务转为采购需求（需带附件）', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1610 },
   { code: 'rd-procurement:review', label: '研发转采购审核', description: '研发管理员审核研发任务的转采购申请；通过后才流转并分配给采购人员', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1615 },
   { code: 'proc-task:confirm', label: '确认接收', description: '采购确认接收流转来的任务，进入询价 / 直购分支', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1620 },
@@ -222,6 +224,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'proc-task:order', label: '关联采购单', description: '把任务关联到畅捷通 T+ 的采购单据（本系统不创建单据）', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1650 },
   { code: 'proc-task:receive', label: '登记到货', description: '手工登记到货数量（过渡期能力，畅捷通 T+ 接通后改由同步驱动）', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1655 },
   { code: 'proc-task:reassign', label: '转派采购负责人', description: '变更任务的采购负责人', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1660 },
+  { code: 'proc-task:rollback', label: '回退采购任务', description: '将任务回退至前序阶段，并按目标阶段清理报价、采购单关联及到货状态', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1665 },
   { code: 'proc-task:delete', label: '取消 / 删除任务', description: '取消进行中的采购任务或删除错误任务', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1670 },
   { code: 'material:review', label: '物料审核', description: '审核待确认物料（通过 / 驳回）', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1680 },
   { code: 'material:import', label: '物料批量导入', description: '批量导入物料主数据', groupLabel: '操作权限 · 供应链管理', type: 'action', sortOrder: 1690 },

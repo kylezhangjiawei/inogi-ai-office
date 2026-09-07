@@ -169,8 +169,9 @@ test("采购驾驶舱人员泳道只按采购部门负责人账号统计和筛�
 
 test("采购模块的高频键盘交互统一使用项目 Radix 封装", () => {
   assert.match(cockpit, /components\/ui\/tabs/);
-  assert.match(cockpit, /<Tabs value=\{line\}/);
+  assert.match(cockpit, /<Tabs value=\{cockpitTab\}/);
   assert.match(cockpit, /components\/ui\/toggle-group/);
+  assert.match(cockpit, /<ToggleGroup\s+type="single"\s+value=\{line\}[\s\S]*?aria-label=\{t\("按采购业务线筛选"\)\}/);
   assert.match(cockpit, /aria-label=\{t\("按采购负责人筛选"\)\}/);
   assert.doesNotMatch(cockpit, /role="tablist"|role="tab"/);
 
@@ -263,7 +264,7 @@ test("保存只等写入，刷新不阻塞界面，但界面要立刻反映新�
   // 用户看到的是「点了保存没反应」，于是再点一次——而按钮的动作由任务状态推导，
   // 刷新一旦在两次点击之间落地，第二次点的已经是下一个动作，任务就一节节窜到「已完成」。
   // 写接口返回的就是更新后的任务，必须立刻替换 store 里的那一条。
-  assert.match(actions, /applyProcTaskUpdate\(result\)/);
+  assert.match(actions, /applyProcTaskUpdate\(result, requestScope\)/);
   assert.match(source("src/app/procurement/data.ts"), /export function applyProcTaskUpdate\(/);
 });
 

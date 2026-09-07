@@ -1154,29 +1154,6 @@ export function ExpenseModule() {
     );
   }, []);
 
-  const runLocalMatch = useCallback(() => {
-    const unmatchedExpenses = expenseVouchers.filter((voucher) => !voucher.matched);
-    const unmatchedInvoices = invoiceVouchers.filter((invoice) => !invoice.matched);
-    const links: Array<{ invoice_id: string; voucher_id: string }> = [];
-    const usedInvoiceIds = new Set<string>();
-
-    unmatchedExpenses.forEach((voucher) => {
-      const invoice = unmatchedInvoices.find((item) => {
-        if (usedInvoiceIds.has(item.id)) return false;
-        const amountMatched = Math.abs(item.amount - voucher.amount) < 1;
-        const vendorMatched = item.issuer.includes(voucher.vendor.slice(0, 2)) || voucher.vendor.includes(item.issuer.slice(0, 2));
-        return amountMatched || vendorMatched;
-      });
-      if (invoice) {
-        usedInvoiceIds.add(invoice.id);
-        links.push({ invoice_id: invoice.id, voucher_id: voucher.id });
-      }
-    });
-
-    applyMatchLinks(links);
-    return links.length;
-  }, [applyMatchLinks, expenseVouchers, invoiceVouchers]);
-
   // AI 匹配：只对未关联的票据/凭证建链（已关联的后端不会触碰）。手动触发时反馈关联结果。
   const runAiMatch = useCallback(async () => {
     setAiMatching(true);
@@ -1196,14 +1173,17 @@ export function ExpenseModule() {
       } else {
         toast.info(t('未发现可自动关联的票据'));
       }
-    } catch {
-      const local = runLocalMatch();
-      if (local > 0) toast.success(t('AI 服务暂不可用，已用本地规则临时关联 {count} 张', { count: local }));
-      else toast.error(t('AI 匹配服务暂不可用，请稍后重试'));
+    } catch (error) {
+      const status = error instanceof Error ? (error as Error & { status?: number }).status : undefined;
+      const message = status === 401 ? t('登录已失效，请重新登录后再试')
+        : status === 403 ? t('没有自动匹配票据的权限，请联系管理员')
+        : error instanceof Error && /[\u3400-\u9fff]/.test(error.message) && !(status && status >= 500) ? error.message
+        : t('AI 匹配服务暂不可用，请稍后重试');
+      toast.error(message);
     } finally {
-      window.setTimeout(() => setAiMatching(false), 700);
+      setAiMatching(false);
     }
-  }, [applyMatchLinks, reloadExpenseData, runLocalMatch]);
+  }, [applyMatchLinks, reloadExpenseData, t]);
 
   // 手动关联：写入后端并落库。允许对未关联和已关联的凭证重新关联（后端会先释放旧对端再改绑）。
   const handleManualLink = useCallback(async () => {

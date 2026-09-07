@@ -29,6 +29,8 @@ import { EditTaskModal, NewRequirementModal } from "./modals";
 import { StatusPill } from "./common";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { removalModeOf, useProcTaskAction } from "./taskActions";
+import { StockPlanPanel } from "./StockPlanPanel";
+import { SubsystemOperationsPanel } from "./SubsystemOperationsPanel";
 
 const QUANTITY_FORMATTER = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 3 });
 
@@ -77,6 +79,7 @@ export function ProcurementModuleDetail({
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [openTask, setOpenTask] = useState<ProcurementTask | null>(null);
   const [editTask, setEditTask] = useState<ProcurementTask | null>(null);
+  const [detailTab, setDetailTab] = useState<"inventory" | "plans" | "operations">("inventory");
   const taskAction = useProcTaskAction({ onOpenDetail: setOpenTask });
   const inventoryCode = material?.tpInventoryCode?.trim() || null;
 
@@ -110,6 +113,11 @@ export function ProcurementModuleDetail({
   }, [moduleTasks]);
 
   const item = inventory?.item;
+  const productionAvailable = item?.warehouses.filter((warehouse) => {
+    // 与库存齐套 API 一致：去掉 ERP 状态前缀后，仍只认明确的量产仓名称。
+    const canonicalName = warehouse.name.trim().replace(/\s+/g, "").replace(/^【[^】]+】/, "");
+    return canonicalName === "量产仓" || canonicalName === "量产仓库";
+  }).reduce((sum, warehouse) => sum + warehouse.available, 0) ?? 0;
   const totalStock = item?.stock ?? material?.stockQty ?? 0;
   const taskDefaults = {
     productId: node.productId,
@@ -146,7 +154,7 @@ export function ProcurementModuleDetail({
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-50 px-3 text-xs text-slate-600">
             <Boxes className="size-3.5 text-slate-400" />
-            {t("库存")} <strong className="tabular-nums text-slate-900">{formatQuantity(totalStock)}</strong>
+            {t("全仓现存")} <strong className="tabular-nums text-slate-900">{formatQuantity(totalStock)}</strong>
           </span>
           <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#eef3ff] px-3 text-xs text-[#002fa7]">
             <ClipboardList className="size-3.5" />
@@ -164,8 +172,10 @@ export function ProcurementModuleDetail({
           )}
         </div>
       </header>
-
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-4 lg:p-5">
+      <div className="flex shrink-0 gap-2 border-b border-slate-100 px-4 py-2" role="group" aria-label="子系统数据栏目">{([["inventory", "库存与任务"], ["plans", "备货计划"], ["operations", "生产与质量"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={detailTab === value} onClick={() => setDetailTab(value)} className={cn("rounded-lg px-3 py-2 text-xs font-semibold", detailTab === value ? "bg-[#eef3ff] text-[#002fa7]" : "text-slate-500 hover:bg-slate-50")}>{t(label)}</button>)}</div>
+      {detailTab === "plans" ? <div className="flex min-h-0 flex-1 flex-col p-4"><StockPlanPanel materials={materials} canCreate={canCreate} productId={node.productId} treeNodeId={node.id} /></div>
+        : detailTab === "operations" ? <div className="min-h-0 flex-1 overflow-auto p-4"><SubsystemOperationsPanel productId={node.productId} treeNodeId={node.id} /></div>
+        : <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-4 lg:p-5">
         <section className="flex h-[clamp(280px,34vh,360px)] shrink-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
             <div>
@@ -208,9 +218,9 @@ export function ProcurementModuleDetail({
             ) : (
               <div className="p-4">
                 <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <InventoryStat icon={Boxes} label={t("现存量")} value={item.stock} />
-                  <InventoryStat icon={PackageCheck} label={t("可用量")} value={item.available} />
-                  <InventoryStat icon={Truck} label={t("在途量")} value={item.in} />
+                  <InventoryStat icon={Boxes} label={t("全仓现存量")} value={item.stock} />
+                  <InventoryStat icon={PackageCheck} label={t("量产仓可用量")} value={productionAvailable} />
+                  <InventoryStat icon={Truck} label={t("全仓在途量")} value={item.in} />
                   <InventoryStat icon={Warehouse} label={t("仓库数")} value={item.warehouses.length} integer />
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-slate-100">
@@ -307,6 +317,7 @@ export function ProcurementModuleDetail({
         </section>
       </div>
 
+      }
       {newTaskOpen && <NewRequirementModal onClose={() => setNewTaskOpen(false)} defaults={taskDefaults} lockContext />}
       {openTask && <TaskDetailDrawer task={openTask} onClose={() => setOpenTask(null)} />}
       {editTask && <EditTaskModal task={editTask} onClose={() => setEditTask(null)} />}

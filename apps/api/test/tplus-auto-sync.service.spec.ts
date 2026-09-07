@@ -3,6 +3,41 @@ import { test } from 'node:test';
 import { SCHEDULE_CRON_OPTIONS } from '@nestjs/schedule/dist/schedule.constants';
 
 import { TplusSyncService } from '../src/modules/procurement/tplus-sync.service';
+import { ProcurementService } from '../src/modules/procurement/procurement.service';
+
+test('同步把缺省行号规范为真实 ERP 首行号，历史两种引用不再重复累计到货', async () => {
+  const refs: Array<Record<string, unknown>> = [
+    { id: 'legacy', taskId: 'task-1', tpOrderNo: 'PO-001', tpLineNo: null, receivedQty: 0, etaDate: null },
+    { id: 'explicit', taskId: 'task-1', tpOrderNo: 'PO-001', tpLineNo: '7', receivedQty: 0, etaDate: null },
+    { id: 'free', taskId: 'task-1', tpOrderNo: 'PO-OLD', tpLineNo: '7', receivedQty: 75, etaDate: null, metadata: { freeSample: true } },
+  ];
+  let saved: Record<string, unknown> = {};
+  const prisma = {
+    procPurchaseOrderRef: {
+      findMany: async () => refs,
+      update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        Object.assign(refs.find((row) => row.id === where.id)!, data);
+      },
+    },
+    procTask: {
+      findUnique: async () => ({ id: 'task-1', quantity: 100, status: 'in_transit', businessDone: false, purchaseOrderRefs: refs }),
+      update: async ({ data }: { data: Record<string, unknown> }) => { saved = data; },
+    },
+  };
+  const procurement = new ProcurementService(prisma as never, {} as never, {} as never, {} as never);
+  const service = new TplusSyncService(prisma as never, procurement, {} as never, {} as never);
+  const orders: string[] = [];
+  (service as any).fetchFromTplus = async (_path: string, payload: { voucherCode: string }) => {
+    orders.push(payload.voucherCode);
+    return { Code: 'PO-001', PurchaseOrderDetails: [{ RowNo: 7, Quantity: 100, CountQuantity: 50 }] };
+  };
+  await service.syncPurchaseOrders();
+  assert.deepEqual(refs.slice(0, 2).map((row) => row.tpLineNo), ['7', '7']);
+  assert.deepEqual(orders, ['PO-001'], '历史免费样品的残留 ERP 单号也不能触发同步');
+  assert.equal(refs[2].receivedQty, 75, '不修改历史样品数据');
+  assert.equal(Number(saved.arrivedQty), 50);
+  assert.equal(saved.status, 'partial_arrival');
+});
 
 test('T+ 自动同步固定在北京时间每天 3:00 执行', () => {
   const options = Reflect.getMetadata(

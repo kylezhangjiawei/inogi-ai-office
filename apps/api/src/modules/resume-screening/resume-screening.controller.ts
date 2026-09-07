@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 
 import { Public } from '../auth/decorators/public.decorator';
+import { Permissions } from '../auth/decorators/permissions.decorator';
 import { ApplyCandidateAiUpdateDto } from './dto/apply-candidate-ai-update.dto';
 import { CreateJobRuleDto } from './dto/create-job-rule.dto';
 import { AskCandidateAiDto } from './dto/ask-candidate-ai.dto';
@@ -16,16 +17,19 @@ import { UploadResumeFilesDto } from './dto/upload-resume-files.dto';
 import { ResumeScreeningService } from './resume-screening.service';
 
 @Controller('recruitment')
+@Permissions('page:resume-screening')
 export class ResumeScreeningController {
   constructor(private readonly resumeScreeningService: ResumeScreeningService) {}
 
   @Public()
+  @Permissions()
   @Get('health')
   getHealth() {
     return this.resumeScreeningService.getHealth();
   }
 
   @Public()
+  @Permissions()
   @Get('security/public-key')
   getSecurityPublicKey() {
     return this.resumeScreeningService.getSecurityPublicKey();
@@ -39,6 +43,7 @@ export class ResumeScreeningController {
   }
 
   @Post('integrations/mail')
+  @Permissions('page:mailbox-management')
   saveMailConfig(@Body() payload: SaveMailConfigDto) {
     return this.resumeScreeningService.saveMailConfig(payload);
   }
@@ -49,13 +54,15 @@ export class ResumeScreeningController {
   }
 
   @Post('integrations/openai')
+  @Permissions('page:ai-model-management')
   saveOpenAiConfig(@Body() payload: SaveOpenAiConfigDto) {
     return this.resumeScreeningService.saveOpenAiConfig(payload);
   }
 
   @Delete('integrations/:configId')
-  deleteIntegrationConfig(@Param('configId') configId: string) {
-    return this.resumeScreeningService.deleteIntegrationConfig(configId);
+  @Permissions('page:mailbox-management', 'page:ai-model-management')
+  deleteIntegrationConfig(@Param('configId') configId: string, @Req() req: { user?: { permissions?: string[] } }) {
+    return this.resumeScreeningService.deleteIntegrationConfig(configId, req.user?.permissions ?? []);
   }
 
   // ── Job rules ───────────────────────────────────────────────────────────────
@@ -66,11 +73,13 @@ export class ResumeScreeningController {
   }
 
   @Post('job-rules')
+  @Permissions('resume:screen')
   saveJobRule(@Body() payload: CreateJobRuleDto) {
     return this.resumeScreeningService.saveJobRule(payload);
   }
 
   @Delete('job-rules/:jobRuleId')
+  @Permissions('resume:screen')
   deleteJobRule(@Param('jobRuleId') jobRuleId: string) {
     return this.resumeScreeningService.deleteJobRule(jobRuleId);
   }
@@ -78,11 +87,13 @@ export class ResumeScreeningController {
   // ── Mail sync ───────────────────────────────────────────────────────────────
 
   @Post('mail-sync/run')
+  @Permissions('resume:screen')
   runMailSync(@Body() payload: RunMailSyncDto) {
     return this.resumeScreeningService.runMailSync(payload);
   }
 
   @Post('resume-upload/run')
+  @Permissions('resume:upload')
   @UseInterceptors(FilesInterceptor('files', 200))
   uploadResumeFiles(
     @UploadedFiles() files: Array<{ originalname: string; buffer: Buffer; mimetype?: string }>,
@@ -107,6 +118,7 @@ export class ResumeScreeningController {
   }
 
   @Post('mail-sync/schedule')
+  @Permissions('resume:screen')
   saveMailSyncSchedule(@Body() payload: SaveMailSyncScheduleDto) {
     return this.resumeScreeningService.saveMailSyncSchedule(payload);
   }
@@ -124,16 +136,19 @@ export class ResumeScreeningController {
   }
 
   @Post('candidate-filter-sessions/iterate')
+  @Permissions('resume:screen')
   iterateCandidateFilter(@Body() payload: IterateCandidateFilterDto) {
     return this.resumeScreeningService.iterateCandidateFilter(payload);
   }
 
   @Delete('candidates')
+  @Permissions('resume:delete')
   clearCandidates() {
     return this.resumeScreeningService.clearCandidates();
   }
 
   @Delete('candidates/:candidateId')
+  @Permissions('resume:delete')
   deleteCandidate(@Param('candidateId') candidateId: string) {
     return this.resumeScreeningService.deleteCandidate(candidateId);
   }
@@ -144,11 +159,13 @@ export class ResumeScreeningController {
   }
 
   @Post('candidates/:candidateId/ai-chat')
+  @Permissions('resume:screen')
   askCandidateAi(@Param('candidateId') candidateId: string, @Body() payload: AskCandidateAiDto) {
     return this.resumeScreeningService.askCandidateAi(candidateId, payload);
   }
 
   @Post('candidates/:candidateId/apply-ai-update')
+  @Permissions('resume:screen')
   applyCandidateAiUpdate(@Param('candidateId') candidateId: string, @Body() payload: ApplyCandidateAiUpdateDto) {
     return this.resumeScreeningService.applyCandidateAiUpdate(candidateId, payload);
   }

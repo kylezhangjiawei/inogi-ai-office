@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SaveRoleDto } from './dto/save-role.dto';
@@ -36,8 +37,40 @@ export class RolesService {
     return role;
   }
 
-  async save(payload: SaveRoleDto) {
+  private assertPermissionScope(permissions: unknown, actorPermissions: string[]) {
+    if (actorPermissions.includes('*')) return;
+    if (Array.isArray(permissions) && permissions.some((permission) => !actorPermissions.includes(permission))) {
+      throw new ForbiddenException('不能管理或授予超出当前账号权限范围的角色，请联系超级管理员');
+    }
+  }
+
+  private rethrowSaveError(error: unknown): never {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'ROLE_NAME_ALREADY_EXISTS',
+          message: '角色名称已存在，请更换名称',
+        });
+      }
+      if (error.code === 'P2025') throw new NotFoundException('角色不存在或已被删除，请刷新列表后重试');
+    }
+    throw error;
+  }
+
+  async save(payload: SaveRoleDto, actor: { id: string; permissions: string[] }) {
+    const requiredPermission = payload.id ? 'role:edit' : 'role:create';
+    if (!actor.permissions.includes('*') && !actor.permissions.includes(requiredPermission)) {
+      throw new ForbiddenException(payload.id ? '没有编辑角色的权限' : '没有创建角色的权限');
+    }
+    this.assertPermissionScope(payload.permissions, actor.permissions);
     if (payload.id) {
+      const existing = await this.prisma.role.findUnique({ where: { id: payload.id } });
+      if (!existing) throw new NotFoundException('角色不存在或已被删除，请刷新列表后重试');
+      if (Array.isArray(existing.permissions) && existing.permissions.includes('*')) {
+        throw new ForbiddenException('超级管理员角色不允许修改');
+      }
+      this.assertPermissionScope(existing.permissions, actor.permissions);
       return this.prisma.role.update({
         where: { id: payload.id },
         data: {
@@ -45,7 +78,7 @@ export class RolesService {
           description: payload.description,
           permissions: payload.permissions,
         },
-      });
+      }).catch((error: unknown) => this.rethrowSaveError(error));
     }
 
     return this.prisma.role.create({
@@ -54,7 +87,7 @@ export class RolesService {
         description: payload.description,
         permissions: payload.permissions,
       },
-    });
+    }).catch((error: unknown) => this.rethrowSaveError(error));
   }
 
   async remove(id: string) {
@@ -63,6 +96,9 @@ export class RolesService {
       include: { _count: { select: { users: true } } },
     });
     if (!role) throw new NotFoundException('角色不存在');
+    if (Array.isArray(role.permissions) && role.permissions.includes('*')) {
+      throw new ForbiddenException('超级管理员角色不允许删除');
+    }
     if (role._count.users > 0) {
       throw new BadRequestException(`该角色下仍有 ${role._count.users} 名用户，请先移除或重新分配后再删除`);
     }

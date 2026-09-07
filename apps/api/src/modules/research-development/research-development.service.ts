@@ -1386,6 +1386,8 @@ export class ResearchDevelopmentService {
         metadata: {
           title,
           permission_level: permissionLevel,
+          kb_store_key: resolveRdStoreKey(this.kbEntriesKey(kbId)),
+          source_updated_at: entry.updated_at,
           ...(kbId ? { kb_id: kbId, required_any_permissions: [deptKbPageCode(kbId)] } : {}),
           category_id: String(entry.category_id ?? '') || undefined,
           author_id: String(entry.created_by_id ?? '') || undefined,
@@ -4346,6 +4348,12 @@ export class ResearchDevelopmentService {
           originalTask = { ...t };
 
           const existingReviewType = cleanText(t.pending_review_type);
+          const requestedStatus = cleanText(persistPatch.status);
+          const hasSubmittedReviewType = Object.prototype.hasOwnProperty.call(persistPatch, 'pending_review_type');
+          // 详情页的完成提交只带 pending_review；明确保存成果类型，供后续审核唯一裁决。
+          if (!_review_action && requestedStatus === 'pending_review' && !hasSubmittedReviewType && !existingReviewType) {
+            persistPatch.pending_review_type = 'result';
+          }
           const submittedType = cleanText(persistPatch.pending_review_type) || existingReviewType;
           const directSubmission = !_review_action && cleanText(persistPatch.status) === 'pending_review'
             && isDirectRdTaskChange(submittedType);
@@ -4368,6 +4376,17 @@ export class ResearchDevelopmentService {
             }
             if (Object.prototype.hasOwnProperty.call(persistPatch, 'primary_owner')) {
               throw new ForbiddenException('无权移交任务：仅研发主管可变更主责人');
+            }
+            if (!_review_action) {
+              if ((requestedStatus === 'completed' || requestedStatus === 'archived') && requestedStatus !== t.status) {
+                throw new ForbiddenException('无审核权限：请提交成果或放弃申请，等待审核');
+              }
+              // 结果、放弃及其他工作区的待审申请，只能经审核动作结案，不能换类型走免审分支。
+              if (t.status === 'pending_review' && !isDirectRdTaskChange(existingReviewType)
+                && ((Object.prototype.hasOwnProperty.call(persistPatch, 'status') && requestedStatus !== 'pending_review')
+                  || (hasSubmittedReviewType && cleanText(persistPatch.pending_review_type) !== existingReviewType))) {
+                throw new ForbiddenException('无审核权限：不能清除或更改待审核申请，请等待审核');
+              }
             }
           }
 
@@ -7936,6 +7955,10 @@ export class ResearchDevelopmentService {
    * 其他留痕中同名附件的条目（此前实测风险），宁可留存也不误删。
    */
   private async removeIngestedAttachmentKbEntries(taskId: string, removedAttachments: JsonRecord[]) {
+    return this.withKnowledgeEntryLock(undefined, () => this.removeIngestedAttachmentKbEntriesUnlocked(taskId, removedAttachments));
+  }
+
+  private async removeIngestedAttachmentKbEntriesUnlocked(taskId: string, removedAttachments: JsonRecord[]) {
     const ids = new Set(removedAttachments.map((a) => String(a.id ?? '')).filter(Boolean));
     if (ids.size === 0) return;
     const raw = await this.readValue('rd.knowledgeEntries');
@@ -7952,7 +7975,7 @@ export class ResearchDevelopmentService {
     if (matchedIds.length === 0) return;
     await this.writeValue('rd.knowledgeEntries', updated);
     for (const id of matchedIds) {
-      void this.ragService.removeChunksForSource('kb', id).catch(() => {});
+      await this.ragService.removeChunksForSource('kb', id).catch(() => {});
     }
   }
 
@@ -12128,6 +12151,36 @@ export class ResearchDevelopmentService {
     return kbId ? `deptkb.${kbId}.knowledgeEntries` : 'rd.knowledgeEntries';
   }
 
+  // 条目按整库 JSON 存储，计数、附件清理也必须与编辑串行，避免旧快照撤销提密。
+  // 与任务树一致，适用于当前单实例部署；扩容多实例时需替换为数据库锁或版本校验。
+  private knowledgeEntryWriteLocks = new Map<string, Promise<unknown>>();
+  private withKnowledgeEntryLock<T>(kbId: string | undefined, fn: () => Promise<T>): Promise<T> {
+    const key = resolveRdStoreKey(this.kbEntriesKey(kbId));
+    const locks = this.knowledgeEntryWriteLocks ??= new Map();
+    const run = (locks.get(key) ?? Promise.resolve()).then(fn, fn);
+    const settled = run.then(() => undefined, () => undefined);
+    locks.set(key, settled);
+    void settled.then(() => { if (locks.get(key) === settled) locks.delete(key); });
+    return run;
+  }
+
+  private async assertKnowledgeEntryWritable(
+    entries: JsonRecord[],
+    id: string,
+    viewer?: { userId?: string; hasFullAccess?: boolean; levelOverride?: number },
+  ) {
+    const entry = entries.find(e => e.id === id);
+    if (!entry) throw new NotFoundException('知识条目不存在');
+    if (viewer && !viewer.hasFullAccess) {
+      const level = typeof viewer.levelOverride === 'number'
+        ? viewer.levelOverride
+        : await this.resolveViewerKbLevel(viewer.userId);
+      if ((ResearchDevelopmentService.normalizeKbEntry(entry).permission_level as number) > level) {
+        throw new NotFoundException('知识条目不存在');
+      }
+    }
+  }
+
   /** 部门库默认仅一个「其他」兜底分类；研发库用其专属预置分类树。 */
   private kbDefaultCategories(kbId?: string): unknown[] {
     return kbId ? DEPT_KB_DEFAULT_CATEGORIES : DEFAULT_KB_CATEGORIES;
@@ -12686,6 +12739,10 @@ export class ResearchDevelopmentService {
     created_by_id?: string;
     created_by_name?: string;
   }, kbId?: string) {
+    return this.withKnowledgeEntryLock(kbId, () => this.createKnowledgeEntryUnlocked(payload, kbId));
+  }
+
+  private async createKnowledgeEntryUnlocked(payload: Parameters<ResearchDevelopmentService['createKnowledgeEntry']>[0], kbId?: string) {
     const raw = await this.readValue(this.kbEntriesKey(kbId));
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     const now = new Date().toISOString();
@@ -12722,8 +12779,8 @@ export class ResearchDevelopmentService {
     entries.unshift(entry);
     // Cap at 2000 entries to avoid unbounded growth
     await this.writeValue(this.kbEntriesKey(kbId), entries.slice(0, 2000));
-    // RAG 同步（best-effort，不阻塞返回）：研发库与部门/协同库全部入向量索引，部门库带页面码隔离
-    void this.syncKbEntryToRag(entry, kbId);
+    // 保持索引写入顺序，避免创建时的旧内容晚于提密或归档完成。
+    await this.syncKbEntryToRag(entry, kbId);
     return entry;
   }
 
@@ -12732,6 +12789,10 @@ export class ResearchDevelopmentService {
    * Safe to run repeatedly — only touches strings that are actually garbled.
    */
   async repairKbFilenameEncoding(): Promise<{ fixed: number; total: number }> {
+    return this.withKnowledgeEntryLock(undefined, () => this.repairKbFilenameEncodingUnlocked());
+  }
+
+  private async repairKbFilenameEncodingUnlocked(): Promise<{ fixed: number; total: number }> {
     const raw = await this.readValue('rd.knowledgeEntries');
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     let fixed = 0;
@@ -12767,15 +12828,28 @@ export class ResearchDevelopmentService {
     });
 
     await this.writeValue('rd.knowledgeEntries', repaired);
+    for (let index = 0; index < repaired.length; index++) {
+      if (repaired[index] !== entries[index]) await this.syncKbEntryToRag(repaired[index]);
+    }
     return { fixed, total: entries.length };
   }
 
   async updateKnowledgeEntry(id: string, payload: Partial<{
     title: string; description: string; category_id: string;
     tags: string[]; visibility: string; permission_level: number; archived: boolean;
-  }>, kbId?: string, actor?: AuditActorRef, auditAction: 'kb.entry.edited' | 'kb.entry.moved' = 'kb.entry.edited') {
+  }>, kbId?: string, actor?: AuditActorRef, auditAction: 'kb.entry.edited' | 'kb.entry.moved' = 'kb.entry.edited',
+    viewer?: { userId?: string; hasFullAccess?: boolean; levelOverride?: number }) {
+    return this.withKnowledgeEntryLock(kbId, () => this.updateKnowledgeEntryUnlocked(id, payload, kbId, actor, auditAction, viewer));
+  }
+
+  private async updateKnowledgeEntryUnlocked(
+    id: string, payload: Parameters<ResearchDevelopmentService['updateKnowledgeEntry']>[1],
+    kbId: string | undefined, actor: AuditActorRef | undefined, auditAction: 'kb.entry.edited' | 'kb.entry.moved',
+    viewer?: { userId?: string; hasFullAccess?: boolean; levelOverride?: number },
+  ) {
     const raw = await this.readValue(this.kbEntriesKey(kbId));
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    await this.assertKnowledgeEntryWritable(entries, id, viewer);
     const categoryId = payload.category_id !== undefined
       ? await this.resolveKnowledgeCategoryId(payload.category_id, undefined, kbId)
       : undefined;
@@ -12794,8 +12868,11 @@ export class ResearchDevelopmentService {
       return { ...e, ...patch, updated_at: new Date().toISOString() };
     });
     if (!found) throw new NotFoundException('知识条目不存在');
+    // 先撤销旧索引；删除失败时不能声称密级修改已完成。
+    await this.ragService.removeChunksForSource('kb', id);
     await this.writeValue(this.kbEntriesKey(kbId), updated);
     const next = updated.find(e => e.id === id);
+    if (next) await this.syncKbEntryToRag(next, kbId);
     await this.recordKnowledgeAudit(
       auditAction,
       id,
@@ -12808,25 +12885,37 @@ export class ResearchDevelopmentService {
     return next;
   }
 
-  async moveKnowledgeEntry(id: string, categoryId: string, kbId?: string, actor?: AuditActorRef) {
-    return this.updateKnowledgeEntry(id, { category_id: categoryId }, kbId, actor, 'kb.entry.moved');
+  async moveKnowledgeEntry(id: string, categoryId: string, kbId?: string, actor?: AuditActorRef,
+    viewer?: { userId?: string; hasFullAccess?: boolean; levelOverride?: number }) {
+    return this.updateKnowledgeEntry(id, { category_id: categoryId }, kbId, actor, 'kb.entry.moved', viewer);
   }
 
-  async deleteKnowledgeEntry(id: string, kbId?: string, actor?: AuditActorRef) {
+  async deleteKnowledgeEntry(id: string, kbId?: string, actor?: AuditActorRef,
+    viewer?: { userId?: string; hasFullAccess?: boolean; levelOverride?: number }) {
+    return this.withKnowledgeEntryLock(kbId, () => this.deleteKnowledgeEntryUnlocked(id, kbId, actor, viewer));
+  }
+
+  private async deleteKnowledgeEntryUnlocked(id: string, kbId: string | undefined, actor: AuditActorRef | undefined,
+    viewer?: { userId?: string; hasFullAccess?: boolean; levelOverride?: number }) {
     const raw = await this.readValue(this.kbEntriesKey(kbId));
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    await this.assertKnowledgeEntryWritable(entries, id, viewer);
     const removed = entries.find(e => e.id === id);
     const updated = entries.map(e => e.id === id ? { ...e, archived: true, updated_at: new Date().toISOString() } : e);
     await this.writeValue(this.kbEntriesKey(kbId), updated);
     await this.recordKnowledgeAudit('kb.entry.deleted', id, cleanText(removed?.title), '删除知识库文件', kbId, actor);
     // RAG 同步：archived=true 触发 chunk 删除（各库同机制）
-    void this.ragService.removeChunksForSource('kb', id).catch((err) => {
+    await this.ragService.removeChunksForSource('kb', id).catch((err) => {
       this.logger.warn(`[RAG] removeChunksForSource 失败 (entry=${id}): ${err instanceof Error ? err.message : String(err)}`);
     });
     return { ok: true };
   }
 
   async incrementKbEntryViewCount(id: string, kbId?: string) {
+    return this.withKnowledgeEntryLock(kbId, () => this.incrementKbEntryViewCountUnlocked(id, kbId));
+  }
+
+  private async incrementKbEntryViewCountUnlocked(id: string, kbId?: string) {
     const raw = await this.readValue(this.kbEntriesKey(kbId));
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     const updated = entries.map(e => e.id === id ? { ...e, view_count: (Number(e.view_count) || 0) + 1 } : e);

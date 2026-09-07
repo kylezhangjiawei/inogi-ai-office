@@ -418,29 +418,39 @@ export class DeptKnowledgeController {
 
   @Patch('entries/:id')
   @DeptKbOp(DEPT_KB_OPS.ENTRY_EDIT)
-  updateEntry(
+  async updateEntry(
     @Param('kbId') kbId: string,
     @Param('id') id: string,
     @Body() body: Partial<{ title: string; description: string; category_id: string; tags: string[]; visibility: string; permission_level: number; archived: boolean }>,
     @Request() req: AuthedRequest,
   ) {
-    // 非管理员不得修改权限分值（与研发库一致：防止经编辑接口绕过设密级）
-    if (!this.isManager(req) && body.permission_level !== undefined) {
-      delete body.permission_level;
+    const viewer = await this.viewer(req, kbId);
+    const entry = await this.rdService.getKnowledgeEntryById(id, viewer, kbId);
+    if (!entry) throw new NotFoundException('条目不存在');
+    const patch = { ...body };
+    if (!this.isManager(req)) {
+      delete patch.permission_level;
+      delete patch.visibility;
     }
-    return this.rdService.updateKnowledgeEntry(id, body, kbId, this.auditActor(req));
+    return this.rdService.updateKnowledgeEntry(id, patch, kbId, this.auditActor(req), undefined, viewer);
   }
 
   @Patch('entries/:id/move')
   @DeptKbOp(DEPT_KB_OPS.ENTRY_MOVE, DEPT_KB_OPS.ENTRY_EDIT)
-  moveEntry(@Param('kbId') kbId: string, @Param('id') id: string, @Body() body: { category_id?: string }, @Request() req: AuthedRequest) {
-    return this.rdService.moveKnowledgeEntry(id, body.category_id ?? '', kbId, this.auditActor(req));
+  async moveEntry(@Param('kbId') kbId: string, @Param('id') id: string, @Body() body: { category_id?: string }, @Request() req: AuthedRequest) {
+    const viewer = await this.viewer(req, kbId);
+    const entry = await this.rdService.getKnowledgeEntryById(id, viewer, kbId);
+    if (!entry) throw new NotFoundException('条目不存在');
+    return this.rdService.moveKnowledgeEntry(id, body.category_id ?? '', kbId, this.auditActor(req), viewer);
   }
 
   @Delete('entries/:id')
   @DeptKbOp(DEPT_KB_OPS.ENTRY_DELETE)
-  deleteEntry(@Param('kbId') kbId: string, @Param('id') id: string, @Request() req: AuthedRequest) {
-    return this.rdService.deleteKnowledgeEntry(id, kbId, this.auditActor(req));
+  async deleteEntry(@Param('kbId') kbId: string, @Param('id') id: string, @Request() req: AuthedRequest) {
+    const viewer = await this.viewer(req, kbId);
+    const entry = await this.rdService.getKnowledgeEntryById(id, viewer, kbId);
+    if (!entry) throw new NotFoundException('条目不存在');
+    return this.rdService.deleteKnowledgeEntry(id, kbId, this.auditActor(req), viewer);
   }
 
   @Post('entries/:id/view')

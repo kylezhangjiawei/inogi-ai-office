@@ -4,6 +4,8 @@
 // （useSyncExternalStore 订阅）保证：无论多少组件调用，一次会话只拉一次接口，
 // 且任一处写操作后 refreshProcurement() 能让所有订阅者同步刷新。
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useAuth } from "../auth";
+import { addAuthClearedListener, getStoredUser, type AuthUser } from "../lib/authSession";
 
 import {
   listMaterials,
@@ -46,7 +48,10 @@ interface ProcState {
   error: string | null;
 }
 
-let state: ProcState = { tasks: [], materials: [], loading: true, error: null };
+const EMPTY_STATE: ProcState = { tasks: [], materials: [], loading: true, error: null };
+let state: ProcState = EMPTY_STATE;
+let scopeKey: string | null = null;
+let scopeGeneration = 0;
 let started = false;
 let inflight: Promise<void> | null = null;
 /** 正在飞的请求之后要补发的那一次刷新（见 refreshProcurement 注释）。 */
@@ -79,6 +84,37 @@ function emit(next: Partial<ProcState>) {
   for (const fn of listeners) fn();
 }
 
+function userScope(user: AuthUser | null): string | null {
+  return user ? JSON.stringify([user.id, user.name, user.roleId, user.departmentCode, [...user.permissions].sort()]) : null;
+}
+
+function resetScope(nextScope: string | null) {
+  scopeKey = nextScope;
+  scopeGeneration += 1;
+  started = false;
+  inflight = null;
+  queued = null;
+  emit({ ...EMPTY_STATE, loading: Boolean(nextScope) });
+}
+
+function syncScope() {
+  const nextScope = userScope(getStoredUser());
+  if (nextScope !== scopeKey) resetScope(nextScope);
+}
+
+addAuthClearedListener(() => resetScope(null));
+
+/** 写请求在发出前记录作用域，账号切换后禁止将旧结果回填到新会话。 */
+export function captureProcurementScope(): number {
+  syncScope();
+  return scopeGeneration;
+}
+
+function isCurrentScope(generation: number) {
+  syncScope();
+  return scopeKey !== null && generation === scopeGeneration;
+}
+
 function subscribe(fn: () => void) {
   listeners.add(fn);
   return () => {
@@ -87,12 +123,15 @@ function subscribe(fn: () => void) {
 }
 
 async function load() {
+  const generation = scopeGeneration;
   emit({ loading: true, error: null });
   try {
     const [tasks, materials] = await Promise.all([listProcTasks(), listMaterials()]);
+    if (!isCurrentScope(generation)) return;
     emit({ tasks, materials, loading: false, error: null });
     notifyProcurementRefreshed();
   } catch (err) {
+    if (!isCurrentScope(generation)) return;
     emit({ loading: false, error: err instanceof Error ? err.message : "采购数据加载失败" });
   }
 }
@@ -107,7 +146,8 @@ async function load() {
  *
  * 写接口本来就返回了更新后的任务，直接用它即可让界面立刻正确；整体刷新照旧在后台跑。
  */
-export function applyProcTaskUpdate(task: ProcurementTask): void {
+export function applyProcTaskUpdate(task: ProcurementTask, generation: number): void {
+  if (!isCurrentScope(generation)) return;
   const idx = state.tasks.findIndex((item) => item.id === task.id);
   if (idx === -1) return;
   const tasks = state.tasks.slice();
@@ -128,9 +168,13 @@ export function applyProcTaskUpdate(task: ProcurementTask): void {
  * promise 对应的读取一定发生在本次调用之后。
  */
 export function refreshProcurement(): Promise<void> {
+  syncScope();
+  if (scopeKey === null) return Promise.resolve();
+  started = true;
+  const generation = scopeGeneration;
   if (!inflight) {
     inflight = load().finally(() => {
-      inflight = null;
+      if (isCurrentScope(generation)) inflight = null;
     });
     return inflight;
   }
@@ -138,10 +182,11 @@ export function refreshProcurement(): Promise<void> {
     queued = inflight
       .catch(() => undefined)
       .then(() => {
+        if (!isCurrentScope(generation)) return;
         // 先清空再发起：此刻之后进来的调用要另排一次，不能搭上这班已经出发的车
         queued = null;
         inflight = load().finally(() => {
-          inflight = null;
+          if (isCurrentScope(generation)) inflight = null;
         });
         return inflight;
       });
@@ -153,17 +198,19 @@ export function refreshProcurement(): Promise<void> {
  * 采购数据（任务 + 物料）。首个挂载的组件触发加载，其余共享同一份结果。
  */
 export function useProcurementData() {
+  const { user } = useAuth();
+  const currentScope = userScope(user);
   const snapshot = useSyncExternalStore(
     subscribe,
-    () => state,
+    () => userScope(getStoredUser()) === scopeKey ? state : EMPTY_STATE,
     () => state,
   );
   useEffect(() => {
-    if (!started) {
-      started = true;
+    syncScope();
+    if (scopeKey !== null && !started) {
       void refreshProcurement();
     }
-  }, []);
+  }, [currentScope]);
   const refresh = useCallback(() => refreshProcurement(), []);
   return { ...snapshot, refresh };
 }

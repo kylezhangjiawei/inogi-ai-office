@@ -144,9 +144,33 @@ export interface Material {
 
 export type InventoryReadinessStatus = "ready" | "low" | "gap" | "shortage" | "unmatched" | "data_missing";
 
+export interface InventoryBomLine {
+  id: string;
+  name: string;
+  code: string | null;
+  qtyPer: number | null;
+  remark: string | null;
+  parentId: string | null;
+  category: string;
+  bomPosition?: string;
+  updatedAt: string;
+  unit: string;
+}
+
+export interface InventoryBomLineInput {
+  name: string;
+  code: string;
+  qtyPer: number;
+  parentId: string | null;
+  remark: string;
+  baseUpdatedAt?: string;
+}
+
 export interface InventoryReadinessItem {
   id: string;
+  sourceLines?: InventoryBomLine[];
   category: string;
+  bomPosition?: string;
   code: string | null;
   name: string;
   spec: string;
@@ -167,6 +191,7 @@ export interface InventoryReadinessItem {
 
 export interface InventoryReadinessResponse {
   source: "tplus";
+  bomPositions?: Array<{ id: string; name: string }>;
   readOnly: true;
   productLine: string;
   models: Array<{ id: string; label: string; bomLines: number }>;
@@ -264,6 +289,7 @@ export interface TaskQuoteBookOptions {
 }
 
 export type ProcStockPlanStatus = "not_started" | "in_progress" | "completed";
+export type ProcStockPlanType = "material" | "machine" | "packaging";
 
 export interface ProcStockPlanBatch {
   id: string;
@@ -271,6 +297,16 @@ export interface ProcStockPlanBatch {
   supplierName: string;
   purchaseQty: number;
   purchaseOrderNo?: string;
+  purchaseOrderMirrorId?: string;
+  receivedQty: number;
+  qualifiedQty: number;
+  actualArrivalDate?: string;
+  recordedQualifiedQty?: number;
+  qualityDataIssue?: boolean;
+  orderDataIssue?: boolean;
+  orderIssue?: string;
+  recordedPurchaseQty?: number;
+  recordedReceivedQty?: number;
   orderDate?: string;
   expectedArrivalDate?: string;
   note?: string;
@@ -283,12 +319,28 @@ export interface ProcStockPlanBatch {
 export interface ProcStockPlan {
   id: string;
   code: string;
+  planType: ProcStockPlanType;
+  productId?: string;
+  treeNodeId?: string;
+  productLine?: string;
+  productionTaskId?: string;
+  contextLocked?: boolean;
+  materialLocked?: boolean;
   materialId?: string;
   materialName: string;
   spec: string;
   unit: string;
   targetQty: number;
   purchasedQty: number;
+  receivedQty: number;
+  qualifiedQty: number;
+  inTransitQty: number;
+  arrivalProgress: number;
+  qualificationProgress: number;
+  readinessStatus: "not_received" | "partial_received" | "pending_inspection" | "qualified";
+  qualityDataIssue?: boolean;
+  orderDataIssue?: boolean;
+  tasks: Array<{id: string; code: string; materialName: string; quantity: number; status: string; needDate?: string}>;
   remainingQty: number;
   progress: number;
   status: ProcStockPlanStatus;
@@ -302,6 +354,11 @@ export interface ProcStockPlan {
 }
 
 export interface ProcStockPlanInput {
+  planType?: ProcStockPlanType;
+  productId?: string;
+  treeNodeId?: string;
+  productLine?: string;
+  productionTaskId?: string;
   materialId?: string;
   materialName: string;
   spec?: string;
@@ -313,9 +370,13 @@ export interface ProcStockPlanInput {
 
 export interface ProcStockPlanBatchInput {
   supplierId?: string;
-  supplierName: string;
-  purchaseQty: number;
+  supplierName?: string;
+  purchaseQty?: number;
   purchaseOrderNo?: string;
+  purchaseOrderMirrorId?: string;
+  receivedQty?: number;
+  qualifiedQty?: number;
+  actualArrivalDate?: string;
   orderDate?: string;
   expectedArrivalDate?: string;
   note?: string;
@@ -354,9 +415,37 @@ export async function getInventoryReadiness(
 
 // ── 备货计划 ──────────────────────────────────────────────────────────────────
 
-export async function listProcStockPlans(signal?: AbortSignal): Promise<ProcStockPlan[]> {
-  const data = await request<{ items: ProcStockPlan[] }>("/stock-plans", { signal });
+export function getInventoryMaterialReference(code: string, signal?: AbortSignal): Promise<{ matched: boolean; category: string; unit: string }> {
+  return request(`/inventory-readiness/material?${new URLSearchParams({ code }).toString()}`, { signal });
+}
+
+export function saveInventoryBomLine(input: InventoryBomLineInput, id?: string): Promise<unknown> {
+  return request(`/inventory-readiness/bom-lines${id ? `/${encodeURIComponent(id)}` : ""}`, {
+    method: id ? "PUT" : "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteInventoryBomLine(id: string, baseUpdatedAt: string): Promise<unknown> {
+  return request(`/inventory-readiness/bom-lines/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ baseUpdatedAt }),
+  });
+}
+
+export async function listProcStockPlans(signal?: AbortSignal, filter: {productId?: string; treeNodeId?: string; planType?: ProcStockPlanType; month?: string} = {}): Promise<ProcStockPlan[]> {
+  const query = new URLSearchParams(Object.entries(filter).filter(([, value]) => Boolean(value)) as [string, string][]);
+  if (filter.planType) { query.set("type", filter.planType); query.delete("planType"); }
+  const data = await request<{ items: ProcStockPlan[] }>(`/stock-plans?${query}`, { signal });
   return data.items;
+}
+
+export function getProcStockPlanReadiness(id: string, signal?: AbortSignal, month?: string): Promise<InventoryReadinessResponse & {scopePlanCount?: number; scopeTargetQty?: number}> {
+  return request(`/stock-plans/${encodeURIComponent(id)}/readiness${month ? `?month=${encodeURIComponent(month)}` : ""}`, {signal});
+}
+
+export function generateProcStockPlanTasks(id: string): Promise<{plan: ProcStockPlan; createdCount: number; existingCount: number}> {
+  return request(`/stock-plans/${encodeURIComponent(id)}/generate-tasks`, {method: "POST"});
 }
 
 export async function createProcStockPlan(input: ProcStockPlanInput): Promise<ProcStockPlan> {

@@ -43,6 +43,7 @@ function harness(opts: {
     });
 
   const tx = {
+    $queryRaw: async () => [{ id: task.id }],
     procPurchaseOrderRef: {
       deleteMany: async ({ where }: { where: Record<string, unknown> }) => {
         const before = refs.length;
@@ -104,6 +105,21 @@ const ref = (over: Partial<RefRow> = {}): RefRow => ({
   etaDate: null,
   metadata: {},
   ...over,
+});
+
+test('历史重复关联只计一份到货，删除其中一条不扣数量，最后一条才扣减', async () => {
+  const h = harness({
+    task: { id: 'task-1', status: 'partial_arrival', quantity: 100, arrivedQty: 50 },
+    refs: [ref({ id: 'ref-a', receivedQty: 50 }), ref({ id: 'ref-b', receivedQty: 50 })],
+  });
+  await h.service.unlinkPurchaseOrder('task-1', 'ref-a', ACTOR);
+  assert.equal(Number(h.task.arrivedQty), 50);
+  assert.equal(h.task.status, 'partial_arrival');
+  assert.equal(h.refsNow().length, 1);
+  await h.service.unlinkPurchaseOrder('task-1', 'ref-b', ACTOR);
+  assert.equal(Number(h.task.arrivedQty), 0);
+  assert.equal(h.task.status, 'in_transit');
+  assert.equal(h.refsNow().length, 0);
 });
 
 test('撤销未到货的那一条：到货量与状态都不动，剩余关联不受影响', async () => {

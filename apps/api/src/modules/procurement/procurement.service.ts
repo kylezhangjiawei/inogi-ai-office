@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { createHash } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
@@ -15,12 +16,16 @@ import {
   CancelProcTaskDto,
   ConfirmQuoteBookQuotesDto,
   CreateProcStockPlanBatchDto,
+  CreateInventoryBomLineDto,
+  UpdateInventoryBomLineDto,
+  InventoryBomLineVersionDto,
   CreateProcStockPlanDto,
   CreateProcTaskTreeNodeDto,
   CreateProcTaskDto,
   ImportBomDto,
   ImportMaterialsDto,
   LinkPurchaseOrderDto,
+  ListProcStockPlansQueryDto,
   ProcAttachmentInputDto,
   ReassignProcTaskDto,
   ReceiveGoodsDto,
@@ -54,6 +59,7 @@ import {
   type ProcTaskListQuery,
 } from './procurement.types';
 import { INITIAL_PROC_TASK_TREE } from './proc-task-tree.seed';
+import { isVoidedOrderStatus } from './replenish-core';
 import {
   calculateInventoryReadiness,
   isProductionWarehouse,
@@ -86,6 +92,27 @@ function parseDay(value: string | null | undefined): Date | null {
   if (!value) return null;
   const t = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
   return Number.isNaN(t.getTime()) ? null : t;
+}
+
+function isInventoryBomMaterial(row: { code?: string | null; qtyPer?: unknown; materialId?: string | null; material?: unknown }): boolean {
+  return Boolean(row.code?.trim() || row.materialId || row.material)
+    || (row.qtyPer !== null && row.qtyPer !== undefined);
+}
+
+function parseStockPlanArrivalDate(value: string | null | undefined): Date | null {
+  if (value === '' || value === null || value === undefined) return null;
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new BadRequestException('实际到货日期必须是有效的 YYYY-MM-DD 日期');
+  const parsed = parseDay(value);
+  if (!parsed || day(parsed) !== value) throw new BadRequestException('实际到货日期必须是有效的 YYYY-MM-DD 日期');
+  return parsed;
+}
+
+function stockPlanMonthRange(month: string) {
+  if (typeof month !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new BadRequestException('月份格式应为 YYYY-MM');
+  const gte = new Date(`${month}-01T00:00:00.000Z`);
+  const lt = new Date(gte);
+  lt.setUTCMonth(lt.getUTCMonth() + 1);
+  return { gte, lt };
 }
 
 function procurementPersonNameKey(value?: string | null): string {
@@ -207,7 +234,9 @@ const PROC_TASK_VIEW_INCLUDE = Prisma.validator<Prisma.ProcTaskInclude>()({
 });
 
 const PROC_STOCK_PLAN_VIEW_INCLUDE = Prisma.validator<Prisma.ProcStockPlanInclude>()({
-  batches: { orderBy: [{ orderDate: 'asc' }, { createdAt: 'asc' }] },
+  batches: { orderBy: [{ orderDate: 'asc' }, { createdAt: 'asc' }], include: { purchaseOrderMirror: true } },
+  tasks: { orderBy: { createdAt: 'asc' }, select: { id: true, code: true, materialId: true, materialName: true, quantity: true, status: true, needDate: true } },
+  _count: { select: { productionReports: true, qualityRecords: true } },
 });
 
 type ProcTaskView = Prisma.ProcTaskGetPayload<{ include: typeof PROC_TASK_VIEW_INCLUDE }>;
@@ -280,73 +309,80 @@ export class ProcurementService {
 
   // ── 备货计划 ────────────────────────────────────────────────────────────────
 
-  async listStockPlans() {
+  async listStockPlans(query: ListProcStockPlansQueryDto = {}) {
+    const where: Prisma.ProcStockPlanWhereInput = {};
+    if (query.type) {
+      if (!['material', 'machine', 'packaging'].includes(query.type)) throw new BadRequestException('未知的备货计划类型');
+      where.planType = query.type;
+    }
+    if (query.productId?.trim()) where.productId = query.productId.trim();
+    if (query.treeNodeId?.trim()) where.treeNodeId = query.treeNodeId.trim();
+    if (query.month) {
+      where.targetDate = stockPlanMonthRange(query.month);
+    }
     const rows = await this.prisma.procStockPlan.findMany({
+      where,
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       include: PROC_STOCK_PLAN_VIEW_INCLUDE,
     });
-    return { items: rows.map((row) => this.serializeStockPlan(row)) };
+    const unresolvedOrders = await this.unresolvedStockPlanOrders(rows);
+    return { items: rows.map((row) => this.serializeStockPlan(row, unresolvedOrders)) };
   }
 
   async createStockPlan(dto: CreateProcStockPlanDto, actor: ProcActor) {
-    const row = await this.prisma.procStockPlan.create({
-      data: {
-        code: await this.nextStockPlanCode(),
-        materialId: dto.materialId?.trim() || null,
-        materialName: dto.materialName.trim(),
-        spec: dto.spec?.trim() ?? '',
-        unit: dto.unit?.trim() ?? '',
-        targetQty: new Prisma.Decimal(dto.targetQty),
-        targetDate: parseDay(dto.targetDate),
-        note: dto.note?.trim() || null,
-        createdBy: actor.id,
-        createdByName: actor.name,
-      },
-      include: PROC_STOCK_PLAN_VIEW_INCLUDE,
+    return this.prisma.$transaction(async (tx) => {
+      const data = await this.stockPlanData(dto, tx);
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('procurement-stock-plan-code'))::text`;
+      const row = await tx.procStockPlan.create({
+        data: { ...data, code: await this.nextStockPlanCode(tx), createdBy: actor.id, createdByName: actor.name },
+        include: PROC_STOCK_PLAN_VIEW_INCLUDE,
+      });
+      return this.serializeStockPlan(row);
     });
-    return this.serializeStockPlan(row);
   }
 
   async updateStockPlan(id: string, dto: UpdateProcStockPlanDto) {
-    await this.requireStockPlan(id);
-    const data: Prisma.ProcStockPlanUncheckedUpdateInput = {};
-    if (dto.materialId !== undefined) data.materialId = dto.materialId.trim() || null;
-    if (dto.materialName !== undefined) data.materialName = dto.materialName.trim();
-    if (dto.spec !== undefined) data.spec = dto.spec.trim();
-    if (dto.unit !== undefined) data.unit = dto.unit.trim();
-    if (dto.targetQty !== undefined) data.targetQty = new Prisma.Decimal(dto.targetQty);
-    if (dto.targetDate !== undefined) data.targetDate = parseDay(dto.targetDate);
-    if (dto.note !== undefined) data.note = dto.note.trim() || null;
-    const row = await this.prisma.procStockPlan.update({
-      where: { id },
-      data,
-      include: PROC_STOCK_PLAN_VIEW_INCLUDE,
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockStockPlan(tx, id);
+      const current = await this.requireStockPlan(id, tx);
+      const next: CreateProcStockPlanDto = {
+        planType: current.planType as CreateProcStockPlanDto['planType'],
+        productId: current.productId ?? '', treeNodeId: current.treeNodeId ?? '',
+        productLine: current.productLine ?? '', productionTaskId: current.productionTaskId ?? '',
+        materialId: current.materialId ?? '', materialName: current.materialName,
+        spec: current.spec, unit: current.unit, targetQty: num(current.targetQty),
+        targetDate: day(current.targetDate), note: current.note ?? '', ...dto,
+      };
+      const hasOperations = (current._count?.productionReports ?? 0) > 0 || (current._count?.qualityRecords ?? 0) > 0;
+      const frozen: Array<keyof CreateProcStockPlanDto> = current.tasks.length > 0
+        ? ['planType', 'materialId', 'materialName', 'spec', 'unit', 'productId', 'treeNodeId', 'productLine', 'productionTaskId', 'targetQty', 'targetDate']
+        : hasOperations ? ['planType', 'materialId', 'materialName', 'spec', 'unit', 'productId', 'treeNodeId', 'productLine', 'productionTaskId']
+          : current.batches.length > 0 ? ['planType', 'materialId', 'materialName', 'spec', 'unit', 'productLine'] : [];
+      for (const key of frozen) {
+        const oldValue = key === 'targetQty' ? num(current.targetQty) : key === 'targetDate' ? day(current.targetDate) : current[key];
+        if (dto[key] !== undefined && String(dto[key] ?? '') !== String(oldValue ?? '')) {
+          throw new BadRequestException('计划已有采购批次、任务或生产质量记录，不能修改已使用的物料、单位或归属；已生成采购任务的目标也不可修改，请另建计划');
+        }
+      }
+      const data = await this.stockPlanData(next, tx);
+      await tx.procStockPlan.update({ where: { id }, data });
+      return this.getStockPlanView(id, tx);
     });
-    return this.serializeStockPlan(row);
   }
 
   async createStockPlanBatch(id: string, dto: CreateProcStockPlanBatchDto, actor: ProcActor) {
-    await this.requireStockPlan(id);
-    const row = await this.prisma.procStockPlan.update({
-      where: { id },
-      data: {
-        batches: {
-          create: {
-            supplierId: dto.supplierId?.trim() || null,
-            supplierName: dto.supplierName.trim(),
-            purchaseQty: new Prisma.Decimal(dto.purchaseQty),
-            purchaseOrderNo: dto.purchaseOrderNo?.trim() || null,
-            orderDate: parseDay(dto.orderDate),
-            expectedArrivalDate: parseDay(dto.expectedArrivalDate),
-            note: dto.note?.trim() || null,
-            createdBy: actor.id,
-            createdByName: actor.name,
-          },
-        },
-      },
-      include: PROC_STOCK_PLAN_VIEW_INCLUDE,
-    });
-    return this.serializeStockPlan(row);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await this.lockStockPlan(tx, id);
+        const plan = await this.requireStockPlan(id, tx);
+        const data = await this.stockPlanBatchData(plan, dto, tx);
+        await tx.procStockPlanBatch.create({ data: { ...data, planId: id, createdBy: actor.id, createdByName: actor.name } });
+        return this.getStockPlanView(id, tx);
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') throw new ConflictException('该采购订单行已关联其他备货批次，不能重复计入');
+      throw error;
+    }
   }
 
   async updateStockPlanBatch(
@@ -354,60 +390,310 @@ export class ProcurementService {
     batchId: string,
     dto: UpdateProcStockPlanBatchDto,
   ) {
-    await this.requireStockPlanBatch(planId, batchId);
-    const data: Prisma.ProcStockPlanBatchUncheckedUpdateInput = {};
-    if (dto.supplierId !== undefined) data.supplierId = dto.supplierId.trim() || null;
-    if (dto.supplierName !== undefined) data.supplierName = dto.supplierName.trim();
-    if (dto.purchaseQty !== undefined) data.purchaseQty = new Prisma.Decimal(dto.purchaseQty);
-    if (dto.purchaseOrderNo !== undefined) data.purchaseOrderNo = dto.purchaseOrderNo.trim() || null;
-    if (dto.orderDate !== undefined) data.orderDate = parseDay(dto.orderDate);
-    if (dto.expectedArrivalDate !== undefined) data.expectedArrivalDate = parseDay(dto.expectedArrivalDate);
-    if (dto.note !== undefined) data.note = dto.note.trim() || null;
-    await this.prisma.procStockPlanBatch.update({ where: { id: batchId }, data });
-    return this.getStockPlanView(planId);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await this.lockStockPlan(tx, planId);
+        const plan = await this.requireStockPlan(planId, tx);
+        const batch = plan.batches.find((entry) => entry.id === batchId);
+        if (!batch) throw new NotFoundException('采购批次不存在');
+        const data = await this.stockPlanBatchData(plan, dto, tx, batch);
+        await tx.procStockPlanBatch.update({ where: { id: batchId }, data });
+        return this.getStockPlanView(planId, tx);
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') throw new ConflictException('该采购订单行已关联其他备货批次，不能重复计入');
+      throw error;
+    }
   }
 
   async deleteStockPlanBatch(planId: string, batchId: string) {
-    await this.requireStockPlanBatch(planId, batchId);
-    await this.prisma.procStockPlanBatch.delete({ where: { id: batchId } });
-    return this.getStockPlanView(planId);
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockStockPlan(tx, planId);
+      const plan = await this.requireStockPlan(planId, tx);
+      if (!plan.batches.some((batch) => batch.id === batchId)) throw new NotFoundException('采购批次不存在');
+      await tx.procStockPlanBatch.delete({ where: { id: batchId } });
+      return this.getStockPlanView(planId, tx);
+    });
   }
 
-  private async requireStockPlan(id: string) {
-    const plan = await this.prisma.procStockPlan.findUnique({ where: { id }, select: { id: true } });
+  private async lockStockPlan(tx: Prisma.TransactionClient, id: string) {
+    await tx.$queryRaw`SELECT "id" FROM "ProcStockPlan" WHERE "id" = ${id} FOR UPDATE`;
+  }
+
+  private async requireStockPlan(id: string, client: Prisma.TransactionClient = this.prisma) {
+    const plan = await client.procStockPlan.findUnique({ where: { id }, include: PROC_STOCK_PLAN_VIEW_INCLUDE });
     if (!plan) throw new NotFoundException('备货计划不存在');
     return plan;
   }
 
-  private async requireStockPlanBatch(planId: string, batchId: string) {
-    const batch = await this.prisma.procStockPlanBatch.findFirst({
-      where: { id: batchId, planId },
-      select: { id: true },
-    });
-    if (!batch) throw new NotFoundException('采购批次不存在');
-    return batch;
+  async getStockPlanView(id: string, client: Prisma.TransactionClient = this.prisma) {
+    const row = await this.requireStockPlan(id, client);
+    return this.serializeStockPlan(row, await this.unresolvedStockPlanOrders([row], client));
   }
 
-  private async getStockPlanView(id: string) {
-    const row = await this.prisma.procStockPlan.findUnique({
-      where: { id },
-      include: PROC_STOCK_PLAN_VIEW_INCLUDE,
+  /** 订单号只能证明可能重叠，不能确定行号或物料；保留历史行并要求用户明确关联。 */
+  private async unresolvedStockPlanOrders(plans: ProcStockPlanView[], client: Prisma.TransactionClient = this.prisma) {
+    const orderNumbers = [...new Set(plans.flatMap((plan) => plan.batches
+      .filter((batch) => !batch.purchaseOrderMirrorId && batch.purchaseOrderNo?.trim())
+      .map((batch) => batch.purchaseOrderNo!.trim())))];
+    if (orderNumbers.length === 0) return new Set<string>();
+    const mirrors = await client.procPurchaseOrderMirror.findMany({
+      where: { tpOrderNo: { in: orderNumbers } }, select: { tpOrderNo: true },
     });
-    if (!row) throw new NotFoundException('备货计划不存在');
-    return this.serializeStockPlan(row);
+    return new Set(mirrors.map((mirror) => mirror.tpOrderNo));
   }
 
   /** 备货计划编号 SP-YYYYMMDD-NNN，按天累计。 */
-  private async nextStockPlanCode() {
+  private async nextStockPlanCode(client: Prisma.TransactionClient = this.prisma) {
     const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const prefix = `SP-${stamp}-`;
-    const last = await this.prisma.procStockPlan.findFirst({
+    const last = await client.procStockPlan.findFirst({
       where: { code: { startsWith: prefix } },
       orderBy: { code: 'desc' },
       select: { code: true },
     });
     const seq = last ? Number(last.code.slice(prefix.length)) + 1 : 1;
     return `${prefix}${String(Number.isFinite(seq) ? seq : 1).padStart(3, '0')}`;
+  }
+
+  private async stockPlanData(dto: CreateProcStockPlanDto, tx: Prisma.TransactionClient) {
+    const planType = dto.planType ?? 'material';
+    if (!['material', 'machine', 'packaging'].includes(planType)) throw new BadRequestException('未知的备货计划类型');
+    if (!dto.materialName?.trim()) throw new BadRequestException('请填写备货对象名称');
+    if (!Number.isFinite(dto.targetQty) || dto.targetQty <= 0) throw new BadRequestException('目标数量必须大于 0');
+    const productLine = dto.productLine?.trim() || null;
+    const materialId = dto.materialId?.trim() || null;
+    const treeNodeId = dto.treeNodeId?.trim() || null;
+    let productId = dto.productId?.trim() || null;
+    const material = materialId ? await tx.procMaterial.findUnique({ where: { id: materialId }, select: { id: true, unit: true } }) : null;
+    if (materialId && !material) throw new BadRequestException('所选物料不存在');
+    let unit = dto.unit?.trim() ?? '';
+    if (material && planType !== 'machine') {
+      const materialUnit = material.unit.trim();
+      if (!materialUnit) throw new BadRequestException('请先维护所选物料的计量单位');
+      if (unit && unit !== materialUnit) throw new BadRequestException('计划单位必须与物料计量单位一致，不能直接换算库存数量');
+      unit = materialUnit;
+    }
+    if (planType === 'machine' && !unit) unit = material?.unit.trim() || '套';
+    if (treeNodeId) {
+      const node = await tx.procTaskTreeNode.findUnique({ where: { id: treeNodeId }, select: { productId: true } });
+      if (!node || (productId && node.productId !== productId)) throw new BadRequestException('子系统与所选产品不匹配');
+      productId = node.productId;
+    }
+    if (planType === 'machine') {
+      if (!productLine || !Number.isInteger(dto.targetQty) || dto.targetQty > 1_000_000) throw new BadRequestException('整机计划必须选择 BOM 型号，目标套数必须为 1 至 1000000 的整数');
+      const nodes = await tx.procBomNode.findMany({ where: { productLine }, select: { id: true, parentId: true, materialId: true } });
+      if (nodes.length === 0) throw new BadRequestException('所选型号没有 BOM，请先维护 BOM');
+      const parents = new Set(nodes.map((node) => node.parentId).filter(Boolean));
+      if (materialId && nodes.some((node) => node.materialId === materialId && !parents.has(node.id))) {
+        throw new BadRequestException('整机计划的物料必须是整机本身，不能选择 BOM 零部件作为整机');
+      }
+    }
+    const productionTaskId = dto.productionTaskId?.trim() || null;
+    if (productionTaskId) await this.requireProductionStockPlanSource(tx, productionTaskId, productId);
+    return {
+      planType, productId, treeNodeId, productLine, productionTaskId, materialId,
+      materialName: dto.materialName.trim(), spec: dto.spec?.trim() ?? '', unit,
+      targetQty: new Prisma.Decimal(dto.targetQty), targetDate: parseDay(dto.targetDate), note: dto.note?.trim() || null,
+    };
+  }
+
+  /** 只读取生产工作区的任务池，不跨回研发/协同，也不触发镜像刷新写入。 */
+  private async requireProductionStockPlanSource(tx: Prisma.TransactionClient, taskId: string, productId: string | null) {
+    const rows = await tx.systemSetting.findMany({
+      where: { key: { in: ['rdws.production.taskCategories', 'rdws.production.productTaskCategories'] } },
+      select: { key: true, value: true },
+    });
+    const record = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+    const hasTask = (tasks: unknown): boolean => Array.isArray(tasks) && tasks.some((task) => record(task) && (
+      (task.task_id === taskId && task.archived !== true) || hasTask(task.subtasks)
+    ));
+    const hasCategoryTask = (value: unknown): boolean => Array.isArray(value) && value.some((category) => record(category)
+      && Array.isArray(category.children) && category.children.some((child) => record(child) && hasTask(child.tasks)));
+    const matches = rows.some((row) => row.key.endsWith('.productTaskCategories')
+      ? record(row.value) && Object.entries(row.value).some(([id, categories]) => (!productId || id === productId) && hasCategoryTask(categories))
+      : (!productId || productId === DEFAULT_PROC_PRODUCT_ID) && hasCategoryTask(row.value));
+    if (!matches) throw new BadRequestException('生产任务不存在、已归档或不属于所选产品');
+  }
+
+  private async stockPlanBatchData(
+    plan: ProcStockPlanView,
+    dto: CreateProcStockPlanBatchDto | UpdateProcStockPlanBatchDto,
+    tx: Prisma.TransactionClient,
+    current?: ProcStockPlanView['batches'][number],
+  ) {
+    const mirrorId = dto.purchaseOrderMirrorId === undefined ? current?.purchaseOrderMirrorId ?? null : dto.purchaseOrderMirrorId?.trim() || null;
+    const mirror = mirrorId ? await tx.procPurchaseOrderMirror.findUnique({ where: { id: mirrorId } }) : null;
+    if (mirrorId && !mirror) throw new BadRequestException('采购订单行不存在');
+    const purchaseOrderNo = mirror?.tpOrderNo ?? (dto.purchaseOrderNo === undefined ? current?.purchaseOrderNo ?? null : dto.purchaseOrderNo?.trim() || null);
+    if (!mirror && purchaseOrderNo) {
+      const existingOrder = await tx.procPurchaseOrderMirror.findFirst({ where: { tpOrderNo: purchaseOrderNo }, select: { id: true } });
+      if (existingOrder) throw new BadRequestException('该采购单号已同步到 ERP，请选择并关联实际采购订单行，不能再按手工批次重复登记');
+    }
+    if (plan.planType === 'machine' && !plan.materialId) throw new BadRequestException('请先关联整机自身物料；BOM 零部件采购应通过生成采购任务进行');
+    if (mirror) {
+      const controlled = ['supplierId', 'supplierName', 'purchaseQty', 'receivedQty', 'purchaseOrderNo', 'orderDate', 'expectedArrivalDate'] as const;
+      if (controlled.some((key) => dto[key] !== undefined)) throw new BadRequestException('关联采购订单后，供应商、采购量、到货量及订单日期由订单同步，不能手工覆盖');
+      const material = plan.materialId ? await tx.procMaterial.findUnique({ where: { id: plan.materialId }, select: { id: true, tpInventoryCode: true } }) : null;
+      if (!material || !(mirror.materialId === material.id || (material.tpInventoryCode && mirror.inventoryCode === material.tpInventoryCode))) {
+        throw new BadRequestException('采购订单物料与备货计划不匹配，整机计划不能关联零部件订单');
+      }
+      if (plan.unit.trim() && mirror.unit?.trim() && plan.unit.trim() !== mirror.unit.trim()) {
+        throw new BadRequestException('采购订单单位与计划单位不一致，请先核对物料单位，不能直接相加');
+      }
+      const linked = await tx.procStockPlanBatch.findUnique({ where: { purchaseOrderMirrorId: mirror.id }, select: { id: true } });
+      if (linked && linked.id !== current?.id) throw new ConflictException('该采购订单行已关联其他备货批次，不能重复计入');
+    }
+    const supplierId = mirror ? null : dto.supplierId === undefined ? current?.supplierId ?? null : dto.supplierId?.trim() || null;
+    const supplier = supplierId ? await tx.procSupplier.findUnique({ where: { id: supplierId }, select: { name: true } }) : null;
+    if (supplierId && !supplier) throw new BadRequestException('供应商不存在');
+    const supplierName = mirror?.supplierName ?? supplier?.name ?? dto.supplierName?.trim() ?? current?.supplierName ?? '';
+    const purchaseQty = mirror ? num(mirror.orderedQty) : dto.purchaseQty ?? num(current?.purchaseQty);
+    const receivedQty = mirror ? num(mirror.receivedQty) : dto.receivedQty ?? num(current?.receivedQty);
+    const qualifiedQty = dto.qualifiedQty ?? num(current?.qualifiedQty);
+    if (!supplierName.trim() || !Number.isFinite(purchaseQty) || purchaseQty <= 0) throw new BadRequestException('请填写供应商及大于 0 的采购量');
+    if (![receivedQty, qualifiedQty].every((value) => Number.isFinite(value) && value >= 0)
+      || qualifiedQty > receivedQty || (!mirror && receivedQty > purchaseQty)) {
+      throw new BadRequestException('到货量、合格量必须非负，合格量不能超过到货量，手工到货量不能超过采购量');
+    }
+    if (plan.planType === 'machine' && ![purchaseQty, receivedQty, qualifiedQty].every(Number.isInteger)) {
+      throw new BadRequestException('整机采购、到货和合格数量必须是整数套数');
+    }
+    return {
+      purchaseOrderMirrorId: mirrorId, supplierId, supplierName: supplierName.trim(),
+      purchaseQty: new Prisma.Decimal(purchaseQty), receivedQty: new Prisma.Decimal(receivedQty), qualifiedQty: new Prisma.Decimal(qualifiedQty),
+      purchaseOrderNo,
+      orderDate: mirror ? mirror.orderDate : dto.orderDate === undefined ? current?.orderDate ?? null : parseDay(dto.orderDate),
+      expectedArrivalDate: mirror ? mirror.etaDate : dto.expectedArrivalDate === undefined ? current?.expectedArrivalDate ?? null : parseDay(dto.expectedArrivalDate),
+      actualArrivalDate: dto.actualArrivalDate === undefined ? current?.actualArrivalDate ?? null : parseStockPlanArrivalDate(dto.actualArrivalDate),
+      note: dto.note === undefined ? current?.note ?? null : dto.note?.trim() || null,
+    };
+  }
+
+  async getStockPlanReadiness(id: string, month?: string) {
+    const targetDate = month === undefined ? undefined : stockPlanMonthRange(month);
+    const anchor = await this.requireStockPlan(id);
+    if (!targetDate) return this.stockPlanReadiness(anchor);
+    if (anchor.planType === 'machine' ? !anchor.productLine : !anchor.materialId) {
+      throw new BadRequestException('月度核算需要明确的整机型号或采购物料关联，不能按名称合并');
+    }
+    const plans = await this.prisma.procStockPlan.findMany({
+      where: {
+        planType: anchor.planType, productId: anchor.productId, unit: anchor.unit, targetDate,
+        ...(anchor.planType === 'machine' ? { productLine: anchor.productLine } : { materialId: anchor.materialId }),
+      },
+      include: PROC_STOCK_PLAN_VIEW_INCLUDE,
+    });
+    const targetQty = plans.reduce((sum, plan) => sum.add(plan.targetQty), new Prisma.Decimal(0));
+    const result = await this.stockPlanReadiness({ ...anchor, targetQty, batches: plans.flatMap((plan) => plan.batches) });
+    return { ...result, scopePlanCount: plans.length, scopeTargetQty: num(targetQty) };
+  }
+
+  private async stockPlanReadiness(plan: ProcStockPlanView) {
+    const unresolvedOrders = await this.unresolvedStockPlanOrders([plan]);
+    const view = this.serializeStockPlan(plan, unresolvedOrders);
+    const orderIssues = view.batches.filter((batch) => batch.orderDataIssue).map((batch) => ({ batchId: batch.id, code: batch.orderIssueCode!, message: batch.orderIssue! }));
+    if (plan.planType === 'machine') {
+      const purchasedQty = view.purchasedQty;
+      if (!plan.productLine || !Number.isInteger(num(plan.targetQty)) || num(plan.targetQty) > 1_000_000 || !Number.isInteger(purchasedQty)) throw new BadRequestException('整机计划缺少有效的 BOM 型号或整数目标、采购套数');
+      const targetSets = Math.max(0, num(plan.targetQty) - purchasedQty);
+      const result = await this.getInventoryReadiness({ productLine: plan.productLine, targetSets });
+      if (result.productLine !== plan.productLine || result.items.length === 0) throw new BadRequestException('所选型号没有有效 BOM');
+      return { ...result, orderIssues, dataQuality: { ...result.dataQuality, provisional: result.dataQuality.provisional || unresolvedOrders.size > 0 } };
+    }
+    const material = plan.materialId ? await this.prisma.procMaterial.findUnique({ where: { id: plan.materialId } }) : null;
+    if (!material?.tpInventoryCode?.trim()) throw new BadRequestException('请先将备货物料关联到有效的 ERP 存货编码');
+    if (!material.unit.trim() || (plan.unit.trim() && plan.unit.trim() !== material.unit.trim())) {
+      throw new BadRequestException('计划单位与物料计量单位不一致或未维护，请先编辑计划或物料，不能直接扣减库存');
+    }
+    const candidates = await this.prisma.procInventoryBalance.findMany({ where: { tpInventoryCode: material.tpInventoryCode }, orderBy: { syncedAt: 'desc' } });
+    const rows = candidates.filter((row) => isProductionWarehouse(row.warehouse));
+    const latest = rows.map((row) => row.syncedAt?.toISOString()).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
+    // ERP 已出现同单号的历史手工行不能再加一次；行身份未确认前只认 ERP 库存里的供给。
+    const manualInTransit = view.batches.filter((batch) => !batch.purchaseOrderMirrorId)
+      .reduce((sum, batch) => sum + batch.inTransitQty, 0);
+    const balances = rows.length > 0 ? [{
+      code: material.tpInventoryCode, stock: rows.reduce((sum, row) => sum + num(row.stockQty), 0),
+      available: rows.reduce((sum, row) => sum + num(row.availableQty), 0),
+      inTransit: rows.reduce((sum, row) => sum + num(row.inTransitQty), 0) + manualInTransit,
+      safeStock: num(material.safeStock), syncedAt: latest,
+    }] : [];
+    const calculation = calculateInventoryReadiness([{
+      id: material.id, category: material.category || '物料', code: material.tpInventoryCode,
+      name: material.name, spec: material.spec, unit: material.unit, qtyPer: 1,
+    }], balances, Math.ceil(num(plan.targetQty)));
+    // 单物料允许小数采购量，不把整数“套数”算法的向上取整带进实际采购需求。
+    for (const item of calculation.items) {
+      item.targetDemand = num(plan.targetQty);
+      item.gapAfterTransit = Math.max(0, num(plan.targetQty) - item.available - item.inTransit);
+      item.currentSets = item.available;
+      item.withTransitSets = item.available + item.inTransit;
+      if (!item.issue) item.status = item.available <= 0 ? 'shortage' : item.gapAfterTransit > 0 ? 'gap' : item.safeStock > item.available ? 'low' : 'ready';
+    }
+    calculation.summary.currentBuildableSets = calculation.items[0].currentSets;
+    calculation.summary.withTransitBuildableSets = calculation.items[0].withTransitSets;
+    calculation.summary.inTransitGainSets = calculation.items[0].inTransit;
+    calculation.summary.warningMaterials = calculation.items.filter((item) => item.status !== 'ready').length;
+    calculation.summary.targetSets = num(plan.targetQty);
+    calculation.summary.targetGapAfterTransit = calculation.items[0].gapAfterTransit;
+    return {
+      source: 'tplus' as const, readOnly: true, productLine: plan.productLine || material.productLine,
+      models: [{ id: plan.productLine || material.id, label: material.name, bomLines: 1 }],
+      warehouse: { keyword: '量产', label: '量产仓库', matchedNames: [...new Set(rows.map((row) => row.warehouse))] },
+      syncedAt: latest, ...calculation, orderIssues,
+      dataQuality: { ...calculation.dataQuality, provisional: calculation.dataQuality.provisional || unresolvedOrders.size > 0 },
+    };
+  }
+
+  /** 同一计划加行锁，整批建单与留痕在一个事务中；重复点击只返回已有任务。 */
+  async generateStockPlanTasks(id: string, actor: ProcActor) {
+    if (!actor.permissions.some((permission) => permission === '*' || permission === 'proc-task:create')) {
+      throw new ForbiddenException('没有创建采购任务的权限');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockStockPlan(tx, id);
+      const plan = await this.requireStockPlan(id, tx);
+      if (plan.tasks.length > 0) return { plan: await this.getStockPlanView(id, tx), createdCount: 0, existingCount: plan.tasks.length };
+      const productId = plan.productId?.trim();
+      if (!productId) throw new BadRequestException('请先编辑备货计划并选择所属产品，再生成采购任务');
+      const products = await tx.systemSetting.findUnique({ where: { key: 'rd.products' }, select: { value: true } });
+      const catalog = Array.isArray(products?.value) ? products.value : [];
+      const productExists = catalog.length > 0
+        ? catalog.some((product) => product && typeof product === 'object' && !Array.isArray(product) && product.id === productId)
+        : productId === DEFAULT_PROC_PRODUCT_ID || Boolean(await tx.procTaskTreeNode.findFirst({ where: { productId }, select: { id: true } }));
+      if (!productExists) throw new BadRequestException('所属产品不存在，请先编辑备货计划并重新选择产品');
+      const readiness = await this.stockPlanReadiness(plan);
+      if (readiness.orderIssues.some((issue) => issue.code === 'unlinked')) {
+        throw new BadRequestException('存在已同步 ERP 但未明确关联订单行的手工批次，请先关联后再生成采购任务');
+      }
+      if (readiness.dataQuality.provisional || readiness.dataQuality.totalBomLines === 0) {
+        throw new BadRequestException('BOM 用量、ERP 编码或量产库存映射不完整，请补齐后再生成采购任务');
+      }
+      const needed = readiness.items.filter((item) => item.gapAfterTransit > 0);
+      const materials = await tx.procMaterial.findMany({ where: { tpInventoryCode: { in: needed.map((item) => item.code!).filter(Boolean) } } });
+      const byCode = new Map(materials.map((material) => [material.tpInventoryCode, material]));
+      if (needed.some((item) => !item.code || !byCode.has(item.code))) throw new BadRequestException('BOM 缺口物料尚未映射到采购物料主数据');
+      const buyer = needed.length > 0 ? await this.pickAutomaticBuyer() : null;
+      for (const item of needed) {
+        const material = byCode.get(item.code!)!;
+        const suffix = createHash('sha256').update(material.id).digest('hex').slice(0, 12);
+        await tx.procTask.create({
+          data: {
+            code: `PR-${plan.code}-${suffix}`, stockPlanId: plan.id,
+            productId, treeNodeId: plan.treeNodeId,
+            materialId: material.id, materialName: material.name, spec: material.spec, unit: material.unit,
+            quantity: new Prisma.Decimal(Math.ceil(item.gapAfterTransit * 1000) / 1000),
+            source: 'self', businessLine: 'production', method: 'inquiry', status: 'pending_confirm', needSample: false,
+            needDate: plan.targetDate, deadline: plan.targetDate,
+            buyer: buyer?.name ?? '', buyerUserId: buyer?.id ?? null,
+            requester: actor.name, requesterUserId: actor.id, createdBy: actor.id,
+            metadata: { stockPlanId: plan.id, stockPlanCode: plan.code, productionTaskId: plan.productionTaskId, productLine: plan.productLine, targetQty: num(plan.targetQty), gapAfterTransit: item.gapAfterTransit },
+            logs: { create: { kind: 'system', text: `由备货计划 ${plan.code} 按库存及在途缺口生成${buyer ? `；自动分配给 ${buyer.name}` : ''}`, toStatus: 'pending_confirm', actor: actor.name, actorUserId: actor.id } },
+          },
+        });
+      }
+      return { plan: await this.getStockPlanView(id, tx), createdCount: needed.length, existingCount: 0 };
+    }, { timeout: 30_000 });
   }
 
   // ── 任务 ────────────────────────────────────────────────────────────────────
@@ -2570,7 +2856,8 @@ export class ProcurementService {
     }
     const normalized = items.map((item) => ({
       ...item,
-      tpOrderNo: (item.tpOrderNo ?? '').trim(),
+      tpOrderNo: item.isFreeSample ? '' : (item.tpOrderNo ?? '').trim(),
+      tpLineNo: item.isFreeSample ? null : item.tpLineNo?.trim() || null,
       isFreeSample: Boolean(item.isFreeSample),
     }));
     // 待询价 / 询价中放开登记，是为了让「供应商提前寄样」当场留痕，不是为了在定价前登记正式采购单：
@@ -2593,6 +2880,11 @@ export class ProcurementService {
       .map((item) => `${item.tpOrderNo}\u0000${item.tpLineNo ?? ''}`);
     if (new Set(keys).size !== keys.length) {
       throw new BadRequestException('同一采购单及行号不能重复关联');
+    }
+    if (normalized.some((item, index) => !item.isFreeSample && normalized.some((other, otherIndex) =>
+      otherIndex !== index && !other.isFreeSample && item.tpOrderNo === other.tpOrderNo
+      && (!item.tpLineNo || !other.tpLineNo)))) {
+      throw new BadRequestException('同一采购单不能混用未指定行号和明确行号，请填写各条采购单行号');
     }
     const nextStatus = task.status === 'priced' || task.status === 'pending_purchase' ? 'in_transit' : task.status;
     const isSampleOrder = task.status === 'pending_sample';
@@ -2625,6 +2917,23 @@ export class ProcurementService {
       syncQuantity ? `；任务采购数量由 ${num(task.quantity)} 更新为 ${orderedTotal}` : ''
     }`;
     await this.prisma.$transaction(async (tx) => {
+      // 所有关联入口复用这里；按任务行加锁，使历史查重与新增在并发请求中保持原子。
+      await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${taskId} FOR UPDATE`;
+      const existingRefs = await tx.procPurchaseOrderRef.findMany({ where: { taskId } });
+      for (const item of normalized.filter((row) => !row.isFreeSample)) {
+        const sameOrder = existingRefs.filter((ref) => ref.tpOrderNo.trim() === item.tpOrderNo
+          && (ref.metadata as Prisma.JsonObject | null)?.freeSample !== true);
+        if (sameOrder.some((ref) => (ref.tpLineNo?.trim() || null) === item.tpLineNo)) {
+          throw new ConflictException(`采购单 ${item.tpOrderNo}${item.tpLineNo ? ` 第 ${item.tpLineNo} 行` : ''} 已关联，请勿重复关联`);
+        }
+        if (sameOrder.some((ref) => !ref.tpLineNo?.trim() || !item.tpLineNo)) {
+          throw new ConflictException(`采购单 ${item.tpOrderNo} 的行号不明确，请先解除原关联并按明确行号重新关联`);
+        }
+      }
+      const currentTask = await tx.procTask.findUnique({ where: { id: taskId } });
+      if (!currentTask || currentTask.status !== task.status || num(currentTask.quantity) !== num(task.quantity)) {
+        throw new ConflictException('任务状态或采购数量已被更新，请刷新后重新关联');
+      }
       await tx.procPurchaseOrderRef.createMany({
         data: normalized.map((item) => ({
           taskId,
@@ -2657,7 +2966,7 @@ export class ProcurementService {
           },
         },
       });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     return this.getTask(taskId, actor);
   }
 
@@ -2683,21 +2992,6 @@ export class ProcurementService {
 
     const metadata = (ref.metadata ?? {}) as Prisma.JsonObject;
     const freeSample = metadata.freeSample === true;
-    // 免费样品行在 T+ 里没有单号，同步永远不会给它写 receivedQty；
-    // 强制 delta=0 也正好兑现前端弹窗「已登记的到货数量不受影响」这句承诺。
-    const delta = freeSample ? 0 : num(ref.receivedQty);
-    const nextArrived = Math.max(0, num(task.arrivedQty) - delta);
-
-    // 到货量被扣减后状态必须跟着降档，否则会造出「部分到货但到货量为 0」
-    // 或「已完成但到货量不足」这种自相矛盾的行。
-    let nextStatus = task.status as ProcStatus;
-    if (delta > 0 && (task.status === 'partial_arrival' || task.status === 'completed')) {
-      const quantity = num(task.quantity);
-      if (nextArrived === 0) nextStatus = 'in_transit';
-      else if (quantity > 0 && nextArrived < quantity) nextStatus = 'partial_arrival';
-    }
-    const leavingCompleted = task.status === 'completed' && nextStatus !== 'completed';
-
     // 预计到货是覆盖式写入且不留原值，只有「当前值与本条 ref 的日期完全相等」
     // 才能证明它是这条带来的；此时回落到剩余 ref 的最早日期，没有就清空。
     // 不清空的话，一个已无任何采购单的任务会继续被算进各页「本周到货」。
@@ -2705,14 +2999,30 @@ export class ProcurementService {
     const ownsEta = refEta !== null && task.expectedArrivalDate?.getTime() === refEta.getTime();
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.procPurchaseOrderRef.deleteMany({ where: { id: refId, taskId } });
+      await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${taskId} FOR UPDATE`;
+      const removed = await tx.procPurchaseOrderRef.deleteMany({ where: { id: refId, taskId } });
+      if (removed.count === 0) return;
+      const rest = await tx.procPurchaseOrderRef.findMany({ where: { taskId } });
+      const hasSameOrderLine = rest.some((row) => row.tpOrderNo.trim() === ref.tpOrderNo.trim()
+        && (row.tpLineNo?.trim() || '') === (ref.tpLineNo?.trim() || '')
+        && (row.metadata as Prisma.JsonObject | null)?.freeSample !== true);
+      // 同一 ERP 行的历史重复引用只计一份，只有删到最后一条才撤掉该行到货量。
+      // 免费样品的到货由人工登记，解除引用不扣减。
+      const delta = freeSample || hasSameOrderLine ? 0 : num(ref.receivedQty);
+      const nextArrived = Math.max(0, num(task.arrivedQty) - delta);
+      let nextStatus = task.status as ProcStatus;
+      if (delta > 0 && (task.status === 'partial_arrival' || task.status === 'completed')) {
+        const quantity = num(task.quantity);
+        if (nextArrived === 0) nextStatus = 'in_transit';
+        else if (quantity > 0 && nextArrived < quantity) nextStatus = 'partial_arrival';
+      }
+      const leavingCompleted = task.status === 'completed' && nextStatus !== 'completed';
 
       const data: Prisma.ProcTaskUncheckedUpdateManyInput = {};
       if (delta > 0) data.arrivedQty = new Prisma.Decimal(nextArrived);
       if (nextStatus !== task.status) data.status = nextStatus;
       if (leavingCompleted) data.businessDone = false;
       if (ownsEta) {
-        const rest = await tx.procPurchaseOrderRef.findMany({ where: { taskId }, select: { etaDate: true } });
         data.expectedArrivalDate = rest
           .map((row) => row.etaDate)
           .filter((date): date is Date => date !== null)
@@ -2736,15 +3046,11 @@ export class ProcurementService {
       // 镜像行不复位，这张 T+ 单据就在系统里死锁：自动匹配只捞未匹配的行，
       // 重新确认会被「已确认过」挡回，忽略也被同样排除，全仓没有其它复位入口。
       if (!freeSample && ref.tpOrderNo) {
-        // 重复关联（同单同行两条 ref）时删掉一条不该释放镜像，剩余那条仍指着它
-        const siblings = await tx.procPurchaseOrderRef.count({
-          where: { taskId, tpOrderNo: ref.tpOrderNo, tpLineNo: ref.tpLineNo },
-        });
-        if (siblings === 0) {
+        if (!hasSameOrderLine) {
           await tx.procPurchaseOrderMirror.updateMany({
             where: {
-              tpOrderNo: ref.tpOrderNo,
-              tpLineNo: ref.tpLineNo ?? '',
+              tpOrderNo: ref.tpOrderNo.trim(),
+              tpLineNo: ref.tpLineNo?.trim() || '',
               matchTaskId: taskId,
               matchStatus: 'confirmed',
             },
@@ -2769,7 +3075,7 @@ export class ProcurementService {
           actorUserId: actor.id,
         },
       });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 
     return this.getTask(taskId, actor);
   }
@@ -2784,12 +3090,22 @@ export class ProcurementService {
       include: { purchaseOrderRefs: true },
     });
     if (!task) return null;
-    const received = task.purchaseOrderRefs.reduce((sum, r) => sum + num(r.receivedQty), 0);
+    // 历史重复引用仍保留以便人工核查；同一 ERP 行只采用最近同步的一份累计到货量。
+    const latestRefs = new Map<string, (typeof task.purchaseOrderRefs)[number]>();
+    for (const ref of task.purchaseOrderRefs) {
+      if ((ref.metadata as Prisma.JsonObject | null)?.freeSample === true) continue;
+      const key = !ref.tpOrderNo.trim() ? ref.id : `${ref.tpOrderNo.trim()}\u0000${ref.tpLineNo?.trim() || ''}`;
+      const previous = latestRefs.get(key);
+      const timestamp = (row: typeof ref) => row.syncedAt?.getTime() ?? row.updatedAt?.getTime() ?? row.createdAt?.getTime() ?? 0;
+      if (!previous || timestamp(ref) > timestamp(previous)) latestRefs.set(key, ref);
+    }
+    const received = [...latestRefs.values()].reduce((sum, ref) => sum + num(ref.receivedQty), 0);
     const quantity = num(task.quantity);
     let status = task.status;
     if (PROC_ARRIVAL_STATUSES.includes(task.status as ProcStatus)) {
       if (quantity > 0 && received >= quantity) status = 'completed';
       else if (received > 0) status = 'partial_arrival';
+      else status = 'in_transit';
     }
     const eta = task.purchaseOrderRefs
       .map((r) => r.etaDate)
@@ -2801,7 +3117,7 @@ export class ProcurementService {
       data: {
         arrivedQty: new Prisma.Decimal(received),
         status,
-        businessDone: status === 'completed' ? true : task.businessDone,
+        businessDone: PROC_ARRIVAL_STATUSES.includes(task.status as ProcStatus) ? status === 'completed' : task.businessDone,
         expectedArrivalDate: eta ?? task.expectedArrivalDate,
       },
     });
@@ -3513,6 +3829,103 @@ export class ProcurementService {
     return { roots };
   }
 
+  private async mutateInventoryBomLine<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('procurement-common-bom-lines'))::text`;
+        return work(tx);
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2034') {
+        throw new ConflictException('通用物料已被其他操作更新，请刷新后重试');
+      }
+      if ((error as { code?: string }).code === 'P2003') {
+        throw new ConflictException('所属分类已变更，请刷新后重试');
+      }
+      throw error;
+    }
+  }
+
+  private async requireInventoryBomLine(tx: Prisma.TransactionClient, id: string, baseUpdatedAt: string) {
+    const row = await tx.procBomNode.findUnique({ where: { id }, include: { _count: { select: { children: true } } } });
+    if (!row) throw new NotFoundException('该通用物料已不存在，请刷新列表');
+    if (row.productLine.trim() !== '通用') throw new ForbiddenException('仅支持维护通用物料');
+    if (row._count.children > 0 || !isInventoryBomMaterial(row)) {
+      throw new BadRequestException('该节点是结构分类，不能作为通用物料修改或删除');
+    }
+    const version = new Date(baseUpdatedAt);
+    if (!baseUpdatedAt || Number.isNaN(version.getTime()) || version.getTime() !== row.updatedAt.getTime()) {
+      throw new ConflictException('通用物料已被其他操作更新，请刷新后重试');
+    }
+    return row;
+  }
+
+  private async inventoryBomLineData(tx: Prisma.TransactionClient, dto: CreateInventoryBomLineDto, currentId?: string) {
+    const name = dto.name?.trim();
+    const code = dto.code?.trim();
+    const qtyPer = dto.qtyPer;
+    if (!name || name.length > 200) throw new BadRequestException('请填写物料名称（最多 200 字）');
+    if (!code || code.length > 100) throw new BadRequestException('请填写物料编码（最多 100 字）');
+    if (!Number.isFinite(qtyPer) || qtyPer <= 0 || qtyPer > 9999999999.9999
+      || new Prisma.Decimal(qtyPer).decimalPlaces() > 4) {
+      throw new BadRequestException('单机用量必须大于 0，最多保留 4 位小数');
+    }
+    const parentId = dto.parentId?.trim() || null;
+    let level = 0;
+    if (parentId) {
+      if (parentId === currentId) throw new BadRequestException('物料不能归入自身');
+      const parent = await tx.procBomNode.findUnique({ where: { id: parentId }, include: { _count: { select: { children: true } } } });
+      if (!parent || parent.productLine.trim() !== '通用') throw new BadRequestException('请选择通用物料的所属分类');
+      if (isInventoryBomMaterial(parent) && parent._count.children === 0) {
+        throw new BadRequestException('不能将物料归入另一条物料，请选择结构分类');
+      }
+      level = parent.level + 1;
+    }
+    const material = await tx.procMaterial.findUnique({ where: { tpInventoryCode: code }, select: { id: true } });
+    const remark = dto.remark?.trim() || null;
+    if (remark && remark.length > 1000) throw new BadRequestException('规格备注最多 1000 字');
+    return { name, code, qtyPer: new Prisma.Decimal(qtyPer), parentId, level, productLine: '通用', materialId: material?.id ?? null, remark };
+  }
+
+  async createInventoryBomLine(dto: CreateInventoryBomLineDto) {
+    return this.mutateInventoryBomLine(async (tx) => {
+      const data = await this.inventoryBomLineData(tx, dto);
+      const row = await tx.procBomNode.create({ data, select: { id: true, updatedAt: true } });
+      return { id: row.id, updatedAt: row.updatedAt.toISOString() };
+    });
+  }
+
+  async updateInventoryBomLine(id: string, dto: UpdateInventoryBomLineDto) {
+    return this.mutateInventoryBomLine(async (tx) => {
+      const current = await this.requireInventoryBomLine(tx, id, dto.baseUpdatedAt);
+      const data = await this.inventoryBomLineData(tx, dto, id);
+      const updated = await tx.procBomNode.updateMany({ where: { id, updatedAt: current.updatedAt }, data });
+      if (updated.count !== 1) throw new ConflictException('通用物料已被其他操作更新，请刷新后重试');
+      const row = await tx.procBomNode.findUniqueOrThrow({ where: { id }, select: { id: true, updatedAt: true } });
+      return { id: row.id, updatedAt: row.updatedAt.toISOString() };
+    });
+  }
+
+  async deleteInventoryBomLine(id: string, dto: InventoryBomLineVersionDto) {
+    return this.mutateInventoryBomLine(async (tx) => {
+      const current = await this.requireInventoryBomLine(tx, id, dto.baseUpdatedAt);
+      const deleted = await tx.procBomNode.deleteMany({ where: { id, updatedAt: current.updatedAt, children: { none: {} } } });
+      if (deleted.count !== 1) throw new ConflictException('通用物料已被其他操作更新，请刷新后重试');
+      return { id, deleted: true };
+    });
+  }
+
+  /** 按库存编码读取物料库分类，供齐套维护表单即时展示；不回写 BOM 或主数据。 */
+  async getInventoryReadinessMaterial(value: unknown) {
+    const code = typeof value === 'string' ? value.trim() : '';
+    if (code.length > 100) throw new BadRequestException('物料编码最多 100 字');
+    const material = code ? await this.prisma.procMaterial.findUnique({
+      where: { tpInventoryCode: code },
+      select: { category: true, unit: true },
+    }) : null;
+    return { matched: Boolean(material), category: material?.category?.trim() || '未分类', unit: material?.unit?.trim() || '件' };
+  }
+
   /**
    * 库存齐套中心：用 BOM 单机用量连接畅捷通库存镜像。
    * 数据库先按「量产」收窄，再通过业务名称精确限定「量产仓 / 量产仓库」，
@@ -3533,6 +3946,7 @@ export class ProcurementService {
         productLine: true,
         qtyPer: true,
         remark: true,
+        updatedAt: true,
         material: { select: { name: true, spec: true, unit: true } },
       },
     });
@@ -3543,28 +3957,64 @@ export class ProcurementService {
       const line = row.productLine.trim();
       if (!line) continue;
       const current = modelMap.get(line) ?? { id: line, label: line, bomLines: 0 };
-      if (row.parentId === null && row.name.trim()) current.label = row.name.trim();
-      if (!parentIds.has(row.id)) current.bomLines += 1;
+      if (!parentIds.has(row.id) && (line !== '通用' || isInventoryBomMaterial(row))) current.bomLines += 1;
       modelMap.set(line, current);
     }
+    for (const [line, model] of modelMap) {
+      const roots = bomRows.filter((row) => row.productLine.trim() === line && row.parentId === null);
+      // 多个根通常是并列子系统，不能让最后一个子系统名覆盖产品型号。
+      const rootName = roots.length === 1 ? roots[0].name.trim() : '';
+      model.label = rootName && rootName !== line ? `${line} · ${rootName}` : line;
+    }
     const models = [...modelMap.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+    if (!modelMap.has('通用')) {
+      const commonModel = { id: '通用', label: '通用', bomLines: 0 };
+      modelMap.set('通用', commonModel);
+      models.push(commonModel);
+    }
     const productLine = modelMap.has(requestedProductLine)
       ? requestedProductLine
       : modelMap.has('Q5')
         ? 'Q5'
         : models[0]?.id ?? requestedProductLine;
-    const leaves: InventoryReadinessBomLeaf[] = bomRows
-      .filter((row) => row.productLine === productLine && !parentIds.has(row.id))
-      .map((row) => ({
+    const materialRows = bomRows.filter((row) => row.productLine === productLine && !parentIds.has(row.id) && (productLine !== '通用' || isInventoryBomMaterial(row)));
+    const codes = [...new Set(materialRows.map((row) => row.code?.trim()).filter((code): code is string => Boolean(code)))];
+    // 以当前编码匹配物料库，不能依赖导入时可能缺失或已过时的 materialId。
+    const materials = codes.length > 0 ? await this.prisma.procMaterial.findMany({
+      where: { tpInventoryCode: { in: codes } },
+      select: { tpInventoryCode: true, category: true, unit: true },
+    }) : [];
+    const materialByCode = new Map(materials.map((material) => [material.tpInventoryCode, material]));
+    const leaves: InventoryReadinessBomLeaf[] = materialRows.map((row) => {
+      const material = materialByCode.get(row.code?.trim() || '');
+      const category = material?.category?.trim() || '未分类';
+      const bomPosition = row.parentId ? byId.get(row.parentId)?.name ?? '未指定位置' : '未指定位置';
+      const unit = material?.unit?.trim() || '件';
+      return {
         id: row.id,
-        category: row.parentId ? byId.get(row.parentId)?.name ?? '未分类' : '未分类',
+        category,
+        bomPosition,
         code: row.code?.trim() || null,
-        name: row.material?.name || row.name,
-        spec: row.material?.spec || row.remark || '',
-        unit: row.material?.unit || '件',
+        name: productLine === '通用' ? row.name : row.material?.name || row.name,
+        spec: productLine === '通用' ? row.remark || row.material?.spec || '' : row.material?.spec || row.remark || '',
+        unit,
         qtyPer: numOrNull(row.qtyPer),
-      }));
-    const codes = [...new Set(leaves.map((leaf) => leaf.code).filter((code): code is string => Boolean(code)))];
+        ...(productLine === '通用' ? {
+          sourceLines: [{
+            id: row.id,
+            name: row.name,
+            code: row.code?.trim() || null,
+            qtyPer: numOrNull(row.qtyPer),
+            remark: row.remark,
+            parentId: row.parentId,
+            category,
+            bomPosition,
+            updatedAt: row.updatedAt.toISOString(),
+            unit,
+          }],
+        } : {}),
+      };
+    });
     const inventoryCandidates = codes.length > 0
       ? await this.prisma.procInventoryBalance.findMany({
           where: {
@@ -3615,6 +4065,10 @@ export class ProcurementService {
       readOnly: true,
       productLine,
       models,
+      bomPositions: productLine === '通用'
+        ? bomRows.filter((row) => row.productLine === '通用' && (parentIds.has(row.id) || !isInventoryBomMaterial(row)))
+          .map((row) => ({ id: row.id, name: row.name }))
+        : [],
       warehouse: {
         keyword: warehouseKeyword,
         label: '量产仓库',
@@ -3921,9 +4375,43 @@ export class ProcurementService {
 
   // ── 序列化 ───────────────────────────────────────────────────────────────────
 
-  private serializeStockPlan(plan: ProcStockPlanView) {
+  private serializeStockPlan(plan: ProcStockPlanView, unresolvedOrders = new Set<string>()) {
     const targetQty = num(plan.targetQty);
-    const purchasedQty = plan.batches.reduce((sum, batch) => sum + num(batch.purchaseQty), 0);
+    const contextLocked = (plan.tasks?.length ?? 0) > 0 || (plan._count?.productionReports ?? 0) > 0 || (plan._count?.qualityRecords ?? 0) > 0;
+    const batches = plan.batches.map((batch) => {
+      const mirror = batch.purchaseOrderMirror;
+      const orderVoided = Boolean(mirror && isVoidedOrderStatus(mirror.status, mirror.approvalStatus));
+      const orderUnlinked = !mirror && Boolean(batch.purchaseOrderNo && unresolvedOrders.has(batch.purchaseOrderNo.trim()));
+      const orderDataIssue = orderVoided || orderUnlinked;
+      const orderIssueCode = orderVoided ? 'voided' : orderUnlinked ? 'unlinked' : undefined;
+      const orderIssue = orderVoided ? '订单已作废或取消，未计入采购、到货及需求抵扣'
+        : orderUnlinked ? '此手工单号已同步 ERP，需明确关联订单行；暂不重复计入需求抵扣' : undefined;
+      const recordedPurchaseQty = Math.max(0, num(mirror ? mirror.orderedQty : batch.purchaseQty));
+      const recordedReceivedQty = Math.max(0, num(mirror ? mirror.receivedQty : batch.receivedQty));
+      const purchaseQty = orderDataIssue ? 0 : recordedPurchaseQty;
+      const receivedQty = orderDataIssue ? 0 : recordedReceivedQty;
+      const recordedQualifiedQty = Math.max(0, num(batch.qualifiedQty));
+      return {
+        id: batch.id, supplierId: mirror ? undefined : batch.supplierId ?? undefined,
+        supplierName: mirror?.supplierName ?? batch.supplierName,
+        purchaseOrderMirrorId: batch.purchaseOrderMirrorId ?? undefined,
+        purchaseQty, receivedQty, qualifiedQty: Math.min(receivedQty, recordedQualifiedQty), recordedQualifiedQty,
+        recordedPurchaseQty, recordedReceivedQty, orderDataIssue, orderIssue, orderIssueCode,
+        orderStatus: mirror?.status ?? undefined, orderApprovalStatus: mirror?.approvalStatus ?? undefined,
+        qualityDataIssue: recordedQualifiedQty > recordedReceivedQty,
+        inTransitQty: Math.max(0, purchaseQty - receivedQty),
+        purchaseOrderNo: mirror?.tpOrderNo ?? batch.purchaseOrderNo ?? undefined,
+        orderDate: day(mirror ? mirror.orderDate : batch.orderDate),
+        expectedArrivalDate: day(mirror ? mirror.etaDate : batch.expectedArrivalDate),
+        actualArrivalDate: day(batch.actualArrivalDate),
+        note: batch.note ?? undefined, createdBy: batch.createdBy ?? undefined, createdByName: batch.createdByName,
+        createdAt: batch.createdAt.toISOString(), updatedAt: batch.updatedAt.toISOString(),
+      };
+    });
+    const purchasedQty = batches.reduce((sum, batch) => sum + batch.purchaseQty, 0);
+    const receivedQty = batches.reduce((sum, batch) => sum + batch.receivedQty, 0);
+    const qualifiedQty = batches.reduce((sum, batch) => sum + batch.qualifiedQty, 0);
+    const inTransitQty = batches.reduce((sum, batch) => sum + batch.inTransitQty, 0);
     const remainingQty = Math.max(targetQty - purchasedQty, 0);
     const status = purchasedQty >= targetQty
       ? 'completed'
@@ -3933,12 +4421,22 @@ export class ProcurementService {
     return {
       id: plan.id,
       code: plan.code,
+      planType: plan.planType ?? 'material',
+      contextLocked, materialLocked: contextLocked || plan.batches.length > 0,
+      productId: plan.productId ?? undefined, treeNodeId: plan.treeNodeId ?? undefined,
+      productLine: plan.productLine ?? undefined, productionTaskId: plan.productionTaskId ?? undefined,
       materialId: plan.materialId ?? undefined,
       materialName: plan.materialName,
       spec: plan.spec,
       unit: plan.unit,
       targetQty,
       purchasedQty,
+      receivedQty, qualifiedQty, inTransitQty,
+      arrivalProgress: targetQty > 0 ? Math.min(100, receivedQty / targetQty * 100) : 0,
+      qualificationProgress: targetQty > 0 ? Math.min(100, qualifiedQty / targetQty * 100) : 0,
+      readinessStatus: qualifiedQty >= targetQty ? 'qualified' : receivedQty >= targetQty ? 'pending_inspection' : receivedQty > 0 ? 'partial_received' : 'not_received',
+      qualityDataIssue: batches.some((batch) => batch.qualityDataIssue),
+      orderDataIssue: batches.some((batch) => batch.orderDataIssue),
       remainingQty,
       progress: targetQty > 0 ? Math.min(100, (purchasedQty / targetQty) * 100) : 0,
       status,
@@ -3946,20 +4444,8 @@ export class ProcurementService {
       note: plan.note ?? undefined,
       createdBy: plan.createdBy ?? undefined,
       createdByName: plan.createdByName,
-      batches: plan.batches.map((batch) => ({
-        id: batch.id,
-        supplierId: batch.supplierId ?? undefined,
-        supplierName: batch.supplierName,
-        purchaseQty: num(batch.purchaseQty),
-        purchaseOrderNo: batch.purchaseOrderNo ?? undefined,
-        orderDate: day(batch.orderDate),
-        expectedArrivalDate: day(batch.expectedArrivalDate),
-        note: batch.note ?? undefined,
-        createdBy: batch.createdBy ?? undefined,
-        createdByName: batch.createdByName,
-        createdAt: batch.createdAt.toISOString(),
-        updatedAt: batch.updatedAt.toISOString(),
-      })),
+      batches,
+      tasks: (plan.tasks ?? []).map((task) => ({ ...task, quantity: num(task.quantity), needDate: day(task.needDate) })),
       createdAt: plan.createdAt.toISOString(),
       updatedAt: plan.updatedAt.toISOString(),
     };
@@ -3973,6 +4459,7 @@ export class ProcurementService {
       id: task.id,
       code: task.code,
       productId: task.productId,
+      stockPlanId: task.stockPlanId ?? undefined,
       treeNodeId: task.treeNodeId,
       materialId: task.materialId,
       materialName: task.materialName,

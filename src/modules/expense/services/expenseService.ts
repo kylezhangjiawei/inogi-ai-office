@@ -452,32 +452,39 @@ function appendDepartment(params: URLSearchParams, department?: string) {
   if (department) params.set("department", department);
 }
 
+async function fetchAllInvoices(filters?: Partial<InvoiceFilters>, department?: string) {
+  const params = new URLSearchParams({ page_size: "200" });
+  if (filters?.keyword?.trim()) params.set("keyword", filters.keyword.trim());
+  if (filters?.status && filters.status !== "全部") params.set("status", filters.status);
+  if (filters?.category && filters.category !== "全部") params.set("category", filters.category);
+  appendDepartment(params, department);
+  const invoices = new Map<string, ApiInvoice>();
+  let expectedTotal: number | null = null;
+  for (let page = 1; ; page += 1) {
+    params.set("page", String(page));
+    const result = await request<{ items: ApiInvoice[]; page: number; total: number; total_pages: number }>(`/api/expenses/invoices?${params.toString()}`);
+    if (result.page !== page || (expectedTotal !== null && result.total !== expectedTotal)) {
+      throw new Error("发票列表在加载期间发生变化，请重新加载后再统计或导出");
+    }
+    expectedTotal = result.total;
+    for (const invoice of result.items) invoices.set(invoice.id, invoice);
+    if (page >= result.total_pages) break;
+  }
+  if (invoices.size !== expectedTotal) throw new Error("发票列表未完整加载，请重试后再统计或导出");
+  return applyLocalInvoiceFilters([...invoices.values()].map(toInvoice), filters);
+}
+
 export const expenseService = {
   async listInvoices(filters?: Partial<InvoiceFilters>, department?: string) {
-    const params = new URLSearchParams();
-    params.set("page_size", "200");
-    if (filters?.keyword?.trim()) params.set("keyword", filters.keyword.trim());
-    if (filters?.status && filters.status !== "全部") params.set("status", filters.status);
-    if (filters?.category && filters.category !== "全部") params.set("category", filters.category);
-    appendDepartment(params, department);
-
     try {
-      const result = await request<{ items: ApiInvoice[] }>(`/api/expenses/invoices?${params.toString()}`);
-      return applyLocalInvoiceFilters(result.items.map(toInvoice), filters);
+      return await fetchAllInvoices(filters, department);
     } catch (error) {
       return fallbackWithWarning("listInvoices", [], error);
     }
   },
 
   async listInvoicesStrict(filters?: Partial<InvoiceFilters>, department?: string) {
-    const params = new URLSearchParams();
-    params.set("page_size", "200");
-    if (filters?.keyword?.trim()) params.set("keyword", filters.keyword.trim());
-    if (filters?.status && filters.status !== "全部") params.set("status", filters.status);
-    if (filters?.category && filters.category !== "全部") params.set("category", filters.category);
-    appendDepartment(params, department);
-    const result = await request<{ items: ApiInvoice[] }>(`/api/expenses/invoices?${params.toString()}`);
-    return applyLocalInvoiceFilters(result.items.map(toInvoice), filters);
+    return fetchAllInvoices(filters, department);
   },
 
   async getDashboard(department?: string): Promise<ExpenseDashboardData> {

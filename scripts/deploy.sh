@@ -27,6 +27,9 @@ PRISMA_MIRROR="${PRISMA_ENGINES_MIRROR:-https://registry.npmmirror.com/-/binary/
 # 发布基线只做观测，不参与发布成败判定。目录不可写或采样失败时会降级为普通文本日志。
 DEPLOY_METRICS_ENABLED="${DEPLOY_METRICS_ENABLED:-1}"
 DEPLOY_METRICS_DIR="${DEPLOY_METRICS_DIR:-/var/log/inogi-deploy}"
+# 就绪检查从本机直连 API，重启后必须匹配当前发布版本。
+DEPLOY_HEALTH_URL="${DEPLOY_HEALTH_URL:-http://127.0.0.1:${PORT:-3000}/api/health/ready}"
+DEPLOY_HEALTH_TIMEOUT_SECONDS="${DEPLOY_HEALTH_TIMEOUT_SECONDS:-60}"
 
 # 迁移前的保命快照默认不导出接口请求日志的行数据：这一张表占了整库 97.5%
 # （7467MB / 7658MB），让备份要跑 485 秒，而快照的用途只是「迁移出事能回滚业务数据」。
@@ -118,8 +121,9 @@ DEPLOY_STAGE_NAMES=(
   tests
   database_backup
   database_migration
-  frontend_activate
   api_restart
+  api_readiness
+  frontend_activate
   nginx_reload
 )
 # 已记录阶段的集合。macOS 自带的 bash 3.2 没有关联数组（declare -A 会直接报错，
@@ -872,27 +876,7 @@ else
   skip_stage database_migration || true
 fi
 
-# ----------------- 8. 发布前端到 nginx 目录 -----------------
-# nginx 的 root 指向 WEB_ROOT，构建产物却在 dist/；这里把 dist 同步过去，
-# 前端改动才真正上线。放在重启前，使前后端版本尽量同时生效（减少版本提示误弹）。
-if [ "$DEPLOY_PLAN_FRONTEND" != "1" ]; then
-  log "前端未变化，跳过静态文件发布。"
-  skip_stage frontend_activate || true
-elif [ -d "$WEB_ROOT" ]; then
-  start_stage frontend_activate || true
-  log "发布前端 dist → $WEB_ROOT ..."
-  printf '{"release":"%s","git_sha":"%s"}\n' "$RELEASE" "$GIT_SHA" > "$REPO_DIR/dist/version.json"
-  if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete-after "$REPO_DIR/dist/" "$WEB_ROOT/"
-  else
-    cp -a "$REPO_DIR/dist/." "$WEB_ROOT/"
-  fi
-  finish_stage success || true
-else
-  die "前端发布目录不存在：$WEB_ROOT（请确认 nginx root 或设置 WEB_ROOT）"
-fi
-
-# ----------------- 9. 重启后端（注入运行期版本号）-----------------
+# ----------------- 8. 重启后端（注入运行期版本号）-----------------
 if [ "$DEPLOY_PLAN_API" = "1" ]; then
   start_stage api_restart || true
   log "重启后端 pm2: $PM2_APP_NAME ..."
@@ -934,6 +918,65 @@ if [ "$DEPLOY_PLAN_API" = "1" ]; then
 else
   log "API 未变化，跳过 PM2 重启。"
   skip_stage api_restart || true
+fi
+
+# ----------------- 9. 确认后端与数据库就绪，再发布前端 -----------------
+wait_for_api_readiness() {
+  local deadline response expected_sha="" expected_release=""
+  case "$DEPLOY_HEALTH_TIMEOUT_SECONDS" in
+    ''|*[!0-9]*) die "就绪检查等待时间必须是正整数秒" ;;
+  esac
+  [ "$DEPLOY_HEALTH_TIMEOUT_SECONDS" -ge 1 ] && [ "$DEPLOY_HEALTH_TIMEOUT_SECONDS" -le 300 ] \
+    || die "就绪检查等待时间必须在 1 至 300 秒之间"
+  command -v curl >/dev/null 2>&1 || die "缺少 curl，无法执行部署就绪检查"
+  if [ "$DEPLOY_PLAN_API" = "1" ]; then
+    expected_sha="$GIT_SHA"
+    expected_release="$RELEASE"
+  fi
+  deadline=$((SECONDS + DEPLOY_HEALTH_TIMEOUT_SECONDS))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if response="$(curl --silent --show-error --fail --connect-timeout 2 --max-time 5 "$DEPLOY_HEALTH_URL" 2>/dev/null)"; then
+      if EXPECTED_API_SHA="$expected_sha" EXPECTED_API_RELEASE="$expected_release" node -e '
+        try {
+          const body = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+          const ready = body.ok === true && body.database === "ready"
+            && (!process.env.EXPECTED_API_SHA || body.git_sha === process.env.EXPECTED_API_SHA)
+            && (!process.env.EXPECTED_API_RELEASE || body.release === process.env.EXPECTED_API_RELEASE);
+          process.exit(ready ? 0 : 1);
+        } catch { process.exit(1); }
+      ' <<< "$response"; then
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+if [ "$DEPLOY_PLAN_API" = "1" ] || [ "$DEPLOY_PLAN_FRONTEND" = "1" ] || [ "$DEPLOY_PLAN_MIGRATIONS" = "1" ]; then
+  start_stage api_readiness || true
+  log "等待 API、数据库与发布版本就绪 ..."
+  wait_for_api_readiness || die "API 就绪检查失败，未发布前端，也未记录部署成功；请检查后端启动和数据库连接。"
+  finish_stage success || true
+else
+  skip_stage api_readiness || true
+fi
+
+if [ "$DEPLOY_PLAN_FRONTEND" != "1" ]; then
+  log "前端未变化，跳过静态文件发布。"
+  skip_stage frontend_activate || true
+elif [ -d "$WEB_ROOT" ]; then
+  start_stage frontend_activate || true
+  log "发布前端 dist → $WEB_ROOT ..."
+  printf '{"release":"%s","git_sha":"%s"}\n' "$RELEASE" "$GIT_SHA" > "$REPO_DIR/dist/version.json"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete-after "$REPO_DIR/dist/" "$WEB_ROOT/"
+  else
+    cp -a "$REPO_DIR/dist/." "$WEB_ROOT/"
+  fi
+  finish_stage success || true
+else
+  die "前端发布目录不存在：$WEB_ROOT（请确认 nginx root 或设置 WEB_ROOT）"
 fi
 
 # ---------------------------- 10. nginx ----------------------------

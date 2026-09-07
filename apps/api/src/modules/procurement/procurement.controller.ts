@@ -11,12 +11,16 @@ import {
   CompleteInquiryDto,
   ConfirmQuoteBookQuotesDto,
   CreateProcStockPlanBatchDto,
+  CreateInventoryBomLineDto,
+  UpdateInventoryBomLineDto,
+  InventoryBomLineVersionDto,
   CreateProcStockPlanDto,
   CreateProcTaskTreeNodeDto,
   ImportBomDto,
   CreateProcTaskDto,
   ImportMaterialsDto,
   LinkPurchaseOrderDto,
+  ListProcStockPlansQueryDto,
   ProcAttachmentInputDto,
   ReassignProcTaskDto,
   ResetTaskQuotationsDto,
@@ -126,8 +130,26 @@ export class ProcurementController {
 
   @Get('stock-plans')
   @Permissions('page:proc-cockpit')
-  listStockPlans() {
-    return this.service.listStockPlans();
+  listStockPlans(@Query() query: ListProcStockPlansQueryDto) {
+    return this.service.listStockPlans(query);
+  }
+
+  @Get('stock-plans/:id')
+  @Permissions('page:proc-cockpit')
+  getStockPlan(@Param('id') id: string) {
+    return this.service.getStockPlanView(id);
+  }
+
+  @Get('stock-plans/:id/readiness')
+  @Permissions('page:proc-cockpit')
+  getStockPlanReadiness(@Param('id') id: string, @Query('month') month?: string) {
+    return this.service.getStockPlanReadiness(id, month);
+  }
+
+  @Post('stock-plans/:id/generate-tasks')
+  @Permissions('proc-task:create')
+  generateStockPlanTasks(@Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.service.generateStockPlanTasks(id, this.actor(req));
   }
 
   @Post('stock-plans')
@@ -537,9 +559,33 @@ export class ProcurementController {
 
   /** 量产仓库库存 × 产品 BOM：计算当前及在途到货后的物料可齐套套数。 */
   @Get('inventory-readiness')
-  @Permissions('page:proc-inventory-readiness')
+  @Permissions('page:proc-inventory-readiness', 'page:proc-cockpit')
   getInventoryReadiness(@Query() query: Record<string, unknown>) {
     return this.service.getInventoryReadiness(query);
+  }
+
+  @Get('inventory-readiness/material')
+  @Permissions('page:proc-inventory-readiness', 'page:proc-cockpit')
+  getInventoryReadinessMaterial(@Query('code') code: unknown) {
+    return this.service.getInventoryReadinessMaterial(code);
+  }
+
+  @Post('inventory-readiness/bom-lines')
+  @Permissions('material:import')
+  createInventoryBomLine(@Body() dto: CreateInventoryBomLineDto) {
+    return this.service.createInventoryBomLine(dto);
+  }
+
+  @Put('inventory-readiness/bom-lines/:id')
+  @Permissions('material:import')
+  updateInventoryBomLine(@Param('id') id: string, @Body() dto: UpdateInventoryBomLineDto) {
+    return this.service.updateInventoryBomLine(id, dto);
+  }
+
+  @Delete('inventory-readiness/bom-lines/:id')
+  @Permissions('material:import')
+  deleteInventoryBomLine(@Param('id') id: string, @Body() dto: InventoryBomLineVersionDto) {
+    return this.service.deleteInventoryBomLine(id, dto);
   }
 
   /** BOM 导入：replace=true 全量替换；叶子按 T+ 存货编码匹配物料并回填产品线。 */

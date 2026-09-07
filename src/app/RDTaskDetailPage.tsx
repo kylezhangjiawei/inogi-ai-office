@@ -54,6 +54,7 @@ import {
 import { inferAttachmentMime } from "./components/AttachmentPreviewDialog";
 import { AttachmentPreviewModal, ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
 import { RDTaskConversation } from "./RDTaskConversation";
+import { getProductionStockPlanSource } from './lib/procurementOperationsApi';
 import {
   STATUS_CONFIG,
   PRIORITY_CONFIG,
@@ -398,6 +399,10 @@ export default function RDTaskDetailPage() {
   const [transferOpen, setTransferOpen] = useState(false);
   // 转采购操作码（系统管理·权限目录可配），已转的跳转芯片保持只读可见
   const canTransferProcPermission = useAnyPermission("proc-task:transfer");
+  const canCreateStockPlan = usePermission('proc-task:create');
+  const canOpenProcurement = usePermission('page:proc-cockpit');
+  const [stockPlanLinkLoading, setStockPlanLinkLoading] = useState(false);
+  const stockPlanLinkRequestRef = useRef(0);
   const canTransferProc = canTransferProcPermission && !taskReadOnly;
   const [showMove, setShowMove] = useState(false);
   const [moveLoading, setMoveLoading] = useState(false);
@@ -426,6 +431,21 @@ export default function RDTaskDetailPage() {
   // 只有仍在流程里的采购任务才顶掉「转采购」入口。已取消的（含审核驳回后落 cancelled 的
   // 存量数据）后端允许在原记录上重新提交，前端必须把入口放回来，否则研发侧永久卡死。
   const procTaskBlocksTransfer = Boolean(procTask) && procTask?.status !== "cancelled";
+  const openProductionStockPlan = async () => {
+    if (!productionWorkspace || !task || !canCreateStockPlan || !canOpenProcurement || stockPlanLinkLoading) return;
+    const expectedTaskId = task.task_id;
+    const requestId = ++stockPlanLinkRequestRef.current;
+    setStockPlanLinkLoading(true);
+    try {
+      const source = await getProductionStockPlanSource(expectedTaskId);
+      if (activeTaskIdRef.current !== expectedTaskId || stockPlanLinkRequestRef.current !== requestId) return;
+      navigate(`/proc-cockpit?${new URLSearchParams({ tab: 'stock-plans', newPlan: '1', planType: 'machine', productionTaskId: source.taskId, product: source.productId, materialName: source.title })}`);
+    } catch (error) {
+      if (activeTaskIdRef.current === expectedTaskId && stockPlanLinkRequestRef.current === requestId) toast.error(error instanceof Error ? error.message : t('无法读取生产任务归属'));
+    } finally {
+      if (stockPlanLinkRequestRef.current === requestId) setStockPlanLinkLoading(false);
+    }
+  };
 
   // 采购动态是按任务按需出现的页签；切换到没有采购关联的任务时回退到合并关系，
   // 避免 Tabs 保留一个已不存在的受控 value 而显示空白。
@@ -551,9 +571,6 @@ export default function RDTaskDetailPage() {
       void markRdTaskNotesRead(expectedTaskId).catch(() => {});
     } catch (error) {
       if (seq !== progressLoadSeqRef.current || activeTaskIdRef.current !== expectedTaskId) return;
-      setNotes([]);
-      setGroupNotes([]);
-      setProgressGroupTasks([]);
       setNotesError(error instanceof Error ? error.message : t("进度留痕加载失败"));
     } finally {
       if (seq === progressLoadSeqRef.current && activeTaskIdRef.current === expectedTaskId) setNotesLoading(false);
@@ -561,6 +578,9 @@ export default function RDTaskDetailPage() {
   }, [taskId]);
 
   useEffect(() => {
+    setNotes([]);
+    setGroupNotes([]);
+    setProgressGroupTasks([]);
     setNoteTaskFilter("all");
     setAuditTaskFilter("all");
     setSelectedActivityActor(null);
@@ -585,6 +605,8 @@ export default function RDTaskDetailPage() {
     setShowComplete(false);
     setShowSubmitConfirm(false);
     setTransferOpen(false);
+    stockPlanLinkRequestRef.current += 1;
+    setStockPlanLinkLoading(false);
     setShowMove(false);
     setMoveLoading(false);
     setGeneratingIssue(false);
@@ -2030,6 +2052,12 @@ export default function RDTaskDetailPage() {
                   {t("标记完成")}
                 </Button>
               </>
+            )}
+            {productionWorkspace && !task.archived && canCreateStockPlan && canOpenProcurement && (
+              <Button type="button" variant="outline" size="sm" disabled={stockPlanLinkLoading} onClick={() => void openProductionStockPlan()} className="h-8 w-full gap-1.5 border-[#002fa7]/20 text-xs text-[#002fa7]">
+                {stockPlanLinkLoading ? <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" /> : <ShoppingCart aria-hidden="true" className="h-3.5 w-3.5" />}
+                {t(stockPlanLinkLoading ? '正在读取任务归属…' : '建立备货计划')}
+              </Button>
             )}
             {/* 研发侧特有：转采购 / 生成问题（非归档任务始终可用，与抽屉口径一致）。
                 在途的采购关联显示跳转芯片而非再次转出；已取消的（含存量「审核驳回」数据）

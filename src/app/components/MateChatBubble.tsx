@@ -322,8 +322,20 @@ async function apiUpdateConversation(
   const res = await authFetch(`/api/chat/conversations/${id}`, {
     method: "PATCH",
     body: JSON.stringify(data),
+  }).catch(() => {
+    throw new Error("网络连接异常，请检查网络后重试");
   });
-  if (!res.ok) throw new Error("更新失败");
+  if (!res.ok) {
+    if (res.status >= 500) throw new Error("服务器暂时无法更新对话，请稍后重试");
+    if (res.status === 401) throw new Error("登录已失效，请重新登录后再试");
+    if (res.status === 403) throw new Error("没有修改该对话的权限");
+    if (res.status === 404) throw new Error("对话不存在或已被删除，请刷新列表后重试");
+    if (res.status === 429) throw new Error("操作过于频繁，请稍后再试");
+    const error = await res.json().catch(() => null) as { message?: unknown } | null;
+    const messages = Array.isArray(error?.message) ? error.message : [error?.message];
+    const readable = messages.filter((message): message is string => typeof message === "string" && /[\u3400-\u9fff]/.test(message));
+    throw new Error(readable.length ? readable.join("；") : "更新对话失败，请检查输入后重试");
+  }
   return res.json() as Promise<ApiConversation>;
 }
 
@@ -596,6 +608,8 @@ export function MateChatBubble() {
   const [keyword, setKeyword] = useState("");
   const [draft, setDraft] = useState("");
   const [renameTitle, setRenameTitle] = useState("");
+  const [conversationSaving, setConversationSaving] = useState(false);
+  const conversationSavingRef = useRef(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm>(null);
@@ -1557,19 +1571,38 @@ export function MateChatBubble() {
   // ── 置顶 / 重命名 / 删除 ────────────────────────────────────────────────────
 
   const togglePin = async () => {
-    if (!activeConv) return;
-    const updated = await apiUpdateConversation(activeConv.id, { pinned: !activeConv.pinned });
-    setConversations((prev) => prev.map((c) => (c.id === updated.id ? { ...c, pinned: updated.pinned } : c)));
+    if (!activeConv || conversationSavingRef.current) return;
+    conversationSavingRef.current = true;
+    setConversationSaving(true);
+    try {
+      const updated = await apiUpdateConversation(activeConv.id, { pinned: !activeConv.pinned });
+      setConversations((prev) => prev.map((c) => (c.id === updated.id ? { ...c, pinned: updated.pinned } : c)));
+      toast.success(updated.pinned ? "对话已置顶" : "已取消置顶");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "置顶操作失败，请重试");
+    } finally {
+      conversationSavingRef.current = false;
+      setConversationSaving(false);
+    }
   };
 
   const confirmRename = async () => {
-    if (!activeConv) return;
+    if (!activeConv || conversationSavingRef.current) return;
     const title = renameTitle.trim();
-    if (!title) return;
-    const updated = await apiUpdateConversation(activeConv.id, { title });
-    setConversations((prev) => prev.map((c) => (c.id === updated.id ? { ...c, title: updated.title } : c)));
-    setIsRenaming(false);
-    toast.success("标题已更新");
+    if (!title) { toast.error("请输入会话标题"); return; }
+    conversationSavingRef.current = true;
+    setConversationSaving(true);
+    try {
+      const updated = await apiUpdateConversation(activeConv.id, { title });
+      setConversations((prev) => prev.map((c) => (c.id === updated.id ? { ...c, title: updated.title } : c)));
+      setIsRenaming(false);
+      toast.success("标题已更新");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "重命名失败，请重试");
+    } finally {
+      conversationSavingRef.current = false;
+      setConversationSaving(false);
+    }
   };
 
   const removeConversation = () => {
@@ -1895,6 +1928,7 @@ export function MateChatBubble() {
                       <button
                         type="button"
                         onClick={() => void togglePin()}
+                        disabled={conversationSaving}
                         className="material-button-secondary shrink-0 whitespace-nowrap px-3 py-2 text-xs"
                       >
                         <Pin className="h-4 w-4 shrink-0" />
@@ -1903,6 +1937,7 @@ export function MateChatBubble() {
                       <button
                         type="button"
                         onClick={() => { setRenameTitle(activeConv.title); setIsRenaming(true); }}
+                        disabled={conversationSaving}
                         className="material-button-secondary shrink-0 whitespace-nowrap px-3 py-2 text-xs"
                       >
                         <PencilLine className="h-4 w-4 shrink-0" />
@@ -1935,14 +1970,15 @@ export function MateChatBubble() {
                   <div className="flex items-center gap-3">
                     <input
                       value={renameTitle}
+                      disabled={conversationSaving}
                       onChange={(e) => setRenameTitle(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") void confirmRename(); if (e.key === "Escape") setIsRenaming(false); }}
                       className="material-input flex-1"
                       placeholder="输入新的会话标题"
                       autoFocus
                     />
-                    <button type="button" onClick={() => void confirmRename()} className="material-button-primary">保存</button>
-                    <button type="button" onClick={() => setIsRenaming(false)} className="material-button-secondary">取消</button>
+                    <button type="button" onClick={() => void confirmRename()} disabled={conversationSaving} className="material-button-primary">{conversationSaving ? "保存中…" : "保存"}</button>
+                    <button type="button" onClick={() => setIsRenaming(false)} disabled={conversationSaving} className="material-button-secondary">取消</button>
                   </div>
                 </div>
               )}

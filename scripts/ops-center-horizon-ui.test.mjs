@@ -4,6 +4,12 @@ import test from "node:test";
 
 const page = readFileSync(new URL("../src/app/OpsCenterPage.tsx", import.meta.url), "utf8");
 
+test("告警状态来自服务端，不能保存本地开关冒充已启用", () => {
+  assert.doesNotMatch(page, /ops-alert-rule-overrides|ruleOverrides|保存策略后生效/);
+  assert.match(page, /自动告警尚未接入/);
+  assert.match(page, /row\.status \?\?/);
+});
+
 test("运维中心五个分区共用 Horizon 页面根、页头和恰好四项动态指标", () => {
   assert.match(page, /className="horizon-theme hz-page/);
   assert.match(page, /<HorizonPageHeader(?:\s|>)/);

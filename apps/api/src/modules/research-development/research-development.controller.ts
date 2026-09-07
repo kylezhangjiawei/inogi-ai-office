@@ -1784,34 +1784,45 @@ export class ResearchDevelopmentController {
 
   @Patch('knowledge/entries/:id')
   @Permissions('rd-kb:manage', 'rd-kb:entry:edit', 'rd-kb:upload')
-  updateKnowledgeEntry(
+  async updateKnowledgeEntry(
     @Param('id') id: string,
     @Body() body: Partial<{ title: string; description: string; category_id: string; tags: string[]; visibility: string; permission_level: number; archived: boolean }>,
     @Request() req: AuthedRequest,
   ) {
     const perms = req.user?.permissions ?? [];
     const isKbManager = perms.includes('*') || perms.includes('rd-kb:manage');
-    // 后端兜底：非 KB 管理员不得修改权限分值，剔除该字段以保持原值（防止经编辑接口绕过上传置灰）
-    if (!isKbManager && body.permission_level !== undefined) {
-      delete body.permission_level;
+    const viewer = buildKbViewer(req);
+    const entry = await this.rdService.getKnowledgeEntryById(id, viewer);
+    if (!entry) throw new NotFoundException('条目不存在');
+    // 旧 visibility 同样能改变密级，必须和 permission_level 一起保护。
+    const patch = { ...body };
+    if (!isKbManager) {
+      delete patch.permission_level;
+      delete patch.visibility;
     }
-    return this.rdService.updateKnowledgeEntry(id, body, undefined, auditActor(req));
+    return this.rdService.updateKnowledgeEntry(id, patch, undefined, auditActor(req), undefined, viewer);
   }
 
   @Patch('knowledge/entries/:id/move')
   @Permissions('rd-kb:manage', 'rd-kb:entry:move', 'rd-kb:entry:edit')
-  moveKnowledgeEntry(
+  async moveKnowledgeEntry(
     @Param('id') id: string,
     @Body() body: { category_id?: string },
     @Request() req: AuthedRequest,
   ) {
-    return this.rdService.moveKnowledgeEntry(id, body.category_id ?? '', undefined, auditActor(req));
+    const viewer = buildKbViewer(req);
+    const entry = await this.rdService.getKnowledgeEntryById(id, viewer);
+    if (!entry) throw new NotFoundException('条目不存在');
+    return this.rdService.moveKnowledgeEntry(id, body.category_id ?? '', undefined, auditActor(req), viewer);
   }
 
   @Delete('knowledge/entries/:id')
   @Permissions('rd-kb:manage', 'rd-kb:entry:delete')
-  deleteKnowledgeEntry(@Param('id') id: string, @Request() req: AuthedRequest) {
-    return this.rdService.deleteKnowledgeEntry(id, undefined, auditActor(req));
+  async deleteKnowledgeEntry(@Param('id') id: string, @Request() req: AuthedRequest) {
+    const viewer = buildKbViewer(req);
+    const entry = await this.rdService.getKnowledgeEntryById(id, viewer);
+    if (!entry) throw new NotFoundException('条目不存在');
+    return this.rdService.deleteKnowledgeEntry(id, undefined, auditActor(req), viewer);
   }
 
   @Post('knowledge/entries/:id/view')

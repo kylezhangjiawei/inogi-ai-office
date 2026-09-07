@@ -24,7 +24,7 @@ import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
 import { MoveTaskDialog } from "./MoveTaskDialog";
-import { applyProcTaskUpdate, refreshProcurement, taskRequester, useProcurementData, type ProcurementTask } from "../data";
+import { applyProcTaskUpdate, captureProcurementScope, refreshProcurement, taskRequester, useProcurementData, type ProcurementTask } from "../data";
 import { listQuotations, rejectProcTask, resetProcTaskQuotations, unlinkPurchaseOrder, type Quotation } from "../../lib/procurementApi";
 import { toast } from "sonner";
 import { AutoTranslatedText } from "../../components/TranslatableText";
@@ -74,10 +74,11 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const [resetReason, setResetReason] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
   const submitResetQuotes = async () => {
+    const requestScope = captureProcurementScope();
     setResetBusy(true);
     try {
       const updated = await resetProcTaskQuotations(task.id, resetReason.trim() || undefined);
-      applyProcTaskUpdate(updated);
+      applyProcTaskUpdate(updated, requestScope);
       void refreshProcurement();
       toast.success(t("已清空报价并退回「待询价」，可重新维护"));
       setResetting(false);

@@ -151,6 +151,7 @@ import {
   RD_DEFAULT_SUBPROJECT_LABEL,
 } from "./lib/rdApi";
 import { RDReportsPanel } from "./RDReportsPanel";
+import { SubsystemOperationsPanel } from "./procurement/components/SubsystemOperationsPanel";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import { fetchRdDailyReports, fetchRdTaskNoteReceipts, markRdTaskNotesRead, type RdDailyReport, type RdTaskNoteReceipt } from "./lib/rdApi";
 import { getGradeTone } from "./lib/taskCompletionScore";
@@ -6661,10 +6662,35 @@ function ImageGallery({
   onClose: () => void;
 }) {
   const [idx, setIdx] = useState(startIndex);
+  const thumbnailStripRef = useRef<HTMLDivElement>(null);
   const shouldReduceMotion = useReducedMotion();
 
   const prev = useCallback(() => setIdx((i) => (i - 1 + images.length) % images.length), [images.length]);
   const next = useCallback(() => setIdx((i) => (i + 1) % images.length), [images.length]);
+
+  useEffect(() => {
+    const strip = thumbnailStripRef.current;
+    const thumbnail = strip?.children[idx] as HTMLElement | undefined;
+    if (!strip || !thumbnail) return;
+    // Only move the thumbnail viewport; do not scroll the page behind the gallery.
+    const left = thumbnail.offsetLeft;
+    const right = left + thumbnail.offsetWidth;
+    if (left < strip.scrollLeft) strip.scrollLeft = left;
+    else if (right > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = right - strip.clientWidth;
+  }, [idx]);
+
+  useEffect(() => {
+    const strip = thumbnailStripRef.current;
+    if (!strip) return;
+    const handleWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY) || strip.scrollWidth <= strip.clientWidth) return;
+      event.preventDefault();
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? strip.clientWidth : 1;
+      strip.scrollLeft += event.deltaY * unit;
+    };
+    strip.addEventListener("wheel", handleWheel, { passive: false });
+    return () => strip.removeEventListener("wheel", handleWheel);
+  }, [images.length]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -6750,18 +6776,27 @@ function ImageGallery({
 
       {/* Thumbnail strip */}
       {images.length > 1 && (
-        <div className="absolute bottom-5 flex gap-2 overflow-x-auto px-4">
+        <div
+          ref={thumbnailStripRef}
+          className="rd-attachment-scroll rd-attachment-scroll-dark absolute bottom-5 flex w-max max-w-[calc(100%-2rem)] gap-2 overflow-x-auto overscroll-x-contain rounded-xl border border-white/15 bg-slate-900 px-2 pt-2 pb-3"
+          aria-label={t("附件缩略图")}
+          onClick={(event) => event.stopPropagation()}
+        >
           {images.map((img, i) => (
             <button
               key={img.id}
               type="button"
               onClick={(e) => { e.stopPropagation(); setIdx(i); }}
+              aria-label={t("查看第 {index} 张附件：{name}", { index: i + 1, name: img.name })}
+              aria-current={i === idx ? "true" : undefined}
+              title={img.name}
               className={cn(
-                "h-12 w-12 shrink-0 overflow-hidden rounded-lg border-2 transition-all",
-                i === idx ? "border-white scale-110" : "border-white/20 opacity-60 hover:opacity-90",
+                "relative flex h-14 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border-2 bg-black/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:h-16 sm:w-20",
+                i === idx ? "border-white" : "border-white/20 opacity-60 hover:opacity-100",
               )}
             >
-              <img src={getAttachmentThumbUrl(img)} alt={img.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
+              <img src={getAttachmentThumbUrl(img)} alt="" className="h-full w-full object-contain" loading="lazy" decoding="async" />
+              <span className="absolute bottom-0 right-0 rounded-tl bg-black/70 px-1 text-[10px] leading-4 tabular-nums text-white">{i + 1}</span>
             </button>
           ))}
         </div>
@@ -6794,7 +6829,7 @@ function TaskAttachmentStrip({
   const extraCount = Math.max(0, totalCount - visibleImages.length - visibleFiles.length);
 
   return (
-    <div className="flex min-w-0 gap-1.5 overflow-hidden" aria-label={t("附件预览")}>
+    <div className="rd-attachment-scroll flex min-w-0 max-w-full gap-1.5 overflow-x-auto overscroll-x-contain px-1 pt-1 pb-2" aria-label={t("附件预览")}>
         {visibleImages.map((img, imageIndex) => (
           <button
             key={img.id}
@@ -11396,6 +11431,9 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       ? "/production-people-management"
       : "/rd-people-management";
   const canCreateTask = usePermission(PERMISSIONS.RD_TASK_CREATE);
+  const canOpenProcurement = usePermission('page:proc-cockpit');
+  const [productionActualsOpen, setProductionActualsOpen] = useState(false);
+  const [productionActualsProductId, setProductionActualsProductId] = useState<string | null>(null);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
   const canClearData = usePermission(PERMISSIONS.RD_DATA_CLEAR);
@@ -12033,6 +12071,31 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     (task) => task.status === "paused_blocked" || task.status === "pending_assign",
   ).length;
 
+  const actualsProductId = productionActualsProductId ?? boardProductId;
+  const productionViewSwitch = productionWorkspace ? (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
+      <Tabs value={productionActualsOpen ? 'actuals' : 'tasks'} onValueChange={(value) => { if (value === 'actuals') setProductionActualsProductId(boardProductId); setProductionActualsOpen(value === 'actuals'); }}>
+        <TabsList aria-label={t('生产驾驶舱视图')}>
+          <TabsTrigger value="tasks">{t('任务驾驶舱')}</TabsTrigger>
+          <TabsTrigger value="actuals">{t('生产实绩')}</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {productionActualsOpen && <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-2 text-xs text-slate-600">{t('产品')}
+          <select value={actualsProductId} className="h-8 max-w-64 rounded-md border border-slate-200 bg-white px-2 text-xs" onChange={(event) => setProductionActualsProductId(event.target.value)}>
+            {!products.some((product) => product.id === actualsProductId) && <option value={actualsProductId}>{t('当前产品')}</option>}
+            {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+          </select>
+        </label>
+        {canOpenProcurement && <Button type="button" variant="outline" size="sm" onClick={() => navigate(`/proc-cockpit?${new URLSearchParams({ view: 'systems', product: actualsProductId, line: 'production' })}`)}>{t('进入子系统登记')}<ArrowRight aria-hidden="true" className="ml-1 size-3.5" /></Button>}
+      </div>}
+    </div>
+  ) : null;
+
+  if (productionWorkspace && productionActualsOpen) {
+    return <div className="rd-horizon-module mx-auto w-full max-w-[1600px] px-1 sm:px-3">{productionViewSwitch}<SubsystemOperationsPanel key={actualsProductId} productId={actualsProductId} /></div>;
+  }
+
   // ───── Overview mode (leadership landing) ────────────────────────────────
   if (mode === "overview") {
     return (
@@ -12040,6 +12103,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       <TooltipProvider delayDuration={150}>
         {/* 协同驾驶舱维持独立信息布局，三套驾驶舱共用 Horizon 外壳。 */}
         <div className={cn(horizonCockpit && "rd-horizon-module", isUsCollabWorkspace() && "mx-auto w-full max-w-[1200px] px-1 sm:px-3 2xl:px-0")}>
+        {productionViewSwitch}
         <ExecutiveOverview
           catStats={catStats}
           // KPI 数字跨产品库（概览），分类卡与跳转仍按当前库的 catStats
@@ -12287,6 +12351,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         />
 
         <div className="rd-board-main flex min-h-0 flex-1 flex-col overflow-hidden">
+          {productionViewSwitch}
           <CommandCenter
             totalActive={totalActive}
             risks={risks}

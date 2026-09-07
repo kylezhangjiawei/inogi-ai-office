@@ -34,8 +34,8 @@ export class UsersController {
 
   @Post()
   @Permissions('user:create', 'user:edit')
-  save(@Body() payload: SaveUserDto) {
-    return this.usersService.save(payload);
+  save(@Body() payload: SaveUserDto, @Request() req: AuthedRequest) {
+    return this.usersService.save(payload, req.user);
   }
 
   @Patch(':id/status')

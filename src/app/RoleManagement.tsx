@@ -82,9 +82,40 @@ const EMPTY_FORM: RoleFormData = { name: "", description: "", permissions: [] };
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
+async function readRoleError(res: Response, action: "读取" | "保存" | "删除"): Promise<string> {
+  const error = await res.json().catch(() => null) as { code?: unknown; message?: unknown } | null;
+  if (res.status >= 500) return `服务器暂时无法${action}角色，请稍后重试`;
+  if (res.status === 401) return "登录已失效，请重新登录后再试";
+  if (error?.code === "ROLE_NAME_ALREADY_EXISTS") return "角色名称已存在，请更换名称";
+
+  const messages = Array.isArray(error?.message) ? error.message : [error?.message];
+  const readableMessages = messages
+    .filter((message): message is string => typeof message === "string" && /[\u3400-\u9fff]/.test(message))
+    .map((message) => message.trim());
+  if (readableMessages.length) return readableMessages.join("；");
+
+  switch (res.status) {
+    case 400:
+    case 422:
+      return "角色信息有误，请检查填写内容后重试";
+    case 403:
+      return `没有${action}角色的权限，请联系管理员`;
+    case 404:
+      return "角色不存在或已被删除，请刷新列表后重试";
+    case 409:
+      return "角色信息存在冲突，请检查名称或刷新列表后重试";
+    case 429:
+      return "操作过于频繁，请稍后再试";
+    default:
+      return `${action}角色失败，请稍后重试`;
+  }
+}
+
 async function apiListRoles(): Promise<Role[]> {
-  const res = await authFetch("/api/roles");
-  if (!res.ok) throw new Error("获取角色列表失败");
+  const res = await authFetch("/api/roles").catch(() => {
+    throw new Error("网络连接异常，请检查网络后重试");
+  });
+  if (!res.ok) throw new Error(await readRoleError(res, "读取"));
   return res.json() as Promise<Role[]>;
 }
 
@@ -97,21 +128,18 @@ async function apiSaveRole(payload: RoleFormData): Promise<Role> {
       description: payload.description || undefined,
       permissions: payload.permissions,
     }),
+  }).catch(() => {
+    throw new Error("网络连接异常，请检查网络后重试");
   });
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { message?: string | string[] };
-    const msg = Array.isArray(err.message) ? err.message.join(", ") : (err.message ?? "保存失败");
-    throw new Error(msg);
-  }
+  if (!res.ok) throw new Error(await readRoleError(res, "保存"));
   return res.json() as Promise<Role>;
 }
 
 async function apiDeleteRole(id: string): Promise<void> {
-  const res = await authFetch(`/api/roles/${id}`, { method: "DELETE" });
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { message?: string };
-    throw new Error(err.message ?? "删除失败");
-  }
+  const res = await authFetch(`/api/roles/${id}`, { method: "DELETE" }).catch(() => {
+    throw new Error("网络连接异常，请检查网络后重试");
+  });
+  if (!res.ok) throw new Error(await readRoleError(res, "删除"));
 }
 
 // ─── Permission Matrix ────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -531,28 +532,61 @@ export class ExpenseService {
   }
 
   async updateInvoice(invoiceId: string, payload: UpdateExpenseInvoiceDto, scope: ExpenseScope) {
-    const invoice = await this.getInvoiceOrThrow(invoiceId, scope);
-    const next: ExpenseInvoiceValue = {
-      ...invoice,
-      invoice_no: payload.invoice_no ?? invoice.invoice_no,
-      invoice_code: payload.invoice_code ?? invoice.invoice_code,
-      issued_date: payload.issued_date ?? invoice.issued_date,
-      vendor: payload.vendor ?? invoice.vendor,
-      vendor_tax_no: payload.vendor_tax_no ?? invoice.vendor_tax_no,
-      amount: payload.amount ?? invoice.amount,
-      tax: payload.tax ?? invoice.tax,
-      category: (payload.category as ExpenseCategory | undefined) ?? invoice.category,
-      project: payload.project ?? invoice.project,
-      status: (payload.status as ExpenseInvoiceValue['status'] | undefined) ?? invoice.status,
-      material_missing: payload.material_missing ?? invoice.material_missing,
-    };
-    await this.upsertValue(RECORD_CATEGORIES.invoice, invoice.id, next, `${next.invoice_no} ${next.vendor}`);
+    const next = await this.prisma.$transaction(async (tx) => {
+      await this.lockInvoiceEdits(tx, [invoiceId]);
+      const key = `${RECORD_CATEGORIES.invoice}:${invoiceId}`;
+      const record = await tx.systemSetting.findUnique({ where: { key } });
+      if (!record) throw new NotFoundException('发票不存在');
+      const invoice = record.value as unknown as ExpenseInvoiceValue;
+      this.assertRecordInScope(invoice, scope, '发票');
+      const changesMoney = (payload.amount !== undefined && payload.amount !== invoice.amount)
+        || (payload.tax !== undefined && payload.tax !== invoice.tax);
+      if (changesMoney) {
+        const records = await tx.systemSetting.findMany({
+          where: { category: RECORD_CATEGORIES.reimbursement },
+          select: { value: true },
+        });
+        const occupied = records.some(({ value }) => {
+          const reimbursement = value as unknown as ExpenseReimbursementValue;
+          return reimbursement.status !== '已驳回' && reimbursement.invoice_ids?.includes(invoiceId);
+        });
+        if (invoice.status === '已报销' || occupied) {
+          throw new ConflictException('该发票已进入报销单，不能修改金额或税额；草稿可删除后修改并重新组单');
+        }
+      }
+      const updated: ExpenseInvoiceValue = {
+        ...invoice,
+        invoice_no: payload.invoice_no ?? invoice.invoice_no,
+        invoice_code: payload.invoice_code ?? invoice.invoice_code,
+        issued_date: payload.issued_date ?? invoice.issued_date,
+        vendor: payload.vendor ?? invoice.vendor,
+        vendor_tax_no: payload.vendor_tax_no ?? invoice.vendor_tax_no,
+        amount: payload.amount ?? invoice.amount,
+        tax: payload.tax ?? invoice.tax,
+        category: (payload.category as ExpenseCategory | undefined) ?? invoice.category,
+        project: payload.project ?? invoice.project,
+        status: (payload.status as ExpenseInvoiceValue['status'] | undefined) ?? invoice.status,
+        material_missing: payload.material_missing ?? invoice.material_missing,
+      };
+      await tx.systemSetting.update({
+        where: { key },
+        data: { value: JSON.parse(JSON.stringify(updated)) as Prisma.InputJsonValue, description: `${updated.invoice_no} ${updated.vendor}` },
+      });
+      return updated;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     await this.recordEvent({
       title: '票据字段已更新',
       detail: `${next.invoice_no} / ${next.vendor}`,
       level: 'info',
     });
     return next;
+  }
+
+  private async lockInvoiceEdits(tx: Prisma.TransactionClient, invoiceIds: string[]) {
+    // 编辑与组单共用数据库事务锁；多票据固定顺序，避免交叉组单互相等待。
+    for (const invoiceId of [...new Set(invoiceIds)].sort()) {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`expense-invoice:${invoiceId}`}))::text`;
+    }
   }
 
   async verifyVatInvoice(invoiceId: string, scope: ExpenseScope) {
@@ -643,6 +677,22 @@ export class ExpenseService {
     const reimbursementJson = JSON.parse(JSON.stringify(reimbursement)) as Prisma.InputJsonValue;
     try {
       await this.prisma.$transaction(async (tx) => {
+        await this.lockInvoiceEdits(tx, requestedInvoiceIds);
+        const currentRecords = await tx.systemSetting.findMany({
+          where: { key: { in: requestedInvoiceIds.map((id) => `${RECORD_CATEGORIES.invoice}:${id}`) } },
+          select: { value: true },
+        });
+        const currentById = new Map(currentRecords.map(({ value }) => {
+          const invoice = value as unknown as ExpenseInvoiceValue;
+          return [invoice.id, invoice] as const;
+        }));
+        const snapshotFields = ['amount', 'tax', 'status', 'matched_voucher_id', 'department_code'] as const;
+        if (invoices.some((invoice) => {
+          const current = currentById.get(invoice.id);
+          return !current || snapshotFields.some((field) => current[field] !== invoice[field]);
+        })) {
+          throw new ConflictException('所选票据已被更新，请刷新后重新组单');
+        }
         for (const invoice of invoices) {
           await tx.systemSetting.create({
             data: {
@@ -664,7 +714,7 @@ export class ExpenseService {
             value: reimbursementJson,
           },
         });
-      });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new BadRequestException('所选票据已被其他报销单占用，请刷新后重试');
@@ -687,6 +737,12 @@ export class ExpenseService {
       const reimbursement = await this.getReimbursementOrThrow(reimbursementId, scope);
       if (reimbursement.status !== '草稿' || reimbursement.wecom_flow_id) {
         throw new BadRequestException('该报销单已经提交审批，不能重复提交');
+      }
+      const invoices = await this.refreshInvoicesByIds(reimbursement.invoice_ids);
+      const invoiceAmount = invoices.reduce((sum, invoice) => sum.plus(invoice.amount), new Prisma.Decimal(0));
+      if (invoices.length !== reimbursement.invoice_ids.length
+        || !invoiceAmount.toDecimalPlaces(2).equals(new Prisma.Decimal(reimbursement.amount).toDecimalPlaces(2))) {
+        throw new ConflictException('报销单金额与当前发票不一致，请删除草稿后重新组单');
       }
       const config = await this.getResolvedIntegrationConfig();
       this.assertWeComReady(config, ['corp_id', 'corp_secret', 'approval_template_id', 'default_creator_userid']);

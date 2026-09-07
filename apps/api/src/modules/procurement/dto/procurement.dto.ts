@@ -13,9 +13,11 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  Matches,
   Max,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -218,6 +220,30 @@ export class UpdateProcTaskDto {
 /** 采购自建的备货总计划。 */
 export class CreateProcStockPlanDto {
   @IsOptional()
+  @IsIn(['material', 'machine', 'packaging'])
+  planType?: 'material' | 'machine' | 'packaging';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  productId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  treeNodeId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  productLine?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  productionTaskId?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(64)
   materialId?: string;
@@ -254,6 +280,30 @@ export class CreateProcStockPlanDto {
 }
 
 export class UpdateProcStockPlanDto {
+  @IsOptional()
+  @IsIn(['material', 'machine', 'packaging'])
+  planType?: 'material' | 'machine' | 'packaging';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  productId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  treeNodeId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  productLine?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  productionTaskId?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(64)
@@ -296,17 +346,42 @@ export class CreateProcStockPlanBatchDto {
   @IsOptional()
   @IsString()
   @MaxLength(64)
+  purchaseOrderMirrorId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  receivedQty?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  qualifiedQty?: number;
+
+  @IsOptional()
+  @ValidateIf((_object, value) => value !== '')
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  @IsDateString({ strict: true })
+  actualArrivalDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
   supplierId?: string;
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
-  supplierName!: string;
+  @IsOptional()
+  supplierName?: string;
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0.001)
-  purchaseQty!: number;
+  @IsOptional()
+  purchaseQty?: number;
 
   @IsOptional()
   @IsString()
@@ -330,6 +405,29 @@ export class CreateProcStockPlanBatchDto {
 }
 
 export class UpdateProcStockPlanBatchDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  purchaseOrderMirrorId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  receivedQty?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  qualifiedQty?: number;
+
+  @IsOptional()
+  @ValidateIf((_object, value) => value !== '')
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  @IsDateString({ strict: true })
+  actualArrivalDate?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(64)
@@ -366,6 +464,26 @@ export class UpdateProcStockPlanBatchDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+}
+
+export class ListProcStockPlansQueryDto {
+  @IsOptional()
+  @IsIn(['material', 'machine', 'packaging'])
+  type?: 'material' | 'machine' | 'packaging';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  productId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  treeNodeId?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/)
+  month?: string;
 }
 
 export class ProcTaskCriticalMaterialInputDto {
@@ -776,6 +894,44 @@ export class ImportBomDto {
   @IsOptional()
   @IsBoolean()
   replace?: boolean;
+}
+
+/** 库存齐套中心维护通用 BOM 用量，不修改 ERP 物料和库存。 */
+export class CreateInventoryBomLineDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  name!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  code!: string;
+
+  @IsNumber({ maxDecimalPlaces: 4, allowNaN: false, allowInfinity: false })
+  @Min(0.0001)
+  @Max(9999999999.9999)
+  qtyPer!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  parentId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  remark?: string | null;
+}
+
+export class InventoryBomLineVersionDto {
+  @IsDateString()
+  baseUpdatedAt!: string;
+}
+
+export class UpdateInventoryBomLineDto extends CreateInventoryBomLineDto {
+  @IsDateString()
+  baseUpdatedAt!: string;
 }
 
 /** 采购任务驾驶舱系统树节点。parentId 为空时创建分类根节点。 */

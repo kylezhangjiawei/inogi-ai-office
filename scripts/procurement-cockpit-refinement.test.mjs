@@ -38,8 +38,8 @@ test("驾驶舱页面组遵守 Horizon 精修约束", () => {
 });
 
 test("采购驾驶舱首屏让统计、搜索与失败恢复都可直接操作", () => {
-  assert.match(cockpit, /StatCell label=\{t\('进行中'\)\}[\s\S]*?Icon=\{Activity\}/);
-  assert.match(cockpit, /StatCell label=\{t\('逾期'\)\}[\s\S]*?Icon=\{AlertTriangle\}/);
+  assert.match(cockpit, /StatCell[^\n]*value=\{counts\.inprogress\}[^\n]*Icon=\{Activity\}[^\n]*toggleStat\("inprogress"\)/);
+  assert.match(cockpit, /StatCell[^\n]*value=\{counts\.overdue\}[^\n]*Icon=\{AlertTriangle\}[^\n]*toggleStat\("overdue"\)/);
   assert.match(cockpit, /aria-label=\{t\('搜索采购任务'\)\}/);
   assert.match(cockpit, /aria-label=\{t\('清空搜索'\)\}/);
   assert.match(cockpit, /role="alert"[\s\S]*?采购任务加载失败[\s\S]*?refreshProcurement\(\)/);

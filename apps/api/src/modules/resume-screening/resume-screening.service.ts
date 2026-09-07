@@ -1,6 +1,7 @@
 ﻿import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   OnModuleInit,
@@ -316,9 +317,15 @@ export class ResumeScreeningService implements OnModuleInit {
     return this.toOpenAiConfigResponse(created);
   }
 
-  async deleteIntegrationConfig(configId: string) {
+  async deleteIntegrationConfig(configId: string, permissions: string[]) {
     const config = await this.prisma.integrationConfig.findUnique({ where: { id: configId } });
-    if (!config) throw new NotFoundException('Integration config not found.');
+    if (!config || !['mail', 'openai'].includes(config.kind)) {
+      throw new NotFoundException('邮箱或模型配置不存在');
+    }
+    const required = config.kind === 'mail' ? 'page:mailbox-management' : 'page:ai-model-management';
+    if (!permissions.includes('*') && !permissions.includes(required)) {
+      throw new ForbiddenException(config.kind === 'mail' ? '无权管理邮箱配置' : '无权管理模型配置');
+    }
     await this.prisma.integrationConfig.delete({ where: { id: configId } });
     return { id: configId };
   }

@@ -8,6 +8,8 @@ import { MaterialClassifyService } from './material-classify.service';
 import { MaterialReplenishService } from './material-replenish.service';
 import { MaterialSafeStockService } from './material-safestock.service';
 import { ProcurementController } from './procurement.controller';
+import { ProcurementOperationsController } from './procurement-operations.controller';
+import { ProcurementOperationsService } from './procurement-operations.service';
 import { QuoteBookController } from './quote-book.controller';
 import { QuoteBookService } from './quote-book.service';
 import { TplusPoMatchService } from './tplus-po-match.service';
@@ -26,9 +28,10 @@ import { TplusSyncService } from './tplus-sync.service';
   // ResearchDevelopmentModule 仅用于审核驳回时给研发对接人发站内通知（createMessage）
   // OcrModule 仅用于报价库「图片表格 OCR + AI」导入兜底
   imports: [ChatModule, OcrModule, SecurityModule, ResearchDevelopmentModule],
-  controllers: [ProcurementController, QuoteBookController, TplusSyncController],
+  controllers: [ProcurementController, ProcurementOperationsController, QuoteBookController, TplusSyncController],
   providers: [
     ProcurementService,
+    ProcurementOperationsService,
     QuoteBookService,
     TplusSyncService,
     MaterialClassifyService,

@@ -4,6 +4,117 @@ import { test } from 'node:test';
 import { ProcurementService } from '../src/modules/procurement/procurement.service';
 import { PROC_PO_LINKABLE_STATUSES, PROC_STATUS_TRANSITIONS } from '../src/modules/procurement/procurement.types';
 
+function withOrderTransactionReads<T extends { procTask: object; procPurchaseOrderRef: object }>(tx: T, task: Record<string, unknown>) {
+  return {
+    ...tx,
+    $queryRaw: async () => [{ id: task.id }],
+    procTask: { findUnique: async () => task, ...tx.procTask },
+    procPurchaseOrderRef: { findMany: async () => [], ...tx.procPurchaseOrderRef },
+  };
+}
+
+function orderLinkHarness(initialRefs: Array<Record<string, unknown>> = []) {
+  const task: Record<string, unknown> = { id: 'task-safe', status: 'priced', quantity: 100 };
+  const refs = [...initialRefs];
+  const locks: unknown[][] = [];
+  let tail = Promise.resolve();
+  const tx = {
+    $queryRaw: async (...args: unknown[]) => { locks.push(args); return [{ id: task.id }]; },
+    procTask: {
+      findUnique: async () => ({ ...task }),
+      update: async ({ data }: { data: Record<string, unknown> }) => Object.assign(task, data),
+    },
+    procPurchaseOrderRef: {
+      findMany: async () => [...refs],
+      createMany: async ({ data }: { data: Array<Record<string, unknown>> }) => { refs.push(...data); return { count: data.length }; },
+    },
+  };
+  const prisma = {
+    procTask: { findUnique: async () => ({ ...task }) },
+    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => {
+      const previous = tail;
+      let release!: () => void;
+      tail = new Promise<void>((resolve) => { release = resolve; });
+      await previous;
+      try { return await run(tx); } finally { release(); }
+    },
+  };
+  const service = new ProcurementService(prisma as never, {} as never, {} as never, {} as never);
+  service.getTask = async () => ({ ...task }) as never;
+  return { service, refs, locks, task };
+}
+
+test('连续或并发关联同一采购单行只允许一次，行号空白与历史空串等价', async () => {
+  const actor = { id: 'buyer-1', name: '采购员', permissions: ['proc-task:order'] };
+  const h = orderLinkHarness();
+  const link = () => h.service.linkPurchaseOrders('task-safe', [{ tpOrderNo: ' PO-001 ', tpLineNo: ' 1 ', orderedQty: 100 }], actor);
+  const result = await Promise.allSettled([link(), link()]);
+  assert.equal(result.filter((item) => item.status === 'fulfilled').length, 1);
+  assert.equal(h.refs.length, 1);
+  assert.equal(h.refs[0].tpLineNo, '1');
+  await assert.rejects(link(), /已关联|重复关联/);
+  assert.ok(h.locks.every((args) => args[1] === 'task-safe'));
+  const legacy = orderLinkHarness([{ tpOrderNo: 'PO-002', tpLineNo: '' }]);
+  await assert.rejects(legacy.service.linkPurchaseOrders('task-safe', [{ tpOrderNo: 'PO-002' }], actor), /已关联|重复关联/);
+});
+
+test('同一采购单不能混用未指定行号和明确行号，不同明确行号仍可关联', async () => {
+  const actor = { id: 'buyer-1', name: '采购员', permissions: ['proc-task:order'] };
+  for (const refs of [[{ tpOrderNo: 'PO-001', tpLineNo: null }], [{ tpOrderNo: 'PO-001', tpLineNo: '1' }]]) {
+    const h = orderLinkHarness(refs);
+    const tpLineNo = refs[0].tpLineNo ? undefined : '2';
+    await assert.rejects(h.service.linkPurchaseOrders('task-safe', [{ tpOrderNo: 'PO-001', tpLineNo }], actor), /行号/);
+    assert.equal(h.refs.length, 1);
+  }
+  const batch = orderLinkHarness();
+  await assert.rejects(batch.service.linkPurchaseOrders('task-safe', [{ tpOrderNo: 'PO-001' }, { tpOrderNo: 'PO-001', tpLineNo: '1' }], actor), /行号/);
+  assert.equal(batch.refs.length, 0);
+  await batch.service.linkPurchaseOrders('task-safe', [{ tpOrderNo: 'PO-001', tpLineNo: '1' }, { tpOrderNo: 'PO-001', tpLineNo: '2' }], actor);
+  assert.equal(batch.refs.length, 2);
+});
+
+test('免费样品清除表单残留的 ERP 单号和行号，仍保留样品登记数量', async () => {
+  const h = orderLinkHarness();
+  await h.service.linkPurchaseOrders('task-safe', [
+    { tpOrderNo: 'PO-OLD', tpLineNo: '1', isFreeSample: true, orderedQty: 2 },
+    { tpOrderNo: 'PO-OLD', tpLineNo: '1', isFreeSample: true, orderedQty: 3 },
+  ], { id: 'buyer-1', name: '采购员', permissions: ['proc-task:order'] }, { syncTaskQuantity: true });
+  assert.deepEqual(h.refs.map((row) => row.tpOrderNo), ['', '']);
+  assert.deepEqual(h.refs.map((row) => row.tpLineNo), [null, null]);
+  assert.deepEqual(h.refs.map((row) => Number(row.orderedQty)), [2, 3]);
+  assert.equal(h.task.quantity, 100);
+});
+
+test('ERP 到货下降完整重算状态与完成标记，并仅汇总历史重复行的最新同步值', async () => {
+  for (const [receivedQty, expectedStatus] of [[0, 'in_transit'], [50, 'partial_arrival'], [100, 'completed']] as const) {
+    const task = { id: 'task-1', status: 'completed', quantity: 100, businessDone: true,
+      purchaseOrderRefs: [{ id: 'ref-1', tpOrderNo: 'PO-001', tpLineNo: '1', receivedQty, etaDate: null }],
+    };
+    let saved: Record<string, unknown> = {};
+    const service = new ProcurementService({ procTask: {
+      findUnique: async () => task,
+      update: async ({ data }: { data: Record<string, unknown> }) => { saved = data; },
+    } } as never, {} as never, {} as never, {} as never);
+    await service.recomputeArrival(task.id);
+    assert.equal(saved.status, expectedStatus);
+    assert.equal(saved.businessDone, receivedQty >= 100);
+    assert.equal(Number(saved.arrivedQty), receivedQty);
+  }
+  let saved: Record<string, unknown> = {};
+  const service = new ProcurementService({ procTask: {
+    findUnique: async () => ({ id: 'task-1', status: 'completed', quantity: 100, businessDone: true, purchaseOrderRefs: [
+      { id: 'old', tpOrderNo: 'PO-001', tpLineNo: '1', receivedQty: 100, syncedAt: new Date('2026-09-01'), etaDate: null },
+      { id: 'new', tpOrderNo: 'PO-001', tpLineNo: '1', receivedQty: 40, syncedAt: new Date('2026-09-02'), etaDate: null },
+      { id: 'other-line', tpOrderNo: 'PO-001', tpLineNo: '2', receivedQty: 10, etaDate: null },
+    ] }),
+    update: async ({ data }: { data: Record<string, unknown> }) => { saved = data; },
+  } } as never, {} as never, {} as never, {} as never);
+  await service.recomputeArrival('task-1');
+  assert.equal(Number(saved.arrivedQty), 50);
+  assert.equal(saved.status, 'partial_arrival');
+  assert.equal(saved.businessDone, false);
+});
+
 test('多供应商采购单在同一事务中保存并只流转一次任务状态', async () => {
   const created: Array<Record<string, unknown>> = [];
   const taskUpdates: Array<Record<string, unknown>> = [];
@@ -26,7 +137,7 @@ test('多供应商采购单在同一事务中保存并只流转一次任务状�
     procTask: {
       findUnique: async () => task,
     },
-    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(tx),
+    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(withOrderTransactionReads(tx, task)),
   };
   const service = new ProcurementService(
     prisma as never,
@@ -87,7 +198,7 @@ test('免费样品来货无单号也能登记，且多条免费样品不判重�
   };
   const prisma = {
     procTask: { findUnique: async () => task },
-    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(tx),
+    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(withOrderTransactionReads(tx, task)),
   };
   const service = new ProcurementService(
     prisma as never,
@@ -162,7 +273,7 @@ test('「待到样」登记出样单只落关联，不改任务状态，并回�
   };
   const prisma = {
     procTask: { findUnique: async () => task },
-    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(tx),
+    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(withOrderTransactionReads(tx, task)),
   };
   const service = new ProcurementService(
     prisma as never,
@@ -208,7 +319,7 @@ test('批量下单数量与需求不一致时同步任务采购数量', async ()
   };
   const prisma = {
     procTask: { findUnique: async () => task },
-    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(tx),
+    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(withOrderTransactionReads(tx, task)),
   };
   const service = new ProcurementService(
     prisma as never,
@@ -274,7 +385,7 @@ test('同步任务数量时免费样品不计入登记总量', async () => {
   };
   const prisma = {
     procTask: { findUnique: async () => task },
-    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(tx),
+    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(withOrderTransactionReads(tx, task)),
   };
   const service = new ProcurementService(
     prisma as never,
@@ -323,7 +434,7 @@ test('「待询价」可登记免费样品来货，任务状态原地不动', as
   };
   const prisma = {
     procTask: { findUnique: async () => task },
-    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(tx),
+    $transaction: async (run: (client: typeof tx) => Promise<unknown>) => run(withOrderTransactionReads(tx, task)),
   };
   const service = new ProcurementService(prisma as never, {} as never, {} as never, {} as never);
   service.getTask = async () => ({ id: task.id, status: 'pending_inquiry' }) as never;

@@ -1411,6 +1411,7 @@ model ProcMaterial {
   supplierQuotes    ProcSupplierQuote[]
   balances          ProcInventoryBalance[]
   stockPlans        ProcStockPlan[]
+  qualityRecords    ProcQualityRecord[]
   createdBy         String?
   createdAt         DateTime                   @default(now())
   updatedAt         DateTime                   @updatedAt
@@ -1436,6 +1437,9 @@ model ProcTaskTreeNode {
   material   ProcMaterial?      @relation(fields: [materialId], references: [id], onDelete: SetNull)
   /// 显式归属到本节点的采购任务（手工移动归类的结果）
   tasks      ProcTask[]
+  stockPlans ProcStockPlan[]
+  productionReports ProcProductionReport[]
+  qualityRecords ProcQualityRecord[]
   sortOrder  Int                @default(0)
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt
@@ -1450,6 +1454,9 @@ model ProcTask {
   id                  String                     @id @default(cuid())
   code                String                     @unique
   productId           String                     @default("prod-portable-o2")
+  stockPlanId         String?
+  stockPlan           ProcStockPlan?             @relation(fields: [stockPlanId], references: [id], onDelete: SetNull)
+  qualityRecords      ProcQualityRecord[]
   /// 显式归属的子系统节点。为空时回落到「按 materialId / 物料名」推导，保证存量任务不掉出树。
   /// 手工移动过归类的任务会写死在这里，不再随物料变化漂移。
   treeNodeId          String?
@@ -1512,6 +1519,7 @@ model ProcTask {
   @@index([businessLine, status])
   @@index([materialId])
   @@index([treeNodeId])
+  @@index([stockPlanId])
   @@index([buyerUserId])
   @@index([rdContactUserId])
   @@index([needDate])
@@ -1569,6 +1577,7 @@ model ProcSupplier {
   quotations     ProcQuotation[]
   supplierQuotes ProcSupplierQuote[]
   stockPlanBatches ProcStockPlanBatch[]
+  qualityRecords ProcQualityRecord[]
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
@@ -1666,10 +1675,16 @@ model ProcPurchaseOrderRef {
   @@index([tpOrderNo])
 }
 
-/// 采购自建的备货总计划。完成状态由采购批次数量合计与 targetQty 实时计算，不单独落状态字段。
+/// 采购自建的备货总计划。下单、到货及合格进度分别计算，不将下单达标当作备货完成。
 model ProcStockPlan {
   id            String               @id @default(cuid())
   code          String               @unique
+  planType      String               @default("material")
+  productId     String?
+  treeNodeId    String?
+  treeNode      ProcTaskTreeNode?     @relation(fields: [treeNodeId], references: [id], onDelete: SetNull)
+  productLine   String?
+  productionTaskId String?
   materialId    String?
   material      ProcMaterial?        @relation(fields: [materialId], references: [id], onDelete: SetNull)
   /// 物料快照：主数据后续改名不影响历史备货计划。
@@ -1682,11 +1697,16 @@ model ProcStockPlan {
   createdBy     String?
   createdByName String               @default("")
   batches       ProcStockPlanBatch[]
+  tasks         ProcTask[]
+  productionReports ProcProductionReport[]
+  qualityRecords ProcQualityRecord[]
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 
   @@index([materialId])
   @@index([updatedAt])
+  @@index([productId, treeNodeId])
+  @@index([planType, targetDate])
 }
 
 /// 备货计划下的采购批次。不同批次可以来自不同供应商。
@@ -1699,6 +1719,11 @@ model ProcStockPlanBatch {
   supplierName        String
   purchaseQty         Decimal        @db.Decimal(14, 3)
   purchaseOrderNo     String?
+  purchaseOrderMirrorId String?      @unique
+  purchaseOrderMirror ProcPurchaseOrderMirror? @relation(fields: [purchaseOrderMirrorId], references: [id], onDelete: Restrict)
+  receivedQty         Decimal        @default(0) @db.Decimal(14, 3)
+  qualifiedQty        Decimal        @default(0) @db.Decimal(14, 3)
+  actualArrivalDate   DateTime?
   orderDate           DateTime?
   expectedArrivalDate DateTime?
   note                String?
@@ -1709,6 +1734,77 @@ model ProcStockPlanBatch {
 
   @@index([planId, createdAt])
   @@index([supplierId])
+}
+
+/// 子系统生产实绩；数量以 unit 为口径，产能为空表示尚未登记。
+model ProcProductionReport {
+  id             String @id @default(cuid())
+  productId      String
+  treeNodeId     String
+  treeNode       ProcTaskTreeNode @relation(fields: [treeNodeId], references: [id], onDelete: Restrict)
+  stockPlanId    String?
+  stockPlan      ProcStockPlan? @relation(fields: [stockPlanId], references: [id], onDelete: Restrict)
+  reportDate     DateTime
+  shift          String @default("")
+  lineName       String @default("")
+  unit           String @default("套")
+  plannedQty     Decimal @db.Decimal(14, 3)
+  actualQty      Decimal @db.Decimal(14, 3)
+  goodQty        Decimal @db.Decimal(14, 3)
+  workHours      Decimal @db.Decimal(10, 2)
+  capacityQty    Decimal? @db.Decimal(14, 3)
+  note           String?
+  createdBy      String?
+  createdByName  String @default("")
+  updatedBy      String?
+  updatedByName  String?
+  qualityRecords ProcQualityRecord[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([productId, treeNodeId, reportDate])
+  @@index([stockPlanId, reportDate])
+}
+
+/// 采购/生产不良的实测记录及处置结果；不自动改变 ERP 库存。
+model ProcQualityRecord {
+  id                 String @id @default(cuid())
+  productId          String
+  treeNodeId         String
+  treeNode           ProcTaskTreeNode @relation(fields: [treeNodeId], references: [id], onDelete: Restrict)
+  stockPlanId        String?
+  stockPlan          ProcStockPlan? @relation(fields: [stockPlanId], references: [id], onDelete: Restrict)
+  taskId             String?
+  task               ProcTask? @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  materialId         String?
+  material           ProcMaterial? @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  supplierId         String?
+  supplier           ProcSupplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  productionReportId String?
+  productionReport   ProcProductionReport? @relation(fields: [productionReportId], references: [id], onDelete: Restrict)
+  source             String
+  batchNo            String @default("")
+  inspectionDate     DateTime
+  unit               String @default("套")
+  inspectedQty       Decimal @db.Decimal(14, 3)
+  defectiveQty       Decimal @db.Decimal(14, 3)
+  issue              String
+  disposition        String @default("pending")
+  status             String @default("open")
+  resolution         String?
+  resolvedAt         DateTime?
+  createdBy          String?
+  createdByName      String @default("")
+  updatedBy          String?
+  updatedByName      String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([productId, treeNodeId, inspectionDate])
+  @@index([stockPlanId, inspectionDate])
+  @@index([productionReportId])
+  @@index([source, status])
+  @@index([taskId])
 }
 
 /// 库存结存：T+ 只读镜像。缺料预警 = stockQty < ProcMaterial.safeStock（阈值本地维护）。
@@ -1763,6 +1859,7 @@ model ProcPurchaseOrderMirror {
   matchReason     String?
   syncedAt        DateTime?
   metadata        Json      @default("{}")
+  stockPlanBatch  ProcStockPlanBatch?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

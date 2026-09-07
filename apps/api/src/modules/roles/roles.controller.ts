@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Request } from '@nestjs/common';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { SaveRoleDto } from './dto/save-role.dto';
@@ -28,8 +28,8 @@ export class RolesController {
 
   @Post()
   @Permissions('role:create', 'role:edit')
-  save(@Body() payload: SaveRoleDto) {
-    return this.rolesService.save(payload);
+  save(@Body() payload: SaveRoleDto, @Request() req: { user: { id: string; permissions: string[] } }) {
+    return this.rolesService.save(payload, req.user);
   }
 
   @Delete(':id')
