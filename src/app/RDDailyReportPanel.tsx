@@ -121,7 +121,7 @@ function DailyReportGroupedTasks({
                           className={cn(
                             "rounded px-1 py-0.5 text-[10px] font-semibold ring-1",
                             item.role === "owner"
-                              ? "bg-blue-50 text-[#002fa7] ring-blue-200"
+                              ? "bg-accent text-primary ring-primary/20"
                               : "bg-slate-50 text-slate-500 ring-slate-200",
                           )}
                         >
@@ -130,10 +130,10 @@ function DailyReportGroupedTasks({
                         <span className="text-pretty font-semibold text-slate-800">{item.title}</span>
                         <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{item.status_label}</span>
                         {item.progress != null && (
-                          <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-[#002fa7]">{t("进度")} {item.progress}%</span>
+                          <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary">{t("进度")} {item.progress}%</span>
                         )}
                         {item.due_date && <span className="text-[10px] tabular-nums text-slate-400">{t("截止")} {item.due_date}</span>}
-                        {item.today_attachments > 0 && <span className="text-[10px] tabular-nums text-[#002fa7]">+{item.today_attachments} {t("附件")}</span>}
+                        {item.today_attachments > 0 && <span className="text-[10px] tabular-nums text-primary">+{item.today_attachments} {t("附件")}</span>}
                       </div>
                       {item.group === "blocked" && item.blocked_reason ? (
                         <div className="mt-1 text-pretty text-[11px] text-red-600">{t("阻塞原因：")}{item.blocked_reason}</div>
@@ -164,13 +164,13 @@ function DailyReportGroupedTasks({
             const note = progressNoteById.get(ref.note_id);
             const attachments = note?.attachments ?? [];
             return (
-              <li key={ref.note_id} className="rounded-md bg-white px-2.5 py-1.5 text-[11px] text-slate-600 ring-1 ring-blue-100">
+              <li key={ref.note_id} className="rounded-md bg-white px-2.5 py-1.5 text-[11px] text-slate-600 ring-1 ring-primary/10">
                 <span className="font-mono text-slate-400">{ref.task_id}</span>
                 <span className="mx-1.5 text-slate-300">·</span>
-                {ref.progress != null && <span className="mr-1.5 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-[#002fa7]">{t("进度")} {ref.progress}%</span>}
+                {ref.progress != null && <span className="mr-1.5 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary">{t("进度")} {ref.progress}%</span>}
                 <span className="text-pretty text-slate-700">{ref.excerpt || "—"}</span>
                 {ref.attachments_count > 0 && (
-                  <span className="ml-1.5 text-[10px] tabular-nums text-[#002fa7]">+{ref.attachments_count} {t("附件")}</span>
+                  <span className="ml-1.5 text-[10px] tabular-nums text-primary">+{ref.attachments_count} {t("附件")}</span>
                 )}
                 {attachments.length > 0 && (
                   <ProgressAttachmentGrid attachments={attachments} compact className="mt-2" />
@@ -191,7 +191,12 @@ const REPORT_PAGE_SIZE = 5; // date groups per page (history layer)
  * 研发日报面板（共享）。顶部「今日速览」始终可见，供领导一眼掌握当日团队状态；
  * 「查看全部」展开历史详情层（按日期分组 + 成员筛选 + 分页）。自带数据获取，可在任意页面挂载。
  */
-export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }: { canRegenerate: boolean; tabSlot?: ReactNode; spacious?: boolean }) {
+export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false, onDailyReportsLoaded }: {
+  canRegenerate: boolean;
+  tabSlot?: ReactNode;
+  spacious?: boolean;
+  onDailyReportsLoaded?: (reports: RdDailyReport[]) => void;
+}) {
   useI18n();
   const isMountedRef = useRef(true);
   useEffect(() => () => { isMountedRef.current = false; }, []);
@@ -216,7 +221,11 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
   const loadToday = useCallback(() => {
     setTodayLoading(true);
     fetchRdDailyReports({ date: todayStr, limit: 500 })
-      .then(async (list) => ({ list, noteMap: await fetchNoteMapFor(list) }))
+      .then(async (list) => {
+        // Keep the digest current even if the daily tab closed while generation was running.
+        onDailyReportsLoaded?.(list);
+        return { list, noteMap: await fetchNoteMapFor(list) };
+      })
       .then(({ list, noteMap }) => {
         if (!isMountedRef.current) return;
         setTodayReports(list);
@@ -228,7 +237,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
         toast.error(err instanceof Error ? err.message : t("今日日报加载失败，请稍后重试"));
       })
       .finally(() => { if (isMountedRef.current) setTodayLoading(false); });
-  }, [todayStr]);
+  }, [todayStr, onDailyReportsLoaded]);
 
   useEffect(() => { loadToday(); }, [loadToday]);
 
@@ -346,13 +355,13 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
         {tabSlot}
         <div className={cn("flex flex-wrap items-center justify-between", spacious ? "gap-3" : "gap-2")}>
           <div className="flex items-center gap-2.5">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#002fa7] text-white shadow-sm">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-white shadow-sm">
               <CalendarDays className="size-4" aria-hidden="true" />
             </span>
             <div>
               <h3 className="flex items-center gap-2 text-balance text-sm font-bold text-slate-800">
                 {t("今日日报速览")}
-                {todayLoading && <Loader2 className="size-3.5 animate-spin text-[#002fa7]" aria-hidden="true" />}
+                {todayLoading && <Loader2 className="size-3.5 animate-spin text-primary" aria-hidden="true" />}
               </h3>
               <p className="mt-0.5 text-pretty text-[11px] tabular-nums text-slate-400">{t("{date} · {count} 位成员已生成", { date: todayStr, count: todayMembers.length })}</p>
             </div>
@@ -362,7 +371,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
               type="button"
               onClick={loadToday}
               disabled={todayLoading}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-blue-300 hover:text-[#002fa7] disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-primary/30 hover:text-primary disabled:opacity-50"
             >
               <RefreshCw className={cn("size-3", todayLoading && "animate-spin")} aria-hidden="true" />
               {t("刷新")}
@@ -372,7 +381,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                 type="button"
                 disabled={regeneratingReports}
                 onClick={regenerate}
-                className="hz-primary-action inline-flex items-center gap-1 rounded-md bg-[#002fa7] px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-[#002581] disabled:opacity-60"
+                className="hz-primary-action inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-primary-hover disabled:opacity-60"
               >
                 {regeneratingReports ? <Loader2 className="size-3 animate-spin" aria-hidden="true" /> : <Sparkles className="size-3" aria-hidden="true" />}
                 {t("立即汇总")}
@@ -382,7 +391,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
               type="button"
               onClick={() => setShowHistory((v) => !v)}
               aria-expanded={showHistory}
-              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-2.5 py-1 text-xs font-medium text-[#002fa7] transition-colors hover:bg-blue-50"
+              className="inline-flex items-center gap-1 rounded-md border border-primary/20 bg-white px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-accent"
             >
               {t("查看全部")}
               <ChevronDown className={cn("size-3.5 transition-transform", showHistory && "rotate-180")} aria-hidden="true" />
@@ -433,7 +442,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
             })}
           </div>
         ) : (
-          <p className="mt-3 rounded-lg border border-dashed border-blue-200 bg-blue-50/40 px-3 py-3 text-center text-pretty text-[11px] text-slate-500">
+          <p className="mt-3 rounded-lg border border-dashed border-primary/20 bg-accent/40 px-3 py-3 text-center text-pretty text-[11px] text-slate-500">
             {todayLoading ? t("正在读取今日日报…") : canRegenerate ? t("今日暂无日报，点击「立即汇总」生成。") : t("今日暂无日报，研发成员生成或 18:30 自动汇总后展示。")}
           </p>
         )}
@@ -460,14 +469,14 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
           <div className="mb-4 flex items-center justify-between gap-2">
             <div>
               <h2 className="flex items-center gap-2 text-balance text-sm font-bold text-slate-800">
-                <CalendarDays className="size-4 text-[#002fa7]" aria-hidden="true" />
+                <CalendarDays className="size-4 text-primary" aria-hidden="true" />
                 {t("研发日报 · 历史")}
-                <span className="rounded-full bg-blue-50 px-1.5 text-xs tabular-nums text-[#002fa7]">{historyReports.length}</span>
+                <span className="rounded-full bg-accent px-1.5 text-xs tabular-nums text-primary">{historyReports.length}</span>
                 {(reportDateFilter || reportUserFilter) && (
                   <button
                     type="button"
                     onClick={() => { setReportDateFilter(""); setReportUserFilter(""); setReportPage(1); }}
-                    className="ml-1 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-[#002fa7] transition-colors hover:bg-blue-100"
+                    className="ml-1 inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[10px] font-semibold text-primary transition-colors hover:bg-primary/10"
                   >
                     {t("清除筛选")}
                     <X className="size-3" aria-hidden="true" />
@@ -482,7 +491,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
               type="button"
               onClick={loadHistory}
               disabled={historyLoading}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-blue-300 hover:text-[#002fa7] disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-primary/30 hover:text-primary disabled:opacity-50"
             >
               <RefreshCw className={cn("size-3", historyLoading && "animate-spin")} aria-hidden="true" />
               {t("刷新")}
@@ -490,8 +499,8 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
           </div>
 
           {/* History filters */}
-          <div className="mb-3 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
-            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
+            <div className="flex min-w-0 flex-1 basis-80 flex-wrap items-center gap-2">
               <div className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-slate-500">
                 <CalendarDays className="size-3" aria-hidden="true" />
                 {t("日期")}
@@ -502,7 +511,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                     type="button"
                     variant="outline"
                     className={cn(
-                      "h-7 w-32 shrink-0 justify-between gap-1 rounded-md border-slate-200 bg-white px-2 text-xs font-normal text-slate-700 hover:border-blue-300 hover:bg-white hover:text-slate-700",
+                      "h-7 w-32 shrink-0 justify-between gap-1 rounded-md border-slate-200 bg-white px-2 text-xs font-normal text-slate-700 hover:border-primary/30 hover:bg-white hover:text-slate-700",
                       !reportDateFilter && "text-slate-400",
                     )}
                   >
@@ -510,7 +519,11 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                     <CalendarDays className="size-3 shrink-0 text-slate-400" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent align="start" className="w-auto rounded-xl border-slate-200 bg-white p-0 shadow-xl">
+                <PopoverContent
+                  align="start"
+                  collisionPadding={12}
+                  className="max-h-[var(--radix-popover-content-available-height)] w-auto overflow-y-auto overscroll-contain rounded-xl border-slate-200 bg-white p-0 shadow-xl"
+                >
                   <Calendar
                     mode="single"
                     selected={parseLocalDate(reportDateFilter)}
@@ -519,7 +532,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                   />
                 </PopoverContent>
               </Popover>
-              <div className="flex shrink-0 items-center gap-1 text-[10px]">
+              <div className="flex max-w-full flex-wrap items-center gap-1 text-[10px]">
                 {[
                   { label: t("今天"), value: todayStr },
                   { label: t("昨天"), value: isoLocalDate(new Date(Date.now() - 86_400_000)) },
@@ -532,8 +545,8 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                     className={cn(
                       "rounded-full px-2 py-0.5 font-medium transition-colors",
                       reportDateFilter === preset.value
-                        ? "bg-[#002fa7] text-white"
-                        : "bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-[#002fa7]",
+                        ? "bg-primary text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-accent hover:text-primary",
                     )}
                   >
                     {preset.label}
@@ -541,11 +554,12 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                 ))}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex min-w-0 basis-48 items-center gap-1.5">
               <NativeSelect
+                aria-label={t("全部成员")}
                 value={reportUserFilter}
                 onChange={(e) => { setReportUserFilter(e.target.value); setReportPage(1); }}
-                className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
               >
                 <option value="">{t("全部成员")}</option>
                 {reportUserOptions.map((opt) => (
@@ -571,7 +585,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
               {reportsByDate.slice((reportPage - 1) * REPORT_PAGE_SIZE, reportPage * REPORT_PAGE_SIZE).map(([date, reportsInDate]) => (
                 <div key={date}>
                   <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-500">
-                    <span className="rounded-md bg-blue-50 px-1.5 py-0.5 tabular-nums text-[#002fa7]">{date}</span>
+                    <span className="rounded-md bg-accent px-1.5 py-0.5 tabular-nums text-primary">{date}</span>
                     <span className="tabular-nums text-slate-400">{t("{count} 份日报", { count: reportsInDate.length })}</span>
                   </div>
                   <ul className="space-y-2">
@@ -587,9 +601,9 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                             type="button"
                             onClick={() => setExpandedReportId(expanded ? null : report.id)}
                             aria-expanded={expanded}
-                            className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-blue-50/50"
+                            className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-accent/50"
                           >
-                            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-xs font-bold text-[#002fa7]">
+                            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent text-xs font-bold text-primary">
                               {report.user_name.slice(0, 1)}
                             </div>
                             <div className="min-w-0 flex-1">
@@ -601,7 +615,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                                     "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
                                     report.trigger === "cron"
                                       ? "bg-slate-100 text-slate-600"
-                                      : "bg-blue-100 text-blue-700",
+                                      : "bg-accent text-primary",
                                   )}
                                 >
                                   {report.trigger === "cron" ? t("自动") : t("手动")}
@@ -609,7 +623,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                               </div>
                               <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] tabular-nums text-slate-500">
                                 <span>{t("任务")} {s.total_tasks}</span>
-                                {(s.as_collaborator ?? 0) > 0 && <span className="text-[#002fa7]">{t("协作")} {s.as_collaborator}</span>}
+                                {(s.as_collaborator ?? 0) > 0 && <span className="text-primary">{t("协作")} {s.as_collaborator}</span>}
                                 <span className="text-blue-600">{t("进行中")} {s.in_progress}</span>
                                 <span className="text-emerald-600">{t("已完成")} {s.completed}</span>
                                 {(s.stalled ?? 0) > 0 && <span className="text-amber-600">{t("停滞")} {s.stalled}</span>}
@@ -652,7 +666,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                       disabled={reportPage === 1}
                       onClick={() => setReportPage((p) => p - 1)}
                       aria-label={t("上一页")}
-                      className="flex size-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-300 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex size-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/30 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <ChevronLeft className="size-3.5" aria-hidden="true" />
                     </button>
@@ -664,8 +678,8 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                         className={cn(
                           "flex h-7 min-w-[28px] items-center justify-center rounded-md border px-1.5 text-xs font-semibold tabular-nums transition-colors",
                           pg === reportPage
-                            ? "border-[#002fa7] bg-[#002fa7] text-white"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-[#002fa7]",
+                            ? "border-primary bg-primary text-white"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-primary/30 hover:text-primary",
                         )}
                       >
                         {pg}
@@ -676,7 +690,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                       disabled={reportPage === totalPages}
                       onClick={() => setReportPage((p) => p + 1)}
                       aria-label={t("下一页")}
-                      className="flex size-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-300 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-40"
+                      className="flex size-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/30 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <ChevronRight className="size-3.5" aria-hidden="true" />
                     </button>

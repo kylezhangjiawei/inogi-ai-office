@@ -4,11 +4,9 @@ import test from "node:test";
 
 const shell = readFileSync(new URL("../src/app/MobileShell.tsx", import.meta.url), "utf8");
 
-test("移动壳层使用 Horizon 与单一 Klein Blue 视觉语言", () => {
+test("移动壳层使用共享 Horizon 品牌与画布令牌", () => {
   assert.match(shell, /className="horizon-theme hz-page min-h-\[100dvh\]/);
-  assert.match(shell, /bg-\[#002fa7\]/);
-  assert.match(shell, /text-\[#002fa7\]/);
-  assert.match(shell, /bg-\[#eef3ff\]/);
+  assert.doesNotMatch(shell, /#002fa7|#eef3ff|rgba\(0,\s*47,\s*167/i);
 
   const forbidden = [
     [/gradient/i, "渐变"],
@@ -66,8 +64,8 @@ test("研发、协同、生产与分析路由出口和权限边界保持不变",
 
 test("长内容布局、登录守卫、反馈出口与备案 footer 保持完整", () => {
   assert.match(shell, /<Navigate[\s\S]{0,160}?to="\/login"[\s\S]{0,160}?state=\{\{ from: location\.pathname \+ location\.search \+ location\.hash \}\}/);
-  assert.match(shell, /<div className="flex min-h-\[100dvh\] flex-col bg-slate-50">/);
-  assert.match(shell, /<main className="flex-1">[\s\S]*?<Outlet \/>[\s\S]*?<\/main>/);
+  assert.match(shell, /<div className="flex min-h-\[100dvh\] flex-col bg-card">/);
+  assert.match(shell, /<main className="flex-1 bg-background">[\s\S]*?<Outlet \/>[\s\S]*?<\/main>/);
   assert.match(shell, /<SiteRecordFooter/);
   assert.match(shell, /<Toaster richColors position="top-center" \/>/);
   assert.match(shell, /role="status"/);

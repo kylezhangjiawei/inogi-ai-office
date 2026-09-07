@@ -22,9 +22,12 @@ const moveTasksDialog = section("function MoveTasksDialog(", "// ─── TaskC
 const taskManagementPage = page.slice(page.indexOf("export function RDTaskManagementPage("));
 const coreCockpit = `${systemPanorama}\n${personCockpit}\n${executiveOverview}`;
 
-test("核心驾驶舱保持 Horizon / Klein Blue 信息层级且无旧装饰", () => {
+test("核心驾驶舱保持 Horizon 统一品牌令牌和信息层级且无旧装饰", () => {
   assert.match(executiveOverview, /horizon-theme hz-page rd-horizon-cockpit/);
-  assert.match(coreCockpit, /#002fa7/i);
+  assert.match(executiveOverview, /\bbg-primary\b/);
+  assert.match(personCockpit, /const allAccentColor = "var\(--primary\)";/);
+  assert.match(personCockpit, /focus-visible:ring-primary/);
+  assert.doesNotMatch(personCockpit, /#002fa7|rgba\(0,47,167/i);
   assert.match(coreCockpit, /text-balance/);
   assert.match(coreCockpit, /text-pretty/);
   assert.match(coreCockpit, /tabular-nums/);

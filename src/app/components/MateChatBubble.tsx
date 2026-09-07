@@ -34,6 +34,7 @@ import { compressImageFile } from "../lib/resourceImage";
 import { uploadResourceFile } from "../lib/resourceUpload";
 import { useAuth } from "../auth";
 import { cn } from "./ui/utils";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { MATECHAT_OPEN_EVENT, notifyMateChatActivity } from "./matechat/openMateChat";
 import { useNavigate } from "react-router";
 import { backfillKbToRag, ragStatus, type RagCitation, type RagStatus } from "../lib/ragApi";
@@ -217,6 +218,17 @@ const FLOATING_MARGIN = 24;
 const FLOATING_BOTTOM_SAFE_AREA = 88;
 const FLOATING_FALLBACK_SIZE = { width: 224, height: 72 };
 const AI_AVATAR = "https://matechat.gitcode.com/logo.svg";
+
+function MateChatAvatar({ className }: { className?: string }) {
+  return (
+    <Avatar className={cn("size-7", className)} role="img" aria-label="MateChat">
+      <AvatarImage src={AI_AVATAR} alt="" className="object-contain" />
+      <AvatarFallback className="bg-transparent">
+        <Sparkles className="size-full" aria-hidden="true" />
+      </AvatarFallback>
+    </Avatar>
+  );
+}
 
 const QUICK_PROMPTS = [
   "帮我整理今天的关键待办",
@@ -1763,13 +1775,13 @@ export function MateChatBubble() {
         className={cn(
           // 默认收成圆形（只露头像）；hover 时文字平滑展开，减少占位。
           // 定位（left/right/top）由 effect 写 inline style，靠右时右缘锚定向左展开。
-          "group fixed z-50 flex items-center rounded-full border border-white/70 bg-[#002fa7] p-2 text-white shadow-lg cursor-grab",
+          "group fixed z-50 flex items-center rounded-full border border-white/70 bg-primary p-2 text-primary-foreground shadow-lg cursor-grab",
           anchorRight && "flex-row-reverse",
           bubbleReady ? "opacity-100" : "opacity-0",
         )}
       >
         <span className="relative flex size-10 shrink-0 items-center justify-center rounded-full bg-white/15">
-          <img src={AI_AVATAR} alt="MateChat" className="size-7 object-contain" />
+          <MateChatAvatar />
           <span className="absolute -inset-1 rounded-full border border-white/20" />
         </span>
         {/* 文字：收起态宽度为 0 隐藏，hover 展开；展开方向跟随锚定侧 */}
@@ -1974,7 +1986,7 @@ export function MateChatBubble() {
                               </div>
                             ) : (
                               <div className="mt-1 flex h-10 w-10 flex-shrink-0 items-center justify-center">
-                                <img src={AI_AVATAR} alt="MateChat" className="h-8 w-8 object-contain" />
+                                <MateChatAvatar className="size-8" />
                               </div>
                             )}
                             {/* 消息体 */}

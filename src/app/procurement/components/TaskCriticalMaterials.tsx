@@ -106,7 +106,7 @@ export function TaskCriticalMaterials({
 
     return (
       <div className="proc-horizon-critical-summary flex min-w-0 items-center gap-2 border-y border-slate-100 py-2 text-[10px]">
-        <PackageSearch aria-hidden="true" className="size-3.5 shrink-0 text-[#002fa7]" />
+        <PackageSearch aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
         <span className="font-semibold text-slate-500">{t("重点库存")}</span>
         <span className="rounded-full bg-slate-100 px-1.5 py-0.5 tabular-nums text-slate-500">{configured.length}</span>
         <span className={cn("ml-auto inline-flex shrink-0 items-center gap-1 font-semibold", TONE_CLASS[tone].value)}>
@@ -119,7 +119,7 @@ export function TaskCriticalMaterials({
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500">
-        <PackageSearch aria-hidden="true" className="size-3.5 text-[#002fa7]" />
+        <PackageSearch aria-hidden="true" className="size-3.5 text-primary" />
         {t("重点库存")}
         <span className="rounded-full bg-white px-1.5 py-0.5 tabular-nums text-slate-500">
           {configured.length}

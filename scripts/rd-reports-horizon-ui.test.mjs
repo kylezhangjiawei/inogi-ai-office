@@ -17,23 +17,26 @@ const visualSources = {
   "报告详情抽屉": detailDrawer,
 };
 
-test("研发汇报使用 Horizon 根作用域、Radix Tabs 与统一 Klein Blue 主操作", () => {
+test("研发汇报使用 Horizon 根作用域、Radix Tabs 与统一主题主操作", () => {
   assert.match(reports, /components\/ui\/tabs/);
   assert.match(reports, /<Tabs value=\{tab\} onValueChange=/);
   assert.match(reports, /<TabsList aria-label=\{t\("研发汇报周期"\)\}/);
   assert.match(reports, /<TabsTrigger[\s\S]*value=\{key\}/);
   assert.match(reports, /className="horizon-theme rd-horizon-reports/);
-  assert.match(reports, /data-\[state=active\]:bg-\[#002fa7\]/);
+  assert.match(reports, /data-\[state=active\]:bg-primary/);
 
   assert.match(daily, /className="rd-horizon-daily-report/);
   assert.match(daily, /"hz-surface flex-1 border border-slate-200 bg-white"/);
-  assert.match(daily, /hz-primary-action[^"]*bg-\[#002fa7\]/);
+  assert.match(daily, /hz-primary-action[^"]*bg-primary/);
   assert.match(monthly, /className="rd-horizon-monthly-report/);
   assert.match(monthly, /"hz-surface rd-horizon-monthly-surface flex-1 border border-slate-200 bg-white"/);
-  assert.match(monthly, /hz-primary-action[^"]*bg-\[#002fa7\]/);
+  assert.match(monthly, /hz-primary-action[^"]*bg-primary/);
+  assert.match(monthly, /hover:bg-primary-hover/);
+  assert.doesNotMatch(reports, /#002fa7|#002581/i);
+  assert.doesNotMatch(monthly, /#002fa7|#002581/i);
   assert.match(monthly, /tone="blue"/);
   assert.match(detailDrawer, /className="horizon-portal/);
-  assert.match(detailDrawer, /bg-blue-50 text-\[#002fa7\]/);
+  assert.doesNotMatch(detailDrawer, /#002fa7|#002581/i);
 });
 
 test("研发汇报源码不再包含旧紫色、渐变、装饰字距或自定义悬停位移", () => {
@@ -62,7 +65,13 @@ test("日报继续保留今日、历史、留痕附件和批量汇总业务契�
   assert.match(daily, /const REPORT_PAGE_SIZE = 5/);
   assert.match(daily, /reportDateFilter \|\| undefined/);
   assert.match(daily, /user_id: reportUserFilter \|\| undefined/);
-  assert.match(daily, /export function RDDailyReportPanel\(\{ canRegenerate, tabSlot, spacious = false \}/);
+  const dailyParams = daily.match(/export function RDDailyReportPanel\(\{([^}]+)\}/)?.[1] ?? "";
+  for (const prop of ["canRegenerate", "tabSlot", "onDailyReportsLoaded"]) {
+    assert.match(dailyParams, new RegExp(`\\b${prop}\\b`));
+  }
+  assert.match(dailyParams, /\bspacious\s*=\s*false\b/);
+  assert.match(daily, /onDailyReportsLoaded\?: \(reports: RdDailyReport\[\]\) => void/);
+  assert.match(daily, /fetchRdDailyReports\(\{ date: todayStr, limit: 500 \}\)[\s\S]*?\.then\(async \(list\) => \{[\s\S]*?onDailyReportsLoaded\?\.\(list\)/);
 });
 
 test("月报继续保留月份筛选、历史分页、绩效入口和批量汇总业务契约", () => {
@@ -94,6 +103,14 @@ test("汇报排版与图标按钮满足 baseline 可读性和可访问性约束"
 });
 
 test("汇报总览保持日报与月报原有 Props 透传", () => {
-  assert.match(reports, /<RDDailyReportPanel canRegenerate=\{canRegenerate\} tabSlot=\{tabBar\} spacious=\{spacious\} \/>/);
-  assert.match(reports, /<RDMonthlyReportPanel canRegenerate=\{canRegenerate\} tabSlot=\{tabBar\} spacious=\{spacious\} \/>/);
+  const dailyMount = reports.match(/<RDDailyReportPanel\b[^>]*\/>/)?.[0] ?? "";
+  const monthlyMount = reports.match(/<RDMonthlyReportPanel\b[^>]*\/>/)?.[0] ?? "";
+  for (const panel of [dailyMount, monthlyMount]) {
+    assert.match(panel, /\bcanRegenerate=\{canRegenerate\}/);
+    assert.match(panel, /\btabSlot=\{tabBar\}/);
+    assert.match(panel, /\bspacious=\{spacious\}/);
+  }
+  assert.match(reports, /onDailyReportsLoaded\?: \(reports: RdDailyReport\[\]\) => void/);
+  assert.match(dailyMount, /\bonDailyReportsLoaded=\{onDailyReportsLoaded\}/);
+  assert.doesNotMatch(monthlyMount, /onDailyReportsLoaded/);
 });

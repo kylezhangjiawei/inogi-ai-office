@@ -155,7 +155,8 @@ test("采购驾驶舱和个人工作台共用研发式任务卡", () => {
   assert.match(card, /DropdownMenu/);
   assert.match(card, /tabular-nums/);
   assert.doesNotMatch(card, /material-card relative w-full overflow-hidden p-4/);
-  assert.match(workspace, /grid-cols-1[\s\S]*md:grid-cols-2[\s\S]*xl:grid-cols-3/);
+  assert.match(workspace, /proc-workspace-task-grid/);
+  assert.match(source("src/app/procurement/horizon.css"), /\.proc-workspace-task-grid[\s\S]*?repeat\(auto-fit, minmax/);
 });
 
 test("采购驾驶舱人员泳道只按采购部门负责人账号统计和筛选", () => {
@@ -169,7 +170,8 @@ test("采购驾驶舱人员泳道只按采购部门负责人账号统计和筛�
 
 test("采购模块的高频键盘交互统一使用项目 Radix 封装", () => {
   assert.match(cockpit, /components\/ui\/tabs/);
-  assert.match(cockpit, /<Tabs value=\{line\}/);
+  assert.match(cockpit, /<Tabs value=\{cockpitTab\}/);
+  assert.match(cockpit, /<ToggleGroup[\s\S]*?value=\{line\}[\s\S]*?aria-label=\{t\("按采购业务线筛选"\)\}/);
   assert.match(cockpit, /components\/ui\/toggle-group/);
   assert.match(cockpit, /aria-label=\{t\("按采购负责人筛选"\)\}/);
   assert.doesNotMatch(cockpit, /role="tablist"|role="tab"/);

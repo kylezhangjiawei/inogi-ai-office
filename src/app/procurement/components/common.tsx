@@ -116,16 +116,16 @@ export const fmtMoney = (n?: number) => (typeof n === "number" ? `¥${n.toLocale
 
 // ── 状态元数据（含「下一步」按钮文案）─────────────────────────────────────────
 export const PROC_STATUS_META: Record<ProcStatus, { label: string; pill: string; next?: string }> = {
-  pending_rd_review: { label: "待研发审核", pill: "border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7]" },
+  pending_rd_review: { label: "待研发审核", pill: "border-[var(--primary-soft-border)] bg-accent text-primary" },
   pending_confirm: { label: "待处理", pill: "border-rose-300 bg-rose-50 text-rose-700", next: "确认提交" },
   pending_inquiry: { label: "待询价", pill: "border-amber-200 bg-amber-50 text-amber-700", next: "选择报价" },
-  inquiring: { label: "询价中", pill: "border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7]", next: "选定报价" },
-  pending_sample: { label: "待到样", pill: "border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7]", next: "样品已到" },
-  testing: { label: "测试中", pill: "border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7]", next: "录入测试结论" },
-  priced: { label: "已定价", pill: "border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7]", next: "标记已下单" },
-  pending_purchase: { label: "待购买", pill: "border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7]", next: "打开链接下单" },
-  in_transit: { label: "已下单/在途", pill: "border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7]", next: "登记到货" },
-  partial_arrival: { label: "部分到货", pill: "border-[#cbd8f6] bg-[#eef3ff] text-[#002fa7]", next: "登记到货" },
+  inquiring: { label: "询价中", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "选定报价" },
+  pending_sample: { label: "待到样", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "样品已到" },
+  testing: { label: "测试中", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "录入测试结论" },
+  priced: { label: "已定价", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "标记已下单" },
+  pending_purchase: { label: "待购买", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "打开链接下单" },
+  in_transit: { label: "已下单/在途", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "登记到货" },
+  partial_arrival: { label: "部分到货", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "登记到货" },
   completed: { label: "已完成", pill: "border-emerald-200 bg-emerald-50 text-emerald-700" },
   cancelled: { label: "已取消", pill: "border-slate-200 bg-slate-100 text-slate-500" },
 };
@@ -154,7 +154,7 @@ export function StatusPill({ status, className }: { status: ProcStatus; classNam
 export function SourcePill({ source }: { source: ProcSource }) {
   useI18n();
   return source === "rd" ? (
-    <span className="proc-horizon-context-pill inline-flex items-center rounded-full border border-[#cbd8f6] bg-[#eef3ff] px-2 py-0.5 text-xs font-medium text-[#002fa7]">{translate("研发流转")}</span>
+    <span className="proc-horizon-context-pill inline-flex items-center rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-xs font-medium text-primary">{translate("研发流转")}</span>
   ) : (
     <span className="proc-horizon-context-pill inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">{translate("采购自建")}</span>
   );
@@ -162,7 +162,7 @@ export function SourcePill({ source }: { source: ProcSource }) {
 export function BusinessLinePill({ line }: { line: BusinessLine }) {
   useI18n();
   return line === "rd" ? (
-    <span className="proc-horizon-context-pill inline-flex items-center rounded-full border border-[#cbd8f6] bg-[#eef3ff] px-2 py-0.5 text-xs font-medium text-[#002fa7]">{translate("研发")}</span>
+    <span className="proc-horizon-context-pill inline-flex items-center rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-xs font-medium text-primary">{translate("研发")}</span>
   ) : (
     <span className="proc-horizon-context-pill inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">{translate("生产")}</span>
   );
@@ -170,7 +170,7 @@ export function BusinessLinePill({ line }: { line: BusinessLine }) {
 export function MethodPill({ method }: { method: ProcMethod }) {
   useI18n();
   return method === "inquiry" ? (
-    <span className="proc-horizon-context-pill inline-flex items-center rounded-full border border-[#cbd8f6] bg-[#eef3ff] px-2 py-0.5 text-xs font-medium text-[#002fa7]">{translate("询价采购")}</span>
+    <span className="proc-horizon-context-pill inline-flex items-center rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-xs font-medium text-primary">{translate("询价采购")}</span>
   ) : (
     <span className="proc-horizon-context-pill inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">{translate("电商直购")}</span>
   );
@@ -208,7 +208,7 @@ export function MainDateBadge({ task, big = false }: { task: ProcurementTask; bi
 }
 
 // ── 头像（按名取色）───────────────────────────────────────────────────────────
-const PALETTE = ["bg-[#eef3ff] text-[#002fa7]", "bg-slate-100 text-slate-600"];
+const PALETTE = ["bg-accent text-primary", "bg-slate-100 text-slate-600"];
 export function avatarColor(name: string): string {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
@@ -241,8 +241,8 @@ export function PersonAvatar({ name, size = "sm" }: { name: string; size?: "xs" 
 type Tone = "slate" | "indigo" | "violet" | "amber" | "emerald" | "red";
 const TONES: Record<Tone, { text: string; chip: string; bar: string }> = {
   slate: { text: "text-slate-900", chip: "bg-slate-100 text-slate-500", bar: "bg-slate-300" },
-  indigo: { text: "text-[#002fa7]", chip: "bg-[#eef3ff] text-[#002fa7]", bar: "bg-[#002fa7]" },
-  violet: { text: "text-[#002fa7]", chip: "bg-[#eef3ff] text-[#002fa7]", bar: "bg-[#002fa7]" },
+  indigo: { text: "text-primary", chip: "bg-accent text-primary", bar: "bg-primary" },
+  violet: { text: "text-primary", chip: "bg-accent text-primary", bar: "bg-primary" },
   amber: { text: "text-amber-600", chip: "bg-amber-50 text-amber-600", bar: "bg-amber-400" },
   emerald: { text: "text-emerald-600", chip: "bg-emerald-50 text-emerald-600", bar: "bg-emerald-400" },
   red: { text: "text-rose-600", chip: "bg-rose-50 text-rose-600", bar: "bg-rose-400" },
@@ -265,7 +265,7 @@ export function StatCell({ label, value, tone = "slate", active, badge, onClick,
   const className = cn(
     "proc-horizon-kpi material-card relative flex h-auto items-center justify-between gap-2 overflow-hidden rounded-xl px-3 py-2.5 text-left sm:px-4 sm:py-3",
     onClick && "cursor-pointer",
-    active && "ring-2 ring-[#8fa9e8]",
+    active && "ring-2 ring-primary/40",
   );
   if (!onClick) return <div className={className} data-active={Boolean(active)} data-tone={tone}>{content}</div>;
   return (
@@ -281,7 +281,7 @@ export function PageHeader({ Icon, badge, title, description, right }: { Icon?: 
         <div className="proc-horizon-command-heading">
           {Icon && <span className="proc-horizon-command-mark"><Icon className="h-5 w-5" /></span>}
           <div className="proc-horizon-command-copy">
-            {badge && <span className="inline-block rounded-full bg-[#eef3ff] px-2.5 py-0.5 text-[10px] font-semibold text-[#002fa7]">{badge}</span>}
+            {badge && <span className="inline-block rounded-full bg-accent px-2.5 py-0.5 text-[10px] font-semibold text-primary">{badge}</span>}
             <h1 className={cn("text-balance text-xl font-bold text-slate-900", badge && "mt-1.5")}>{title}</h1>
             {description && <p className="mt-1 text-pretty text-sm text-slate-500">{description}</p>}
           </div>
@@ -340,7 +340,7 @@ export function ComboInput({
     return list.slice(0, 50);
   }, [normalized, kw]);
   // 输入值恰好等于唯一候选时不再弹层（选完即收）
-  const show = open && filtered.length > 0 && !(filtered.length === 1 && filtered[0].value === value);
+  const show = !disabled && open && filtered.length > 0 && !(filtered.length === 1 && filtered[0].value === value);
   return (
     // modal：在 Dialog/Sheet 内使用时，点击候选不被外层判定为 outside 而误关弹窗
     <Popover modal open={show} onOpenChange={setOpen}>
@@ -396,7 +396,7 @@ function fmtDay(d: Date): string {
 
 /** 日期输入：值为 YYYY-MM-DD 或空串；可清除。modal 模式保证在 Dialog/Sheet 内点选不误关外层弹窗。 */
 export function DateInput({
-  value, onChange, placeholder, className, clearable = true, ariaLabel,
+  value, onChange, placeholder, className, clearable = true, ariaLabel, disabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -404,17 +404,19 @@ export function DateInput({
   className?: string;
   clearable?: boolean;
   ariaLabel?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   // 用本地时区构造，避免 UTC 解析导致日期偏移一天
   const selected = value ? new Date(`${value}T00:00:00`) : undefined;
   return (
-    <Popover modal open={open} onOpenChange={setOpen}>
+    <Popover modal open={!disabled && open} onOpenChange={(next) => { if (!disabled) setOpen(next); }}>
       <PopoverTrigger asChild>
         <Button
           type="button"
           variant="outline"
           aria-label={ariaLabel}
+          disabled={disabled}
           className={cn(
             "flex h-9 w-full justify-between rounded-lg border-slate-200 bg-input-background px-3 text-left text-sm font-normal hover:bg-input-background hover:text-inherit",
             !value && "text-slate-400",
@@ -425,7 +427,11 @@ export function DateInput({
           <CalendarDays className="h-4 w-4 shrink-0 text-slate-400" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-0">
+      <PopoverContent
+        align="start"
+        collisionPadding={12}
+        className="max-h-[var(--radix-popover-content-available-height)] w-auto overflow-y-auto overscroll-contain p-0"
+      >
         <Calendar
           mode="single"
           selected={selected}
@@ -443,7 +449,7 @@ export function DateInput({
         />
         {clearable && value && (
           <div className="border-t border-slate-100 px-3 py-2 text-right">
-            <Button type="button" variant="ghost" size="sm" onClick={() => { onChange(""); setOpen(false); }} className="h-7 rounded-lg px-2 text-xs text-slate-500 hover:text-[#002fa7]">{translate("清除")}</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => { onChange(""); setOpen(false); }} className="h-7 rounded-lg px-2 text-xs text-slate-500 hover:text-primary">{translate("清除")}</Button>
           </div>
         )}
       </PopoverContent>

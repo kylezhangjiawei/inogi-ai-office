@@ -4651,6 +4651,7 @@ export function RDMyWorkspacePage() {
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const canStartProject = canProposeProject || canDirectProject;
   const horizonWorkspace = !isProductionWorkspace();
+  const notificationsFirst = horizonWorkspace && !isUsCollabWorkspace();
   // 研发审核通知已由服务端按当前节点成员池逐人投递；是否能执行仍由审核接口做最终授权。
   const canReview = Boolean(user);
   const canReviewNotification = useCallback((notification: WorkspaceNotification) => {
@@ -4859,9 +4860,10 @@ export function RDMyWorkspacePage() {
     return () => controller.abort();
   }, [visiblePreviewTaskKey]);
 
-  // Reset pagination when filters change
+  // 用户切换筛选时从首条任务重新查看；后台刷新不重置位置。
   useEffect(() => {
     setTaskVisibleCount(WORKSPACE_PAGE_SIZE);
+    if (taskScrollRef.current) taskScrollRef.current.scrollTop = 0;
   }, [taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter, taskRoleTab]);
 
   // Infinite scroll: load more tasks when sentinel enters the task scroll area.
@@ -5223,9 +5225,9 @@ export function RDMyWorkspacePage() {
           <main className="rd-horizon-workspace-main flex min-h-0 flex-col gap-3">
             {/* Sticky filter bar */}
             <div className="rd-horizon-workspace-filters shrink-0 rounded-2xl border border-white bg-white/90 p-3 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                {/* Search — grows up to a sensible cap so the right-side filters always keep their room */}
-                <div className="rd-horizon-workspace-search relative min-w-0 flex-1 xl:max-w-[360px]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                {/* 搜索与筛选按实际可用空间换行，避免视口和工作台容器断点不一致。 */}
+                <div className="rd-horizon-workspace-search relative min-w-0 flex-1 basis-64">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
                   <Input
                     className="h-8 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-8 text-xs text-slate-700 outline-none transition-colors focus:border-[#8fa9e8] focus:bg-white focus:ring-2 focus:ring-[#dce5fa]"
@@ -5246,8 +5248,8 @@ export function RDMyWorkspacePage() {
                   )}
                 </div>
 
-                {/* 窄屏保持单行但允许横向滚动，避免筛选项被工作台 overflow-hidden 裁切。 */}
-                <div className="rd-horizon-workspace-filter-controls flex w-full min-w-0 items-center gap-1.5 overflow-x-auto pb-1 xl:w-auto xl:shrink-0 xl:overflow-visible xl:pb-0">
+                {/* 筛选组空间不足时独占一行，内部保留横向滚动。 */}
+                <div className="rd-horizon-workspace-filter-controls flex min-w-0 max-w-full items-center gap-1.5 overflow-x-auto pb-1">
                   <div
                     role="tablist"
                     aria-label={t("任务角色筛选")}
@@ -5428,7 +5430,7 @@ export function RDMyWorkspacePage() {
           {/* ── RIGHT column ── */}
           <aside className="rd-horizon-workspace-aside material-scrollbar min-h-0 space-y-4 overflow-y-auto pr-1">
             {/* MateChat 连续使用打卡（激励多用 AI） */}
-            <MateChatStreakCardConnected variant="full" className="rd-horizon-workspace-streak-card" />
+            {!notificationsFirst && <MateChatStreakCardConnected variant="full" className="rd-horizon-workspace-streak-card" />}
             {/* 通知中心 */}
             <SectionCard title={t("通知中心")} icon={Bell} count={visibleNotifications.length}>
               {visibleNotifications.length === 0 ? (
@@ -5537,6 +5539,8 @@ export function RDMyWorkspacePage() {
                 </>
               )}
             </SectionCard>
+
+            {notificationsFirst && <MateChatStreakCardConnected variant="full" className="rd-horizon-workspace-streak-card" />}
 
             {/* AI 建议 */}
             {visibleSuggestions.length > 0 && (

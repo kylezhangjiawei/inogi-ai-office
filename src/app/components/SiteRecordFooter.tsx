@@ -16,7 +16,7 @@ export function SiteRecordFooter({
     tone === "dark"
       ? "hover:text-blue-100 focus-visible:ring-blue-200"
       : tone === "horizon"
-        ? "hover:text-[#002fa7] focus-visible:ring-[#8cb4ff]"
+        ? "hover:text-primary focus-visible:ring-primary"
         : "hover:text-indigo-600 focus-visible:ring-indigo-300",
   );
 

@@ -6,16 +6,16 @@ export const materialTheme = createTheme({
   palette: {
     mode: "light",
     primary: {
-      main: "#4f46e5",
-      light: "#6366f1",
-      dark: "#4338ca",
+      main: "#422afb",
+      light: "#7551ff",
+      dark: "#3311db",
       contrastText: "#ffffff",
     },
     secondary: {
       main: "#546e7a",
     },
     background: {
-      default: "#f3f6fb",
+      default: "#f4f7fe",
       paper: "#ffffff",
     },
     success: {
@@ -28,10 +28,15 @@ export const materialTheme = createTheme({
       main: "#d32f2f",
     },
     text: {
-      primary: "#1f2937",
-      secondary: "#5f6b7a",
+      primary: "#1b2559",
+      secondary: "#526080",
     },
-    divider: "#d8e2ee",
+    divider: "#e0e5f2",
+  },
+  components: {
+    MuiButton: { defaultProps: { disableElevation: true }, styleOverrides: { root: { borderRadius: 12, transition: "none" } } },
+    MuiOutlinedInput: { styleOverrides: { root: { borderRadius: 12 } } },
+    MuiCard: { styleOverrides: { root: { borderRadius: 24 } } },
   },
   shape: {
     borderRadius: 16,
@@ -53,7 +58,6 @@ export const materialTheme = createTheme({
     button: {
       fontWeight: 600,
       textTransform: "none",
-      letterSpacing: "0.01em",
     },
   },
   shadows: [

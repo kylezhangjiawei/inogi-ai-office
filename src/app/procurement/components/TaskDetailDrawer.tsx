@@ -1,5 +1,5 @@
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, ChevronDown, Eye, ExternalLink, FolderTree, History, Paperclip, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import {
@@ -51,6 +51,12 @@ function Info({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function restoreConfirmationFocus(event: Event, opener: HTMLButtonElement | null, section: HTMLElement | null, header: HTMLElement | null) {
+  event.preventDefault();
+  const target = opener?.isConnected && !opener.disabled ? opener : section?.isConnected ? section : header;
+  target?.focus();
+}
+
 export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onClose: () => void }) {
   const { t } = useI18n();
   const { materials } = useProcurementData();
@@ -59,6 +65,12 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const [editOpen, setEditOpen] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState<PreviewableAttachment | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
+  const openerRef = useRef(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const drawerHeaderRef = useRef<HTMLDivElement>(null);
+  const quoteSectionRef = useRef<HTMLDivElement>(null);
+  const purchaseOrdersSectionRef = useRef<HTMLDivElement>(null);
+  const resetQuoteTriggerRef = useRef<HTMLButtonElement>(null);
+  const unlinkOrderTriggerRef = useRef<HTMLButtonElement | null>(null);
   const can = useProcCan();
   const { deptOf } = useBuyerDirectory();
   const taskAction = useProcTaskAction();
@@ -166,13 +178,24 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
     : 0;
   // 是否已进入下单阶段（此前「下单与付款」「到货记录」还没有内容，不展示）
   const orderStage = ["pending_purchase", "priced", "in_transit", "partial_arrival", "completed"].includes(task.status);
+  const materialSummary = [task.materialName, task.spec, `${task.quantity}${task.unit}`].filter(Boolean).join(" · ");
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <SheetContent side="right" className="horizon-theme horizon-portal proc-horizon-drawer w-full max-w-full gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:w-[720px] sm:max-w-[720px]" aria-describedby={undefined}>
+      <SheetContent
+        side="right"
+        className="horizon-theme horizon-portal proc-horizon-drawer w-full max-w-full gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:max-w-[720px]"
+        aria-describedby={undefined}
+        onCloseAutoFocus={(event) => {
+          if (openerRef.current?.isConnected && openerRef.current !== document.body) {
+            event.preventDefault();
+            openerRef.current.focus();
+          }
+        }}
+      >
         {/* 头部（pr-8 给自带关闭 X 留位） */}
         <SheetHeader className="block border-b border-slate-100 px-6 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-2 pr-8 sm:flex-nowrap">
+          <div ref={drawerHeaderRef} tabIndex={-1} className="flex flex-wrap items-start justify-between gap-2 pr-8 sm:flex-nowrap">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
               <SheetTitle className="min-w-0 break-words text-balance text-lg font-bold tabular-nums text-slate-900">{task.code}</SheetTitle>
               <StatusPill status={task.status} />
@@ -191,18 +214,16 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               )}
             </div>
           </div>
-          <AutoTranslatedText
-            as="div"
-            className="mt-1 text-pretty text-sm tabular-nums text-slate-500"
-            text={[task.materialName, task.spec, `${task.quantity}${task.unit}`].filter(Boolean).join(" · ")}
-          />
+          <div className="mt-1 text-pretty text-sm tabular-nums text-slate-500" title={materialSummary}>
+            <AutoTranslatedText as="div" className="line-clamp-2 break-words" text={materialSummary} />
+          </div>
           {/* 步骤条 */}
           <div className="mt-4 flex items-center overflow-x-auto pb-1">
             {flow.map((s, i) => (
               <div key={s} className="flex items-center">
                 <div className="flex flex-col items-center gap-1">
-                  <span className={cn("flex size-6 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums", i < curIdx ? "bg-emerald-500 text-white" : i === curIdx ? "bg-[#002fa7] text-white" : "bg-slate-100 text-slate-400")}>{i + 1}</span>
-                  <span className={cn("whitespace-nowrap text-[10px]", i === curIdx ? "font-semibold text-[#002fa7]" : "text-slate-400")}>{t(PROC_STATUS_META[s].label)}</span>
+                  <span className={cn("flex size-6 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums", i < curIdx ? "bg-emerald-500 text-white" : i === curIdx ? "bg-primary text-white" : "bg-slate-100 text-slate-400")}>{i + 1}</span>
+                  <span className={cn("whitespace-nowrap text-[10px]", i === curIdx ? "font-semibold text-primary" : "text-slate-400")}>{t(PROC_STATUS_META[s].label)}</span>
                 </div>
                 {i < flow.length - 1 && <div className={cn("mx-1 h-0.5 w-5", i < curIdx ? "bg-emerald-400" : "bg-slate-200")} />}
               </div>
@@ -215,8 +236,8 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           {/* 下一步操作卡：动作码由系统管理配置到角色，无权限者只读。
               研发流转的待处理任务是「审核」语义：通过（确认提交）或驳回（理由必填，删除采购任务并通知）。 */}
           {meta.next && can(nextPermissionOf(task)) && (
-            <div className="proc-horizon-next-step rounded-xl border border-[#cbd8f6] bg-[#eef3ff] p-4">
-              <div className="text-xs font-semibold text-[#002fa7]">{t('下一步 · 责任人：')}{task.status === "testing" ? task.rdContact ?? t("研发对接人") : buyerLabel}</div>
+            <div className="proc-horizon-next-step rounded-xl border border-[var(--primary-soft-border)] bg-accent p-4">
+              <div className="text-xs font-semibold text-primary">{t('下一步 · 责任人：')}{task.status === "testing" ? task.rdContact ?? t("研发对接人") : buyerLabel}</div>
               <p className="mt-1 text-pretty text-sm text-slate-700">
                 {isRdReview
                   ? t('研发流转需求待审核：通过后进入询价流程；驳回将删除采购任务，并通知研发对接人与超级管理员。')
@@ -230,7 +251,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                     「待到样」是本轮打样的出样单；「待询价 / 询价中」是供应商提前寄的免费样，
                     后者登记后选定报价可直接进「测试中」，省掉一轮空等的「待到样」。 */}
                 {(task.status === "pending_sample" || FREE_SAMPLE_ONLY_STATUSES.includes(task.status)) && can("proc-task:order") && (
-                  <Button type="button" variant="outline" disabled={taskAction.busy} onClick={() => taskAction.linkSampleOrder(task)} className="rounded-lg border-[#bfd0fa] bg-white px-4 py-2 text-sm text-[#002fa7] hover:bg-[#eef3ff] hover:text-[#002581]">
+                  <Button type="button" variant="outline" disabled={taskAction.busy} onClick={() => taskAction.linkSampleOrder(task)} className="rounded-lg border-[var(--primary-soft-border)] bg-white px-4 py-2 text-sm text-primary hover:bg-accent hover:text-primary-hover">
                     {t(task.status === "pending_sample" ? '登记出样单' : '登记免费样品来货')}
                   </Button>
                 )}
@@ -304,8 +325,8 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                   </span>
                 } />
                 {task.rdContact && <Info label="研发对接人" value={task.rdContact} />}
-                {task.source === "rd" && task.rdTaskTitle && <Info label="关联研发任务" value={<span><AutoTranslatedText className="text-[#002fa7]" text={task.rdTaskTitle} />{task.rdTaskId && <span className="ml-1 text-[11px] tabular-nums text-slate-400">{task.rdTaskId}</span>}</span>} />}
-                {task.method === "direct" && task.purchaseLink && <Info label="商品链接" value={<a href={task.purchaseLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded text-[#002fa7] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">{t('打开链接')} <ExternalLink className="size-3.5" /></a>} />}
+                {task.source === "rd" && task.rdTaskTitle && <Info label="关联研发任务" value={<span><AutoTranslatedText className="text-primary" text={task.rdTaskTitle} />{task.rdTaskId && <span className="ml-1 text-[11px] tabular-nums text-slate-400">{task.rdTaskId}</span>}</span>} />}
+                {task.method === "direct" && task.purchaseLink && <Info label="商品链接" value={<a href={task.purchaseLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('打开链接')} <ExternalLink className="size-3.5" /></a>} />}
               </div>
             </div>
             {task.consumableNote && <div className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-700">{t('低值易耗品：')}<AutoTranslatedText text={task.consumableNote} /></div>}
@@ -319,12 +340,12 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               <div className="mb-2 text-balance text-sm font-semibold text-slate-700">{t("需求附件（{count}）", { count: task.attachmentList.length })}</div>
               <ul className="space-y-2">
                 {task.attachmentList.map((attachment) => {
-                  const className = "flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600 hover:border-[#cbd8f6] hover:bg-[#eef3ff] hover:text-[#002fa7]";
+                  const className = "flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600 hover:border-[var(--primary-soft-border)] hover:bg-accent hover:text-primary";
                   return (
                     <li key={attachment.id}>
                       <button
                         type="button"
-                        className={cn(className, "w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]")}
+                        className={cn(className, "w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40")}
                         aria-label={t("预览附件：{name}", { name: attachment.fileName })}
                         onClick={() => setPreviewAttachment(previewModel(attachment))}
                       >
@@ -362,20 +383,28 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           {task.method === "inquiry" && !quotesLoading && !quotesError && quotes.length > 0 && (
             <div className="space-y-3">
               {histLow && (
-                <div className="flex items-center justify-between rounded-xl border border-[#dce5fa] bg-[#eef3ff] px-4 py-2.5 text-xs text-slate-600">
-                  <span className="flex items-center gap-2 tabular-nums"><History className="size-4 text-[#002fa7]" />{t('该物料历史最低')} <b className="text-emerald-600">{fmtMoney(histLow.unitPrice)}</b> · {histLow.supplierName} · {histLow.quoteDate}</span>
-                  <button type="button" onClick={() => setHistoryOpen(true)} className="shrink-0 rounded font-medium text-[#002fa7] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">{t('历史价格')}</button>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--primary-soft-border)] bg-accent px-4 py-2.5 text-xs text-slate-600">
+                  <div className="min-w-0 flex-1 basis-64">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
+                      <History className="size-4 shrink-0 text-primary" />
+                      <span>{t('该物料历史最低')}</span>
+                      <b className="shrink-0 whitespace-nowrap text-emerald-600">{fmtMoney(histLow.unitPrice)}</b>
+                    </div>
+                    <p className="mt-1 break-words text-pretty tabular-nums" title={`${histLow.supplierName} · ${histLow.quoteDate}`}>{histLow.supplierName} · {histLow.quoteDate}</p>
+                  </div>
+                  <button type="button" onClick={() => setHistoryOpen(true)} className="shrink-0 rounded font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('历史价格')}</button>
                 </div>
               )}
               <div className="proc-horizon-drawer-section rounded-xl border border-slate-100">
-                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
+                <div ref={quoteSectionRef} tabIndex={-1} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2">
                   <span className="text-sm font-semibold tabular-nums text-slate-700">{t('供应商报价（{count}）', { count: quotes.length })}</span>
                   {/* 维护错价格此前只能作废整条任务重建，这里提供重做入口；已下单之后不再允许改 */}
                   {canResetQuotes && (
                     <button
+                      ref={resetQuoteTriggerRef}
                       type="button"
                       onClick={() => setResetting(true)}
-                      className="shrink-0 rounded text-xs font-medium text-[#002fa7] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]"
+                      className="shrink-0 rounded text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                     >
                       {t('重新维护')}
                     </button>
@@ -384,21 +413,21 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                 <ul className="divide-y divide-slate-100">
                   {quotes.map((q) => (
                     <li key={q.id} className={cn("px-4 py-2.5", q.isSelected && "bg-emerald-50/40")}>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="flex min-w-0 items-center gap-3">
-                          <span className="truncate text-sm font-medium text-slate-700">{q.supplierName}</span>
-                          <span className="text-sm font-semibold tabular-nums text-slate-900">{q.currency === "CNY" ? fmtMoney(q.unitPrice) : `${q.currency} ${q.unitPrice}`}</span>
-                          {q.channel === "quote-book" && <span className="rounded-full border border-[#cbd8f6] bg-[#eef3ff] px-2 py-0.5 text-[11px] text-[#002fa7]">{t('报价库')}</span>}
-                          {q.isSelected && <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-600">{t('已确认')}</span>}
-                        </span>
-                        <span className="shrink-0 text-xs tabular-nums text-slate-400">{t('交期 {count} 天', { count: q.leadTimeDays })}</span>
+                      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+                        <div className="flex min-w-0 flex-1 basis-64 flex-wrap items-center gap-x-3 gap-y-1.5">
+                          <span className="min-w-0 basis-full break-words text-pretty text-sm font-medium text-slate-700" title={q.supplierName}>{q.supplierName}</span>
+                          <span className="shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums text-slate-900">{q.currency === "CNY" ? fmtMoney(q.unitPrice) : `${q.currency} ${q.unitPrice}`}</span>
+                          {q.channel === "quote-book" && <span className="shrink-0 whitespace-nowrap rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-[11px] text-primary">{t('报价库')}</span>}
+                          {q.isSelected && <span className="shrink-0 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-600">{t('已确认')}</span>}
+                        </div>
+                        <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-slate-400">{t('交期 {count} 天', { count: q.leadTimeDays })}</span>
                       </div>
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-slate-400">
                         {q.quantity != null && <span>{t('采购数量')} {q.quantity.toLocaleString()} {t(task.unit)}</span>}
                         {q.lineTotal != null && <span className="font-medium text-slate-600">{t('行金额')} {q.currency === "CNY" ? fmtMoney(q.lineTotal) : `${q.currency} ${q.lineTotal}`}</span>}
                         {q.minOrderQty != null && <span>{t('起订量')} {q.minOrderQty.toLocaleString()}</span>}
                         {q.validUntil && <span>{t('有效期至 {date}', { date: q.validUntil })}</span>}
-                        {q.note && <span className="min-w-0 truncate">{q.note}</span>}
+                        {q.note && <span className="min-w-0 basis-full break-words text-pretty" title={q.note}>{q.note}</span>}
                       </div>
                     </li>
                   ))}
@@ -413,7 +442,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                       <span>{t('减：折扣金额')}</span>
                       <b>- {task.quotationCurrency === "CNY" ? fmtMoney(task.quotationDiscount ?? 0) : `${task.quotationCurrency ?? ""} ${task.quotationDiscount ?? 0}`}</b>
                     </div>
-                    <div className="flex justify-between border-t border-slate-200 pt-1.5 text-sm text-[#002fa7]">
+                    <div className="flex justify-between border-t border-slate-200 pt-1.5 text-sm text-primary">
                       <b>{t('最终总价')}</b>
                       <b>{task.quotationCurrency === "CNY" ? fmtMoney(task.quotationTotal) : `${task.quotationCurrency ?? ""} ${task.quotationTotal}`}</b>
                     </div>
@@ -470,7 +499,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           {/* 采购单关联：出样单（含免费来样）在「待到样」就登记，所以不跟 orderStage 走，有就显示 */}
           {task.purchaseOrders.length > 0 && (
             <div className="proc-horizon-drawer-section rounded-xl border border-slate-100">
-              <div className="border-b border-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
+              <div ref={purchaseOrdersSectionRef} tabIndex={-1} className="border-b border-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
                 <span className="tabular-nums">{t('采购单关联（{count}）', { count: task.purchaseOrders.length })}</span>
               </div>
               <ul className="divide-y divide-slate-100">
@@ -479,7 +508,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         {po.freeSample ? (
-                          <span className="rounded-full border border-[#cbd8f6] bg-[#eef3ff] px-2 py-0.5 text-[11px] text-[#002fa7]">{t('免费样品')}</span>
+                          <span className="rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-[11px] text-primary">{t('免费样品')}</span>
                         ) : (
                           <b className="text-sm font-medium tabular-nums text-slate-800">{po.tpOrderNo}</b>
                         )}
@@ -495,7 +524,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                     {can("proc-task:order") && (
                       <button
                         type="button"
-                        onClick={() => setUnlinking(po)}
+                        onClick={(event) => { unlinkOrderTriggerRef.current = event.currentTarget; setUnlinking(po); }}
                         title={t('撤销该关联')}
                         aria-label={t('撤销采购单关联')}
                         className="flex size-9 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
@@ -512,14 +541,14 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           {(orderStage || task.arrivedQty > 0) && (
             <div className="proc-horizon-drawer-section rounded-xl border border-slate-100 p-4">
               <div className="mb-2 text-balance text-sm font-semibold text-slate-700">{t('到货记录')}</div>
-              <div role="progressbar" aria-label={t('到货进度')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100"><div className={cn("h-full rounded-full", pct >= 100 ? "bg-emerald-500" : "bg-[#002fa7]")} style={{ width: `${pct}%` }} /></div>
+              <div role="progressbar" aria-label={t('到货进度')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100"><div className={cn("h-full rounded-full", pct >= 100 ? "bg-emerald-500" : "bg-primary")} style={{ width: `${pct}%` }} /></div>
               <div className="text-xs tabular-nums text-slate-500">{t('已到货')} <b>{task.arrivedQty.toLocaleString()}</b> / {task.quantity.toLocaleString()}{t(task.unit)} ({pct}%)</div>
             </div>
           )}
 
           {/* 操作日志 */}
           <Collapsible open={logsOpen} onOpenChange={setLogsOpen} className="proc-horizon-drawer-section rounded-xl border border-slate-100">
-            <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-2.5 text-balance text-sm font-semibold tabular-nums text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8fa9e8]">{t('操作日志（{count}）', { count: task.logs.length })}<ChevronDown className={cn("size-4 text-slate-400", logsOpen && "rotate-180")} /></CollapsibleTrigger>
+            <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-2.5 text-balance text-sm font-semibold tabular-nums text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40">{t('操作日志（{count}）', { count: task.logs.length })}<ChevronDown className={cn("size-4 text-slate-400", logsOpen && "rotate-180")} /></CollapsibleTrigger>
             <CollapsibleContent>
               {task.logs.length > 0 ? (
                 <ul className="space-y-2 border-t border-slate-100 px-4 py-3">
@@ -549,7 +578,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
         />
       )}
       <AlertDialog open={Boolean(unlinking)} onOpenChange={(o) => { if (!o && !unlinkBusy) setUnlinking(null); }}>
-        <AlertDialogContent className="horizon-theme horizon-portal proc-horizon-overlay rounded-2xl sm:max-w-md">
+        <AlertDialogContent onCloseAutoFocus={(event) => restoreConfirmationFocus(event, unlinkOrderTriggerRef.current, purchaseOrdersSectionRef.current, drawerHeaderRef.current)} className="horizon-theme horizon-portal proc-horizon-overlay rounded-2xl sm:max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-balance text-slate-900">{t('撤销采购单关联？')}</AlertDialogTitle>
             <AlertDialogDescription className="text-pretty leading-relaxed">
@@ -571,7 +600,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
         </AlertDialogContent>
       </AlertDialog>
       <AlertDialog open={resetting} onOpenChange={(o) => { if (!o && !resetBusy) { setResetting(false); setResetReason(""); } }}>
-        <AlertDialogContent className="horizon-theme horizon-portal proc-horizon-overlay rounded-2xl sm:max-w-md">
+        <AlertDialogContent onCloseAutoFocus={(event) => restoreConfirmationFocus(event, resetQuoteTriggerRef.current, quoteSectionRef.current, drawerHeaderRef.current)} className="horizon-theme horizon-portal proc-horizon-overlay rounded-2xl sm:max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-balance text-slate-900">{t('重新维护报价？')}</AlertDialogTitle>
             <AlertDialogDescription className="text-pretty leading-relaxed tabular-nums">

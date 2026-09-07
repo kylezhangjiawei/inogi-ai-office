@@ -11,6 +11,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
@@ -78,38 +79,56 @@ function coreSuggestionScore({ material, paths }: CoreMaterialCandidate) {
 function CoreInventoryTable({ items, preview = false }: { items: CoreMaterialCandidate[]; preview?: boolean }) {
   const { t } = useI18n();
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div className="min-w-[860px]">
-        <div className="grid grid-cols-[minmax(260px,1fr)_100px_100px_100px_100px_84px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 text-[11px] font-semibold text-slate-500">
-          <span>{t("核心配件 / 子系统路径")}</span>
-          <span className="text-right">{t("可用库存")}</span>
-          <span className="text-right">{t("现存数量")}</span>
-          <span className="text-right">{t("在途数量")}</span>
-          <span className="text-right">{t("安全库存")}</span>
-          <span className="text-center">{t("状态")}</span>
-        </div>
-        {items.map(({ material, paths }) => {
-          const tone = inventoryTone(material);
-          const style = TONE_STYLE[tone];
-          return (
-            <div key={material.id} className="grid grid-cols-[minmax(260px,1fr)_100px_100px_100px_100px_84px] items-center gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0">
-              <div className="min-w-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <AutoTranslatedText as="span" text={material.name} className="truncate text-sm font-semibold text-slate-800" />
-                  {preview ? <span className="shrink-0 rounded bg-[#eef3ff] px-1.5 py-0.5 text-[10px] font-semibold text-[#002fa7]">{t("建议")}</span> : null}
-                  <span className="shrink-0 text-[11px] text-slate-400">{material.spec || material.tpInventoryCode}</span>
-                </div>
-                <AutoTranslatedText as="p" text={paths.join("；")} className="mt-0.5 truncate text-[11px] text-slate-400" />
-              </div>
-              <span className={cn("text-right text-sm font-bold tabular-nums", style.value)}>{formatQuantity(material.availableQty)}</span>
-              <span className="text-right text-xs tabular-nums text-slate-600">{formatQuantity(material.stockQty)}</span>
-              <span className="text-right text-xs tabular-nums text-slate-600">{formatQuantity(material.inTransitQty)}</span>
-              <span className="text-right text-xs tabular-nums text-slate-600">{formatQuantity(material.safeStock)}</span>
-              <span className={cn("justify-self-center rounded-full px-2 py-1 text-[11px] font-semibold", style.badge)}>{t(style.label)}</span>
-            </div>
-          );
-        })}
-      </div>
+    <div
+      role="region"
+      aria-label={t("核心配件库存")}
+      tabIndex={0}
+      className="proc-horizon-core-inventory overflow-x-auto rounded-xl border border-slate-200 bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+    >
+      <table className="w-full min-w-[860px] table-fixed border-separate border-spacing-0 text-left">
+        <caption className="sr-only">{t("核心配件库存")}</caption>
+        <colgroup>
+          <col className="w-72" />
+          <col /><col /><col /><col /><col />
+        </colgroup>
+        <thead>
+          <tr className="text-[11px] font-semibold text-slate-500">
+            <th scope="col" className="sticky left-0 z-10 border-b border-r border-slate-200 bg-slate-50 px-4 py-3">{t("核心配件 / 子系统路径")}</th>
+            <th scope="col" className="border-b border-slate-200 bg-slate-50 px-3 py-3 text-right">{t("可用库存")}</th>
+            <th scope="col" className="border-b border-slate-200 bg-slate-50 px-3 py-3 text-right">{t("现存数量")}</th>
+            <th scope="col" className="border-b border-slate-200 bg-slate-50 px-3 py-3 text-right">{t("在途数量")}</th>
+            <th scope="col" className="border-b border-slate-200 bg-slate-50 px-3 py-3 text-right">{t("安全库存")}</th>
+            <th scope="col" className="border-b border-slate-200 bg-slate-50 px-3 py-3 text-center">{t("状态")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map(({ material, paths }) => {
+            const tone = inventoryTone(material);
+            const style = TONE_STYLE[tone];
+            return (
+              <tr key={material.id} className="[&:last-child>td]:border-b-0">
+                <td className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-4 py-3 align-middle">
+                  <div className="flex min-w-0 items-start gap-2" title={material.name}>
+                    <AutoTranslatedText as="span" text={material.name} className="min-w-0 line-clamp-2 break-words text-sm font-semibold text-slate-800" />
+                    {preview ? <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">{t("建议")}</span> : null}
+                  </div>
+                  <p className="mt-0.5 truncate text-[11px] text-slate-500" title={material.spec || material.tpInventoryCode}>{material.spec || material.tpInventoryCode}</p>
+                  <div title={paths.join("；")}>
+                    <AutoTranslatedText as="p" text={paths.join("；")} className="mt-0.5 truncate text-[11px] text-slate-500" />
+                  </div>
+                </td>
+                <td className={cn("border-b border-slate-100 px-3 py-3 text-right text-sm font-bold tabular-nums", style.value)}>{formatQuantity(material.availableQty)}</td>
+                <td className="border-b border-slate-100 px-3 py-3 text-right text-xs tabular-nums text-slate-600">{formatQuantity(material.stockQty)}</td>
+                <td className="border-b border-slate-100 px-3 py-3 text-right text-xs tabular-nums text-slate-600">{formatQuantity(material.inTransitQty)}</td>
+                <td className="border-b border-slate-100 px-3 py-3 text-right text-xs tabular-nums text-slate-600">{formatQuantity(material.safeStock)}</td>
+                <td className="border-b border-slate-100 px-3 py-3 text-center">
+                  <span className={cn("inline-flex rounded-full px-2 py-1 text-[11px] font-semibold", style.badge)}>{t(style.label)}</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -154,7 +173,7 @@ function InventoryFilterBar({
             key={filter.value}
             value={filter.value}
             size="sm"
-            className="h-8 flex-none rounded-lg px-2.5 text-xs font-semibold text-slate-500 data-[state=on]:bg-[#eef3ff] data-[state=on]:text-[#002fa7]"
+            className="h-8 flex-none rounded-lg px-2.5 text-xs font-semibold text-slate-500 data-[state=on]:bg-accent data-[state=on]:text-primary"
           >
             {t(filter.label)}
           </ToggleGroupItem>
@@ -190,7 +209,7 @@ function InventoryPagination({
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
           aria-label={t("上一页")}
-          className="size-7 rounded-lg border-slate-200 text-slate-500 hover:border-[#002fa7]/25 hover:text-[#002fa7]"
+          className="size-7 rounded-lg border-slate-200 text-slate-500 hover:border-primary/25 hover:text-primary"
         >
           <ChevronLeft className="size-4" />
         </Button>
@@ -206,7 +225,7 @@ function InventoryPagination({
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
           aria-label={t("下一页")}
-          className="size-7 rounded-lg border-slate-200 text-slate-500 hover:border-[#002fa7]/25 hover:text-[#002fa7]"
+          className="size-7 rounded-lg border-slate-200 text-slate-500 hover:border-primary/25 hover:text-primary"
         >
           <ChevronRight className="size-4" />
         </Button>
@@ -228,6 +247,7 @@ export function CoreMaterialsPanorama({
   configError,
   canManage,
   onRetryConfig,
+  onBrowseCategories,
   onSave,
 }: {
   productId: string;
@@ -240,6 +260,7 @@ export function CoreMaterialsPanorama({
   configError: string | null;
   canManage: boolean;
   onRetryConfig: () => void;
+  onBrowseCategories?: () => void;
   onSave: (productId: string, materialIds: string[]) => Promise<void>;
 }) {
   const { t } = useI18n();
@@ -423,8 +444,9 @@ export function CoreMaterialsPanorama({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+    <Dialog open={editorOpen} onOpenChange={(open) => { if (!saving) setEditorOpen(open); }}>
+    <div className="proc-horizon-core-panorama flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="proc-horizon-core-header flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-balance text-base font-bold text-slate-900">{t("核心长周期配件")}</h2>
@@ -445,24 +467,25 @@ export function CoreMaterialsPanorama({
             ) : null}
           </div>
           <p className="mt-1 text-pretty text-xs text-slate-500">
-            {t("{product} · 仅展示从子系统叶子物料中选出的核心配件，同一 T+ 物料只计算一次。", { product: productName })}
+            {t("{product} · 仅展示从子系统叶子物料中选出的核心配件，同一 T+ 物料只计算一次。", { product: t(productName) })}
           </p>
         </div>
         {canManage && configured.length > 0 && !configLoading && !configError ? (
-          <button type="button" onClick={() => openEditor()} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs">
-            <Settings2 className="size-3.5" />
-            {t("配置核心配件")}
-          </button>
+          <DialogTrigger asChild>
+            <button type="button" onClick={() => openEditor()} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs">
+              <Settings2 className="size-3.5" />
+              {t("配置核心配件")}
+            </button>
+          </DialogTrigger>
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-5">
+      <div className="proc-horizon-core-body min-h-0 min-w-0 flex-1 overflow-auto p-5">
         {configLoading ? (
           <div className="space-y-2 rounded-xl border border-slate-200 p-4" aria-label={t("正在加载核心配件配置")}>
             {[0, 1, 2].map((item) => (
-              <div key={item} className="grid grid-cols-[minmax(220px,1fr)_100px_100px_100px] gap-3 rounded-lg bg-slate-50 px-3 py-3">
-                <span className="h-4 w-48 animate-pulse rounded bg-slate-200 motion-reduce:animate-none" />
-                <span className="h-4 animate-pulse rounded bg-slate-200 motion-reduce:animate-none" />
+              <div key={item} className="grid grid-cols-4 gap-3 rounded-lg bg-slate-50 px-3 py-3">
+                <span className="col-span-2 h-4 w-full max-w-48 animate-pulse rounded bg-slate-200 motion-reduce:animate-none" />
                 <span className="h-4 animate-pulse rounded bg-slate-200 motion-reduce:animate-none" />
                 <span className="h-4 animate-pulse rounded bg-slate-200 motion-reduce:animate-none" />
               </div>
@@ -474,92 +497,38 @@ export function CoreMaterialsPanorama({
             <p className="text-pretty text-sm font-semibold text-rose-700">{configError}</p>
             <button type="button" onClick={onRetryConfig} className="material-button-secondary mt-4 px-4 py-2 text-sm">{t("重新加载")}</button>
           </div>
-        ) : configured.length === 0 ? (
-          <div className="space-y-4">
-            <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <PackageSearch className="size-5 text-[#002fa7]" />
-                    <h3 className="text-balance text-sm font-bold text-slate-800">{t("当前还没有正式监控项")}</h3>
-                  </div>
-                  <p className="mt-1 max-w-2xl text-pretty text-xs leading-5 text-slate-500">
-                    {t("系统已经找到 {count} 个有真实 T+ 库存的叶子物料。下面先展示领导关注方向的建议项，确认保存后才会成为正式核心配件。", { count: candidates.length })}
+        ) : inventorySource.length === 0 ? (
+          <div className="proc-horizon-core-empty flex flex-wrap items-center gap-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
+            <PackageSearch className="size-8 shrink-0 text-slate-400" aria-hidden="true" />
+            <div className="min-w-0 flex-1 basis-64">
+              <h3 className="text-balance text-sm font-semibold text-slate-800">{t("暂无可展示的核心配件")}</h3>
+              <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">{t("当前产品还没有已关联并同步 T+ 库存的分类物料，可先查看物料分类。")}</p>
+            </div>
+            {onBrowseCategories ? (
+              <Button type="button" variant="outline" onClick={onBrowseCategories} className="shrink-0">{t("查看分类物料")}</Button>
+            ) : null}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {configured.length === 0 ? (
+              <section className="proc-horizon-core-preview flex flex-wrap items-start justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-balance text-sm font-bold text-slate-800">{t(suggestions.length > 0 ? "建议关注项预览" : "可选库存物料")}</h3>
+                  <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">
+                    {t("系统已经找到 {count} 个有真实 T+ 库存的叶子物料。", { count: candidates.length })}
+                    {t(suggestions.length > 0 ? "以下为建议关注项，确认保存后加入监控；这不是自动保存结果。" : "当前还没有正式监控项，可从候选物料中选择核心配件。")}
                   </p>
                 </div>
                 {canManage && previewItems.length > 0 ? (
-                  <button type="button" onClick={() => openEditor(true)} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm">
-                    <Settings2 className="size-4" />
-                    {t("确认建议项")}
-                  </button>
+                  <DialogTrigger asChild>
+                    <button type="button" onClick={() => openEditor(suggestions.length > 0)} className="material-button-primary inline-flex shrink-0 items-center gap-1.5 px-4 py-2 text-sm">
+                      <Settings2 className="size-4" />
+                      {t(suggestions.length > 0 ? "确认建议项" : "选择核心配件")}
+                    </button>
+                  </DialogTrigger>
                 ) : null}
-              </div>
-
-              <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                {[
-                  { step: "1", title: t("系统找数据"), detail: t("仅取当前产品的子系统叶子物料，并要求已同步 T+ 库存。") },
-                  { step: "2", title: t("负责人确认"), detail: t("从建议项中增删，最终保留制作周期长的核心配件，最多 {count} 项。", { count: maxItems }) },
-                  { step: "3", title: t("持续看数量"), detail: t("正式列表持续显示可用、现存、在途、安全库存和异常状态。") },
-                ].map((item) => (
-                  <div key={item.step} className="flex gap-3 rounded-lg border border-slate-200 bg-white p-3">
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#eef3ff] text-xs font-bold tabular-nums text-[#002fa7]">{item.step}</span>
-                    <span className="min-w-0">
-                      <span className="block text-xs font-bold text-slate-700">{item.title}</span>
-                      <span className="mt-0.5 block text-pretty text-[11px] leading-4 text-slate-500">{item.detail}</span>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            {previewItems.length > 0 ? (
-              <section>
-                <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-                  <div>
-                    <h3 className="text-balance text-sm font-bold text-slate-800">{t("建议关注项预览")}</h3>
-                    <p className="mt-0.5 text-pretty text-[11px] text-slate-500">
-                      {t("依据压缩机、主控板、分子筛、电磁阀和动力电芯等关注方向，从真实叶子物料中初步识别；这不是自动保存结果。")}
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-[#eef3ff] px-2 py-1 text-xs font-semibold tabular-nums text-[#002fa7]">{previewItems.length} {t("项待确认")}</span>
-                </div>
-                <div className="space-y-2">
-                  <InventoryFilterBar
-                    search={inventorySearch}
-                    tone={inventoryFilter}
-                    resultCount={filteredInventoryItems.length}
-                    totalCount={inventorySource.length}
-                    onSearchChange={(value) => { setInventorySearch(value); setInventoryPage(1); }}
-                    onToneChange={(value) => { setInventoryFilter(value); setInventoryPage(1); }}
-                  />
-                  {pagedInventoryItems.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <CoreInventoryTable items={pagedInventoryItems} preview />
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                      <p>{t("没有符合当前筛选条件的核心配件")}</p>
-                      {hasInventoryFilters ? <button type="button" onClick={clearInventoryFilters} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("清除筛选")}</button> : null}
-                    </div>
-                  )}
-                  <InventoryPagination
-                    page={currentInventoryPage}
-                    totalPages={inventoryTotalPages}
-                    totalItems={filteredInventoryItems.length}
-                    onPageChange={setInventoryPage}
-                  />
-                </div>
               </section>
-            ) : (
-              <div className="flex min-h-40 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center">
-                <AlertTriangle className="mb-2 size-7 text-amber-400" />
-                <p className="text-sm font-semibold text-slate-600">{t("还没有可预览的库存叶子物料")}</p>
-                <p className="mt-1 text-pretty text-xs text-slate-400">{t("请先完成叶子节点物料关联及 T+ 库存同步。")}</p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-2">
+            ) : null}
             <InventoryFilterBar
               search={inventorySearch}
               tone={inventoryFilter}
@@ -569,12 +538,14 @@ export function CoreMaterialsPanorama({
               onToneChange={(value) => { setInventoryFilter(value); setInventoryPage(1); }}
             />
             {pagedInventoryItems.length > 0 ? (
-              <div className="overflow-x-auto">
+              configured.length === 0 && suggestions.length > 0 ? (
+                <CoreInventoryTable items={pagedInventoryItems} preview />
+              ) : (
                 <CoreInventoryTable items={pagedInventoryItems} />
-              </div>
+              )
             ) : (
               <div className="flex flex-col items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                <p>{t("没有符合当前筛选条件的核心配件")}</p>
+                <p className="text-pretty">{t("没有符合当前筛选条件的核心配件")}</p>
                 {hasInventoryFilters ? <button type="button" onClick={clearInventoryFilters} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("清除筛选")}</button> : null}
               </div>
             )}
@@ -588,35 +559,43 @@ export function CoreMaterialsPanorama({
         )}
       </div>
 
-      <Dialog open={editorOpen} onOpenChange={(open) => { if (!saving) setEditorOpen(open); }}>
-        <DialogContent className="horizon-theme horizon-portal proc-horizon-overlay flex max-h-[85dvh] max-w-3xl flex-col overflow-hidden">
+        <DialogContent className="horizon-theme horizon-portal proc-horizon-overlay proc-horizon-core-config flex flex-col overflow-hidden sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle className="text-balance">{t("配置 {product} 核心配件", { product: productName })}</DialogTitle>
+            <DialogTitle className="text-balance">{t("配置 {product} 核心配件", { product: t(productName) })}</DialogTitle>
             <DialogDescription className="text-pretty">
               {t("候选仅来自当前产品子系统中已关联 T+ 且完成库存同步的叶子物料，最多选择 {count} 项。", { count: maxItems })}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-52 flex-1">
+          <div className="proc-horizon-core-config-body min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain">
+          <div className="proc-horizon-core-config-filters flex flex-wrap items-end gap-2">
+            <label className="min-w-0 flex-1 basis-64 space-y-1 text-xs text-slate-500">
+              <span>{t("搜索")}</span>
+              <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
               <Input
                 value={search}
                 onChange={(event) => { setSearch(event.target.value); setConfigPage(1); }}
                 aria-label={t("搜索核心配件候选")}
                 placeholder={t("搜索配件名称、规格、编码或子系统")}
-                className="h-9 pl-9 text-xs"
+                className="h-10 pl-9 text-xs"
               />
-            </div>
+              </div>
+            </label>
+            <div className="min-w-0 flex-1 basis-32 space-y-1 text-xs text-slate-500">
+              <span>{t("子系统")}</span>
             <Select value={configSystem} onValueChange={(value) => { setConfigSystem(value); setConfigPage(1); }}>
-              <SelectTrigger aria-label={t("按子系统筛选")} className="h-9 w-40 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label={t("按子系统筛选")} className="h-10 w-full text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t("全部子系统")}</SelectItem>
-                {configSystems.map((system) => <SelectItem key={system} value={system}>{system}</SelectItem>)}
+                {configSystems.map((system) => <SelectItem key={system} value={system}>{t(system)}</SelectItem>)}
               </SelectContent>
             </Select>
+            </div>
+            <div className="min-w-0 flex-1 basis-32 space-y-1 text-xs text-slate-500">
+              <span>{t("库存状态")}</span>
             <Select value={configTone} onValueChange={(value) => { setConfigTone(value as InventoryFilter); setConfigPage(1); }}>
-              <SelectTrigger aria-label={t("按库存状态筛选")} className="h-9 w-28 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label={t("按库存状态筛选")} className="h-10 w-full text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t("全部状态")}</SelectItem>
                 <SelectItem value="shortage">{t("缺货")}</SelectItem>
@@ -624,6 +603,7 @@ export function CoreMaterialsPanorama({
                 <SelectItem value="normal">{t("正常")}</SelectItem>
               </SelectContent>
             </Select>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -649,23 +629,27 @@ export function CoreMaterialsPanorama({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-slate-200">
+          <div className="rounded-xl border border-slate-200">
             {configRows.map(({ material, paths }) => {
               const checked = selectedIdSet.has(material.id);
               const tone = inventoryTone(material);
               const style = TONE_STYLE[tone];
               return (
-                <label key={material.id} className="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0 hover:bg-slate-50">
-                  <Checkbox checked={checked} onCheckedChange={(value) => toggleMaterial(material.id, value === true)} />
+                <label key={material.id} className="proc-horizon-core-config-row flex cursor-pointer items-start gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0 hover:bg-slate-50">
+                  <Checkbox checked={checked} onCheckedChange={(value) => toggleMaterial(material.id, value === true)} className="mt-0.5 shrink-0" />
                   <span className="min-w-0 flex-1">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <AutoTranslatedText as="span" text={material.name} className="truncate text-sm font-semibold text-slate-800" />
-                      <span className="shrink-0 text-[11px] text-slate-400">{material.spec || material.tpInventoryCode}</span>
+                    <span className="block min-w-0" title={material.name}>
+                      <AutoTranslatedText as="span" text={material.name} className="line-clamp-2 break-words text-sm font-semibold text-slate-800" />
                     </span>
-                    <AutoTranslatedText as="span" text={paths.join("；")} className="block truncate text-[11px] text-slate-400" />
+                    <span className="mt-0.5 block truncate text-[11px] text-slate-500" title={material.spec || material.tpInventoryCode}>{material.spec || material.tpInventoryCode}</span>
+                    <span className="block" title={paths.join("；")}>
+                      <AutoTranslatedText as="span" text={paths.join("；")} className="block truncate text-[11px] text-slate-500" />
+                    </span>
                   </span>
-                  <span className={cn("shrink-0 text-xs font-bold tabular-nums", style.value)}>{t("可用")} {formatQuantity(material.availableQty)}</span>
-                  <span className={cn("shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold", style.badge)}>{t(style.label)}</span>
+                  <span className="flex shrink-0 flex-col items-end gap-1">
+                    <span className={cn("text-xs font-bold tabular-nums", style.value)}>{t("可用")} {formatQuantity(material.availableQty)}</span>
+                    <span className={cn("rounded-full px-2 py-1 text-[11px] font-semibold", style.badge)}>{t(style.label)}</span>
+                  </span>
                 </label>
               );
             })}
@@ -691,16 +675,18 @@ export function CoreMaterialsPanorama({
             onPageChange={setConfigPage}
           />
 
-          {saveError ? <p role="alert" className="text-pretty text-xs text-rose-600">{saveError}</p> : null}
+          </div>
 
-          <DialogFooter>
+          {saveError ? <p role="alert" className="shrink-0 text-pretty text-xs text-rose-600">{saveError}</p> : null}
+
+          <DialogFooter className="border-t border-slate-100 pt-3">
             <button type="button" onClick={() => setEditorOpen(false)} disabled={saving} className="material-button-secondary px-4 py-2 text-sm">{t("取消")}</button>
             <button type="button" onClick={() => void saveConfig()} disabled={saving} className="material-button-primary px-4 py-2 text-sm disabled:cursor-wait disabled:opacity-60">
               {saving ? t("保存中…") : t("保存配置")}
             </button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
     </div>
+    </Dialog>
   );
 }

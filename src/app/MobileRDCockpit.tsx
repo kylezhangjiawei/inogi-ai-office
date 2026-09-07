@@ -333,7 +333,7 @@ function MobileFeedCard({
         }
       }}
       className={cn(
-        "block min-w-0 w-full cursor-pointer overflow-hidden rounded-2xl border bg-white text-left shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2",
+        "block min-w-0 w-full cursor-pointer overflow-hidden rounded-2xl border bg-white text-left shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
         isRisk ? "border-red-200" : "border-slate-200/70",
       )}
     >
@@ -382,13 +382,13 @@ function MobileFeedCard({
 
 
       {/* 标题 */}
-      <h3 className="px-3 pt-2.5 text-[14px] font-semibold leading-snug text-slate-900 line-clamp-3 break-words">
+      <h3 className="px-3 pt-2.5 text-balance text-sm font-semibold leading-6 text-slate-900 line-clamp-3 break-words">
         {task.title}
       </h3>
 
       {/* 最新进展（部分任务有 → 制造瀑布高度差）*/}
       {summary && (
-        <p className="px-3 pt-1.5 text-[12px] leading-relaxed text-slate-400 line-clamp-2 break-words">
+        <p className="px-3 pt-1.5 text-pretty text-xs leading-5 text-slate-500 line-clamp-2 break-words">
           {summary}
         </p>
       )}
@@ -402,7 +402,7 @@ function MobileFeedCard({
             onPreview(cover, coverThumbnails, 0);
           }}
           aria-label="预览附件图片"
-          className="mt-2.5 block min-h-11 w-full px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]"
+          className="mt-2.5 block min-h-11 w-full px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
         >
           <div className="relative overflow-hidden rounded-xl bg-slate-100">
             <img
@@ -410,7 +410,7 @@ function MobileFeedCard({
               alt="附件封面"
               loading={priority ? "eager" : "lazy"}
               decoding="async"
-              className="aspect-[4/3] w-full object-cover"
+              className="aspect-[4/3] max-h-40 w-full object-cover"
             />
             {cover.length > 1 && (
               <span className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-slate-900/80 px-1.5 py-0.5 text-[10px] font-semibold text-white">
@@ -443,7 +443,7 @@ function MobileFeedCard({
       {/* 负责人行（小红书作者行）+ 最近活动时间 */}
       <div className="mt-2.5 border-t border-slate-100 px-3 py-2.5">
         <div className="flex items-center gap-1.5">
-          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[10px] font-bold text-[#002fa7]">
+          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-primary">
             {ownerInitial(owner)}
           </span>
           <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-500">{owner}</span>
@@ -703,7 +703,7 @@ export function MobileRDCockpit() {
   if (loading && allTasks.length === 0) {
     return (
       <div
-        className="horizon-theme hz-page flex min-h-[70dvh] min-w-0 w-full flex-col overflow-x-clip bg-slate-50 px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-4"
+        className="horizon-theme hz-page flex min-h-[70dvh] min-w-0 w-full flex-col overflow-x-clip bg-background px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-4"
         role="status"
         aria-live="polite"
         aria-busy="true"
@@ -713,7 +713,7 @@ export function MobileRDCockpit() {
           <div className="mt-3 h-6 w-44 rounded bg-slate-200" />
           <div className="mt-2 h-3 w-full max-w-72 rounded bg-slate-100" />
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-3" aria-hidden="true">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2" aria-hidden="true">
           {[0, 1, 2, 3].map((item) => (
             <div key={item} className="h-44 rounded-2xl border border-slate-200 bg-white shadow-sm" />
           ))}
@@ -724,7 +724,7 @@ export function MobileRDCockpit() {
   }
   if (error && allTasks.length === 0) {
     return (
-      <div className="horizon-theme hz-page flex min-h-[70dvh] min-w-0 w-full flex-col items-center justify-center gap-4 overflow-x-clip bg-slate-50 px-8 pb-[max(2.5rem,env(safe-area-inset-bottom))] text-center" role="alert">
+      <div className="horizon-theme hz-page flex min-h-[70dvh] min-w-0 w-full flex-col items-center justify-center gap-4 overflow-x-clip bg-background px-8 pb-[max(2.5rem,env(safe-area-inset-bottom))] text-center" role="alert">
         <AlertTriangle className="text-red-400" size={30} />
         <div>
           <h1 className="text-balance text-base font-semibold text-slate-950">{t("驾驶舱加载失败")}</h1>
@@ -733,7 +733,7 @@ export function MobileRDCockpit() {
         <button
           type="button"
           onClick={reload}
-          className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#002fa7] px-7 text-sm font-semibold text-white active:bg-[#00247f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
+          className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-7 text-sm font-semibold text-white active:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
         >
           {t("重试")}
         </button>
@@ -742,9 +742,9 @@ export function MobileRDCockpit() {
   }
 
   return (
-    <div className="horizon-theme hz-page min-h-[70dvh] min-w-0 w-full overflow-x-clip bg-slate-50 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+    <div className="horizon-theme hz-page min-h-[70dvh] min-w-0 w-full overflow-x-clip bg-background pb-[max(2.5rem,env(safe-area-inset-bottom))]">
       <header className="border-b border-slate-200 bg-white px-4 py-4" aria-labelledby="mobile-rd-cockpit-title">
-        <p className="text-[11px] font-semibold text-[#002fa7]">{workspaceMeta.eyebrow}</p>
+        <p className="text-[11px] font-semibold text-primary">{workspaceMeta.eyebrow}</p>
         <div className="mt-1 flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 id="mobile-rd-cockpit-title" className="text-balance text-lg font-semibold leading-6 text-slate-950">
@@ -752,8 +752,8 @@ export function MobileRDCockpit() {
             </h1>
             <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">{workspaceMeta.description}</p>
           </div>
-          <div className="shrink-0 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-right">
-            <div className="text-lg font-semibold leading-none tabular-nums text-[#002fa7]">{activeCount}</div>
+          <div className="shrink-0 rounded-xl border border-primary/10 bg-accent px-3 py-2 text-right">
+            <div className="text-lg font-semibold leading-none tabular-nums text-primary">{activeCount}</div>
             <div className="mt-1 text-[10px] font-medium text-slate-500">{t("当前任务")}</div>
           </div>
         </div>
@@ -770,9 +770,9 @@ export function MobileRDCockpit() {
               onClick={() => pickStatus(f.key)}
               aria-pressed={filter === f.key}
               className={cn(
-                "min-h-11 min-w-0 whitespace-nowrap rounded-xl px-1 text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-1 sm:shrink-0 sm:px-3.5 sm:text-[13px]",
+                "min-h-11 min-w-0 whitespace-nowrap rounded-xl px-1 text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 sm:shrink-0 sm:px-3.5 sm:text-[13px]",
                 filter === f.key
-                  ? "bg-[#002fa7] text-white shadow-sm"
+                  ? "bg-primary text-white shadow-sm"
                   : "bg-white text-slate-500 ring-1 ring-slate-200/70 active:bg-slate-50",
               )}
             >
@@ -794,14 +794,14 @@ export function MobileRDCockpit() {
               onChange={(event) => setKeyword(event.target.value)}
               placeholder={t("搜索任务、编号、负责人、路径")}
               aria-label={t("搜索任务")}
-              className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-9 pr-12 text-[13px] text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-[#002fa7] focus:ring-2 focus:ring-blue-100 [&::-webkit-search-cancel-button]:hidden"
+              className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-9 pr-12 text-[13px] text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20 [&::-webkit-search-cancel-button]:hidden"
             />
             {keyword && (
               <button
                 type="button"
                 onClick={() => setKeyword("")}
                 aria-label={t("清空搜索")}
-                className="absolute right-0 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-xl text-slate-400 active:bg-slate-100 active:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]"
+                className="absolute right-0 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-xl text-slate-400 active:bg-slate-100 active:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
               >
                 <X size={14} />
               </button>
@@ -817,8 +817,8 @@ export function MobileRDCockpit() {
               onClick={() => pickPerson(null)}
               aria-pressed={person === null}
               className={cn(
-                "flex min-h-11 shrink-0 items-center gap-1 rounded-xl px-3 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-1",
-                person === null ? "bg-[#002fa7] text-white" : "bg-white text-slate-500 ring-1 ring-slate-200/70",
+                "flex min-h-11 shrink-0 items-center gap-1 rounded-xl px-3 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1",
+                person === null ? "bg-primary text-white" : "bg-white text-slate-500 ring-1 ring-slate-200/70",
               )}
             >
               <Users size={13} />
@@ -841,14 +841,14 @@ export function MobileRDCockpit() {
                   onClick={() => pickPerson(o.key)}
                   aria-pressed={active}
                   className={cn(
-                    "flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl py-1 pl-1.5 pr-2.5 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-1",
-                    active ? "bg-[#002fa7] text-white" : "bg-white text-slate-600 ring-1 ring-slate-200/70",
+                    "flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl py-1 pl-1.5 pr-2.5 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1",
+                    active ? "bg-primary text-white" : "bg-white text-slate-600 ring-1 ring-slate-200/70",
                   )}
                 >
                   <span
                     className={cn(
                       "flex size-7 items-center justify-center rounded-lg text-[10px] font-bold",
-                      active ? "bg-white/15 text-white" : "bg-blue-50 text-[#002fa7]",
+                      active ? "bg-white/15 text-white" : "bg-accent text-primary",
                     )}
                   >
                     {ownerInitial(o.name)}
@@ -872,7 +872,7 @@ export function MobileRDCockpit() {
             onClick={reload}
             disabled={loading}
             aria-label={t("刷新")}
-            className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white text-[#002fa7] ring-1 ring-slate-200 active:bg-blue-50 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-1"
+            className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white text-primary ring-1 ring-slate-200 active:bg-accent disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
           >
             <RefreshCw size={14} className={loading ? "animate-spin motion-reduce:animate-none" : ""} />
           </button>
@@ -909,32 +909,27 @@ export function MobileRDCockpit() {
             <button
               type="button"
               onClick={allTasks.length > 0 ? resetFilters : reload}
-              className="mt-1 inline-flex min-h-11 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 text-xs font-semibold text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
+              className="mt-1 inline-flex min-h-11 items-center justify-center rounded-xl border border-primary/20 bg-accent px-4 text-xs font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               {allTasks.length > 0 ? t("清除筛选") : t("重新加载")}
             </button>
           </div>
         ) : (
-          // 双列瀑布流：两列各自独立堆叠（非 grid 刚性行对齐），带附件封面的高卡片只撑长
-          // 自己那列，不会把同行邻格顶出大片空白。轮转分列(i%2)保证「最新优先」顺排稳定。
-          <div className="flex items-start gap-3">
-            {[0, 1].map((col) => (
-              <div key={col} className="flex min-w-0 flex-1 flex-col gap-3">
-                {shownTasks.filter((_, i) => i % 2 === col).map((t, columnIndex) => (
-                  <MobileFeedCard
-                    key={t.task_id}
-                    task={t}
-                    isRisk={riskTaskIds.has(t.task_id)}
-                    priority={columnIndex === 0}
-                    onOpen={() => openTask(t)}
-                    onPreview={(images, thumbnails, index) => {
-                      pushMobileOverlayState(CARD_IMAGE_OVERLAY);
-                      setLightbox({ images, thumbnails, index });
-                    }}
-                    unreadCount={noteUnread[t.task_id] ?? 0}
-                  />
-                ))}
-              </div>
+          // 手机按时间顺序单列阅读；宽度足够的平板再并排，长任务名有完整阅读空间。
+          <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2">
+            {shownTasks.map((task, index) => (
+              <MobileFeedCard
+                key={task.task_id}
+                task={task}
+                isRisk={riskTaskIds.has(task.task_id)}
+                priority={index < 2}
+                onOpen={() => openTask(task)}
+                onPreview={(images, thumbnails, imageIndex) => {
+                  pushMobileOverlayState(CARD_IMAGE_OVERLAY);
+                  setLightbox({ images, thumbnails, index: imageIndex });
+                }}
+                unreadCount={noteUnread[task.task_id] ?? 0}
+              />
             ))}
           </div>
         )}
@@ -984,7 +979,7 @@ function MissingTaskDialog({ taskId, onClose }: { taskId: string; onClose: () =>
   return (
     <div
       ref={dialogRef}
-      className="horizon-theme fixed inset-0 z-40 flex h-dvh min-w-0 flex-col items-center justify-center gap-4 overflow-x-hidden bg-slate-50 px-8 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] text-center"
+      className="horizon-theme fixed inset-0 z-40 flex h-dvh min-w-0 flex-col items-center justify-center gap-4 overflow-x-hidden bg-background px-8 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] text-center"
       role="dialog"
       aria-modal="true"
       aria-labelledby="rd-mobile-missing-task-title"
@@ -1004,7 +999,7 @@ function MissingTaskDialog({ taskId, onClose }: { taskId: string; onClose: () =>
         type="button"
         onClick={onClose}
         data-dialog-autofocus
-        className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#002fa7] px-6 text-sm font-semibold text-white active:bg-[#00247f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
+        className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-6 text-sm font-semibold text-white active:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
       >
         {t("返回驾驶舱")}
       </button>
@@ -1110,7 +1105,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
   return (
     <div
       ref={dialogRef}
-      className="horizon-theme fixed inset-0 z-40 flex h-dvh min-w-0 flex-col overflow-x-hidden overscroll-none bg-slate-50"
+      className="horizon-theme fixed inset-0 z-40 flex h-dvh min-w-0 flex-col overflow-x-hidden overscroll-none bg-background"
       role="dialog"
       aria-modal="true"
       aria-labelledby="rd-mobile-task-detail-title"
@@ -1123,7 +1118,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
           onClick={onClose}
           aria-label="返回"
           data-dialog-autofocus
-          className="flex size-11 shrink-0 items-center justify-center rounded-xl text-slate-500 active:bg-blue-50 active:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]"
+          className="flex size-11 shrink-0 items-center justify-center rounded-xl text-slate-500 active:bg-accent active:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <ArrowLeft size={20} />
         </button>
@@ -1162,8 +1157,8 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
               onClick={() => setDetailTab(item.key)}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]",
-                active ? "bg-blue-50 text-[#002fa7]" : "text-slate-500 active:bg-slate-50",
+                "flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+                active ? "bg-accent text-primary" : "text-slate-500 active:bg-slate-50",
               )}
             >
               <Icon size={14} />
@@ -1230,7 +1225,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
               {t("任务成员")}
             </div>
             <div className="flex flex-wrap gap-2">
-              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-[#002fa7]">
+              <span className="rounded-full bg-accent px-2.5 py-1 text-xs font-bold text-primary">
                 {t("主责")} · {owner}
               </span>
               {(task.collaborators ?? []).map((collaborator) => (
@@ -1281,8 +1276,8 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
                     onClick={() => onOpenTask(groupTask.task_id)}
                     disabled={groupTask.task_id === task.task_id}
                     className={cn(
-                      "flex min-h-11 w-full items-start gap-2 rounded-xl px-2.5 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7] disabled:cursor-default",
-                      groupTask.task_id === task.task_id ? "bg-blue-50" : "bg-slate-50 active:bg-slate-100",
+                      "flex min-h-11 w-full items-start gap-2 rounded-xl px-2.5 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:cursor-default",
+                      groupTask.task_id === task.task_id ? "bg-accent" : "bg-slate-50 active:bg-slate-100",
                     )}
                   >
                     <span className="mt-0.5 shrink-0 text-[10px] font-bold text-slate-400">{groupTask.note_count}</span>

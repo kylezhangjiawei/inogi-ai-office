@@ -1,8 +1,8 @@
 // 供应商报价库：树形维护同一商品跨厂家的报价与起订量阶梯价（商品行 → 厂家子行 chips）。
 // 商品即物料（复用物料主数据），历史采购价格复用 PriceHistoryModal 跨任务聚合。
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../components/ui/input";
-import { AlertTriangle, BadgeCheck, ChevronDown, ChevronRight, CircleDollarSign, Clock, Download, FileSpreadsheet, History, PackageSearch, Pencil, Plus, Search, Store, Trash2, Upload, Users } from "lucide-react";
+import { AlertTriangle, BadgeCheck, ChevronDown, ChevronRight, CircleDollarSign, Clock, Download, FileSpreadsheet, History, PackageSearch, Pencil, Plus, Search, Trash2, Upload, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../components/ui/utils";
 import { useI18n } from "../lib/i18n";
@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 import { Button } from "../components/ui/button";
 import { Pagination, PaginationContent, PaginationItem } from "../components/ui/pagination";
-import { ImageLightbox, PageHeader, useConfirmDialog, useProcCan } from "./components/common";
+import { ImageLightbox, useConfirmDialog, useProcCan } from "./components/common";
 import { PriceHistoryModal } from "./components/PriceHistoryModal";
 import { QuoteFormDrawer } from "./components/QuoteFormDrawer";
 import { QuoteImportModal } from "./components/QuoteImportModal";
@@ -74,19 +74,19 @@ function TierChips({ quote, bestPrice, today }: { quote: SupplierQuote; bestPric
   const expired = isExpired(quote, today);
   return (
     <div className="flex flex-wrap items-center gap-1">
-      {quote.tiers.map((tier) => {
+      {quote.tiers.map((tier, index) => {
         const isBest = !expired && bestPrice != null && tier.unitPrice === bestPrice;
         return (
           <span
-            key={tier.minQty}
+            key={`${tier.minQty}:${index}`}
             className={cn(
-              "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] tabular-nums",
+              "inline-flex max-w-full flex-wrap items-center gap-1 rounded-md border px-2 py-1 text-[11px] tabular-nums",
               isBest ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600",
-              expired && "opacity-50",
+              expired && "border-dashed",
             )}
           >
-            <span className="text-slate-400">{tier.minQty > 0 ? `≥ ${fmtMinQty(tier.minQty)}` : t("不限起订")}</span>
-            <span className="font-semibold">{fmtQuotePrice(tier.unitPrice, quote.currency)}</span>
+            <span className="min-w-0 break-words text-slate-500">{tier.minQty > 0 ? `≥ ${fmtMinQty(tier.minQty)}` : t("不限起订")}</span>
+            <span className="min-w-0 break-all font-semibold">{fmtQuotePrice(tier.unitPrice, quote.currency)}</span>
             {isBest && <span className="inline-flex items-center gap-0.5 font-medium"><BadgeCheck className="size-3" />{t("最优")}</span>}
           </span>
         );
@@ -109,12 +109,15 @@ export function QuoteBookPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
   const [category, setCategory] = useState("");
   // 默认只显示已有报价的商品：物料主数据（T+ 同步）有数千条，全列出会淹没报价库主视角
   const [showAll, setShowAll] = useState(false);
   const [onlyExpired, setOnlyExpired] = useState(false);
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [searchExpansion, setSearchExpansion] = useState<{ keyword: string; collapsed: Set<string> }>({ keyword: "", collapsed: new Set() });
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   // 抽屉：material 必有；quote 有则编辑、无则新增
@@ -237,10 +240,19 @@ export function QuoteBookPage() {
   // 物料量在千级，树形表按商品行分页；筛选事件就地重置页码，避免额外同步 effect。
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageSafe = Math.min(page, totalPages);
+  if (page !== pageSafe) setPage(pageSafe);
+  useLayoutEffect(() => {
+    if (tableScrollRef.current) tableScrollRef.current.scrollTop = 0;
+  }, [pageSafe, search, category, showAll, onlyExpired]);
+  const clearFilters = () => {
+    setSearch(""); setCategory(""); setOnlyExpired(false); setPage(1);
+    searchRef.current?.focus();
+  };
   const pageRows = filtered.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
 
   // 按厂家名/厂家型号搜索时命中行自动展开，否则用户看不到命中的子行；仅商品名命中不强制展开
   const kw = search.trim().toLowerCase();
+  if (searchExpansion.keyword !== kw) setSearchExpansion({ keyword: kw, collapsed: new Set() });
   const hitsSupplier = (row: QuoteBookRow) =>
     kw.length > 0 &&
     row.quotes.some((q) => q.supplierName.toLowerCase().includes(kw) || q.supplierModel.toLowerCase().includes(kw));
@@ -275,14 +287,10 @@ export function QuoteBookPage() {
   const quotedCount = quoteSummary.quoted;
 
   return (
-    <div className="proc-horizon mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col p-4">
-      <PageHeader
-        Icon={Store}
-        badge={t("供应链管理")}
-        title={t("供应商报价库")}
-        description={t("同一商品跨厂家比较阶梯价、交期与有效期；仅有效报价参与最优价计算。")}
-        right={
-          <div className="flex flex-wrap items-center gap-2">
+    <div className="proc-horizon proc-quote-book mx-auto flex min-h-full w-full max-w-[1600px] flex-col pb-4">
+      <section className="proc-horizon-surface proc-quote-command material-card mb-3 grid shrink-0 items-center gap-3 px-4 py-3">
+        <p className="min-w-0 text-pretty text-xs leading-5 text-slate-500">{t("同一商品跨厂家比较阶梯价、交期与有效期；仅有效报价参与最优价计算。")}</p>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
             {can("proc-task:create") && (
               <button type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
                 <Plus className="h-4 w-4" />{t("新增商品")}
@@ -306,51 +314,53 @@ export function QuoteBookPage() {
               <Download className="h-4 w-4" />{t("导出")}
             </button>
             {canWrite && (
-              <button type="button" onClick={() => void downloadQuoteBookTemplate()} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
+              <button type="button" onClick={() => void downloadQuoteBookTemplate().catch((err: unknown) => toast.error(err instanceof Error ? err.message : t("下载失败")))} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
                 <FileSpreadsheet className="h-4 w-4" />{t("下载模板")}
               </button>
             )}
-          </div>
-        }
-      />
+        </div>
+      </section>
 
-      <div className="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="proc-quote-metrics mb-3 grid shrink-0 grid-cols-2 gap-2">
         {[
           { icon: CircleDollarSign, label: t("已报价商品"), value: quoteSummary.quoted, detail: t("可进入供应商比价") },
           { icon: Users, label: t("有效供应商报价"), value: quoteSummary.activeSuppliers, detail: t("当前参与最优价计算") },
           { icon: Clock, label: t("30 天内到期"), value: quoteSummary.expiringQuotes, detail: t("另有 {count} 条已过期", { count: quoteSummary.expiredQuotes }), risk: quoteSummary.expiringQuotes > 0 || quoteSummary.expiredQuotes > 0 },
-          { icon: PackageSearch, label: t("缺报价商品"), value: quoteSummary.missing, detail: t("全量物料中的待补项"), risk: quoteSummary.missing > 0 },
+          { icon: PackageSearch, label: t("缺报价商品"), value: quoteSummary.missing, detail: t("全量物料中的待补项") },
         ].map((item) => (
           <div key={item.label} className="proc-horizon-surface material-card flex min-w-0 items-center gap-3 px-3 py-2.5">
-            <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", item.risk ? "bg-amber-50 text-amber-700" : "bg-[#eef3ff] text-[#002fa7]")}>
+            <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", item.risk ? "bg-amber-50 text-amber-700" : "bg-accent text-primary")}>
               <item.icon className="size-4" />
             </span>
-            <div className="min-w-0">
-              <div className="flex items-baseline gap-2">
-                <span className="truncate text-xs font-medium text-slate-500">{item.label}</span>
-                <strong className="shrink-0 text-lg tabular-nums text-slate-900">{item.value}</strong>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+                <span className="text-pretty text-xs font-medium leading-5 text-slate-500">{item.label}</span>
+                <strong className="shrink-0 text-lg tabular-nums text-slate-900">{loading || error ? "—" : item.value.toLocaleString()}</strong>
               </div>
-              <p className="truncate text-[11px] text-slate-400" title={item.detail}>{item.detail}</p>
+              <p className="text-pretty text-[11px] leading-4 text-slate-500" title={item.detail}>{item.detail}</p>
             </div>
           </div>
         ))}
       </div>
 
       {/* 工具条：搜索 + 分类 + 缺报价/过期过滤 */}
-      <div className="proc-horizon-surface material-card mb-3 flex flex-wrap items-center gap-3 px-4 py-3">
-        <div className="relative">
+      <div className="proc-horizon-surface material-card mb-3 shrink-0 space-y-3 px-4 py-3">
+        <div className="proc-quote-search-fields grid min-w-0 gap-3">
+        <div className="relative min-w-0">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <Input
+            ref={searchRef}
             aria-label={t("搜索供应商报价")}
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             placeholder={t("搜索型号 / 规格 / 厂家")}
-            className="w-64 rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm outline-none focus:border-[#8fa9e8]"
+            className="w-full min-w-0 rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-10 text-sm outline-none focus:border-primary/40"
           />
+          {search && <button type="button" aria-label={t("清空搜索")} onClick={() => { setSearch(""); setPage(1); searchRef.current?.focus(); }} className="absolute right-0.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"><X className="size-4" /></button>}
         </div>
         {/* "all" 哨兵：Radix SelectItem 不允许空字符串 value，全站同款约定 */}
         <Select value={category || "all"} onValueChange={(v) => { setCategory(v === "all" ? "" : v); setPage(1); }}>
-          <SelectTrigger aria-label={t("筛选商品分类")} className="h-9 w-44 rounded-lg border-slate-200 bg-white text-sm text-slate-600">
+          <SelectTrigger aria-label={t("筛选商品分类")} className="h-9 w-full min-w-0 rounded-lg border-slate-200 bg-white text-sm text-slate-600">
             <SelectValue placeholder={t("全部分类")} />
           </SelectTrigger>
           <SelectContent>
@@ -358,69 +368,85 @@ export function QuoteBookPage() {
             {categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
           </SelectContent>
         </Select>
-        <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-slate-600">
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 pt-3">
+        <label className="inline-flex min-w-0 cursor-pointer items-center gap-2 text-sm leading-5 text-slate-600">
           <Checkbox checked={showAll} onCheckedChange={(v) => { setShowAll(v === true); setPage(1); }} />
           {t("显示全部商品（含未报价）")}
         </label>
-        <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-slate-600">
+        <label className="inline-flex min-w-0 cursor-pointer items-center gap-2 text-sm leading-5 text-slate-600">
           <Checkbox checked={onlyExpired} onCheckedChange={(v) => { setOnlyExpired(v === true); setPage(1); }} />
           {t("只看已过期")}
         </label>
-        <span aria-live="polite" className="ml-auto text-xs tabular-nums text-slate-400">
-          {t("共 {total} 个商品，{quoted} 个已有报价", { total: rows.length, quoted: quotedCount })}
+        <span aria-live="polite" className="ml-auto text-pretty text-xs leading-5 tabular-nums text-slate-400">
+          {loading ? t("加载中") : t("匹配 {count} 个商品", { count: filtered.length.toLocaleString() })}
         </span>
+        {(search.trim() || category || onlyExpired) && <button type="button" onClick={clearFilters} className="text-xs font-medium text-primary hover:underline">{t("清除筛选")}</button>}
+        </div>
       </div>
 
       {/* 树形表：商品行（可展开）→ 厂家子行（阶梯 chips） */}
       {error ? (
-        <div className="material-card flex flex-col items-center gap-3 py-12 text-center text-sm text-rose-600">
-          <span>{error}</span>
+        <div role="alert" className="material-card flex shrink-0 flex-col items-center gap-3 px-6 py-12 text-center text-sm text-rose-600">
+          <span className="max-w-full break-words">{error}</span>
           <button type="button" onClick={reload} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</button>
         </div>
       ) : loading ? (
-        <div className="material-card py-12 text-center text-sm text-slate-400">{t("加载中")}…</div>
+        <div role="status" className="material-card shrink-0 px-6 py-12 text-center text-sm text-slate-400">{t("加载中")}…</div>
       ) : (
-        /* 卡片占满剩余高度：表格区内部滚动，分页条固定在卡片底部（对齐物料库表格布局） */
-        <div className="proc-horizon-surface material-card flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="proc-horizon-quote-scroll min-h-0 flex-1 overflow-auto">
-          <table className="min-w-[1280px] w-full text-sm">
+        /* 表格有独立可用高度；短窗口由外层页面滚动，分页保留在表格卡片底部。 */
+        <div className={cn("proc-horizon-surface proc-quote-results material-card flex flex-col overflow-hidden", pageRows.length === 0 && "proc-quote-results-empty")}>
+          {pageRows.length === 0 ? (
+            <div className="flex min-h-48 flex-1 flex-col overflow-y-auto px-6 py-6 text-center">
+              {!showAll && !search.trim() && !category && !onlyExpired && quotedCount === 0 ? (
+                <div className="mx-auto my-auto flex w-full max-w-md shrink-0 flex-col items-center gap-3">
+                  <PackageSearch className="size-8 text-slate-300" aria-hidden="true" />
+                  <span className="text-pretty text-sm leading-6 text-slate-500">{t("报价库还是空的：导入业务报价表，或搜索商品逐条添加厂家报价")}</span>
+                  {canWrite && (
+                    <button type="button" onClick={() => setImportOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm">
+                      <Upload className="h-4 w-4" />{t("批量导入报价")}
+                    </button>
+                  )}
+                  <button type="button" onClick={() => { setShowAll(true); setPage(1); }} className="text-xs leading-5 text-primary hover:underline">{t("或显示全部商品（含未报价）")}</button>
+                </div>
+              ) : (
+                <div className="mx-auto my-auto flex w-full max-w-md shrink-0 flex-col items-center gap-3">
+                  <PackageSearch className="size-8 text-slate-300" aria-hidden="true" />
+                  <span className="text-sm text-slate-500">{t("没有匹配的商品")}</span>
+                  <button type="button" onClick={clearFilters} className="material-button-secondary px-3 py-2 text-xs">{t("清除筛选")}</button>
+                </div>
+              )}
+            </div>
+          ) : (
+          <div ref={tableScrollRef} role="region" aria-label={t("供应商报价对比表")} tabIndex={0} className="proc-horizon-quote-scroll min-h-0 flex-1 overflow-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40">
+          <table className="proc-quote-table w-full min-w-[1280px] table-fixed text-sm">
             <caption className="sr-only">{t("供应商报价对比表")}</caption>
-            <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs text-slate-500">
+            <colgroup>
+              <col style={{ width: 272 }} />
+              <col style={{ width: 144 }} />
+              <col style={{ width: 208 }} />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 184 }} />
+              <col style={{ width: 168 }} />
+              <col style={{ width: 144 }} />
+            </colgroup>
+            <thead className="text-left text-xs text-slate-500">
               <tr>
-                <th className="px-4 py-2.5 font-medium">{t("商品 / 供应商")}</th>
-                <th className="px-3 py-2.5 font-medium">{t("分类 / 厂家型号")}</th>
-                <th className="px-3 py-2.5 font-medium">{t("单位 / 阶梯报价")}</th>
-                <th className="px-3 py-2.5 font-medium">{t("当前最优 / 交期")}</th>
-                <th className="px-3 py-2.5 font-medium">{t("最近采购 / 条款")}</th>
-                <th className="px-3 py-2.5 font-medium">{t("报价状态")}</th>
-                <th className="px-3 py-2.5 text-right font-medium">{t("操作")}</th>
+                <th scope="col" className="proc-quote-identity px-4 py-2.5 font-medium">{t("商品 / 供应商")}</th>
+                <th scope="col" className="px-3 py-2.5 font-medium">{t("分类 / 厂家型号")}</th>
+                <th scope="col" className="px-3 py-2.5 font-medium">{t("单位 / 阶梯报价")}</th>
+                <th scope="col" className="px-3 py-2.5 font-medium">{t("当前最优 / 交期")}</th>
+                <th scope="col" className="px-3 py-2.5 font-medium">{t("最近采购 / 条款")}</th>
+                <th scope="col" className="px-3 py-2.5 font-medium">{t("报价状态")}</th>
+                <th scope="col" className="proc-quote-actions px-3 py-2.5 text-right font-medium">{t("操作")}</th>
               </tr>
             </thead>
             <tbody>
-              {pageRows.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-14 text-center">
-                    {!showAll && !search.trim() && quotedCount === 0 ? (
-                      <div className="flex flex-col items-center gap-3">
-                        <span className="text-pretty text-sm text-slate-400">{t("报价库还是空的：导入业务报价表，或搜索商品逐条添加厂家报价")}</span>
-                        {canWrite && (
-                          <button type="button" onClick={() => setImportOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm">
-                            <Upload className="h-4 w-4" />{t("批量导入报价")}
-                          </button>
-                        )}
-                        <button type="button" onClick={() => { setShowAll(true); setPage(1); }} className="text-xs text-[#002fa7] hover:underline">{t("或显示全部商品（含未报价）")}</button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center gap-3">
-                        <span className="text-slate-400">{t("没有匹配的商品")}</span>
-                        <button type="button" onClick={() => { setSearch(""); setCategory(""); setOnlyExpired(false); setPage(1); }} className="material-button-secondary px-3 py-2 text-xs">{t("清除筛选")}</button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              )}
               {pageRows.map((row) => {
-                const open = expanded.has(row.id) || hitsSupplier(row);
+                const supplierMatch = hitsSupplier(row);
+                const open = supplierMatch
+                  ? !(searchExpansion.keyword === kw && searchExpansion.collapsed.has(row.id))
+                  : expanded.has(row.id);
                 const bestByCurrency = lowestActiveTierByCurrency(row.quotes, today);
                 return (
                   <QuoteBookMaterialRows
@@ -430,7 +456,14 @@ export function QuoteBookPage() {
                     bestByCurrency={bestByCurrency}
                     today={today}
                     canWrite={canWrite}
-                    onToggle={() => toggle(row.id)}
+                    onToggle={() => {
+                      if (!supplierMatch) { toggle(row.id); return; }
+                      setSearchExpansion((current) => {
+                        const collapsed = current.keyword === kw ? new Set(current.collapsed) : new Set<string>();
+                        if (collapsed.has(row.id)) collapsed.delete(row.id); else collapsed.add(row.id);
+                        return { keyword: kw, collapsed };
+                      });
+                    }}
                     onHistory={() => setHistoryFor(row.name)}
                     onAddQuote={() => setDrawer({ material: row })}
                     onEditQuote={(quote) => setDrawer({ material: row, quote })}
@@ -443,7 +476,8 @@ export function QuoteBookPage() {
             </tbody>
           </table>
           </div>
-          <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-white px-4 py-2">
+          )}
+          {pageRows.length > 0 && <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-100 bg-white px-4 py-2 pr-16">
             <span className="text-xs text-slate-400">{t("第 {page} / {total} 页", { page: pageSafe, total: totalPages })}</span>
             <Pagination className="mx-0 w-auto">
               <PaginationContent>
@@ -451,7 +485,7 @@ export function QuoteBookPage() {
                 <PaginationItem><Button type="button" variant="outline" size="sm" disabled={pageSafe >= totalPages} onClick={() => setPage(pageSafe + 1)} className="h-8 rounded-lg border-slate-200 text-xs text-slate-600">{t("下一页")}</Button></PaginationItem>
               </PaginationContent>
             </Pagination>
-          </div>
+          </div>}
         </div>
       )}
 
@@ -501,51 +535,52 @@ function QuoteBookMaterialRows({
     : null;
   return (
     <>
-      <tr className="border-t border-slate-100 hover:bg-slate-50/60">
-        <td className="px-4 py-2.5">
+      <tr className="proc-quote-material-row border-t border-slate-100 hover:bg-slate-50/60">
+        <td className="proc-quote-identity px-4 py-2.5">
           <div className="flex items-center gap-2">
             <button
               type="button"
-              aria-expanded={open}
+              aria-expanded={row.quotes.length > 0 ? open : undefined}
+              disabled={row.quotes.length === 0}
               aria-label={t(open ? "收起厂家报价" : "展开厂家报价")}
               onClick={onToggle}
-              className="flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]"
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             >
               <Caret className={cn("size-4", row.quotes.length ? "text-slate-400" : "text-slate-200")} />
             </button>
             {row.imageUrl && (
-              <button type="button" aria-label={t("查看商品图片")} onClick={() => onPreviewImage(row.imageUrl!)} className="size-10 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
+              <button type="button" aria-label={t("查看商品图片")} onClick={() => onPreviewImage(row.imageUrl!)} className="size-10 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
                 <img src={row.imageUrl} alt="" className="size-full object-cover" />
               </button>
             )}
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2">
-                <div className="min-w-0 flex-1 truncate font-semibold text-slate-800"><AutoTranslatedText text={row.name} /></div>
+                <div className="min-w-0 flex-1 line-clamp-2 break-words font-semibold text-slate-800" title={row.name}><AutoTranslatedText text={row.name} /></div>
                 {row.quotes.length > 0 ? (
-                  <span className="shrink-0 rounded-full border border-[#cbd8f6] bg-[#eef3ff] px-2 py-0.5 text-[10px] font-medium tabular-nums text-[#002fa7]">{t("{count} 家", { count: row.quotes.length })}</span>
+                  <span className="shrink-0 rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-[10px] font-medium tabular-nums text-primary">{t("{count} 家", { count: row.quotes.length })}</span>
                 ) : null}
               </div>
-              {row.spec && <div className="truncate text-xs text-slate-400">{row.spec}</div>}
+              {row.spec && <div className="truncate text-xs text-slate-400" title={row.spec}>{row.spec}</div>}
             </div>
           </div>
         </td>
         <td className="max-w-48 px-3 py-2.5 text-slate-500"><span className="block truncate" title={row.category || undefined}>{row.category || "—"}</span></td>
-        <td className="px-3 py-2.5 text-slate-500"><span className="tabular-nums">{row.unit || "—"}</span></td>
-        <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">
+        <td className="px-3 py-2.5 text-slate-500"><span className="block truncate tabular-nums" title={row.unit || undefined}>{row.unit || "—"}</span></td>
+        <td className="px-3 py-2.5 tabular-nums">
           {bestByCurrency.length > 0 ? (
             <div className="min-w-0 space-y-1">
               {bestByCurrency.map((best) => (
                 <div key={best.quote.currency} className="min-w-0">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex min-w-0 items-start gap-1.5">
                     <BadgeCheck className="size-3.5 shrink-0 text-emerald-600" />
-                    <span className="font-semibold tabular-nums text-emerald-700">{fmtQuotePrice(best.price, best.quote.currency)}</span>
+                    <span className="min-w-0 break-all font-semibold tabular-nums text-emerald-700">{fmtQuotePrice(best.price, best.quote.currency)}</span>
                   </div>
-                  <span className="block max-w-48 truncate text-[11px] text-slate-400" title={best.quote.supplierName}>
+                  <span className="block truncate text-[11px] text-slate-400" title={`${best.quote.supplierName} · ${best.minQty > 0 ? `≥ ${fmtMinQty(best.minQty)}` : t("不限起订")}`}>
                     {best.quote.supplierName} · {best.minQty > 0 ? `≥ ${fmtMinQty(best.minQty)}` : t("不限起订")}
                   </span>
                 </div>
               ))}
-              <span className="block max-w-48 text-pretty text-[11px] text-slate-400">
+              <span className="block text-pretty text-[11px] text-slate-400">
                 {bestByCurrency.length > 1
                   ? t("{count} 个币种分别比较，不跨币种换算", { count: bestByCurrency.length })
                   : t("依据 {suppliers} 家 / {tiers} 档有效报价", { suppliers: activeQuotes.length, tiers: activeTierCount })}
@@ -558,8 +593,8 @@ function QuoteBookMaterialRows({
         <td className="px-3 py-2.5">
           {row.latestPrice != null ? (
             <div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="tabular-nums text-slate-700">{fmtQuotePrice(row.latestPrice, "CNY")}</span>
+              <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                <span className="min-w-0 break-all tabular-nums text-slate-700">{fmtQuotePrice(row.latestPrice, "CNY")}</span>
                 {row.latestQuoteDate && <span className="text-xs tabular-nums text-slate-400">{row.latestQuoteDate}</span>}
               </div>
               {recentDelta != null && Math.abs(recentDelta) >= 0.01 && (
@@ -588,24 +623,38 @@ function QuoteBookMaterialRows({
             <span className="inline-flex items-center gap-1 text-emerald-700"><BadgeCheck className="size-3" />{t("报价有效")}</span>
           )}
         </td>
-        <td className="px-3 py-2.5">
+        <td className="proc-quote-actions px-3 py-2.5">
           <div className="flex items-center justify-end gap-1.5">
             {canWrite && (
+              <Tooltip>
+              <TooltipTrigger asChild>
               <button
                 type="button"
+                aria-label={t("添加厂家")}
+                title={t("添加厂家")}
                 onClick={(e) => { e.stopPropagation(); onAddQuote(); }}
-                className="inline-flex items-center gap-1 rounded-lg border border-[#cbd8f6] bg-[#eef3ff] px-2 py-1 text-xs font-medium text-[#002fa7] hover:bg-[#e3ebff]"
+                className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-[var(--primary-soft-border)] bg-accent text-xs font-medium text-primary hover:bg-primary/10"
               >
-                <Plus className="h-3.5 w-3.5" />{t("添加厂家")}
+                <Plus className="h-3.5 w-3.5" />
               </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{t("添加厂家")}</TooltipContent>
+              </Tooltip>
             )}
+            <Tooltip>
+            <TooltipTrigger asChild>
             <button
               type="button"
+              aria-label={t("历史价格")}
+              title={t("历史价格")}
               onClick={(e) => { e.stopPropagation(); onHistory(); }}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50"
             >
-              <History className="h-3.5 w-3.5" />{t("历史价格")}
+              <History className="h-3.5 w-3.5" />
             </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{t("历史价格")}</TooltipContent>
+            </Tooltip>
             {/* 默认常显：按报价数隐藏会让操作列在行与行之间忽宽忽窄，也让人以为这行不能移出。
                 没有报价时置灰——后端只删厂家报价，此时点下去是 0 删除的空操作。 */}
             {canWrite && (
@@ -628,18 +677,18 @@ function QuoteBookMaterialRows({
       {open && row.quotes.map((quote) => {
         const expired = isExpired(quote, today);
         return (
-          <tr key={quote.id} className="border-t border-slate-50 bg-slate-50/40">
-            <td className="py-2 pl-12 pr-4">
+          <tr key={quote.id} className="proc-quote-supplier-row border-t border-slate-50 bg-slate-50/40">
+            <td className="proc-quote-identity py-2 pl-12 pr-4">
               <div className="flex items-center gap-2">
-                <span className="size-1.5 shrink-0 rounded-full bg-[#8fa9e8]" />
+                <span className="size-1.5 shrink-0 rounded-full bg-primary/40" />
                 {quote.imageUrl && (
-                  <button type="button" aria-label={t("查看厂家报价图片")} onClick={() => onPreviewImage(quote.imageUrl!)} className="size-9 shrink-0 overflow-hidden rounded-md border border-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
+                  <button type="button" aria-label={t("查看厂家报价图片")} onClick={() => onPreviewImage(quote.imageUrl!)} className="size-9 shrink-0 overflow-hidden rounded-md border border-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
                     <img src={quote.imageUrl} alt="" className="size-full object-cover" />
                   </button>
                 )}
-                <div className="min-w-0">
-                  <div className="truncate text-[13px] font-medium text-slate-700">{quote.supplierName}</div>
-                  {quote.supplierModel && <div className="truncate text-xs text-slate-400">{quote.supplierModel}</div>}
+                <div className="min-w-0 flex-1">
+                  <div className="line-clamp-2 break-words text-[13px] font-medium text-slate-700" title={quote.supplierName}>{quote.supplierName}</div>
+                  {quote.supplierModel && <div className="truncate text-xs text-slate-400" title={quote.supplierModel}>{quote.supplierModel}</div>}
                 </div>
               </div>
             </td>
@@ -665,12 +714,12 @@ function QuoteBookMaterialRows({
                 <div className="mt-0.5 flex items-center gap-1 text-emerald-700"><BadgeCheck className="size-3" />{quote.validUntil ? t("有效至 {date}", { date: quote.validUntil }) : t("长期有效")}</div>
               )}
             </td>
-            <td className="px-3 py-2">
+            <td className="proc-quote-actions px-3 py-2">
               {canWrite && (
                 <div className="flex items-center justify-end gap-1">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <button type="button" aria-label={t("编辑")} onClick={() => onEditQuote(quote)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+                      <button type="button" aria-label={t("编辑")} onClick={() => onEditQuote(quote)} className="inline-flex size-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600">
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                     </TooltipTrigger>
@@ -678,7 +727,7 @@ function QuoteBookMaterialRows({
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <button type="button" aria-label={t("删除")} onClick={() => onDeleteQuote(quote)} className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-500">
+                      <button type="button" aria-label={t("删除")} onClick={() => onDeleteQuote(quote)} className="inline-flex size-8 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </TooltipTrigger>

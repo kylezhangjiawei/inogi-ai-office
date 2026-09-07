@@ -16,10 +16,11 @@ function ruleBody(selector) {
 }
 
 test("采购精细化样式维持单一 Horizon 设计令牌", () => {
-  assert.match(css, /--proc-primary:\s*#002fa7/);
-  assert.match(css, /--proc-canvas:\s*#f7f9fc/);
-  assert.match(css, /--proc-line:\s*#e2e8f0/);
-  assert.match(css, /--proc-shadow-card:\s*0 1px 2px/);
+  assert.match(css, /--proc-primary:\s*var\(--primary\)/);
+  assert.match(css, /--proc-canvas:\s*var\(--background\)/);
+  assert.match(css, /--proc-line:\s*var\(--border-subtle\)/);
+  assert.match(css, /--proc-shadow-card:\s*var\(--shadow-card\)/);
+  assert.match(css, /font-family:\s*var\(--font-sans\)/);
   assert.match(css, /font-variant-numeric:\s*tabular-nums/);
 
   assert.doesNotMatch(css, /(?:linear|radial)-gradient/i);
@@ -31,7 +32,8 @@ test("采购主容器使用清晰边界与克制层级", () => {
   const borderedSelectors = [
     ".proc-horizon .proc-horizon-command",
     ".proc-horizon .proc-horizon-people-nav",
-    ".proc-horizon .proc-horizon-task-feed",
+    // 任务流容器只负责布局，具体任务卡承担内容边界。
+    ".proc-horizon .proc-horizon-task-card",
     ".proc-horizon .proc-horizon-system-panorama",
     ".proc-horizon .proc-horizon-surface",
     ".proc-horizon .proc-horizon-workspace-surface",
@@ -43,11 +45,18 @@ test("采购主容器使用清晰边界与克制层级", () => {
     assert.doesNotMatch(body, /border(?:-color)?:[^;]*transparent/);
   }
 
-  assert.doesNotMatch(css, /border-radius:\s*(?:18|20)px/);
+  for (const selector of [
+    ".proc-horizon .proc-horizon-command",
+    ".proc-horizon .proc-horizon-system-panorama",
+    ".proc-horizon .proc-horizon-surface",
+    ".proc-horizon .proc-horizon-workspace-surface",
+  ]) {
+    assert.match(ruleBody(selector), /border-radius:\s*20px/);
+  }
 });
 
 test("采购交互保留键盘焦点与减少动态偏好", () => {
   assert.match(css, /:focus-visible/);
-  assert.match(css, /outline:\s*2px solid rgba\(0, 47, 167, 0\.72\)/);
+  assert.match(css, /outline:\s*2px solid rgba\(var\(--primary-rgb\), 0\.72\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });

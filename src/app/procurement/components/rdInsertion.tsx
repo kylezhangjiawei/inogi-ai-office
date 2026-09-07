@@ -87,7 +87,7 @@ export function ProcurementLinkChip({ task, onJump }: { task: ProcurementTask; o
   const statusLabel = PROC_STATUS_META[task.status]?.label ?? task.status;
   if (task.status === "pending_rd_review" || !canOpenProcurementCockpit) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-[#c9d8ff] bg-[#eef3ff] px-2 py-0.5 text-[11px] font-medium text-[#002fa7]">
+      <span className="inline-flex items-center gap-1 rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-[11px] font-medium text-primary">
         {t("转采购：")}{t(statusLabel)}
       </span>
     );
@@ -96,7 +96,7 @@ export function ProcurementLinkChip({ task, onJump }: { task: ProcurementTask; o
     <button
       type="button"
       onClick={() => onJump(task.id)}
-      className="inline-flex items-center gap-1 rounded-full border border-[#c9d8ff] bg-[#eef3ff] px-2 py-0.5 text-[11px] font-medium text-[#002fa7] hover:bg-[#dce6ff]"
+      className="inline-flex items-center gap-1 rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10"
       title={t("打开采购任务 {code}", { code: task.code })}
     >
       {t("关联采购：")}{t(statusLabel)}
@@ -110,16 +110,16 @@ export function ProcurementActivitySection({ task }: { task: ProcurementTask }) 
   const { t } = useI18n();
   const statusLabel = PROC_STATUS_META[task.status]?.label ?? task.status;
   return (
-    <div className="rd-procurement-activity rounded-xl border border-[#dce6ff] bg-[#eef3ff]/70 p-3">
+    <div className="rd-procurement-activity rounded-xl border border-[var(--primary-soft-border)] bg-accent/70 p-3">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="text-sm font-semibold text-[#002fa7]">{t("采购动态")}</div>
-        <div className="text-[11px] text-[#002fa7]/70">{task.code} · {t(statusLabel)}</div>
+        <div className="text-sm font-semibold text-primary">{t("采购动态")}</div>
+        <div className="text-[11px] text-primary/70">{task.code} · {t(statusLabel)}</div>
       </div>
       {task.logs.length > 0 ? (
         <ul className="space-y-2">
           {task.logs.slice(-5).reverse().map((event, index) => (
             <li key={`${event.at}-${index}`} className="flex gap-3 text-sm">
-              <span className="rd-procurement-activity__dot mt-1.5 size-2 shrink-0 rounded-full bg-[#002fa7]" />
+              <span className="rd-procurement-activity__dot mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
               <div>
                 <AutoTranslatedText as="div" className="text-slate-600" text={event.text} />
                 <div className="text-[11px] text-slate-400">{event.at}</div>
@@ -330,7 +330,7 @@ export function TransferToProcurementModal({
           aria-invalid={Boolean(key === "materialName" ? errors.materialName : key === "quantity" ? errors.quantity : false)}
           onChange={(event) => { setForm((current) => ({ ...current, [key]: event.target.value })); setErrors((current) => ({ ...current, [key === "materialName" ? "materialName" : key === "quantity" ? "quantity" : "submit"]: undefined, submit: undefined })); }}
           placeholder={placeholder ? t(placeholder) : ""}
-          className={cn("mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15", type === "number" && "tabular-nums", (key === "materialName" ? errors.materialName : key === "quantity" ? errors.quantity : false) && "border-rose-300")}
+          className={cn("mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15", type === "number" && "tabular-nums", (key === "materialName" ? errors.materialName : key === "quantity" ? errors.quantity : false) && "border-rose-300")}
         />
       )}
       {hint && <span className="mt-0.5 block text-[10px] text-slate-400">{t(hint)}</span>}
@@ -351,11 +351,11 @@ export function TransferToProcurementModal({
         <div className="grid grid-cols-3 border-b border-slate-100 bg-slate-50/70 px-6 py-2.5">
           {[t("核对物料"), t("确认图纸附件"), t("提交审核")].map((label, index) => {
             const active = !form.materialName.trim() || !(Number(form.quantity) > 0) ? 0 : files.length === 0 ? 1 : 2;
-            return <div key={label} className={cn("flex items-center gap-1.5 text-[11px]", index === active ? "font-semibold text-[#002fa7]" : index < active ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === active ? "border-[#002fa7] bg-[#002fa7] text-white" : index < active ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index + 1}</span><span className="truncate">{label}</span></div>;
+            return <div key={label} className={cn("flex items-center gap-1.5 text-[11px]", index === active ? "font-semibold text-primary" : index < active ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === active ? "border-primary bg-primary text-white" : index < active ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index + 1}</span><span className="truncate">{label}</span></div>;
           })}
         </div>
         <div className="max-h-[70vh] overflow-y-auto px-6 py-4">
-          <div className="mb-3 flex items-start gap-2 rounded-xl border border-[#dce6ff] bg-[#eef3ff] px-3 py-2 text-pretty text-xs text-[#002fa7]">
+          <div className="mb-3 flex items-start gap-2 rounded-xl border border-[var(--primary-soft-border)] bg-accent px-3 py-2 text-pretty text-xs text-primary">
             <ShoppingCart className="mt-0.5 h-4 w-4 shrink-0" />
             {resubmitFrom
               ? t("已沿用上次提交的内容与附件，可直接修改；提交后在原单号上重走研发管理员审核。")
@@ -388,11 +388,11 @@ export function TransferToProcurementModal({
                 </span>
                 <div className="flex items-center gap-2">
                   {removedTaskCount > 0 && (
-                    <button type="button" onClick={restoreTaskRows} className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-[#002fa7]">
+                    <button type="button" onClick={restoreTaskRows} className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-primary">
                       <RotateCcw className="h-3 w-3" />{t("恢复任务附件（{count}）", { count: removedTaskCount })}
                     </button>
                   )}
-                  <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-[#c9d8ff] px-2 py-1 text-[11px] font-medium text-[#002fa7] hover:bg-[#eef3ff]">
+                  <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--primary-soft-border)] px-2 py-1 text-[11px] font-medium text-primary hover:bg-accent">
                     <Upload className="h-3 w-3" />{t("新增附件")}
                     <Input type="file" multiple className="hidden" onChange={(event) => { addManualFiles(event.target.files); event.target.value = ""; }} />
                   </label>
@@ -405,7 +405,7 @@ export function TransferToProcurementModal({
                       <Paperclip className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                       <span className="min-w-0 flex-1 truncate" title={row.name}>{row.name}</span>
                       {row.size ? <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(row.size)}</span> : null}
-                      <span className={row.source === "task" ? "shrink-0 rounded-full bg-[#eef3ff] px-1.5 text-[10px] text-[#002fa7]" : "shrink-0 rounded-full bg-emerald-50 px-1.5 text-[10px] text-emerald-600"}>{t(row.source === "task" ? "任务附件" : "新增附件")}</span>
+                      <span className={row.source === "task" ? "shrink-0 rounded-full bg-accent px-1.5 text-[10px] text-primary" : "shrink-0 rounded-full bg-emerald-50 px-1.5 text-[10px] text-emerald-600"}>{t(row.source === "task" ? "任务附件" : "新增附件")}</span>
                       <button type="button" aria-label={t("移除附件：{name}", { name: row.name })} onClick={() => { setFiles((current) => current.filter((item) => item.key !== row.key)); setErrors((current) => ({ ...current, files: undefined, submit: undefined })); }} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-white hover:text-rose-500" title={t("移除")}><X className="h-3.5 w-3.5" /></button>
                     </li>
                   ))}
@@ -420,7 +420,7 @@ export function TransferToProcurementModal({
             </div>
             <label className="col-span-2 block">
               <span className="text-xs font-medium text-slate-500">{t("低值易耗品备注")}</span>
-              <Input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder={t("如为低值易耗品可备注按年用量备货")} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15" />
+              <Input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder={t("如为低值易耗品可备注按年用量备货")} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15" />
             </label>
           </div>
           {errors.submit && <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{errors.submit}</div>}

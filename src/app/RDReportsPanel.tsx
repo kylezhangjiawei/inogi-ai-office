@@ -4,6 +4,7 @@ import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { RDDailyReportPanel } from "./RDDailyReportPanel";
 import { RDMonthlyReportPanel } from "./RDMonthlyReportPanel";
 import { t, useI18n } from "./lib/i18n";
+import type { RdDailyReport } from "./lib/rdApi";
 
 type ReportTab = "daily" | "monthly";
 
@@ -17,7 +18,11 @@ const TABS: Array<{ key: ReportTab; label: string; icon: typeof CalendarDays }> 
  * Tab 渲染在子面板速览卡片「内部」顶部（tabSlot 注入），使右侧整体为单张卡片、
  * 顶端与左侧模块对齐。两个子面板各自独立取数；月报 Tab 内含「月绩效报表」入口。
  */
-export function RDReportsPanel({ canRegenerate, spacious = false }: { canRegenerate: boolean; spacious?: boolean }) {
+export function RDReportsPanel({ canRegenerate, spacious = false, onDailyReportsLoaded }: {
+  canRegenerate: boolean;
+  spacious?: boolean;
+  onDailyReportsLoaded?: (reports: RdDailyReport[]) => void;
+}) {
   useI18n();
   const [tab, setTab] = useState<ReportTab>("daily");
 
@@ -36,7 +41,7 @@ export function RDReportsPanel({ canRegenerate, spacious = false }: { canRegener
             <TabsTrigger
               key={key}
               value={key}
-              className="rd-horizon-report-tab flex-1 gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-semibold text-slate-500 shadow-none transition-colors hover:text-slate-700 data-[state=active]:bg-[#002fa7] data-[state=active]:text-white data-[state=active]:shadow-none sm:flex-none"
+              className="rd-horizon-report-tab flex-1 gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-semibold text-slate-500 shadow-none transition-colors hover:text-slate-700 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-none sm:flex-none"
             >
               <Icon className="size-3.5" aria-hidden="true" />
               {t(label)}
@@ -51,7 +56,7 @@ export function RDReportsPanel({ canRegenerate, spacious = false }: { canRegener
   return (
     <section className="horizon-theme rd-horizon-reports h-full min-w-0" aria-labelledby="rd-report-panel-title">
       {tab === "daily" ? (
-        <RDDailyReportPanel canRegenerate={canRegenerate} tabSlot={tabBar} spacious={spacious} />
+        <RDDailyReportPanel canRegenerate={canRegenerate} tabSlot={tabBar} spacious={spacious} onDailyReportsLoaded={onDailyReportsLoaded} />
       ) : (
         <RDMonthlyReportPanel canRegenerate={canRegenerate} tabSlot={tabBar} spacious={spacious} />
       )}

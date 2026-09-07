@@ -26,7 +26,7 @@ const surfaces = {
 
 test("驾驶舱页面组遵守 Horizon 精修约束", () => {
   for (const [name, page] of Object.entries(surfaces)) {
-    assert.match(page, /#002fa7/, `${name}应继续使用 Klein Blue 单主强调色`);
+    assert.match(page, /(?:text|bg|border(?:-t)?|ring)-primary/, `${name}应继续使用共享品牌强调色`);
     assert.match(page, /tabular-nums/, `${name}的业务数字应使用等宽数字`);
     assert.doesNotMatch(page, /(?:bg-|linear-|radial-)gradient/, `${name}不应新增渐变`);
     assert.doesNotMatch(page, /backdrop-blur/, `${name}不应新增大面积模糊`);
@@ -38,8 +38,8 @@ test("驾驶舱页面组遵守 Horizon 精修约束", () => {
 });
 
 test("采购驾驶舱首屏让统计、搜索与失败恢复都可直接操作", () => {
-  assert.match(cockpit, /StatCell label=\{t\('进行中'\)\}[\s\S]*?Icon=\{Activity\}/);
-  assert.match(cockpit, /StatCell label=\{t\('逾期'\)\}[\s\S]*?Icon=\{AlertTriangle\}/);
+  assert.match(cockpit, /StatCell label=\{t\('在制任务'\)\}[\s\S]*?Icon=\{Activity\}/);
+  assert.match(cockpit, /StatCell label=\{t\('逾期异常'\)\}[\s\S]*?Icon=\{AlertTriangle\}/);
   assert.match(cockpit, /aria-label=\{t\('搜索采购任务'\)\}/);
   assert.match(cockpit, /aria-label=\{t\('清空搜索'\)\}/);
   assert.match(cockpit, /role="alert"[\s\S]*?采购任务加载失败[\s\S]*?refreshProcurement\(\)/);
@@ -58,7 +58,7 @@ test("个人工作台支持搜索、阶段分组和可恢复空态", () => {
   assert.match(workspace, /StageIcon className="size-4/);
   assert.match(workspace, /role="alert"[\s\S]*?我的采购任务加载失败/);
   assert.match(workspace, /正在加载我的采购任务[\s\S]*?min-h-52/);
-  assert.match(workspace, /当前没有分配给你的采购任务[\s\S]*?查看采购驾驶舱/);
+  assert.match(workspace, /当前没有需要推进的采购任务[\s\S]*?查看采购驾驶舱/);
   assert.match(workspace, /没有符合筛选条件的任务[\s\S]*?clearFilters/);
   assert.match(workspace, /<ProcurementTaskCard/);
   assert.match(workspace, /taskAction\.runNext/);

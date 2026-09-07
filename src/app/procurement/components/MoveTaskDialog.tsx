@@ -156,7 +156,7 @@ export function MoveTaskDialog({
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
             className={cn(
               "flex items-center gap-1.5 rounded-lg py-1.5 pr-2 text-sm",
-              isSelected ? "bg-[#eef3ff] font-semibold text-[#002fa7]" : "text-slate-700 hover:bg-slate-50",
+              isSelected ? "bg-accent font-semibold text-primary" : "text-slate-700 hover:bg-slate-50",
             )}
           >
             {hasChildren ? (
@@ -175,7 +175,7 @@ export function MoveTaskDialog({
               type="button"
               aria-pressed={isSelected}
               onClick={() => { setSelected(node.id); setActionError(""); }}
-              className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]"
+              className="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             >
               <span className="min-w-0 flex-1 truncate">{node.name}</span>
               {node.taskCount > 0 ? (
@@ -196,7 +196,7 @@ export function MoveTaskDialog({
       <DialogContent className="proc-horizon-overlay border-slate-200 p-0 sm:max-w-lg">
         <DialogHeader className="border-b border-slate-100 bg-slate-50/80 px-6 py-5 pr-14">
           <div className="flex items-center gap-3">
-            <span className="flex size-10 items-center justify-center rounded-2xl bg-[#002fa7] text-white">
+            <span className="flex size-10 items-center justify-center rounded-2xl bg-primary text-white">
               <FolderTree className="h-4.5 w-4.5" />
             </span>
             <div>
@@ -216,7 +216,7 @@ export function MoveTaskDialog({
             { label: t("选择目标归属"), complete: Boolean(selectedLabel) },
           ].map((step, index) => {
             const active = index === (batchMode && picked.size === 0 ? 0 : 1);
-            return <div key={step.label} className={cn("flex items-center gap-2 text-xs", active ? "font-semibold text-[#002fa7]" : step.complete ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", active ? "border-[#002fa7] bg-[#002fa7] text-white" : step.complete ? "border-emerald-300 bg-emerald-50" : "border-slate-200")}>{step.complete && !active ? <CheckCircle2 className="size-3" /> : index + 1}</span><span className="truncate">{step.label}</span></div>;
+            return <div key={step.label} className={cn("flex items-center gap-2 text-xs", active ? "font-semibold text-primary" : step.complete ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", active ? "border-primary bg-primary text-white" : step.complete ? "border-emerald-300 bg-emerald-50" : "border-slate-200")}>{step.complete && !active ? <CheckCircle2 className="size-3" /> : index + 1}</span><span className="truncate">{step.label}</span></div>;
           })}
         </div>
 
@@ -233,7 +233,7 @@ export function MoveTaskDialog({
               <button
                 type="button"
                 onClick={() => { setPicked(allPicked ? new Set() : new Set(visibleCandidates.map((task) => task.id))); setActionError(""); }}
-                className="shrink-0 text-xs font-semibold text-[#002fa7] hover:underline"
+                className="shrink-0 text-xs font-semibold text-primary hover:underline"
               >
                 {allPicked ? t("全部取消") : t("全部选中")}
               </button>
@@ -280,13 +280,13 @@ export function MoveTaskDialog({
                 aria-pressed={selected === AUTO_NODE}
                 onClick={() => { setSelected(AUTO_NODE); setActionError(""); }}
                 className={cn(
-                  "mb-2 flex w-full cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
-                  selected === AUTO_NODE ? "border-[#8fa9e8] bg-[#eef3ff]" : "border-slate-200 hover:bg-slate-50",
+                  "mb-2 flex w-full cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                  selected === AUTO_NODE ? "border-primary/40 bg-accent" : "border-slate-200 hover:bg-slate-50",
                 )}
               >
-                <Sparkles className={cn("mt-0.5 size-4 shrink-0", selected === AUTO_NODE ? "text-[#002fa7]" : "text-slate-400")} />
+                <Sparkles className={cn("mt-0.5 size-4 shrink-0", selected === AUTO_NODE ? "text-primary" : "text-slate-400")} />
                 <span>
-                  <span className={cn("block font-semibold", selected === AUTO_NODE ? "text-[#002fa7]" : "text-slate-700")}>
+                  <span className={cn("block font-semibold", selected === AUTO_NODE ? "text-primary" : "text-slate-700")}>
                     {t("自动归类")}
                   </span>
                   <span className="mt-0.5 block text-pretty text-[11px] leading-relaxed text-slate-500">

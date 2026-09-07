@@ -1,6 +1,6 @@
 // 采购模块弹窗/面板：新建需求 / 批量导入 / 分类管理 / 批量转派 / 任务编辑 / 物料表单。均走真实接口。
 // AiCreateModal 暂无入口（产品决定隐藏 AI 建单按钮），实现保留以便恢复；物料审核在 MaterialDetailDrawer 里做。
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../../components/ui/input";
 import { AlertTriangle, CheckCircle2, FileDown, ImagePlus, Loader2, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
@@ -62,19 +62,35 @@ import {
 import { BuyerComboInput, ComboInput, DateInput, useBuyerDirectory, useConfirmDialog } from "./common";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
+import { retainAvailableProcurementSelection, setVisibleProcurementSelection, validateReplenishmentSelection } from "../procurementLogic";
 
 /** 采购弹窗通用壳（Radix Dialog）：关闭 X 由 DialogContent 自带；宽度覆盖须带 sm: 断点（见 dialog.tsx 注释）。 */
-function Shell({ title, description, busy = false, onClose, children, footer, wide }: { title: string; description?: string; busy?: boolean; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode; wide?: boolean }) {
+function Shell({ title, description, busy = false, onClose, onEscapeKeyDown, children, footer, feedback, wide }: { title: string; description?: string; busy?: boolean; onClose: () => void; onEscapeKeyDown?: (event: KeyboardEvent) => void; children: React.ReactNode; footer?: React.ReactNode; feedback?: React.ReactNode; wide?: boolean }) {
   const { t } = useI18n();
+  const openerRef = useRef(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const parentDialogRef = useRef(openerRef.current?.closest<HTMLElement>('[role="dialog"]') ?? null);
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
-      <DialogContent className={cn("horizon-theme horizon-portal proc-horizon-overlay gap-0 overflow-hidden rounded-2xl p-0", wide ? "sm:max-w-2xl" : "sm:max-w-lg")}>
-        <DialogHeader className="border-b border-slate-100 px-6 py-4">
+      <DialogContent
+        closeDisabled={busy}
+        className={cn("horizon-theme horizon-portal proc-horizon-overlay proc-business-dialog flex flex-col gap-0 overflow-hidden rounded-2xl p-0", wide ? "sm:max-w-2xl" : "sm:max-w-lg")}
+        onEscapeKeyDown={onEscapeKeyDown}
+        onCloseAutoFocus={(event) => {
+          const opener = openerRef.current;
+          const target = opener?.isConnected && !opener.matches(":disabled") ? opener : parentDialogRef.current;
+          if (target?.isConnected && target.getClientRects().length > 0) {
+            event.preventDefault();
+            target.focus();
+          }
+        }}
+      >
+        <DialogHeader className="shrink-0 border-b border-slate-100 px-6 py-4 pr-14">
           <DialogTitle className="text-balance text-base font-bold text-slate-900">{t(title)}</DialogTitle>
           <DialogDescription className={description ? "mt-0.5 text-pretty text-xs text-slate-400" : "sr-only"}>{description ? t(description) : t("采购业务操作窗口，请核对内容后提交。")}</DialogDescription>
         </DialogHeader>
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-5">{children}</div>
-        {footer && <DialogFooter className="gap-2 border-t border-slate-100 px-6 py-3">{footer}</DialogFooter>}
+        <div className="proc-business-dialog-body min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">{children}</div>
+        {feedback && <div className="max-h-32 shrink-0 overflow-y-auto overscroll-contain px-6 pb-3">{feedback}</div>}
+        {footer && <DialogFooter className="shrink-0 gap-2 border-t border-slate-100 px-6 py-3">{footer}</DialogFooter>}
       </DialogContent>
     </Dialog>
   );
@@ -132,24 +148,25 @@ function draftFromAi(d: AiTaskDraft): DraftState {
 }
 
 /** 建单表单主体。more=false 时只展示 3 必填。 */
-function DraftFields({ draft, setDraft, more, setMore, lockContext = false }: {
+function DraftFields({ draft, setDraft, more, setMore, lockContext = false, disabled = false }: {
   draft: DraftState;
   setDraft: React.Dispatch<React.SetStateAction<DraftState>>;
   more: boolean;
   setMore: (v: boolean) => void;
   lockContext?: boolean;
+  disabled?: boolean;
 }) {
   const { t } = useI18n();
   const products = useProcurementProducts();
-  const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15";
+  const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15";
   const label = "text-xs font-medium text-slate-500";
   const set = <K extends keyof DraftState>(key: K) => (value: DraftState[K]) => setDraft((d) => ({ ...d, [key]: value }));
   return (
-    <>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2">
+    <fieldset disabled={disabled} className="min-w-0">
+      <div className="proc-business-fields grid grid-cols-1 gap-3">
+        <div className="col-span-full">
           <span className={label}>{t('归属产品系统')}</span>
-          <Select value={draft.productId} onValueChange={set('productId')} disabled={lockContext}>
+          <Select value={draft.productId} onValueChange={set('productId')} disabled={disabled || lockContext}>
             <SelectTrigger aria-label={t('归属产品系统')} className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               {products.map((product) => (
@@ -160,7 +177,7 @@ function DraftFields({ draft, setDraft, more, setMore, lockContext = false }: {
         </div>
         <label className="block">
           <span className={label}>{t('物料名称')}<span className="ml-0.5 text-rose-500">*</span></span>
-          <Input value={draft.materialName} onChange={(e) => set('materialName')(e.target.value)} disabled={lockContext} placeholder={t('如 减震垫 DZC-950')} className={field} />
+          <Input value={draft.materialName} onChange={(e) => set('materialName')(e.target.value)} disabled={disabled || lockContext} placeholder={t('如 减震垫 DZC-950')} className={field} />
         </label>
         <label className="block">
           <span className={label}>{t('数量')}<span className="ml-0.5 text-rose-500">*</span></span>
@@ -168,11 +185,11 @@ function DraftFields({ draft, setDraft, more, setMore, lockContext = false }: {
         </label>
         <div>
           <span className={label}>{t('需求日期')}<span className="ml-0.5 text-rose-500">*</span></span>
-          <DateInput value={draft.needDate} onChange={set('needDate')} ariaLabel={t('需求日期')} className="mt-1" />
+          <DateInput disabled={disabled} value={draft.needDate} onChange={set('needDate')} ariaLabel={t('需求日期')} className="mt-1" />
         </div>
         <div>
           <span className={label}>{t('业务线')}</span>
-          <Select value={draft.businessLine} onValueChange={(v) => set('businessLine')(v as BusinessLine)}>
+          <Select disabled={disabled} value={draft.businessLine} onValueChange={(v) => set('businessLine')(v as BusinessLine)}>
             <SelectTrigger aria-label={t('业务线')} className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="production">{t('生产')}</SelectItem>
@@ -181,15 +198,15 @@ function DraftFields({ draft, setDraft, more, setMore, lockContext = false }: {
           </Select>
         </div>
       </div>
-      <button type="button" onClick={() => setMore(!more)} className="mt-3 text-xs font-medium text-[#002fa7]">{t(more ? "收起更多字段 ▲" : "展开更多字段 ▼")}</button>
+      <button type="button" onClick={() => setMore(!more)} className="mt-3 text-xs font-medium text-primary">{t(more ? "收起更多字段 ▲" : "展开更多字段 ▼")}</button>
       {more && (
-        <div className="mt-2 grid grid-cols-2 gap-3">
+        <div className="mt-2 proc-business-fields grid grid-cols-1 gap-3">
           <label className="block"><span className={label}>{t('规格')}</span><Input value={draft.spec} onChange={(e) => set('spec')(e.target.value)} className={field} /></label>
           <label className="block"><span className={label}>{t('单位')}</span><Input value={draft.unit} onChange={(e) => set('unit')(e.target.value)} placeholder={t('如 件')} className={field} /></label>
-          <div><span className={label}>Deadline</span><DateInput value={draft.deadline} onChange={set('deadline')} ariaLabel="Deadline" className="mt-1" /></div>
+          <div><span className={label}>Deadline</span><DateInput disabled={disabled} value={draft.deadline} onChange={set('deadline')} ariaLabel="Deadline" className="mt-1" /></div>
           <div>
             <span className={label}>{t('采购方式')}</span>
-            <Select value={draft.method} onValueChange={(v) => set('method')(v as ProcMethod)}>
+            <Select disabled={disabled} value={draft.method} onValueChange={(v) => set('method')(v as ProcMethod)}>
               <SelectTrigger aria-label={t('采购方式')} className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="inquiry">{t('询价采购')}</SelectItem>
@@ -198,11 +215,11 @@ function DraftFields({ draft, setDraft, more, setMore, lockContext = false }: {
             </Select>
           </div>
           {draft.method === "direct" && (
-            <label className="col-span-2 block"><span className={label}>{t('商品链接（直购）')}</span><Input value={draft.purchaseLink} onChange={(e) => set('purchaseLink')(e.target.value)} placeholder="https://" className={field} /></label>
+            <label className="col-span-full block"><span className={label}>{t('商品链接（直购）')}</span><Input value={draft.purchaseLink} onChange={(e) => set('purchaseLink')(e.target.value)} placeholder="https://" className={field} /></label>
           )}
           <div>
             <span className={label}>{t('优先级')}</span>
-            <Select value={draft.priority} onValueChange={(v) => set('priority')(v as DraftState["priority"])}>
+            <Select disabled={disabled} value={draft.priority} onValueChange={(v) => set('priority')(v as DraftState["priority"])}>
               <SelectTrigger aria-label={t('优先级')} className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="high">{t('高')}</SelectItem>
@@ -211,14 +228,14 @@ function DraftFields({ draft, setDraft, more, setMore, lockContext = false }: {
               </SelectContent>
             </Select>
           </div>
-          <div><span className={label}>{t('采购负责人')}</span><BuyerComboInput ariaLabel={t('采购负责人')} value={draft.buyer} onChange={set('buyer')} className={field} /></div>
-          <label className="col-span-2 mt-1 flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+          <div><span className={label}>{t('采购负责人')}</span><BuyerComboInput disabled={disabled} ariaLabel={t('采购负责人')} value={draft.buyer} onChange={set('buyer')} className={field} /></div>
+          <label className="col-span-full mt-1 flex cursor-pointer items-center gap-2 text-sm text-slate-600">
             <Checkbox checked={draft.needSample} onCheckedChange={(v) => set('needSample')(v === true)} />
             {t('需要样品（选定报价后先到样测试）')}
           </label>
         </div>
       )}
-    </>
+    </fieldset>
   );
 }
 
@@ -227,11 +244,13 @@ async function submitDraft(
   draft: DraftState,
   t: (s: string) => string,
   resolveUserId?: (name: string) => string | undefined,
+  onError?: (message: string) => void,
 ): Promise<boolean> {
+  const fail = (message: string) => { onError?.(message); toast.error(message); return false; };
   const quantity = Number(draft.quantity);
-  if (!draft.materialName.trim()) { toast.error(t('请填写物料名称')); return false; }
-  if (!Number.isFinite(quantity) || quantity <= 0) { toast.error(t('请填写有效数量')); return false; }
-  if (!draft.needDate) { toast.error(t('请选择需求日期')); return false; }
+  if (!draft.materialName.trim()) return fail(t('请填写物料名称'));
+  if (!Number.isFinite(quantity) || quantity <= 0) return fail(t('请填写有效数量'));
+  if (!draft.needDate) return fail(t('请选择需求日期'));
   try {
     const task = await createProcTask({
       productId: draft.productId,
@@ -255,8 +274,7 @@ async function submitDraft(
     toast.success(`${t('已创建采购任务')} ${task.code}`);
     return true;
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('创建失败'));
-    return false;
+    return fail(err instanceof Error ? err.message : t('创建失败'));
   }
 }
 
@@ -266,13 +284,18 @@ export function AiCreateModal({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState("");
   const [step, setStep] = useState<"input" | "confirm">("input");
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [formError, setFormError] = useState("");
   const [usedAI, setUsedAI] = useState(true);
   const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT);
   const [more, setMore] = useState(true);
   const { resolveUserId } = useBuyerDirectory();
 
   const parse = async () => {
-    if (!text.trim()) { toast.error(t('请先粘贴需求文字或商品链接')); return; }
+    if (busyRef.current) return;
+    if (!text.trim()) { setFormError(t('请先粘贴需求文字或商品链接')); return; }
+    busyRef.current = true;
+    setFormError("");
     setBusy(true);
     try {
       const result = await aiParseProcTask(text.trim());
@@ -280,17 +303,24 @@ export function AiCreateModal({ onClose }: { onClose: () => void }) {
       setUsedAI(result.usedAI);
       setStep("confirm");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('解析失败'));
+      const message = err instanceof Error ? err.message : t('解析失败');
+      setFormError(message);
+      toast.error(message);
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
 
   const submit = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setFormError("");
     setBusy(true);
-    const ok = await submitDraft(draft, t, resolveUserId);
-    setBusy(false);
-    if (ok) onClose();
+    try {
+      const ok = await submitDraft(draft, t, resolveUserId, setFormError);
+      if (ok) onClose();
+    } finally { busyRef.current = false; setBusy(false); }
   };
 
   return (
@@ -298,6 +328,7 @@ export function AiCreateModal({ onClose }: { onClose: () => void }) {
       title={t("AI 建单")}
       busy={busy}
       onClose={onClose}
+      feedback={formError && <p role="alert" className="break-words text-pretty text-xs text-rose-700">{formError}</p>}
       footer={step === "input" ? (
         <>
           <button type="button" disabled={busy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t('取消')}</button>
@@ -316,16 +347,16 @@ export function AiCreateModal({ onClose }: { onClose: () => void }) {
     >
       {step === "input" ? (
         <>
-          <div className="mb-3 flex items-start gap-2 rounded-xl border border-[#dce6ff] bg-[#eef3ff] px-3 py-2 text-pretty text-xs text-[#002fa7]"><Sparkles className="mt-0.5 size-4 shrink-0" />{t('粘贴文字或商品链接，AI 将解析生成采购任务（物料、规格、数量、方式等）。')}</div>
-          <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} placeholder={t('例：采购 减震垫 DZC-950 橡胶 50×20mm 2000 件，7 月中旬前到货；或粘贴电商商品链接…')} className="w-full rounded-lg border-slate-200 px-3 py-2 text-sm focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15" />
+          <div className="mb-3 flex items-start gap-2 rounded-xl border border-[var(--primary-soft-border)] bg-accent px-3 py-2 text-pretty text-xs text-primary"><Sparkles className="mt-0.5 size-4 shrink-0" />{t('粘贴文字或商品链接，AI 将解析生成采购任务（物料、规格、数量、方式等）。')}</div>
+          <Textarea disabled={busy} aria-label={t("采购需求文字或商品链接")} value={text} onChange={(e) => setText(e.target.value)} rows={6} placeholder={t('例：采购 减震垫 DZC-950 橡胶 50×20mm 2000 件，7 月中旬前到货；或粘贴电商商品链接…')} className="w-full rounded-lg border-slate-200 px-3 py-2 text-sm focus:border-primary/40 focus:ring-2 focus:ring-primary/15" />
         </>
       ) : (
         <>
-          <div className={cn("mb-3 flex items-start gap-2 rounded-xl border px-3 py-2 text-pretty text-xs", usedAI ? "border-[#dce6ff] bg-[#eef3ff] text-[#002fa7]" : "border-amber-100 bg-amber-50/60 text-amber-700")}>
+          <div className={cn("mb-3 flex items-start gap-2 rounded-xl border px-3 py-2 text-pretty text-xs", usedAI ? "border-[var(--primary-soft-border)] bg-accent text-primary" : "border-amber-100 bg-amber-50/60 text-amber-700")}>
             <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
             {t(usedAI ? 'AI 已解析出以下草稿，请核对并补全后创建。' : 'AI 暂不可用，已按规则粗解析，请人工核对后创建。')}
           </div>
-          <DraftFields draft={draft} setDraft={setDraft} more={more} setMore={setMore} />
+          <DraftFields disabled={busy} draft={draft} setDraft={setDraft} more={more} setMore={setMore} />
         </>
       )}
     </Shell>
@@ -351,13 +382,19 @@ export function NewRequirementModal({
   }));
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [formError, setFormError] = useState("");
   const { resolveUserId } = useBuyerDirectory();
 
   const submit = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setFormError("");
     setBusy(true);
-    const ok = await submitDraft(draft, t, resolveUserId);
-    setBusy(false);
-    if (ok) onClose();
+    try {
+      const ok = await submitDraft(draft, t, resolveUserId, setFormError);
+      if (ok) onClose();
+    } finally { busyRef.current = false; setBusy(false); }
   };
 
   return (
@@ -365,6 +402,7 @@ export function NewRequirementModal({
       title={t("新建采购需求")}
       busy={busy}
       onClose={onClose}
+      feedback={formError && <p role="alert" className="break-words text-pretty text-xs text-rose-700">{formError}</p>}
       footer={<>
         <button type="button" disabled={busy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t('取消')}</button>
         <button type="button" disabled={busy} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
@@ -372,7 +410,7 @@ export function NewRequirementModal({
         </button>
       </>}
     >
-      <DraftFields draft={draft} setDraft={setDraft} more={more} setMore={setMore} lockContext={lockContext} />
+      <DraftFields disabled={busy} draft={draft} setDraft={setDraft} more={more} setMore={setMore} lockContext={lockContext} />
     </Shell>
   );
 }
@@ -527,29 +565,29 @@ export function ImportMaterialsModal({ onClose }: { onClose: () => void }) {
       <div className="mb-3 grid grid-cols-3 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2.5">
         {[t("选择文件"), t("核对解析结果"), t("导入生效")].map((label, index) => {
           const active = phase === "importing" ? 2 : phase === "ready" ? 1 : 0;
-          return <div key={label} className={cn("flex items-center gap-1.5 text-[11px]", index === active ? "font-semibold text-[#002fa7]" : index < active ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === active ? "border-[#002fa7] bg-[#002fa7] text-white" : index < active ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index < active ? <CheckCircle2 className="size-3" /> : index + 1}</span><span className="truncate">{label}</span></div>;
+          return <div key={label} className={cn("flex items-center gap-1.5 text-[11px]", index === active ? "font-semibold text-primary" : index < active ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === active ? "border-primary bg-primary text-white" : index < active ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index < active ? <CheckCircle2 className="size-3" /> : index + 1}</span><span className="truncate">{label}</span></div>;
         })}
       </div>
-      <label aria-disabled={busy} className={cn("flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center transition-colors", busy ? "cursor-wait opacity-70" : "cursor-pointer hover:border-[#002fa7]/30 hover:bg-[#eef3ff]/50")}>
-        <Upload className="size-8 text-[#002fa7]/70" />
-        <span className="max-w-full truncate text-sm font-medium text-slate-600">{phase === "parsing" ? t("正在解析表格…") : phase === "importing" ? t("正在写入物料主数据…") : fileName || t('点击选择 Excel 文件')}</span>
+      <button type="button" disabled={busy} onClick={() => inputRef.current?.click()} className={cn("flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center transition-colors", busy ? "cursor-wait opacity-70" : "cursor-pointer hover:border-primary/30 hover:bg-accent/50")}>
+        <Upload aria-hidden="true" className="size-8 text-primary/70" />
+        <span title={fileName || undefined} className="max-w-full break-words text-pretty text-sm font-medium text-slate-600">{phase === "parsing" ? t("正在解析表格…") : phase === "importing" ? t("正在写入物料主数据…") : fileName || t('点击选择 Excel 文件')}</span>
         <span className="text-[11px] text-slate-400">{t('支持 .xlsx，按下方模板字段解析')}</span>
-        <Input ref={inputRef} type="file" accept=".xlsx,.xls" disabled={busy} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void pick(f); }} />
-      </label>
+      </button>
+      <Input ref={inputRef} type="file" accept=".xlsx,.xls" disabled={busy} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void pick(f); }} />
       {error && <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{error}</div>}
       {items.length > 0 && (
         <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2 text-xs text-emerald-700">
           {t('已解析 {count} 条有效物料', { count: items.length })}
           {skipped > 0 && <span className="text-amber-600">，{t('跳过 {count} 条缺少物料名称的行', { count: skipped })}</span>}
-          <div className="mt-1 text-slate-500">
+          <div className="mt-1 break-words text-slate-500">
             {items.slice(0, 3).map((m, i) => <div key={i}>· {m.name}{m.spec ? ` · ${m.spec}` : ""}{m.category ? ` · ${m.category}` : ""}</div>)}
             {items.length > 3 && <div>…</div>}
           </div>
         </div>
       )}
-      <div className="mt-3 flex items-start justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
-        <p className="text-[11px] leading-5 text-slate-500">{t('模板列：物料名称（必填）/ 规格 / 单位 / 分类 / 产品线 / ERP编码 / T+存货编码 / 是否特殊物料 / 是否耗材 / 安全库存 / 备注。新增物料将进入审核队列，按名称+规格或 T+ 编码去重（已存在则更新）。')}</p>
-        <button type="button" onClick={() => void downloadImportTemplate()} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-[#002fa7] hover:text-[#002581]"><FileDown className="size-3.5" />{t('下载模板')}</button>
+      <div className="mt-3 flex flex-wrap items-start justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
+        <p className="min-w-0 flex-1 basis-64 text-pretty text-xs leading-5 text-slate-500">{t('模板列：物料名称（必填）/ 规格 / 单位 / 分类 / 产品线 / ERP编码 / T+存货编码 / 是否特殊物料 / 是否耗材 / 安全库存 / 备注。新增物料将进入审核队列，按名称+规格或 T+ 编码去重（已存在则更新）。')}</p>
+        <button type="button" onClick={() => void downloadImportTemplate()} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:text-primary-hover"><FileDown className="size-3.5" />{t('下载模板')}</button>
       </div>
     </Shell>
   );
@@ -565,6 +603,14 @@ export function CategoryManageModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [keyword, setKeyword] = useState("");
+  const [error, setError] = useState("");
+  const renameTriggersRef = useRef(new Map<string, HTMLButtonElement>());
+  const cancelEditing = (category: string) => {
+    setEditing(null);
+    setNewName("");
+    setError("");
+    requestAnimationFrame(() => renameTriggersRef.current.get(category)?.focus());
+  };
   const byCat = useMemo(() => {
     const m = new Map<string, number>();
     for (const mat of materials) m.set(mat.category, (m.get(mat.category) ?? 0) + 1);
@@ -580,6 +626,7 @@ export function CategoryManageModal({ onClose }: { onClose: () => void }) {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
+    setError("");
     try {
       const result = await renameProcCategory(from, to);
       await refreshProcurement();
@@ -588,6 +635,7 @@ export function CategoryManageModal({ onClose }: { onClose: () => void }) {
       setNewName("");
     } catch (err) {
       const message = err instanceof Error ? err.message : t('操作失败');
+      setError(message);
       toast.error(message);
       throw err instanceof Error ? err : new Error(message);
     } finally {
@@ -598,7 +646,7 @@ export function CategoryManageModal({ onClose }: { onClose: () => void }) {
   const rename = async (from: string) => {
     if (busyRef.current) return;
     const to = newName.trim();
-    if (!to) { toast.error(t('请填写新分类名')); return; }
+    if (!to) { setError(t('请填写新分类名')); return; }
     if (to === from) { setEditing(null); return; }
     const merging = byCat.has(to);
     if (merging) {
@@ -618,34 +666,41 @@ export function CategoryManageModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Shell title={t("分类管理")} busy={busy} onClose={onClose} footer={<button type="button" disabled={busy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t('关闭')}</button>}>
+    <Shell title={t("分类管理")} busy={busy} onClose={onClose} onEscapeKeyDown={(event) => {
+      if (editing !== null && !busy) {
+        event.preventDefault();
+        cancelEditing(editing);
+      }
+    }} footer={<button type="button" disabled={busy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t('关闭')}</button>}>
       {confirmDialog}
       <p className="mb-3 text-xs text-slate-400">{t('分类由物料主数据聚合而来；重命名会同步更新该分类下所有物料，改成已有分类名即为合并。')}</p>
       <Input
+        aria-label={t("搜索物料分类")}
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
         placeholder={t('按分类名称过滤…')}
-        className="mb-3 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15"
+        className="mb-3 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
       />
-      <div className="max-h-[55vh] space-y-2 overflow-y-auto">
+      <div className="space-y-2">
         {entries.map(([c, n]) => (
-          <div key={c} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm">
+          <div key={c} className="proc-material-category-row flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm">
             {editing === c ? (
               <>
-                <Input autoFocus disabled={busy} value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void rename(c); if (e.key === "Escape" && !busy) setEditing(null); }} placeholder={c} className="h-8 flex-1 rounded-lg border border-[#c9d8ff] px-2 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15" />
-                <button type="button" disabled={busy} onClick={() => void rename(c)} className="rounded-lg bg-[#002fa7] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#002581] disabled:opacity-60">{busy ? t('处理中…') : t('保存')}</button>
-                <button type="button" disabled={busy} onClick={() => { setEditing(null); setNewName(""); }} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">{t('取消')}</button>
+                <Input aria-label={t("新分类名称")} aria-invalid={Boolean(error)} autoFocus disabled={busy} value={newName} onChange={(e) => { setError(""); setNewName(e.target.value); }} onKeyDown={(e) => { if (e.key === "Enter") void rename(c); }} placeholder={c} className="h-9 min-w-0 flex-1 basis-full rounded-lg border border-[var(--primary-soft-border)] px-2 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15" />
+                <button type="button" disabled={busy} onClick={() => void rename(c)} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-60">{busy ? t('处理中…') : t('保存')}</button>
+                <button type="button" disabled={busy} onClick={() => cancelEditing(c)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">{t('取消')}</button>
               </>
             ) : (
               <>
-                <AutoTranslatedText className="text-slate-700" text={c} />
-                <span className="ml-auto text-xs text-slate-400">{t('{count} 物料', { count: n })}</span>
-                <button type="button" onClick={() => { setEditing(c); setNewName(c); }} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50">{t('重命名')}</button>
+                <AutoTranslatedText className="min-w-0 flex-1 break-words text-pretty text-slate-700" text={c || t("未分类")} />
+                <span className="ml-auto shrink-0 text-xs tabular-nums text-slate-500">{t('{count} 物料', { count: n })}</span>
+                <button ref={(node) => { if (node) renameTriggersRef.current.set(c, node); else renameTriggersRef.current.delete(c); }} type="button" onClick={() => { setEditing(c); setNewName(c); setError(""); }} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50">{t('重命名')}</button>
               </>
             )}
+            {editing === c && error && <p role="alert" className="basis-full break-words rounded-lg bg-rose-50 p-3 text-pretty text-sm text-rose-700">{error}</p>}
           </div>
         ))}
-        {entries.length === 0 && <div className="py-8 text-center text-sm text-slate-400">{t(byCat.size === 0 ? '暂无分类' : '没有匹配的分类')}</div>}
+        {entries.length === 0 && <div className="space-y-3 py-8 text-center text-sm text-slate-500"><p>{t(byCat.size === 0 ? '暂无分类' : '没有匹配的分类')}</p>{keyword.trim() && <button type="button" onClick={() => setKeyword("")} className="material-button-secondary px-3 py-2 text-xs">{t('清空搜索')}</button>}</div>}
       </div>
     </Shell>
   );
@@ -719,7 +774,7 @@ export function MaterialClassifyModal({ onClose }: { onClose: () => void }) {
       {!error && !preview && <div className="py-8 text-center text-sm text-slate-400">{t('统计中')}…</div>}
 
       {busy && progress && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl border border-[#dce6ff] bg-[#eef3ff] p-3 text-sm text-[#002fa7]">
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-[var(--primary-soft-border)] bg-accent p-3 text-sm text-primary">
           <Loader2 className="h-4 w-4 animate-spin" />{progress}
         </div>
       )}
@@ -740,7 +795,7 @@ export function MaterialClassifyModal({ onClose }: { onClose: () => void }) {
             <div className="grid grid-cols-3 gap-3 text-center">
               <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3"><div className="text-lg font-semibold text-slate-800">{preview.uncategorized}</div><div className="text-xs text-slate-500">{t('未分类物料')}</div></div>
               <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3"><div className="text-lg font-semibold text-emerald-700">{preview.rule1 + preview.rule2}</div><div className="text-xs text-slate-500">{t('规则可分（确定性）')}</div></div>
-              <div className="rounded-xl border border-[#dce6ff] bg-[#eef3ff] p-3"><div className="text-lg font-semibold tabular-nums text-[#002fa7]">{preview.aiPending}</div><div className="text-xs text-slate-500">{t('需 AI 判断')}</div></div>
+              <div className="rounded-xl border border-[var(--primary-soft-border)] bg-accent p-3"><div className="text-lg font-semibold tabular-nums text-primary">{preview.aiPending}</div><div className="text-xs text-slate-500">{t('需 AI 判断')}</div></div>
             </div>
             {Object.keys(preview.ruleCategories).length > 0 && (
               <div className="rounded-xl border border-slate-100 p-3">
@@ -857,7 +912,7 @@ export function SafeStockModal({ onClose }: { onClose: () => void }) {
       {!error && !preview && <div className="py-8 text-center text-sm text-slate-400">{t('统计中')}…</div>}
 
       {busy && progress && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl border border-[#dce6ff] bg-[#eef3ff] p-3 text-sm text-[#002fa7]">
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-[var(--primary-soft-border)] bg-accent p-3 text-sm text-primary">
           <Loader2 className="h-4 w-4 animate-spin" />{progress}
         </div>
       )}
@@ -870,7 +925,7 @@ export function SafeStockModal({ onClose }: { onClose: () => void }) {
             <div className="grid grid-cols-3 gap-3 text-center">
               <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3"><div className="text-lg font-semibold text-slate-800">{preview.usageMaterialCount}</div><div className="text-xs text-slate-500">{t('近 90 天有采购的物料')}</div></div>
               <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3"><div className="text-lg font-semibold text-emerald-700">{preview.ruleCount}</div><div className="text-xs text-slate-500">{t('规则可算（频次 ≥2）')}</div></div>
-              <div className="rounded-xl border border-[#dce6ff] bg-[#eef3ff] p-3"><div className="text-lg font-semibold tabular-nums text-[#002fa7]">{preview.aiPending}</div><div className="text-xs text-slate-500">{t('需 AI 判断（仅 1 单）')}</div></div>
+              <div className="rounded-xl border border-[var(--primary-soft-border)] bg-accent p-3"><div className="text-lg font-semibold tabular-nums text-primary">{preview.aiPending}</div><div className="text-xs text-slate-500">{t('需 AI 判断（仅 1 单）')}</div></div>
             </div>
             {preview.skippedManual > 0 && <div className="text-[11px] text-slate-400">{t('另有 {n} 个物料已人工设置安全库存，不会改动。', { n: preview.skippedManual })}</div>}
             {preview.samples.length > 0 && (
@@ -927,29 +982,42 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
   const [rows, setRows] = useState<ReplenishSuggestion[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Map<string, number>>(new Map());
+  const [selected, setSelected] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const requestRef = useRef(0);
+  const [submitError, setSubmitError] = useState("");
+  const { invalidIds, items } = validateReplenishmentSelection(selected);
+  const quantityError = invalidIds.length > 0 ? t("请为已勾选物料填写大于 0 的整数补货量") : selected.size > 100 ? t("单次最多生成 100 个任务，请减少勾选项") : "";
   const [createdCodes, setCreatedCodes] = useState<string[] | null>(null);
 
-  useEffect(() => {
-    listReplenishSuggestions()
-      .then((r) => {
-        setRows(r.rows);
-        // 默认全选，量取建议值
-        setSelected(new Map(r.rows.map((row) => [row.materialId, row.suggestQty])));
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : t('加载失败')));
-  }, []);
+  const load = useCallback(async () => {
+    const requestId = ++requestRef.current;
+    setRows(null); setError(null);
+    try {
+      const result = await listReplenishSuggestions();
+      if (requestId !== requestRef.current) return;
+      setRows(result.rows);
+      setSelected(new Map(result.rows.map((row) => [row.materialId, String(row.suggestQty)])));
+    } catch (err) {
+      if (requestId === requestRef.current) setError(err instanceof Error ? err.message : t('加载失败'));
+    }
+  }, [t]);
+  useEffect(() => { void load(); return () => { requestRef.current += 1; }; }, [load]);
 
   const toggle = (id: string, suggest: number) => {
+    if (busyRef.current) return;
+    setSubmitError("");
     setSelected((cur) => {
       const next = new Map(cur);
       if (next.has(id)) next.delete(id);
-      else next.set(id, suggest);
+      else next.set(id, String(suggest));
       return next;
     });
   };
-  const setQty = (id: string, qty: number) => {
+  const setQty = (id: string, qty: string) => {
+    if (busyRef.current) return;
+    setSubmitError("");
     setSelected((cur) => {
       const next = new Map(cur);
       next.set(id, qty);
@@ -958,10 +1026,10 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
   };
 
   const submit = async () => {
-    const items = [...selected.entries()]
-      .filter(([, qty]) => qty > 0)
-      .map(([materialId, quantity]) => ({ materialId, quantity }));
-    if (!items.length) { toast.error(t('请至少勾选一条补货建议')); return; }
+    if (busyRef.current) return;
+    if (quantityError || !items.length) { setSubmitError(quantityError || t('请至少勾选一条补货建议')); return; }
+    busyRef.current = true;
+    setSubmitError("");
     setBusy(true);
     try {
       const result = await createReplenishTasks(items);
@@ -969,8 +1037,11 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
       await refreshProcurement();
       toast.success(t('已生成 {n} 个采购任务', { n: result.created }));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('生成失败'));
+      const message = err instanceof Error ? err.message : t('生成失败');
+      setSubmitError(message);
+      toast.error(message);
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
@@ -981,19 +1052,20 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
       busy={busy}
       onClose={onClose}
       wide
+      feedback={(quantityError || submitError) && <p role="alert" className="text-pretty text-xs text-rose-700">{quantityError || submitError}</p>}
       footer={<>
         <button type="button" disabled={busy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t(createdCodes ? '完成' : '关闭')}</button>
         {!createdCodes && (
-          <button type="button" disabled={busy || selected.size === 0} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
-            {busy && <Loader2 className="h-4 w-4 animate-spin" />}{t('生成 {n} 个采购任务', { n: selected.size })}
+          <button type="button" disabled={busy || !rows || Boolean(error) || Boolean(quantityError) || selected.size === 0} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}{busy ? t('正在生成采购任务…') : t('生成 {n} 个采购任务', { n: selected.size })}
           </button>
         )}
       </>}
     >
       <p className="mb-3 text-xs text-slate-400">{t('建议量 = 安全库存 − 当前库存 − T+ 在途 − 进行中采购任务未到量；零库存物料生成的任务自动高优先级。')}</p>
 
-      {error && <div className="py-8 text-center text-sm text-red-500">{error}</div>}
-      {!error && !rows && <div className="py-8 text-center text-sm text-slate-400">{t('计算中')}…</div>}
+      {error && <div role="alert" className="space-y-3 py-8 text-center text-sm text-rose-600"><p className="break-words">{error}</p><button type="button" onClick={() => void load()} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</button></div>}
+      {!error && !rows && <div role="status" className="py-8 text-center text-sm text-slate-500">{t('计算中')}…</div>}
 
       {createdCodes ? (
         <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 text-sm text-emerald-800">
@@ -1004,23 +1076,24 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
         rows.length === 0 ? (
           <div className="py-8 text-center text-sm text-slate-400">{t('没有需要补货的物料：所有缺口已被在途或进行中任务覆盖。')}</div>
         ) : (
-          <div className="max-h-[380px] overflow-y-auto rounded-xl border border-slate-100">
-            <table className="w-full text-xs">
+          <div role="region" aria-label={t("补货建议明细")} tabIndex={0} className="max-h-[380px] overflow-auto overscroll-contain rounded-xl border border-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40">
+            <table className="w-full min-w-[48rem] text-xs">
+              <caption className="sr-only">{t("补货建议明细")}</caption>
               <thead className="sticky top-0 bg-slate-50 text-slate-500">
                 <tr>
-                  <th className="px-2 py-1.5 text-left font-medium"></th>
-                  <th className="px-2 py-1.5 text-left font-medium">{t('物料')}</th>
-                  <th className="px-2 py-1.5 text-right font-medium">{t('库存/安全')}</th>
-                  <th className="px-2 py-1.5 text-right font-medium">{t('在途')}</th>
-                  <th className="px-2 py-1.5 text-right font-medium">{t('任务中')}</th>
-                  <th className="px-2 py-1.5 text-right font-medium">{t('补货量')}</th>
-                  <th className="px-2 py-1.5 text-left font-medium">{t('最近供应商/单价')}</th>
+                  <th scope="col" className="px-2 py-1.5 text-left font-medium"></th>
+                  <th scope="col" className="px-2 py-1.5 text-left font-medium">{t('物料')}</th>
+                  <th scope="col" className="px-2 py-1.5 text-right font-medium">{t('库存/安全')}</th>
+                  <th scope="col" className="px-2 py-1.5 text-right font-medium">{t('在途')}</th>
+                  <th scope="col" className="px-2 py-1.5 text-right font-medium">{t('任务中')}</th>
+                  <th scope="col" className="px-2 py-1.5 text-right font-medium">{t('补货量')}</th>
+                  <th scope="col" className="px-2 py-1.5 text-left font-medium">{t('最近供应商/单价')}</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.materialId} className={cn("border-t border-slate-100", !selected.has(r.materialId) && "opacity-50")}>
-                    <td className="px-2 py-1.5"><Checkbox checked={selected.has(r.materialId)} onCheckedChange={() => toggle(r.materialId, r.suggestQty)} className="size-3.5" /></td>
+                    <td className="px-2 py-1.5"><Checkbox aria-label={t("选择补货物料：{name}", { name: r.name })} disabled={busy} checked={selected.has(r.materialId)} onCheckedChange={() => toggle(r.materialId, r.suggestQty)} className="size-3.5" /></td>
                     <td className="max-w-[180px] truncate px-2 py-1.5 text-slate-700" title={r.name}>{r.code} <AutoTranslatedText as="span" text={r.name} /></td>
                     <td className={cn("px-2 py-1.5 text-right tabular-nums", r.stock <= 0 ? "font-semibold text-rose-600" : "text-amber-600")}>{r.stock.toLocaleString()} / {r.safeStock.toLocaleString()}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-slate-500">{r.inTransit.toLocaleString()}</td>
@@ -1028,12 +1101,17 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
                     <td className="px-2 py-1.5 text-right">
                       <Input
                         type="number"
+                        aria-label={t("{name} 补货量", { name: r.name })}
+                        aria-invalid={invalidIds.includes(r.materialId)}
+                        aria-describedby={invalidIds.includes(r.materialId) ? `replenish-error-${r.materialId}` : undefined}
                         min={1}
+                        step={1}
                         value={selected.get(r.materialId) ?? r.suggestQty}
-                        disabled={!selected.has(r.materialId)}
-                        onChange={(e) => setQty(r.materialId, Math.max(0, Math.floor(Number(e.target.value))))}
-                        className="h-6 w-20 rounded border border-slate-200 px-1.5 text-right text-xs tabular-nums outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15 disabled:bg-slate-50 md:text-xs"
+                        disabled={busy || !selected.has(r.materialId)}
+                        onChange={(e) => setQty(r.materialId, e.target.value)}
+                        className="h-9 w-24 rounded border border-slate-200 px-1.5 text-right text-xs tabular-nums outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:bg-slate-50 md:text-xs"
                       />
+                      {invalidIds.includes(r.materialId) && <p id={`replenish-error-${r.materialId}`} className="mt-1 max-w-24 text-pretty text-left text-[11px] text-rose-700">{t("请输入正整数")}</p>}
                     </td>
                     <td className="max-w-[140px] truncate px-2 py-1.5 text-slate-400" title={r.lastSupplier ?? undefined}>
                       {r.lastSupplier ? <AutoTranslatedText as="span" text={r.lastSupplier} /> : '—'}{r.lastPrice != null ? ` · ¥${r.lastPrice}` : ''}{r.packStep ? ` · ${t('按 {n} 起订', { n: r.packStep })}` : ''}
@@ -1060,25 +1138,34 @@ export function BatchReassignModal({ tasks, onClose }: { tasks: ProcurementTask[
   const [keyword, setKeyword] = useState("");
   const [buyer, setBuyer] = useState("");
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [error, setError] = useState("");
   const { resolveUserId } = useBuyerDirectory();
 
+  const eligibleTasks = useMemo(() => tasks.filter((task) => !TERMINAL_STATUSES.includes(task.status)), [tasks]);
+  const eligibleIds = useMemo(() => new Set(eligibleTasks.map((task) => task.id)), [eligibleTasks]);
+  const validSelected = useMemo(() => retainAvailableProcurementSelection(selected, eligibleIds), [selected, eligibleIds]);
+  // 在本次渲染提交前清除失效项，避免旧选择在任务重新开放后意外复活。
+  if (validSelected.size !== selected.size) setSelected(validSelected);
+
   const candidates = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
-    return tasks
-      .filter((task) => !TERMINAL_STATUSES.includes(task.status))
-      .filter((task) => !kw || `${task.code} ${task.materialName} ${task.buyer}`.toLowerCase().includes(kw));
-  }, [tasks, keyword]);
+    return eligibleTasks.filter((task) => !kw || `${task.code} ${task.materialName} ${task.buyer}`.toLowerCase().includes(kw));
+  }, [eligibleTasks, keyword]);
 
-  const toggle = (id: string) => { setError(""); setSelected((cur) => {
-    const next = new Set(cur);
+  const toggle = (id: string) => { if (busyRef.current || !eligibleIds.has(id)) return; setError(""); setSelected((cur) => {
+    const next = retainAvailableProcurementSelection(cur, eligibleIds);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   }); };
-  const allChecked = candidates.length > 0 && candidates.every((task) => selected.has(task.id));
-  const toggleAll = () => setSelected(allChecked ? new Set() : new Set(candidates.map((task) => task.id)));
+  const allChecked = candidates.length > 0 && candidates.every((task) => validSelected.has(task.id));
+  const toggleAll = () => {
+    if (busyRef.current) return;
+    setSelected((current) => setVisibleProcurementSelection(retainAvailableProcurementSelection(current, eligibleIds), candidates.map((task) => task.id), !allChecked));
+  };
 
   const submit = async () => {
+    if (busyRef.current) return;
     const name = buyer.trim();
     if (!name) {
       const message = t('请填写新采购负责人');
@@ -1086,17 +1173,18 @@ export function BatchReassignModal({ tasks, onClose }: { tasks: ProcurementTask[
       toast.error(message);
       return;
     }
-    if (selected.size === 0) {
+    if (validSelected.size === 0) {
       const message = t('请至少勾选一个任务');
       setError(message);
       toast.error(message);
       return;
     }
+    busyRef.current = true;
     setError("");
     setBusy(true);
     try {
       // 后端事务原子执行：任一任务已完结/不存在则整批回滚，不会转一半
-      const result = await batchReassignProcTasks(Array.from(selected), name, resolveUserId(name));
+      const result = await batchReassignProcTasks(Array.from(validSelected), name, resolveUserId(name));
       await refreshProcurement();
       toast.success(t('已转派 {count} 个任务给 {name}', { count: result.updated, name }));
       onClose();
@@ -1105,6 +1193,7 @@ export function BatchReassignModal({ tasks, onClose }: { tasks: ProcurementTask[
       setError(message);
       toast.error(message);
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
@@ -1116,42 +1205,45 @@ export function BatchReassignModal({ tasks, onClose }: { tasks: ProcurementTask[
       busy={busy}
       onClose={onClose}
       wide
+      feedback={error && <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{error}</div>}
       footer={<>
         <button type="button" disabled={busy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t('取消')}</button>
         <button type="button" disabled={busy} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
-          {busy && <Loader2 className="h-4 w-4 animate-spin" />}{busy ? t('正在转派…') : selected.size > 0 ? t('转派 {count} 个任务', { count: selected.size }) : t('转派')}
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />}{busy ? t('正在转派…') : validSelected.size > 0 ? t('转派 {count} 个任务', { count: validSelected.size }) : t('转派')}
         </button>
       </>}
     >
       <div className="mb-3 grid grid-cols-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2.5">
-        {[t("选择任务"), t("确认接收人")].map((label, index) => { const active = selected.size > 0 ? 1 : 0; return <div key={label} className={cn("flex items-center gap-2 text-xs", index === active ? "font-semibold text-[#002fa7]" : "text-emerald-700")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === active ? "border-[#002fa7] bg-[#002fa7] text-white" : "border-emerald-300 bg-emerald-50")}>{index < active ? <CheckCircle2 className="size-3" /> : index + 1}</span>{label}</div>; })}
+        {[t("选择任务"), t("确认接收人")].map((label, index) => { const active = validSelected.size > 0 ? 1 : 0; return <div key={label} className={cn("flex items-center gap-2 text-xs", index === active ? "font-semibold text-primary" : "text-emerald-700")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === active ? "border-primary bg-primary text-white" : "border-emerald-300 bg-emerald-50")}>{index < active ? <CheckCircle2 className="size-3" /> : index + 1}</span>{label}</div>; })}
       </div>
-      {error && <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{error}</div>}
-      <div className="mb-3 grid grid-cols-2 gap-3">
+      <fieldset disabled={busy} className="min-w-0">
+      <div className="proc-business-fields mb-3 grid grid-cols-1 gap-3">
         <label className="block">
           <span className="text-xs font-medium text-slate-500">{t('新采购负责人')}<span className="ml-0.5 text-rose-500">*</span></span>
-          <BuyerComboInput ariaLabel={t('新采购负责人')} value={buyer} onChange={(value) => { setBuyer(value); setError(""); }} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15" />
+          <BuyerComboInput disabled={busy} ariaLabel={t('新采购负责人')} value={buyer} onChange={(value) => { setBuyer(value); setError(""); }} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15" />
         </label>
         <label className="block">
           <span className="text-xs font-medium text-slate-500">{t('筛选任务')}</span>
-          <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder={t('搜索单号 / 物料 / 当前负责人')} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15" />
+          <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder={t('搜索单号 / 物料 / 当前负责人')} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15" />
         </label>
       </div>
       <label className="mb-1 flex cursor-pointer items-center gap-2 px-1 py-1 text-xs text-slate-500">
-        <Checkbox checked={allChecked} onCheckedChange={() => { toggleAll(); setError(""); }} />
+        <Checkbox disabled={busy || candidates.length === 0} checked={allChecked ? true : candidates.some((task) => validSelected.has(task.id)) ? "indeterminate" : false} onCheckedChange={() => { toggleAll(); setError(""); }} />
         {t('全选（{count} 个进行中任务）', { count: candidates.length })}
       </label>
+      <p aria-live="polite" className="mb-2 text-xs tabular-nums text-slate-500">{t("已选 {count} 个，其中 {hidden} 个不在当前筛选中", { count: validSelected.size, hidden: [...validSelected].filter((id) => !candidates.some((task) => task.id === id)).length })}</p>
       <div className="max-h-72 space-y-1 overflow-y-auto">
         {candidates.map((task) => (
-          <label key={task.id} className={cn("flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm", selected.has(task.id) ? "border-[#c9d8ff] bg-[#eef3ff]" : "border-slate-100 hover:bg-slate-50")}>
-            <Checkbox checked={selected.has(task.id)} onCheckedChange={() => toggle(task.id)} />
-            <span className="shrink-0 text-xs tabular-nums text-slate-400">{task.code}</span>
-            <AutoTranslatedText className="min-w-0 flex-1 truncate text-slate-700" text={task.materialName} />
-            <span className="shrink-0 text-xs text-slate-400">{t('当前')}：{task.buyer || t('未指派')}</span>
+          <label key={task.id} className={cn("flex min-w-0 cursor-pointer flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm", validSelected.has(task.id) ? "border-[var(--primary-soft-border)] bg-accent" : "border-slate-100 hover:bg-slate-50")}>
+            <Checkbox disabled={busy} checked={validSelected.has(task.id)} onCheckedChange={() => toggle(task.id)} />
+            <span className="max-w-full break-all text-xs tabular-nums text-slate-400">{task.code}</span>
+            <AutoTranslatedText className="min-w-0 flex-1 basis-48 break-words text-slate-700" text={task.materialName} />
+            <span className="max-w-full break-words text-xs text-slate-500">{t('当前')}：{task.buyer || t('未指派')}</span>
           </label>
         ))}
         {candidates.length === 0 && <div className="py-8 text-center text-sm text-slate-400">{t('没有可转派的进行中任务')}</div>}
       </div>
+      </fieldset>
     </Shell>
   );
 }
@@ -1164,6 +1256,7 @@ const ORDER_STAGE = ["priced", "pending_purchase", "in_transit", "partial_arriva
 export function EditTaskModal({ task, onClose }: { task: ProcurementTask; onClose: () => void }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState(() => ({
     quantity: String(task.quantity),
@@ -1179,10 +1272,11 @@ export function EditTaskModal({ task, onClose }: { task: ProcurementTask; onClos
   }));
   const set = <K extends keyof typeof form>(key: K) => (value: (typeof form)[K]) => { setError(""); setForm((f) => ({ ...f, [key]: value })); };
   const orderStage = ORDER_STAGE.includes(task.status);
-  const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15";
+  const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15";
   const label = "text-xs font-medium text-slate-500";
 
   const submit = async () => {
+    if (busyRef.current) return;
     const quantity = Number(form.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0) {
       const message = t('请填写有效数量');
@@ -1203,6 +1297,7 @@ export function EditTaskModal({ task, onClose }: { task: ProcurementTask; onClos
     if (form.purchaseLink !== (task.purchaseLink ?? "")) input.purchaseLink = form.purchaseLink.trim();
     if (form.consumableNote !== (task.consumableNote ?? "")) input.consumableNote = form.consumableNote.trim();
     if (Object.keys(input).length === 0) { setError(t('没有修改任何内容')); toast.info(t('没有修改任何内容')); return; }
+    busyRef.current = true;
     setError("");
     setBusy(true);
     try {
@@ -1215,6 +1310,7 @@ export function EditTaskModal({ task, onClose }: { task: ProcurementTask; onClos
       setError(message);
       toast.error(message);
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
@@ -1225,6 +1321,7 @@ export function EditTaskModal({ task, onClose }: { task: ProcurementTask; onClos
       description={t("仅调整任务基础信息与付款记录；业务状态仍通过任务卡的下一步操作推进。")}
       busy={busy}
       onClose={onClose}
+      feedback={error && <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{error}</div>}
       footer={<>
         <button type="button" disabled={busy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t('取消')}</button>
         <button type="button" disabled={busy} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
@@ -1232,13 +1329,13 @@ export function EditTaskModal({ task, onClose }: { task: ProcurementTask; onClos
         </button>
       </>}
     >
+      <fieldset disabled={busy} className="min-w-0">
       <p className="mb-3 truncate text-xs tabular-nums text-slate-400" title={`${task.code} · ${task.materialName}`}>{task.code} · <AutoTranslatedText as="span" text={task.materialName} /></p>
-      {error && <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{error}</div>}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="proc-business-fields grid grid-cols-1 gap-3">
         <label className="block"><span className={label}>{t('数量')}</span><Input aria-invalid={Boolean(error && !(Number(form.quantity) > 0))} value={form.quantity} onChange={(e) => set('quantity')(e.target.value)} inputMode="decimal" className={cn(field, "tabular-nums")} /></label>
         <div>
           <span className={label}>{t('优先级')}</span>
-          <Select value={form.priority} onValueChange={(v) => set('priority')(v as typeof form.priority)}>
+          <Select disabled={busy} value={form.priority} onValueChange={(v) => set('priority')(v as typeof form.priority)}>
             <SelectTrigger aria-label={t('优先级')} className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="high">{t('高')}</SelectItem>
@@ -1247,21 +1344,21 @@ export function EditTaskModal({ task, onClose }: { task: ProcurementTask; onClos
             </SelectContent>
           </Select>
         </div>
-        <div><span className={label}>{t('需求日期')}</span><DateInput value={form.needDate} onChange={set('needDate')} ariaLabel={t('需求日期')} className="mt-1" /></div>
-        <div><span className={label}>Deadline</span><DateInput value={form.deadline} onChange={set('deadline')} ariaLabel="Deadline" className="mt-1" /></div>
+        <div><span className={label}>{t('需求日期')}</span><DateInput disabled={busy} value={form.needDate} onChange={set('needDate')} ariaLabel={t('需求日期')} className="mt-1" /></div>
+        <div><span className={label}>Deadline</span><DateInput disabled={busy} value={form.deadline} onChange={set('deadline')} ariaLabel="Deadline" className="mt-1" /></div>
         {task.method === "direct" && (
-          <label className="col-span-2 block"><span className={label}>{t('商品链接')}</span><Input value={form.purchaseLink} onChange={(e) => set('purchaseLink')(e.target.value)} className={field} /></label>
+          <label className="col-span-full block"><span className={label}>{t('商品链接')}</span><Input value={form.purchaseLink} onChange={(e) => set('purchaseLink')(e.target.value)} className={field} /></label>
         )}
-        <label className="col-span-2 block"><span className={label}>{t('低值易耗品备注')}</span><Input value={form.consumableNote} onChange={(e) => set('consumableNote')(e.target.value)} className={field} /></label>
+        <label className="col-span-full block"><span className={label}>{t('低值易耗品备注')}</span><Input value={form.consumableNote} onChange={(e) => set('consumableNote')(e.target.value)} className={field} /></label>
       </div>
       {orderStage && (
         <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
           <div className="mb-2 text-xs font-semibold text-slate-600">{t('下单与付款')}</div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><span className={label}>{t('预计到货')}</span><DateInput value={form.expectedArrivalDate} onChange={set('expectedArrivalDate')} ariaLabel={t('预计到货日期')} className="mt-1" /></div>
+          <div className="proc-business-fields grid grid-cols-1 gap-3">
+            <div><span className={label}>{t('预计到货')}</span><DateInput disabled={busy} value={form.expectedArrivalDate} onChange={set('expectedArrivalDate')} ariaLabel={t('预计到货日期')} className="mt-1" /></div>
             <div>
               <span className={label}>{t('付款状态')}</span>
-              <Select value={form.paymentStatus} onValueChange={(v) => set('paymentStatus')(v as PaymentStatus)}>
+              <Select disabled={busy} value={form.paymentStatus} onValueChange={(v) => set('paymentStatus')(v as PaymentStatus)}>
                 <SelectTrigger aria-label={t('付款状态')} className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unpaid">{t('未付款')}</SelectItem>
@@ -1270,11 +1367,12 @@ export function EditTaskModal({ task, onClose }: { task: ProcurementTask; onClos
                 </SelectContent>
               </Select>
             </div>
-            <div><span className={label}>{t('付款日期')}</span><DateInput value={form.paymentDate} onChange={set('paymentDate')} ariaLabel={t('付款日期')} className="mt-1" /></div>
+            <div><span className={label}>{t('付款日期')}</span><DateInput disabled={busy} value={form.paymentDate} onChange={set('paymentDate')} ariaLabel={t('付款日期')} className="mt-1" /></div>
             <label className="block"><span className={label}>{t('付款备注')}</span><Input value={form.paymentNote} onChange={(e) => set('paymentNote')(e.target.value)} placeholder={t('如：首付 30% 已付')} className={field} /></label>
           </div>
         </div>
       )}
+      </fieldset>
     </Shell>
   );
 }
@@ -1306,6 +1404,7 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
     remark: material?.remark ?? "",
   }));
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const materialNameRef = useRef<HTMLInputElement>(null);
   const localPreviewUrlRef = useRef<string | null>(null);
   const [imageKeyPatch, setImageKeyPatch] = useState<string | undefined>(undefined);
   const [imagePreview, setImagePreview] = useState<string | null>(material?.imageUrl ?? null);
@@ -1314,7 +1413,7 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
   const [imageDragging, setImageDragging] = useState(false);
   const set = <K extends keyof typeof form>(key: K) => (value: (typeof form)[K]) => { setFormError(""); setForm((f) => ({ ...f, [key]: value })); };
   const categories = useMemo(() => Array.from(new Set(materials.map((m) => m.category).filter(Boolean))), [materials]);
-  const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15";
+  const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15";
   const label = "text-xs font-medium text-slate-500";
 
   const replaceImagePreview = (url: string | null, local = false) => {
@@ -1331,7 +1430,7 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
   );
 
   const uploadImage = async (file: File | undefined) => {
-    if (!file) return;
+    if (!file || busy || imageBusy) return;
     setImageError("");
     if (!MATERIAL_IMAGE_TYPES.has(file.type)) {
       const message = t("请选择 JPG、PNG、WebP 或 GIF 图片");
@@ -1374,6 +1473,7 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
     if (!form.name.trim()) {
       const message = t('请填写物料名称');
       setFormError(message);
+      materialNameRef.current?.focus();
       toast.error(message);
       return;
     }
@@ -1416,6 +1516,7 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
       description={t(material ? "更新物料主数据与商品图片，保存后同步刷新采购页面。" : "创建商品主数据；新建记录将进入审核队列后再用于采购业务。")}
       busy={busy || imageBusy}
       onClose={onClose}
+      feedback={formError ? <p role="alert" className="break-words rounded-lg border border-rose-200 bg-rose-50 p-3 text-pretty text-sm text-rose-700">{formError}</p> : undefined}
       footer={<>
         <button type="button" disabled={busy || imageBusy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t('取消')}</button>
         <button type="button" disabled={busy || imageBusy} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
@@ -1423,24 +1524,24 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
         </button>
       </>}
     >
-      {formError && <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{formError}</div>}
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block"><span className={label}>{t('物料名称')}<span className="ml-0.5 text-rose-500">*</span></span><Input aria-invalid={Boolean(formError && !form.name.trim())} value={form.name} onChange={(e) => set('name')(e.target.value)} className={cn(field, formError && !form.name.trim() && "border-rose-300")} /></label>
-        <label className="block"><span className={label}>{t('规格')}</span><Input value={form.spec} onChange={(e) => set('spec')(e.target.value)} className={field} /></label>
-        <div className="col-span-2">
+      <fieldset disabled={busy} className="proc-material-form-fields grid min-w-0 grid-cols-1 gap-3 border-0 p-0">
+        <label className="block min-w-0"><span className={label}>{t('物料名称')}<span className="ml-0.5 text-rose-500">*</span></span><Input ref={materialNameRef} aria-invalid={Boolean(formError && !form.name.trim())} value={form.name} onChange={(e) => set('name')(e.target.value)} className={cn(field, formError && !form.name.trim() && "border-rose-300")} /></label>
+        <label className="block min-w-0"><span className={label}>{t('规格')}</span><Input value={form.spec} onChange={(e) => set('spec')(e.target.value)} className={field} /></label>
+        <div className="col-span-full">
           <span className={label}>{t('商品图片')} <span className="font-normal text-slate-400">{t('（选填）')}</span></span>
           <input
             ref={imageInputRef}
             type="file"
             accept=".jpg,.jpeg,.png,.webp,.gif"
-            className="sr-only"
+            className="hidden"
+            disabled={busy || imageBusy}
             onChange={(event) => {
               void uploadImage(event.target.files?.[0]);
               event.target.value = "";
             }}
           />
           <div
-            onDragEnter={(event) => { event.preventDefault(); if (!imageBusy) setImageDragging(true); }}
+            onDragEnter={(event) => { event.preventDefault(); if (!busy && !imageBusy) setImageDragging(true); }}
             onDragOver={(event) => { event.preventDefault(); }}
             onDragLeave={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setImageDragging(false);
@@ -1448,22 +1549,22 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
             onDrop={(event) => {
               event.preventDefault();
               setImageDragging(false);
-              if (!imageBusy) void uploadImage(event.dataTransfer.files?.[0]);
+              if (!busy && !imageBusy) void uploadImage(event.dataTransfer.files?.[0]);
             }}
             className={cn(
-              "mt-1 flex min-h-28 items-center gap-4 rounded-xl border-2 border-dashed px-4 py-3",
+              "mt-1 flex min-h-28 flex-wrap items-center gap-3 rounded-xl border-2 border-dashed px-4 py-3",
               imageDragging
-                ? "border-[#002fa7]/40 bg-[#eef3ff] ring-2 ring-[#002fa7]/15"
+                ? "border-primary/40 bg-accent ring-2 ring-primary/15"
                 : "border-slate-200 bg-slate-50/60",
               imageBusy && "cursor-wait opacity-70",
             )}
           >
             {imagePreview ? (
               <>
-                <button type="button" disabled={imageBusy} onClick={() => imageInputRef.current?.click()} className="flex min-w-0 flex-1 items-center gap-4 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/20 disabled:cursor-wait">
-                  <img src={imagePreview} alt={t("商品图片预览")} className="size-20 shrink-0 rounded-lg border border-slate-200 bg-white object-cover" />
+                <button type="button" disabled={imageBusy} onClick={() => imageInputRef.current?.click()} className="flex min-w-0 flex-1 basis-48 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:cursor-wait">
+                  <img src={imagePreview} alt={t("商品图片预览")} className="size-16 shrink-0 rounded-lg border border-slate-200 bg-white object-cover" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-slate-700">{imageName || t("商品图片")}</span>
+                    <span title={imageName || undefined} className="block break-words text-pretty text-sm font-semibold text-slate-700">{imageName || t("商品图片")}</span>
                     <span className="mt-1 block text-pretty text-xs text-slate-400">{imageBusy ? t("正在上传…") : t("点击更换，或拖入新图片")}</span>
                   </span>
                 </button>
@@ -1477,8 +1578,8 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
                 </button>
               </>
             ) : (
-              <button type="button" disabled={imageBusy} onClick={() => imageInputRef.current?.click()} className="flex w-full flex-col items-center justify-center rounded-lg py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/20 disabled:cursor-wait">
-                {imageBusy ? <Loader2 className="size-6 animate-spin text-[#002fa7]" /> : <ImagePlus className="size-7 text-[#002fa7]" />}
+              <button type="button" disabled={imageBusy} onClick={() => imageInputRef.current?.click()} className="flex w-full flex-col items-center justify-center rounded-lg py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:cursor-wait">
+                {imageBusy ? <Loader2 className="size-6 animate-spin text-primary" /> : <ImagePlus className="size-7 text-primary" />}
                 <p className="mt-2 text-sm font-medium text-slate-700">{imageBusy ? t("正在上传商品图片…") : t("点击选择或拖拽上传商品图片")}</p>
                 <p className="mt-1 text-xs text-slate-400">{t("支持 JPG、PNG、WebP、GIF，最大 10 MB；可不上传")}</p>
               </button>
@@ -1486,22 +1587,22 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
           </div>
           {imageError && <p role="alert" className="mt-1 flex items-center gap-1 text-pretty text-[11px] text-rose-700"><AlertTriangle className="size-3 shrink-0" />{imageError}</p>}
         </div>
-        <label className="block"><span className={label}>{t('单位')}</span><Input value={form.unit} onChange={(e) => set('unit')(e.target.value)} placeholder={t('如 件')} className={field} /></label>
-        <label className="block">
+        <label className="block min-w-0"><span className={label}>{t('单位')}</span><Input value={form.unit} onChange={(e) => set('unit')(e.target.value)} placeholder={t('如 件')} className={field} /></label>
+        <label className="block min-w-0">
           <span className={label}>{t('分类')}</span>
           <ComboInput value={form.category} onChange={set('category')} options={categories} placeholder={t('输入或从已有分类中选')} className={field} />
         </label>
-        <label className="block">
+        <label className="block min-w-0">
           <span className={label}>{t('产品线')}</span>
           <ComboInput value={form.productLine} onChange={set('productLine')} options={productLines} placeholder={t('如 R1 / R2 / 通用')} className={field} />
         </label>
-        <label className="block"><span className={label}>{t('ERP 编码')}</span><Input value={form.erpCode} onChange={(e) => set('erpCode')(e.target.value)} className={field} /></label>
-        <label className="block"><span className={label}>{t('T+ 存货编码')}</span><Input value={form.tpInventoryCode} onChange={(e) => set('tpInventoryCode')(e.target.value)} className={field} /></label>
-        <label className="block"><span className={label}>{t('安全库存')}</span><Input value={form.safeStock} onChange={(e) => set('safeStock')(e.target.value)} inputMode="decimal" placeholder="0" className={field} /></label>
-        <label className="col-span-2 block"><span className={label}>{t('备注')}</span><Input value={form.remark} onChange={(e) => set('remark')(e.target.value)} className={field} /></label>
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600"><Checkbox checked={form.isSpecial} onCheckedChange={(v) => set('isSpecial')(v === true)} />{t('特殊物料')}</label>
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600"><Checkbox checked={form.isConsumable} onCheckedChange={(v) => set('isConsumable')(v === true)} />{t('低值易耗品')}</label>
-      </div>
+        <label className="block min-w-0"><span className={label}>{t('ERP 编码')}</span><Input value={form.erpCode} onChange={(e) => set('erpCode')(e.target.value)} className={field} /></label>
+        <label className="block min-w-0"><span className={label}>{t('T+ 存货编码')}</span><Input value={form.tpInventoryCode} onChange={(e) => set('tpInventoryCode')(e.target.value)} className={field} /></label>
+        <label className="block min-w-0"><span className={label}>{t('安全库存')}</span><Input value={form.safeStock} onChange={(e) => set('safeStock')(e.target.value)} inputMode="decimal" placeholder="0" className={field} /></label>
+        <label className="col-span-full block"><span className={label}>{t('备注')}</span><Input value={form.remark} onChange={(e) => set('remark')(e.target.value)} className={field} /></label>
+        <label className="flex min-w-0 cursor-pointer items-center gap-2 text-sm text-slate-600"><Checkbox checked={form.isSpecial} onCheckedChange={(v) => set('isSpecial')(v === true)} />{t('特殊物料')}</label>
+        <label className="flex min-w-0 cursor-pointer items-center gap-2 text-sm text-slate-600"><Checkbox checked={form.isConsumable} onCheckedChange={(v) => set('isConsumable')(v === true)} />{t('低值易耗品')}</label>
+      </fieldset>
     </Shell>
   );
 }
@@ -1536,17 +1637,26 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
   const [authCode, setAuthCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [autoSyncBusy, setAutoSyncBusy] = useState(false);
+  const working = busy || syncing !== null || autoSyncBusy;
   // 回调地址随凭据保存进后端，须与开放平台应用配置一致
   const defaultRedirectUri = `${window.location.origin}/api/procurement/tplus/oauth/callback`;
 
   const reload = async () => {
+    setLoading(true);
+    setLoadError("");
     try {
       const [cfg, status] = await Promise.all([getTplusConfig(), getTplusStatus()]);
       setConfig(cfg);
       setMirrored(status.mirrored);
       setBaseUrl(cfg.baseUrl);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('加载配置失败'));
+      setLoadError(err instanceof Error ? err.message : t('加载配置失败'));
+    } finally {
+      setLoading(false);
     }
   };
   useEffect(() => { void reload(); }, []);
@@ -1554,6 +1664,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
   const [syncProgress, setSyncProgress] = useState<string | null>(null);
 
   const syncFull = async () => {
+    setActionError("");
     setSyncing("purchase-orders-full");
     setSyncProgress(t('任务已启动…'));
     try {
@@ -1563,7 +1674,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
       toast.success(t('全量同步完成：{orders} 张单 / {lines} 行，物料命中 {m}，失败 {f}', { orders: r.orders, lines: r.lines, m: r.matchedMaterials, f: r.failed }));
       void reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('同步失败'));
+      setActionError(err instanceof Error ? err.message : t('同步失败'));
     } finally {
       setSyncing(null);
       setSyncProgress(null);
@@ -1571,6 +1682,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
   };
 
   const syncMaterials = async () => {
+    setActionError("");
     setSyncing("materials");
     setSyncProgress(t('任务已启动…'));
     try {
@@ -1590,7 +1702,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
         }));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('同步失败'));
+      setActionError(err instanceof Error ? err.message : t('同步失败'));
     } finally {
       setSyncing(null);
       setSyncProgress(null);
@@ -1598,6 +1710,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
   };
 
   const syncAll = async () => {
+    setActionError("");
     setSyncing("auto");
     setSyncProgress(t('任务已启动…'));
     try {
@@ -1608,7 +1721,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
       else toast.success(t('全同步完成：{summary}', { summary: r.summary ?? '' }));
       void reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('同步失败'));
+      setActionError(err instanceof Error ? err.message : t('同步失败'));
     } finally {
       setSyncing(null);
       setSyncProgress(null);
@@ -1616,20 +1729,26 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
   };
 
   const toggleAutoSync = async (next: boolean) => {
-    if (!config) return;
+    if (!config || autoSyncBusy) return;
+    setActionError("");
+    setAutoSyncBusy(true);
     try {
       // 只传开关：appKey/appSecret 后端保留已存值，避免误覆盖
       const saved = await saveTplusConfig({ autoSync: next });
       setConfig(saved);
       toast.success(t(next ? '已开启每日自动同步（3:00）' : '已关闭每日自动同步'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('操作失败'));
+      setActionError(err instanceof Error ? err.message : t('操作失败'));
+    } finally {
+      setAutoSyncBusy(false);
     }
   };
 
   const save = async () => {
-    if (!appKey.trim() && !config?.appKeyMasked) { toast.error(t('请填写 appKey')); return; }
-    if (!config?.hasSecret && !appSecret.trim()) { toast.error(t('首次配置需填写 appSecret')); return; }
+    if (!config || loading || working) return;
+    setActionError("");
+    if (!appKey.trim() && !config?.appKeyMasked) { setActionError(t('请填写 appKey')); return; }
+    if (!config?.hasSecret && !appSecret.trim()) { setActionError(t('首次配置需填写 appSecret')); return; }
     setBusy(true);
     try {
       const next = await saveTplusConfig({
@@ -1642,13 +1761,14 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
       setAppSecret("");
       toast.success(t('T+ 凭据已保存（appSecret 已加密存储）'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('保存失败'));
+      setActionError(err instanceof Error ? err.message : t('保存失败'));
     } finally {
       setBusy(false);
     }
   };
 
   const sync = async (kind: "suppliers" | "inventory" | "purchase-orders", label: string) => {
+    setActionError("");
     setSyncing(kind);
     try {
       const result = await triggerTplusSync(kind);
@@ -1656,13 +1776,13 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
       toast.success(`${t(label)}${t('同步完成')}：${Object.entries(result).map(([k, v]) => `${k}=${v}`).join(", ")}`);
       void reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('同步失败'));
+      setActionError(err instanceof Error ? err.message : t('同步失败'));
     } finally {
       setSyncing(null);
     }
   };
 
-  const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15";
+  const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15";
   const label = "text-xs font-medium text-slate-500";
   const lastAutoSyncText = config?.lastAutoSyncAt
     ? `${t('上次自动同步')} ${formatTplusAutoSyncTime(config.lastAutoSyncAt)}${config.lastAutoSyncSummary ? ` · ${config.lastAutoSyncSummary}` : ''}`
@@ -1674,16 +1794,23 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
   return (
     <Shell
       title={t("畅捷通 T+ 集成")}
-      busy={busy || syncing !== null}
+      busy={working}
       onClose={onClose}
       wide
+      feedback={actionError ? <p role="alert" className="break-words rounded-lg border border-rose-200 bg-rose-50 p-3 text-pretty text-sm text-rose-700">{actionError}</p> : undefined}
       footer={<>
-        <button type="button" disabled={busy || syncing !== null} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t('关闭')}</button>
-        <button type="button" disabled={busy} onClick={() => void save()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
+        <button type="button" disabled={working} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t('关闭')}</button>
+        <button type="button" disabled={working || loading || !config} onClick={() => void save()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
           {busy && <Loader2 className="h-4 w-4 animate-spin" />}{t('保存凭据')}
         </button>
       </>}
     >
+      {loadError && <div role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+        <p className="break-words text-pretty">{loadError}</p>
+        <button type="button" disabled={loading} onClick={() => void reload()} className="material-button-secondary mt-3 px-3 py-2 text-xs">{t('重新加载')}</button>
+      </div>}
+      {!config && loading && <div role="status" className="space-y-3 py-2"><p className="text-sm text-slate-500">{t('正在加载 T+ 配置')}</p><div className="h-16 rounded-lg bg-slate-100" /><div className="h-16 rounded-lg bg-slate-100" /></div>}
+      {config && <>
       {/* 状态条 */}
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
         <span className={cn("rounded-full border px-2 py-0.5", config?.configured ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-500")}>
@@ -1702,13 +1829,13 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
       {/* 凭据表单：appSecret 不回显，留空表示保留已存值 */}
       <div className="space-y-3">
         <label className="block"><span className={label}>appKey<span className="ml-0.5 text-rose-500">*</span></span>
-          <Input value={appKey} onChange={(e) => setAppKey(e.target.value)} placeholder={config?.appKeyMasked ? t('已配置（{masked}），重新填写将覆盖', { masked: config.appKeyMasked }) : t('开放平台应用的 appKey')} className={field} />
+          <Input disabled={working || loading} value={appKey} onChange={(e) => setAppKey(e.target.value)} placeholder={config?.appKeyMasked ? t('已配置（{masked}），重新填写将覆盖', { masked: config.appKeyMasked }) : t('开放平台应用的 appKey')} className={field} />
         </label>
         <label className="block"><span className={label}>appSecret{!config?.hasSecret && <span className="ml-0.5 text-rose-500">*</span>}</span>
-          <Input type="password" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} placeholder={config?.hasSecret ? t('已加密存储，留空保持不变') : t('开放平台应用的 appSecret')} autoComplete="new-password" className={field} />
+          <Input disabled={working || loading} type="password" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} placeholder={config?.hasSecret ? t('已加密存储，留空保持不变') : t('开放平台应用的 appSecret')} autoComplete="new-password" className={field} />
         </label>
         <label className="block"><span className={label}>{t('网关地址')}</span>
-          <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://openapi.chanjet.com" className={field} />
+          <Input disabled={working || loading} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://openapi.chanjet.com" className={field} />
         </label>
         <p className="text-[11px] leading-5 text-slate-400">{t('appSecret 仅在保存时传输一次，后端加密存储、任何接口不回显。')}</p>
       </div>
@@ -1718,20 +1845,21 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/50 p-3">
           <div className="mb-1 text-xs font-semibold text-amber-800">{t(config.authorized ? '重新授权（更换 appKey/appSecret 后旧 token 会失效）' : '完成开放平台授权（一次性）')}</div>
           <ol className="list-decimal space-y-1 pl-4 text-[11px] leading-5 text-amber-700">
-            <li>{t('在开放平台「应用管理」里把 OAuth 回调地址配置为：')}<code className="mx-1 select-all rounded bg-white px-1 py-0.5 text-[10px] text-slate-700">{config.redirectUri ?? defaultRedirectUri}</code></li>
+            <li>{t('在开放平台「应用管理」里把 OAuth 回调地址配置为：')}<code className="mx-1 select-all break-all rounded bg-white px-1 py-0.5 text-xs text-slate-700">{config.redirectUri ?? defaultRedirectUri}</code></li>
             <li>{t('从开放平台后台对该应用发起授权（用 T+ 管理员账号），授权完成会自动跳回本页并写入 token；')}</li>
             <li>{t('若跳转失败但你拿到了授权码 code（10 分钟内有效），粘贴到下面手动换取：')}</li>
           </ol>
-          <div className="mt-2 flex items-center gap-2">
-            <Input value={authCode} onChange={(e) => setAuthCode(e.target.value)} placeholder={t('粘贴授权码 code')} className="h-8 flex-1 rounded-lg border border-amber-200 bg-white px-2 text-sm outline-none focus:border-amber-400" />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Input aria-label={t("授权码")} disabled={working || loading} value={authCode} onChange={(e) => setAuthCode(e.target.value)} placeholder={t('粘贴授权码 code')} className="h-9 min-w-0 flex-1 basis-48 rounded-lg border border-amber-200 bg-white px-2 text-sm outline-none focus:border-amber-400" />
             <button
               type="button"
-              disabled={busy || !authCode.trim()}
+              disabled={working || loading || !authCode.trim()}
               onClick={() => {
+                setActionError("");
                 setBusy(true);
                 void exchangeTplusAuthCode(authCode.trim())
                   .then((next) => { setConfig(next); setAuthCode(""); toast.success(t('授权完成，token 已写入')); })
-                  .catch((err) => toast.error(err instanceof Error ? err.message : t('换取失败')))
+                  .catch((err) => setActionError(err instanceof Error ? err.message : t('换取失败')))
                   .finally(() => setBusy(false));
               }}
               className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
@@ -1743,24 +1871,25 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
       {/* 手动同步 */}
       <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
         <div className="mb-2 text-xs font-semibold text-slate-600">{t('手动同步（T+ 为唯一事实源，只拉不推）')}</div>
+        {!config.authorized && <p className="mb-2 text-pretty text-xs text-slate-500">{t("请先完成授权，再同步数据。")}</p>}
         <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={syncing !== null} onClick={() => void syncMaterials()} title={t('全量拉取 T+ 存货档案，包含零库存物料')} className="inline-flex items-center gap-1.5 rounded-lg border border-[#c9d8ff] bg-[#eef3ff] px-3 py-1.5 text-xs font-medium text-[#002fa7] hover:bg-[#dce6ff] disabled:opacity-60">
+          <button type="button" disabled={working || loading || !config.authorized} onClick={() => void syncMaterials()} title={t('全量拉取 T+ 存货档案，包含零库存物料')} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary-soft-border)] bg-accent px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-60">
             {syncing === "materials" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t('物料主档')}
           </button>
           {([["suppliers", "供应商"], ["inventory", "库存现存量"], ["purchase-orders", "采购单到货"]] as const).map(([kind, lbl]) => (
-            <button key={kind} type="button" disabled={syncing !== null} onClick={() => void sync(kind, lbl)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60">
+            <button key={kind} type="button" disabled={working || loading || !config.authorized} onClick={() => void sync(kind, lbl)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60">
               {syncing === kind && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t(lbl)}
             </button>
           ))}
-          <button type="button" disabled={syncing !== null} onClick={() => void syncFull()} title={t('近 90 天采购订单全量镜像，供任务匹配')} className="inline-flex items-center gap-1.5 rounded-lg border border-[#c9d8ff] bg-[#eef3ff] px-3 py-1.5 text-xs font-medium text-[#002fa7] hover:bg-[#dce6ff] disabled:opacity-60">
+          <button type="button" disabled={working || loading || !config.authorized} onClick={() => void syncFull()} title={t('近 90 天采购订单全量镜像，供任务匹配')} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--primary-soft-border)] bg-accent px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-60">
             {syncing === "purchase-orders-full" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t('采购单全量')}
           </button>
-          <button type="button" disabled={syncing !== null} onClick={() => void syncAll()} title={t('物料主档→供应商→库存→采购单全量→匹配，与每日自动同步同一条链路')} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs">
+          <button type="button" disabled={working || loading || !config.authorized} onClick={() => void syncAll()} title={t('物料主档→供应商→库存→采购单全量→匹配，与每日自动同步同一条链路')} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs">
             {syncing === "auto" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t('立即全同步')}
           </button>
         </div>
         {syncing && syncProgress && (
-          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-[#002fa7]">
+          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-primary">
             <Loader2 className="h-3 w-3 animate-spin" />{syncProgress}
           </div>
         )}
@@ -1768,12 +1897,12 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
           {lastMaterialSyncText}
         </p>
         {config && (
-          <div className="mt-2 grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-4 border-t border-slate-100 pt-2 text-[11px] text-slate-500">
-            <label className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap">
-              <Checkbox checked={config.autoSync} onCheckedChange={(v) => void toggleAutoSync(v === true)} className="size-3.5" />
+          <div className="mt-2 grid min-w-0 grid-cols-1 items-start gap-2 border-t border-slate-100 pt-2 text-[11px] text-slate-500">
+            <label className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 text-pretty">
+              <Checkbox disabled={working || loading} checked={config.autoSync} onCheckedChange={(v) => void toggleAutoSync(v === true)} className="size-3.5" />
               {t('每日 3:00（北京时间）自动同步')}
             </label>
-            <span className="block min-w-0 truncate text-right text-slate-400 tabular-nums" title={lastAutoSyncText}>
+            <span className="block min-w-0 break-words text-pretty text-slate-500 tabular-nums" title={lastAutoSyncText}>
               {lastAutoSyncText}
             </span>
           </div>
@@ -1782,6 +1911,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
 
       {/* 单据匹配（与驾驶舱「单据匹配」弹窗共用面板） */}
       <PoMatchPanel />
+      </>}
     </Shell>
   );
 }
@@ -1843,7 +1973,7 @@ export function PoMatchPanel() {
             {t('建议 {s} · 未匹配 {u} · 已确认 {c}', { s: poMirror.counts.suggested ?? 0, u: poMirror.counts.unmatched ?? 0, c: poMirror.counts.confirmed ?? 0 })}
           </span>
         </div>
-        <button type="button" disabled={matchBusy !== null} onClick={() => void doMatch()} className="inline-flex items-center gap-1 rounded-lg border border-[#c9d8ff] bg-white px-2.5 py-1 text-xs font-medium text-[#002fa7] hover:bg-[#eef3ff] disabled:opacity-60">
+        <button type="button" disabled={matchBusy !== null} onClick={() => void doMatch()} className="inline-flex items-center gap-1 rounded-lg border border-[var(--primary-soft-border)] bg-white px-2.5 py-1 text-xs font-medium text-primary hover:bg-accent disabled:opacity-60">
           {matchBusy === "run" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}{t('运行匹配')}
         </button>
       </div>
@@ -1860,7 +1990,7 @@ export function PoMatchPanel() {
                 {r.matchReason && ` · ${r.matchReason}`}
               </div>
             </div>
-            <button type="button" disabled={matchBusy !== null} onClick={() => void decide(r.id, "confirm")} className="rounded-lg bg-[#002fa7] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#002581] disabled:opacity-60">
+            <button type="button" disabled={matchBusy !== null} onClick={() => void decide(r.id, "confirm")} className="rounded-lg bg-primary px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-primary-hover disabled:opacity-60">
               {matchBusy === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : t('确认')}
             </button>
             <button type="button" disabled={matchBusy !== null} onClick={() => void decide(r.id, "ignore")} className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] text-slate-500 hover:bg-slate-50 disabled:opacity-60">{t('忽略')}</button>

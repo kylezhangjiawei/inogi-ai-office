@@ -14,7 +14,7 @@ const DRAWER_MIN_WIDTH = 640;
 
 /**
  * 日报/月报详情右侧抽屉：替代就地内联展开——长报告在抽屉内部滚动，
- * 不再把驾驶舱页面撑长。tone 保留旧调用兼容，视觉统一收口为 Horizon Klein Blue。
+ * 不再把驾驶舱页面撑长。tone 保留旧调用兼容，视觉统一使用 Horizon 主题。
  * 背景遮罩不使用全屏模糊（避免每帧重栅格化造成点击卡顿）。
  */
 export function ReportDetailDrawer({
@@ -53,7 +53,7 @@ export function ReportDetailDrawer({
   };
 
   void tone;
-  const avatarCls = "bg-blue-50 text-[#002fa7]";
+  const avatarCls = "bg-accent text-primary";
 
   return (
     <Sheet open onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
@@ -98,7 +98,7 @@ export function ReportDetailDrawer({
             <button
               type="button"
               aria-label="关闭报告详情"
-              className="flex size-8 shrink-0 items-center justify-center rounded-[4px] text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/25"
+              className="flex size-8 shrink-0 items-center justify-center rounded-[4px] text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
               title="关闭报告详情"
             >
               <X className="size-4" aria-hidden="true" />

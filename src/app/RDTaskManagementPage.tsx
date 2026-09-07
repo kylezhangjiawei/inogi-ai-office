@@ -30,13 +30,12 @@ import {
   ListChecks,
   Loader2,
   Lock,
+  Maximize2,
   Minimize2,
   MoreVertical,
   Paperclip,
   FileText,
   Pencil,
-  Pin,
-  PinOff,
   Plus,
   Trash2,
   UserCog,
@@ -69,7 +68,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./comp
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuCheckboxItem,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu";
 import { usePermission, useAnyPermission } from "./hooks/usePermission";
@@ -151,6 +152,7 @@ import {
   RD_DEFAULT_SUBPROJECT_LABEL,
 } from "./lib/rdApi";
 import { RDReportsPanel } from "./RDReportsPanel";
+import { RDReportsDigest } from "./RDReportsDigest";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import { fetchRdDailyReports, fetchRdTaskNoteReceipts, markRdTaskNotesRead, type RdDailyReport, type RdTaskNoteReceipt } from "./lib/rdApi";
 import { getGradeTone } from "./lib/taskCompletionScore";
@@ -5028,7 +5030,7 @@ function SystemHealthCard({
       transition={RD_PANEL_TRANSITION}
       whileTap={shouldReduceMotion ? undefined : { scale: 0.99 }}
       className={cn(
-        "rd-horizon-system-card group relative flex min-h-11 flex-col gap-3 overflow-hidden rounded-xl border bg-white p-4 text-left transition-[border-color,box-shadow,opacity] duration-300 ease-out active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 focus-visible:ring-offset-2",
+        "rd-horizon-system-card group relative flex min-h-11 flex-col gap-3 overflow-hidden rounded-xl border bg-white p-4 text-left transition-[border-color,box-shadow,opacity] duration-300 ease-out active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2",
         !horizonVariant && "hover:shadow-[0_12px_30px_rgba(15,23,42,0.08)]",
         hConfig.border,
         isIdle && "opacity-55 hover:opacity-100",
@@ -5140,7 +5142,7 @@ function SystemHealthCard({
         </span>
         {stat.inProgress > 0 && (
           <span className="text-slate-500">
-            <span className="rd-horizon-brand-text font-semibold tabular-nums text-[#002fa7]">{stat.inProgress}</span> {t("进行中")}
+            <span className="rd-horizon-brand-text font-semibold tabular-nums text-primary">{stat.inProgress}</span> {t("进行中")}
           </span>
         )}
         {stat.total === 0 && <span className="text-slate-400">{t("无活跃")}</span>}
@@ -5312,7 +5314,7 @@ function SystemPanorama({
             <button
               type="button"
               onClick={onManageProducts}
-              className="rd-horizon-secondary-control flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
+              className="rd-horizon-secondary-control flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
             >
               <Settings2 className="h-3.5 w-3.5" />
               {t("管理产品")}
@@ -5344,9 +5346,9 @@ function SystemPanorama({
                   data-active={isActive}
                   aria-pressed={isActive}
                   className={cn(
-                    "rd-horizon-product-tab flex min-h-11 shrink-0 items-center gap-2 rounded-t-lg px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
+                    "rd-horizon-product-tab flex min-h-11 shrink-0 items-center gap-2 rounded-t-lg px-3 py-2 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
                     isActive
-                      ? "border-b-2 border-[#002fa7] text-[#002fa7]"
+                      ? "border-b-2 border-primary text-primary"
                       : "text-slate-500 hover:bg-slate-50 hover:text-slate-700",
                   )}
                 >
@@ -5392,7 +5394,7 @@ function SystemPanorama({
                     delete loadedTokenRef.current[activeProdId];
                     setProductReloadNonce((value) => value + 1);
                   }}
-                  className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-md border border-blue-200 bg-white px-3 text-xs font-semibold text-[#002fa7] transition-colors hover:bg-blue-50"
+                  className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-md border border-primary/20 bg-white px-3 text-xs font-semibold text-primary transition-colors hover:bg-accent"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   {t("重新读取")}
@@ -6907,54 +6909,33 @@ function distributeIntoColumns<T>(items: T[], columnCount: number): T[][] {
   return columns;
 }
 
-// 响应式列数：
-//   - 触摸设备(移动端手机 / 平板竖屏，pointer: coarse)且未达桌面宽(<1024)：强制「1 列」。
-//     原因：多列瀑布流各列高度独立，带图卡片更高，相邻的新旧任务在纵向上必然错位——即便数据
-//     已严格按 last_activity_at 倒序，视觉上仍会出现「右上是更旧的、左下反而更新」，让人误以为
-//     排序乱了。移动端单列可保证任务从上到下严格「最新优先」，所见即排序。
-//     （注意：此页是桌面驾驶舱、非 /m 移动路由，受全局 min-width 影响手机上常被测成 ≥640 而误判多列，
-//      故这里用 pointer: coarse 这一「是否触摸设备」的语义信号兜底，而非单纯依赖宽度断点。）
-//   - 桌面(鼠标)：按可用宽度分档，让单卡稳定落在约 300–420px 的可读区间。
-//     此前 ≥1024 一律 3 列，两端都不可用：实测 1024 时单卡只有 199px（标签、更新时间全被
-//     压断），2560 时单卡宽达 703px（描述被拉成长条、空间大量浪费）。
-//     注意 <1024 的档位保持原样不动——那是平板与触控设备的区间，手机走的是独立的
-//     MobileRDCockpit，本组件根本不渲染。
-// 阈值由实测反推：可用内容宽 ≈ 视口 - 412px，取每档换列时单卡仍 ≥300px。
-// 1024→2 列(300px)、1280→3 列(281px)、1730→4 列(320px)、2050→5 列(318px)、2400→6 列(321px)。
-const MASONRY_BREAKPOINTS: Array<{ query: string; columns: number }> = [
-  { query: "(min-width: 2400px)", columns: 6 },
-  { query: "(min-width: 2050px)", columns: 5 },
-  { query: "(min-width: 1730px)", columns: 4 },
-  { query: "(min-width: 1280px)", columns: 3 },
-  { query: "(min-width: 640px)", columns: 2 },
-];
-const MASONRY_LG_QUERY = "(min-width: 1024px)";
-const MASONRY_COARSE_QUERY = "(pointer: coarse)";
-
-function useMasonryColumns(): number {
-  const resolve = () => {
-    if (typeof window === "undefined") return 3;
-    // 触控且未达 lg 一律单列：见上方说明，宽度断点在手机上不可靠，用触摸语义兜底
-    if (
-      window.matchMedia(MASONRY_COARSE_QUERY).matches
-      && !window.matchMedia(MASONRY_LG_QUERY).matches
-    ) {
-      return 1;
-    }
-    return MASONRY_BREAKPOINTS.find((step) => window.matchMedia(step.query).matches)?.columns ?? 1;
-  };
-  const [columns, setColumns] = useState(resolve);
+// 以任务区实际宽度分列；侧栏折叠、平板抽屉和大屏模式均会改变可用空间。
+function useMasonryColumns(container: HTMLDivElement | null): number {
+  const [columns, setColumns] = useState(1);
   useEffect(() => {
-    const queries = [
-      ...MASONRY_BREAKPOINTS.map((step) => step.query),
-      MASONRY_LG_QUERY,
-      MASONRY_COARSE_QUERY,
-    ].map((query) => window.matchMedia(query));
-    const update = () => setColumns(resolve());
+    if (!container) return;
+    const touchQuery = window.matchMedia("(pointer: coarse)");
+    const tabletQuery = window.matchMedia("(max-width: 1023px)");
+    const update = () => {
+      const availableWidth = container.clientWidth - 8;
+      if (availableWidth <= 0) return;
+      // 窄触屏保持纵向阅读顺序；桌面每张任务卡至少约 288px。
+      const next = touchQuery.matches && tabletQuery.matches
+        ? 1
+        : Math.max(1, Math.min(6, Math.floor((availableWidth + 16) / (288 + 16))));
+      setColumns((previous) => previous === next ? previous : next);
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    touchQuery.addEventListener("change", update);
+    tabletQuery.addEventListener("change", update);
     update();
-    queries.forEach((query) => query.addEventListener("change", update));
-    return () => queries.forEach((query) => query.removeEventListener("change", update));
-  }, []);
+    return () => {
+      observer.disconnect();
+      touchQuery.removeEventListener("change", update);
+      tabletQuery.removeEventListener("change", update);
+    };
+  }, [container]);
   return columns;
 }
 
@@ -7000,16 +6981,17 @@ function PersonTaskCockpit({
   onToggleProductionSync?: (task: Task) => void;
   kpiFilter?: KpiFilter;
   onClearKpiFilter?: () => void;
-  /** 顶部模块当前是否收起：收起时把任务 feed 增高到 ~84vh 以最大化可视区 */
+  /** 顶部模块当前是否收起：重新计算任务区剩余可见高度。 */
   headerCollapsed?: boolean;
   /** 任务 feed 下滑时请求收起顶部；进入沉浸模式后由顶部控制条显式退出，避免上滑时丢失整屏视野 */
   onHeaderCollapseChange?: (collapsed: boolean) => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
-  useI18n(); // 订阅语言切换（卡片流文案已 t() 化）
+  const { lang } = useI18n();
   const { user } = useAuth();
   const noteReceipts = React.useContext(NoteReceiptContext); // 备注回执 map（父级驾驶舱下发）
-  const masonryColumns = useMasonryColumns();
+  const [taskStreamEl, setTaskStreamEl] = useState<HTMLDivElement | null>(null);
+  const masonryColumns = useMasonryColumns(taskStreamEl);
   // 协同侧信息密度降一档：卡片内边距与卡片间距放宽（欧美工具风的呼吸感）；研发侧维持紧凑
   const spaciousCards = isUsCollabWorkspace();
   // 跨用户头像解析（人员 Stories 头像 = 文字 → 真实头像，按姓名兜底匹配）
@@ -7192,26 +7174,33 @@ function PersonTaskCockpit({
   // 用 useRef + 仅依赖 activeTab 的 effect 会在退场期测到旧容器、且新容器挂载后不再重跑 effect，
   // 导致少卡片的新 tab 永不自动填充。把节点放进 state 后，节点挂载/卸载即触发 effect 重跑，时序正确。
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
-  // 协同侧卡片流高度实测（视口内布局）：页头三层 + 固定 65vh 会超出视口产生页面滚动、
-  // 底部被裁。按滚动容器到视口顶的真实距离精确锁高；研发侧维持 65vh/84vh 不变。
-  // ⚠️ 必须声明在 scrollEl 之后（const TDZ）。
-  const [collabFlowHeight, setCollabFlowHeight] = useState<number | null>(null);
+  // 任务流使用主区域剩余高度；报告展开、筛选、语言和侧栏变化后重新测量。
+  const [flowHeight, setFlowHeight] = useState<number | null>(null);
   useEffect(() => {
-    if (!spaciousCards || !scrollEl) {
-      setCollabFlowHeight(null);
-      return;
-    }
+    if (!scrollEl) return;
+    const main = scrollEl.closest("main");
+    const overview = scrollEl.closest(".rd-horizon-layout")?.querySelector(".rd-horizon-overview-top");
+    const peopleNav = taskStreamEl?.querySelector(".rd-horizon-people-nav");
     const measure = () => {
-      const top = scrollEl.getBoundingClientRect().top + window.scrollY;
-      setCollabFlowHeight(Math.max(320, window.innerHeight - top - 24));
+      const top = scrollEl.getBoundingClientRect().top;
+      const bottom = main?.getBoundingClientRect().bottom ?? window.innerHeight;
+      // 很短的窗口允许外层自然滚动，避免把任务卡压成无法操作的小窗。
+      const next = Math.max(256, Math.floor(bottom - top - 12));
+      setFlowHeight((previous) => previous === next ? previous : next);
     };
+    const observer = new ResizeObserver(measure);
+    for (const element of [main, overview, peopleNav, taskStreamEl]) {
+      if (element) observer.observe(element);
+    }
     measure();
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrollEl, spaciousCards]);
-  const flowHeightStyle = (collapsed: boolean): React.CSSProperties => ({
-    height: spaciousCards && collabFlowHeight ? collabFlowHeight : collapsed ? "84vh" : "65vh",
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [scrollEl, taskStreamEl, headerCollapsed, kpiFilter, lang]);
+  const flowHeightStyle = (_collapsed: boolean): React.CSSProperties => ({
+    height: flowHeight ?? "60dvh",
   });
   const setScrollRef = useCallback((node: HTMLDivElement | null) => setScrollEl(node), []);
   // 上一次滚动位置：用于识别下滑并自动进入沉浸模式，带滞回阈值防抖动
@@ -7619,6 +7608,7 @@ function PersonTaskCockpit({
     activeTab,
     allActiveTasks,
     attachmentPreviewMap,
+    flowHeight,
     headerCollapsed,
     loadNextTaskPage,
     masonryColumns,
@@ -7753,7 +7743,7 @@ function PersonTaskCockpit({
           }
         }}
         className={cn(
-          "rd-horizon-task-card group relative cursor-pointer overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] duration-200 hover:border-blue-200 hover:shadow-[0_10px_24px_-14px_rgba(0,47,167,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
+          "rd-horizon-task-card group relative cursor-pointer overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] duration-200 hover:border-primary/20 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
         )}
       >
         <div className={cn("rd-horizon-task-card-body flex min-h-[220px] min-w-0 flex-col", spaciousCards ? "gap-3 px-5 py-4" : "gap-2.5 px-4 py-3.5")}>
@@ -7763,7 +7753,7 @@ function PersonTaskCockpit({
               {hierarchySegments.map((segment) => (
                 <span
                   key={segment}
-                  className="rd-horizon-task-path max-w-[138px] truncate rounded-md bg-blue-50 px-2 py-1 text-[10px] font-semibold text-[#002fa7]"
+                  className="rd-horizon-task-path max-w-[138px] truncate rounded-md bg-accent px-2 py-1 text-[10px] font-semibold text-primary"
                   title={segment}
                 >
                   {segment}
@@ -7824,7 +7814,7 @@ function PersonTaskCockpit({
                     event.stopPropagation();
                     void openCompleteAttachmentCollection(task, taskAttachmentCount);
                   }}
-                  className="rd-horizon-attachment-action inline-flex min-h-9 items-center gap-1 rounded-lg bg-blue-50 px-2 text-[10px] font-semibold text-[#002fa7] transition-colors hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"
+                  className="rd-horizon-attachment-action inline-flex min-h-9 items-center gap-1 rounded-lg bg-accent px-2 text-[10px] font-semibold text-primary transition-colors hover:bg-primary/10 disabled:cursor-wait disabled:opacity-60"
                   aria-label={t("查看全部附件")}
                 >
                   {attachmentLoadingTaskId === task.task_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Paperclip className="h-3 w-3" />}
@@ -7836,7 +7826,7 @@ function PersonTaskCockpit({
                   <button
                     type="button"
                     onClick={(event) => event.stopPropagation()}
-                    className="rd-horizon-more-action flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                    className="rd-horizon-more-action flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                     aria-label={t("更多操作")}
                   >
                     <MoreVertical className="h-4 w-4" />
@@ -8049,26 +8039,28 @@ function PersonTaskCockpit({
         initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={RD_PANEL_TRANSITION}
+        ref={setTaskStreamEl}
         className="rd-horizon-task-stream overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]"
       >
         <Tabs value={activeTab} onValueChange={handleTabChange} className="gap-0">
 
           {/* ── INS Stories-style 人员导航栏 (with visible horizontal scrollbar) ──
               外层 flex 承载底边框/底色：头像区可横向滚动，右端搜索控件钉死不随之滚走。 */}
-          <div className="rd-horizon-people-nav flex w-full min-w-0 flex-col items-stretch border-b border-blue-100 bg-slate-50/50 sm:flex-row sm:items-center sm:pr-4">
+          <div className="rd-horizon-people-nav flex w-full min-w-0 flex-col items-stretch border-b border-border bg-slate-50/50 sm:flex-row sm:items-center sm:pr-4">
           <TabsList className="rd-horizon-people-list flex h-auto min-w-0 flex-1 snap-x snap-proximity justify-start gap-0 overflow-x-auto overscroll-x-contain rounded-none border-none bg-transparent px-4 pt-4 pb-2 touch-pan-x [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
 
             {/* 管理员视角 — 所有活跃任务入口；详情沿用原权限规则，不附加成员筛选 */}
             <TabsTrigger
               value="all"
-              className="rd-horizon-person-tab flex min-h-11 min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 data-[state=active]:bg-transparent"
+              aria-label={t("管理员视角") + ` · ${allActiveTasks.length}`}
+              className="rd-horizon-person-tab flex min-h-11 min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-2 focus-visible:ring-primary/30 data-[state=active]:bg-transparent"
             >
               <div className="relative">
                 <div
                   className="rd-horizon-admin-ring rd-horizon-avatar-ring flex h-[54px] w-[54px] items-center justify-center rounded-full p-[2.5px] transition-colors duration-200"
                   style={{
                     background: activeTab === "all"
-                      ? "#002fa7"
+                      ? "var(--primary)"
                       : risks.length > 0
                         ? "#dc2626"
                         : "#94a3b8",
@@ -8078,30 +8070,16 @@ function PersonTaskCockpit({
                     "flex h-full w-full items-center justify-center rounded-full bg-white transition-[padding]",
                     activeTab === "all" ? "p-[2px]" : "p-0",
                   )}>
-                    <div className="rd-horizon-avatar-core flex h-full w-full items-center justify-center rounded-full bg-blue-50">
-                      <ListChecks className={cn("h-5 w-5 transition-colors", activeTab === "all" ? "text-[#002fa7]" : "text-slate-500")} />
+                    <div className="rd-horizon-avatar-core flex h-full w-full items-center justify-center rounded-full bg-accent">
+                      <ListChecks className={cn("h-5 w-5 transition-colors", activeTab === "all" ? "text-primary" : "text-slate-500")} />
                     </div>
                   </div>
                 </div>
-                {/* Total tasks badge */}
-                {allActiveTasks.length > 0 && (
-                  <span className="rd-horizon-total-count absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#002fa7] px-0.5 text-[9px] font-black text-white">
-                    {allActiveTasks.length > 99 ? "99+" : allActiveTasks.length}
-                  </span>
-                )}
-                {/* Risk indicator dot top-right */}
-                {risks.length > 0 && (
-                  <span
-                    className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-black text-white"
-                    title={t("{count} 个风险任务", { count: risks.length })}
-                  >
-                    {risks.length > 99 ? "99+" : risks.length}
-                  </span>
-                )}
               </div>
-              <span className={cn("rd-horizon-person-name text-[10px] font-semibold leading-none", activeTab === "all" ? "text-[#002fa7]" : "text-slate-500")}>
+              <span className={cn("rd-horizon-person-name text-[10px] font-semibold leading-none", activeTab === "all" ? "text-primary" : "text-slate-500")}>
                 {t("管理员视角")}
               </span>
+              <span className="rd-horizon-total-count rounded-md bg-muted px-1.5 py-0.5 text-xs font-semibold tabular-nums">{allActiveTasks.length}</span>
             </TabsTrigger>
 
             {/* Per-person Stories avatars */}
@@ -8115,7 +8093,9 @@ function PersonTaskCockpit({
                 <TabsTrigger
                   key={p.key}
                   value={p.key}
-                  className="rd-horizon-person-tab flex min-h-11 min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30 data-[state=active]:bg-transparent"
+                  aria-label={`${p.name} · ${p.count}`}
+                  title={`${p.name} · ${p.count}`}
+                  className="rd-horizon-person-tab flex min-h-11 min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-2 focus-visible:ring-primary/30 data-[state=active]:bg-transparent"
                 >
                   <div className="relative">
                     <div
@@ -8140,23 +8120,16 @@ function PersonTaskCockpit({
                         )}
                       </div>
                     </div>
-                    {p.count > 0 && (
-                      <span
-                        className="rd-horizon-load-count absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-0.5 text-[9px] font-black text-white"
-                        style={{ background: accentColor }}
-                      >
-                        {p.count}
-                      </span>
-                    )}
                     {p.onLeave && (
                       <span className="absolute -top-0.5 left-1/2 -translate-x-1/2 rounded-sm bg-amber-400 px-1 text-[8px] font-black text-white leading-none py-0.5">
                         {t("假")}
                       </span>
                     )}
                   </div>
-                  <span className={cn("rd-horizon-person-name max-w-[56px] truncate text-[10px] font-semibold leading-none", isActive ? "text-[#002fa7]" : "text-slate-500")}>
+                  <span className={cn("rd-horizon-person-name max-w-[56px] truncate text-[10px] font-semibold leading-none", isActive ? "text-primary" : "text-slate-500")}>
                     {p.name}
                   </span>
+                  <span className="rd-horizon-load-count rounded-md bg-muted px-1.5 py-0.5 text-xs font-semibold tabular-nums">{p.count}</span>
                   {isActive && (
                     <motion.span
                       layoutId="cockpit-tab-dot"
@@ -8171,6 +8144,7 @@ function PersonTaskCockpit({
           </TabsList>
 
           {/* 任务搜索：默认仅一枚圆形图标，点击展开为小输入框；为空失焦自动缩回 */}
+          {(keyword === undefined || headerCollapsed) && (
           <div className="rd-horizon-search flex w-full shrink-0 items-center px-4 pb-3 sm:ml-2 sm:w-auto sm:px-0 sm:pb-0">
             {searchOpen || cockpitSearch ? (
               <label className="relative block w-full sm:w-auto">
@@ -8190,12 +8164,12 @@ function PersonTaskCockpit({
                   placeholder={t("搜索任务全部内容")}
                   aria-label={t("搜索任务全部内容")}
                   aria-describedby="rd-cockpit-search-results"
-                  className="min-h-11 w-full rounded-full border border-slate-200 bg-white pl-8 pr-16 text-xs text-slate-700 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-[#002fa7]/50 focus:ring-2 focus:ring-blue-100 sm:w-52"
+                  className="min-h-11 w-full rounded-full border border-slate-200 bg-white pl-8 pr-16 text-xs text-slate-700 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-primary/50 focus:ring-2 focus:ring-primary/15 sm:w-52"
                 />
                 <span
                   id="rd-cockpit-search-results"
                   className={cn(
-                    "rd-horizon-search-count pointer-events-none absolute right-9 top-1/2 -translate-y-1/2 text-[10px] font-semibold tabular-nums text-[#002fa7]",
+                    "rd-horizon-search-count pointer-events-none absolute right-9 top-1/2 -translate-y-1/2 text-[10px] font-semibold tabular-nums text-primary",
                     !cockpitSearch && "sr-only",
                   )}
                   aria-live="polite"
@@ -8210,7 +8184,7 @@ function PersonTaskCockpit({
                       setCockpitKeyword("");
                       searchInputRef.current?.focus();
                     }}
-                    className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                    className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                     aria-label={t("清空搜索")}
                   >
                     <X className="h-3.5 w-3.5" />
@@ -8222,7 +8196,7 @@ function PersonTaskCockpit({
                 ref={searchTriggerRef}
                 type="button"
                 onClick={() => setSearchOpen(true)}
-                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 title={t("搜索任务全部内容（描述、人员、进度、工作项等）")}
                 aria-label={t("搜索任务")}
               >
@@ -8230,13 +8204,14 @@ function PersonTaskCockpit({
               </button>
             )}
           </div>
+          )}
           </div>
 
           {/* ── 当前 KPI 筛选条 ── */}
           {kpiFilter !== "all" && (
-            <div className="rd-horizon-filter-bar flex flex-col items-stretch justify-between gap-3 border-b border-blue-100 bg-blue-50/50 px-4 py-2 text-xs sm:flex-row sm:items-center">
+            <div className="rd-horizon-filter-bar flex flex-col items-stretch justify-between gap-3 border-b border-border bg-accent/50 px-4 py-2 text-xs sm:flex-row sm:items-center">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="rd-horizon-filter-label inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-[#002fa7] ring-1 ring-blue-200">
+                <span className="rd-horizon-filter-label inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-primary ring-1 ring-primary/20">
                   <ListChecks className="h-3 w-3" />
                   {t("当前筛选：")}
                   <span className="ml-0.5">{t(KPI_FILTER_LABEL[kpiFilter])}</span>
@@ -8252,7 +8227,7 @@ function PersonTaskCockpit({
                       type="button"
                       onClick={() => handleBackfillScores(false)}
                       disabled={backfillBusy}
-                      className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-blue-200 bg-white px-2 text-[11px] font-semibold text-[#002fa7] transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-primary/20 bg-white px-2 text-[11px] font-semibold text-primary transition-colors hover:border-primary/35 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                       title={t("一键执行：① 自动抽取附件文本（OCR/文档/视觉） → ② 调 AI 评分。已抽取/已评分的会跳过（幂等）。")}
                     >
                       {backfillBusy ? (
@@ -8284,7 +8259,7 @@ function PersonTaskCockpit({
                       type="button"
                       onClick={handleBatchExportReports}
                       disabled={batchExportBusy}
-                      className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-blue-200 bg-white px-2 text-[11px] font-semibold text-[#002fa7] transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-primary/20 bg-white px-2 text-[11px] font-semibold text-primary transition-colors hover:border-primary/35 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                       title={t("把当前范围（管理员视角 / 选中成员）已完成且已评分的任务，汇总成一份多页正式报告，可在打印对话框中选择「另存为 PDF」下载。")}
                     >
                       {batchExportBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
@@ -8297,7 +8272,7 @@ function PersonTaskCockpit({
                     type="button"
                     onClick={handleBackfillExtraction}
                     disabled={extractionBackfillBusy}
-                    className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                     title={t("仅抽取附件文本（不触发评分）。用于进行中/暂停任务的附件抽取，便于知识库 RAG 检索；已完成任务请直接用 AI 复盘评分（已包含抽取）。")}
                   >
                     {extractionBackfillBusy ? (
@@ -8312,7 +8287,7 @@ function PersonTaskCockpit({
                   <button
                     type="button"
                     onClick={onClearKpiFilter}
-                    className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
+                    className="rd-horizon-brand-control inline-flex min-h-9 shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                   >
                     <X className="h-3 w-3" />
                     {t("清除筛选")}
@@ -8340,7 +8315,7 @@ function PersonTaskCockpit({
                   const visibleCount = visibleCounts["all"] ?? taskPageSize;
                   const shownTasks = allActiveTasks.slice(0, visibleCount);
                   const hasMore = visibleCount < allActiveTasks.length;
-                  const allAccentColor = "#002fa7";
+                  const allAccentColor = "var(--primary)";
 
                   return (
                     <div>
@@ -8351,7 +8326,7 @@ function PersonTaskCockpit({
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
                             transition={RD_FAST_TRANSITION}
-                            className="rd-horizon-loading-strip flex items-center gap-2 border-b border-blue-100 bg-blue-50 px-4 py-2 text-[11px] text-[#002fa7]"
+                            className="rd-horizon-loading-strip flex items-center gap-2 border-b border-border bg-accent px-4 py-2 text-[11px] text-primary"
                             role="status"
                             aria-live="polite"
                           >
@@ -8363,7 +8338,7 @@ function PersonTaskCockpit({
 
                       {allActiveTasks.length === 0 ? (
                         <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 px-6 py-12 text-center text-sm text-slate-500" role="status">
-                          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-50 text-[#002fa7]">
+                          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-accent text-primary">
                             <Search className="h-5 w-5" aria-hidden="true" />
                           </span>
                           <h3 className="text-balance text-base font-semibold text-slate-900">
@@ -8385,7 +8360,7 @@ function PersonTaskCockpit({
                             <button
                               type="button"
                               onClick={closeSearchAndRestoreFocus}
-                              className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
+                              className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                             >
                               <X className="h-3 w-3" />
                               {t("清除搜索")}
@@ -8395,7 +8370,7 @@ function PersonTaskCockpit({
                             <button
                               type="button"
                               onClick={onClearKpiFilter}
-                              className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
+                              className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                             >
                               <X className="h-3 w-3" />
                               {t("清除筛选")}
@@ -8406,7 +8381,7 @@ function PersonTaskCockpit({
                       ) : (
                         <div
                           ref={setScrollRef}
-                          className="cockpit-scroll overflow-y-auto transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+                          className={cn("cockpit-scroll overflow-y-auto", headerCollapsed ? "overscroll-y-contain" : "overscroll-y-auto")}
                           style={flowHeightStyle(headerCollapsed)}
                           onScroll={(e) => handleTaskScroll(e, "all", allActiveTasks.length)}
                         >
@@ -8426,7 +8401,7 @@ function PersonTaskCockpit({
                             <button
                               type="button"
                               onClick={() => loadNextTaskPage("all", allActiveTasks.length)}
-                              className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-blue-50/50 hover:text-[#002fa7]"
+                              className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-accent/50 hover:text-primary"
                             >
                               <ChevronDown className="h-3 w-3" />
                               <span>{t("继续向下滚动 · 已显示")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> {t("个任务")}</span>
@@ -8474,7 +8449,7 @@ function PersonTaskCockpit({
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
                             transition={RD_FAST_TRANSITION}
-                            className="rd-horizon-loading-strip flex items-center gap-2 border-b border-blue-100 bg-blue-50 px-4 py-2 text-[11px] text-[#002fa7]"
+                            className="rd-horizon-loading-strip flex items-center gap-2 border-b border-border bg-accent px-4 py-2 text-[11px] text-primary"
                             role="status"
                             aria-live="polite"
                           >
@@ -8487,7 +8462,7 @@ function PersonTaskCockpit({
                       {/* Task list — 与"全部"相同的 INS 风格滚动 feed */}
                       {tasks.length === 0 ? (
                         <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 px-6 py-12 text-center text-sm text-slate-500" role="status">
-                          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-50 text-[#002fa7]">
+                          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-accent text-primary">
                             <Users className="h-5 w-5" aria-hidden="true" />
                           </span>
                           <h3 className="text-balance text-base font-semibold text-slate-900">
@@ -8507,7 +8482,7 @@ function PersonTaskCockpit({
                             <button
                               type="button"
                               onClick={closeSearchAndRestoreFocus}
-                              className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
+                              className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                             >
                               <X className="h-3 w-3" />
                               {t("清除搜索")}
@@ -8517,7 +8492,7 @@ function PersonTaskCockpit({
                             <button
                               type="button"
                               onClick={onClearKpiFilter}
-                              className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
+                              className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                             >
                               <X className="h-3 w-3" />
                               {t("清除筛选")}
@@ -8528,13 +8503,13 @@ function PersonTaskCockpit({
                       ) : (
                         <div
                           ref={setScrollRef}
-                          className="cockpit-scroll overflow-y-auto transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+                          className={cn("cockpit-scroll overflow-y-auto", headerCollapsed ? "overscroll-y-contain" : "overscroll-y-auto")}
                           style={flowHeightStyle(headerCollapsed)}
                           onScroll={(e) => handleTaskScroll(e, p.key, primaryTasks.length)}
                         >
                           {/* ── 主责段：领导最关心「这个人负责什么」，占第一屏 ── */}
                           <div className="flex items-center gap-2 px-4 pt-3 text-[11px] font-semibold text-slate-500">
-                            <span className="h-3 w-0.5 rounded-full bg-[#002fa7]" />
+                            <span className="h-3 w-0.5 rounded-full bg-primary" />
                             <span>{t("主责")}</span>
                             <span className="tabular-nums text-slate-400">{primaryTasks.length}</span>
                           </div>
@@ -8589,7 +8564,7 @@ function PersonTaskCockpit({
                             <button
                               type="button"
                               onClick={() => loadNextTaskPage(p.key, primaryTasks.length)}
-                              className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-blue-50/50 hover:text-[#002fa7]"
+                              className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-accent/50 hover:text-primary"
                             >
                               <ChevronDown className="h-3 w-3" />
                               <span>{t("继续向下滚动 · 已显示主责")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{primaryTasks.length}</span> {t("个任务")}</span>
@@ -8750,12 +8725,12 @@ function TaskReassignModal({
       }}
     >
       <DialogContent
-        className="rd-task-overlay-surface gap-0 overflow-hidden border-0 bg-white p-0 shadow-2xl sm:max-w-lg [&>button:last-child]:hidden"
+        className="horizon-portal rd-task-overlay-surface flex flex-col gap-0 overflow-hidden border-0 bg-card p-0 shadow-xl sm:max-w-3xl [&>button:last-child]:hidden"
         onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
         onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}
         onInteractOutside={(event) => { if (saving) event.preventDefault(); }}
       >
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3">
           <div>
             <DialogTitle className="font-semibold text-slate-800">{t("批量转派任务")}</DialogTitle>
             <DialogDescription className="sr-only">
@@ -8767,26 +8742,26 @@ function TaskReassignModal({
             aria-label={t("关闭批量转派任务")}
             disabled={saving}
             onClick={() => { if (!saving) onClose(); }}
-            className="rounded-lg p-1.5 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40"
+            className="flex size-10 shrink-0 items-center justify-center rounded-xl hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
           >
             <X className="h-4 w-4 text-slate-500" />
           </button>
         </div>
-        <div className="p-6 space-y-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {!confirmed ? (
-            <>
+            <div className="grid min-w-0 gap-5 sm:grid-cols-2">
               <div>
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-sm font-medium text-slate-700">{t("选择任务")}</span>
                   {selectedTasks.size > 0 && (
-                    <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">{t("已选 {n} 个", { n: selectedTasks.size })}</span>
+                    <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold text-primary">{t("已选 {n} 个", { n: selectedTasks.size })}</span>
                   )}
                 </div>
                 {/* 过滤工具行：任务多时按关键字/负责人/优先级快速定位；勾选状态不随过滤丢失 */}
                 {assignableTasks.length > 5 && (
                   <div className="mb-2 space-y-2">
                     <div className="flex items-center gap-2">
-                      <div className="relative flex-1">
+                      <div className="relative min-w-0 flex-1">
                         <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                         <Input
                           value={taskKeyword}
@@ -8811,7 +8786,7 @@ function TaskReassignModal({
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       {([
                         { key: "all", label: "全部" },
                         { key: "high", label: "高优先" },
@@ -8826,7 +8801,7 @@ function TaskReassignModal({
                           className={cn(
                             "cursor-pointer rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
                             priorityFilter === p.key
-                              ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                              ? "border-primary/40 bg-accent text-primary"
                               : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
                           )}
                         >
@@ -8845,7 +8820,7 @@ function TaskReassignModal({
                     </div>
                   </div>
                 )}
-                <div className="cockpit-scroll space-y-2 overflow-y-auto" style={{ maxHeight: "min(280px, 40vh)" }}>
+                <div className="cockpit-scroll space-y-2 overflow-y-auto" style={{ maxHeight: "min(400px, 50dvh)" }}>
                   {assignableTasks.length === 0 ? (
                     <p className="py-4 text-center text-sm text-slate-400">{t("暂无可转派任务")}</p>
                   ) : visibleTasks.length === 0 ? (
@@ -8877,7 +8852,7 @@ function TaskReassignModal({
                     {t("人员数据加载失败，请关闭后重试")}
                   </p>
                 )}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-1">
                   {people.filter((p) => !p.on_leave).map((p) => {
                     const isNoop = selectedAssignable.length > 0 && selectedAssignable.every((t) => t.owner === p.name);
                     return (
@@ -8890,11 +8865,11 @@ function TaskReassignModal({
                         className={cn(
                           "rounded-lg border px-3 py-2 text-left text-sm transition-colors",
                           isNoop && "cursor-not-allowed opacity-45",
-                          targetPerson?.id === p.id ? "border-indigo-300 bg-indigo-50" : "border-slate-200 hover:bg-slate-50",
+                          targetPerson?.id === p.id ? "border-primary/40 bg-accent" : "border-slate-200 hover:bg-slate-50",
                         )}
                       >
                         <div className="font-medium text-slate-800">{p.name}</div>
-                        <div className="flex items-center justify-between text-xs text-slate-400">
+                        <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-muted-foreground">
                           <span>{t(p.position)}</span>
                           <span className={cn("font-semibold", p.max_tasks > 0 && p.task_count / p.max_tasks >= 0.75 ? "text-orange-500" : "text-emerald-600")}>
                             {t("{n} 个任务", { n: p.task_count })}
@@ -8905,7 +8880,20 @@ function TaskReassignModal({
                   })}
                 </div>
               </div>
-              <div className="flex justify-end gap-2 pt-2">
+            </div>
+          ) : (
+            <div className="py-4 text-center">
+              <CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-emerald-500" />
+              <p className="font-semibold text-slate-800">{t("操作成功")}</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {t("已将 {n} 个任务转派给 {name}，操作已记录。", { n: selectedAssignable.length, name: targetPerson?.name ?? "" })}
+              </p>
+              <button type="button" onClick={onClose} className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">{t("关闭")}</button>
+            </div>
+          )}
+        </div>
+        {!confirmed && (
+              <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-5 py-3">
                 <button
                   type="button"
                   disabled={saving}
@@ -8918,24 +8906,13 @@ function TaskReassignModal({
                   type="button"
                   disabled={selectedTasks.size === 0 || !targetPerson || targetIsCurrentOwner || saving}
                   onClick={handleConfirm}
-                  className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
+                  className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white shadow-none hover:bg-primary/90 disabled:opacity-40 disabled:shadow-none"
                 >
                   {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
                   {saving ? t("处理中...") : hasPendingAssign ? t("确认指派") : t("确认转派")}
                 </button>
               </div>
-            </>
-          ) : (
-            <div className="py-4 text-center">
-              <CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-emerald-500" />
-              <p className="font-semibold text-slate-800">{t("操作成功")}</p>
-              <p className="mt-1 text-sm text-slate-500">
-                {t("已将 {n} 个任务转派给 {name}，操作已记录。", { n: selectedAssignable.length, name: targetPerson?.name ?? "" })}
-              </p>
-              <button type="button" onClick={onClose} className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">{t("关闭")}</button>
-            </div>
-          )}
-        </div>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -9397,9 +9374,9 @@ function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
         aria-expanded={expanded}
-        className="flex min-h-11 w-full cursor-pointer flex-wrap items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-slate-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+        className="flex min-h-11 w-full cursor-pointer flex-wrap items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-slate-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
       >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#002fa7] ring-1 ring-blue-100">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent text-primary ring-1 ring-primary/15">
           <CalendarDays className="h-3.5 w-3.5" />
         </span>
         <span className="text-sm font-semibold text-slate-700">{t("今日日报")}</span>
@@ -9422,7 +9399,7 @@ function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
         ) : (
           <span className="text-xs text-slate-400">{t("今日暂无日报")}{canRegenerate ? ` · ${t("展开后可立即汇总")}` : ""}</span>
         )}
-        <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-[#002fa7]">
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-primary">
           {expanded ? t("收起报表") : t("展开报表")}
           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")} />
         </span>
@@ -9547,9 +9524,9 @@ function ExecutiveOverview({
 
   // KPI 定义（Horizon 格子卡与协同 stat strip 共享同一份数据与筛选交互）
   const kpiItems = useMemo(() => [
-    { label: t("总任务"), value: totalActive, hint: t("未归档根任务数；已并入父任务的子任务不重复统计"), Icon: Target, tone: "text-[#002fa7]", filterKey: null, activeRing: "ring-blue-300" },
+    { label: t("总任务"), value: totalActive, hint: t("未归档根任务数；已并入父任务的子任务不重复统计"), Icon: Target, tone: "text-primary", filterKey: null, activeRing: "ring-primary/35" },
     { label: t("完成率"), value: `${rate}%`, hint: t("已完成 ÷ 总任务（{n}）", { n: totalActive }), Icon: Gauge, tone: "text-slate-900", filterKey: null, activeRing: "ring-slate-300" },
-    { label: t("进行中"), value: inProgress, hint: "", Icon: CircleDot, tone: "text-[#002fa7]", filterKey: "in_progress" as KpiFilter, activeRing: "ring-blue-400" },
+    { label: t("进行中"), value: inProgress, hint: "", Icon: CircleDot, tone: "text-primary", filterKey: "in_progress" as KpiFilter, activeRing: "ring-primary/45" },
     { label: t("完成"), value: done, hint: "", Icon: CheckCircle2, tone: "text-emerald-700", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
     { label: t("阻塞/待派"), value: blocked, hint: "", Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
     { label: t("风险"), value: risks.length, hint: "", Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
@@ -9573,15 +9550,15 @@ function ExecutiveOverview({
       : t("当前工作区暂无任务数据。读取或创建任务后，这里会生成真实决策摘要。");
   }, [blocked, inProgress, lang, risks.length, totalActive]);
 
-  // 协同侧页头采用三层结构（页头条 / stat strip / 报表全宽），研发与生产侧维持 Horizon 两卡布局
+  // 协同保留原有页头；研发与生产使用紧凑概览与报告摘要。
   const usCollabLayout = isUsCollabWorkspace();
 
   // 沉浸模式（整屏看任务）：把顶部概览的收起信号上报给 Root，联动隐藏全局顶栏 + 滑出侧边栏。
   const { setImmersive } = useLayoutChromeActions();
 
-  // 顶部模块（执行提示 + 日报/月报）随任务流滚动自动收起；「钉住」后常显、忽略滚动信号。
+  // 默认保留概览和全局导航；用户可主动进入大屏，或在更多菜单启用滚动自动收起。
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
-  const [headerPinned, setHeaderPinned] = useState(false);
+  const [headerPinned, setHeaderPinned] = useState(true);
   // 来自 PersonTaskCockpit 的下滑收起信号：钉住时丢弃；展开由沉浸模式控制条显式触发。
   const handleHeaderCollapseChange = useCallback(
     (collapsed: boolean) => {
@@ -9612,9 +9589,7 @@ function ExecutiveOverview({
       aria-label={productionWorkspace ? t("生产任务核心驾驶舱") : t("研发任务核心驾驶舱")}
     >
       <div className="rd-horizon-layout mx-auto space-y-6 rd-stagger-children">
-        {/* 顶部并排区：执行提示（占 3）+ 今日日报速览（占 2）。窄屏（< xl）自动上下堆叠，
-            宽屏并排可省下一整块纵向高度，留给下方的人员任务驾驶舱。
-            随任务流下滑自动收起以最大化任务可视区；进入沉浸模式后由控制条显式展开。 */}
+        {/* 概览与按需展开的报告摘要；大屏由用户主动开启，自动收起在更多菜单中设置。 */}
         <div className="rd-horizon-overview-top relative">
         {/* Horizon 驾驶舱提供沉浸模式控制：收起后通过 portal 固定到视口右上角，不占布局且不受面板层级遮挡。 */}
         {!usCollabLayout && headerCollapsed && typeof document !== "undefined" && createPortal(
@@ -9627,7 +9602,7 @@ function ExecutiveOverview({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={RD_FAST_TRANSITION}
               className={cn(
-                "horizon-portal fixed right-4 top-4 z-40 inline-flex min-h-11 items-center gap-2 rounded-full border border-blue-200 bg-white px-3.5 text-xs font-semibold text-[#002fa7] shadow-[0_10px_28px_-16px_rgba(0,47,167,0.30)] transition-[border-color,background-color,box-shadow] hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2 motion-reduce:transition-none sm:right-6",
+                "horizon-portal fixed right-4 top-4 z-40 inline-flex min-h-11 items-center gap-2 rounded-full border border-primary/20 bg-white px-3.5 text-xs font-semibold text-primary shadow-sm transition-[border-color,background-color,box-shadow] hover:border-primary/35 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transition-none sm:right-6",
                 horizonVariant && "rd-horizon-immersive-control",
               )}
             >
@@ -9635,26 +9610,6 @@ function ExecutiveOverview({
               <span>{t("退出大屏")}</span>
             </motion.button>,
             document.body,
-        )}
-        {!usCollabLayout && !headerCollapsed && (
-          <div className="mb-2 flex items-center justify-end">
-              <button
-                type="button"
-                onClick={() => { const next = !headerPinned; setHeaderPinned(next); if (next) setHeaderCollapsed(false); }}
-                aria-pressed={headerPinned}
-                aria-label={headerPinned ? t("已钉住顶部模块，点击恢复滚动自动收起") : t("顶部模块随任务滚动自动收起，点击钉住常显")}
-                title={headerPinned ? t("已钉住：滚动时保持展开 · 点击恢复自动收起") : t("滚动任务时自动收起 · 点击钉住常显")}
-                className={cn(
-                  "rd-horizon-pin-toggle inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 text-[11px] font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
-                  headerPinned
-                    ? "border-[#002fa7] bg-[#002fa7] text-white hover:bg-[#002782]"
-                    : "border-slate-200 bg-white text-slate-500 hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]",
-                )}
-              >
-                {headerPinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
-                {headerPinned ? t("已钉住") : t("自动收起")}
-              </button>
-          </div>
         )}
         <div
           hidden={headerCollapsed}
@@ -9683,7 +9638,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onReassign}
-                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                   >
                     <UserCog className="h-3.5 w-3.5" />
                     {t("批量转派")}
@@ -9693,7 +9648,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onOpenPeople}
-                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                   >
                     <UserPlus className="h-3.5 w-3.5" />
                     {t("人员管理")}
@@ -9713,7 +9668,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onAiProject}
-                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-[#002fa7] px-3.5 text-xs font-semibold text-white shadow-[0_6px_14px_-8px_rgba(0,47,167,0.35)] transition-colors hover:bg-[#002782]"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-primary-hover"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
                     {t("AI 立项")}
@@ -9747,10 +9702,10 @@ function ExecutiveOverview({
                       clickable && "cursor-pointer hover:bg-slate-50/80",
                     )}
                   >
-                    <span className={cn("text-2xl font-bold leading-none tabular-nums", active ? "text-[#002fa7]" : item.tone)}>
+                    <span className={cn("text-2xl font-bold leading-none tabular-nums", active ? "text-primary" : item.tone)}>
                       <AnimatedNumber value={item.value} />
                     </span>
-                    <span className={cn("mt-1.5 text-xs font-medium", active ? "font-semibold text-[#002fa7]" : "text-slate-400")}>
+                    <span className={cn("mt-1.5 text-xs font-medium", active ? "font-semibold text-primary" : "text-slate-400")}>
                       {item.label}
                       {active && ` · ${t("筛选中")}`}
                     </span>
@@ -9765,11 +9720,11 @@ function ExecutiveOverview({
             )}
           </div>
         ) : (
-        <div className={cn("rd-horizon-overview-grid", catStats.length > 0 && "grid items-stretch gap-6 min-[1500px]:grid-cols-5")}>
-        <section className={cn("rd-horizon-command rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && "min-w-0 min-[1500px]:col-span-3")}>
-          <div className="rd-horizon-command-layout grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto]">
-            <div className="rd-horizon-command-heading order-1 flex min-w-0 items-center gap-3">
-              <span className="rd-horizon-command-mark flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#002fa7] text-white shadow-[0_6px_16px_-8px_rgba(0,47,167,0.35)]">
+        <div className="rd-horizon-overview-grid grid min-w-0 gap-3">
+        <section className="rd-horizon-command min-w-0 rounded-2xl border border-border bg-card p-4">
+          <div className="rd-horizon-command-layout grid min-w-0 gap-3">
+            <div className="rd-horizon-command-heading flex min-w-0 items-center gap-3">
+              <span className="rd-horizon-command-mark flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-white shadow-sm">
                 <Sparkles className="h-5 w-5" />
               </span>
               <div className="rd-horizon-command-copy min-w-0">
@@ -9780,7 +9735,63 @@ function ExecutiveOverview({
               </div>
             </div>
 
-            <div className="rd-horizon-kpi-grid order-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2 lg:grid-cols-3 min-[1800px]:grid-cols-6">
+            <div className="rd-horizon-actions flex flex-wrap items-center gap-2">
+              {canDirectProject && onAiProject && (
+                <button type="button" onClick={onAiProject} className="rd-horizon-primary-action inline-flex min-h-10 items-center gap-2 rounded-xl bg-primary px-3 text-sm font-semibold text-primary-foreground">
+                  <Sparkles className="size-4" aria-hidden="true" />
+                  {t("AI 立项")}
+                </button>
+              )}
+              {onCreateTask && (
+                <button type="button" onClick={onCreateTask} className={cn("inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold", !canDirectProject && "rd-horizon-primary-action")}>
+                  <Plus className="size-4" aria-hidden="true" />
+                  {t("新建任务")}
+                </button>
+              )}
+              <RdTaskExportButton allTasks={allTasks} peopleDirectory={peopleDirectory} />
+              <button type="button" onClick={() => setHeaderCollapsed(true)} className="inline-flex min-h-10 items-center gap-2 rounded-xl border px-3 text-sm font-medium" title={t("展开任务大屏")}>
+                <Maximize2 className="size-4" aria-hidden="true" />
+                {t("大屏")}
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border px-3 text-sm font-medium" aria-label={t("更多工作区操作")}>
+                    {t("更多")}
+                    <ChevronDown className="size-4" aria-hidden="true" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="horizon-theme horizon-portal rd-horizon-cockpit-menu w-60 rounded-xl p-1.5">
+                  {canReassign && onReassign && (
+                    <DropdownMenuItem onSelect={onReassign} className="min-h-10 rounded-lg">
+                      <UserCog className="size-4" aria-hidden="true" />{t("批量转派")}
+                    </DropdownMenuItem>
+                  )}
+                  {onOpenPeople && (
+                    <DropdownMenuItem onSelect={onOpenPeople} className="min-h-10 rounded-lg">
+                      <UserPlus className="size-4" aria-hidden="true" />{t("人员管理")}
+                    </DropdownMenuItem>
+                  )}
+                  {onAiClassifyTasks && (
+                    <DropdownMenuItem onSelect={onAiClassifyTasks} className="min-h-10 rounded-lg">
+                      <Layers3 className="size-4" aria-hidden="true" />{t("AI 全量归纳")}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuCheckboxItem checked={!headerPinned} onCheckedChange={(checked) => setHeaderPinned(!checked)} className="min-h-10 rounded-lg">
+                    {t("滚动时自动收起概览")}
+                  </DropdownMenuCheckboxItem>
+                  {canClearData && onClearData && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={onClearData} variant="destructive" className="min-h-10 rounded-lg">
+                        <Trash2 className="size-4" aria-hidden="true" />{t("清空数据")}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            <div className="rd-horizon-kpi-grid grid min-w-0 grid-cols-3 gap-2">
               {kpiItems.map((item, index) => {
                 const clickable = item.filterKey !== null;
                 const active = clickable && kpiFilter === item.filterKey;
@@ -9804,9 +9815,9 @@ function ExecutiveOverview({
                     className={cn(
                       "rd-horizon-kpi flex min-h-11 min-w-0 items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 transition-[border-color,box-shadow]",
                       active
-                        ? cn("border-transparent ring-2 ring-offset-1 shadow-[0_10px_24px_-14px_rgba(0,47,167,0.24)]", item.activeRing)
+                        ? cn("border-transparent ring-2 ring-offset-1 shadow-sm", item.activeRing)
                         : "border-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
-                      clickable && !active && "cursor-pointer hover:border-blue-200 hover:shadow-[0_8px_18px_-12px_rgba(0,47,167,0.20)]",
+                      clickable && !active && "cursor-pointer hover:border-primary/20 hover:shadow-sm",
                       clickable && "text-left",
                     )}
                   >
@@ -9817,7 +9828,7 @@ function ExecutiveOverview({
                       <div className={cn("rd-horizon-kpi-value text-base font-bold leading-none tabular-nums", item.tone)}>{item.value}</div>
                       <div className="rd-horizon-kpi-label mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold text-slate-500">
                         <span className="truncate">{item.label}</span>
-                        {active && <span className="rd-horizon-kpi-filter-badge shrink-0 rounded-sm bg-blue-100 px-1 py-px text-[9px] font-bold leading-none text-[#002fa7]">{t("筛选中")}</span>}
+                        {active && <span className="rd-horizon-kpi-filter-badge shrink-0 rounded-sm bg-accent px-1 py-px text-[9px] font-bold leading-none text-primary">{t("筛选中")}</span>}
                       </div>
                     </div>
                   </Wrapper>
@@ -9825,90 +9836,10 @@ function ExecutiveOverview({
               })}
             </div>
 
-            {(
-              <div className="rd-horizon-actions order-2 flex flex-wrap justify-start gap-2 lg:justify-end">
-                {/* 导出：按时间段导出当前工作区配置人员的任务完成情况。 */}
-                <RdTaskExportButton allTasks={allTasks} peopleDirectory={peopleDirectory} />
-                {onAiClassifyTasks && (
-                  <button
-                    type="button"
-                    onClick={onAiClassifyTasks}
-                    className="group flex min-h-11 flex-none items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-2.5 text-left text-xs font-semibold text-white shadow-[0_8px_18px_-10px_rgba(15,23,42,0.35)] transition-colors hover:bg-slate-800"
-                  >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-300/15 text-amber-300 ring-1 ring-amber-300/25">
-                      <Layers3 className="h-4 w-4 transition-transform group-hover:-rotate-6" />
-                    </span>
-                    <span className="min-w-0">AI 全量归纳</span>
-                  </button>
-                )}
-                {canDirectProject && onAiProject && (
-                  <button
-                    type="button"
-                    onClick={onAiProject}
-                    className="rd-horizon-primary-action group flex min-h-11 flex-none items-center gap-2 rounded-xl bg-[#002fa7] px-2.5 text-left text-xs font-semibold text-white shadow-[0_8px_18px_-10px_rgba(0,47,167,0.35)] transition-colors hover:bg-[#002782]"
-                  >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/18">
-                      <Sparkles className="h-4 w-4 transition-transform group-hover:rotate-12" />
-                    </span>
-                    <span className="min-w-0">{t("AI 立项")}</span>
-                  </button>
-                )}
-                {onCreateTask && (
-                  <button
-                    type="button"
-                    onClick={onCreateTask}
-                    className="group flex min-h-11 flex-none items-center gap-2 rounded-xl border border-emerald-100 bg-white px-2.5 text-left text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
-                  >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
-                      <Plus className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0">{t("新建任务")}</span>
-                  </button>
-                )}
-                {canReassign && onReassign && (
-                  <button
-                    type="button"
-                    onClick={onReassign}
-                    className="group flex min-h-11 flex-none items-center gap-2 rounded-xl border border-blue-100 bg-white px-2.5 text-left text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
-                  >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#002fa7] ring-1 ring-blue-100">
-                      <UserCog className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0">{t("批量转派")}</span>
-                  </button>
-                )}
-                {onOpenPeople && (
-                  <button
-                    type="button"
-                    onClick={onOpenPeople}
-                    className="group flex min-h-11 flex-none items-center gap-2 rounded-xl border border-blue-100 bg-white px-2.5 text-left text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-[#002fa7]"
-                  >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#002fa7] ring-1 ring-blue-100">
-                      <UserPlus className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0">{t("人员管理")}</span>
-                  </button>
-                )}
-                {canClearData && onClearData && (
-                  <button
-                    type="button"
-                    onClick={onClearData}
-                    className="rd-horizon-danger-action group flex min-h-11 flex-none items-center gap-2 rounded-xl border border-red-100 bg-white px-2.5 text-left text-xs font-semibold text-red-600 shadow-sm transition-colors hover:border-red-200 hover:bg-red-50"
-                  >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600 ring-1 ring-red-100">
-                      <Trash2 className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0">{t("清空数据")}</span>
-                  </button>
-                )}
-              </div>
-            )}
           </div>
         </section>
         {catStats.length > 0 && (
-          <div className="rd-horizon-reports min-w-0 min-[1500px]:col-span-2">
-            <RDReportsPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} />
-          </div>
+          <RDReportsDigest canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} />
         )}
         </div>
         )}
@@ -9924,7 +9855,7 @@ function ExecutiveOverview({
             role={loadError ? "alert" : "status"}
             aria-live={loadError ? "assertive" : "polite"}
           >
-            <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-[#002fa7] text-white">
+            <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-primary text-white">
               {loading ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : loadError ? <AlertTriangle className="h-5 w-5" aria-hidden="true" /> : <LayoutGrid className="h-5 w-5" aria-hidden="true" />}
             </span>
             <h2 className="mt-4 text-balance text-lg font-semibold text-slate-950">
@@ -9955,7 +9886,7 @@ function ExecutiveOverview({
                 <button
                   type="button"
                   onClick={onRefresh}
-                  className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-blue-200 bg-white px-3 text-xs font-semibold text-[#002fa7] transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-primary/20 bg-white px-3 text-xs font-semibold text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   {t("重新读取")}
@@ -9964,7 +9895,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onCreateTask}
-                    className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#002fa7] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#002782] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7] focus-visible:ring-offset-2"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-white transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     {t("新建任务")}
