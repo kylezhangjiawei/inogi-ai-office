@@ -222,73 +222,76 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
 
           <TaskCriticalMaterials task={task} materials={materials} compact />
 
-          {canAdvance ? (
-            <button
-              type="button"
-              onClick={(event) => runWithoutOpening(event, () => onNext?.(task))}
-              className={cn(
-                "inline-flex w-fit cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
-                isPendingConfirm ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-[#002fa7] text-white hover:bg-[#001f73]",
-              )}
-            >
-              {t(meta.next!)}
-              {DECISION_STATUSES.includes(task.status) ? <ChevronRight className="size-3" /> : null}
-              {task.method === "direct" && task.status === "pending_purchase" ? <ExternalLink className="size-3" /> : null}
-            </button>
-          ) : null}
-
-          <div className="proc-horizon-task-progress-row mt-auto flex items-center gap-2 pt-0.5">
-            <span className="shrink-0 text-[10px] font-semibold text-slate-500">{t("到货进度")}</span>
-            <div role="progressbar" aria-label={t("到货进度")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} className="proc-horizon-task-progress-track h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-              <div className={cn("proc-horizon-task-progress h-full rounded-full", progress >= 100 ? "bg-emerald-500" : "bg-[#002fa7]")} data-complete={progress >= 100} style={{ width: `${progress}%` }} />
-            </div>
-            <span className="w-9 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">{progress}%</span>
-          </div>
-
-          <div className="proc-horizon-task-footer flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-slate-100 pt-2 text-[10px] text-slate-500">
-            <span data-priority={task.priority} className={cn("proc-horizon-priority inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold", priority.className)}>
-              <Flame className="size-3" />
-              {t(priority.label)}
-            </span>
-            {mainDate.date ? (
-              <span className="inline-flex items-center gap-1">
-                <CalendarClock className="size-3 text-slate-400" />
-                {t(mainDate.label)}：<span className="tabular-nums">{mainDate.date.slice(5)}</span>
-              </span>
-            ) : null}
-            {overdue ? (
-              <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 font-semibold text-rose-600">
-                <AlertTriangle className="size-3" />
-                {t("逾期")}
-              </span>
-            ) : null}
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex min-w-0 items-center gap-1.5 text-slate-400">
-                  <PersonAvatar name={buyerLabel} size="xs" />
-                  <span className="max-w-[72px] truncate font-medium text-slate-600">{buyerLabel}</span>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {requester.name === buyerLabel
-                  ? t("采购负责人")
-                  : `${t("需求提出")}：${requester.name} → ${t("采购负责人")}：${buyerLabel}`}
-              </TooltipContent>
-            </Tooltip>
-            <button
-              type="button"
-              onClick={(event) => runWithoutOpening(event, () => onOpen(task))}
-              className="ml-auto inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold text-[#002fa7] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]"
-              aria-label={t("查看任务")}
-            >
-              {t("查看")} <ArrowRight className="size-3" />
-            </button>
-          </div>
-
           {task.consumableNote ? (
-            <AutoTranslatedText as="p" text={task.consumableNote} className="truncate text-[10px] text-slate-400" />
+            <AutoTranslatedText as="p" text={task.consumableNote} className="truncate text-xs text-slate-500" />
           ) : null}
+
+          <div className="mt-auto flex flex-col gap-2.5">
+            {canAdvance ? (
+              <button
+                type="button"
+                onClick={(event) => runWithoutOpening(event, () => onNext?.(task))}
+                className={cn(
+                  "inline-flex w-fit cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
+                  isPendingConfirm ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-[#002fa7] text-white hover:bg-[#001f73]",
+                )}
+              >
+                {t(meta.next!)}
+                {DECISION_STATUSES.includes(task.status) ? <ChevronRight className="size-3" /> : null}
+                {task.method === "direct" && task.status === "pending_purchase" ? <ExternalLink className="size-3" /> : null}
+              </button>
+            ) : null}
+
+            <div className="proc-horizon-task-progress-row flex items-center gap-2 pt-0.5">
+              <span className="shrink-0 text-[10px] font-semibold text-slate-500">{t("到货进度")}</span>
+              <div role="progressbar" aria-label={t("到货进度")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} className="proc-horizon-task-progress-track h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                <div className={cn("proc-horizon-task-progress h-full rounded-full", progress >= 100 ? "bg-emerald-500" : "bg-[#002fa7]")} data-complete={progress >= 100} style={{ width: `${progress}%` }} />
+              </div>
+              <span className="w-9 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">{progress}%</span>
+            </div>
+
+            <div className="proc-horizon-task-footer flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-slate-100 pt-2 text-[10px] text-slate-500">
+              <span data-priority={task.priority} className={cn("proc-horizon-priority inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold", priority.className)}>
+                <Flame className="size-3" />
+                {t(priority.label)}
+              </span>
+              {mainDate.date ? (
+                <span className="inline-flex items-center gap-1">
+                  <CalendarClock className="size-3 text-slate-400" />
+                  {t(mainDate.label)}：<span className="tabular-nums">{mainDate.date.slice(5)}</span>
+                </span>
+              ) : null}
+              {overdue ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 font-semibold text-rose-600">
+                  <AlertTriangle className="size-3" />
+                  {t("逾期")}
+                </span>
+              ) : null}
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex min-w-0 items-center gap-1.5 text-slate-400">
+                    <PersonAvatar name={buyerLabel} size="xs" />
+                    <span className="max-w-[72px] truncate font-medium text-slate-600">{buyerLabel}</span>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {requester.name === buyerLabel
+                    ? t("采购负责人")
+                    : `${t("需求提出")}：${requester.name} → ${t("采购负责人")}：${buyerLabel}`}
+                </TooltipContent>
+              </Tooltip>
+              <button
+                type="button"
+                onClick={(event) => runWithoutOpening(event, () => onOpen(task))}
+                className="ml-auto inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold text-[#002fa7] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]"
+                aria-label={t("查看任务")}
+              >
+                {t("查看")} <ArrowRight className="size-3" />
+              </button>
+            </div>
+
+          </div>
         </div>
       </div>
           </article>

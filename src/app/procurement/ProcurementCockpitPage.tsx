@@ -1,9 +1,8 @@
-// 供应链任务驾驶舱（流程视角）：指挥区 + 履约轨道 + 集中筛选栏 + 三列瀑布流。
+// 供应链任务驾驶舱（流程视角）：指挥区 + 状态统计 + 集中筛选栏 + 自适应任务网格。
 // 分类/物料维度的浏览在「物料库」页，此页专注任务流。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
-import { ScrollArea } from "../components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group";
 import {
@@ -306,7 +305,7 @@ export function ProcurementCockpitPage() {
 
   const toggleStat = (k: StatKey) => setStat((cur) => (cur === k ? null : k));
 
-  // 瀑布流分批渲染：首屏一批，滚动到底部哨兵自动追加；筛选条件变化重置
+  // 任务分批渲染：首屏一批，滚动到底部哨兵自动追加；筛选条件变化重置
   const [visibleCount, setVisibleCount] = useState(WATERFALL_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => { setVisibleCount(WATERFALL_PAGE_SIZE); }, [line, treeNode?.id, buyerUserId, stat, materialParam, kw]);
@@ -376,7 +375,7 @@ export function ProcurementCockpitPage() {
 
   if (cockpitTab === "stock-plans") {
     return (
-      <div className="proc-horizon proc-horizon-cockpit-shell mx-auto h-full w-full max-w-[1600px] p-3 lg:p-4">
+      <div className="proc-horizon proc-horizon-cockpit-shell h-full min-w-0 w-full">
         <div className="proc-horizon-layout flex h-full min-h-0 flex-col">
           {cockpitTabs}
           <StockPlanPanel materials={materials} canCreate={canCreate} />
@@ -386,8 +385,8 @@ export function ProcurementCockpitPage() {
   }
 
   return (
-    <div className="proc-horizon proc-horizon-cockpit-shell mx-auto h-full w-full max-w-[1600px] p-3 lg:p-4">
-      <div className="proc-horizon-layout flex h-full min-h-0 flex-col">
+    <div className={cn("proc-horizon proc-horizon-cockpit-shell min-w-0 w-full", view === "systems" ? "h-full" : "min-h-full")}>
+      <div className={cn("proc-horizon-layout flex min-h-0 flex-col", view === "systems" ? "h-full" : "min-h-full")}>
       {cockpitTabs}
       {/* Horizon 指挥区：业务范围、全局操作与 KPI 共用一个信息焦点。 */}
       {view === "tasks" && (
@@ -448,19 +447,13 @@ export function ProcurementCockpitPage() {
               {canCreate && <button type="button" onClick={() => setNewOpen(true)} className="proc-horizon-primary-action inline-flex items-center gap-1.5 text-xs"><Plus className="size-4" />{t('新建需求')}</button>}
             </div>
 
-            <div className="proc-horizon-flow-overview" aria-label={t("供应链履约轨道")}>
-              <div className="proc-horizon-flow-summary">
+            <div className="proc-horizon-cockpit-kpis" data-production={line === "production"} aria-label={t("供应链任务统计")}>
                 <StatCell label={t('在制任务')} value={counts.inprogress} Icon={Activity} active={stat === "inprogress"} onClick={() => toggleStat("inprogress")} />
-              </div>
-              <div className={cn("proc-horizon-kpi-grid proc-horizon-flow-rail", line === "production" && "proc-horizon-flow-rail-production")}>
                 <StatCell label={t('待确认')} value={counts.pending} tone={counts.pending > 0 ? "red" : "slate"} badge={counts.pending > 0} Icon={ClipboardList} active={stat === "pending"} onClick={() => toggleStat("pending")} />
                 {line !== "production" ? <StatCell label={t('询价中')} value={counts.inquiring} tone="indigo" Icon={Search} active={stat === "inquiring"} onClick={() => toggleStat("inquiring")} /> : null}
                 <StatCell label={t('采购在途')} value={counts.transit} tone="indigo" Icon={Truck} active={stat === "transit"} onClick={() => toggleStat("transit")} />
                 <StatCell label={t('本周到货')} value={counts.week} tone="emerald" Icon={PackageCheck} active={stat === "week"} onClick={() => toggleStat("week")} />
-              </div>
-              <div className="proc-horizon-flow-exception">
                 <StatCell label={t('逾期异常')} value={counts.overdue} tone="red" Icon={AlertTriangle} active={stat === "overdue"} onClick={() => toggleStat("overdue")} />
-              </div>
             </div>
           </div>
         </section>
@@ -555,7 +548,6 @@ export function ProcurementCockpitPage() {
       </div>
 
       {/* 任务展示区 */}
-      <ScrollArea className="min-h-0 flex-1">
         <div className="proc-horizon-task-scroll">
           {error ? (
             <div role="alert" className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-rose-200 bg-rose-50/40 px-4 py-12 text-center text-sm text-rose-700">
@@ -567,9 +559,9 @@ export function ProcurementCockpitPage() {
               <button type="button" onClick={() => void refreshProcurement()} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</button>
             </div>
           ) : loading && tasks.length === 0 ? (
-            <div aria-label={t("正在加载采购任务")} className="proc-horizon-masonry columns-1 gap-3 lg:columns-2 xl:columns-3">
+            <div aria-label={t("正在加载采购任务")} className="proc-horizon-task-grid">
               {[0, 1, 2].map((item) => (
-                <div key={item} className="mb-3 min-h-52 break-inside-avoid rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div key={item} className="min-h-52 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="flex gap-2"><span className="h-5 w-16 rounded bg-slate-100" /><span className="h-5 w-20 rounded bg-slate-100" /></div>
                   <div className="mt-4 h-5 w-3/4 rounded bg-slate-100" />
                   <div className="mt-3 h-4 w-full rounded bg-slate-100" />
@@ -590,10 +582,10 @@ export function ProcurementCockpitPage() {
             </div>
           ) : (
               <>
-                {/* 多列瀑布流：卡片按自身高度顺次排列，不将单条任务拉伸到整行。 */}
-                <div className="proc-horizon-masonry columns-1 gap-3 lg:columns-2 xl:columns-3">
+                {/* 根据内容区宽度分列，同一行卡片及底部操作对齐。 */}
+                <div className="proc-horizon-task-grid">
                   {visibleTasks.map((t) => (
-                    <div key={t.id} className="mb-3 min-w-0 break-inside-avoid">
+                    <div key={t.id} className="min-w-0">
                       <ProcurementTaskCard
                         task={t}
                         materials={materials}
@@ -617,7 +609,6 @@ export function ProcurementCockpitPage() {
             )}
         </div>
 
-      </ScrollArea>
       </div>
 
         </section>

@@ -289,25 +289,25 @@ export function StatCell({ label, value, tone = "slate", active, badge, onClick,
   const t = TONES[tone];
   const content = (
     <>
-      <span className={cn("absolute inset-y-0 left-0 w-1", t.bar)} />
+      <span className={cn("proc-horizon-kpi-accent absolute inset-y-0 left-0 w-1", t.bar)} />
       <div className="min-w-0">
-        <div className="flex items-center gap-1 text-xs text-slate-400">
+        <div className="proc-horizon-kpi-label flex items-center gap-1 text-xs text-slate-400">
           {label}
           {badge && <span className="inline-block size-1.5 rounded-full bg-rose-500" />}
         </div>
-        <div className={cn("mt-0.5 text-2xl font-bold tabular-nums", t.text)}>{value}</div>
+        <div className={cn("proc-horizon-kpi-value mt-0.5 text-2xl font-bold tabular-nums", t.text)}>{value}</div>
       </div>
-      {Icon && <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", t.chip)}><Icon className="size-4" /></span>}
+      {Icon && <span className={cn("proc-horizon-kpi-icon flex size-9 shrink-0 items-center justify-center rounded-xl", t.chip)}><Icon className="size-4" /></span>}
     </>
   );
   const className = cn(
-    "material-card relative flex h-auto items-center justify-between gap-2 overflow-hidden rounded-xl px-3 py-2.5 text-left transition-shadow duration-150 sm:px-4 sm:py-3",
+    "proc-horizon-kpi material-card relative flex h-auto min-w-0 w-full items-center justify-between gap-2 overflow-hidden rounded-xl px-3 py-2.5 text-left transition-shadow duration-150 sm:px-4 sm:py-3",
     onClick && "cursor-pointer hover:shadow-md",
     active && "ring-2 ring-[#002fa7]/20",
   );
-  if (!onClick) return <div className={className}>{content}</div>;
+  if (!onClick) return <div className={className} data-tone={tone} data-active={Boolean(active)}>{content}</div>;
   return (
-    <Toggle pressed={Boolean(active)} onPressedChange={onClick} className={className}>
+    <Toggle pressed={Boolean(active)} onPressedChange={onClick} className={className} data-tone={tone} data-active={Boolean(active)}>
       {content}
     </Toggle>
   );
