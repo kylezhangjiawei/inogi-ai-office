@@ -36,6 +36,8 @@ import { useAnyPermission, usePermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
+import { openMateChat } from "./components/matechat/openMateChat";
+import { createRdTaskPageContext } from "./components/matechat/pageContext";
 import { PERMISSIONS } from "./lib/permissions";
 import { t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
@@ -84,6 +86,7 @@ import {
   attachRdTasksToParent,
   blockedDaysOf,
   createRdTask,
+  currentRdWorkspace,
   detachRdSubtask,
   detachRdSubtasks,
   fetchMergedTaskCategories,
@@ -1481,6 +1484,33 @@ export default function RDTaskDetailPage() {
           )}
         </div>
         <div className="rd-horizon-detail-state">
+        {currentRdWorkspace() === null ? (
+          <div className="flex flex-wrap items-center gap-2" aria-label={t("MateChat 任务助手")}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openMateChat({ pageContext: createRdTaskPageContext(task.task_id) })}
+              className="min-h-9 gap-1.5 border-[#bfd0fa] text-[#002fa7] hover:bg-[#eef3ff]"
+            >
+              <MessageCircleMore className="size-3.5" aria-hidden="true" />
+              {t("问 MateChat")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openMateChat({
+                pageContext: createRdTaskPageContext(task.task_id),
+                intent: "delivery_check",
+              })}
+              className="min-h-9 gap-1.5 border-[#bfd0fa] bg-[#eef3ff] text-[#002fa7] hover:bg-[#dce6ff]"
+            >
+              <FileText className="size-3.5" aria-hidden="true" />
+              {t("检查结项资料")}
+            </Button>
+          </div>
+        ) : null}
         <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>
           <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
           {t(sCfg.label)}

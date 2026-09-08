@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+import { PageContextDto } from './page-context.dto';
 import {
   ArrayMaxSize,
   IsArray,
@@ -36,6 +37,11 @@ export class ChatAttachmentInputDto {
 }
 
 export class SendMessageDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PageContextDto)
+  pageContext?: PageContextDto;
+
   // 允许空文本：当仅发送图片/文件附件时，content 可为空。
   // 是否"内容为空且无附件"由 service 层兜底校验。
   @IsOptional()

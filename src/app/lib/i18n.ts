@@ -30,6 +30,30 @@ let currentLang: I18nLang = (() => {
  * 字典 seed 尚未同步或请求暂时失败时回退成中文，保证中美协同核心导航和操作可用。
  */
 const BUILTIN_EN_FALLBACKS: Record<string, string> = {
+  // MateChat 文件检索与后台资料打包。
+  ...{
+    "资料包": "File archives", "查找并打包": "Find and package files", "大小待核验": "Size not yet verified",
+    "请求失败，请重试": "Request failed. Please try again.", "无法读取打包进度": "Could not load archive progress",
+    "下载地址无效": "Invalid download URL", "排队中": "Queued", "打包中": "Packaging",
+    "部分完成": "Partially completed", "打包失败": "Packaging failed", "已过期": "Expired",
+    "关闭聊天后仍会继续打包": "Packaging continues after you close this chat", "个文件": "files",
+    "个未打包": "not included", "文件处理进度": "File processing progress", "下载 ZIP": "Download ZIP",
+    "正在取消": "Canceling", "取消打包": "Cancel packaging", "重试打包": "Retry packaging",
+    "文件清单": "File manifest", "下载有效期至": "Download available until",
+    "下载时重新校验源文件权限": "Source permissions are checked again before download",
+    "只查找你有权访问的原文件。可按来源、时间和类型筛选，再选择文件生成 ZIP。": "Find original files you can access. Filter by source, date, and type, then select files to create a ZIP.",
+    "资料来源": "Source", "项目任务附件": "Project task attachments", "知识库文件": "Knowledge base files",
+    "我的图片作品": "My images", "我的视频作品": "My videos", "我的聊天附件": "My chat attachments",
+    "全部已接入来源": "All connected sources", "项目或任务名称": "Project or task name",
+    "不填则不限项目": "Leave blank for all projects", "文件关键词": "File keywords",
+    "名称或已有描述": "Name or existing description", "文档与表格": "Documents and spreadsheets",
+    "查找文件": "Find files", "找到": "Found", "已选择": "Selected", "清除选择": "Clear selection",
+    "加载更多文件": "Load more files", "压缩包名称": "Archive name", "文件分组": "File grouping",
+    "按来源分文件夹": "Folders by source", "按类型分文件夹": "Folders by type", "不分文件夹": "Flat archive",
+    "打包已选": "Package selected", "打包全部结果": "Package all results",
+    "全部结果包含尚未加载的文件。系统自动去重，并附上来源与失败清单。": "All results include files not yet loaded. Duplicate content is merged; source and failure details are included.",
+    "重复内容，已合并": "Duplicate content merged", "已打包": "Included",
+  },
   "导出": "Export",
   "如 7": "e.g. 7",
   "如：不含抛光费用": "e.g. Polishing costs excluded",

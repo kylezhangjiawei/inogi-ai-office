@@ -21,6 +21,7 @@ import { ChatService } from './chat.service';
 import { CreateUsageEventDto } from './dto/create-usage-event.dto';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
+import { ResolvePageContextDto, ShareChatMessageDto } from './dto/page-context.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { UpdateFeedbackStatusDto } from './dto/update-feedback-status.dto';
 import { UpdateReactionDto } from './dto/update-reaction.dto';
@@ -160,8 +161,18 @@ export class ChatController {
   // ── Messages ─────────────────────────────────────────────────────────────────
 
   @Get('conversations/:id/messages')
-  getMessages(@Param('id') id: string, @Request() req: AuthedRequest) {
-    return this.chatService.getMessages(id, req.user.id);
+  async getMessages(@Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.chatService.getMessages(id, req.user.id, await this.buildUserContext(req));
+  }
+
+  @Post('page-context/resolve')
+  async resolvePageContext(@Body() dto: ResolvePageContextDto, @Request() req: AuthedRequest) {
+    return this.chatService.resolvePageContext(dto.pageContext, await this.buildUserContext(req));
+  }
+
+  @Post('messages/:id/share')
+  async shareMessage(@Param('id') id: string, @Body() dto: ShareChatMessageDto, @Request() req: AuthedRequest) {
+    return this.chatService.shareMessage(id, dto.recipientId, await this.buildUserContext(req));
   }
 
   @Post('conversations/:id/messages')

@@ -612,6 +612,46 @@ export class OssService implements OnModuleInit {
     return null;
   }
 
+  /** 下载专用短期签名；响应头保留中文文件名，跨域下载不依赖 a.download。 */
+  getArchiveDownloadUrl(objectKey: string, filename: string): string | null {
+    if (!this.publicClient || !this.isKeyUnderBusinessType(objectKey, 'chat-archives')) return null;
+    try {
+      return this.publicClient.signatureUrl(objectKey, {
+        expires: 60,
+        response: {
+          'content-disposition': `attachment; filename="archive.zip"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+          'cache-control': 'private, no-store',
+        },
+      });
+    } catch { return null; }
+  }
+
+  /** 从本地文件分片上传，取消或失败时中止未完成的分片。 */
+  async uploadArchiveFile(objectKey: string, localPath: string, signal: AbortSignal): Promise<void> {
+    if (!this.isKeyUnderBusinessType(objectKey, 'chat-archives')) throw new Error('非法压缩包存储路径');
+    const result = await this.withOssFallback('uploadArchiveFile', async (client) => {
+      let uploadId: string | undefined;
+      try {
+        signal.throwIfAborted();
+        return await client.multipartUpload(objectKey, localPath, {
+          parallel: 2, partSize: 8 * 1024 * 1024, timeout: 120000,
+          headers: { 'Content-Type': 'application/zip', 'Cache-Control': 'private, no-store' },
+          progress: async (_percent, checkpoint) => { uploadId = checkpoint?.uploadId; signal.throwIfAborted(); },
+        });
+      } catch (error) {
+        if (uploadId) await client.abortMultipartUpload(objectKey, uploadId).catch(() => undefined);
+        throw error;
+      }
+    }, 120000);
+    if (!result) throw new Error('压缩包上传失败');
+  }
+
+  async deleteArchiveObject(objectKey: string): Promise<void> {
+    if (!this.isKeyUnderBusinessType(objectKey, 'chat-archives')) throw new Error('非法压缩包存储路径');
+    const result = await this.withOssFallback('deleteArchiveObject', (client, timeout) => client.delete(objectKey, timeout ? { timeout } : {}));
+    if (!result) throw new Error('压缩包清理失败');
+  }
+
   /** HMAC secret for self-authenticating preview tokens (iframes can't send Authorization headers). */
   private previewSecret(): string {
     return this.config.get<string>('OSS_PREVIEW_SECRET') || this.config.getOrThrow<string>('JWT_SECRET');

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma, type ChatPendingAction } from '@prisma/client';
 import OpenAI from 'openai';
 
@@ -16,8 +16,11 @@ import {
   ResearchDevelopmentService,
 } from '../research-development/research-development.service';
 import { ChatFileExportService } from './chat-file-export.service';
-import { shanghaiDayStart } from './chat-streak.service';
 import { THOUGHT_PARAM } from './react-loop';
+import { ChatMediaQuota, ChatMediaQuotaExceeded } from './chat-media-quota';
+import { ChatArchiveService } from './chat-archive.service';
+import { ChatDeliveryService } from './chat-delivery.service';
+import { ChatPageContextService, normalizePageContext, type PageContextRefV1 } from './chat-page-context.service';
 import {
   AGENT_ACTIONS,
   AGENT_ACTION_PAYLOAD_KEY,
@@ -54,12 +57,17 @@ export type ChatToolResult = {
   pendingAction?: PendingActionCard;
   /** 生图专用：已落库的图片附件（由 SSE 立即推给前端、并随 assistant 消息持久化） */
   attachment?: StoredChatAttachment;
+  archiveJobId?: string;
+  fileSelectionId?: string;
+  deliveryCheckId?: string;
+  pageContext?: PageContextRefV1;
 };
 
 /** 工具执行上下文：本轮消息级的附加信息（如用户上传的图片），供需要的工具按需取用 */
 export type ChatToolContext = {
   /** 本轮用户上传的图片的外部可直连 URL（供 generate_video 作首帧/参考图） */
   uploadedImageUrls?: string[];
+  pageContextTaskId?: string;
 };
 
 type ToolSpec = {
@@ -351,6 +359,7 @@ function toPendingActionEntry(row: ChatPendingAction): PendingActionEntry {
 @Injectable()
 export class ChatToolsService {
   private readonly logger = new Logger(ChatToolsService.name);
+  private readonly mediaQuota: ChatMediaQuota;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -359,9 +368,85 @@ export class ChatToolsService {
     private readonly imageGenerationService: ImageGenerationService,
     private readonly videoGenerationService: VideoGenerationService,
     private readonly fileExportService: ChatFileExportService,
-  ) {}
+    @Optional() private readonly archiveService?: ChatArchiveService,
+    @Optional() private readonly deliveryService?: ChatDeliveryService,
+    @Optional() private readonly pageContextService?: ChatPageContextService,
+  ) {
+    this.mediaQuota = new ChatMediaQuota(prisma);
+  }
 
   private readonly tools: Record<string, ToolSpec> = {
+    check_delivery_documents: {
+      label: '检查结项资料', timeoutMs: 120000,
+      definition: { type: 'function', function: {
+        name: 'check_delivery_documents',
+        description: '检查一条研发任务及子任务的结项资料，创建可编辑、可恢复的检查清单。必须使用已确认的准确研发任务编号（可来自当前页面）。仅按文件名与已有描述查找候选，不能声称已审阅正文、验证版本或通过正式验收。默认使用参考清单，用户可在结项资料检查面板调整要求、查看原件、确认资料和打包；不要自动确认或标记不适用。适用于用户明确要求检查资料完整性、结项资料查漏或交付准备；不支持中美协同/生产工作区。',
+        parameters: { type: 'object', properties: {
+          task_id: { type: 'string', description: '已核实的研发任务编号，包含其子任务资料' },
+          requirements: { type: 'array', maxItems: 20, description: '仅用户明确提供具体清单时传入，否则使用参考清单', items: { type: 'object', properties: {
+            title: { type: 'string' }, keywords: { type: 'array', items: { type: 'string' }, maxItems: 10 }, required: { type: 'boolean' },
+          }, required: ['title', 'keywords'] } },
+        }, required: ['task_id'] },
+      } },
+      execute: async (args, user, conversationId, ctx) => {
+        if (!this.deliveryService) throw new Error('资料检查服务不可用');
+        if (ctx.pageContextTaskId && args.task_id !== ctx.pageContextTaskId) throw new BadRequestException('检查编号与当前关联任务不同，请先切换关联任务后再检查');
+        const check = await this.deliveryService.create(args, user, conversationId);
+        const detail = { id: check.id, taskId: check.taskId, taskTitle: check.taskTitle, checkedAt: check.checkedAt, summary: check.summary,
+          scopeNote: check.scopeNote, warnings: check.warnings, rows: check.rows.map((row) => ({ title: row.title, required: row.required, status: row.status, candidateCount: row.candidateCount, candidates: row.candidates.slice(0, 3).map((file) => file.name) })) };
+        return { ok: true, summary: `资料检查：${check.summary.candidate} 项待核对，${check.summary.missing} 项未找到`,
+          content: `已保存参考清单检查。请在聊天底部「结项资料检查」继续核对；以下只是元数据匹配，不等于文件内容合格或最新版本，不能声称已完成正式验收。${JSON.stringify(detail)}`, deliveryCheckId: check.id,
+          pageContext: { schemaVersion: 1, pageKey: 'rd_task_detail', scope: 'entity', refs: [{ entityType: 'rd_task', entityId: check.taskId, workspace: 'rd' }], capturedAt: new Date().toISOString() } };
+      },
+    },
+    search_project_files: {
+      label: '查找项目文件', timeoutMs: 120000,
+      definition: { type: 'function', function: { name: 'search_project_files',
+        description: '查找用户有权访问的原始图片、视频、文档及附件，支持研发/中美协同/生产任务和子任务、研发与部门知识库、本人图片/视频作品、本人聊天附件。用于找文件或批量打包，不生成新图。返回完整检索快照 selectionId 与前30条预览，预览不是全部。项目/任务条件仅适用于 task 来源；任务编号包含其子任务。query 为空可列出范围内全部文件，非空按文件名/已有描述的关键词匹配（不是图片画面识别）。不支持外网、本机目录或未接入业务域。',
+        parameters: { type: 'object', properties: {
+          sources: { type: 'array', items: { type: 'string', enum: ['task', 'knowledge', 'image', 'video', 'chat'] } },
+          workspace: { type: 'string', enum: ['rd', 'us-collab', 'production'], description: '只用于 task 来源；省略时覆盖有权访问的工作区' },
+          project: { type: 'string', description: '任务分类路径或任务标题关键词，仅适用于 task；有精确编号时优先 task_ids' },
+          task_ids: { type: 'array', items: { type: 'string' }, description: '明确的任务编号，含子任务附件；仅适用于 task' },
+          query: { type: 'string', description: '文件名或已有描述关键词，多个空格分隔词均须匹配；要全部附件则不传' },
+          types: { type: 'array', items: { type: 'string' }, description: 'image/video/document/audio 或 pdf/docx/xlsx 等扩展名，多项是或关系' },
+          uploaded_by: { type: 'string', description: '上传者姓名关键词；不确定时不填' },
+          date_from: { type: 'string', description: '开始日期 YYYY-MM-DD，上海自然日，包含当天' },
+          date_to: { type: 'string', description: '结束日期 YYYY-MM-DD，上海自然日，包含当天' },
+        } } } },
+      execute: async (args, user, conversationId) => {
+        if (!this.archiveService) throw new Error('文件检索服务不可用');
+        const result = await this.archiveService.search(args, user, conversationId);
+        return { ok: !result.tooMany, summary: `找到 ${result.total} 个文件`, content: JSON.stringify(result), fileSelectionId: result.selectionId ?? undefined };
+      },
+    },
+    inspect_file_selection: {
+      label: '查看文件清单', timeoutMs: 30000,
+      definition: { type: 'function', function: { name: 'inspect_file_selection', description: '分页查看本会话的检索快照，每页100条。精确挑选文件时使用；用户要全部打包时直接传 selection_ids，不必逐页读取。',
+        parameters: { type: 'object', properties: { selection_id: { type: 'string' }, offset: { type: 'integer', minimum: 0, maximum: 10000 } }, required: ['selection_id'] } } },
+      execute: async (args, user, conversationId) => {
+        if (!this.archiveService) throw new Error('文件检索服务不可用');
+        const offset = Number(args.offset ?? 0);
+        if (!Number.isInteger(offset) || offset < 0 || offset > 10000) throw new BadRequestException('分页位置无效');
+        const result = await this.archiveService.selection(String(args.selection_id ?? ''), user.userId, conversationId, offset);
+        return { ok: true, summary: `文件清单，共 ${result.total} 个`, content: JSON.stringify(result) };
+      },
+    },
+    create_file_archive: {
+      label: '创建资料压缩包', timeoutMs: 30000,
+      definition: { type: 'function', function: { name: 'create_file_archive', description: '把检索快照中的真实文件加入后台打包队列。仅当用户明确要求压缩/打包/批量下载时调用。必须先 search_project_files，不能自己编造文件编号。selection_ids 支持合并多次检索；file_ids 省略表示所有完整结果，不只是预览。输出为任务编号，尚未完成；进度与下载在聊天资料包卡片显示，不能编造链接或声称已经生成。相同请求幂等，不要反复创建。',
+        parameters: { type: 'object', properties: {
+          selection_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 20 },
+          file_ids: { type: 'array', items: { type: 'string' }, description: '可选，只打包这些已检索文件；省略则打包完整快照' },
+          filename: { type: 'string', description: '压缩包名称' },
+          grouping: { type: 'string', enum: ['source', 'type', 'flat'], description: '默认source按来源/任务分目录，type按扩展名，flat平铺；自动重名处理及内容去重' },
+        }, required: ['selection_ids'] } } },
+      execute: async (args, user, conversationId) => {
+        if (!this.archiveService) throw new Error('打包服务不可用');
+        const job = await this.archiveService.create(args, user, conversationId);
+        return { ok: true, summary: `资料包任务：${job.filename}`, content: `后台打包任务（不要把排队说成已完成；请用户在资料包卡片查看进度、失败清单和下载）：${JSON.stringify(job)}`, archiveJobId: job.id };
+      },
+    },
     query_tasks: {
       label: '查询研发任务',
       definition: {
@@ -728,17 +813,13 @@ export class ChatToolsService {
   }
 
   /**
-   * 今日（上海自然日）该用户已产生的图片生成条数。
-   * 从 AiUsageLog 统计而不是新建计数表：那张表本来就按 [userId, createdAt] 建了索引，
-   * 且记的是真实产生的用量，重启、多实例都不会丢计数。
+   * 今日（上海自然日）该用户的已用额度，含在途预占；执行时会在数据库锁内再次核验。
    */
   private async countTodayImageUsage(userId: string): Promise<number> {
     try {
-      return await this.prisma.aiUsageLog.count({
-        where: { userId, modality: 'image', createdAt: { gte: shanghaiDayStart(new Date()) } },
-      });
+      return await this.mediaQuota.usage(userId, 'image');
     } catch (error) {
-      // 统计失败不该让用户连话都说不了：放行，配额是成本护栏不是安全边界
+      // 挂载失败不阻断普通聊天；付费执行仍必须先成功预占额度，不能据此绕过日限额。
       this.logger.warn(`生图配额统计失败，本轮放行: ${error instanceof Error ? error.message : error}`);
       return 0;
     }
@@ -747,11 +828,9 @@ export class ChatToolsService {
   /** 今日（上海自然日）该用户已生成的视频条数。与生图同口径，用于每日生视频闸门。 */
   private async countTodayVideoUsage(userId: string): Promise<number> {
     try {
-      return await this.prisma.aiUsageLog.count({
-        where: { userId, modality: 'video', createdAt: { gte: shanghaiDayStart(new Date()) } },
-      });
+      return await this.mediaQuota.usage(userId, 'video');
     } catch (error) {
-      // 与生图同理：统计失败放行，配额是成本护栏不是安全边界
+      // 与生图同理：挂载可继续，提交付费任务仍须成功预占。
       this.logger.warn(`生视频配额统计失败，本轮放行: ${error instanceof Error ? error.message : error}`);
       return 0;
     }
@@ -1639,13 +1718,13 @@ export class ChatToolsService {
     let lastError = '';
     for (const candidate of candidates) {
       try {
-        const result = (await this.imageGenerationService.generate(user.userId, {
+        const result = (await this.mediaQuota.run(user.userId, 'image', DAILY_IMAGE_TOOL_LIMIT, () => this.imageGenerationService.generate(user.userId, {
           prompt,
           size,
           quality: 'medium',
           model: candidate.model,
           ...(candidate.id ? { model_id: candidate.id } : {}),
-        })) as GeneratedImagePayload;
+        }))) as GeneratedImagePayload;
         const attachment = await this.persistGeneratedImage(result, user.userId, conversationId);
         return {
           ok: true,
@@ -1654,6 +1733,7 @@ export class ChatToolsService {
           attachment,
         };
       } catch (error) {
+        if (error instanceof ChatMediaQuotaExceeded) throw error;
         lastError = error instanceof Error ? error.message : String(error);
         this.logger.warn(`聊天生图失败（模型 ${candidate.model}）：${lastError}`);
       }
@@ -1688,10 +1768,10 @@ export class ChatToolsService {
       });
     const candidate = editable[0];
     try {
-      const result = (await this.imageGenerationService.editImage(user.userId, imageId, {
+      const result = (await this.mediaQuota.run(user.userId, 'image', DAILY_IMAGE_TOOL_LIMIT, () => this.imageGenerationService.editImage(user.userId, imageId, {
         message: instruction,
         ...(candidate ? { model: candidate.model, model_id: candidate.id } : {}),
-      })) as GeneratedImagePayload;
+      }))) as GeneratedImagePayload;
       const attachment = await this.persistGeneratedImage(result, user.userId, conversationId);
       return {
         ok: true,
@@ -2000,7 +2080,7 @@ export class ChatToolsService {
     // 免确认（且未超预算）：直接提交异步任务
     if (!gate.require_confirm) {
       try {
-        await this.videoGenerationService.submit(user.userId, {
+        await this.mediaQuota.run(user.userId, 'video', DAILY_VIDEO_TOOL_LIMIT, () => this.videoGenerationService.submit(user.userId, {
           mode,
           prompt,
           resolution,
@@ -2008,7 +2088,7 @@ export class ChatToolsService {
           source_image_urls: sourceUrls,
           source_image_refs: sourceRefs,
           conversation_id: conversationId,
-        });
+        }));
         return {
           ok: true,
           summary: '视频已提交生成',
@@ -2508,6 +2588,24 @@ export class ChatToolsService {
     conversationId: string,
     user: RagUserContext,
   ): Promise<Array<{ messageId: string | null; card: PendingActionCard }>> {
+    // Confirmation cards can repeat page facts even when the message history is hidden.
+    if (this.pageContextService) {
+      const scoped = await this.prisma.chatMessage.findMany({
+        where: { conversationId, conversation: { userId: user.userId }, pageContext: { not: Prisma.AnyNull } },
+        select: { pageContext: true },
+      });
+      if (scoped.length) {
+        const refs = new Map<string, PageContextRefV1>();
+        for (const message of scoped) {
+          const ref = normalizePageContext(message.pageContext);
+          if (ref) refs.set(ref.refs[0].entityId, ref);
+          else if ((message.pageContext as { derivedFromPage?: boolean } | null)?.derivedFromPage !== true) return [];
+        }
+        if (!refs.size || refs.size > 50) return [];
+        const access = await Promise.all([...refs.values()].map((ref) => this.pageContextService!.resolve(ref, user)));
+        if (access.some((context) => context.status !== 'resolved')) return [];
+      }
+    }
     const rows = await this.prisma.chatPendingAction.findMany({
       where: {
         conversationId,
@@ -2609,6 +2707,7 @@ export class ChatToolsService {
       // 归属校验交给服务层：管理员可写任意任务，普通成员仅限本人主责/协作的任务
       await this.rdService.createTaskProgressNote({
         taskId,
+        idempotencyKey: entry.id,
         text: String(entry.payload.text ?? ''),
         progress,
         actor: { id: user.userId, name: user.name ?? '未知用户', role: user.roleName ?? undefined },
@@ -2648,7 +2747,7 @@ export class ChatToolsService {
       const duration = typeof p.duration === 'number' ? p.duration : 5;
       const sourceUrls = Array.isArray(p.sourceUrls) ? (p.sourceUrls as unknown[]).map(String) : [];
       const sourceRefs = Array.isArray(p.sourceRefs) ? (p.sourceRefs as unknown[]).map(String) : [];
-      await this.videoGenerationService.submit(user.userId, {
+      await this.mediaQuota.run(user.userId, 'video', DAILY_VIDEO_TOOL_LIMIT, () => this.videoGenerationService.submit(user.userId, {
         mode,
         prompt: String(p.prompt ?? ''),
         resolution,
@@ -2656,7 +2755,7 @@ export class ChatToolsService {
         source_image_urls: sourceUrls,
         source_image_refs: sourceRefs,
         conversation_id: typeof p.conversationId === 'string' ? p.conversationId : undefined,
-      });
+      }));
       const modeLabel = mode === 'i2v' ? '图生视频' : mode === 't2v' ? '文生视频' : '参考生视频';
       message = `已提交视频生成任务（${modeLabel} · ${resolution} · ${duration}秒），生成约需几分钟，完成后将通过站内通知告知你。`;
     } else {

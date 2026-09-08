@@ -2918,6 +2918,29 @@ export class ResearchDevelopmentService {
     return found;
   }
 
+  /** MateChat reads through the task resource policy and only receives safe, bounded fields. */
+  async resolveChatTask(taskId: string, viewer: TaskProgressNoteViewer): Promise<{
+    taskId: string; title: string; fields: Record<string, unknown>;
+  }> {
+    const task = await this.findTaskAcrossStores(cleanText(taskId));
+    if (!task || (!viewer.hasFullAccess && !viewer.canReadAll && !isTaskParticipant(task, viewer.userId, viewer.userName))) {
+      throw new ForbiddenException('当前任务不可读取，请确认任务范围与访问权限');
+    }
+    const fields: Record<string, unknown> = {};
+    for (const key of ['status', 'progress', 'priority', 'primary_owner', 'owner', 'due_date', 'deadline', 'start_date', 'end_date', 'description', 'archived', 'updated_at']) {
+      const value = task[key];
+      if (typeof value === 'string') fields[key] = value.slice(0, key === 'description' ? 1600 : 180);
+      else if (typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) fields[key] = value;
+      if (Buffer.byteLength(JSON.stringify(fields), 'utf8') > 5200) delete fields[key];
+    }
+    // Progress bodies are allowed only after task-level authorization; attachments and actor objects are excluded.
+    const notes = this.visibleTaskProgressNotes(task, (await this.getProgressNoteMap())[cleanText(task.task_id)] ?? [], viewer);
+    fields.recentProgress = notes.slice().sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)))
+      .slice(0, 3).map((note) => ({ createdAt: cleanText(note.created_at).slice(0, 40),
+        content: cleanText(note.content ?? note.text).slice(0, 160) }));
+    return { taskId: cleanText(task.task_id), title: cleanText(task.title).slice(0, 240) || cleanText(task.task_id), fields };
+  }
+
   /**
    * 采购模块发起转采购前的任务级授权与主数据校验。
    * 普通研发成员即使能查看全量驾驶舱，也只能转自己主责/协作的任务；研发管理员可处理任意任务。
@@ -6220,6 +6243,39 @@ export class ResearchDevelopmentService {
     return this.writeTaskResourceCache(cacheKey, output);
   }
 
+  /** MateChat 批量文件目录：一次读取任务树和留痕，逐任务复用原可见性规则，不走预览缓存。 */
+  async listChatTaskFiles(viewer: TaskProgressNoteViewer) {
+    const [noteMap, categories] = await Promise.all([this.getProgressNoteMap(), this.readMergedTaskCategories()]);
+    const tasks = this.collectAllCategoryTasks(categories);
+    const out: Array<{ taskId: string; taskTitle: string; path: string; ancestorIds: string[]; noteId: string; createdAt: string; uploader: string; attachment: JsonRecord }> = [];
+    const ancestry = new Map<string, { ids: string[]; path: string }>();
+    const walk = (items: unknown[], ids: string[], path: string[]) => {
+      for (const item of items.filter(isRecord)) {
+        const id = cleanText(item.task_id);
+        if (!id || ancestry.has(id)) continue;
+        const nextPath = [...path, cleanText(item.title)];
+        ancestry.set(id, { ids: [...ids, id], path: nextPath.filter(Boolean).join(' / ') });
+        walk(asArray(item.subtasks), [...ids, id], nextPath);
+      }
+    };
+    for (const category of categories.filter(isRecord)) {
+      for (const child of asArray(category.children).filter(isRecord)) {
+        walk(asArray(child.tasks), [], [cleanText(category.label), cleanText(child.label)]);
+      }
+    }
+    for (const task of tasks) {
+      const taskId = cleanText(task.task_id);
+      for (const note of this.visibleTaskProgressNotes(task, noteMap[taskId] ?? [], viewer)) {
+        for (const attachment of asArray(note.attachments).filter(isRecord)) {
+          out.push({ taskId, taskTitle: cleanText(task.title), path: ancestry.get(taskId)?.path || cleanText(task.category_path),
+            ancestorIds: ancestry.get(taskId)?.ids ?? [taskId], noteId: cleanText(note.id),
+            createdAt: cleanText(note.created_at), uploader: isRecord(note.actor) ? cleanText(note.actor.name) : '', attachment });
+        }
+      }
+    }
+    return out;
+  }
+
   /**
    * Full attachment metadata for one task, loaded only after an explicit user action.
    * The cockpit's batch endpoint intentionally returns five previews; this endpoint preserves the
@@ -6401,6 +6457,8 @@ export class ResearchDevelopmentService {
     workItemId?: string;
     /** 可选：评论中 @ 的成员（结构化存储，不靠正文正则反解析；创建后给每人发站内消息） */
     mentions?: Array<{ user_id?: string; name?: string }>;
+    /** 仅供服务端动作重试使用，不从公开 DTO 接收。 */
+    idempotencyKey?: string;
   }) {
     const taskId = (payload.taskId ?? '').trim();
     if (!taskId) throw new BadRequestException('taskId 不能为空');
@@ -6449,7 +6507,9 @@ export class ResearchDevelopmentService {
       .slice(0, 20);
 
     const note = {
-      id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: payload.idempotencyKey
+        ? `note-action-${payload.idempotencyKey}`
+        : `note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       task_id: taskId,
       text,
       progress: typeof payload.progress === 'number' ? Math.max(0, Math.min(100, Math.round(payload.progress))) : undefined,
@@ -6465,12 +6525,16 @@ export class ResearchDevelopmentService {
     };
 
     // 锁内重读→插入→写回，避免与异步抽取回写/并发留痕创建发生 lost-update。
-    await this.withProgressNoteLock(async () => {
+    const existingNote = await this.withProgressNoteLock(async () => {
       const map = await this.getProgressNoteMap();
       const existing = Array.isArray(map[taskId]) ? map[taskId] : [];
+      const previous = payload.idempotencyKey ? existing.find((entry) => entry.id === note.id) : undefined;
+      if (previous) return previous;
       map[taskId] = [note, ...existing].slice(0, 100);
       await this.writeValue('rd.taskProgressNotes', map);
+      return null;
     });
+    if (existingNote) return this.decorateNotesWithPreview([existingNote])[0];
     await this.incrementTaskAttachmentCount(taskId, attachments.length);
     // 留痕入向量索引（fire-and-forget）：AI 问答可语义检索到进展内容
     void this.syncProgressNoteToRag(taskId, note as unknown as JsonRecord);
