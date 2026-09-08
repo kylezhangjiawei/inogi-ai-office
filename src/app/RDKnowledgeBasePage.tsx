@@ -377,18 +377,9 @@ async function downloadKbEntry(entry: KbEntry, kbId?: string): Promise<void> {
     window.open(entry.external_url, '_blank');
     return;
   }
-  const directUrl = entry.oss_url ?? null;
-  if (directUrl) {
-    const a = document.createElement('a');
-    a.href = directUrl;
-    a.download = entry.file_name ?? entry.title;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    return;
-  }
-  if (entry.has_data_file) {
+  if (entry.has_data_file || entry.oss_url) {
     try {
+      // List URLs can expire while an entry remains available. Resolve a fresh URL on every download.
       const full = await fetchKbEntry(entry.id, kbId);
       const url = full.oss_url ?? full.data_url;
       if (url) {

@@ -12653,7 +12653,7 @@ export class ResearchDevelopmentService {
       }));
   }
 
-  /** Return a single KB entry including its data_url (used for download). */
+  /** Return a single KB entry with a current download URL or its embedded data_url. */
   async getKnowledgeEntryById(
     id: string,
     viewer?: { userId?: string; hasFullAccess?: boolean; levelOverride?: number },
@@ -12673,10 +12673,15 @@ export class ResearchDevelopmentService {
         : await this.resolveViewerKbLevel(viewer.userId);
       if ((entry.permission_level as number) > viewerLevel) return null;
     }
-    const previewUrl = typeof entry.oss_url === 'string' && entry.oss_url
-      ? this.buildAttachmentPreviewUrl(entry.oss_url)
-      : null;
-    return previewUrl ? { ...entry, preview_url: previewUrl } : entry;
+    if (typeof entry.oss_url === 'string' && entry.oss_url) {
+      // Historical entries store the upload-time signed URL. Renew it after the
+      // permission check so files remain downloadable after that URL expires.
+      const objectKey = this.attachmentObjectKey(entry.oss_url);
+      const downloadUrl = objectKey ? this.ossService.getSignedUrl(objectKey, 3600) : null;
+      const previewUrl = this.buildAttachmentPreviewUrl(entry.oss_url);
+      return { ...entry, oss_url: downloadUrl, ...(previewUrl ? { preview_url: previewUrl } : {}) };
+    }
+    return entry;
   }
 
   async classifyKbFiles(filenames: string[], kbId?: string) {
