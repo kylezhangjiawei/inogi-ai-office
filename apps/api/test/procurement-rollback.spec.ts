@@ -1,28 +1,574 @@
+import 'reflect-metadata';
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
-
+import { randomBytes } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
+import { Reflector } from '@nestjs/core';
+import { RolesGuard } from '../src/modules/auth/guards/roles.guard';
 import { DEFAULT_PERMISSION_CATALOG } from '../src/modules/permission-catalog/permission-catalog.defaults';
+import { RollbackProcTaskDto } from '../src/modules/procurement/dto/procurement.dto';
+import { ProcurementController } from '../src/modules/procurement/procurement.controller';
 import { ProcurementService } from '../src/modules/procurement/procurement.service';
-import {
-  rollbackCleanupFor,
-  rollbackTargetsOf,
-  type ProcStatus,
-} from '../src/modules/procurement/procurement.types';
+import { rollbackCleanupFor, rollbackTargetsOf, type ProcStatus } from '../src/modules/procurement/procurement.types';
 
-type Json = Record<string, unknown>;
+type Json = Record<string, any>;
+const actor = { id: 'u1', name: '采购员', permissions: ['proc-task:rollback'] };
+const rollback = { status: 'pending_inquiry', from_status: 'partial_arrival', reason: '  供应商报错价，整单重做  ' };
 
-/**
- * 采购流程「跳步」与「回退」。
- *
- * 用户反复反馈：在「待询价」确认报价后，任务直接显示成「已定价」，中间的「询价中」被跳过。
- * 根因是确认报价那一步同时干了两件事——存价格快照 + 决定下一站，于是一次点击跨了两个节点。
- * 现在拆开：确认报价只到「询价中」，去哪一档由 completeInquiry 单独决定。
- *
- * 回退是纠错入口：可以跨节点往回退，但绝不能借它往前跳，且必须清掉目标节点下不该存在的数据。
- */
-const actor = { id: 'u1', name: '采购员', permissions: ['proc-task:inquiry'] };
+function makeService(task: Json = { id: 'p1', status: 'partial_arrival', method: 'inquiry' }, claimCount = 1) {
+  const calls: Json[] = [];
+  let taskRow = { ...task };
+  const refs = [
+    { id: 'ordinary', metadata: {} }, { id: 'false', metadata: { freeSample: false } },
+    { id: 'sample', metadata: { freeSample: true } }, { id: 'json-null', metadata: null },
+    { id: 'string', metadata: { freeSample: 'true' } }, { id: 'missing', metadata: { source: 'T+' } },
+  ];
+  const service = Object.create(ProcurementService.prototype) as ProcurementService;
+  const tx = {
+    $queryRaw: async () => [{ id: taskRow.id }],
+    procTask: {
+      findUnique: async () => ({ ...taskRow }),
+      updateMany: async (args: Json) => {
+        calls.push({ op: 'update', ...args });
+        if (claimCount === 1) taskRow = { ...taskRow, ...args.data };
+        return { count: claimCount };
+      },
+      findUniqueOrThrow: async () => ({ ...taskRow }),
+    },
+    procQuotation: { deleteMany: async (args: Json) => { calls.push({ op: 'deleteQuotes', ...args }); return { count: 2 }; } },
+    procPurchaseOrderRef: {
+      findMany: async (args: Json) => { calls.push({ op: 'readPos', ...args }); return refs; },
+      deleteMany: async (args: Json) => { calls.push({ op: 'deletePos', ...args }); return { count: 5 }; },
+    },
+    procTaskLog: { create: async (args: Json) => { calls.push({ op: 'log', ...args }); } },
+    rdMessage: { updateMany: async (args: Json) => {
+      if (args.where.type === 'review_request') calls.push({ op: 'retireReview', ...args });
+      return { count: 1 };
+    } },
+  };
+  Object.assign(service, {
+    prisma: {
+      $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(tx),
+      user: { findMany: async () => [
+        { id: 'reviewer', name: '原研发人员', role: { permissions: ['proc-task:transfer', 'page:rd-my-workspace'] } },
+        { id: 'buyer', name: '采购员', role: { permissions: ['proc-task:rollback'] } },
+      ] },
+    },
+    rdService: { requireProcurementTransferAccess: async () => ({ taskId: 'RD-001', title: '原研发任务', participantUserIds: ['reviewer'], participantNames: ['原研发人员'] }), createMessage: async (message: Json) => { calls.push({ op: 'notify', ...message }); } },
+    requireTask: async () => taskRow,
+    serializeTask: (row: Json) => row,
+  });
+  return { service, calls };
+}
 
-function makeService(task: Json, options: { selectedQuotes?: string[] } = {}) {
+test('部分到货任务可退回待询价，并留下清理与原因记录', async () => {
+  const { service, calls } = makeService();
+  await service.rollbackTask('p1', rollback, actor);
+  const update = calls.find((call) => call.op === 'update')!;
+  assert.deepEqual(update.where, { id: 'p1', status: 'partial_arrival' });
+  assert.equal(update.data.status, 'pending_inquiry');
+  assert.equal(update.data.businessDone, false);
+  assert.equal(Number(update.data.arrivedQty), 0);
+  for (const key of ['selectedQuotationId', 'quotationSubtotal', 'quotationDiscount', 'quotationTotal']) {
+    assert.equal(update.data[key], null);
+  }
+  assert.deepEqual(calls.find((call) => call.op === 'deleteQuotes')!.where, { taskId: 'p1' });
+  const removed = calls.find((call) => call.op === 'deletePos')!.where;
+  assert.equal(removed.taskId, 'p1');
+  assert.deepEqual(removed.id.in, ['ordinary', 'false', 'json-null', 'string', 'missing']);
+  const log = calls.find((call) => call.op === 'log')!.data;
+  assert.equal(log.fromStatus, 'partial_arrival');
+  assert.equal(log.toStatus, 'pending_inquiry');
+  assert.equal(log.actorUserId, actor.id);
+  assert.match(log.text, /已清理 2 条报价、5 条采购单关联/);
+  assert.match(log.text, /原因：供应商报错价，整单重做$/);
+});
+
+test('所有进行中的询价与直购节点均可退回同一流程的任意更早节点，研发流转包含待研发审核', () => {
+  const inquiry: ProcStatus[] = ['pending_confirm', 'pending_inquiry', 'inquiring', 'pending_sample', 'testing', 'priced', 'in_transit', 'partial_arrival'];
+  const direct: ProcStatus[] = ['pending_confirm', 'pending_purchase', 'in_transit', 'partial_arrival'];
+  for (const [method, flow] of [['inquiry', inquiry], ['direct', direct]] as const) {
+    for (const context of [undefined, { source: 'self', rdTaskId: 'RD-001' }, { source: 'rd', rdTaskId: 'RD-001' }, { source: 'rd', rdTaskId: '' }]) {
+      const prefix = context?.source === 'rd' && context.rdTaskId ? ['pending_rd_review'] : [];
+      flow.forEach((status, index) => assert.deepEqual(rollbackTargetsOf(status, method, context), [...prefix, ...flow.slice(0, index)]));
+      for (const blocked of ['pending_rd_review', 'completed', 'cancelled'] as ProcStatus[]) {
+        assert.deepEqual(rollbackTargetsOf(blocked, method, context), []);
+      }
+    }
+  }
+  assert.deepEqual(rollbackTargetsOf('pending_purchase', 'inquiry'), []);
+});
+
+test('清理范围按回退目标决定：报价在询价前清理，采购单和到货量在下单前清理', () => {
+  for (const status of ['pending_confirm', 'pending_inquiry'] as ProcStatus[]) {
+    assert.deepEqual(rollbackCleanupFor(status), { quotations: true, purchaseOrders: true, arrivals: true });
+  }
+  for (const status of ['inquiring', 'pending_sample', 'testing', 'priced', 'pending_purchase'] as ProcStatus[]) {
+    assert.deepEqual(rollbackCleanupFor(status), { quotations: false, purchaseOrders: true, arrivals: true });
+  }
+  for (const status of ['in_transit', 'partial_arrival'] as ProcStatus[]) {
+    assert.deepEqual(rollbackCleanupFor(status), { quotations: false, purchaseOrders: false, arrivals: false });
+  }
+});
+
+test('退回已下单保留报价、采购单与到货数据', async () => {
+  const { service, calls } = makeService();
+  await service.rollbackTask('p1', { ...rollback, status: 'in_transit' }, actor);
+  assert.deepEqual(calls.map((call) => call.op), ['update', 'log']);
+  assert.deepEqual(calls[0].data, { status: 'in_transit', businessDone: false });
+});
+
+test('前进、原地回退、跨流程、待研发审核和已取消任务均拒绝且不写数据', async () => {
+  for (const [current, target, method] of [
+    ['inquiring', 'priced', 'inquiry'], ['inquiring', 'inquiring', 'inquiry'],
+    ['in_transit', 'pending_inquiry', 'direct'], ['pending_rd_review', 'pending_confirm', 'inquiry'],
+    ['cancelled', 'pending_inquiry', 'inquiry'],
+  ]) {
+    const { service, calls } = makeService({ id: 'p1', status: current, method });
+    await assert.rejects(service.rollbackTask('p1', { ...rollback, status: target, from_status: current }, actor),
+      (error: any) => error.getStatus() === 400);
+    assert.equal(calls.length, 0);
+  }
+});
+
+test('已完成任务即使管理员直接调用也不能回退，不写数据、日志或通知', async () => {
+  for (const method of ['inquiry', 'direct']) {
+    for (const source of ['self', 'rd']) {
+      for (const permissions of [['proc-task:rollback'], ['*']]) {
+        const { service, calls } = makeService({ id: 'p1', status: 'completed', method, source, rdTaskId: 'RD-001' });
+        await assert.rejects(service.rollbackTask('p1', { ...rollback, from_status: 'completed', status: 'pending_confirm' }, { ...actor, permissions }),
+          (error: any) => error.getStatus() === 400 && /已完成的任务不能回退/.test(error.message));
+        assert.equal(calls.length, 0);
+      }
+    }
+  }
+});
+
+test('页面过期和并发状态变化返回冲突，清理不能先于状态条件更新', async () => {
+  const stale = makeService();
+  await assert.rejects(stale.service.rollbackTask('p1', { ...rollback, from_status: 'in_transit' }, actor),
+    (error: any) => error.getStatus() === 409);
+  assert.equal(stale.calls.length, 0);
+  const raced = makeService(undefined, 0);
+  await assert.rejects(raced.service.rollbackTask('p1', rollback, actor), (error: any) => error.getStatus() === 409);
+  assert.deepEqual(raced.calls.map((call) => call.op), ['update']);
+});
+
+test('回退原因在 DTO 和服务端都按 trim 后 2–200 字符验证，来源状态必填', async () => {
+  for (const reason of [undefined, null, 12, '', '   ', ' 一 ', '字'.repeat(201)]) {
+    assert.ok(validateSync(plainToInstance(RollbackProcTaskDto, { ...rollback, reason })).length > 0);
+    const { service, calls } = makeService();
+    await assert.rejects(service.rollbackTask('p1', { ...rollback, reason } as any, actor),
+      (error: any) => error.getStatus() === 400);
+    assert.equal(calls.length, 0);
+  }
+  for (const reason of ['  重做  ', `  ${'字'.repeat(200)}  `]) {
+    const dto = plainToInstance(RollbackProcTaskDto, { ...rollback, reason });
+    assert.deepEqual(validateSync(dto), []);
+    assert.equal(dto.reason, reason.trim());
+  }
+  const { from_status, ...missingSource } = rollback;
+  assert.ok(validateSync(plainToInstance(RollbackProcTaskDto, missingSource)).length > 0);
+});
+
+test('回退权限已登记并由独立权限保护，普通推进权限不能调用', () => {
+  const permission = DEFAULT_PERMISSION_CATALOG.find((item) => item.code === 'proc-task:rollback');
+  assert.equal(permission?.type, 'action');
+  assert.equal(permission?.groupLabel, '操作权限 · 供应链管理');
+  assert.equal(DEFAULT_PERMISSION_CATALOG.filter((item) => item.code === 'proc-task:rollback').length, 1);
+  const guard = new RolesGuard(new Reflector());
+  const allowed = (permissions: string[]) => guard.canActivate({
+    getHandler: () => ProcurementController.prototype.rollback,
+    getClass: () => ProcurementController,
+    switchToHttp: () => ({ getRequest: () => ({ user: { permissions } }) }),
+  } as any);
+  assert.equal(allowed(['proc-task:rollback']), true);
+  assert.equal(allowed(['*']), true);
+  assert.equal(allowed(['proc-task:inquiry', 'proc-task:select-quote']), false);
+  assert.equal(allowed([]), false);
+});
+
+test('研发流转任务可退回继续转采购，清采购负责人并向原研发人员发出带原因的通知', async () => {
+  const { service, calls } = makeService({ id: 'p1', status: 'pending_confirm', method: 'inquiry', source: 'rd', rdTaskId: 'RD-001',
+    materialName: '示例物料', rdTaskTitle: '示例研发任务', buyer: '旧采购员', buyerUserId: 'old-buyer' });
+  const result = await service.rollbackTask('p1', { ...rollback, from_status: 'pending_confirm', status: 'pending_rd_review' }, actor);
+  assert.equal(result.status, 'pending_rd_review');
+  const update = calls.find((call) => call.op === 'update')!;
+  assert.deepEqual(update.where, { id: 'p1', status: 'pending_confirm', source: 'rd', rdTaskId: 'RD-001' });
+  assert.equal(update.data.buyer, '');
+  assert.equal(update.data.buyerUserId, null);
+  assert.equal(Number(update.data.arrivedQty), 0);
+  assert.equal(update.data.selectedQuotationId, null);
+  assert.ok(calls.some((call) => call.op === 'deleteQuotes'));
+  assert.ok(calls.some((call) => call.op === 'deletePos'));
+  const retired = calls.find((call) => call.op === 'retireReview')!;
+  assert.deepEqual(retired.where, { type: 'review_request', taskId: 'p1', handled: false });
+  assert.deepEqual(retired.data, { handled: true, read: true });
+  const messages = calls.filter((call) => call.op === 'notify');
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].recipient_id, 'reviewer');
+  const body = JSON.parse(messages[0].body);
+  assert.equal(body.type, 'procurement_transfer_returned');
+  assert.equal(body.action_label, '继续转采购');
+  assert.equal(body.route, '/rd-my-workspace?task=RD-001');
+  assert.equal(body.task_id, 'p1');
+  assert.equal(body.rd_task_id, 'RD-001');
+  assert.equal(body.reason, '供应商报错价，整单重做');
+  assert.ok(calls.findIndex((call) => call.op === 'notify') > calls.findIndex((call) => call.op === 'log'));
+  await assert.rejects(service.rollbackTask('p1', { ...rollback, from_status: 'pending_confirm', status: 'pending_rd_review' }, actor));
+  assert.equal(calls.filter((call) => call.op === 'notify').length, 1, '重复回退不得重复发送继续转采购通知');
+});
+
+test('只有具有研发关联的流转任务增加待研发审核回退目标，自建与缺失关联不可退入该节点', async () => {
+  for (const method of ['inquiry', 'direct']) {
+    assert.deepEqual(rollbackTargetsOf('pending_confirm', method, { source: 'rd', rdTaskId: 'RD-001' }), ['pending_rd_review']);
+    assert.deepEqual(rollbackTargetsOf('pending_confirm', method), []);
+    assert.deepEqual(rollbackTargetsOf('pending_rd_review', method, { source: 'rd', rdTaskId: 'RD-001' }), []);
+  }
+  assert.deepEqual(rollbackCleanupFor('pending_rd_review'), { quotations: true, purchaseOrders: true, arrivals: true });
+  for (const context of [{ source: 'self', rdTaskId: 'RD-001' }, { source: 'rd' }, { source: 'rd', rdTaskId: '  ' }]) {
+    assert.equal(rollbackTargetsOf('partial_arrival', 'inquiry', context).includes('pending_rd_review'), false);
+    const { service, calls } = makeService({ id: 'p1', status: 'pending_confirm', method: 'inquiry', ...context });
+    await assert.rejects(service.rollbackTask('p1', { ...rollback, from_status: 'pending_confirm', status: 'pending_rd_review' }, actor),
+      (error: any) => error.getStatus() === 400);
+    assert.equal(calls.length, 0);
+  }
+});
+
+/** The optional integration tests only accept our disposable socket database, never DATABASE_URL. */
+const databaseUrl = process.env.PROC_ROLLBACK_TEST_DATABASE_URL;
+test('隔离 PostgreSQL：回退清理、免费样品保留、事务原子性与并发冲突', { skip: !databaseUrl, timeout: 60000 }, async (t) => {
+  const parsed = new URL(databaseUrl!);
+  assert.equal(parsed.hostname, 'localhost');
+  assert.equal(parsed.pathname, '/procurement_test');
+  assert.equal(parsed.password, '');
+  assert.match(parsed.searchParams.get('host') ?? '', /^\/private\/tmp\/procurement-rollback-db-[A-Za-z0-9]+$/);
+  const schema = `rollback_test_${randomBytes(8).toString('hex')}`;
+  parsed.searchParams.set('schema', schema);
+  const first = new PrismaClient({ datasources: { db: { url: parsed.toString() } } });
+  const second = new PrismaClient({ datasources: { db: { url: parsed.toString() } } });
+  const directory = await mkdtemp('/private/tmp/procurement-rollback-schema-');
+  try {
+    // Keep the current Prisma model definitions used by rollback and its serialized response.
+    const current = await readFile(join(__dirname, '../prisma/schema.prisma'), 'utf8');
+    const keep = new Set(['ProcTask', 'ProcQuotation', 'ProcPurchaseOrderRef', 'ProcTaskLog', 'ProcTaskAttachment', 'ProcTaskCriticalMaterial', 'RdMessage']);
+    const modelNames = new Set([...current.matchAll(/^model (\w+) \{/gm)].map((match) => match[1]));
+    const models = [...current.matchAll(/^model (\w+) \{[\s\S]*?^\}/gm)]
+      .filter((match) => keep.has(match[1]))
+      .map((match) => match[0].split('\n').filter((line) => {
+        const fieldType = line.trim().split(/\s+/)[1]?.replace(/[?\[\]]/g, '');
+        return !fieldType || !modelNames.has(fieldType) || keep.has(fieldType);
+      }).join('\n'));
+    assert.equal(models.length, keep.size);
+    const schemaPath = join(directory, 'schema.prisma');
+    await writeFile(schemaPath, `datasource db {\n provider = "postgresql"\n url = env("DATABASE_URL")\n}\n${models.join('\n')}`);
+    const { stdout } = await promisify(execFile)(process.execPath, [require.resolve('prisma/build/index.js'), 'migrate', 'diff', '--from-empty', '--to-schema-datamodel', schemaPath, '--script'],
+      { env: { ...process.env, DATABASE_URL: parsed.toString() }, maxBuffer: 1024 * 1024 });
+    await first.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
+    for (const statement of stdout.replace(/^\s*--.*$/gm, '').split(';').map((part) => part.trim()).filter(Boolean)) {
+      await first.$executeRawUnsafe(statement);
+    }
+    const service = (client: PrismaClient) => new ProcurementService(client as never, {} as never, {} as never, {} as never);
+    const seed = async () => {
+      const task = await first.procTask.create({ data: { code: randomBytes(8).toString('hex'), materialName: '隔离测试物料', status: 'partial_arrival', businessDone: true,
+        arrivedQty: 10, quotationSubtotal: 120, quotationDiscount: 20, quotationTotal: 100 } });
+      const quote = await first.procQuotation.create({ data: { taskId: task.id, materialName: task.materialName, supplierName: '测试供应商', unitPrice: 10, quoteDate: new Date(), isSelected: true } });
+      await first.procTask.update({ where: { id: task.id }, data: { selectedQuotationId: quote.id } });
+      await first.procPurchaseOrderRef.createMany({ data: [
+        { tpOrderNo: 'ordinary', metadata: {} }, { tpOrderNo: 'false', metadata: { freeSample: false } },
+        { tpOrderNo: 'sample', metadata: { freeSample: true } }, { tpOrderNo: 'json-null', metadata: Prisma.JsonNull },
+        { tpOrderNo: 'string', metadata: { freeSample: 'true' } }, { tpOrderNo: 'missing', metadata: { source: 'T+' } },
+      ].map((row) => ({ ...row, taskId: task.id, receivedQty: 2, orderedQty: 2 })) });
+      return task;
+    };
+
+    await t.test('已完成任务管理员直接回退被拒绝，状态、报价、采购单、日志和审核通知全部保持原样', async () => {
+      const task = await seed();
+      await first.procTask.update({ where: { id: task.id }, data: { status: 'completed', source: 'rd', rdTaskId: `RD-${task.id}` } });
+      const messageId = `completed-review-${task.id}`;
+      await first.rdMessage.create({ data: { id: messageId, body: '{}', type: 'review_request', taskId: task.id, source: 'procurement' } });
+      const readState = () => second.procTask.findUniqueOrThrow({ where: { id: task.id }, include: { quotations: true, purchaseOrderRefs: true, logs: true } });
+      const before = await readState();
+      const messagesBefore = await second.rdMessage.findMany({ where: { taskId: task.id } });
+      const instance = service(first);
+      Object.assign(instance, { notifyRdTransferReturned: async () => assert.fail('已完成任务不得创建新待审通知') });
+      for (const target of ['pending_inquiry', 'pending_rd_review']) {
+        await assert.rejects(instance.rollbackTask(task.id, { ...rollback, from_status: 'completed', status: target }, { ...actor, permissions: ['*'] }),
+          (error: any) => error.getStatus() === 400 && /已完成的任务不能回退/.test(error.message));
+      }
+      assert.deepEqual(await readState(), before);
+      assert.deepEqual(await second.rdMessage.findMany({ where: { taskId: task.id } }), messagesBefore);
+    });
+
+    await t.test('普通采购单即使 metadata 缺键或为 JSON null 也清理，仅免费样品保留', async () => {
+      const task = await seed();
+      const oldSelection = await first.procPurchaseOrderRef.findMany({
+        where: { taskId: task.id, NOT: { metadata: { path: ['freeSample'], equals: true } } },
+        select: { tpOrderNo: true },
+      });
+      assert.equal(oldSelection.some((row) => row.tpOrderNo === 'ordinary'), false,
+        '真实 PostgreSQL 复现：旧 NOT JSON path 条件漏掉普通空 metadata 记录');
+      const result = await service(first).rollbackTask(task.id, rollback, actor);
+      assert.equal(result.status, 'pending_inquiry');
+      assert.equal(result.businessDone, false);
+      assert.equal(result.arrivedQty, 0);
+      assert.deepEqual(result.purchaseOrders.map((row) => row.tpOrderNo), ['sample']);
+      const persisted = await second.procTask.findUniqueOrThrow({ where: { id: task.id } });
+      for (const key of ['selectedQuotationId', 'quotationSubtotal', 'quotationDiscount', 'quotationTotal'] as const) assert.equal(persisted[key], null);
+      assert.equal(await second.procQuotation.count({ where: { taskId: task.id } }), 0);
+      const logs = await second.procTaskLog.findMany({ where: { taskId: task.id } });
+      assert.equal(logs.length, 1);
+      assert.equal(logs[0].fromStatus, 'partial_arrival');
+      assert.equal(logs[0].toStatus, 'pending_inquiry');
+      assert.match(logs[0].text, /已清理 1 条报价、5 条采购单关联/);
+      assert.match(logs[0].text, /原因：供应商报错价，整单重做$/);
+    });
+
+    await t.test('退回已下单保留报价与全部采购单、到货量；旧状态请求不能再执行', async () => {
+      const task = await seed();
+      const result = await service(first).rollbackTask(task.id, { ...rollback, status: 'in_transit' }, actor);
+      assert.equal(result.status, 'in_transit');
+      assert.equal(result.arrivedQty, 10);
+      assert.equal(result.purchaseOrders.length, 6);
+      assert.equal(result.quotationTotal, 100);
+      assert.equal(await first.procQuotation.count({ where: { taskId: task.id } }), 1);
+      await assert.rejects(service(second).rollbackTask(task.id, rollback, actor), (error: any) => error.getStatus() === 409);
+      assert.equal(await second.procTaskLog.count({ where: { taskId: task.id } }), 1);
+    });
+
+    await t.test('日志写入失败时，状态、报价与采购单删除全部回滚', async () => {
+      const task = await seed();
+      await first.$executeRawUnsafe('ALTER TABLE "ProcTaskLog" ADD CONSTRAINT "test_reject_log" CHECK ("text" NOT LIKE \'%force-log-failure%\')');
+      try {
+        await assert.rejects(service(first).rollbackTask(task.id, { ...rollback, reason: 'force-log-failure' }, actor));
+        const persisted = await second.procTask.findUniqueOrThrow({ where: { id: task.id } });
+        assert.equal(persisted.status, 'partial_arrival');
+        assert.equal(persisted.businessDone, true);
+        assert.equal(Number(persisted.arrivedQty), 10);
+        assert.equal(Number(persisted.quotationTotal), 100);
+        assert.equal(await second.procQuotation.count({ where: { taskId: task.id } }), 1);
+        assert.equal(await second.procPurchaseOrderRef.count({ where: { taskId: task.id } }), 6);
+        assert.equal(await second.procTaskLog.count({ where: { taskId: task.id } }), 0);
+      } finally {
+        await first.$executeRawUnsafe('ALTER TABLE "ProcTaskLog" DROP CONSTRAINT "test_reject_log"');
+      }
+    });
+
+    await t.test('研发流转待处理退回审核，旧通知结束、新通知带原因；重新审核后恢复待处理且只分配一次', async () => {
+      const task = await seed();
+      const rdTaskId = `RD-${task.id}`;
+      await first.procTask.update({ where: { id: task.id }, data: {
+        status: 'pending_confirm', source: 'rd', rdTaskId, buyer: '旧采购员', buyerUserId: 'old-buyer',
+      } });
+      const oldMessageId = `old-${task.id}`;
+      const newMessageId = `new-${task.id}`;
+      await first.rdMessage.create({ data: { id: oldMessageId, body: '{}', type: 'review_request', taskId: task.id, source: 'procurement' } });
+      const instance = service(first);
+      const sent: string[] = [];
+      Object.assign(instance, {
+        notifyRdTransferReturned: async (snapshot: Json, _actor: unknown, reason: string) => {
+          const persisted = await second.procTask.findUniqueOrThrow({ where: { id: task.id } });
+          assert.equal(persisted.status, 'pending_rd_review', '新通知只能在事务提交后发送');
+          assert.equal((await second.rdMessage.findUniqueOrThrow({ where: { id: oldMessageId } })).handled, true);
+          sent.push(reason);
+          await second.rdMessage.create({ data: { id: newMessageId, body: JSON.stringify({ reason }), type: 'review_request', taskId: snapshot.id, source: 'procurement' } });
+        },
+        pickAutomaticBuyer: async () => ({ id: 'new-buyer', name: '新采购员' }),
+        notifyRdTransferReviewResult: async () => { sent.push('review-result'); },
+        notifyBuyerOfRdTransferAssignment: async () => { sent.push('assignment'); },
+      });
+      const result = await instance.rollbackTask(task.id, { ...rollback, from_status: 'pending_confirm', status: 'pending_rd_review' }, actor);
+      assert.equal(result.status, 'pending_rd_review');
+      assert.equal(result.buyer, '');
+      assert.equal(result.buyerUserId, undefined);
+      assert.equal(result.arrivedQty, 0);
+      assert.equal(result.businessDone, false);
+      assert.equal(result.rdTaskId, rdTaskId);
+      assert.deepEqual(result.purchaseOrders.map((row) => row.tpOrderNo), ['sample']);
+      assert.equal(await first.procQuotation.count({ where: { taskId: task.id } }), 0);
+      assert.deepEqual(sent, [rollback.reason.trim()]);
+      const newNotice = await second.rdMessage.findUniqueOrThrow({ where: { id: newMessageId } });
+      assert.equal(newNotice.handled, false);
+      assert.equal(JSON.parse(newNotice.body).reason, rollback.reason.trim());
+      // Retried/stale rollback cannot retire the current review or create another notice.
+      await assert.rejects(instance.rollbackTask(task.id, { ...rollback, from_status: 'pending_confirm', status: 'pending_rd_review' }, actor));
+      assert.equal((await second.rdMessage.findUniqueOrThrow({ where: { id: newMessageId } })).handled, false);
+      const reviewer = { id: 'reviewer', name: '研发审核人', permissions: ['rd-procurement:review'] };
+      const approved = await instance.approveRdTransfer(task.id, reviewer);
+      assert.equal(approved.status, 'pending_confirm');
+      assert.equal(approved.buyerUserId, 'new-buyer');
+      assert.equal(approved.buyer, '新采购员');
+      assert.equal((await second.rdMessage.findUniqueOrThrow({ where: { id: newMessageId } })).handled, true);
+      await assert.rejects(instance.approveRdTransfer(task.id, reviewer), (error: any) => error.getStatus() === 400);
+      assert.deepEqual(sent, [rollback.reason.trim(), 'review-result', 'assignment']);
+      assert.equal(await second.procTaskLog.count({ where: { taskId: task.id } }), 2, '一条回退日志和一条重新审核通过日志');
+    });
+
+    await t.test('确认请求的旧快照不能越过另一连接已经提交的研发回退', async () => {
+      const task = await seed();
+      await first.procTask.update({ where: { id: task.id }, data: {
+        status: 'pending_confirm', source: 'rd', rdTaskId: `RD-${task.id}`, buyer: '采购员', buyerUserId: 'buyer',
+      } });
+      let read!: () => void;
+      let resume!: () => void;
+      const snapshotRead = new Promise<void>((resolve) => { read = resolve; });
+      const continueConfirm = new Promise<void>((resolve) => { resume = resolve; });
+      const confirming = service(first);
+      Object.assign(confirming, { requireTask: async (id: string) => {
+        const snapshot = await first.procTask.findUniqueOrThrow({ where: { id } });
+        read();
+        await continueConfirm;
+        return snapshot;
+      }, notifyProcReviewResult: async () => assert.fail('过期确认不能发送确认结果通知') });
+      const request = confirming.confirmTask(task.id, actor);
+      const rejected = assert.rejects(request, (error: any) => error.getStatus() === 409);
+      try {
+        await snapshotRead;
+        const rollingBack = service(second);
+        Object.assign(rollingBack, { notifyRdTransferReturned: async () => undefined });
+        await rollingBack.rollbackTask(task.id, { ...rollback, from_status: 'pending_confirm', status: 'pending_rd_review' }, actor);
+      } finally { resume(); }
+      await rejected;
+      const persisted = await second.procTask.findUniqueOrThrow({ where: { id: task.id } });
+      assert.equal(persisted.status, 'pending_rd_review');
+      assert.equal(persisted.buyerUserId, null);
+      assert.equal(await second.procTaskLog.count({ where: { taskId: task.id } }), 1);
+    });
+
+    // Instrument transaction boundaries only; all locks and data operations below are real PostgreSQL.
+    const deferred = <T = void>() => {
+      let resolve!: (value: T) => void;
+      const promise = new Promise<T>((ready) => { resolve = ready; });
+      return { promise, resolve };
+    };
+    const withTransactionHook = (client: PrismaClient, hook: (tx: Prisma.TransactionClient) => Promise<Prisma.TransactionClient>) =>
+      new Proxy(client, { get(target, property, receiver) {
+        if (property === '$transaction') return (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+          target.$transaction(async (tx) => fn(await hook(tx)), { timeout: 10000 });
+        return Reflect.get(target, property, receiver);
+      } });
+    const waitUntilBlocked = async (pid: number) => {
+      const deadline = Date.now() + 3000;
+      do {
+        const rows = await first.$queryRaw<Array<{ count: number }>>`SELECT cardinality(pg_blocking_pids(${pid}::int)) AS count`;
+        if (rows[0]?.count > 0) return;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      } while (Date.now() < deadline);
+      assert.fail('第二个事务应在任务行锁处等待，不能提前读取或写入');
+    };
+
+    for (const firstOperation of ['rollback', 'arrival'] as const) {
+      await t.test(`${firstOperation === 'rollback' ? '回退先拿锁' : '到货同步先拿锁'}：另一操作真实等待同一任务锁且不会死锁或覆盖新状态`, async () => {
+        const task = await seed();
+        await first.procTask.update({ where: { id: task.id }, data: { quantity: 10, businessDone: false } });
+        const locked = deferred();
+        const release = deferred();
+        const waiterPid = deferred<number>();
+        const holder = service(withTransactionHook(first, async (tx) => new Proxy(tx, { get(target, property, receiver) {
+          if (firstOperation === 'rollback' && property === 'procTask') {
+            return new Proxy(target.procTask, { get(delegate, method, delegateReceiver) {
+              if (method === 'updateMany') return async (args: Prisma.ProcTaskUpdateManyArgs) => {
+                const result = await delegate.updateMany(args);
+                locked.resolve();
+                await release.promise;
+                return result;
+              };
+              return Reflect.get(delegate, method, delegateReceiver);
+            } });
+          }
+          if (firstOperation === 'arrival' && property === '$queryRaw') return async (...args: any[]) => {
+            const result = await (target.$queryRaw as any)(...args);
+            locked.resolve();
+            await release.promise;
+            return result;
+          };
+          return Reflect.get(target, property, receiver);
+        } })));
+        const waiter = service(withTransactionHook(second, async (tx) => {
+          const rows = await tx.$queryRaw<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+          waiterPid.resolve(rows[0].pid);
+          return tx;
+        }));
+        const holding = firstOperation === 'rollback'
+          ? holder.rollbackTask(task.id, rollback, actor)
+          : holder.recomputeArrival(task.id);
+        const holderResult = holding.then((value) => ({ value }), (error) => ({ error }));
+        let waitingResult: Promise<{ value?: unknown; error?: any }> | undefined;
+        try {
+          await locked.promise;
+          const waiting = firstOperation === 'rollback'
+            ? waiter.recomputeArrival(task.id)
+            : waiter.rollbackTask(task.id, rollback, actor);
+          waitingResult = waiting.then((value) => ({ value }), (error) => ({ error }));
+          await waitUntilBlocked(await waiterPid.promise);
+        } finally { release.resolve(); }
+        const held = await holderResult;
+        if ('error' in held) throw held.error;
+        const waited = await waitingResult!;
+        const persisted = await first.procTask.findUniqueOrThrow({ where: { id: task.id }, include: { purchaseOrderRefs: true } });
+        if (firstOperation === 'rollback') {
+          if (waited.error) throw waited.error;
+          assert.equal(persisted.status, 'pending_inquiry');
+          assert.equal(Number(persisted.arrivedQty), 0);
+          assert.equal(persisted.businessDone, false);
+          assert.deepEqual(persisted.purchaseOrderRefs.map((row) => row.tpOrderNo), ['sample']);
+        } else {
+          assert.equal(waited.error?.getStatus(), 409, '同步已经完成任务，等待中的旧回退必须拒绝');
+          assert.equal(persisted.status, 'completed');
+          assert.equal(Number(persisted.arrivedQty), 10);
+          assert.equal(persisted.businessDone, true);
+          assert.equal(persisted.purchaseOrderRefs.length, 6);
+        }
+      });
+    }
+
+    await t.test('两条独立连接同时回退，只有一个提交且另一方收到 409', async () => {
+      const task = await seed();
+      let entered = 0;
+      let release!: () => void;
+      const ready = new Promise<void>((resolve) => { release = resolve; });
+      const makeConcurrent = (client: PrismaClient) => {
+        const instance = service(client);
+        Object.assign(instance, { requireTask: async (id: string) => {
+          const snapshot = await client.procTask.findUniqueOrThrow({ where: { id } });
+          if (++entered === 2) release();
+          await ready;
+          return snapshot;
+        } });
+        return instance;
+      };
+      const targets = ['pending_inquiry', 'priced'];
+      const results = await Promise.allSettled([
+        makeConcurrent(first).rollbackTask(task.id, { ...rollback, status: targets[0] }, actor),
+        makeConcurrent(second).rollbackTask(task.id, { ...rollback, status: targets[1] }, actor),
+      ]);
+      assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+      assert.equal((results.find((result) => result.status === 'rejected') as PromiseRejectedResult).reason.getStatus(), 409);
+      const winner = results.findIndex((result) => result.status === 'fulfilled');
+      const persisted = await first.procTask.findUniqueOrThrow({ where: { id: task.id } });
+      assert.equal(persisted.status, targets[winner]);
+      assert.equal(await first.procTaskLog.count({ where: { taskId: task.id } }), 1);
+      assert.equal(await first.procQuotation.count({ where: { taskId: task.id } }), winner === 0 ? 0 : 1);
+      assert.equal(await first.procPurchaseOrderRef.count({ where: { taskId: task.id } }), 1);
+    });
+  } finally {
+    await second.$disconnect();
+    await first.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await first.$disconnect();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+// 保留主线的完成询价分步推进回归。
+const inquiryActor = { id: 'u1', name: '采购员', permissions: ['proc-task:inquiry'] };
+
+function makeInquiryService(task: Json, options: { selectedQuotes?: string[] } = {}) {
   const calls: Json[] = [];
   const service = Object.create(ProcurementService.prototype) as any;
   const tx = {
@@ -58,177 +604,30 @@ function makeService(task: Json, options: { selectedQuotes?: string[] } = {}) {
 
 test('完成询价按需样情况决定去向，且只走一格', async () => {
   // 免样：询价中 → 已定价
-  const noSample = makeService({ id: 'p1', status: 'inquiring', needSample: false }, { selectedQuotes: ['明博'] });
-  const priced = (await noSample.service.completeInquiry('p1', actor)) as Json;
+  const noSample = makeInquiryService({ id: 'p1', status: 'inquiring', needSample: false }, { selectedQuotes: ['明博'] });
+  const priced = (await noSample.service.completeInquiry('p1', inquiryActor)) as Json;
   assert.equal(priced.status, 'inquiring', 'serializeTask 返回的是 findUniqueOrThrow 的桩数据');
   const pricedUpdate = noSample.calls.find((c) => c.op === 'updateTask') as Json;
   assert.equal((pricedUpdate.data as Json).status, 'priced');
 
   // 需样：询价中 → 待到样
-  const needSample = makeService({ id: 'p2', status: 'inquiring', needSample: true }, { selectedQuotes: ['明博'] });
-  await needSample.service.completeInquiry('p2', actor);
+  const needSample = makeInquiryService({ id: 'p2', status: 'inquiring', needSample: true }, { selectedQuotes: ['明博'] });
+  await needSample.service.completeInquiry('p2', inquiryActor);
   const sampleUpdate = needSample.calls.find((c) => c.op === 'updateTask') as Json;
   assert.equal((sampleUpdate.data as Json).status, 'pending_sample');
 
   // 免费登记不代表实际收样，仍需经过待到样
-  const arrived = makeService({ id: 'p3', status: 'inquiring', needSample: true }, { selectedQuotes: ['明博'] });
+  const arrived = makeInquiryService({ id: 'p3', status: 'inquiring', needSample: true }, { selectedQuotes: ['明博'] });
   (arrived.service as any).prisma.procPurchaseOrderRef.findMany = async () => [{ supplierName: '明博', metadata: { freeSample: true } }];
-  await arrived.service.completeInquiry('p3', actor);
+  await arrived.service.completeInquiry('p3', inquiryActor);
   const testingUpdate = arrived.calls.find((c) => c.op === 'updateTask') as Json;
   assert.equal((testingUpdate.data as Json).status, 'pending_sample');
 });
 
 test('非「询价中」不能完成询价，没有已确认报价也不行', async () => {
-  const wrongStatus = makeService({ id: 'p1', status: 'pending_inquiry', needSample: false }, { selectedQuotes: ['明博'] });
-  await assert.rejects(wrongStatus.service.completeInquiry('p1', actor), /只有「询价中」的任务可完成询价/);
+  const wrongStatus = makeInquiryService({ id: 'p1', status: 'pending_inquiry', needSample: false }, { selectedQuotes: ['明博'] });
+  await assert.rejects(wrongStatus.service.completeInquiry('p1', inquiryActor), /只有「询价中」的任务可完成询价/);
 
-  const noQuotes = makeService({ id: 'p2', status: 'inquiring', needSample: false }, { selectedQuotes: [] });
-  await assert.rejects(noQuotes.service.completeInquiry('p2', actor), /还没有已确认的报价/);
-});
-
-// ── 回退目标 ──────────────────────────────────────────────────────────────────
-
-test('回退目标只含当前节点之前的节点，不能借回退往前跳', () => {
-  assert.deepEqual(rollbackTargetsOf('priced'), [
-    'pending_confirm', 'pending_inquiry', 'inquiring', 'pending_sample', 'testing',
-  ]);
-  // 已完成的任务能退到之前任意一个节点——这正是用户要的「已发生问题的数据可回退」
-  assert.ok(rollbackTargetsOf('completed').includes('pending_inquiry'));
-  assert.ok(rollbackTargetsOf('completed').includes('partial_arrival'));
-  // 往前的节点一个都不能出现
-  assert.equal(rollbackTargetsOf('inquiring').includes('priced'), false);
-  assert.equal(rollbackTargetsOf('inquiring').includes('inquiring'), false);
-  // 流程起点与不可回退状态给空集
-  assert.deepEqual(rollbackTargetsOf('pending_confirm'), []);
-  assert.deepEqual(rollbackTargetsOf('pending_rd_review'), []);
-  assert.deepEqual(rollbackTargetsOf('cancelled'), []);
-});
-
-test('直购任务走自己的旁路序列，不会退到询价节点', () => {
-  const targets = rollbackTargetsOf('in_transit', 'direct');
-  assert.deepEqual(targets, ['pending_confirm', 'pending_purchase']);
-  assert.equal(targets.includes('inquiring'), false, '直购从来没经过询价，退到那里没有意义');
-});
-
-test('回退清理范围按目标节点判定', () => {
-  // 退到询价之前：报价、采购单、到货全清
-  assert.deepEqual(rollbackCleanupFor('pending_inquiry'), { quotations: true, purchaseOrders: true, arrivals: true });
-  // 退到已定价：价格是这一档的产物要保留，采购单和到货必须清
-  assert.deepEqual(rollbackCleanupFor('priced'), { quotations: false, purchaseOrders: true, arrivals: true });
-  // 退到已下单：采购单是这一档的产物，都保留
-  assert.deepEqual(rollbackCleanupFor('in_transit'), { quotations: false, purchaseOrders: false, arrivals: false });
-  // 直购的待购买与已定价同档
-  assert.deepEqual(rollbackCleanupFor('pending_purchase'), { quotations: false, purchaseOrders: true, arrivals: true });
-});
-
-// ── 回退执行 ──────────────────────────────────────────────────────────────────
-
-test('从已完成回退到待询价：清报价、清采购单关联、撤完成标记', async () => {
-  const { service, calls } = makeService({ id: 'p1', status: 'completed', method: 'inquiry' });
-  await service.rollbackTask(
-    'p1',
-    { status: 'pending_inquiry', from_status: 'completed', reason: '供应商报错价，整单重做' },
-    actor,
-  );
-
-  const update = calls.find((c) => c.op === 'updateTask') as Json;
-  // 条件更新带原状态：并发下别人刚推进时这次回退的前提已不成立
-  assert.deepEqual(update.where, { id: 'p1', status: 'completed' });
-  const data = update.data as Json;
-  assert.equal(data.status, 'pending_inquiry');
-  assert.equal(data.businessDone, false, '离开终态必须撤掉完成标记，否则仍按已完成计入统计');
-  assert.equal(data.selectedQuotationId, null);
-  assert.ok(calls.some((c) => c.op === 'deleteQuotes'), '报价要清');
-
-  const deletePos = calls.find((c) => c.op === 'deletePos') as Json;
-  assert.ok(deletePos, '采购单关联要清');
-  // 免费样品登记独立于正式采购单保留，不能据此推断本轮样品已收到
-  assert.deepEqual(
-    (deletePos.where as Json).NOT,
-    { metadata: { path: ['freeSample'], equals: true } },
-  );
-
-  const log = calls.find((c) => c.op === 'log') as { data: { text: string; fromStatus: string; toStatus: string } };
-  assert.match(log.data.text, /供应商报错价/);
-  assert.match(log.data.text, /已清理/);
-  assert.equal(log.data.fromStatus, 'completed');
-  assert.equal(log.data.toStatus, 'pending_inquiry');
-});
-
-test('回退到已下单不动采购单与到货数据', async () => {
-  const { service, calls } = makeService({ id: 'p1', status: 'completed', method: 'inquiry' });
-  await service.rollbackTask(
-    'p1',
-    { status: 'in_transit', from_status: 'completed', reason: '到货数量登记错了' },
-    actor,
-  );
-  assert.equal(calls.some((c) => c.op === 'deleteQuotes'), false);
-  assert.equal(calls.some((c) => c.op === 'deletePos'), false);
-  const data = (calls.find((c) => c.op === 'updateTask') as Json).data as Json;
-  assert.equal(data.status, 'in_transit');
-  assert.equal('arrivedQty' in data, false, '这一档不该动到货量');
-});
-
-test('不能借回退往前跳，也不能回退审核中与已取消的任务', async () => {
-  const forward = makeService({ id: 'p1', status: 'inquiring', method: 'inquiry' });
-  await assert.rejects(
-    forward.service.rollbackTask('p1', { status: 'priced', from_status: 'inquiring', reason: '想直接定价' }, actor),
-    /只能回退到当前流程中更早的节点/,
-  );
-
-  const review = makeService({ id: 'p2', status: 'pending_rd_review', method: 'inquiry' });
-  await assert.rejects(
-    review.service.rollbackTask('p2', { status: 'pending_confirm', from_status: 'pending_rd_review', reason: '退回' }, actor),
-    /不在采购流程内/,
-  );
-
-  const cancelled = makeService({ id: 'p3', status: 'cancelled', method: 'inquiry' });
-  await assert.rejects(
-    cancelled.service.rollbackTask('p3', { status: 'pending_inquiry', from_status: 'cancelled', reason: '恢复' }, actor),
-    /不能回退/,
-  );
-});
-
-test('页面数据过期时拒绝回退，并发改动时不误删数据', async () => {
-  const stale = makeService({ id: 'p1', status: 'completed', method: 'inquiry' });
-  await assert.rejects(
-    // 用户界面上看到的是「已下单」，实际已经完成——他选的回退目标未必是他真正想要的
-    stale.service.rollbackTask('p1', { status: 'priced', from_status: 'in_transit', reason: '退回改价' }, actor),
-    /页面数据已过期/,
-  );
-
-  const raced = makeService({ id: 'p2', status: 'completed', method: 'inquiry' });
-  (raced.service as any).prisma.$transaction = async (fn: (t: unknown) => Promise<unknown>) =>
-    fn({
-      procTask: { updateMany: async () => ({ count: 0 }) },
-      procQuotation: { deleteMany: async () => { throw new Error('不该走到删除'); } },
-      procPurchaseOrderRef: { deleteMany: async () => { throw new Error('不该走到删除'); } },
-      procTaskLog: { create: async () => undefined },
-    });
-  await assert.rejects(
-    raced.service.rollbackTask('p2', { status: 'pending_inquiry', from_status: 'completed', reason: '重做' }, actor),
-    /请刷新后重试/,
-  );
-});
-
-test('回退是独立权限码并已登记进权限目录，管理员才能按角色分配', () => {
-  // 没登记进目录，权限配置页就看不到这一项，管理员无从分配，功能等于只有超管能用
-  const permission = DEFAULT_PERMISSION_CATALOG.find((item) => item.code === 'proc-task:rollback');
-  assert.ok(permission, 'proc-task:rollback 必须登记进权限目录');
-  assert.equal(permission.type, 'action');
-  assert.equal(permission.groupLabel, '操作权限 · 供应链管理');
-  // 回退会删报价与采购单关联，不能与日常推进流程共用一档权限
-  assert.notEqual(permission.code, 'proc-task:inquiry');
-  const codes = DEFAULT_PERMISSION_CATALOG.map((item) => item.code);
-  assert.equal(new Set(codes).size, codes.length, '权限码不允许重复');
-});
-
-test('主干每个节点的回退目标都严格是它的前缀', () => {
-  const flow: ProcStatus[] = [
-    'pending_confirm', 'pending_inquiry', 'inquiring', 'pending_sample',
-    'testing', 'priced', 'in_transit', 'partial_arrival', 'completed',
-  ];
-  flow.forEach((status, index) => {
-    assert.deepEqual(rollbackTargetsOf(status), flow.slice(0, index), `${status} 的回退目标应是它之前的全部节点`);
-  });
+  const noQuotes = makeInquiryService({ id: 'p2', status: 'inquiring', needSample: false }, { selectedQuotes: [] });
+  await assert.rejects(noQuotes.service.completeInquiry('p2', inquiryActor), /还没有已确认的报价/);
 });

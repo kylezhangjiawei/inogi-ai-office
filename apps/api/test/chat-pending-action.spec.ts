@@ -2,6 +2,7 @@ import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { ChatToolsService, type ChatToolResult } from '../src/modules/chat/chat-tools.service';
+import { ResearchDevelopmentService } from '../src/modules/research-development/research-development.service';
 import type { RagUserContext } from '../src/modules/rag/rag.service';
 
 /**
@@ -201,6 +202,40 @@ test('执行失败时退回 pending，用户可以重试', async () => {
   const retry = await svc.confirmPendingAction('act-1', OWNER);
   assert.equal(retry.message, '第二次成功');
   assert.equal(rows[0].status, 'executed');
+});
+
+test('进展留痕已保存但后续写入失败，换实例重试同一动作仍只有一条留痕', async () => {
+  for (const failureStage of ['progress', 'after-note']) {
+    const rows = [makeRow({ tool: 'update_task_progress', payload: { taskId: 'RD-1', text: '完成验证', progress: 50 } })];
+    let stored: Record<string, any[]> = {};
+    let failOnce = true;
+    const makeActualRunner = () => {
+      const rd = Object.create(ResearchDevelopmentService.prototype) as any;
+      Object.assign(rd, {
+        progressNoteWriteLock: Promise.resolve(),
+        assertTaskIdWritable: async () => ({ task_id: 'RD-1' }),
+        assertAttachmentFilesValid: () => undefined,
+        buildNoteAttachments: async () => [], buildRegisteredNoteAttachments: async () => [],
+        getProgressNoteMap: async () => structuredClone(stored),
+        writeValue: async (_key: string, value: typeof stored) => { stored = structuredClone(value); },
+        incrementTaskAttachmentCount: async () => {
+          if (failureStage === 'after-note' && failOnce) { failOnce = false; throw new Error('后续失败'); }
+        },
+        syncProgressNoteToRag: async () => undefined, recordServerAudit: async () => undefined,
+        decorateNotesWithPreview: (notes: unknown[]) => notes,
+        updateTask: async () => {
+          if (failureStage === 'progress' && failOnce) { failOnce = false; throw new Error('后续失败'); }
+        },
+      });
+      return new ChatToolsService(fakePrisma(rows) as never, undefined as never, rd, undefined as never, undefined as never, undefined as never);
+    };
+    await assert.rejects(makeActualRunner().confirmPendingAction('act-1', OWNER), /后续失败/);
+    assert.equal(stored['RD-1'].length, 1);
+    assert.equal(rows[0].status, 'pending');
+    await makeActualRunner().confirmPendingAction('act-1', OWNER);
+    assert.equal(stored['RD-1'].length, 1, failureStage);
+    assert.equal(rows[0].status, 'executed');
+  }
 });
 
 test('取消后不能再确认', async () => {

@@ -683,6 +683,7 @@ export class RollbackProcTaskDto {
   @IsIn(PROC_STATUSES)
   from_status!: string;
 
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @IsString()
   @MinLength(2)
   @MaxLength(200)

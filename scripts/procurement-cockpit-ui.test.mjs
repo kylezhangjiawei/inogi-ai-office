@@ -1,10 +1,54 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import ts from "typescript";
 
 function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 }
+
+test("采购任务原生滚动分页无需 Radix 祖先，离开后旧回调不再追加任务", () => {
+  const text = source("src/app/procurement/ProcurementCockpitPage.tsx");
+  const ast = ts.createSourceFile("cockpit.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let effect;
+  function visit(node) {
+    if (ts.isCallExpression(node) && node.expression.getText(ast) === "useEffect"
+      && node.arguments[0]?.getText(ast).includes("new IntersectionObserver")) effect = node.arguments[0];
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(effect);
+  const code = ts.transpileModule(`return ${effect.getText(ast)};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  let count = 20;
+  const created = [];
+  class Observer {
+    constructor(callback, options) { this.callback = callback; this.options = options; created.push(this); }
+    observe(element) { this.element = element; }
+    disconnect() { this.disconnected = true; }
+  }
+  const mount = (cockpitTab, view, sentinelElement) => new Function("cockpitTab", "view", "sentinelElement", "visibleCount", "filtered", "WATERFALL_PAGE_SIZE", "setVisibleCount", "IntersectionObserver", code)(
+    cockpitTab, view, sentinelElement, count, Array.from({ length: 45 }), 20, (update) => { count = update(count); }, Observer,
+  )();
+  const first = {};
+  const cleanup = mount("tasks", "tasks", first);
+  assert.equal(created[0].element, first);
+  assert.equal(created[0].options.root ?? null, null, "页面本身滚动，不能依赖已移除的 Radix viewport");
+  created[0].callback([{ isIntersecting: false }]);
+  assert.equal(count, 20);
+  created[0].callback([{ isIntersecting: true }]);
+  assert.equal(count, 40);
+  cleanup();
+  created[0].callback([{ isIntersecting: true }]);
+  assert.equal(count, 40);
+  assert.equal(created[0].disconnected, true);
+  assert.equal(mount("stock-plans", "tasks", first), undefined);
+  assert.equal(mount("tasks", "systems", first), undefined);
+  const second = {};
+  mount("tasks", "tasks", second);
+  assert.equal(created[1].element, second);
+  created[1].callback([{ isIntersecting: true }]);
+  assert.equal(count, 45, "最后一批不能超出筛选后任务数量");
+});
 
 const schema = source("apps/api/prisma/schema.prisma");
 const service = source("apps/api/src/modules/procurement/procurement.service.ts");
@@ -155,7 +199,8 @@ test("采购驾驶舱和个人工作台共用研发式任务卡", () => {
   assert.match(card, /DropdownMenu/);
   assert.match(card, /tabular-nums/);
   assert.doesNotMatch(card, /material-card relative w-full overflow-hidden p-4/);
-  assert.match(workspace, /grid-cols-1[\s\S]*md:grid-cols-2[\s\S]*xl:grid-cols-3/);
+  assert.match(workspace, /proc-workspace-task-grid/);
+  assert.match(source("src/app/procurement/horizon.css"), /\.proc-workspace-task-grid[\s\S]*?repeat\(auto-fit, minmax/);
 });
 
 test("采购驾驶舱人员泳道只按采购部门负责人账号统计和筛选", () => {

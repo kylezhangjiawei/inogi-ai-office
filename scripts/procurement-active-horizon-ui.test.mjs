@@ -25,7 +25,7 @@ const sources = {
 
 test("活跃采购页面统一使用 Horizon 单强调视觉", () => {
   for (const [name, page] of Object.entries(sources)) {
-    assert.match(page, /#002fa7/, `${name}应使用 Klein Blue 主强调色`);
+    assert.match(page, /(?:text|bg|border(?:-t)?|ring)-primary/, `${name}应使用共享品牌强调色`);
     assert.match(page, /tabular-nums/, `${name}的数据应使用等宽数字`);
     assert.doesNotMatch(
       page,

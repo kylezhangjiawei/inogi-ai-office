@@ -19,7 +19,7 @@ const mobileSource = await read("../src/app/MobileRDCockpit.tsx");
 const proposalSource = await read("../src/app/RDProjectProposalDialog.tsx");
 test("研发驾驶舱保持瀑布流任务卡片，并在任务名称区展示层级", () => {
   assert.match(cockpitSource, /function distributeIntoColumns<T>/);
-  assert.match(cockpitSource, /function useMasonryColumns\(\): number/);
+  assert.match(cockpitSource, /function useMasonryColumns\(container: HTMLDivElement \| null\): number/);
   assert.match(cockpitSource, /distributeIntoColumns\(shownTasks, masonryColumns\)/);
   assert.doesNotMatch(cockpitSource, /renderTopicTaskFeed/);
   // 仍取 category_path 的最后两段；中间允许过滤掉自动补出的「默认」子项那一段

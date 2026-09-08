@@ -1,6 +1,12 @@
 // 供应商报价库 xlsx 导出 / 模板 / 导入解析。纯前端（动态 import xlsx），与 exportTasks 同模式。
 // 扁平结构：一行 = 商品 × 厂家 × 一档起订量；同商品同厂家多行自动合并为一条阶梯报价。
-import type { ImportSupplierQuoteItem, QuoteBookRow } from "../lib/procurementApi";
+import type { ImportSupplierQuoteItem, QuoteBookRow, QuoteTier } from "../lib/procurementApi";
+
+/** 与导入服务一致：同起订量后值覆盖，现行档位按数量排序。 */
+export function normalizeQuoteImportTiers(tiers: QuoteTier[]): QuoteTier[] {
+  const byQty = new Map(tiers.map((tier) => [tier.minQty, tier.unitPrice]));
+  return Array.from(byQty, ([minQty, unitPrice]) => ({ minQty, unitPrice })).sort((a, b) => a.minQty - b.minQty);
+}
 
 const HEADERS = ["型号/名称", "规格", "单位", "分类", "厂家", "厂家型号", "起订量", "单价", "币种", "含税", "交期天数", "报价日期", "有效期至", "备注"] as const;
 
@@ -336,14 +342,16 @@ export async function parseQuoteBookFile(file: File): Promise<ParsedImport> {
       }
       const existing = groups.get(key);
       if (existing) {
-        const dupIdx = existing.tiers.findIndex((t) => t.minQty === minQty && t.unitPrice !== unitPrice);
+        const dupIdx = existing.tiers.findIndex((t) => t.minQty === minQty);
         if (dupIdx !== -1) {
-          // 多轮报价：旧值转入历史留痕，最新值为现行价
-          (existing.historyPrices ??= []).push({ ...existing.tiers[dupIdx], label: "早前轮次报价" });
-          warnings.push(`${sheetTag}第 ${rowNo} 行：${supplierName} / ${materialName} 出现多轮不同报价，已保留最后一条，早前价转入历史价格`);
-        }
+          if (existing.tiers[dupIdx].unitPrice !== unitPrice) {
+            // 多轮报价：旧值转入历史留痕，最新值为现行价
+            (existing.historyPrices ??= []).push({ ...existing.tiers[dupIdx], label: "早前轮次报价" });
+            warnings.push(`${sheetTag}第 ${rowNo} 行：${supplierName} / ${materialName} 出现多轮不同报价，已保留最后一条，早前价转入历史价格`);
+          }
+          existing.tiers[dupIdx] = { minQty, unitPrice };
+        } else existing.tiers.push({ minQty, unitPrice });
         if (rowHistory.length) (existing.historyPrices ??= []).push(...rowHistory);
-        existing.tiers.push({ minQty, unitPrice });
         existing.spec ??= opt("spec"); existing.unit ??= opt("unit"); existing.category ??= opt("category");
         existing.supplierModel ??= opt("supplierModel"); existing.note ??= note;
         existing.quoteDate ??= fmtDate(cellRaw("quoteDate")); existing.validUntil ??= fmtDate(cellRaw("validUntil"));
@@ -375,7 +383,7 @@ export async function parseQuoteBookFile(file: File): Promise<ParsedImport> {
   if (groups.size === 0 && errors.length === 0) {
     errors.push("没有识别到表头行：请确认表格里有「供应商/厂家」和「产品名称/型号」列");
   }
-  const items = Array.from(groups.values());
+  const items = Array.from(groups.values(), (item) => ({ ...item, tiers: normalizeQuoteImportTiers(item.tiers) }));
   const keys = Array.from(groups.keys());
   return { items, errors, warnings, images: keys.map((k) => groupImages.get(k)) };
 }

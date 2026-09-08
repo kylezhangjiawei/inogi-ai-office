@@ -187,7 +187,8 @@ test("MateChat 保留聊天、流式消息、引用、附件、分享与全局�
   assert.match(mateChat, /apiGetMessages\(convId\)/);
   assert.match(mateChat, /apiCreateConversation\(\)/);
   assert.match(mateChat, /apiRecordUsageEvent\(/);
-  assert.match(mateChat, /sendRdMessage\(/);
+  // 分享交给服务端按已保存消息及资源权限校验，客户端不再直接转发正文。
+  assert.match(mateChat, /workspaceRequest\(`messages\/\$\{encodeURIComponent\(shareTarget\.id\)\}\/share`/);
   assert.match(mateChat, /authFetch\("\/api\/chat\/share-recipients"\)/);
   assert.match(mateChat, /event\.type === "delta"/);
   assert.match(mateChat, /event\.type === "citations"/);

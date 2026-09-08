@@ -34,10 +34,16 @@ import { compressImageFile } from "../lib/resourceImage";
 import { uploadResourceFile } from "../lib/resourceUpload";
 import { useAuth } from "../auth";
 import { cn } from "./ui/utils";
-import { MATECHAT_OPEN_EVENT, notifyMateChatActivity } from "./matechat/openMateChat";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { MATECHAT_OPEN_EVENT, notifyMateChatActivity, normalizeOpenMateChatOptions, type OpenMateChatOptions } from "./matechat/openMateChat";
+import { MateChatArchives } from "./matechat/MateChatArchives";
+import { MateChatContextCard } from "./matechat/MateChatContextCard";
+import { MateChatDeliveryChecks } from "./matechat/MateChatDeliveryChecks";
+import { createRdTaskPageContext, normalizeMateChatPageContext } from "./matechat/pageContext";
+import { resolvePageContext, workspaceRequest, type ResolvedPageContext } from "./matechat/matechatWorkspaceApi";
+import { useConversationDraft } from "./matechat/useConversationDraft";
 import { useNavigate } from "react-router";
 import { backfillKbToRag, ragStatus, type RagCitation, type RagStatus } from "../lib/ragApi";
-import { sendRdMessage } from "../lib/rdApi";
 import { isChatUsableModel } from "../lib/aiModelOptions";
 import { hasPermission } from "../lib/permissions";
 import { RagCitations, RagPermissionNotice } from "./RagCitations";
@@ -99,7 +105,9 @@ type ApiMessage = {
   attachments?: AttachmentView[];
   /** assistant 消息的 ReAct 工具步骤终态（后端落库，历史回放用；存量消息为 null） */
   toolSteps?: ToolStep[] | null;
-  sources?: Array<"db" | "rag" | "web" | "attachment" | "ai">;
+  sources?: Array<"db" | "rag" | "web" | "attachment" | "ai" | "page">;
+  pageContext?: ResolvedPageContext | null;
+  shareBlocked?: boolean;
   createdAt: string;
 };
 
@@ -119,8 +127,12 @@ type PendingAttachment = {
 type ModelOption = { id: string; label: string; provider: string; model: string; usage_kind?: string };
 
 type SseEvent =
+  | { type: "delivery_check"; checkId: string }
+  | { type: "pageContext"; context: ResolvedPageContext; shareBlocked?: boolean }
+  | { type: "archive_job"; jobId: string }
+  | { type: "file_selection"; selectionId: string }
   | { type: "userMessage"; messageId: string }
-  | { type: "context"; fromDb: boolean; fromRag?: boolean; fromWeb?: boolean; fromAttachment?: boolean }
+  | { type: "context"; fromDb: boolean; fromRag?: boolean; fromWeb?: boolean; fromAttachment?: boolean; fromPage?: boolean; shareBlocked?: boolean }
   | { type: "citations"; citations: RagCitation[]; filteredByPermission: number }
   /** 回答完成后追加的引用（如「互联网参考」附录的联网来源），合并进已有引用卡 */
   | { type: "citations_extra"; citations: RagCitation[] }
@@ -130,7 +142,7 @@ type SseEvent =
   | { type: "content_final"; content: string }
   /** 对话内生成的文件（Excel/Word），挂到 assistant 消息下方复用附件卡展示 */
   | { type: "files_generated"; attachments: AttachmentView[] }
-  | { type: "done"; messageId: string; title?: string }
+  | { type: "done"; messageId: string; title?: string; shareBlocked?: boolean }
   /** 首字之前的阶段提示（检索中/思考中…），收到第一个 delta 后前端自行清掉 */
   | { type: "status"; label: string }
   /** ReAct 工具调用步骤：running 先到，同 callId 的 ok/error 原位更新 */
@@ -217,6 +229,17 @@ const FLOATING_MARGIN = 24;
 const FLOATING_BOTTOM_SAFE_AREA = 88;
 const FLOATING_FALLBACK_SIZE = { width: 224, height: 72 };
 const AI_AVATAR = "https://matechat.gitcode.com/logo.svg";
+
+function MateChatAvatar({ className }: { className?: string }) {
+  return (
+    <Avatar className={cn("size-7", className)} role="img" aria-label="MateChat">
+      <AvatarImage src={AI_AVATAR} alt="" className="object-contain" />
+      <AvatarFallback className="bg-transparent">
+        <Sparkles className="size-full" aria-hidden="true" />
+      </AvatarFallback>
+    </Avatar>
+  );
+}
 
 const QUICK_PROMPTS = [
   "帮我整理今天的关键待办",
@@ -539,6 +562,10 @@ export function MateChatBubble() {
 
   // 打开分享面板并拉取收件人列表（仅需登录，失败提示但不阻断）
   const openShare = useCallback((message: ApiMessage) => {
+    if (message.shareBlocked || message.pageContext) {
+      toast.error("这条回答关联了受限业务资料，请通过原任务分享。");
+      return;
+    }
     setShareTarget(message);
     setShareSearch("");
     setShareConfirm(null);
@@ -550,17 +577,17 @@ export function MateChatBubble() {
       .finally(() => setShareLoading(false));
   }, []);
 
-  // 允许任意组件通过全局事件唤起 MateChat（如连续打卡卡片的 CTA）
-  useEffect(() => {
-    const openChat = () => setOpen(true);
-    window.addEventListener(MATECHAT_OPEN_EVENT, openChat);
-    return () => window.removeEventListener(MATECHAT_OPEN_EVENT, openChat);
-  }, []);
-
   // 数据
   const [conversations, setConversations] = useState<ApiConversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ApiMessage[]>([]);
+  const [messagesConversationId, setMessagesConversationId] = useState<string | null>(null);
+  const [archiveRefresh, setArchiveRefresh] = useState(0);
+  const [fileSelection, setFileSelection] = useState<{ conversationId: string; id: string } | null>(null);
+  const { draft, setDraft, attachments, setAttachments, pageContext, setPageContext } = useConversationDraft<PendingAttachment>(user?.id, activeId);
+  const [contextCandidate, setContextCandidate] = useState<{ conversationId: string | null; options: OpenMateChatOptions } | null>(null);
+  const [deliveryLaunch, setDeliveryLaunch] = useState<{ conversationId: string | null; token: number } | null>(null);
+  const [deliveryRefresh, setDeliveryRefresh] = useState(0);
 
   // 把回答作为站内消息发给某位同事（复用研发站内消息通道）。
   // 定义在 activeId 之后：依赖数组引用 activeId，放在其声明前会触发 TDZ。
@@ -569,11 +596,7 @@ export function MateChatBubble() {
       if (!shareTarget) return;
       setShareSendingId(recipient.id);
       try {
-        await sendRdMessage({
-          recipient_id: recipient.id,
-          subject: "来自 MateChat 的回答分享",
-          body: shareTarget.content,
-        });
+        await workspaceRequest(`messages/${encodeURIComponent(shareTarget.id)}/share`, { body: { recipientId: recipient.id } });
         void apiRecordUsageEvent({
           eventType: "share",
           conversationId: activeId ?? undefined,
@@ -606,7 +629,6 @@ export function MateChatBubble() {
   // 或切走会话，这份旧快照就不能再往界面上铺，否则会把新的乐观消息冲掉。
   const sendSeqRef = useRef(0);
   const [keyword, setKeyword] = useState("");
-  const [draft, setDraft] = useState("");
   const [renameTitle, setRenameTitle] = useState("");
   const [conversationSaving, setConversationSaving] = useState(false);
   const conversationSavingRef = useRef(false);
@@ -633,7 +655,6 @@ export function MateChatBubble() {
   const [backfilling, setBackfilling] = useState(false);
 
   // 附件上传
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // 同步镜像，供 addFiles 同步计算剩余名额（避免闭包拿到旧 state）
@@ -644,6 +665,40 @@ export function MateChatBubble() {
   const createdBlobUrlsRef = useRef<Set<string>>(new Set());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const attachContext = useCallback((options: OpenMateChatOptions) => {
+    if (options.pageContext) setPageContext(options.pageContext);
+    if (options.prompt) setDraft(options.prompt);
+    if (options.intent === "delivery_check") setDeliveryLaunch({ conversationId: activeId, token: Date.now() });
+    setContextCandidate(null);
+  }, [activeId, setPageContext, setDraft]);
+
+  useEffect(() => {
+    const openChat = (event: Event) => {
+      setOpen(true);
+      const options = normalizeOpenMateChatOptions((event as CustomEvent<unknown>).detail);
+      if (!options.pageContext) { if (options.prompt) setDraft(options.prompt); return; }
+      if (sending || (pageContext && pageContext.refs[0].entityId !== options.pageContext.refs[0].entityId)) {
+        setContextCandidate({ conversationId: activeId, options });
+      } else attachContext(options);
+    };
+    window.addEventListener(MATECHAT_OPEN_EVENT, openChat);
+    return () => window.removeEventListener(MATECHAT_OPEN_EVENT, openChat);
+  }, [activeId, pageContext, sending, attachContext, setDraft]);
+
+  useEffect(() => {
+    if (activeId && deliveryLaunch?.conversationId === null) setDeliveryLaunch((current) => current ? { ...current, conversationId: activeId } : current);
+  }, [activeId, deliveryLaunch?.conversationId]);
+
+  const openContextSource = async (context: ResolvedPageContext) => {
+    if (!context.ref) return;
+    try {
+      const latest = await resolvePageContext(context.ref);
+      if (latest.status !== "resolved" || !latest.entity) throw new Error("当前任务已不可访问");
+      if (!/^\/(?!\/)/.test(latest.entity.canonicalUrl)) throw new Error("任务地址不可用");
+      setOpen(false); navigate(latest.entity.canonicalUrl);
+    } catch (err) { toast.error(err instanceof Error ? err.message : "无法打开原任务"); }
+  };
 
   useEffect(() => {
     if (!feedbackDraft) return;
@@ -819,12 +874,17 @@ export function MateChatBubble() {
     async (convId: string, msgs: ApiMessage[], isStale?: () => boolean) => {
       if (isStale?.()) return;
       setMessages(msgs);
+      setMessagesConversationId(convId);
       // 恢复工具步骤条：没有它，刷新后分享含任务数据的回答会跳过越权确认（见 TASK_REF_TOOLS）
       const stepsByMsg: Record<string, ToolStep[]> = {};
       for (const m of msgs) {
         if (m.toolSteps && m.toolSteps.length > 0) stepsByMsg[m.id] = m.toolSteps;
       }
       setMsgToolSteps(stepsByMsg);
+      if (msgs.some((message) => message.pageContext?.status === "unavailable")) {
+        setMsgPendingActions({});
+        return;
+      }
       // 恢复未决确认卡：挂回其所属消息（无 messageId 的兜底挂到最后一条 assistant 消息）
       const pendings = await apiGetPendingActions(convId);
       if (isStale?.()) return; // 上面这个 await 期间可能已切走会话，别把过期的卡铺上去
@@ -897,6 +957,7 @@ export function MateChatBubble() {
     let cancelled = false;
     setLoadingMsgs(true);
     setMessages([]);
+    setMessagesConversationId(null);
     setMsgPendingActions({});
     setExpandedSteps(new Set());
     setMsgStatus({});
@@ -911,6 +972,14 @@ export function MateChatBubble() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // 历史上下文已由服务端重新鉴权；显式移除（null）后不自动重新关联。
+  useEffect(() => {
+    if (loadingMsgs || messagesConversationId !== activeId || pageContext !== undefined) return;
+    const lastContext = [...messages].reverse().find((message) => message.role === "user" && message.pageContext)?.pageContext;
+    if (!lastContext) return;
+    setPageContext(lastContext.status === "resolved" ? normalizeMateChatPageContext(lastContext.ref) : null);
+  }, [activeId, messagesConversationId, loadingMsgs, messages, pageContext, setPageContext]);
 
   // ── 过滤会话列表 ────────────────────────────────────────────────────────────
 
@@ -935,7 +1004,6 @@ export function MateChatBubble() {
       setConversations((prev) => [conv, ...prev]);
       setActiveId(conv.id);
       setMessages([]);
-      setDraft("");
       setIsRenaming(false);
       toast.success("已新建对话");
     } catch (err) {
@@ -980,7 +1048,7 @@ export function MateChatBubble() {
       );
       toast.error(`「${file.name}」上传失败：${message}`);
     }
-  }, []);
+  }, [setAttachments]);
 
   // 超大图片：先压缩，成功则转上传，压不下去则标错（不直接丢弃）
   const compressThenUpload = useCallback(
@@ -1015,7 +1083,7 @@ export function MateChatBubble() {
       toast.success(`「${file.name}」已压缩至 ${fmtFileSize(out.size)}`);
       await uploadOne(localId, out);
     },
-    [uploadOne],
+    [uploadOne, setAttachments],
   );
 
   const addFiles = useCallback(
@@ -1077,7 +1145,7 @@ export function MateChatBubble() {
       for (const d of direct) void uploadOne(d.localId, d.file);
       for (const c of toCompress) void compressThenUpload(c.localId, c.file);
     },
-    [uploadOne, compressThenUpload],
+    [uploadOne, compressThenUpload, setAttachments],
   );
 
   const removeAttachment = useCallback((localId: string) => {
@@ -1091,7 +1159,7 @@ export function MateChatBubble() {
       attachmentsRef.current = next;
       return next;
     });
-  }, []);
+  }, [setAttachments]);
 
   const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
@@ -1153,6 +1221,7 @@ export function MateChatBubble() {
       if (!activeId || sending) return;
       const regenerateMessage = options?.regenerateMessage;
       const isRegenerate = Boolean(regenerateMessage);
+      const sentPageContext = !isRegenerate ? pageContext ?? undefined : undefined;
       const isPreset = preset !== undefined;
       const content = (preset ?? draft).trim();
       // 附件仅随手动发送提交；快捷提问 / 重新回答（preset）只发文本，不动托盘
@@ -1215,7 +1284,7 @@ export function MateChatBubble() {
           : message)
         : [
             ...prev,
-            { id: tempUserId, role: "user", content, model: null, reaction: null, createdAt: now, attachments: optimisticAtts },
+            { id: tempUserId, role: "user", content, model: null, reaction: null, createdAt: now, attachments: optimisticAtts, shareBlocked: Boolean(sentPageContext) },
             { id: tempAiId, role: "assistant", content: "", model: selectedModel || null, reaction: null, createdAt: now },
           ]);
 
@@ -1233,6 +1302,7 @@ export function MateChatBubble() {
             attachments: attachPayload.length > 0 ? attachPayload : undefined,
             regenerateMessageId: regenerateMessage?.id,
             clientMessageId,
+            pageContext: sentPageContext,
           }),
           signal: abortController.signal,
         });
@@ -1252,6 +1322,7 @@ export function MateChatBubble() {
         let currentFromRag = false;
         let currentFromWeb = false;
         let currentFromAttachment = false;
+        let currentFromPage = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -1277,6 +1348,18 @@ export function MateChatBubble() {
                 currentFromRag = Boolean(event.fromRag);
                 currentFromWeb = Boolean(event.fromWeb);
                 currentFromAttachment = Boolean(event.fromAttachment);
+                currentFromPage = Boolean(event.fromPage);
+                if (event.shareBlocked) setMessages((prev) => prev.map((m) => m.id === tempAiId ? { ...m, shareBlocked: true } : m));
+              }
+
+              if (event.type === "pageContext") {
+                currentFromPage = event.context.status === "resolved";
+                setMessages((prev) => prev.map((m) => m.id === tempAiId || m.id === realUserId || m.id === tempUserId ? { ...m, pageContext: event.context, shareBlocked: true } : m));
+              }
+
+              if (event.type === "delivery_check") {
+                hadVisibleArtifact = true;
+                setDeliveryRefresh((n) => n + 1);
               }
 
               if (event.type === "citations") {
@@ -1344,6 +1427,14 @@ export function MateChatBubble() {
                 }));
               }
 
+              if (event.type === "archive_job") {
+                hadVisibleArtifact = true;
+                setArchiveRefresh((value) => value + 1);
+              }
+              if (event.type === "file_selection") {
+                setFileSelection({ conversationId: activeId!, id: event.selectionId });
+              }
+
               if (event.type === "delta") {
                 // 正文开始了，阶段提示功成身退
                 if (streamedContent === "") {
@@ -1389,9 +1480,10 @@ export function MateChatBubble() {
                 if (currentFromRag) sources.push("rag");
                 if (currentFromWeb) sources.push("web");
                 if (currentFromAttachment) sources.push("attachment");
+                if (currentFromPage) sources.push("page");
                 if (sources.length === 0) sources.push("ai");
                 setMessages((prev) =>
-                  prev.map((m) => (m.id === tempAiId ? { ...m, id: realAiId, sources } : m)),
+                  prev.map((m) => (m.id === tempAiId ? { ...m, id: realAiId, sources, shareBlocked: m.shareBlocked || event.shareBlocked } : m)),
                 );
                 setMsgCitations((prev) => {
                   if (!prev[tempAiId]) return prev;
@@ -1514,7 +1606,7 @@ export function MateChatBubble() {
         void (realUserId); // suppress unused warning
       }
     },
-    [activeId, sending, draft, selectedModel, attachments, reconcileAfterStop],
+    [activeId, sending, draft, selectedModel, attachments, reconcileAfterStop, pageContext, setDraft, setAttachments],
   );
 
   /** 展开/收起某个工具步骤的调用参数与返回结果 */
@@ -1796,13 +1888,13 @@ export function MateChatBubble() {
         className={cn(
           // 默认收成圆形（只露头像）；hover 时文字平滑展开，减少占位。
           // 定位（left/right/top）由 effect 写 inline style，靠右时右缘锚定向左展开。
-          "group fixed z-50 flex items-center rounded-full border border-white/70 bg-[#002fa7] p-2 text-white shadow-lg cursor-grab",
+          "group fixed z-50 flex items-center rounded-full border border-white/70 bg-primary p-2 text-primary-foreground shadow-lg cursor-grab",
           anchorRight && "flex-row-reverse",
           bubbleReady ? "opacity-100" : "opacity-0",
         )}
       >
         <span className="relative flex size-10 shrink-0 items-center justify-center rounded-full bg-white/15">
-          <img src={AI_AVATAR} alt="MateChat" className="size-7 object-contain" />
+          <MateChatAvatar />
           <span className="absolute -inset-1 rounded-full border border-white/20" />
         </span>
         {/* 文字：收起态宽度为 0 隐藏，hover 展开；展开方向跟随锚定侧 */}
@@ -2010,7 +2102,7 @@ export function MateChatBubble() {
                               </div>
                             ) : (
                               <div className="mt-1 flex h-10 w-10 flex-shrink-0 items-center justify-center">
-                                <img src={AI_AVATAR} alt="MateChat" className="h-8 w-8 object-contain" />
+                                <MateChatAvatar className="size-8" />
                               </div>
                             )}
                             {/* 消息体 */}
@@ -2255,6 +2347,7 @@ export function MateChatBubble() {
                               )}
                               <div className="mt-1 flex flex-wrap items-center gap-2 px-1">
                                 <span className="text-xs tabular-nums text-slate-400">{fmtTime(msg.createdAt)}</span>
+                                {msg.pageContext?.status === "resolved" && msg.pageContext.entity ? <button type="button" onClick={() => void openContextSource(msg.pageContext!)} className="max-w-full truncate rounded-full border border-[#dbe5ff] bg-[#eef3ff] px-2 py-0.5 text-[10px] font-medium text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]" title={`读取于 ${new Date(msg.pageContext.resolvedAt).toLocaleString()}`}>当前页面 · {msg.pageContext.entity.title}</button> : msg.pageContext?.status === "unavailable" ? <span className="text-[10px] text-amber-800">关联任务暂不可用</span> : null}
                                 {!isUser && msg.model && (
                                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-400">
                                     {models.find((m) => m.id === msg.model)?.label ?? msg.model}
@@ -2301,7 +2394,7 @@ export function MateChatBubble() {
                                     { key: "dislike", icon: ThumbsDown, label: msg.reaction === "dislike" ? "已反馈" : "踩", onClick: () => void handleReaction(msg.id, "dislike"), active: msg.reaction === "dislike" },
                                     { key: "share", icon: Share2, label: "分享", onClick: () => openShare(msg), active: false },
                                     { key: "delete", icon: Trash2, label: "删除", onClick: () => void handleDeleteMsg(msg.id), active: false },
-                                  ].filter((item) => item.key !== "refresh" || msg.id === latestAssistantId).map(({ key, icon: Icon, label, onClick, active }) => (
+                                  ].filter((item) => (item.key !== "refresh" || msg.id === latestAssistantId) && (item.key !== "share" || (!msg.shareBlocked && !msg.pageContext))).map(({ key, icon: Icon, label, onClick, active }) => (
                                     <button
                                       key={key}
                                       type="button"
@@ -2418,8 +2511,14 @@ export function MateChatBubble() {
                 )}
               </div>
 
+              {activeId ? <div className="border-t border-slate-200/70 bg-slate-50/70 px-6 pb-3">
+                <MateChatDeliveryChecks key={`delivery:${activeId}`} conversationId={activeId} active={open} taskId={pageContext?.refs[0].entityId} launchKey={deliveryLaunch?.conversationId === activeId ? deliveryLaunch.token : 0} refreshKey={deliveryRefresh} onLaunchHandled={() => setDeliveryLaunch((current) => current?.conversationId === activeId ? null : current)} onDraftTask={(text, taskId) => { setPageContext(createRdTaskPageContext(taskId)); setDraft(text); }} onArchive={() => setArchiveRefresh((n) => n + 1)} />
+                <MateChatArchives key={activeId} conversationId={activeId} active={open} refreshKey={archiveRefresh} selectionId={fileSelection?.conversationId === activeId ? fileSelection.id : undefined} />
+              </div> : null}
               {/* 输入区 */}
               <div className="border-t border-slate-200/70 bg-white px-6 py-4">
+                {contextCandidate && contextCandidate.conversationId === activeId ? <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><p className="break-words">另一个研发任务待关联：{contextCandidate.options.pageContext?.refs[0].entityId}。切换后，新问题将围绕该任务。</p><div className="mt-2 flex gap-2"><button type="button" disabled={sending} onClick={() => attachContext(contextCandidate.options)} className="min-h-8 rounded-lg border border-amber-300 bg-white px-3 font-medium focus-visible:ring-2 focus-visible:ring-amber-500 disabled:opacity-50">切换关联任务</button><button type="button" onClick={() => setContextCandidate(null)} className="min-h-8 rounded-lg px-3 focus-visible:ring-2 focus-visible:ring-amber-500">保留原任务</button></div></div> : null}
+                {pageContext ? <MateChatContextCard key={`${activeId}:${pageContext.refs[0].entityId}`} context={pageContext} active={open} disabled={sending || !activeId} onRemove={() => setPageContext(null)} onAsk={setDraft} onCheck={() => setDeliveryLaunch({ conversationId: activeId, token: Date.now() })} /> : null}
                 {/* 快捷提问 */}
                 <div className="mb-3 flex flex-wrap gap-2">
                   {(dynamicPrompts ?? QUICK_PROMPTS).map((p) => (

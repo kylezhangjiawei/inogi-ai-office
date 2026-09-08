@@ -36,6 +36,8 @@ import { useAnyPermission, usePermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
+import { openMateChat } from "./components/matechat/openMateChat";
+import { createRdTaskPageContext } from "./components/matechat/pageContext";
 import { PERMISSIONS } from "./lib/permissions";
 import { t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
@@ -85,6 +87,7 @@ import {
   attachRdTasksToParent,
   blockedDaysOf,
   createRdTask,
+  currentRdWorkspace,
   detachRdSubtask,
   detachRdSubtasks,
   fetchMergedTaskCategories,
@@ -384,6 +387,7 @@ export default function RDTaskDetailPage() {
   const [notesError, setNotesError] = useState("");
   const [tab, setTab] = useState<DetailTab>("notes");
   const [discussionUnread, setDiscussionUnread] = useState(0);
+  const [progressThreadOpen, setProgressThreadOpen] = useState(false);
   const [people, setPeople] = useState<PersonProfile[]>([]);
   const [showHandover, setShowHandover] = useState(false);
   const [showEditInfo, setShowEditInfo] = useState(false);
@@ -614,6 +618,7 @@ export default function RDTaskDetailPage() {
     setCustomTaskType(null);
     setPersonTasksFor(null);
     setDiscussionUnread(0);
+    setProgressThreadOpen(false);
   }, [taskId]);
 
   const activityNotes = useMemo(
@@ -1405,6 +1410,13 @@ export default function RDTaskDetailPage() {
   const componentLabel = topicPathParts.length > 1 ? topicPathParts.at(-2)! : topicLabel;
   const overdue = isTaskOverdue(task);
   const riskLabel = task.status === "paused_blocked" ? t("阻塞中") : overdue ? t("已逾期") : t("正常");
+  const canClearActivityActor = canSelectActivityActor && Boolean(selectedActivityActor);
+  const clearActivityActor = () => {
+    if (canSelectActivityActor) setSelectedActivityActor(null);
+  };
+  const hasNoteFilter = Boolean(visibleActivityActor) || noteTaskFilter !== "all";
+  const notesFilteredEmpty = hasNoteFilter && !progressThreadOpen && !notesLoading && !notesError && filteredGroupNotes.length === 0;
+  const reviewMeta = task.status === "pending_review" ? getReviewTypeMeta(task.pending_review_type) : null;
 
   // 双栏大屏至少占满可用视口；内容过多时允许页面自然增长，不能裁掉留痕列表。
   return (
@@ -1478,7 +1490,7 @@ export default function RDTaskDetailPage() {
         )}
         </div>
         <div className="rd-horizon-detail-heading flex min-w-0 flex-1 items-center gap-1.5">
-          <h2 className="line-clamp-2 min-w-0 flex-1 text-balance text-lg font-bold leading-snug text-slate-900 sm:text-xl">
+          <h2 className="rd-horizon-detail-title min-w-0 flex-1 text-balance break-words text-lg font-bold leading-snug text-slate-900 sm:text-xl">
             <AutoTranslatedText text={task.title} />
           </h2>
           {canManage && !task.archived && (
@@ -1494,6 +1506,33 @@ export default function RDTaskDetailPage() {
           )}
         </div>
         <div className="rd-horizon-detail-state">
+        {currentRdWorkspace() === null ? (
+          <div className="flex flex-wrap items-center gap-2" aria-label={t("MateChat 任务助手")}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openMateChat({ pageContext: createRdTaskPageContext(task.task_id) })}
+              className="min-h-9 gap-1.5 border-[#bfd0fa] text-[#002fa7] hover:bg-[#eef3ff]"
+            >
+              <MessageCircleMore className="size-3.5" aria-hidden="true" />
+              {t("问 MateChat")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openMateChat({
+                pageContext: createRdTaskPageContext(task.task_id),
+                intent: "delivery_check",
+              })}
+              className="min-h-9 gap-1.5 border-[#bfd0fa] bg-[#eef3ff] text-[#002fa7] hover:bg-[#dce6ff]"
+            >
+              <FileText className="size-3.5" aria-hidden="true" />
+              {t("检查结项资料")}
+            </Button>
+          </div>
+        ) : null}
         <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>
           <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
           {t(sCfg.label)}
@@ -1545,6 +1584,35 @@ export default function RDTaskDetailPage() {
             {t(`${pCfg.label}优先`)}
           </span>
         )}
+        {(canSubmitForReview || (canManage && task.status === "pending_review" && reviewMeta) || (canManage && !task.archived && task.status === "in_progress")) ? (
+          <div className="rd-horizon-detail-workflow flex flex-wrap items-center gap-2" role="group" aria-label={t("任务处理")}>
+            {canSubmitForReview && (
+              <Button type="button" size="sm" onClick={() => setShowSubmitConfirm(true)} className="min-h-10 gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
+                <Send className="size-3.5" aria-hidden="true" />
+                {t("提交审核")}
+              </Button>
+            )}
+            {canManage && task.status === "pending_review" && reviewMeta ? (
+              <>
+                <span className="text-xs text-muted-foreground">{t("待审核")}：{t(reviewMeta.label)}</span>
+                <Button type="button" size="sm" onClick={() => setShowApproval("approve")} className="min-h-10 gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
+                  <CheckCircle2 className="size-3.5" aria-hidden="true" />
+                  {t("审核通过")}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setShowApproval("reject")} className="min-h-10 gap-1.5 border-destructive/25 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive">
+                  <X className="size-3.5" aria-hidden="true" />
+                  {t("驳回")}
+                </Button>
+              </>
+            ) : null}
+            {canManage && !task.archived && task.status === "in_progress" && (
+              <Button type="button" size="sm" onClick={() => setShowComplete(true)} className="min-h-10 gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
+                <CheckCircle2 className="size-3.5" aria-hidden="true" />
+                {t("标记完成")}
+              </Button>
+            )}
+          </div>
+        ) : null}
         </div>
       </div>
 
@@ -1999,59 +2067,12 @@ export default function RDTaskDetailPage() {
 
           {/* 操作节（紧凑列表式，Linear 风）——研发侧不含协同专属的 AI 小结/导出报告 */}
           <div className="space-y-1.5 px-4 py-3.5">
-            {/* 审批：待审核任务的通过/驳回（口径与驾驶舱抽屉一致） */}
-            {/* 提交审核（研发侧成员动作）：主责人本人对进行中任务提交完成审核 */}
-            {canSubmitForReview && (
-              <Button type="button" size="sm" onClick={() => setShowSubmitConfirm(true)} className="h-8 w-full gap-1.5 text-xs">
-                <Send className="h-3.5 w-3.5" />
-                {t("提交审核")}
-              </Button>
-            )}
-            {canManage && task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) && (
-              <>
-                <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-semibold text-[#002fa7]">
-                  {t("待审核")}：{t(getReviewTypeMeta(task.pending_review_type)!.label)}
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => setShowApproval("approve")}
-                  className="h-8 w-full gap-1.5 bg-emerald-600 text-xs hover:bg-emerald-700"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {t("审核通过")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowApproval("reject")}
-                  className="h-8 w-full gap-1.5 border-red-200 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
-                >
-                  <X className="h-3.5 w-3.5" />
-                  {t("驳回")}
-                </Button>
-              </>
-            )}
-            {/* 移交/直接完成仅对进行中任务开放（对齐抽屉 canCompleteDirectly 口径）：
-                待审核任务必须走上方审批，避免绕过后端 _review_action 仲裁残留待审字段 */}
+            {/* 提交、审批与完成动作位于顶部；移交仍仅向进行中任务开放。 */}
             {canManage && !task.archived && task.status === "in_progress" && (
-              <>
-                <Button type="button" variant="outline" size="sm" onClick={() => setShowHandover(true)} className="h-8 w-full gap-1.5 text-xs">
-                  <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
-                  {t("移交任务")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowComplete(true)}
-                  className="h-8 w-full gap-1.5 border-emerald-200 text-xs text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {t("标记完成")}
-                </Button>
-              </>
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowHandover(true)} className="h-8 w-full gap-1.5 text-xs">
+                <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
+                {t("移交任务")}
+              </Button>
             )}
             {productionWorkspace && !task.archived && canCreateStockPlan && canOpenProcurement && (
               <Button type="button" variant="outline" size="sm" disabled={stockPlanLinkLoading} onClick={() => void openProductionStockPlan()} className="h-8 w-full gap-1.5 border-[#002fa7]/20 text-xs text-[#002fa7]">
@@ -2180,6 +2201,21 @@ export default function RDTaskDetailPage() {
                 ))}
               </TabsList>
 
+              {(tab === "notes" || tab === "audit") && visibleActivityActor ? (
+                <div className="rd-horizon-detail-actor-filter flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/50 px-4 py-3" role="group" aria-label={t("当前人员筛选")}>
+                  <p className="min-w-0 text-pretty break-words text-xs text-muted-foreground">
+                    {activityActor ? <Lock className="mr-1.5 inline size-3.5 align-text-bottom" aria-hidden="true" /> : null}
+                    {t("仅查看 {name} 的留痕与操作记录", { name: visibleActivityActor.name || t("所选人员") })}
+                  </p>
+                  {canClearActivityActor ? (
+                    <button type="button" onClick={clearActivityActor} className="rd-horizon-detail-filter-clear inline-flex min-h-9 shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-primary hover:bg-primary/10">
+                      <X className="size-3.5" aria-hidden="true" />
+                      {t("清除人员筛选")}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+
               <TabsContent value="notes" className="min-h-0 min-w-0 flex-1 flex-col overflow-hidden data-[state=active]:flex">
                 {progressGroupTasks.length > 1 && (
                   <ActivityTaskFilterBar
@@ -2195,6 +2231,25 @@ export default function RDTaskDetailPage() {
                     })}
                   />
                 )}
+                {notesFilteredEmpty ? (
+                  <div className="rd-horizon-detail-filter-empty flex min-h-64 flex-1 flex-col items-center justify-center gap-2 px-5 py-8 text-center" role="status">
+                    <p className="text-balance text-sm font-semibold text-foreground">{t("当前筛选下没有进度留痕")}</p>
+                    <p className="max-w-md text-pretty text-xs leading-5 text-muted-foreground">
+                      {canClearActivityActor
+                        ? t("清除人员筛选，查看当前任务范围内的其他记录。")
+                        : noteTaskFilter !== "all"
+                          ? t("切换到全部任务，查看当前人员范围内的其他记录。")
+                          : t("该人员在当前任务范围内还没有进度留痕。")}
+                    </p>
+                    {canClearActivityActor ? (
+                      <Button type="button" variant="outline" size="sm" onClick={clearActivityActor} className="rd-horizon-detail-filter-clear mt-2 min-h-10 text-primary">{t("清除人员筛选")}</Button>
+                    ) : noteTaskFilter !== "all" ? (
+                      <Button type="button" variant="outline" size="sm" onClick={() => changeNoteTaskFilter("all")} className="rd-horizon-detail-filter-clear mt-2 min-h-10 text-primary">{t("查看全部任务留痕")}</Button>
+                    ) : (
+                      <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)} className="mt-2 min-h-10">{t("返回驾驶舱")}</Button>
+                    )}
+                  </div>
+                ) : null}
                 <RDTaskConversation
                   key={`progress-${taskId}`}
                   taskId={taskId}
@@ -2214,7 +2269,8 @@ export default function RDTaskDetailPage() {
                   }}
                   selectedActor={canSelectActivityActor ? selectedActivityActor : null}
                   onActorClick={canSelectActivityActor ? toggleActivityActor : undefined}
-                  className="rd-horizon-detail-conversation rd-horizon-detail-conversation--timeline"
+                  onThreadOpenChange={setProgressThreadOpen}
+                  className={cn("rd-horizon-detail-conversation rd-horizon-detail-conversation--timeline", notesFilteredEmpty && "hidden")}
                 />
               </TabsContent>
 
@@ -2373,7 +2429,7 @@ export default function RDTaskDetailPage() {
                 <AuditTimeline
                   logs={filteredTimelineLogs}
                   showResource={auditTaskFilter === "all" && progressGroupTasks.length > 1}
-                  emptyText={t("暂无操作记录")}
+                  emptyText={visibleActivityActor || auditTaskFilter !== "all" ? t("当前筛选下没有操作记录") : t("暂无操作记录")}
                   canAddNote={canManage}
                   onAddNote={async (logId, text) => {
                     await addAuditLogNote(logId, { text });

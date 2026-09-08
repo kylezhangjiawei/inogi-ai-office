@@ -95,28 +95,36 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
       )}
     >
       <div className="proc-horizon-task-card-body min-h-[220px] min-w-0 px-4 py-3.5">
-        <div className="proc-horizon-task-card-head flex items-start gap-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 overflow-hidden">
+        <div className="proc-horizon-task-card-head flex flex-wrap items-start gap-x-3 gap-y-2">
+          <div className="proc-horizon-task-card-context flex min-w-0 flex-1 basis-28 flex-wrap items-center gap-2 overflow-hidden">
             <BusinessLinePill line={task.businessLine} />
             <span className="proc-horizon-task-route truncate text-[11px] font-medium text-slate-500">
               {t(task.source === "rd" ? "研发流转" : "采购自建")} <span aria-hidden="true">·</span> {t(task.method === "inquiry" ? "询价采购" : "电商直购")}
             </span>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="proc-horizon-task-card-actions flex max-w-full shrink-0 flex-wrap items-center gap-1.5">
             <StatusPill status={task.status} />
             {task.attachments > 0 ? (
-              <span className="proc-horizon-attachment-action inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[10px] font-semibold text-[#002fa7]">
+              <span className="proc-horizon-attachment-action inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[10px] font-semibold text-primary">
                 <Paperclip className="size-3" />
                 <span className="sr-only">{t("附件")}</span><span className="tabular-nums">{task.attachments}</span>
               </span>
             ) : null}
+            <button
+              type="button"
+              onClick={(event) => runWithoutOpening(event, () => onOpen(task))}
+              className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+              aria-label={t("查看任务")}
+            >
+              {t("查看")} <ArrowRight className="size-3" />
+            </button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
                   onClick={(event) => event.stopPropagation()}
-                  className="proc-horizon-more-action flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-[#cbd8f6] hover:bg-[#eef3ff] hover:text-[#002fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]"
+                  className="proc-horizon-more-action flex size-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-[var(--primary-soft-border)] hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                   aria-label={t("更多操作")}
                 >
                   <MoreVertical className="size-4" />
@@ -157,16 +165,17 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
         </div>
 
         <div className="proc-horizon-task-card-primary min-w-0">
-          <div className="flex items-center gap-2 text-[10px] text-slate-400">
+          <div className="proc-horizon-task-meta flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] text-slate-400">
             <span className="proc-horizon-task-code font-semibold tabular-nums">{task.code}</span>
+            <span className="proc-horizon-task-quantity inline-flex items-baseline gap-1.5 whitespace-nowrap">
+              <span>{t("数量")}</span>
+              <strong className="text-xs font-semibold tabular-nums text-slate-700">{task.quantity.toLocaleString()} {t(task.unit)}</strong>
+            </span>
           </div>
 
           <h3 id={titleId} title={[task.materialName, task.spec].filter(Boolean).join(" · ")} className="line-clamp-2 text-balance text-[15px] font-bold break-words leading-snug text-slate-900">
             <AutoTranslatedText text={task.materialName} />
             {task.spec ? <> · <AutoTranslatedText text={task.spec} /></> : null}
-            <span className="ml-1 text-xs font-semibold text-slate-400">
-              × <span className="tabular-nums">{task.quantity.toLocaleString()}</span>{t(task.unit)}
-            </span>
           </h3>
 
           <AutoTranslatedText
@@ -187,7 +196,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
                   <button
                     key={attachment.id}
                     type="button"
-                    className="group/attachment min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-left hover:border-[#8fa9e8] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]"
+                    className="group/attachment min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-left hover:border-primary/40 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                     aria-label={t("预览附件：{name}", { name: attachment.fileName })}
                     title={attachment.fileName}
                     onClick={(event) => {
@@ -202,7 +211,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
                     ) : (
                       <div className="flex h-16 items-center justify-center text-slate-400"><Paperclip className="size-4" /></div>
                     )}
-                    <p className="truncate px-1.5 py-1 text-[9px] text-slate-500 group-hover/attachment:text-[#002fa7]">{attachment.fileName}</p>
+                    <p className="truncate px-1.5 py-1 text-[9px] text-slate-500 group-hover/attachment:text-primary">{attachment.fileName}</p>
                   </button>
                 );
               })}
@@ -212,8 +221,11 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
 
         <div className="proc-horizon-task-card-secondary min-w-0">
           <div className="proc-horizon-fulfillment flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[10px] text-slate-500">
-            <span className="tabular-nums">
-              {task.paymentDate ? `${t("付款")} ${task.paymentDate}` : t("未付款")}
+            <span className="proc-horizon-payment inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+              <span className="proc-horizon-payment-status" data-payment-status={task.paymentStatus}>
+                {task.paymentStatus === "paid" ? t("已付款") : task.paymentStatus === "partial" ? t("部分付款") : t("未付款")}
+              </span>
+              {task.paymentDate ? <time dateTime={task.paymentDate} className="proc-horizon-payment-date tabular-nums">{task.paymentDate}</time> : null}
             </span>
             <span>
               {t("到货")} <strong className="tabular-nums text-slate-700">{task.arrivedQty.toLocaleString()} / {task.quantity.toLocaleString()}</strong>
@@ -232,8 +244,8 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
                 type="button"
                 onClick={(event) => runWithoutOpening(event, () => onNext?.(task))}
                 className={cn(
-                  "inline-flex w-fit cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]",
-                  isPendingConfirm ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-[#002fa7] text-white hover:bg-[#001f73]",
+                  "inline-flex w-fit cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                  isPendingConfirm ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-primary text-white hover:bg-primary-hover",
                 )}
               >
                 {t(meta.next!)}
@@ -245,7 +257,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
             <div className="proc-horizon-task-progress-row flex items-center gap-2 pt-0.5">
               <span className="shrink-0 text-[10px] font-semibold text-slate-500">{t("到货进度")}</span>
               <div role="progressbar" aria-label={t("到货进度")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} className="proc-horizon-task-progress-track h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                <div className={cn("proc-horizon-task-progress h-full rounded-full", progress >= 100 ? "bg-emerald-500" : "bg-[#002fa7]")} data-complete={progress >= 100} style={{ width: `${progress}%` }} />
+                <div className={cn("proc-horizon-task-progress h-full rounded-full", progress >= 100 ? "bg-emerald-500" : "bg-primary")} data-complete={progress >= 100} style={{ width: `${progress}%` }} />
               </div>
               <span className="w-9 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">{progress}%</span>
             </div>
@@ -284,7 +296,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
               <button
                 type="button"
                 onClick={(event) => runWithoutOpening(event, () => onOpen(task))}
-                className="ml-auto inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold text-[#002fa7] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#cbd8f6]"
+                className="ml-auto inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 aria-label={t("查看任务")}
               >
                 {t("查看")} <ArrowRight className="size-3" />

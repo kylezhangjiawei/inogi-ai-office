@@ -20,7 +20,7 @@ test("任务详情链路保持 Horizon / Klein Blue，并移除旧装饰与手�
   assert.match(files.detail, /RD_TASK_DETAIL_HORIZON_SCOPE/);
   assert.match(files.detail, /bg-\[#002fa7\]/);
   assert.match(files.conversation, /bg-\[#002fa7\]/);
-  assert.match(files.reports, /data-\[state=active\]:bg-\[#002fa7\]/);
+  assert.match(files.reports, /data-\[state=active\]:bg-primary/);
 });
 
 test("详情页提供事实摘要、结构化首屏与可恢复的进展和附件状态", () => {
@@ -34,7 +34,8 @@ test("详情页提供事实摘要、结构化首屏与可恢复的进展和附�
   assert.match(files.detail, /notesError=\{notesError\}/);
   assert.match(files.detail, /onRetryNotes=\{\(\) => void loadProgressGroup\(\)\}/);
   assert.match(files.detail, /t\("附件库暂不可用"\)/);
-  assert.match(files.detail, /line-clamp-2 min-w-0 flex-1 text-balance/);
+  assert.match(files.detail, /<h2 className="[^"]*text-balance[^"]*break-words/);
+  assert.doesNotMatch(files.detail, /<h2 className="[^"]*line-clamp-/);
   assert.match(files.detail, /whitespace-pre-wrap break-words text-pretty/);
 });
 
@@ -106,7 +107,7 @@ test("报告周期在窄屏可用且保留日报、月报和原有 Props 契约"
   assert.match(files.reports, /w-full shrink-0 sm:w-fit/);
   assert.match(files.reports, /flex-1[\s\S]*sm:flex-none/);
   assert.match(files.reports, /aria-live="polite"/);
-  assert.match(files.reports, /<RDDailyReportPanel canRegenerate=\{canRegenerate\} tabSlot=\{tabBar\} spacious=\{spacious\} \/>/);
+  assert.match(files.reports, /<RDDailyReportPanel canRegenerate=\{canRegenerate\} tabSlot=\{tabBar\} spacious=\{spacious\} onDailyReportsLoaded=\{onDailyReportsLoaded\} \/>/);
   assert.match(files.reports, /<RDMonthlyReportPanel canRegenerate=\{canRegenerate\} tabSlot=\{tabBar\} spacious=\{spacious\} \/>/);
 });
 

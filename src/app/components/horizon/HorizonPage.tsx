@@ -61,7 +61,7 @@ export function HorizonMetric({
   return (
     <div className="hz-stat" data-tone={tone}>
       <div className="min-w-0">
-        <div className="hz-stat-label">{label}</div>
+        <div className="hz-stat-label" title={label}>{label}</div>
         <div className="hz-stat-value tabular-nums">{value}</div>
         {note ? <div className="hz-stat-note text-pretty">{note}</div> : null}
       </div>
@@ -85,7 +85,7 @@ export function HorizonSectionHeader({
     <div className="hz-section-header">
       <div className="min-w-0">
         <h2 className="flex items-center gap-2 text-balance">
-          {Icon ? <Icon className="size-4 text-[#002fa7]" aria-hidden="true" /> : null}
+          {Icon ? <Icon className="size-4 text-primary" aria-hidden="true" /> : null}
           {title}
         </h2>
         {description ? <p className="mt-1 text-pretty">{description}</p> : null}
@@ -109,7 +109,7 @@ export function HorizonEmptyState({
   return (
     <div className="hz-empty">
       <span className="hz-empty-icon" aria-hidden="true"><Icon className="size-5" /></span>
-      <div className="font-semibold text-slate-800">{title}</div>
+      <div className="font-semibold text-foreground">{title}</div>
       {description ? <p className="max-w-md text-pretty">{description}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>

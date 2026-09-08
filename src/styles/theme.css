@@ -3,32 +3,38 @@
 :root {
   --font-sans: "Google Sans Flex", "Google Sans", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --font-size: 16px;
-  --app-min-width: 1024px;
-  --background: #f3f6fb;
-  --foreground: #1f2937;
+  --app-min-width: 0px;
+  --background: #f4f7fe;
+  --foreground: #1b2559;
   --card: #ffffff;
-  --card-foreground: #1f2937;
+  --card-foreground: #1b2559;
   --popover: #ffffff;
-  --popover-foreground: #1f2937;
-  --primary: #4f46e5;
+  --popover-foreground: #1b2559;
+  --office-brand: #422afb;
+  --office-brand-hover: #3311db;
+  --primary-rgb: 66, 42, 251;
+  --accent-rgb: 239, 236, 255;
+  --primary-soft-border: #ddd6fe;
+  --primary: var(--office-brand);
+  --primary-hover: var(--office-brand-hover);
   --primary-foreground: #ffffff;
-  --secondary: #eef0fb;
-  --secondary-foreground: #0f172a;
-  --muted: #eef3f8;
-  --muted-foreground: #5f6b7a;
-  --accent: #eef2ff;
-  --accent-foreground: #3730a3;
-  --surface: #fbfcff;
+  --secondary: #f4f7fe;
+  --secondary-foreground: #1b2559;
+  --muted: #f4f7fe;
+  --muted-foreground: #526080;
+  --accent: #efecff;
+  --accent-foreground: var(--primary);
+  --surface: #ffffff;
   --surface-container-lowest: #ffffff;
-  --surface-container-low: #f7f9fe;
-  --surface-container: #f1f5fb;
-  --surface-container-high: #eaf0f8;
-  --surface-container-highest: #e3ebf5;
-  --on-surface: #172033;
-  --on-surface-variant: #526071;
-  --outline-variant: #d7e0eb;
-  --primary-container: #e0e7ff;
-  --on-primary-container: #3730a3;
+  --surface-container-low: #f8faff;
+  --surface-container: #f4f7fe;
+  --surface-container-high: #edf1fa;
+  --surface-container-highest: #e6ebf5;
+  --on-surface: #1b2559;
+  --on-surface-variant: #526080;
+  --outline-variant: #e0e5f2;
+  --primary-container: var(--accent);
+  --on-primary-container: var(--primary);
   --secondary-container: #e7e9fb;
   --on-secondary-container: #263449;
   --destructive: #d32f2f;
@@ -41,14 +47,15 @@
   --teal: #00897b;
   --orange: #fb8c00;
   --indigo: #3949ab;
-  --border: #d8e2ee;
-  --input: transparent;
-  --input-background: #f7f9fc;
+  --border: #e0e5f2;
+  --border-subtle: #e9edf7;
+  --input: #e0e5f2;
+  --input-background: #f4f7fe;
   --switch-background: #b8c4d3;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: rgba(79, 70, 229, 0.24);
-  --chart-1: #4f46e5;
+  --ring: var(--primary);
+  --chart-1: var(--primary);
   --chart-2: #3b82f6;
   --chart-3: #7e57c2;
   --chart-4: #0891b2;
@@ -64,22 +71,23 @@
   --m3-shape-extra-extra-large: 32px;
   --m3-shape-full: 9999px;
   --m3-shape-field: var(--m3-shape-medium);
-  --m3-shape-card: var(--m3-shape-large);
+  --m3-shape-card: var(--m3-shape-extra-large);
   --m3-shape-dialog: var(--m3-shape-extra-large);
   --m3-shape-chip: var(--m3-shape-small);
-  --m3-shape-button: var(--m3-shape-full);
+  --m3-shape-button: var(--m3-shape-medium);
   --radius: var(--m3-shape-medium);
-  --sidebar: #ffffff;
-  --sidebar-foreground: #1f2937;
-  --sidebar-primary: #4f46e5;
+  --sidebar: var(--card);
+  --sidebar-foreground: #1b2559;
+  --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f4f7fb;
-  --sidebar-accent-foreground: #0f172a;
-  --sidebar-border: #d8e2ee;
-  --sidebar-ring: rgba(79, 70, 229, 0.24);
-  --m3-elevation-1: 0 1px 2px rgba(15, 23, 42, 0.12), 0 1px 3px 1px rgba(15, 23, 42, 0.08);
-  --m3-elevation-2: 0 1px 2px rgba(15, 23, 42, 0.14), 0 2px 6px 2px rgba(15, 23, 42, 0.08);
-  --m3-elevation-3: 0 4px 8px 3px rgba(15, 23, 42, 0.10), 0 1px 3px rgba(15, 23, 42, 0.12);
+  --sidebar-accent: var(--card);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border-subtle);
+  --sidebar-ring: var(--primary);
+  --shadow-card: 0 4px 24px -8px rgba(112, 144, 176, 0.16);
+  --m3-elevation-1: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+  --m3-elevation-2: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+  --m3-elevation-3: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --neu-shadow-raised: 8px 8px 20px rgba(148, 163, 184, 0.18), -8px -8px 20px rgba(255, 255, 255, 0.86);
   --neu-shadow-soft: 5px 5px 14px rgba(148, 163, 184, 0.14), -5px -5px 14px rgba(255, 255, 255, 0.82);
   --neu-shadow-inset: inset 3px 3px 8px rgba(148, 163, 184, 0.14), inset -3px -3px 8px rgba(255, 255, 255, 0.82);
@@ -98,6 +106,11 @@
   --popover: #111827;
   --popover-foreground: #f8fafc;
   --primary: #a5b4fc;
+  --primary-rgb: 165, 180, 252;
+  --accent-rgb: 30, 27, 75;
+  --primary-soft-border: #464375;
+  --shadow-card: 0 4px 24px -8px rgba(0, 0, 0, 0.4);
+  --primary-hover: #c7d2fe;
   --primary-foreground: #0f172a;
   --secondary: #1e293b;
   --secondary-foreground: #f8fafc;
@@ -108,9 +121,24 @@
   --destructive: #ef5350;
   --destructive-foreground: #ffffff;
   --border: #334155;
+  --border-subtle: #253149;
   --input: #1e293b;
+  --input-background: #172033;
+  --surface: #111827;
+  --surface-container-lowest: #111827;
+  --surface-container-low: #172033;
+  --surface-container: #1e293b;
+  --surface-container-high: #253149;
+  --surface-container-highest: #334155;
+  --on-surface: #f8fafc;
+  --on-surface-variant: #b8c4d8;
+  --outline-variant: #334155;
+  --primary-container: #25244d;
+  --on-primary-container: #c7d2fe;
+  --secondary-container: #1e293b;
+  --on-secondary-container: #e2e8f0;
   --ring: rgba(165, 180, 252, 0.3);
-  --sidebar: #111827;
+  --sidebar: var(--card);
   --sidebar-foreground: #f8fafc;
   --sidebar-primary: #a5b4fc;
   --sidebar-primary-foreground: #0f172a;
@@ -129,6 +157,7 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -161,11 +190,12 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  --radius-sm: var(--m3-shape-small);
-  --radius-md: var(--m3-shape-medium);
-  --radius-lg: var(--m3-shape-large);
-  --radius-xl: var(--m3-shape-large);
-  --radius-2xl: var(--m3-shape-extra-large);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 24px;
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -196,16 +226,15 @@
       "wdth" 100,
       "GRAD" 0,
       "ROND" 0;
-    min-height: 100vh;
+    min-height: 100dvh;
     min-width: var(--app-min-width);
     overflow-x: auto;
     overflow-y: hidden;
-    background-image:
-      linear-gradient(180deg, var(--surface-container-lowest) 0%, var(--surface-container-low) 42%, var(--surface-container) 100%);
+    background-image: none;
   }
 
   #root {
-    height: 100vh;
+    height: 100dvh;
     min-width: var(--app-min-width);
     overflow: visible;
   }
@@ -232,6 +261,14 @@
     font-size: 1rem;
     font-weight: 600;
     line-height: 1.4;
+  }
+
+  :is(h1, h2, h3, h4) { text-wrap: balance; }
+  p { text-wrap: pretty; }
+  :is(button, [role="button"], a[href]) { cursor: pointer; }
+  :is(button, input, select, textarea, a[href], [role="button"]):focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
   }
 
   button,
@@ -274,15 +311,12 @@
   }
 
   .material-shell {
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(243, 246, 251, 0.9)),
-      linear-gradient(135deg, rgba(227, 242, 253, 0.45), rgba(255, 255, 255, 0));
-    backdrop-filter: blur(20px);
+    background: var(--background);
   }
 
   .material-card {
     background: var(--surface-container-lowest);
-    border: 1px solid rgba(216, 226, 238, 0.9);
+    border: 1px solid var(--border);
     border-radius: var(--m3-shape-card);
     box-shadow: var(--m3-elevation-1);
   }
@@ -295,8 +329,8 @@
   }
 
   .material-panel {
-    background: color-mix(in srgb, var(--surface-container-lowest) 88%, var(--surface-container-low));
-    border: 1px solid rgba(216, 226, 238, 0.78);
+    background: var(--card);
+    border: 1px solid var(--border);
     border-radius: var(--m3-shape-extra-large);
     padding: 1rem;
     box-shadow: var(--m3-elevation-1);
@@ -321,24 +355,23 @@
   }
 
   .bg-gradient-primary {
-    background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 45%, #4f46e5 100%);
+    background: var(--primary);
   }
 
   .bg-gradient-primary:hover {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 45%, #4338ca 100%);
+    background: var(--primary-hover);
   }
 
   .bg-gradient-soft {
-    background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%);
+    background: var(--accent);
   }
 
   .bg-gradient-mesh {
-    background:
-      linear-gradient(135deg, rgba(239, 246, 255, 0.92) 0%, rgba(255, 255, 255, 0.98) 54%, rgba(238, 242, 255, 0.94) 100%);
+    background: var(--background);
   }
 
   .bg-gradient-reminder {
-    background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 50%, #f3e8ff 100%);
+    background: var(--accent);
   }
 
   .text-gradient-primary {
@@ -348,15 +381,11 @@
   }
 
   .glow-blue {
-    box-shadow:
-      0 8px 20px -4px rgba(59, 130, 246, 0.4),
-      0 4px 8px -2px rgba(79, 70, 229, 0.2);
+    box-shadow: var(--m3-elevation-1);
   }
 
   .glow-blue:hover {
-    box-shadow:
-      0 12px 28px -4px rgba(59, 130, 246, 0.5),
-      0 6px 12px -2px rgba(79, 70, 229, 0.3);
+    box-shadow: var(--m3-elevation-1);
   }
 
   .expense-tech-surface {
@@ -492,11 +521,11 @@
   }
 
   .material-nav-item {
-    @apply flex items-center gap-3 rounded-lg px-4 py-3 transition-all duration-200;
+    @apply flex items-center gap-3 rounded-lg px-4 py-3 ;
   }
 
   .material-input {
-    @apply w-full border border-transparent bg-white/75 px-4 py-3 text-sm text-slate-700 transition-all duration-200 outline-none;
+    @apply w-full border border-transparent bg-white/75 px-4 py-3 text-sm text-slate-700  outline-none;
     border-radius: var(--m3-shape-field);
     box-shadow: inset 0 0 0 1px rgba(216, 226, 238, 0.85);
   }
@@ -521,47 +550,38 @@
   }
 
   .material-glow::before {
-    content: "";
-    position: absolute;
-    inset: auto -20% -45% auto;
-    width: 14rem;
-    height: 14rem;
-    border-radius: 9999px;
-    background: radial-gradient(circle, rgba(79, 70, 229, 0.10), transparent 68%);
-    pointer-events: none;
+    content: none;
   }
 
   .material-button {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold transition-all duration-200;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold ;
     border-radius: var(--m3-shape-button);
   }
 
   .material-button-primary {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white ;
     border-radius: var(--m3-shape-button);
-    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    background: var(--primary);
     box-shadow: var(--m3-elevation-2);
   }
 
   .material-button-primary:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 16px 28px rgba(79, 70, 229, 0.26);
+    background: var(--primary-hover);
   }
 
   .material-button-danger {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-white  disabled:cursor-not-allowed disabled:opacity-50;
     border-radius: var(--m3-shape-button);
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    background: var(--destructive);
     box-shadow: var(--m3-elevation-2);
   }
 
   .material-button-danger:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: 0 16px 28px rgba(220, 38, 38, 0.24);
+    background: #b91c1c;
   }
 
   .material-button-secondary {
-    @apply inline-flex items-center justify-center gap-2 border border-slate-200 bg-white/90 px-4 py-2.5 text-sm font-semibold text-slate-700 transition-all duration-200;
+    @apply inline-flex items-center justify-center gap-2 border border-slate-200 bg-white/90 px-4 py-2.5 text-sm font-semibold text-slate-700 ;
     border-radius: var(--m3-shape-button);
     box-shadow: var(--m3-elevation-1);
   }
@@ -906,33 +926,47 @@
 .rd-horizon-global-header,
 .rd-horizon-header-menu,
 .rd-horizon-header-notifications--horizon {
-  --rdh-primary: #002fa7;
-  --rdh-primary-hover: #002581;
-  --rdh-ink: #1b2559;
-  --rdh-body: #42526f;
-  --rdh-muted: #707eae;
-  --rdh-subtle: #8f9bba;
-  --rdh-canvas: #f4f7fe;
-  --rdh-soft-blue: #eef3ff;
-  --rdh-line: #e9edf7;
-  --rdh-line-strong: #e0e5f2;
+  --rdh-primary: var(--primary);
+  --rdh-primary-hover: var(--primary-hover);
+  --rdh-ink: var(--foreground);
+  --rdh-body: var(--on-surface-variant);
+  --rdh-muted: var(--muted-foreground);
+  --rdh-subtle: var(--muted-foreground);
+  --rdh-canvas: var(--background);
+  --rdh-soft-blue: var(--accent);
+  --rdh-line: var(--sidebar-border);
+  --rdh-line-strong: var(--border);
 }
 
 .rd-horizon-global-sidebar {
-  --rdh-sidebar-muted: #64748b;
-  border-color: var(--rdh-line) !important;
+  --rdh-sidebar-muted: var(--muted-foreground);
+  border-color: transparent !important;
   color: var(--rdh-body);
-  background: #ffffff;
-  box-shadow: 8px 0 30px rgba(112, 144, 176, 0.07);
+  background: var(--sidebar);
+  box-shadow: none;
 }
 
 .rd-horizon-global-sidebar .rd-horizon-sidebar-brand,
 .rd-horizon-global-sidebar .rd-horizon-sidebar-user {
-  border-color: var(--rdh-line) !important;
-  background: #ffffff;
+  border-color: transparent !important;
+  background: transparent;
+}
+
+.rd-horizon-global-sidebar .rd-horizon-sidebar-user > div {
+  padding: 0.75rem;
+  background: transparent;
+  box-shadow: none;
+}
+
+.rd-horizon-global-sidebar[data-collapsed="true"] .rd-horizon-sidebar-user > div {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .rd-horizon-global-sidebar .rd-horizon-sidebar-logo {
+  padding: 0.25rem;
+  background: var(--card);
   box-shadow: none;
 }
 
@@ -985,7 +1019,6 @@
 .rd-horizon-global-sidebar .rd-horizon-sidebar-group-trigger {
   border: 1px solid transparent;
   background: transparent;
-  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease;
 }
 
 .rd-horizon-global-sidebar .rd-horizon-sidebar-group-trigger:hover,
@@ -1005,21 +1038,19 @@
   color: var(--rdh-body);
   background: transparent;
   box-shadow: none;
-  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease;
 }
 
 .rd-horizon-global-sidebar .rd-horizon-sidebar-item::after {
   position: absolute;
   top: 50%;
-  right: 4px;
-  width: 4px;
-  height: 28px;
+  right: 8px;
+  width: 3px;
+  height: 20px;
   border-radius: 5px;
   background: transparent;
   content: "";
   pointer-events: none;
   transform: translateY(-50%);
-  transition: background-color 160ms ease;
 }
 
 .rd-horizon-global-sidebar .rd-horizon-sidebar-item:not([data-active="true"]):hover {
@@ -1029,9 +1060,9 @@
 }
 
 .rd-horizon-global-sidebar .rd-horizon-sidebar-item[data-active="true"] {
-  border-color: transparent;
+  border-color: var(--card);
   color: var(--rdh-ink);
-  background: transparent;
+  background: var(--sidebar-accent);
   box-shadow: none;
   font-weight: 700;
 }
@@ -1043,7 +1074,6 @@
 .rd-horizon-global-sidebar .rd-horizon-sidebar-item-icon {
   color: var(--rdh-muted);
   background: transparent;
-  transition: color 160ms ease, background-color 160ms ease;
 }
 
 .rd-horizon-global-sidebar .rd-horizon-sidebar-item:not([data-active="true"]):hover .rd-horizon-sidebar-item-icon {
@@ -1052,17 +1082,18 @@
 
 .rd-horizon-global-sidebar .rd-horizon-sidebar-item[data-active="true"] .rd-horizon-sidebar-item-icon {
   color: var(--rdh-primary);
+  background: var(--rdh-soft-blue);
 }
 
 .rd-horizon-global-sidebar .rd-horizon-sidebar-user-avatar {
   color: var(--rdh-primary);
   background: var(--rdh-soft-blue);
-  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.06);
 }
 
 .rd-horizon-global-sidebar :where(a, button):focus-visible,
 .rd-horizon-sidebar-toggle:focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid var(--primary) !important;
   outline-offset: 2px !important;
   box-shadow: none !important;
 }
@@ -1070,12 +1101,12 @@
 .rd-horizon-sidebar-toggle {
   border-color: var(--rdh-line-strong);
   color: var(--rdh-muted);
-  background: #ffffff;
+  background: var(--card);
   box-shadow: 0 4px 12px rgba(112, 144, 176, 0.16);
 }
 
 .rd-horizon-sidebar-toggle:hover {
-  border-color: rgba(0, 47, 167, 0.16);
+  border-color: rgba(var(--primary-rgb), 0.16);
   color: var(--rdh-primary);
   background: var(--rdh-soft-blue);
   box-shadow: 0 6px 16px rgba(112, 144, 176, 0.2);
@@ -1087,7 +1118,7 @@
   flex-shrink: 0;
   border-bottom-color: transparent !important;
   padding: 0 !important;
-  background: transparent !important;
+  background: var(--card) !important;
   box-shadow: none !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
@@ -1097,9 +1128,9 @@
   display: flex;
   flex-direction: column !important;
   align-items: stretch !important;
-  min-height: 5.25rem;
+  min-height: 5rem;
   gap: 0.875rem !important;
-  padding: 1rem 1.5rem 0.75rem;
+  padding: 0.75rem 1.5rem 0.5rem;
 }
 
 .rd-horizon-global-header .rd-horizon-header-heading {
@@ -1140,10 +1171,9 @@
 
 .rd-horizon-global-header .rd-horizon-header-title {
   color: var(--rdh-ink) !important;
-  font-size: 2.125rem !important;
+  font-size: 1.75rem !important;
   font-weight: 700 !important;
-  line-height: 2.5rem !important;
-  letter-spacing: -0.025em !important;
+  line-height: 2.25rem !important;
 }
 
 .rd-horizon-global-header .rd-horizon-header-right {
@@ -1156,13 +1186,13 @@
   width: fit-content;
   min-width: 0;
   max-width: 100%;
-  min-height: 3.75rem;
+  min-height: 3.5rem;
   gap: 0.625rem !important;
   border: 1px solid transparent;
-  border-radius: 30px;
-  padding: 0.625rem;
-  background: #ffffff;
-  box-shadow: 14px 17px 40px 4px rgba(112, 144, 176, 0.14);
+  border-radius: 20px;
+  padding: 0.375rem;
+  background: transparent;
+  box-shadow: none;
 }
 
 .rd-horizon-global-header .rd-horizon-header-search {
@@ -1180,7 +1210,7 @@
 .rd-horizon-global-header .rd-horizon-header-input.material-input {
   height: 2.5rem;
   border: 1px solid transparent !important;
-  border-radius: 30px !important;
+  border-radius: 24px !important;
   padding: 0 0.75rem 0 2.25rem !important;
   color: var(--rdh-body) !important;
   background: var(--rdh-canvas) !important;
@@ -1198,9 +1228,9 @@
 .rd-horizon-global-header .rd-horizon-header-input.material-input:focus,
 .rd-horizon-global-header .rd-horizon-header-input.material-input:focus-visible {
   outline: none !important;
-  border-color: rgba(0, 47, 167, 0.3) !important;
-  background: #ffffff !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.09) !important;
+  border-color: rgba(var(--primary-rgb), 0.3) !important;
+  background: var(--card) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.09) !important;
 }
 
 .rd-horizon-global-header .rd-horizon-header-tools {
@@ -1235,9 +1265,8 @@
 
 .rd-horizon-global-header .rd-horizon-header-date-label {
   color: var(--rdh-subtle) !important;
-  font-size: 0.5625rem !important;
+  font-size: 0.6875rem !important;
   line-height: 0.75rem;
-  letter-spacing: 0.18em !important;
 }
 
 .rd-horizon-global-header .rd-horizon-header-date-value {
@@ -1255,7 +1284,6 @@
   background: transparent !important;
   box-shadow: none !important;
   transform: none !important;
-  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease !important;
 }
 
 .rd-horizon-global-header .rd-horizon-header-control {
@@ -1278,7 +1306,7 @@
 .rd-horizon-global-header .rd-horizon-header-control[aria-expanded="true"],
 .rd-horizon-global-header .rd-horizon-header-user:hover,
 .rd-horizon-global-header .rd-horizon-header-user[data-state="open"] {
-  border-color: rgba(0, 47, 167, 0.08) !important;
+  border-color: rgba(var(--primary-rgb), 0.08) !important;
   color: var(--rdh-primary) !important;
   background: var(--rdh-soft-blue) !important;
   transform: none !important;
@@ -1289,13 +1317,13 @@
   top: 0.0625rem !important;
   height: 1rem !important;
   min-width: 1rem !important;
-  font-size: 0.5625rem !important;
+  font-size: 0.6875rem !important;
   box-shadow: 0 0 0 2px #ffffff;
 }
 
 .rd-horizon-global-header .rd-horizon-header-user {
   height: 2.5rem;
-  max-width: 9rem;
+  max-width: 14rem;
   gap: 0.5rem !important;
   border-color: transparent !important;
   padding: 0 0.5rem 0 0 !important;
@@ -1327,7 +1355,8 @@
   display: grid;
   align-content: center;
   gap: 0.0625rem;
-  max-width: 6.5rem;
+  min-width: 0;
+  max-width: 9rem;
 }
 
 .rd-horizon-global-header .rd-horizon-header-user-name {
@@ -1345,7 +1374,6 @@
 .rd-horizon-global-header .rd-horizon-header-user-chevron {
   flex: 0 0 auto;
   color: var(--rdh-subtle) !important;
-  transition: transform 160ms ease;
 }
 
 .rd-horizon-global-header .rd-horizon-header-user[data-state="open"] .rd-horizon-header-user-chevron {
@@ -1353,20 +1381,20 @@
 }
 
 .rd-horizon-global-header :where(button, [role="button"]):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid var(--primary) !important;
   outline-offset: 2px !important;
   box-shadow: none !important;
 }
 
 .rd-horizon-header-notifications--horizon {
-  z-index: 90 !important;
+  z-index: 50 !important;
   max-height: min(30rem, 72vh);
   overflow-y: auto;
   border-color: var(--rdh-line) !important;
   border-radius: 20px !important;
   padding: 1.25rem !important;
-  background: #ffffff !important;
-  box-shadow: 14px 17px 40px 4px rgba(112, 144, 176, 0.18) !important;
+  background: var(--card) !important;
+  box-shadow: var(--m3-elevation-3) !important;
   backdrop-filter: none !important;
   animation: none !important;
 }
@@ -1383,14 +1411,14 @@
 
 .rd-horizon-header-notifications--horizon .rd-horizon-header-notification-item:hover,
 .rd-horizon-header-notifications--horizon .rd-horizon-header-notification-item:focus-visible {
-  border-color: rgba(0, 47, 167, 0.08);
+  border-color: rgba(var(--primary-rgb), 0.08);
   background: var(--rdh-soft-blue) !important;
 }
 
 .rd-horizon-header-notifications--horizon .rd-horizon-header-view-all {
   border-color: var(--rdh-primary) !important;
   border-radius: 12px !important;
-  color: #ffffff !important;
+  color: var(--primary-foreground) !important;
   background: var(--rdh-primary) !important;
 }
 
@@ -1400,18 +1428,18 @@
 }
 
 .rd-horizon-header-notifications--horizon :where(button, [role="button"]):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid var(--primary) !important;
   outline-offset: 2px !important;
   box-shadow: none !important;
 }
 
 .rd-horizon-header-menu {
-  z-index: 100 !important;
+  z-index: 50 !important;
   width: min(18rem, var(--radix-dropdown-menu-content-available-width)) !important;
   border-color: var(--rdh-line) !important;
   border-radius: 20px !important;
-  background: #ffffff !important;
-  box-shadow: 14px 17px 40px 4px rgba(112, 144, 176, 0.18) !important;
+  background: var(--card) !important;
+  box-shadow: var(--m3-elevation-3) !important;
   backdrop-filter: none !important;
 }
 
@@ -1423,7 +1451,7 @@
 .rd-horizon-header-menu .rd-horizon-header-menu-item:is(:focus, [data-highlighted]) {
   color: var(--rdh-primary) !important;
   background: var(--rdh-soft-blue) !important;
-  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.06);
 }
 
 .rd-horizon-header-menu .rd-horizon-header-menu-danger {
@@ -1444,65 +1472,61 @@
   background: var(--rdh-line) !important;
 }
 
-@container rd-global-header (min-width: 58rem) {
+@container rd-global-header (min-width: 44rem) {
   .rd-horizon-global-header .rd-horizon-header-row {
     flex-direction: row !important;
     align-items: center !important;
-    gap: 1.25rem !important;
+    gap: 1rem !important;
   }
 
   .rd-horizon-global-header .rd-horizon-header-right {
-    flex: 0 1 auto !important;
-    width: fit-content;
-    max-width: calc(100% - 16rem);
-  }
-
-  .rd-horizon-global-header .rd-horizon-header-search {
-    max-width: 15rem !important;
+    flex: 0 0 auto !important;
+    align-self: center;
+    max-width: 65%;
   }
 }
 
-@container rd-global-header (max-width: 46rem) {
+@container rd-global-header (max-width: 70rem) {
+  .rd-horizon-global-header .rd-horizon-header-user-copy,
+  .rd-horizon-global-header .rd-horizon-header-user-chevron {
+    display: none;
+  }
+
+  .rd-horizon-global-header .rd-horizon-header-user {
+    padding: 0 !important;
+  }
+}
+
+@container rd-global-header (max-width: 58rem) {
+  .rd-horizon-global-header .rd-horizon-header-title {
+    font-size: 1.5rem !important;
+    line-height: 2rem !important;
+  }
+
   .rd-horizon-global-header .rd-horizon-header-search {
+    flex: 1 1 10.5rem !important;
     width: 10.5rem;
-    min-width: 8.5rem;
+    min-width: 6rem;
     max-width: 10.5rem !important;
   }
 
   .rd-horizon-global-header .rd-horizon-header-date {
-    min-width: 5.25rem;
-    padding-inline: 0.375rem !important;
-  }
-
-  .rd-horizon-global-header .rd-horizon-header-user {
-    max-width: 8.75rem;
-  }
-
-  .rd-horizon-global-header .rd-horizon-header-user-copy {
-    max-width: 5.5rem;
+    display: none;
   }
 }
 
-@container rd-global-header (max-width: 36rem) {
+@container rd-global-header (max-width: 44rem) {
   .rd-horizon-global-header .rd-horizon-header-right {
     width: 100%;
-    flex-wrap: wrap;
-    border-radius: 20px;
+    align-self: stretch;
+    min-height: 3.5rem;
+    border-radius: 16px;
   }
 
   .rd-horizon-global-header .rd-horizon-header-search {
-    width: 100%;
+    flex: 1 1 0 !important;
+    width: auto;
     max-width: none !important;
-    flex-basis: 100% !important;
-  }
-
-  .rd-horizon-global-header .rd-horizon-header-tools {
-    width: 100%;
-    justify-content: flex-end;
-  }
-
-  .rd-horizon-global-header .rd-horizon-header-date {
-    display: none;
   }
 }
 
@@ -1529,20 +1553,20 @@
  * ──────────────────────────────────────────────────────────────────────────── */
 .rd-horizon-cockpit,
 .rd-horizon-module {
-  --rd-primary: #002fa7;
-  --rd-primary-hover: #002581;
-  --rd-primary-bright: #165dff;
-  --rd-ink: #1b2559;
-  --rd-body: #42526f;
-  --rd-muted: #64748b;
-  --rd-subtle: #8f9bba;
-  --rd-canvas: #f4f7fe;
-  --rd-surface: #ffffff;
-  --rd-soft-blue: #eef3ff;
-  --rd-line: #e9edf7;
-  --rd-line-strong: #e0e5f2;
-  --rd-shadow-card: 0 8px 24px rgba(112, 144, 176, 0.065);
-  --rd-shadow-focal: 0 14px 36px rgba(112, 144, 176, 0.1);
+  --rd-primary: var(--primary);
+  --rd-primary-hover: var(--primary-hover);
+  --rd-primary-bright: var(--primary);
+  --rd-ink: var(--foreground);
+  --rd-body: var(--on-surface-variant);
+  --rd-muted: var(--muted-foreground);
+  --rd-subtle: var(--muted-foreground);
+  --rd-canvas: var(--background);
+  --rd-surface: var(--card);
+  --rd-soft-blue: var(--accent);
+  --rd-line: var(--border-subtle);
+  --rd-line-strong: var(--border);
+  --rd-shadow-card: var(--shadow-card);
+  --rd-shadow-focal: var(--shadow-card);
   color: var(--rd-body);
   background: transparent !important;
 }
@@ -1556,11 +1580,12 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-layout > * + * {
-  margin-top: 1.25rem !important;
+  margin-top: 1rem !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-overview-grid {
-  gap: 1.25rem !important;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-pin-toggle {
@@ -1571,7 +1596,7 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-pin-toggle:hover {
-  border-color: rgba(0, 47, 167, 0.24) !important;
+  border-color: rgba(var(--primary-rgb), 0.24) !important;
   color: var(--rd-primary) !important;
 }
 
@@ -1582,10 +1607,10 @@
 }
 
 .rd-horizon-immersive-control {
-  border-color: rgba(0, 47, 167, 0.18) !important;
+  border-color: rgba(var(--primary-rgb), 0.18) !important;
   background: rgba(255, 255, 255, 0.94) !important;
-  color: #002fa7 !important;
-  box-shadow: 0 18px 38px -20px rgba(0, 47, 167, 0.48) !important;
+  color: var(--primary) !important;
+  box-shadow: 0 18px 38px -20px rgba(var(--primary-rgb), 0.48) !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
@@ -1595,9 +1620,9 @@
   overflow: hidden;
   border: 1px solid transparent !important;
   border-radius: 20px !important;
-  padding: 1.25rem !important;
+  padding: 1rem !important;
   background: var(--rd-surface) !important;
-  box-shadow: var(--rd-shadow-focal) !important;
+  box-shadow: var(--rd-shadow-card) !important;
   container-name: rd-command;
   container-type: inline-size;
 }
@@ -1616,11 +1641,13 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-command-layout {
-  gap: 1rem !important;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-command-heading {
-  min-height: 3.25rem;
+  grid-column: 1;
+  min-height: 2.75rem;
 }
 
 .rd-horizon-cockpit .rd-horizon-command-mark {
@@ -1628,7 +1655,7 @@
   height: 2.5rem !important;
   border-radius: 12px !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 9px 18px -12px rgba(0, 47, 167, 0.66) !important;
+  box-shadow: none !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-command-copy h2 {
@@ -1640,8 +1667,10 @@
 
 .rd-horizon-cockpit .rd-horizon-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  gap: 0 !important;
+  grid-column: 1 / -1;
+  grid-row: 3;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 0.25rem !important;
   border: 0;
   border-top: 1px solid var(--rd-line);
   border-radius: 0;
@@ -1651,14 +1680,14 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-kpi {
-  min-height: 3.75rem;
+  min-height: 3.5rem;
   border: 1px solid transparent !important;
   border-radius: 12px !important;
-  padding: 0.5rem 0.75rem !important;
+  padding: 0.5rem !important;
   background: transparent !important;
   box-shadow: none !important;
   transform: none !important;
-  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease !important;
+  transition: none !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-kpi[data-kpi-index="0"] {
@@ -1668,14 +1697,14 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-kpi[data-active="true"] {
-  border-color: rgba(0, 47, 167, 0.1) !important;
+  border-color: rgba(var(--primary-rgb), 0.1) !important;
   background: var(--rd-soft-blue) !important;
   box-shadow: none !important;
 }
 
 .rd-horizon-cockpit button.rd-horizon-kpi:not([data-active="true"]):hover {
-  border-color: rgba(0, 47, 167, 0.08) !important;
-  background: rgba(238, 243, 255, 0.72) !important;
+  border-color: rgba(var(--primary-rgb), 0.08) !important;
+  background: rgba(var(--accent-rgb), 0.72) !important;
   box-shadow: none !important;
 }
 
@@ -1690,13 +1719,13 @@
 .rd-horizon-cockpit .rd-horizon-kpi[data-kpi-index="0"] .rd-horizon-kpi-icon {
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
-  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.1) !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.1) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-kpi[data-active="true"] .rd-horizon-kpi-icon {
   color: #ffffff !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 9px 17px -10px rgba(0, 47, 167, 0.75) !important;
+  box-shadow: 0 9px 17px -10px rgba(var(--primary-rgb), 0.75) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-kpi[data-active="true"] .rd-horizon-kpi-value {
@@ -1714,7 +1743,6 @@
 .rd-horizon-cockpit .rd-horizon-kpi-value {
   font-size: 1.25rem !important;
   font-weight: 700 !important;
-  letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1730,14 +1758,26 @@
   letter-spacing: 0;
 }
 
+.rd-horizon-cockpit .rd-horizon-kpi-label > span:first-child {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+:lang(en) .rd-horizon-cockpit .rd-horizon-kpi {
+  align-items: flex-start;
+}
+
 .rd-horizon-cockpit .rd-horizon-kpi-filter-badge {
   color: var(--rd-primary) !important;
   font-size: 0.625rem !important;
-  background: #e6edff !important;
+  background: var(--accent) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-actions {
+  grid-row: 2;
   align-items: center;
+  justify-content: flex-start;
   gap: 0.5rem !important;
 }
 
@@ -1754,10 +1794,10 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-actions > button:hover {
-  border-color: rgba(0, 47, 167, 0.2) !important;
+  border-color: rgba(var(--primary-rgb), 0.2) !important;
   color: var(--rd-primary) !important;
   background: #ffffff !important;
-  box-shadow: 0 11px 24px -19px rgba(0, 47, 167, 0.62) !important;
+  box-shadow: 0 11px 24px -19px rgba(var(--primary-rgb), 0.62) !important;
   transform: none !important;
 }
 
@@ -1775,7 +1815,7 @@
   border-color: var(--rd-primary) !important;
   color: #ffffff !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 13px 26px -15px rgba(0, 47, 167, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.24) !important;
+  box-shadow: none !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-actions > .rd-horizon-primary-action:hover {
@@ -1837,7 +1877,7 @@
 .rd-horizon-cockpit .rd-horizon-report-tab[data-active="true"] {
   color: #ffffff !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 8px 18px -12px rgba(0, 47, 167, 0.68) !important;
+  box-shadow: 0 8px 18px -12px rgba(var(--primary-rgb), 0.68) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-report-tab:not([data-active="true"]):hover {
@@ -1875,7 +1915,7 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-accent-surface {
-  border-color: rgba(0, 47, 167, 0.1) !important;
+  border-color: rgba(var(--primary-rgb), 0.1) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -1889,7 +1929,7 @@
 
 .rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-control:not(.rd-horizon-monthly-primary):hover,
 .rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-control:not(.rd-horizon-monthly-primary):focus {
-  border-color: rgba(0, 47, 167, 0.2) !important;
+  border-color: rgba(var(--primary-rgb), 0.2) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -1898,7 +1938,7 @@
   border-color: var(--rd-primary) !important;
   color: #ffffff !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 8px 18px -12px rgba(0, 47, 167, 0.68) !important;
+  box-shadow: 0 8px 18px -12px rgba(var(--primary-rgb), 0.68) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-reports .rd-horizon-monthly-primary:hover {
@@ -1924,10 +1964,10 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-people-nav {
-  min-height: 4.75rem;
+  min-height: 4rem;
   border: 1px solid transparent !important;
-  border-radius: 20px;
-  margin-bottom: 1rem;
+  border-radius: 16px;
+  margin-bottom: 0.75rem;
   padding-right: 0.75rem !important;
   background: var(--rd-surface) !important;
   box-shadow: var(--rd-shadow-card) !important;
@@ -1935,31 +1975,33 @@
 
 .rd-horizon-cockpit .rd-horizon-people-list {
   gap: 0.25rem !important;
-  padding: 0.5rem 0.75rem 0.375rem !important;
+  padding: 0.5rem !important;
   scrollbar-color: rgba(112, 126, 174, 0.34) transparent;
 }
 
 .rd-horizon-cockpit .rd-horizon-person-tab {
-  min-width: 4.75rem !important;
-  gap: 0.25rem !important;
-  border-radius: 14px !important;
-  padding: 0.375rem 0.5rem 0.25rem !important;
+  flex: 0 0 auto;
+  flex-direction: row;
+  min-width: 0 !important;
+  gap: 0.5rem !important;
+  border-radius: 12px !important;
+  padding: 0.375rem 0.625rem !important;
   background: transparent !important;
   transition: color 180ms ease, background-color 180ms ease, box-shadow 180ms ease !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-person-tab:hover {
-  background: rgba(238, 243, 255, 0.7) !important;
+  background: rgba(var(--accent-rgb), 0.7) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-person-tab[data-state="active"] {
-  background: rgba(238, 243, 255, 0.96) !important;
+  background: rgba(var(--accent-rgb), 0.96) !important;
   box-shadow: none !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-avatar-ring {
-  width: 2.75rem !important;
-  height: 2.75rem !important;
+  width: 2rem !important;
+  height: 2rem !important;
   padding: 2px !important;
 }
 
@@ -2003,9 +2045,9 @@
   border: 1px solid var(--rd-line-strong) !important;
   color: var(--rd-ink) !important;
   background: #ffffff !important;
-  box-shadow: 0 3px 8px rgba(27, 37, 89, 0.1) !important;
-  font-size: 0.625rem !important;
-  font-weight: 700 !important;
+  box-shadow: none !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2022,8 +2064,8 @@
 
 .rd-horizon-cockpit .rd-horizon-search input:focus,
 .rd-horizon-cockpit .rd-horizon-search > button:hover {
-  border-color: rgba(0, 47, 167, 0.28) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.06) !important;
+  border-color: rgba(var(--primary-rgb), 0.28) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.06) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-search input:focus {
@@ -2049,15 +2091,29 @@
 
 .rd-horizon-cockpit .rd-horizon-task-card-body {
   min-height: 12.5rem !important;
-  gap: 0.75rem !important;
-  padding: 1rem !important;
+  gap: 0.625rem !important;
+  padding: 0.875rem !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-masonry {
+  padding: 0.25rem 0.25rem 0.75rem !important;
+}
+
+.rd-horizon-cockpit .rd-horizon-person-indicator {
+  display: none;
+}
+
+.rd-horizon-cockpit .rd-horizon-person-name {
+  max-width: 6rem;
+  font-size: 0.75rem !important;
+  line-height: 1.25rem;
 }
 
 .rd-horizon-cockpit .rd-horizon-task-card {
-  border-color: var(--rd-line) !important;
+  border-color: transparent !important;
   border-radius: 16px !important;
   background: var(--rd-surface) !important;
-  box-shadow: none !important;
+  box-shadow: var(--rd-shadow-card) !important;
   transform: none !important;
   transition: border-color 160ms ease, box-shadow 160ms ease !important;
 }
@@ -2067,7 +2123,7 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-task-card:hover {
-  border-color: rgba(0, 47, 167, 0.08) !important;
+  border-color: rgba(var(--primary-rgb), 0.08) !important;
   box-shadow: 0 8px 22px rgba(112, 144, 176, 0.075) !important;
   transform: none !important;
 }
@@ -2153,9 +2209,9 @@
 
 .rd-horizon-cockpit .rd-horizon-attachment-action:hover,
 .rd-horizon-cockpit .rd-horizon-more-action:hover {
-  border-color: rgba(0, 47, 167, 0.12) !important;
+  border-color: rgba(var(--primary-rgb), 0.12) !important;
   color: var(--rd-primary-hover) !important;
-  background: #e6edff !important;
+  background: var(--accent) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-filter-bar,
@@ -2168,7 +2224,7 @@
 .rd-horizon-cockpit .rd-horizon-filter-label {
   color: var(--rd-primary) !important;
   background: var(--rd-surface) !important;
-  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.12) !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.12) !important;
 }
 
 .rd-horizon-cockpit .rd-horizon-brand-control {
@@ -2178,7 +2234,7 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-brand-control:hover {
-  border-color: rgba(0, 47, 167, 0.18) !important;
+  border-color: rgba(var(--primary-rgb), 0.18) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -2205,7 +2261,7 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-system-card:hover {
-  border-color: rgba(0, 47, 167, 0.08) !important;
+  border-color: rgba(var(--primary-rgb), 0.08) !important;
   box-shadow: none !important;
 }
 
@@ -2230,7 +2286,7 @@
 }
 
 .rd-horizon-cockpit .rd-horizon-secondary-control:hover {
-  border-color: rgba(0, 47, 167, 0.18) !important;
+  border-color: rgba(var(--primary-rgb), 0.18) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -2258,48 +2314,47 @@
 
 .rd-horizon-cockpit :where(button, input, [role="button"], [tabindex]):focus-visible,
 .rd-horizon-immersive-control:focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px !important;
 }
 
-@container rd-command (min-width: 42rem) {
-  .rd-horizon-cockpit .rd-horizon-kpi-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+@container rd-command (min-width: 40rem) {
+  .rd-horizon-cockpit .rd-horizon-command-layout {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
-}
 
-@container rd-command (min-width: 56rem) {
+  .rd-horizon-cockpit .rd-horizon-actions {
+    grid-column: 2;
+    grid-row: 1;
+    justify-content: flex-end;
+  }
+
   .rd-horizon-cockpit .rd-horizon-kpi-grid {
+    grid-row: 2;
     grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
   }
 }
 
-@container rd-command (max-width: 54rem) {
-  .rd-horizon-cockpit .rd-horizon-command-layout {
-    grid-template-columns: minmax(0, 1fr) !important;
+@container rd-command (max-width: 48rem) {
+  .rd-horizon-cockpit .rd-horizon-kpi-icon {
+    display: none;
   }
 
-  .rd-horizon-cockpit .rd-horizon-actions {
-    justify-content: flex-start !important;
+  .rd-horizon-cockpit .rd-horizon-command-mark {
+    display: none;
   }
 }
 
-@media (max-width: 1180px) {
-  .rd-horizon-cockpit .rd-horizon-command {
-    padding: 1rem !important;
-  }
+.rd-horizon-cockpit .rd-horizon-report-digest-content .hz-surface,
+.rd-horizon-cockpit .rd-horizon-report-digest-content .rd-horizon-reports > div > div:first-child {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
 
-  .rd-horizon-cockpit .rd-horizon-command-layout {
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
-
-  .rd-horizon-cockpit .rd-horizon-actions {
-    justify-content: flex-start !important;
-  }
-
-  .rd-horizon-cockpit .rd-horizon-kpi {
-    padding-inline: 0.55rem !important;
-  }
+.rd-horizon-cockpit-menu {
+  max-width: calc(100vw - 2rem);
+  animation: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2402,7 +2457,7 @@
 
 .rd-horizon-board .rd-board-brand-control:hover,
 .rd-horizon-board .rd-board-secondary-control:hover {
-  border-color: rgba(0, 47, 167, 0.18) !important;
+  border-color: rgba(var(--primary-rgb), 0.18) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
   transform: none !important;
@@ -2440,7 +2495,7 @@
 }
 
 .rd-horizon-board .rd-board-tree-group[data-active="true"] {
-  background: rgba(238, 243, 255, 0.78) !important;
+  background: rgba(var(--accent-rgb), 0.78) !important;
 }
 
 .rd-horizon-board .rd-board-tree-group:hover,
@@ -2469,7 +2524,7 @@
 
 .rd-horizon-board .rd-board-tree-sub[data-active="true"] {
   color: var(--rd-primary) !important;
-  background: #e6edff !important;
+  background: var(--accent) !important;
 }
 
 .rd-horizon-board .rd-board-main,
@@ -2542,7 +2597,7 @@
   border-radius: 10px !important;
   color: #ffffff !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 10px 20px -14px rgba(0, 47, 167, 0.72) !important;
+  box-shadow: 0 10px 20px -14px rgba(var(--primary-rgb), 0.72) !important;
 }
 
 .rd-horizon-board .rd-board-primary-control:hover {
@@ -2659,14 +2714,14 @@
 }
 
 .rd-horizon-board .rd-board-filter-chip:not(:disabled):hover {
-  border-color: rgba(0, 47, 167, 0.14) !important;
+  border-color: rgba(var(--primary-rgb), 0.14) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
   transform: none !important;
 }
 
 .rd-horizon-board .rd-board-filter-chip[data-active="true"] {
-  border-color: rgba(0, 47, 167, 0.12) !important;
+  border-color: rgba(var(--primary-rgb), 0.12) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
   box-shadow: none !important;
@@ -2736,14 +2791,14 @@
 }
 
 .rd-horizon-board .rd-board-part-card:hover {
-  border-color: rgba(0, 47, 167, 0.1) !important;
+  border-color: rgba(var(--primary-rgb), 0.1) !important;
   background: var(--rd-soft-blue) !important;
   box-shadow: none !important;
   transform: none !important;
 }
 
 .rd-horizon-board .rd-board-part-card[data-active="true"] {
-  border-color: rgba(0, 47, 167, 0.16) !important;
+  border-color: rgba(var(--primary-rgb), 0.16) !important;
   background: var(--rd-soft-blue) !important;
   box-shadow: inset 0 -2px 0 var(--rd-primary) !important;
 }
@@ -2774,7 +2829,7 @@
 
 .rd-horizon-board .rd-board-task-filters :where(input, select, button):hover,
 .rd-horizon-board .rd-board-task-filters :where(input, select, button):focus-visible {
-  border-color: rgba(0, 47, 167, 0.22) !important;
+  border-color: rgba(var(--primary-rgb), 0.22) !important;
   background: var(--rd-surface) !important;
 }
 
@@ -2826,7 +2881,7 @@
 
 .rd-horizon-board .rd-board-task-open:focus-visible {
   border-radius: 10px;
-  outline: 2px solid rgba(0, 47, 167, 0.7) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.7) !important;
   outline-offset: 3px !important;
 }
 
@@ -2842,7 +2897,7 @@
 }
 
 .rd-horizon-board :where(button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px !important;
   box-shadow: none !important;
 }
@@ -2916,14 +2971,13 @@
   }
 }
 
-/* 原生研发任务详情页：Horizon 工作台信息层级；生产详情不挂此作用域。 */
+/* 研发与生产共用任务详情：Horizon 工作台信息层级。 */
 .rd-horizon-task-detail {
-  --primary: #002fa7;
-  --ring: rgba(0, 47, 167, 0.24);
+  --primary: var(--office-brand);
   width: 100%;
   max-width: 100rem !important;
   gap: 0 !important;
-  padding: 0.75rem 1rem 1.5rem !important;
+  padding: 0 0 1.5rem !important;
   color: var(--rd-body);
   background: transparent !important;
 }
@@ -2935,7 +2989,7 @@
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-context {
@@ -2958,7 +3012,7 @@
   min-height: 0;
   border: 0 !important;
   border-radius: 0;
-  padding: 1.25rem 1.25rem 1rem;
+  padding: 1rem 1.25rem;
   background: transparent !important;
   box-shadow: none !important;
 }
@@ -2977,7 +3031,6 @@
   font-size: clamp(1.5rem, 2.2cqw, 1.875rem) !important;
   line-height: 1.2 !important;
   font-weight: 700 !important;
-  letter-spacing: -0.025em;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-heading {
@@ -3016,8 +3069,32 @@
   transform: none !important;
 }
 
+.rd-horizon-task-detail .rd-horizon-detail-title {
+  overflow-wrap: anywhere;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-workflow {
+  margin-left: auto;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-actor-filter {
+  padding: 0.5rem 1.25rem;
+  border-color: var(--rd-line);
+  background: var(--rd-soft-blue);
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-actor-filter > p {
+  flex: 1 1 14rem;
+  color: var(--rd-body);
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-filter-clear {
+  min-height: 2.5rem;
+  color: var(--rd-primary);
+}
+
 .rd-horizon-task-detail .rd-horizon-detail-nav-control:hover {
-  border-color: rgba(0, 47, 167, 0.18) !important;
+  border-color: rgba(var(--primary-rgb), 0.18) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -3039,7 +3116,7 @@
 
 .rd-horizon-task-detail .rd-horizon-detail-description,
 .rd-horizon-task-detail .rd-horizon-detail-topic {
-  padding: 1rem 1.25rem 1.25rem !important;
+  padding: 0.875rem 1.25rem 1rem !important;
   background: transparent !important;
 }
 
@@ -3047,6 +3124,38 @@
   border-left: 0 !important;
   border-top: 1px solid var(--rd-line) !important;
   border-color: var(--rd-line) !important;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-topic .space-y-2 > div {
+  flex-wrap: wrap;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-topic .space-y-2 > div > span {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-context > dl {
+  border: 0;
+  border-top: 1px solid var(--rd-line);
+  border-radius: 0 0 20px 20px;
+  box-shadow: none;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-context > dl :where(dt, dd) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-context > dl dt {
+  font-size: 0.75rem;
+  color: var(--rd-muted);
+}
+
+.rd-horizon-task-detail .rd-horizon-detail-context > dl dd:last-child {
+  font-size: 0.6875rem;
+  color: var(--rd-muted);
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-description button.bg-indigo-600 {
@@ -3065,7 +3174,7 @@
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-topic .bg-indigo-50 {
-  border-color: rgba(0, 47, 167, 0.1) !important;
+  border-color: rgba(var(--primary-rgb), 0.1) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -3073,7 +3182,7 @@
 .rd-horizon-task-detail .rd-horizon-detail-grid {
   grid-template-columns: minmax(0, 1fr) !important;
   align-items: stretch;
-  gap: 1.25rem !important;
+  gap: 1rem !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-aside {
@@ -3187,7 +3296,7 @@
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-conversation :where(.border-indigo-100, .border-indigo-200, .border-indigo-300) {
-  border-color: rgba(0, 47, 167, 0.14) !important;
+  border-color: rgba(var(--primary-rgb), 0.14) !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-conversation :where(
@@ -3234,7 +3343,7 @@
 
 .rd-horizon-task-detail .rd-horizon-detail-conversation--timeline .rd-progress-timeline__dot {
   background: var(--rd-primary) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.1) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1) !important;
 }
 
 .rd-horizon-task-detail .rd-conversation-date-divider > span:first-child,
@@ -3259,7 +3368,7 @@
 }
 
 .rd-horizon-task-detail .rd-thread-invitation {
-  border-bottom-color: rgba(0, 47, 167, 0.1) !important;
+  border-bottom-color: rgba(var(--primary-rgb), 0.1) !important;
   background: var(--rd-soft-blue) !important;
 }
 
@@ -3292,9 +3401,9 @@
 }
 
 .rd-horizon-task-detail .rd-conversation-composer__field:focus-within {
-  border-color: rgba(0, 47, 167, 0.3) !important;
+  border-color: rgba(var(--primary-rgb), 0.3) !important;
   background: var(--rd-surface) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.08) !important;
 }
 
 .rd-horizon-task-detail .rd-conversation-composer__send:not(:disabled) {
@@ -3322,7 +3431,7 @@
 }
 
 .rd-horizon-task-detail .rd-related-progress-threads__item:hover {
-  border-color: rgba(0, 47, 167, 0.1) !important;
+  border-color: rgba(var(--primary-rgb), 0.1) !important;
   background: var(--rd-soft-blue) !important;
 }
 
@@ -3378,7 +3487,7 @@
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-filter button[aria-pressed="true"] {
-  border-color: rgba(0, 47, 167, 0.12) !important;
+  border-color: rgba(var(--primary-rgb), 0.12) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -3392,20 +3501,20 @@
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-relation-node:hover {
-  border-color: rgba(0, 47, 167, 0.1) !important;
+  border-color: rgba(var(--primary-rgb), 0.1) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
 
 .rd-horizon-task-detail .rd-horizon-detail-relation-node[data-active="true"] {
-  border-color: rgba(0, 47, 167, 0.14) !important;
+  border-color: rgba(var(--primary-rgb), 0.14) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
   box-shadow: none !important;
 }
 
 .rd-horizon-task-detail :where(button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px !important;
   box-shadow: none !important;
 }
@@ -3427,13 +3536,13 @@
 
 .rd-horizon-detail-select,
 .rd-horizon-detail-dialog {
-  --rd-primary: #002fa7;
-  --rd-primary-hover: #002581;
-  --rd-ink: #1b2559;
-  --rd-body: #42526f;
-  --rd-soft-blue: #eef3ff;
-  --rd-line: #e9edf7;
-  --rd-line-strong: #e0e5f2;
+  --rd-primary: var(--primary);
+  --rd-primary-hover: var(--primary-hover);
+  --rd-ink: var(--foreground);
+  --rd-body: var(--on-surface-variant);
+  --rd-soft-blue: var(--accent);
+  --rd-line: var(--border-subtle);
+  --rd-line-strong: var(--border);
   z-index: 80 !important;
   border: 1px solid var(--rd-line) !important;
   border-radius: 16px !important;
@@ -3447,9 +3556,9 @@
   background: var(--rd-soft-blue) !important;
 }
 
-@container rd-detail-shell (min-width: 52rem) {
+@container rd-detail-shell (min-width: 40rem) {
   .rd-horizon-task-detail .rd-horizon-detail-overview > div {
-    grid-template-columns: minmax(0, 1fr) 20rem !important;
+    grid-template-columns: minmax(0, 1.6fr) minmax(14rem, 1fr) !important;
   }
 
   .rd-horizon-task-detail .rd-horizon-detail-topic {
@@ -3500,6 +3609,11 @@
 
   .rd-horizon-task-detail .rd-horizon-detail-state {
     align-items: flex-start;
+  }
+
+  .rd-horizon-task-detail .rd-horizon-detail-workflow {
+    flex-basis: 100%;
+    margin-left: 0;
   }
 }
 
@@ -3553,8 +3667,8 @@
 }
 
 .rd-horizon-module .rd-task-overlay-surface :where(input, textarea, select):focus {
-  border-color: rgba(0, 47, 167, 0.26) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.07) !important;
+  border-color: rgba(var(--primary-rgb), 0.26) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.07) !important;
 }
 
 .rd-horizon-module .rd-task-overlay-drawer .rd-task-overlay-surface {
@@ -3568,10 +3682,10 @@
 }
 
 .rd-horizon-module-dialog {
-  --rd-primary: #002fa7;
-  --rd-ink: #1b2559;
-  --rd-body: #42526f;
-  --rd-line: #e9edf7;
+  --rd-primary: var(--primary);
+  --rd-ink: var(--foreground);
+  --rd-body: var(--on-surface-variant);
+  --rd-line: var(--border-subtle);
   border: 1px solid var(--rd-line) !important;
   border-radius: 20px !important;
   color: var(--rd-body) !important;
@@ -3606,7 +3720,7 @@
 
 .rd-horizon-issue-ai :where(button, input, textarea, select, [role="button"], [tabindex]):focus-visible,
 .rd-horizon-issue-drawer :where(button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px !important;
   box-shadow: none !important;
 }
@@ -3651,7 +3765,7 @@
 }
 
 .rd-horizon-issue-context-kicker {
-  border-color: rgba(0, 47, 167, 0.1) !important;
+  border-color: rgba(var(--primary-rgb), 0.1) !important;
   border-radius: 999px !important;
   padding: 0.3125rem 0.625rem !important;
   color: var(--rd-primary) !important;
@@ -3660,7 +3774,7 @@
 
 .rd-horizon-issue-avatar:not(img),
 .rd-horizon-issue-reusable-badge {
-  border-color: rgba(0, 47, 167, 0.1) !important;
+  border-color: rgba(var(--primary-rgb), 0.1) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -3816,7 +3930,7 @@
 .rd-horizon-issue-status-tabs > button[data-active="true"] {
   color: #ffffff !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 4px 12px rgba(0, 47, 167, 0.14) !important;
+  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.14) !important;
 }
 
 .rd-horizon-issue-search {
@@ -3838,14 +3952,14 @@
 
 .rd-horizon-issue-search input:focus,
 .rd-horizon-issue-search input:focus-visible {
-  border-color: rgba(0, 47, 167, 0.28) !important;
+  border-color: rgba(var(--primary-rgb), 0.28) !important;
   color: var(--rd-body) !important;
   background: var(--rd-surface) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.08) !important;
 }
 
 .rd-horizon-issue-active-filter {
-  border-color: rgba(0, 47, 167, 0.1) !important;
+  border-color: rgba(var(--primary-rgb), 0.1) !important;
   border-radius: 999px !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
@@ -3853,7 +3967,7 @@
 
 .rd-horizon-issue-active-filter > button:hover {
   color: var(--rd-primary) !important;
-  background: rgba(0, 47, 167, 0.08) !important;
+  background: rgba(var(--primary-rgb), 0.08) !important;
 }
 
 .rd-horizon-issue-active-filter > button {
@@ -3945,7 +4059,7 @@
 }
 
 .rd-horizon-issue-reusable-card:hover {
-  border-color: rgba(0, 47, 167, 0.12) !important;
+  border-color: rgba(var(--primary-rgb), 0.12) !important;
   background: var(--rd-surface) !important;
   box-shadow: 0 12px 30px rgba(112, 144, 176, 0.1) !important;
 }
@@ -3996,13 +4110,13 @@
 }
 
 .rd-horizon-issue-pagination button:hover:not(:disabled) {
-  border-color: rgba(0, 47, 167, 0.12) !important;
+  border-color: rgba(var(--primary-rgb), 0.12) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
 
 .rd-horizon-issue-pagination button[aria-current="page"] {
-  border-color: rgba(0, 47, 167, 0.12) !important;
+  border-color: rgba(var(--primary-rgb), 0.12) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -4198,7 +4312,7 @@
 
 .rd-horizon-issue-reuse-content {
   border: 0 !important;
-  border-top: 1px solid rgba(0, 47, 167, 0.1) !important;
+  border-top: 1px solid rgba(var(--primary-rgb), 0.1) !important;
   border-radius: 0 !important;
   padding: 0.75rem 0 0 !important;
   background: transparent !important;
@@ -4302,14 +4416,14 @@
 
 .rd-horizon-issue-chat-composer textarea:focus,
 .rd-horizon-issue-chat-composer textarea:focus-visible {
-  border-color: rgba(0, 47, 167, 0.28) !important;
+  border-color: rgba(var(--primary-rgb), 0.28) !important;
   background: var(--rd-surface) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.08) !important;
 }
 
 .rd-horizon-issue-chat-dropzone {
-  border-color: rgba(0, 47, 167, 0.28) !important;
-  background: rgba(238, 243, 255, 0.94) !important;
+  border-color: rgba(var(--primary-rgb), 0.28) !important;
+  background: rgba(var(--accent-rgb), 0.94) !important;
 }
 
 .rd-horizon-issue-chat-dropzone :where(svg, div:first-of-type) {
@@ -4318,17 +4432,17 @@
 
 /* 新建问题：单一抽屉表面 */
 .rd-horizon-issue-drawer {
-  --rd-primary: #002fa7;
-  --rd-primary-hover: #002581;
-  --rd-ink: #1b2559;
-  --rd-body: #42526f;
-  --rd-muted: #64748b;
-  --rd-subtle: #8f9bba;
-  --rd-canvas: #f4f7fe;
-  --rd-surface: #ffffff;
-  --rd-soft-blue: #eef3ff;
-  --rd-line: #e9edf7;
-  --rd-line-strong: #e0e5f2;
+  --rd-primary: var(--primary);
+  --rd-primary-hover: var(--primary-hover);
+  --rd-ink: var(--foreground);
+  --rd-body: var(--on-surface-variant);
+  --rd-muted: var(--muted-foreground);
+  --rd-subtle: var(--muted-foreground);
+  --rd-canvas: var(--background);
+  --rd-surface: var(--card);
+  --rd-soft-blue: var(--accent);
+  --rd-line: var(--border-subtle);
+  --rd-line-strong: var(--border);
   z-index: 90 !important;
 }
 
@@ -4409,9 +4523,9 @@
 
 .rd-horizon-issue-drawer-field :where(input, textarea):focus,
 .rd-horizon-issue-drawer-field :where(input, textarea):focus-visible {
-  border-color: rgba(0, 47, 167, 0.28) !important;
+  border-color: rgba(var(--primary-rgb), 0.28) !important;
   background: var(--rd-surface) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.08) !important;
 }
 
 .rd-horizon-issue-drawer-dropzone {
@@ -4422,7 +4536,7 @@
 }
 
 .rd-horizon-issue-drawer-dropzone:hover {
-  border-color: rgba(0, 47, 167, 0.24) !important;
+  border-color: rgba(var(--primary-rgb), 0.24) !important;
   background: var(--rd-soft-blue) !important;
 }
 
@@ -4435,7 +4549,7 @@
 
 .rd-horizon-issue-file-picker:focus-within {
   border-radius: 4px;
-  outline: 2px solid rgba(0, 47, 167, 0.72);
+  outline: 2px solid rgba(var(--primary-rgb), 0.72);
   outline-offset: 2px;
 }
 
@@ -4584,19 +4698,19 @@
  * ──────────────────────────────────────────────────────────────────────────── */
 .rd-horizon-sheet,
 .rd-horizon-sheet-dialog {
-  --rd-primary: #002fa7;
-  --rd-primary-hover: #002581;
-  --rd-ink: #1b2559;
-  --rd-body: #42526f;
-  --rd-muted: #64748b;
-  --rd-subtle: #8f9bba;
-  --rd-canvas: #f4f7fe;
-  --rd-surface: #ffffff;
-  --rd-soft-blue: #eef3ff;
-  --rd-line: #e9edf7;
-  --rd-line-strong: #e0e5f2;
-  --rd-shadow-card: 0 8px 24px rgba(112, 144, 176, 0.07);
-  --rd-shadow-focal: 0 16px 36px rgba(112, 144, 176, 0.11);
+  --rd-primary: var(--primary);
+  --rd-primary-hover: var(--primary-hover);
+  --rd-ink: var(--foreground);
+  --rd-body: var(--on-surface-variant);
+  --rd-muted: var(--muted-foreground);
+  --rd-subtle: var(--muted-foreground);
+  --rd-canvas: var(--background);
+  --rd-surface: var(--card);
+  --rd-soft-blue: var(--accent);
+  --rd-line: var(--border-subtle);
+  --rd-line-strong: var(--border);
+  --rd-shadow-card: var(--shadow-card);
+  --rd-shadow-focal: var(--shadow-card);
 }
 
 .rd-horizon-sheet {
@@ -4682,13 +4796,13 @@
 
 .rd-horizon-sheet .rd-horizon-sheet-action:hover,
 .rd-horizon-sheet .rd-horizon-sheet-action:focus-visible {
-  border-color: rgba(0, 47, 167, 0.08) !important;
+  border-color: rgba(var(--primary-rgb), 0.08) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
 
 .rd-horizon-sheet .rd-horizon-sheet-import {
-  border-color: rgba(0, 47, 167, 0.16) !important;
+  border-color: rgba(var(--primary-rgb), 0.16) !important;
   color: var(--rd-primary) !important;
 }
 
@@ -4735,7 +4849,7 @@
 }
 
 .rd-horizon-sheet .rd-horizon-sheet-notice {
-  border-color: rgba(0, 47, 167, 0.12) !important;
+  border-color: rgba(var(--primary-rgb), 0.12) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -4757,7 +4871,7 @@
 
 .rd-horizon-sheet :where(button, [role="button"], input, select, textarea):focus-visible,
 .rd-horizon-sheet-dialog :where(button, [role="button"], input, select, textarea):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px !important;
   box-shadow: none !important;
 }
@@ -4876,12 +4990,12 @@
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * 原生研发个人工作台：Horizon / Klein Blue 精修
- * 仅由 RDMyWorkspacePage 在非协同、非生产工作区挂载的根类开启。
+ * 研发与协同个人工作台：Horizon 细节适配
+ * 由 RDMyWorkspacePage 在非生产工作区挂载的根类开启。
  * 父级继续负责画布；本页只建立单层数据面、任务工作面与辅助侧栏。
  * ──────────────────────────────────────────────────────────────────────────── */
 .rd-horizon-workspace {
-  padding: 0.875rem 1rem 1.25rem !important;
+  padding: 0 0 1.25rem !important;
   background: transparent !important;
 }
 
@@ -4898,7 +5012,7 @@
 }
 
 .rd-horizon-workspace :where(button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px !important;
   box-shadow: none !important;
 }
@@ -4933,7 +5047,14 @@
 }
 
 .rd-horizon-workspace .rd-horizon-workspace-metrics {
+  min-width: 0;
+  flex: 1 1 28rem;
   row-gap: 0.5rem !important;
+}
+
+.rd-horizon-workspace .rd-horizon-workspace-primary-action {
+  flex-shrink: 0;
+  align-self: center;
 }
 
 .rd-horizon-workspace .rd-horizon-workspace-metric {
@@ -4968,13 +5089,13 @@
   border-radius: 12px !important;
   padding: 0.625rem 0.875rem !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 10px 20px -14px rgba(0, 47, 167, 0.68) !important;
+  box-shadow: none !important;
   transform: none !important;
 }
 
 .rd-horizon-workspace .rd-horizon-workspace-primary-action:hover {
   background: var(--rd-primary-hover) !important;
-  box-shadow: 0 12px 24px -16px rgba(0, 47, 167, 0.76) !important;
+  box-shadow: none !important;
   transform: none !important;
 }
 
@@ -5015,22 +5136,28 @@
   box-shadow: inset 0 0 0 1px var(--rd-line) !important;
 }
 
+.rd-horizon-workspace .rd-horizon-workspace-search {
+  max-width: 22.5rem;
+}
+
 .rd-horizon-workspace .rd-horizon-workspace-search input:hover {
   box-shadow: inset 0 0 0 1px var(--rd-line-strong) !important;
 }
 
 .rd-horizon-workspace .rd-horizon-workspace-search input:focus,
 .rd-horizon-workspace .rd-horizon-workspace-search input:focus-visible {
-  border-color: rgba(0, 47, 167, 0.28) !important;
+  border-color: rgba(var(--primary-rgb), 0.28) !important;
   background: var(--rd-surface) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.08) !important;
 }
 
 .rd-horizon-workspace .rd-horizon-workspace-filter-controls {
   scrollbar-color: var(--rd-line-strong) transparent;
 }
 
-.rd-horizon-workspace .rd-horizon-workspace-filter-controls > select {
+.rd-horizon-workspace .rd-horizon-workspace-filter-controls > :is(select, [data-slot="select-trigger"]) {
+  width: auto;
+  flex: 0 0 auto;
   min-height: 2.5rem !important;
   border-color: var(--rd-line) !important;
   border-radius: 10px !important;
@@ -5039,8 +5166,8 @@
   box-shadow: none !important;
 }
 
-.rd-horizon-workspace .rd-horizon-workspace-filter-controls > select:hover {
-  border-color: rgba(0, 47, 167, 0.2) !important;
+.rd-horizon-workspace .rd-horizon-workspace-filter-controls > :is(select, [data-slot="select-trigger"]):hover {
+  border-color: rgba(var(--primary-rgb), 0.2) !important;
 }
 
 .rd-horizon-workspace .rd-horizon-workspace-role-tabs {
@@ -5061,7 +5188,7 @@
 .rd-horizon-workspace .rd-horizon-workspace-role-tabs [role="tab"][aria-selected="true"] {
   color: #ffffff !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 5px 12px -9px rgba(0, 47, 167, 0.75) !important;
+  box-shadow: 0 5px 12px -9px rgba(var(--primary-rgb), 0.75) !important;
 }
 
 .rd-horizon-workspace .rd-horizon-workspace-task-scroll {
@@ -5086,14 +5213,14 @@
 
 .rd-horizon-workspace .rd-horizon-workspace-task-card:hover {
   border-color: var(--rd-line) !important;
-  background: rgba(238, 243, 255, 0.5) !important;
+  background: rgba(var(--accent-rgb), 0.5) !important;
   box-shadow: none !important;
   transform: none !important;
 }
 
 .rd-horizon-workspace .rd-horizon-workspace-task-card[data-selected="true"] {
   background: var(--rd-soft-blue) !important;
-  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.34) !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.34) !important;
 }
 
 .rd-horizon-workspace .rd-horizon-workspace-task-card[data-status="pending_review"] {
@@ -5189,7 +5316,7 @@
 
 .rd-horizon-workspace .rd-horizon-workspace-notification:hover,
 .rd-horizon-workspace .rd-horizon-workspace-ai-card:hover {
-  background: rgba(238, 243, 255, 0.44) !important;
+  background: rgba(var(--accent-rgb), 0.44) !important;
   box-shadow: none !important;
   transform: none !important;
 }
@@ -5266,24 +5393,33 @@
 @container rd-workspace (max-width: 69.999rem) {
   .rd-horizon-workspace-grid {
     grid-template-columns: minmax(0, 1fr) !important;
+    grid-auto-rows: max-content;
     align-content: start;
     overflow-y: auto !important;
   }
 
   .rd-horizon-workspace-main {
-    min-height: 34rem;
+    min-height: 0;
+    max-height: max(24rem, calc(100dvh - 17rem));
   }
 
   .rd-horizon-workspace-aside {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: max-content;
+    align-items: start;
+    min-height: auto;
     gap: 1rem;
     overflow: visible !important;
     padding-right: 0 !important;
   }
 
-  .rd-horizon-workspace-aside > * + * {
-    margin-top: 0 !important;
+  .rd-horizon-workspace .rd-horizon-workspace-aside {
+    padding-right: 0 !important;
+  }
+
+  .rd-horizon-workspace .rd-horizon-workspace-aside > * {
+    margin-block: 0 !important;
   }
 }
 
@@ -5386,7 +5522,7 @@
 
 .rd-horizon-discussion .rd-horizon-discussion-badge,
 .rd-horizon-discussion .rd-horizon-discussion-scope {
-  border-color: rgba(0, 47, 167, 0.08) !important;
+  border-color: rgba(var(--primary-rgb), 0.08) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
   box-shadow: none !important;
@@ -5461,12 +5597,12 @@
 }
 
 .rd-horizon-discussion .rd-conversation-composer__field > label:first-child:focus-within {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px !important;
 }
 
 .rd-horizon-discussion :where(button, [role="button"], input, textarea):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px !important;
   box-shadow: none !important;
 }
@@ -5574,7 +5710,7 @@ html.mobile-route select {
 }
 
 .rd-horizon-people .rd-people-back:hover {
-  border-color: rgba(0, 47, 167, 0.2) !important;
+  border-color: rgba(var(--primary-rgb), 0.2) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -5592,13 +5728,13 @@ html.mobile-route select {
   border-radius: 12px !important;
   color: #ffffff !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 10px 22px -14px rgba(0, 47, 167, 0.72) !important;
+  box-shadow: 0 10px 22px -14px rgba(var(--primary-rgb), 0.72) !important;
 }
 
 .rd-horizon-people .rd-people-primary:hover,
 .rd-horizon-people .rd-people-empty-primary:hover {
   background: var(--rd-primary-hover) !important;
-  box-shadow: 0 10px 22px -14px rgba(0, 47, 167, 0.72) !important;
+  box-shadow: 0 10px 22px -14px rgba(var(--primary-rgb), 0.72) !important;
   transform: none !important;
 }
 
@@ -5679,8 +5815,8 @@ html.mobile-route select {
 }
 
 .rd-horizon-people .rd-people-search:focus-within {
-  border-color: rgba(0, 47, 167, 0.24) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.07) !important;
+  border-color: rgba(var(--primary-rgb), 0.24) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.07) !important;
 }
 
 .rd-horizon-people .rd-people-search input {
@@ -5719,7 +5855,7 @@ html.mobile-route select {
 .rd-horizon-people .rd-people-status-filter button[data-active="true"] {
   color: #ffffff !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 7px 16px -12px rgba(0, 47, 167, 0.72) !important;
+  box-shadow: 0 7px 16px -12px rgba(var(--primary-rgb), 0.72) !important;
 }
 
 .rd-horizon-people .rd-people-department-filter {
@@ -5733,8 +5869,8 @@ html.mobile-route select {
 }
 
 .rd-horizon-people .rd-people-department-filter:focus {
-  border-color: rgba(0, 47, 167, 0.24) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.07) !important;
+  border-color: rgba(var(--primary-rgb), 0.24) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.07) !important;
 }
 
 .rd-horizon-people .rd-people-result-count {
@@ -5814,7 +5950,7 @@ html.mobile-route select {
 }
 
 .rd-horizon-people .rd-people-row-actions button[data-action="edit"]:hover {
-  border-color: rgba(0, 47, 167, 0.14);
+  border-color: rgba(var(--primary-rgb), 0.14);
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -5838,7 +5974,7 @@ html.mobile-route select {
 }
 
 .rd-horizon-people .rd-people-pagination button:not(:disabled):hover {
-  border-color: rgba(0, 47, 167, 0.2) !important;
+  border-color: rgba(var(--primary-rgb), 0.2) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -5854,7 +5990,7 @@ html.mobile-route select {
 }
 
 .rd-horizon-people :where(button, input, select, [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px;
 }
 
@@ -5864,15 +6000,15 @@ html.mobile-route select {
 
 /* Portal 到 body 的研发人员弹窗自带完整作用域，不依赖页面祖先选择器。 */
 .rd-horizon-people-dialog-overlay {
-  --rd-primary: #002fa7;
-  --rd-primary-hover: #002581;
-  --rd-ink: #1b2559;
-  --rd-body: #42526f;
-  --rd-muted: #64748b;
-  --rd-canvas: #f4f7fe;
-  --rd-soft-blue: #eef3ff;
-  --rd-line: #e9edf7;
-  --rd-line-strong: #e0e5f2;
+  --rd-primary: var(--primary);
+  --rd-primary-hover: var(--primary-hover);
+  --rd-ink: var(--foreground);
+  --rd-body: var(--on-surface-variant);
+  --rd-muted: var(--muted-foreground);
+  --rd-canvas: var(--background);
+  --rd-soft-blue: var(--accent);
+  --rd-line: var(--border-subtle);
+  --rd-line-strong: var(--border);
   z-index: 90 !important;
   padding: 1rem !important;
   background: rgba(27, 37, 89, 0.32) !important;
@@ -5916,8 +6052,8 @@ html.mobile-route select {
 }
 
 .rd-horizon-people-dialog :where(input, select):focus {
-  border-color: rgba(0, 47, 167, 0.28) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.07) !important;
+  border-color: rgba(var(--primary-rgb), 0.28) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.07) !important;
 }
 
 .rd-horizon-people-dialog .rd-people-access-control {
@@ -5936,7 +6072,7 @@ html.mobile-route select {
   border-radius: 10px !important;
   color: #ffffff !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 10px 22px -14px rgba(0, 47, 167, 0.72) !important;
+  box-shadow: 0 10px 22px -14px rgba(var(--primary-rgb), 0.72) !important;
 }
 
 .rd-horizon-people-dialog .rd-people-dialog-primary:hover {
@@ -5944,7 +6080,7 @@ html.mobile-route select {
 }
 
 .rd-horizon-people-dialog :where(button, input, select, [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px;
 }
 
@@ -6137,7 +6273,7 @@ html.mobile-route select {
 }
 
 .rd-horizon-ai-settings .rd-ai-restore:not(:disabled):hover {
-  border-color: rgba(0, 47, 167, 0.2) !important;
+  border-color: rgba(var(--primary-rgb), 0.2) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -6352,8 +6488,8 @@ html.mobile-route select {
 
 .rd-horizon-ai-settings :where(input, [data-slot="select-trigger"]):focus,
 .rd-horizon-ai-settings :where(input, [data-slot="select-trigger"]):focus-visible {
-  border-color: rgba(0, 47, 167, 0.28) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.07) !important;
+  border-color: rgba(var(--primary-rgb), 0.28) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.07) !important;
 }
 
 .rd-horizon-ai-settings [data-slot="switch"][data-state="checked"],
@@ -6465,12 +6601,12 @@ html.mobile-route select {
 }
 
 .rd-horizon-ai-settings .rd-ai-capability-toggle:hover {
-  border-color: rgba(0, 47, 167, 0.18) !important;
+  border-color: rgba(var(--primary-rgb), 0.18) !important;
   background: var(--rd-soft-blue) !important;
 }
 
 .rd-horizon-ai-settings .rd-ai-capability-toggle[data-active="true"] {
-  border-color: rgba(0, 47, 167, 0.22) !important;
+  border-color: rgba(var(--primary-rgb), 0.22) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -6495,7 +6631,7 @@ html.mobile-route select {
 }
 
 .rd-horizon-ai-settings :where(button, input, [data-slot="select-trigger"], [data-slot="switch"], [data-slot="checkbox"]):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px;
 }
 
@@ -6505,11 +6641,11 @@ html.mobile-route select {
 
 /* Radix Select Portal：只有研发 AI 策略显式传入该类。 */
 .rd-horizon-ai-select-content {
-  --rd-primary: #002fa7;
-  --rd-ink: #1b2559;
-  --rd-body: #42526f;
-  --rd-soft-blue: #eef3ff;
-  --rd-line: #e9edf7;
+  --rd-primary: var(--primary);
+  --rd-ink: var(--foreground);
+  --rd-body: var(--on-surface-variant);
+  --rd-soft-blue: var(--accent);
+  --rd-line: var(--border-subtle);
   z-index: 100 !important;
   padding: 0.25rem !important;
   border: 1px solid var(--rd-line) !important;
@@ -6711,7 +6847,7 @@ html.mobile-route select {
 
 .rd-horizon-audit :where(button, input, select, textarea, [role="button"], [tabindex]):focus-visible,
 .rd-horizon-audit .rd-horizon-audit-row:focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: -2px !important;
   box-shadow: none !important;
 }
@@ -6732,7 +6868,7 @@ html.mobile-route select {
   height: 2.5rem !important;
   border-radius: 12px !important;
   background: var(--rd-primary) !important;
-  box-shadow: 0 9px 18px -13px rgba(0, 47, 167, 0.74) !important;
+  box-shadow: 0 9px 18px -13px rgba(var(--primary-rgb), 0.74) !important;
 }
 
 .rd-horizon-audit .rd-horizon-audit-command-copy h2 {
@@ -6766,7 +6902,7 @@ html.mobile-route select {
 }
 
 .rd-horizon-audit .rd-horizon-audit-preset:hover {
-  border-color: rgba(0, 47, 167, 0.2) !important;
+  border-color: rgba(var(--primary-rgb), 0.2) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
   transform: none !important;
@@ -6774,7 +6910,7 @@ html.mobile-route select {
 
 .rd-horizon-audit .rd-horizon-audit-reset {
   background: var(--rd-primary) !important;
-  box-shadow: 0 10px 20px -14px rgba(0, 47, 167, 0.7) !important;
+  box-shadow: 0 10px 20px -14px rgba(var(--primary-rgb), 0.7) !important;
 }
 
 .rd-horizon-audit .rd-horizon-audit-reset:hover {
@@ -6806,7 +6942,7 @@ html.mobile-route select {
 
 .rd-horizon-audit .rd-horizon-audit-stat:hover {
   border-color: var(--rd-line) !important;
-  background: rgba(238, 243, 255, 0.36) !important;
+  background: rgba(var(--accent-rgb), 0.36) !important;
   box-shadow: none !important;
   transform: none !important;
 }
@@ -6894,9 +7030,9 @@ html.mobile-route select {
 }
 
 .rd-horizon-audit .rd-horizon-audit-filter-search > div:focus-within {
-  border-color: rgba(0, 47, 167, 0.28) !important;
+  border-color: rgba(var(--primary-rgb), 0.28) !important;
   background: var(--rd-surface) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.08) !important;
 }
 
 .rd-horizon-audit .rd-horizon-audit-filter-search input {
@@ -6939,7 +7075,7 @@ html.mobile-route select {
 
 .rd-horizon-audit .rd-horizon-audit-filters :where(select, input[type="date"]):hover,
 .rd-horizon-audit .rd-horizon-audit-list-header select:hover {
-  border-color: rgba(0, 47, 167, 0.2) !important;
+  border-color: rgba(var(--primary-rgb), 0.2) !important;
 }
 
 .rd-horizon-audit .rd-horizon-audit-list {
@@ -6971,7 +7107,7 @@ html.mobile-route select {
 
 .rd-horizon-audit .rd-horizon-audit-list-header button:hover,
 .rd-horizon-audit .rd-horizon-audit-list-footer button:not(:disabled):hover {
-  border-color: rgba(0, 47, 167, 0.2) !important;
+  border-color: rgba(var(--primary-rgb), 0.2) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
   transform: none !important;
@@ -7005,12 +7141,12 @@ html.mobile-route select {
 
 .rd-horizon-audit .rd-horizon-audit-row:hover,
 .rd-horizon-audit .rd-horizon-audit-row:focus-visible {
-  background: rgba(238, 243, 255, 0.48) !important;
+  background: rgba(var(--accent-rgb), 0.48) !important;
 }
 
 .rd-horizon-audit .rd-horizon-audit-row[data-selected="true"] {
   background: var(--rd-soft-blue) !important;
-  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.24) !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.24) !important;
 }
 
 .rd-horizon-audit .rd-horizon-audit-list-footer {
@@ -7210,19 +7346,19 @@ html.mobile-route select {
  * ──────────────────────────────────────────────────────────────────────────── */
 .rd-horizon-approval,
 .rd-horizon-approval-dialog {
-  --rd-primary: #002fa7;
-  --rd-primary-hover: #002581;
-  --rd-ink: #1b2559;
-  --rd-body: #42526f;
-  --rd-muted: #64748b;
-  --rd-subtle: #8f9bba;
-  --rd-canvas: #f4f7fe;
-  --rd-surface: #ffffff;
-  --rd-soft-blue: #eef3ff;
-  --rd-line: #e9edf7;
-  --rd-line-strong: #e0e5f2;
-  --rd-shadow-card: 0 8px 24px rgba(112, 144, 176, 0.065);
-  --rd-shadow-focal: 0 16px 38px rgba(112, 144, 176, 0.11);
+  --rd-primary: var(--primary);
+  --rd-primary-hover: var(--primary-hover);
+  --rd-ink: var(--foreground);
+  --rd-body: var(--on-surface-variant);
+  --rd-muted: var(--muted-foreground);
+  --rd-subtle: var(--muted-foreground);
+  --rd-canvas: var(--background);
+  --rd-surface: var(--card);
+  --rd-soft-blue: var(--accent);
+  --rd-line: var(--border-subtle);
+  --rd-line-strong: var(--border);
+  --rd-shadow-card: var(--shadow-card);
+  --rd-shadow-focal: var(--shadow-card);
 }
 
 .rd-horizon-approval {
@@ -7320,7 +7456,7 @@ html.mobile-route select {
 
 .rd-horizon-approval .rd-approval-secondary:hover,
 .rd-horizon-approval .rd-approval-secondary:focus-visible {
-  border-color: rgba(0, 47, 167, 0.14) !important;
+  border-color: rgba(var(--primary-rgb), 0.14) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }
@@ -7475,9 +7611,9 @@ html.mobile-route select {
 
 .rd-horizon-approval .rd-approval-node-description:focus,
 .rd-horizon-approval .rd-approval-node-config :where(input, select):focus {
-  border-color: rgba(0, 47, 167, 0.24) !important;
+  border-color: rgba(var(--primary-rgb), 0.24) !important;
   background: var(--rd-surface) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.06) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.06) !important;
 }
 
 .rd-horizon-approval .rd-approval-node-config {
@@ -7654,7 +7790,7 @@ html.mobile-route select {
 
 .rd-horizon-approval :where(button, input, select, textarea, [role="button"], [tabindex]):focus-visible,
 .rd-horizon-approval-dialog :where(button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px !important;
   box-shadow: none !important;
 }
@@ -7866,9 +8002,9 @@ html.mobile-route select {
 .rd-horizon-kb .rd-kb-filter:focus-visible,
 .rd-horizon-kb .rd-kb-search input:focus-visible,
 .rd-horizon-kb .rd-kb-toolbar-action:focus-visible {
-  border-color: rgba(0, 47, 167, 0.4) !important;
+  border-color: rgba(var(--primary-rgb), 0.4) !important;
   outline: none !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.08) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.08) !important;
 }
 
 .rd-horizon-kb .rd-kb-search > svg,
@@ -8163,7 +8299,7 @@ html.mobile-route select {
 
 .rd-horizon-kb .rd-kb-drop-overlay {
   inset: 0.75rem !important;
-  border-color: rgba(0, 47, 167, 0.24) !important;
+  border-color: rgba(var(--primary-rgb), 0.24) !important;
   background: rgba(244, 247, 254, 0.96) !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
@@ -8181,14 +8317,14 @@ html.mobile-route select {
 }
 
 .rd-horizon-kb .rd-kb-drop-surface > span {
-  border-color: rgba(0, 47, 167, 0.14) !important;
+  border-color: rgba(var(--primary-rgb), 0.14) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
   box-shadow: none !important;
 }
 
 .rd-horizon-kb :where(button, input, [role="button"], [tabindex]):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px;
 }
 
@@ -8349,19 +8485,19 @@ html.mobile-route select {
 /* 研发知识库 Portal：类由 React Context 只挂到原生研发实例。 */
 .rd-horizon-kb-dialog,
 .rd-horizon-kb-menu {
-  --rd-primary: #002fa7;
-  --rd-primary-hover: #002581;
-  --rd-ink: #1b2559;
-  --rd-body: #42526f;
-  --rd-muted: #64748b;
-  --rd-subtle: #8f9bba;
-  --rd-canvas: #f4f7fe;
-  --rd-surface: #ffffff;
-  --rd-soft-blue: #eef3ff;
-  --rd-line: #e9edf7;
-  --rd-line-strong: #e0e5f2;
-  --rd-shadow-card: 0 8px 24px rgba(112, 144, 176, 0.065);
-  --rd-shadow-focal: 0 16px 42px rgba(27, 37, 89, 0.16);
+  --rd-primary: var(--primary);
+  --rd-primary-hover: var(--primary-hover);
+  --rd-ink: var(--foreground);
+  --rd-body: var(--on-surface-variant);
+  --rd-muted: var(--muted-foreground);
+  --rd-subtle: var(--muted-foreground);
+  --rd-canvas: var(--background);
+  --rd-surface: var(--card);
+  --rd-soft-blue: var(--accent);
+  --rd-line: var(--border-subtle);
+  --rd-line-strong: var(--border);
+  --rd-shadow-card: var(--shadow-card);
+  --rd-shadow-focal: var(--shadow-card);
 }
 
 [data-slot="dialog-overlay"]:has(+ .rd-horizon-kb-dialog) {
@@ -8398,7 +8534,7 @@ html.mobile-route select {
 .rd-horizon-kb-dialog [data-slot="dialog-title"] > span {
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
-  box-shadow: inset 0 0 0 1px rgba(0, 47, 167, 0.08) !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.08) !important;
 }
 
 .rd-horizon-kb-dialog [data-slot="dialog-description"]:not(.sr-only),
@@ -8420,7 +8556,7 @@ html.mobile-route select {
 .rd-horizon-kb-dialog :where(input, textarea, button[role="combobox"]):focus-visible,
 .rd-horizon-kb-dialog :where(button, [role="button"], [tabindex]):focus-visible,
 .rd-horizon-kb-menu :where([role="menuitem"], button):focus-visible {
-  outline: 2px solid rgba(0, 47, 167, 0.72) !important;
+  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
   outline-offset: 2px;
   box-shadow: none !important;
 }
@@ -8525,18 +8661,18 @@ html.mobile-route select {
 }
 
 .rd-horizon-kb-upload-dialog .rd-kb-upload-dropzone:hover {
-  border-color: rgba(0, 47, 167, 0.32) !important;
+  border-color: rgba(var(--primary-rgb), 0.32) !important;
   background: var(--rd-surface) !important;
 }
 
 .rd-horizon-kb-upload-dialog .rd-kb-upload-dropzone[class*="border-indigo-400"] {
   border-color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
-  box-shadow: 0 0 0 3px rgba(0, 47, 167, 0.07) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.07) !important;
 }
 
 .rd-horizon-kb-upload-dialog .rd-kb-upload-dropzone > span {
-  border-color: rgba(0, 47, 167, 0.12) !important;
+  border-color: rgba(var(--primary-rgb), 0.12) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
   box-shadow: none !important;
@@ -8562,7 +8698,7 @@ html.mobile-route select {
 }
 
 .rd-horizon-kb-preview-dialog .rd-kb-preview-header button.border-indigo-200 {
-  border-color: rgba(0, 47, 167, 0.18) !important;
+  border-color: rgba(var(--primary-rgb), 0.18) !important;
   color: var(--rd-primary) !important;
   background: var(--rd-soft-blue) !important;
 }

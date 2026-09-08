@@ -59,6 +59,7 @@ model User {
   refreshTokens           RefreshToken[]
   auditLogs               AuditLog[]
   conversations           ChatConversation[]
+  deliveryChecks          ChatDeliveryCheck[]
   generatedImages         GeneratedImage[]
   imageEditMessages       ImageEditMessage[]
   imagePromptChatSessions ImagePromptChatSession[]
@@ -91,6 +92,7 @@ model ChatConversation {
   summary   String        @default("")
   pinned    Boolean       @default(false)
   messages  ChatMessage[]
+  deliveryChecks ChatDeliveryCheck[]
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 }
@@ -105,6 +107,8 @@ model ChatMessage {
   reaction        String?
   // 用户消息附带的图片/文件附件，结构：[{ fileId, name, mime, size, objectKey }]
   attachments     Json?
+  /// 页面对象引用；只保存引用，不保存敏感业务快照。
+  pageContext     Json?
   /// assistant 消息的 ReAct 工具调用步骤，结构：[{ callId, tool, label, status, detail, args, output }]。
   /// args/output 是截断后的调用参数与观察值，供步骤条展开查看（仅会话本人可见）。
   /// 落库而非只走 SSE：刷新后步骤条要能回放，且「分享给同事」的越权确认要靠它判断
@@ -118,6 +122,26 @@ model ChatMessage {
   createdAt       DateTime         @default(now())
 
   @@unique([conversationId, clientMessageId])
+}
+
+/// 用户核对的研发结项资料清单；候选文件不等于合格或最新版本。
+model ChatDeliveryCheck {
+  id             String           @id @default(cuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  taskId         String
+  workspace      String           @default("rd")
+  taskTitle      String
+  checklist      Json
+  revision       Int              @default(1)
+  checkedAt      DateTime         @default(now())
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([userId, conversationId, updatedAt])
+  @@index([userId, taskId])
 }
 
 /// 用户对单条 AI 回答的显式反馈。reaction 仍同步保留在 ChatMessage，兼容旧客户端。
@@ -990,6 +1014,54 @@ model EmailIngestionLog {
   candidate    Candidate? @relation(fields: [candidateId], references: [id])
   errorMessage String?
   createdAt    DateTime   @default(now())
+}
+
+/// MateChat 文件检索快照。只存服务端来源引用，不接受任意 URL / 对象键。
+model ChatFileSelection {
+  id             String   @id @default(cuid())
+  userId         String
+  conversationId String
+  filter         Json
+  files          Json
+  warnings       Json
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  @@index([userId, conversationId, createdAt])
+  @@index([expiresAt])
+}
+
+/// 持久化打包队列；租约 + claimToken 防止多个实例重复发布结果。
+model ChatArchiveJob {
+  id             String   @id @default(cuid())
+  userId         String
+  conversationId String
+  requestKey     String   @unique
+  filename       String
+  grouping       String   @default("source")
+  files          Json
+  warnings       Json
+  status         String   @default("queued")
+  total          Int
+  processed      Int      @default(0)
+  succeeded      Int      @default(0)
+  failed         Int      @default(0)
+  bytes          BigInt   @default(0)
+  report         Json?
+  objectKey      String?
+  outputKeys     Json     @default("[]")
+  error          String?
+  attempts       Int      @default(0)
+  claimToken     String?
+  leaseUntil     DateTime?
+  cancelRequested Boolean @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  expiresAt      DateTime
+
+  @@index([status, leaseUntil, createdAt])
+  @@index([userId, conversationId, createdAt])
+  @@index([expiresAt])
 }
 
 model FileAsset {

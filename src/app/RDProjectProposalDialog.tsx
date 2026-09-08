@@ -483,7 +483,11 @@ function TaskDueDatePicker({
           <CalendarDays className="h-4 w-4 text-slate-500" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto rounded-xl border-slate-200 bg-white p-0 shadow-xl">
+      <PopoverContent
+        align="start"
+        collisionPadding={12}
+        className="max-h-[var(--radix-popover-content-available-height)] w-auto overflow-y-auto overscroll-contain rounded-xl border-slate-200 bg-white p-0 shadow-xl"
+      >
         <Calendar
           mode="single"
           selected={selected}

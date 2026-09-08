@@ -365,7 +365,8 @@ test('研发管理员打回会删除待审采购记录并允许研发侧重新�
 
   assert.deepEqual(result, { ok: true, deletedId: 'proc-1' });
   assert.deepEqual(deletedIds, ['proc-1']);
-  assert.equal(handledReviewMessages.length, 1);
+  assert.equal(handledReviewMessages.length, 2);
+  assert.deepEqual(handledReviewMessages.map((item: any) => item.where.type), ['review_request', 'procurement_transfer_returned']);
   assert.deepEqual(messages.map((message) => message.recipient_id).sort(), ['rd-1', 'super-admin']);
   for (const message of messages) {
     const body = JSON.parse(String(message.body)) as Record<string, unknown>;

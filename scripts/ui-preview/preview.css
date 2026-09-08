@@ -1,0 +1,15 @@
+.ui-preview-frame { min-height: 100dvh; background: #f4f7fe; color: #1b2559; }
+.ui-preview-banner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 12px 24px; background: #fff5d6; color: #6f4500; border-bottom: 1px solid #f1d693; font-size: 13px; }
+.ui-preview-language, .ui-preview-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ui-preview-language button, .ui-preview-actions button { border: 1px solid #cdd5e8; border-radius: 8px; background: white; padding: 8px 12px; cursor: pointer; }
+.ui-preview-language button[aria-pressed="true"] { border-color: #4318ff; color: #4318ff; font-weight: 700; }
+.ui-preview-nav { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 24px; border-bottom: 1px solid #e0e7f3; background: white; }
+.ui-preview-nav a { color: #536183; padding: 8px 12px; border-radius: 8px; font-size: 13px; text-decoration: none; }
+.ui-preview-nav a[aria-current="page"] { background: #eeebff; color: #4318ff; font-weight: 700; }
+.ui-preview-main { max-width: 1600px; margin: 0 auto; padding: 20px 24px 40px; min-width: 0; }
+.ui-preview-title { font-size: 24px; font-weight: 700; margin-bottom: 16px; }
+.ui-preview-panel { background: white; border: 1px solid #e0e7f3; border-radius: 16px; padding: 24px; min-width: 0; }
+.ui-preview-panel h2 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+.ui-preview-panel > p { color: #536183; font-size: 13px; margin-bottom: 20px; }
+.ui-preview-frame button:focus-visible, .ui-preview-frame a:focus-visible { outline: 2px solid #4318ff; outline-offset: 3px; }
+@media (max-width: 640px) { .ui-preview-banner, .ui-preview-nav { padding: 12px; } .ui-preview-main { padding: 16px 12px 32px; } .ui-preview-panel { padding: 16px; } }

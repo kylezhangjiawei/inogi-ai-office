@@ -1,10 +1,11 @@
 // 报价库批量导入弹窗：选文件/拖拽 → 规则解析预览（错误/提示分级、商品图提取）→ AI 识别兜底 → 确认应用。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../../components/ui/input";
-import { AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Sparkles, Upload } from "lucide-react";
+import { CheckCircle2, FileSpreadsheet, Loader2, Search, Sparkles, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { cn } from "../../components/ui/utils";
+import { Button } from "../../components/ui/button";
 import { useI18n } from "../../lib/i18n";
 import {
   aiParseSupplierQuotes,
@@ -14,11 +15,101 @@ import {
   type ImportSupplierQuoteItem,
   type QuoteBookRow,
 } from "../../lib/procurementApi";
-import { downloadQuoteBookTemplate, fileToSheetText, parseQuoteBookFile } from "../quoteBookXlsx";
+import { downloadQuoteBookTemplate, fileToSheetText, normalizeQuoteImportTiers, parseQuoteBookFile } from "../quoteBookXlsx";
 import { selectFailedQuoteImportEntries } from "../procurementLogic";
 
 // 分组 key 分隔符：商品名可含空格，用 NUL 防拼接碰撞
 const SEP = String.fromCharCode(0);
+
+/** Read-only recognition results, shared by the import dialog and isolated visual checks. */
+export function QuoteImportPreview({ items, existingRows, imageUrls = [] }: {
+  items: ImportSupplierQuoteItem[];
+  existingRows: QuoteBookRow[];
+  imageUrls?: Array<string | undefined>;
+}) {
+  const { t } = useI18n();
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const existing = useMemo(() => ({
+    materials: new Set(existingRows.map((row) => row.name)),
+    quotes: new Set(existingRows.flatMap((row) => row.quotes.map((quote) => `${row.name}${SEP}${quote.supplierName}`))),
+  }), [existingRows]);
+  const matching = useMemo(() => {
+    const keyword = search.trim().toLocaleLowerCase();
+    return items.map((item, index) => ({ item, index })).filter(({ item }) => !keyword ||
+      [item.materialName, item.supplierName, item.supplierModel, item.spec].some((value) => value?.toLocaleLowerCase().includes(keyword)));
+  }, [items, search]);
+  const totalPages = Math.max(1, Math.ceil(matching.length / 20));
+  const pageSafe = Math.min(page, totalPages);
+  if (pageSafe !== page) setPage(pageSafe);
+  const formatPrice = (value: number, currency: string) => `${currency} ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+  const changePage = (next: number) => {
+    setPage(next);
+    headingRef.current?.focus();
+  };
+  return (
+    <section aria-label={t("逐条核对报价")} className="mt-4 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 ref={headingRef} tabIndex={-1} className="text-balance text-sm font-semibold text-slate-800 outline-none">{t("逐条核对报价")}</h3>
+        <span aria-live="polite" className="text-xs tabular-nums text-slate-500">{t("匹配 {count} / {total} 条", { count: matching.length, total: items.length })}</span>
+      </div>
+      <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">{t("请逐条核对识别结果；如需修改，请修正文件后重新选择。筛选仅用于核对，不会改变导入范围。")}</p>
+      <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">{t("已存在商品沿用物料库中的规格、分类与单位；仅新增商品使用文件中的资料。")}</p>
+      <div className="relative mt-2">
+        <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+        <Input ref={searchRef} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} aria-label={t("搜索待导入报价")} placeholder={t("搜索商品 / 厂家 / 型号")} className="h-9 pl-9 pr-10 text-sm" />
+        {search && <Button type="button" variant="ghost" size="icon" aria-label={t("清空搜索")} onClick={() => { setSearch(""); setPage(1); searchRef.current?.focus(); }} className="absolute right-0.5 top-0.5 size-8"><X className="size-4" /></Button>}
+      </div>
+      <ol className="mt-3 space-y-3">
+        {matching.slice((pageSafe - 1) * 20, pageSafe * 20).map(({ item, index }) => {
+          const currency = item.currency || "CNY";
+          const isNewMaterial = !existing.materials.has(item.materialName);
+          const isUpdate = existing.quotes.has(`${item.materialName}${SEP}${item.supplierName}`);
+          return (
+            <li key={`${index}:${item.materialName}:${item.supplierName}`} className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <div className="flex min-w-0 items-start gap-3 border-b border-slate-100 bg-slate-50/60 px-3 py-2.5">
+                <span className="pt-0.5 text-xs tabular-nums text-slate-500">{index + 1}</span>
+                {imageUrls[index] && <img src={imageUrls[index]} alt={t("第 {index} 张报价图片预览", { index: index + 1 })} loading="lazy" className="size-12 shrink-0 rounded-lg border border-slate-200 bg-white object-contain" />}
+                <div className="min-w-0 flex-1">
+                  <div className="break-words text-sm font-semibold text-slate-800">{item.materialName}</div>
+                  <div className="mt-0.5 break-words text-xs text-slate-600">{item.supplierName}</div>
+                </div>
+                <span className={cn("max-w-28 shrink-0 rounded-md border px-2 py-1 text-center text-xs", isUpdate ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600")}>{t(isUpdate ? "覆盖已有报价" : "新增报价")}</span>
+              </div>
+              <div className="min-w-0 space-y-3 px-3 py-3">
+                {isNewMaterial && <p className="text-pretty text-xs text-amber-700">{t("新商品，导入后进入审核队列")}</p>}
+                <dl className="grid min-w-0 grid-cols-1 gap-x-5 gap-y-2 text-xs sm:grid-cols-2">
+                  {[
+                    [t("规格"), item.spec || "—"],
+                    [t("厂家型号 / 品牌"), item.supplierModel || "—"],
+                    [t("分类"), item.category || "—"],
+                    [t("单位"), item.unit || "—"],
+                    [t("币种 / 税费"), `${currency} · ${t(item.taxIncluded === false ? "不含税" : "含税价")}`],
+                    [t("交期"), item.leadTimeDays ? t("{n} 天", { n: item.leadTimeDays }) : t("交期未填写")],
+                    [t("报价日期"), item.quoteDate || t("未填写")],
+                    [t("有效期至"), item.validUntil || t("长期有效")],
+                  ].map(([label, value]) => <div key={label} className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-start gap-2"><dt className="break-words text-slate-500">{label}</dt><dd className="min-w-0 break-words tabular-nums text-slate-800">{value}</dd></div>)}
+                </dl>
+                <div>
+                  <div className="mb-1.5 text-xs font-medium text-slate-600">{t("阶梯报价")}</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {normalizeQuoteImportTiers(item.tiers).map((tier, tierIndex) => <div key={tierIndex} className="flex max-w-full flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs tabular-nums"><span className="min-w-0 break-words text-slate-500">{tier.minQty > 0 ? `≥ ${tier.minQty.toLocaleString()}${item.unit ? ` ${item.unit}` : ""}` : t("不限起订")}</span><span className="min-w-0 break-all font-semibold text-slate-800">{formatPrice(tier.unitPrice, currency)}</span></div>)}
+                  </div>
+                </div>
+                {item.historyPrices && item.historyPrices.length > 0 && <div><div className="mb-1.5 text-xs font-medium text-slate-600">{t("历史轮次价格")}</div><ul className="space-y-1 text-xs tabular-nums text-slate-600">{item.historyPrices.map((history, historyIndex) => <li key={historyIndex} className="flex flex-wrap gap-x-2 break-words"><span>{history.label || t("第 {index} 轮", { index: historyIndex + 1 })}</span><span>{history.minQty ? `≥ ${history.minQty.toLocaleString()}` : t("不限起订")}</span><span className="break-all">{formatPrice(history.unitPrice, currency)}</span></li>)}</ul></div>}
+                {item.note && <p className="break-words text-pretty text-xs leading-5 text-slate-600"><span className="mr-2 text-slate-500">{t("备注")}</span>{item.note}</p>}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      {matching.length === 0 && <div className="rounded-xl border border-slate-100 px-4 py-6 text-center text-sm text-slate-500"><p>{t("没有匹配的报价")}</p><Button type="button" variant="link" onClick={() => { setSearch(""); setPage(1); searchRef.current?.focus(); }} className="mt-1 text-xs">{t("清空搜索")}</Button></div>}
+      {totalPages > 1 && <div className="mt-3 flex flex-wrap items-center gap-2"><span className="mr-auto text-xs tabular-nums text-slate-500">{t("第 {page} / {total} 页", { page: pageSafe, total: totalPages })}</span><Button type="button" variant="outline" size="sm" disabled={pageSafe <= 1} onClick={() => changePage(pageSafe - 1)}>{t("上一页")}</Button><Button type="button" variant="outline" size="sm" disabled={pageSafe >= totalPages} onClick={() => changePage(pageSafe + 1)}>{t("下一页")}</Button></div>}
+    </section>
+  );
+}
 
 export function QuoteImportModal({
   rows, onClose, onImported,
@@ -30,6 +121,7 @@ export function QuoteImportModal({
 }) {
   const { t } = useI18n();
   const fileRef = useRef<HTMLInputElement>(null);
+  const openerRef = useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const requestIdRef = useRef(0);
   const [file, setFile] = useState<File | null>(null);
   const [items, setItems] = useState<ImportSupplierQuoteItem[]>([]);
@@ -258,29 +350,34 @@ export function QuoteImportModal({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o && !busy && !aiBusy && !parseBusy) onClose(); }}>
-      <DialogContent className="proc-horizon-overlay gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-xl">
-        <DialogHeader className="border-b border-slate-100 px-6 py-4">
+      <DialogContent
+        closeDisabled={busy || aiBusy || parseBusy}
+        onCloseAutoFocus={(event) => {
+          if (openerRef.current?.isConnected) { event.preventDefault(); openerRef.current.focus(); }
+        }}
+        className="proc-horizon-overlay proc-quote-import flex flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-4xl">
+        <DialogHeader className="shrink-0 border-b border-slate-100 px-6 py-4 pr-16">
           <DialogTitle className="text-balance text-base font-bold text-slate-900">{t("批量导入厂家报价")}</DialogTitle>
-          <DialogDescription className="mt-0.5 text-pretty text-xs text-slate-400">{t("同商品同供应商多行自动合并为阶梯报价；已有报价将被整条覆盖。")}</DialogDescription>
+          <DialogDescription className="mt-0.5 text-pretty text-xs text-slate-500">{t("同商品同供应商多行自动合并为阶梯报价；已有报价将被整条覆盖。")}</DialogDescription>
         </DialogHeader>
 
-        <div aria-label={t("导入进度")} className="grid grid-cols-3 border-b border-slate-100 bg-slate-50/70 px-6 py-2.5">
+        <div aria-label={t("导入进度")} className="grid shrink-0 grid-cols-3 gap-2 border-b border-slate-100 bg-slate-50/70 px-6 py-2.5">
           {[t("选择文件"), t("核对识别结果"), t("导入生效")].map((label, index) => {
             const step = index + 1;
             const complete = step < currentStep;
             const active = step === currentStep;
             return (
-              <div key={label} className={cn("flex items-center gap-2 text-xs", active ? "font-semibold text-[#002fa7]" : complete ? "text-emerald-700" : "text-slate-400")}>
-                <span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", active ? "border-[#002fa7] bg-[#002fa7] text-white" : complete ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>
+              <div key={label} aria-current={active ? "step" : undefined} className={cn("flex items-center gap-2 text-xs", active ? "font-semibold text-primary" : complete ? "text-emerald-700" : "text-slate-500")}>
+                <span className={cn("flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", active ? "border-primary bg-primary text-white" : complete ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>
                   {complete ? <CheckCircle2 className="size-3" /> : step}
                 </span>
-                <span className="truncate">{label}</span>
+                <span className="min-w-0 text-pretty">{label}</span>
               </div>
             );
           })}
         </div>
 
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain break-words px-6 py-4">
           <Input ref={fileRef} type="file" accept=".xlsx,.xls,.png,.jpg,.jpeg,.webp,.bmp" disabled={busy || parseBusy || aiBusy} className="hidden" onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; void pick(picked); }} />
           {/* 点击或拖拽上传：dragOver 必须 preventDefault 才能触发 drop */}
           <button
@@ -296,48 +393,43 @@ export function QuoteImportModal({
               if (busy || parseBusy || aiBusy) return;
               const dropped = e.dataTransfer.files?.[0];
               if (!dropped) return;
-              if (!/\.(xlsx|xls|png|jpe?g|webp|bmp)$/i.test(dropped.name)) { toast.error(t("请拖入表格（.xlsx/.xls）或表格图片（.png/.jpg）")); return; }
+              if (!/\.(xlsx|xls|png|jpe?g|webp|bmp)$/i.test(dropped.name)) { const message = t("请拖入表格（.xlsx/.xls）或表格图片（.png/.jpg）"); setOperationError(message); toast.error(message); return; }
               void pick(dropped);
             }}
             className={cn(
-              "flex w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-7 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8] disabled:cursor-wait disabled:opacity-70",
-              dragging ? "border-[#8fa9e8] bg-[#eef3ff]" : "border-slate-200 hover:border-[#8fa9e8] hover:bg-slate-50/60",
+              "flex w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-7 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-wait disabled:opacity-70",
+              dragging ? "border-primary/40 bg-accent" : "border-slate-200 hover:border-primary/40 hover:bg-slate-50/60",
             )}
           >
-            <FileSpreadsheet className={cn("size-7", dragging ? "text-[#002fa7]" : "text-slate-300")} />
+            <FileSpreadsheet className={cn("size-7", dragging ? "text-primary" : "text-slate-300")} />
             {parseBusy || aiBusy ? (
-              <span className="inline-flex items-center gap-2 text-sm font-medium text-[#002fa7]"><Loader2 className="size-4 animate-spin" />{parseBusy ? t("正在解析表格…") : t("正在识别报价…")}</span>
+              <span className="inline-flex items-center gap-2 text-sm font-medium text-primary"><Loader2 className="size-4 animate-spin" />{parseBusy ? t("正在解析表格…") : t("正在识别报价…")}</span>
             ) : file ? (
-              <span className="max-w-full truncate text-sm font-medium text-slate-700">{file.name}</span>
+              <span className="max-w-full break-all text-sm font-medium text-slate-700">{file.name}</span>
             ) : (
               <span className="text-sm text-slate-600">{t("点击选择或拖拽文件到此处（xlsx / xls / 表格截图）")}</span>
             )}
-              <span className="text-pretty text-[11px] text-slate-400">{t("业务报价表原样导入：自动识别列名、提取商品图片、跳过总计行；表格图片走 OCR + AI 识别")}</span>
+              <span className="text-pretty text-[11px] text-slate-500">{t("业务报价表原样导入：自动识别列名、提取商品图片、跳过总计行；表格图片走 OCR + AI 识别")}</span>
           </button>
-          <div className="mt-2 flex items-center justify-between">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             {file ? (
               <button
                 type="button"
                 disabled={busy || parseBusy || aiBusy}
                 onClick={rerunRecognition}
                 title={t("规则解析不理想时，让 AI 通读表格重新抽取报价")}
-                className="inline-flex items-center gap-1 rounded-lg border border-[#cbd8f6] bg-[#eef3ff] px-2.5 py-1 text-xs font-medium text-[#002fa7] hover:bg-[#e3ebff] disabled:opacity-60"
+                className="inline-flex items-center gap-1 rounded-lg border border-[var(--primary-soft-border)] bg-accent px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-60"
               >
                 {aiBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
                 {t(aiBusy ? "AI 识别中…" : "AI 智能识别")}
               </button>
             ) : <span />}
-            <button type="button" onClick={() => void downloadQuoteBookTemplate()} className="text-xs text-[#002fa7] hover:underline">{t("下载标准模板")}</button>
+            <button type="button" onClick={() => void downloadQuoteBookTemplate().catch((err: unknown) => setOperationError(err instanceof Error ? err.message : t("下载失败")))} className="text-xs text-primary hover:underline">{t("下载标准模板")}</button>
           </div>
 
           {aiInfo && (
-            <div className="mt-3 flex items-start gap-2 rounded-xl border border-[#dce5fa] bg-[#eef3ff] px-3 py-2 text-pretty text-xs text-[#002fa7]">
+            <div className="mt-3 flex items-start gap-2 rounded-xl border border-[var(--primary-soft-border)] bg-accent px-3 py-2 text-pretty text-xs text-primary">
               <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />{aiInfo}
-            </div>
-          )}
-          {operationError && (
-            <div role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{operationError}
             </div>
           )}
 
@@ -345,12 +437,12 @@ export function QuoteImportModal({
             <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3 text-sm">
               <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
                 <span className="text-emerald-600">{t("新增报价 {count} 条", { count: preview.created })}</span>
-                <span className="text-[#002fa7]">{t("覆盖更新 {count} 条", { count: preview.updated })}</span>
-                <span className={cn(preview.newMaterials.length > 0 ? "text-amber-600" : "text-slate-400")}>{t("新建商品 {count} 个", { count: preview.newMaterials.length })}</span>
+                <span className="text-primary">{t("覆盖更新 {count} 条", { count: preview.updated })}</span>
+                <span className={cn(preview.newMaterials.length > 0 ? "text-amber-600" : "text-slate-500")}>{t("新建商品 {count} 个", { count: preview.newMaterials.length })}</span>
                 {imageCount > 0 && <span className="text-slate-500">{t("商品图片 {count} 张", { count: imageCount })}</span>}
                 {historyCount > 0 && <span className="text-slate-500">{t("历史轮次 {count} 条", { count: historyCount })}</span>}
-                <span className={cn(warnings.length > 0 ? "text-amber-500" : "text-slate-400")}>{t("提示 {count} 条", { count: warnings.length })}</span>
-                <span className={cn(parseErrors.length > 0 ? "text-rose-500" : "text-slate-400")}>{t("跳过 {count} 行", { count: parseErrors.length })}</span>
+                <span className={cn(warnings.length > 0 ? "text-amber-500" : "text-slate-500")}>{t("提示 {count} 条", { count: warnings.length })}</span>
+                <span className={cn(parseErrors.length > 0 ? "text-rose-500" : "text-slate-500")}>{t("跳过 {count} 行", { count: parseErrors.length })}</span>
                 {importErrors.length > 0 && <span className="text-rose-600">{t("导入失败 {count} 条", { count: importErrors.length })}</span>}
               </div>
               {imageCount > 0 && (
@@ -358,7 +450,7 @@ export function QuoteImportModal({
                   {imagePreviewUrls.map((url, i) => url && (
                     <img key={i} src={url} alt={t("第 {index} 张报价图片预览", { index: i + 1 })} className="size-9 rounded border border-slate-200 object-cover" />
                   )).filter(Boolean).slice(0, 10)}
-                  <span className="text-[11px] text-slate-400">{t("导入时随报价保存")}</span>
+                  <span className="text-[11px] text-slate-500">{t("导入时随报价保存")}</span>
                 </div>
               )}
               {isXls && imageCount === 0 && items.length > 0 && (
@@ -367,38 +459,37 @@ export function QuoteImportModal({
                 </p>
               )}
               {!isXls && imageCount === 0 && items.length > 0 && file != null && (
-                <p className="mt-2 text-[11px] text-slate-400">{t("未在表格中检测到可提取的商品图片（支持 Excel 浮动图与 WPS 嵌入图）。")}</p>
+                <p className="mt-2 text-[11px] text-slate-500">{t("未在表格中检测到可提取的商品图片（支持 Excel 浮动图与 WPS 嵌入图）。")}</p>
               )}
               {preview.newMaterials.length > 0 && (
                 <p className="mt-2 text-xs text-amber-600">{t("以下商品在物料库中不存在，导入时将自动创建并进入审核队列：")}{preview.newMaterials.slice(0, 8).join("、")}{preview.newMaterials.length > 8 ? "…" : ""}</p>
               )}
               {warnings.length > 0 && (
-                <ul className="mt-2 max-h-24 space-y-0.5 overflow-y-auto text-xs text-amber-600">
-                  {warnings.slice(0, 12).map((msg, i) => <li key={i}>{msg}</li>)}
-                  {warnings.length > 12 && <li>{t("…共 {count} 条提示", { count: warnings.length })}</li>}
+                <ul tabIndex={0} aria-label={t("提示 {count} 条", { count: warnings.length })} className="mt-2 max-h-24 space-y-0.5 overflow-y-auto text-xs text-amber-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                  {warnings.map((msg, i) => <li key={i}>{msg}</li>)}
                 </ul>
               )}
               {parseErrors.length > 0 && (
-                <ul className="mt-2 max-h-24 space-y-0.5 overflow-y-auto text-xs text-rose-500">
-                  {parseErrors.slice(0, 12).map((msg, i) => <li key={i}>{msg}</li>)}
-                  {parseErrors.length > 12 && <li>{t("…共 {count} 行跳过", { count: parseErrors.length })}</li>}
+                <ul tabIndex={0} aria-label={t("跳过 {count} 行", { count: parseErrors.length })} className="mt-2 max-h-24 space-y-0.5 overflow-y-auto text-xs text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                  {parseErrors.map((msg, i) => <li key={i}>{msg}</li>)}
                 </ul>
               )}
               {importErrors.length > 0 && (
-                <ul aria-label={t("待重试报价的失败原因")} className="mt-2 max-h-24 space-y-0.5 overflow-y-auto text-xs text-rose-600">
-                  {importErrors.slice(0, 12).map((msg, i) => <li key={i}>{msg}</li>)}
-                  {importErrors.length > 12 && <li>{t("…共 {count} 条导入失败", { count: importErrors.length })}</li>}
+                <ul tabIndex={0} aria-label={t("待重试报价的失败原因")} className="mt-2 max-h-24 space-y-0.5 overflow-y-auto text-xs text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+                  {importErrors.map((msg, i) => <li key={i}>{msg}</li>)}
                 </ul>
               )}
-              <p className="mt-2 text-pretty text-[11px] text-slate-400">{t(importErrors.length > 0
+              <p className="mt-2 text-pretty text-[11px] text-slate-500">{t(importErrors.length > 0
                 ? "导入失败的报价已保留在当前列表，可根据原因修正后重试；解析阶段的「跳过」行不会导入。"
                 : "「提示」行的数据已纳入导入；「跳过」行不会导入。识别不理想可点上方「AI 智能识别」。")}</p>
             </div>
           )}
+          {items.length > 0 && <QuoteImportPreview items={items} existingRows={rows} imageUrls={imagePreviewUrls} />}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
-          <span aria-live="polite" className="min-w-0 truncate text-xs tabular-nums text-slate-400">{busy ? t("正在写入 {count} 条报价，请勿关闭", { count: items.length }) : items.length > 0 ? t("已识别 {count} 条，核对后再导入", { count: items.length }) : t("请选择文件开始")}</span>
+        {operationError && <div role="alert" className="max-h-24 shrink-0 overflow-y-auto border-t border-rose-200 bg-rose-50 px-6 py-2 text-pretty text-xs text-rose-700"><span className="break-words">{operationError}</span></div>}
+        <div className="proc-quote-import-footer flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
+          <span aria-live="polite" className="min-w-0 flex-1 basis-40 text-pretty text-xs tabular-nums text-slate-500">{busy ? t("正在写入 {count} 条报价，请勿关闭", { count: items.length }) : items.length > 0 ? t("已识别 {count} 条，核对后再导入", { count: items.length }) : t("请选择文件开始")}</span>
           <div className="flex shrink-0 items-center gap-2">
           <button type="button" disabled={busy || aiBusy || parseBusy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t("取消")}</button>
           <button type="button" disabled={busy || aiBusy || parseBusy || items.length === 0} onClick={() => void apply()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">

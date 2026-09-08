@@ -1,5 +1,32 @@
 /** 采购前端可独立验证的纯业务逻辑。保持无 React/网络依赖，便于覆盖乱序与边界数据。 */
 
+/** 搜索后的全选只影响可见项，保留其他筛选条件下已经选中的任务。 */
+export function setVisibleProcurementSelection(selected: ReadonlySet<string>, visibleIds: readonly string[], checked: boolean): Set<string> {
+  const next = new Set(selected);
+  for (const id of visibleIds) {
+    if (checked) next.add(id);
+    else next.delete(id);
+  }
+  return next;
+}
+
+/** 任务刷新后移除已失效的选择；可用集合必须取自完整任务范围，而非搜索结果。 */
+export function retainAvailableProcurementSelection(selected: ReadonlySet<string>, availableIds: ReadonlySet<string>): Set<string> {
+  return new Set([...selected].filter((id) => availableIds.has(id)));
+}
+
+/** 不静默丢弃无效行：用户勾选的整组补货数量都有效时才允许提交。 */
+export function validateReplenishmentSelection(selected: ReadonlyMap<string, string>) {
+  const invalidIds: string[] = [];
+  const items: Array<{ materialId: string; quantity: number }> = [];
+  for (const [materialId, rawQuantity] of selected) {
+    const quantity = Number(rawQuantity);
+    if (!rawQuantity.trim() || !Number.isSafeInteger(quantity) || quantity <= 0) invalidIds.push(materialId);
+    else items.push({ materialId, quantity });
+  }
+  return { invalidIds, items: invalidIds.length > 0 ? [] : items };
+}
+
 export interface LatestRequestGate {
   begin: () => number;
   isCurrent: (token: number) => boolean;
@@ -80,6 +107,27 @@ export function selectFailedQuoteImportEntries<TItem extends QuoteImportIdentity
 export interface ProcurementOwnerLike {
   buyerUserId?: string | null;
   buyer?: string | null;
+}
+
+/** 缺料预警保留安全库存阈值和旧任务姓名回退，但有物料 ID 的任务只影响该物料。 */
+export function countProcurementMaterialShortages(
+  materials: ReadonlyArray<{ id: string; name: string; safeStock: number; stockQty: number }>,
+  activeTasks: ReadonlyArray<{ materialId?: string | null; materialName: string }>,
+): number {
+  const materialIds = new Set(activeTasks.flatMap((task) => task.materialId ? [task.materialId] : []));
+  const legacyNames = new Set(activeTasks.filter((task) => !task.materialId).map((task) => task.materialName));
+  return materials.filter((material) => material.safeStock > 0
+    ? material.stockQty < material.safeStock
+    : material.stockQty === 0 && (materialIds.has(material.id) || legacyNames.has(material.name))).length;
+}
+
+/** 个人工作台按账号归属；仅无账号 ID 的历史任务保留姓名回退。 */
+export function isProcurementTaskAssignedToUser(
+  task: ProcurementOwnerLike,
+  user?: { id?: string; name?: string } | null,
+): boolean {
+  if (task.buyerUserId) return Boolean(user?.id && task.buyerUserId === user.id);
+  return Boolean(task.buyer && task.buyer === user?.name);
 }
 
 export function uniqueRosterUserIdsByName(

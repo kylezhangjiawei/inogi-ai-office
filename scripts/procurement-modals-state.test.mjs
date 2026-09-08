@@ -49,7 +49,7 @@ function fixture(name, external = {}, componentAst = ast) {
     downloadImportTemplate() {},
     ...external,
   };
-  for (const name of ["Shell", "Input", "Upload", "Loader2", "FileDown", "Dialog", "DialogContent", "DialogHeader", "DialogTitle", "DialogDescription", "DialogFooter"]) scope[name] = name;
+  for (const name of ["Shell", "Input", "Upload", "Loader2", "CheckCircle2", "AlertTriangle", "FileDown", "Dialog", "DialogContent", "DialogHeader", "DialogTitle", "DialogDescription", "DialogFooter"]) scope[name] = name;
   const code = ts.transpileModule(`${component.getText(componentAst).replace(/^export\s+/, "")}\nreturn ${name};`,
     { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText;
   const Component = new Function(...Object.keys(scope), code)(...Object.values(scope));
@@ -210,7 +210,7 @@ test("物料文件解析同步防重，导入失败保留预览并可重试，�
   await settle();
   assert.equal(closes, 0);
   assert.equal(render().props.busy, false);
-  assert.equal(find(render(), (node) => node.props.role === "alert").props.children, "导入服务暂不可用");
+  assert.equal(text(find(render(), (node) => node.props.role === "alert")), "导入服务暂不可用");
   assert.equal(submit(render()).props.disabled, false, "失败保留已解析行供重试");
   submit(render()).props.onClick();
   await settle();
@@ -236,7 +236,7 @@ test("选择新文件立即清除旧预览，解析失败后不能误导入上�
   second.reject(new Error("文件格式错误"));
   await settle();
   assert.equal(submit(state.render()).props.disabled, true);
-  assert.equal(find(state.render(), (node) => node.props.role === "alert").props.children, "文件格式错误");
+  assert.equal(text(find(state.render(), (node) => node.props.role === "alert")), "文件格式错误");
 });
 
 test("弹窗卸载后解析的成功或失败响应均不再写入状态", async () => {

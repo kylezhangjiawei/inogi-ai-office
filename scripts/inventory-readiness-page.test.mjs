@@ -77,6 +77,7 @@ function pageFixture(query = "", permissions = []) {
       useCallback: (callback) => { load = callback; return callback; },
       useMemo: (factory) => factory(),
       useEffect() {},
+      useLayoutEffect() {},
     },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-router": { useNavigate: () => (destination) => navigations.push(destination), useSearchParams: () => [new URLSearchParams(query)] },
@@ -138,7 +139,7 @@ function pageFixture(query = "", permissions = []) {
     openItem(code) {
       const row = materialRows(tree).find((node) => tableCells(node)[1].includes(code));
       assert.ok(row, `Material row ${code} must be rendered`);
-      row.props.onClick();
+      row.props.onClick({ currentTarget: null });
       return this.render();
     },
     closeItem() {
@@ -810,10 +811,76 @@ test("Q5明确完整齐套覆盖所有必需组件，待核实仅展示估算标
     page.setResponse(data); page.render();
     const text=visibleText(await page.load());
     assert.ok(text.includes("完整齐套须满足清单内全部必需零部件、包材和随箱配件"));
-    assert.equal(text.includes("已核实部分（估算）"),provisional);
+    assert.equal(text.includes("当前装配物料可齐套（估算）"),provisional);
     assert.equal(text.includes("到货后（估算）"),provisional);
     if(!provisional) assert.ok(text.includes("在途到齐后"));
   }
+});
+
+test("刷新采用当前目标草稿且等待对应结果，非法目标保留行内错误并不建旧目标计划", async () => {
+  const page = pageFixture("", stockPlanPermissions);
+  page.setResponse(response("Q5", [item("DRAFT-TARGET", "shortage")]));
+  page.render();
+  let tree = await page.load();
+  const targetInput = () => elements(tree).find((node) => node.type === "Input" && node.props["aria-label"] === "目标套数");
+  targetInput().props.onChange({ target: { value: "25" } });
+  tree = page.render();
+  assert.ok(planButton(tree).props.disabled, "尚未提交的新目标不能沿用100套的结果");
+  let finish;
+  page.setResponse(() => new Promise((resolve) => { finish = resolve; }));
+  tree = page.clickButton("刷新");
+  assert.deepEqual(page.requests.at(-1), { productLine: "Q5", targetSets: 25 });
+  assert.ok(planButton(tree).props.disabled);
+  const next = response("Q5", [item("DRAFT-TARGET", "shortage")]);
+  next.summary.targetSets = 25;
+  finish(next);
+  await new Promise((resolve) => setImmediate(resolve));
+  tree = page.render();
+  assert.equal(planButton(tree).props.disabled, false);
+  for (const invalid of ["2.5", "", "-1", "1000001"]) {
+    targetInput().props.onChange({ target: { value: invalid } });
+    tree = page.render();
+    const count = page.requests.length;
+    tree = page.clickButton("刷新");
+    assert.equal(page.requests.length, count);
+    assert.equal(targetInput().props["aria-invalid"], true);
+    assert.ok(visibleText(tree).includes("请输入 0 到 1,000,000 之间的整数套数"));
+    assert.ok(planButton(tree).props.disabled);
+  }
+  assert.deepEqual(page.navigations, []);
+});
+
+test("行键盘打开明细后关闭回到原行，子按钮按键不冒泡开明细，清除筛选恢复物料", async () => {
+  const page = pageFixture();
+  page.setResponse(response("Q5", [item("ROW-A", "shortage"), item("ROW-B", "ready")]));
+  page.render();
+  let tree = await page.load();
+  const row = materialRows(tree)[0];
+  let focused = 0;
+  let prevented = 0;
+  const opener = { isConnected: true, focus() { focused++; } };
+  row.props.onKeyDown({ target: {}, currentTarget: opener, key: "Enter", preventDefault() { prevented++; } });
+  tree = page.render();
+  assert.equal(elements(tree).some((node) => node.type === "Sheet" && node.props.open), false);
+  row.props.onKeyDown({ target: opener, currentTarget: opener, key: "Enter", preventDefault() { prevented++; } });
+  tree = page.render();
+  const sheet = elements(tree).find((node) => node.type === "Sheet" && node.props.open);
+  assert.ok(sheet);
+  const content = elements(sheet).find((node) => node.type === "SheetContent");
+  sheet.props.onOpenChange(false);
+  tree = page.render();
+  content.props.onCloseAutoFocus({ preventDefault() { prevented++; } });
+  assert.equal(focused, 1);
+  assert.equal(prevented, 2);
+  const search = elements(tree).find((node) => node.type === "Input" && node.props["aria-label"] === "搜索物料齐套明细");
+  search.props.onChange({ target: { value: "ROW-B" } });
+  tree = page.render();
+  assert.equal(materialRows(tree).length, 1);
+  assert.ok(visibleText(materialRows(tree)[0]).includes("ROW-B"));
+  const clear = elements(tree).find((node) => node.type === "button" && visibleText(node).trim() === "清除筛选");
+  clear.props.onClick();
+  tree = page.render();
+  assert.equal(materialRows(tree).length, 2);
 });
 
 function q5UnitFixture() {

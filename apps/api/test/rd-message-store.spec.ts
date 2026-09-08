@@ -332,6 +332,7 @@ test('分类由消息类型派生，未知类型归为通知', async () => {
 
   assert.equal(categoryOf(structured('review_request')), 'todo');
   assert.equal(categoryOf(structured('perf_self_assessment')), 'todo');
+  assert.equal(categoryOf(structured('procurement_transfer_returned')), 'todo');
   assert.equal(categoryOf(structured('review_result')), 'result');
   assert.equal(categoryOf(structured('procurement_review_result')), 'result');
   assert.equal(categoryOf(structured('discussion_mention')), 'mention');
@@ -382,7 +383,7 @@ test('无权修改他人消息', async () => {
   );
 });
 
-for (const type of ['procurement_sample_test_request', 'procurement_sample_test_result']) {
+for (const type of ['procurement_sample_test_request', 'procurement_sample_test_result', 'procurement_transfer_returned']) {
   test(`${type} 禁止同名账号通过消息ID修改并读取私有正文`, async () => {
     const { service, calls } = makeService([{ id: 'msg-sample', type, recipientId: 'real-user', senderId: 'sender',
       recipientName: '同名人员', recipientNameKey: null, body: 'private sample result', handled: false, createdAt: new Date() }]);

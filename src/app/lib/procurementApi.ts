@@ -578,6 +578,19 @@ export async function getProcTask(id: string): Promise<ProcurementTask> {
   return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}`);
 }
 
+/** 回退到同一流程的更早节点；原状态用于拒绝过期页面，原因记入操作留痕。 */
+export async function rollbackProcTask(
+  id: string,
+  status: ProcStatus,
+  reason: string,
+  fromStatus: ProcStatus,
+): Promise<ProcurementTask> {
+  return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/rollback`, {
+    method: "POST",
+    body: JSON.stringify({ status, reason: reason.trim(), from_status: fromStatus }),
+  });
+}
+
 export async function getProcSummary(signal?: AbortSignal): Promise<ProcSummary> {
   return request<ProcSummary>("/summary", { signal });
 }
@@ -794,23 +807,6 @@ export async function completeInquiry(id: string, note?: string): Promise<Procur
   return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/complete-inquiry`, {
     method: "POST",
     body: JSON.stringify({ note }),
-  });
-}
-
-/**
- * 回退到流程中更早的任意节点，并清理该节点下不该存在的业务数据。
- * reason 必填：回退会删数据，留痕必须能查到是谁、为什么退的。
- */
-export async function rollbackProcTask(
-  id: string,
-  status: ProcStatus,
-  reason: string,
-  /** 发起这次操作时界面上的状态；服务端据此识别过期页面并拒绝。 */
-  fromStatus: ProcStatus,
-): Promise<ProcurementTask> {
-  return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/rollback`, {
-    method: "POST",
-    body: JSON.stringify({ status, reason, from_status: fromStatus }),
   });
 }
 

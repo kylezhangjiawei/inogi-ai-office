@@ -61,7 +61,7 @@ function harness() {
       },
     },
     procQuotation: { count: async () => 1, deleteMany: async () => ({ count: 1 }) },
-    procPurchaseOrderRef: { deleteMany: async () => ({ count: 0 }) },
+    procPurchaseOrderRef: { findMany: async () => [], deleteMany: async () => ({ count: 0 }) },
     procTaskLog: { create: async ({ data }: any) => { logs.push({ ...data, createdAt: new Date() }); return data; } },
     rdMessage: {
       create: async ({ data }: any) => { if (hooks.failMessage) throw new Error('message write failed'); messages.push(data); return data; },
@@ -317,6 +317,35 @@ test('回退、取消和报价重做保留已确认的测试结论及完整操�
   }
 });
 
+test('退回研发审核同时结束当前样品轮次，重新进入测试不能确认旧轮次', async () => {
+  const h = harness();
+  h.task.source = 'rd';
+  await h.assign();
+  const roundId = h.task.metadata.sampleTest.roundId;
+  const originalBody = h.messages[0].body;
+  const reviewNotices: any[] = [];
+  Object.assign(h.service, { notifyRdTransferReturned: async (snapshot: any, _actor: any, reason: string) => {
+    assert.equal(h.task.status, 'pending_rd_review');
+    assert.equal(h.messages[0].handled, true);
+    reviewNotices.push({ id: snapshot.id, reason });
+  } });
+  await h.service.rollbackTask(h.task.id, {
+    from_status: 'testing', status: 'pending_rd_review', reason: '  重新确认研发需求  ',
+  }, buyerActor);
+  assert.equal(h.task.buyerUserId, null);
+  assert.equal(h.task.buyer, '');
+  assert.equal(h.task.metadata.unrelated, 'preserved');
+  assert.equal(h.task.metadata.sampleTest, null);
+  assert.equal(h.messages[0].read, true);
+  assert.equal(h.messages[0].body, originalBody);
+  assert.deepEqual(reviewNotices, [{ id: h.task.id, reason: '重新确认研发需求' }]);
+  assert.equal(h.logs.length, 2);
+  h.task.status = 'testing';
+  await assert.rejects(h.service.confirmSampleTest(h.task.id, {
+    roundId, result: 'passed', note: '旧轮次结果',
+  }, testerActor), /仅当前指定|已结束/);
+});
+
 for (const action of ['assign', 'confirm'] as const) {
   test(`采购单同步与样品${action === 'assign' ? '分派' : '确认'}并发时不能写回旧状态`, async () => {
     const h = harness();
@@ -340,7 +369,7 @@ for (const action of ['assign', 'confirm'] as const) {
     assert.equal(h.task.metadata.sampleTest.result, action === 'assign' ? null : 'passed');
     assert.equal(Number(h.task.arrivedQty), 2, '同步到货量仍须回填，不能简单丢弃并发同步');
     assert.equal(h.locks.length, action === 'assign' ? 2 : 3);
-    assert.ok(h.locks.every(([sql, id]) => (sql as string[]).join('').includes('FOR UPDATE') && id === h.task.id));
+    assert.ok(h.locks.every(([sql, id]) => /FOR (?:NO KEY )?UPDATE/.test((sql as string[]).join('')) && id === h.task.id));
     assert.equal(h.messages.length, action === 'assign' ? 1 : 2);
     assert.equal((await h.service.getSampleTest(h.task.id, testerActor)).canConfirm, action === 'assign');
   });

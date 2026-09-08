@@ -74,6 +74,8 @@ import { AutoTranslatedText } from "./components/TranslatableText";
 import { approveRdProcurementTransfer, rejectRdProcurementTransfer } from "./lib/procurementApi";
 import { announceProcurementRefresh } from "./procurement/data";
 import { ProcSampleTestMessageCard } from "./components/ProcSampleTestMessageCard";
+import { ProcTransferReturnedMessageCard } from "./components/ProcTransferReturnedMessageCard";
+import { parseProcurementTransferReturnedMessage, transferReturnedMessageSearchText, type ProcurementTransferReturnedMessageBody } from "./lib/procurementTransferReturnedMessage";
 import { parseProcurementSampleTestMessage, sampleTestMessageSearchText, type ProcurementSampleTestMessageBody } from "./lib/procurementSampleTestMessage";
 
 // ── Parsed message body types ────────────────────────────────────────────────
@@ -178,6 +180,7 @@ type ParsedBody =
   | ProcurementReviewResultBody
   | ProcurementAssignmentBody
   | ProcurementSampleTestMessageBody
+  | ProcurementTransferReturnedMessageBody
   | PerfSelfAssessmentBody
   | RdDiscussionMentionBody
   | { type: "unknown"; raw: string };
@@ -187,6 +190,8 @@ const MESSAGE_CHIP_CLASS = "inline-flex items-center rounded-full border px-2.5 
 function parseBody(raw: string): ParsedBody {
   const sampleTest = parseProcurementSampleTestMessage(raw);
   if (sampleTest) return sampleTest;
+  const transferReturned = parseProcurementTransferReturnedMessage(raw);
+  if (transferReturned) return transferReturned;
   try {
     const obj = JSON.parse(raw) as Record<string, unknown>;
     if (obj.type === "review_request") return obj as unknown as ReviewRequestBody;
@@ -433,6 +438,18 @@ function MessageCard({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [msg.created_at, lang]);
+
+  if (body.type === "procurement_transfer_returned") {
+    return <article className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4" onClick={() => onOpen(msg)}>
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        <SourceChip source={msg.source} />
+        {!msg.read && <span className="font-medium text-primary">{t("未读")}</span>}
+        {msg.handled && <span>{t("通知已归档")}</span>}
+        <span className="ml-auto">{timeLabel}</span>
+      </div>
+      <ProcTransferReturnedMessageCard body={body} onOpen={(route) => { onOpen(msg); navigate(route); }} />
+    </article>;
+  }
 
   if (body.type === "procurement_sample_test_request" || body.type === "procurement_sample_test_result") {
     return <article className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4" onClick={() => onOpen(msg)}>
@@ -976,7 +993,7 @@ function FilterChipRow<T extends string>({
   );
 }
 
-type FilterType = "all" | "unread" | "review_request" | "review_result" | "sample_test_request" | "sample_test_result";
+type FilterType = "all" | "unread" | "review_request" | "review_result" | "sample_test_request" | "sample_test_result" | "transfer_returned";
 
 const filterLabels: Record<FilterType, string> = {
   all: "全部",
@@ -985,6 +1002,7 @@ const filterLabels: Record<FilterType, string> = {
   review_result: "审核结果",
   sample_test_request: "样品测试待办",
   sample_test_result: "样品测试结果",
+  transfer_returned: "采购退回研发",
 };
 
 // 消息列表每页条数
@@ -1197,6 +1215,7 @@ export function MessageCenterPage() {
       if (filter === "review_result" && parsed.type !== "review_result" && parsed.type !== "procurement_review_result") return false;
       if (filter === "sample_test_request" && (parsed.type !== "procurement_sample_test_request" || m.handled)) return false;
       if (filter === "sample_test_result" && parsed.type !== "procurement_sample_test_result") return false;
+      if (filter === "transfer_returned" && (parsed.type !== "procurement_transfer_returned" || m.handled)) return false;
 
       if (!q) return true;
 
@@ -1215,6 +1234,7 @@ export function MessageCenterPage() {
         parsed.type === "discussion_mention" ? parsed.actor_name : "",
         parsed.type === "discussion_mention" ? parsed.excerpt : "",
         parsed.type === "procurement_sample_test_request" || parsed.type === "procurement_sample_test_result" ? sampleTestMessageSearchText(parsed) : "",
+        parsed.type === "procurement_transfer_returned" ? transferReturnedMessageSearchText(parsed) : "",
       ]
         .join(" ")
         .toLowerCase();

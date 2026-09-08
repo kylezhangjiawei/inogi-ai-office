@@ -99,16 +99,36 @@ test("采购人员页和管理抽屉以文字状态呈现负载、角色和在�
   assert.match(files.peopleDrawer, /`user:\$\{member\.id\}`/);
   assert.match(files.peopleDrawer, /person\.active\.map\(\(x\) => x\.id\)/);
   assert.match(files.peopleDrawer, /onFocusPerson \? \(/);
-  assert.match(files.peopleDrawer, /disabled=\{rosterBusy\}/);
-  assert.match(files.peopleDrawer, /disabled=\{busy\}/);
+  assert.match(files.peopleDrawer, /const working = busy \|\| rosterBusy/);
+  for (const action of ["addMember", "removeMember", "submitHandover"]) {
+    assert.match(files.peopleDrawer, new RegExp(`const ${action} = async [^\\n]*\\{\\s*if \\(busyRef\\.current \\|\\| rosterBusyRef\\.current`), `${action} 必须同时检查交接与名录提交锁`);
+  }
+  assert.match(files.peopleDrawer, /closeDisabled=\{working\}/);
+  assert.match(files.peopleDrawer, /disabled=\{working\}\s+aria-expanded=\{handover === p\.key\}/, "交接中禁止切换目标");
+  assert.match(files.peopleDrawer, /disabled=\{working\}\s+onClick=\{\(\) => \{ onFocusPerson/, "提交中禁止通过姓名跳转关闭抽屉");
+  assert.match(files.peopleDrawer, /disabled=\{working \|\| Boolean\(rosterError\)\} onClick=\{\(\) => requestRemoveMember/, "交接中禁止移出名录");
+  assert.match(files.peopleDrawer, /disabled=\{working \|\| rosterLoading \|\| Boolean\(rosterError\) \|\| !addName\.trim\(\)\}/, "提交中禁止新增成员");
+  assert.match(files.peopleDrawer, /disabled=\{working \|\| p\.active\.length === 0\}/, "名录提交中禁止发起交接");
+  assert.doesNotMatch(files.peopleDrawer, /disabled=\{(?:busy|rosterBusy)\}/, "交互不得退回独立的提交锁");
   assert.match(files.peopleDrawer, /if \(person\.active\.length === 0\)/);
   assert.match(files.peopleDrawer, /canReassign && p\.active\.length > 0/);
 });
 
-test("报价表单、报价导入和任务移动提供明确步骤、就地错误与提交反馈", () => {
+test("批量转派的计数与提交排除刷新后失效的任务", () => {
+  const batch = files.modals.slice(files.modals.indexOf("export function BatchReassignModal"), files.modals.indexOf("// ── 任务编辑"));
+  assert.match(batch, /eligibleTasks = useMemo\(\(\) => tasks\.filter\(\(task\) => !TERMINAL_STATUSES\.includes\(task\.status\)\)/);
+  assert.match(batch, /retainAvailableProcurementSelection\(selected, eligibleIds\)/);
+  assert.match(batch, /if \(validSelected\.size !== selected\.size\) setSelected\(validSelected\)/);
+  assert.match(batch, /batchReassignProcTasks\(Array\.from\(validSelected\)/);
+  assert.match(batch, /count: validSelected\.size, hidden: \[\.\.\.validSelected\]/);
+  assert.doesNotMatch(batch, /batchReassignProcTasks\(Array\.from\(selected\)/);
+});
+
+test("报价表单、报价导入和任务移动提供清晰结构、就地错误与提交反馈", () => {
   assert.match(files.quoteForm, /QuoteFormErrors/);
   assert.match(files.quoteForm, /role="alert"/);
-  assert.match(files.quoteForm, /1 供应商与条款/);
+  assert.match(files.quoteForm, /供应商与报价条款/);
+  assert.match(files.quoteForm, /阶梯报价/);
   assert.match(files.quoteForm, /正在保存报价/);
   assert.match(files.quoteForm, /<Sheet open/);
   assert.match(files.quoteForm, /<SheetDescription/);
@@ -207,10 +227,18 @@ test("共享操作弹层保留危险确认、原子提交和采购业务调用",
   assert.match(files.modals, /type="file" accept="\.xlsx,\.xls" disabled=\{busy\}/);
   assert.match(files.modals, /<Shell title=\{t\("分类管理"\)\} busy=\{busy\}/);
   assert.ok((files.modals.match(/busy=\{busy\}/g) ?? []).length >= 9, "所有异步采购弹层应把 busy 传给通用壳");
-  assert.match(files.modals, /busy=\{busy \|\| syncing !== null\}/);
-  assert.match(files.modals, /disabled=\{busy \|\| syncing !== null\} onClick=\{onClose\}/);
+  assert.match(files.modals, /const working = busy \|\| syncing !== null \|\| autoSyncBusy/);
+  assert.match(files.modals, /busy=\{working\}/);
+  assert.match(files.modals, /disabled=\{working\} onClick=\{onClose\}/);
   assert.match(files.modals, /SelectTrigger aria-label=\{t\('归属产品系统'\)\}/);
-  assert.match(files.modals, /DateInput value=\{draft\.needDate\}[\s\S]*?ariaLabel=\{t\('需求日期'\)\}/);
+  const draftDate = files.modals.match(/<DateInput\b[^>]*value=\{draft\.needDate\}[^>]*>/)?.[0];
+  assert.ok(draftDate, "建单需求日期控件必须存在");
+  assert.match(draftDate, /disabled=\{disabled\}/);
+  assert.match(draftDate, /ariaLabel=\{t\('需求日期'\)\}/);
+  const editDate = files.modals.match(/<DateInput\b[^>]*value=\{form\.needDate\}[^>]*>/)?.[0];
+  assert.ok(editDate, "任务编辑需求日期控件必须存在");
+  assert.match(editDate, /disabled=\{busy\}/);
+  assert.match(editDate, /ariaLabel=\{t\('需求日期'\)\}/);
   assert.match(files.modals, /SelectTrigger aria-label=\{t\('付款状态'\)\}/);
   assert.match(files.modals, /整批操作失败时不会部分转派/);
   assert.match(files.modals, /role="alert"/);

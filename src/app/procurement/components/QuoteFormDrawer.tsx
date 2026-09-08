@@ -29,7 +29,7 @@ interface TierRow {
 
 type QuoteFormErrors = Partial<Record<"supplier" | "leadTime" | "tiers" | "image" | "submit", string>>;
 
-const FIELD = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#8fa9e8]";
+const FIELD = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus-visible:ring-0";
 const LABEL = "text-xs font-medium text-slate-500";
 
 function localToday(): string {
@@ -48,6 +48,10 @@ export function QuoteFormDrawer({
 }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
+  const openerRef = useRef<HTMLElement | null>(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const supplierFieldRef = useRef<HTMLLabelElement>(null);
+  const leadTimeRef = useRef<HTMLInputElement>(null);
+  const tierFieldsRef = useRef<HTMLDivElement>(null);
   const [formErrors, setFormErrors] = useState<QuoteFormErrors>({});
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [form, setForm] = useState(() => ({
@@ -76,7 +80,7 @@ export function QuoteFormDrawer({
   const [imageBusy, setImageBusy] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const pickImage = async (file: File | undefined) => {
-    if (!file) return;
+    if (!file || busy || imageBusy) return;
     if (!/^image\//.test(file.type)) {
       const message = t("请选择图片文件");
       setFormErrors((current) => ({ ...current, image: message }));
@@ -122,12 +126,13 @@ export function QuoteFormDrawer({
     setTiers((rows) => rows.map((row, i) => (i === index ? { ...row, [key]: value } : row)));
 
   const submit = async () => {
-    if (submitBusyRef.current) return;
+    if (submitBusyRef.current || imageBusy) return;
     setFormErrors({});
     const supplierName = form.supplierName.trim();
     if (!supplierName) {
       const message = t("请填写厂家名称");
       setFormErrors({ supplier: message });
+      supplierFieldRef.current?.querySelector("input")?.focus();
       toast.error(message);
       return;
     }
@@ -139,13 +144,21 @@ export function QuoteFormDrawer({
       if (!Number.isFinite(minQty) || minQty < 0) {
         const message = t("第 {index} 档起订量必须是不小于 0 的数字", { index: index + 1 });
         setFormErrors({ tiers: message });
+        tierFieldsRef.current?.querySelectorAll("input")[index * 2]?.focus();
         toast.error(message);
         return;
       }
       if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
         const message = t("第 {index} 档单价必须是大于 0 的数字", { index: index + 1 });
         setFormErrors({ tiers: message });
+        tierFieldsRef.current?.querySelectorAll("input")[index * 2 + 1]?.focus();
         toast.error(message);
+        return;
+      }
+      if (parsed.some((tier) => tier.minQty === minQty)) {
+        const message = t("第 {index} 档起订量重复，请合并或调整档位", { index: index + 1 });
+        setFormErrors({ tiers: message });
+        tierFieldsRef.current?.querySelectorAll("input")[index * 2]?.focus();
         return;
       }
       parsed.push({ minQty, unitPrice });
@@ -153,6 +166,7 @@ export function QuoteFormDrawer({
     if (parsed.length === 0) {
       const message = t("请至少填写一档报价");
       setFormErrors({ tiers: message });
+      tierFieldsRef.current?.querySelector("input")?.focus();
       toast.error(message);
       return;
     }
@@ -160,6 +174,7 @@ export function QuoteFormDrawer({
     if (!Number.isFinite(leadTimeDays) || leadTimeDays < 0) {
       const message = t("交期天数必须是不小于 0 的数字");
       setFormErrors({ leadTime: message });
+      leadTimeRef.current?.focus();
       toast.error(message);
       return;
     }
@@ -198,42 +213,33 @@ export function QuoteFormDrawer({
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o && !busy && !imageBusy) onClose(); }}>
-      <SheetContent side="right" className="proc-horizon-drawer w-full max-w-full gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:w-[560px] sm:max-w-[560px]">
-        <SheetHeader className="border-b border-slate-100 px-6 py-4">
+      <SheetContent side="right" closeDisabled={busy || imageBusy} onCloseAutoFocus={(event) => {
+        if (openerRef.current?.isConnected) { event.preventDefault(); openerRef.current.focus({ preventScroll: true }); }
+      }} className="proc-horizon-drawer proc-quote-drawer w-full max-w-full gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:w-[560px] sm:max-w-[560px]">
+        <SheetHeader className="shrink-0 border-b border-slate-100 px-6 py-4 pr-16">
           <SheetTitle className="text-balance text-base font-bold text-slate-900">{t(quote ? "编辑厂家报价" : "添加厂家报价")}</SheetTitle>
-          <SheetDescription className="mt-0.5 text-pretty text-sm text-slate-500"><AutoTranslatedText text={material.name} /></SheetDescription>
+          <SheetDescription className="mt-0.5 line-clamp-2 break-words text-pretty text-sm text-slate-500" title={material.name}><AutoTranslatedText text={material.name} /></SheetDescription>
         </SheetHeader>
 
         <ScrollArea className="min-h-0 flex-1">
-        <div className="px-6 py-4">
-          <div className="mb-4 flex items-center gap-2 text-xs text-slate-500">
-            {[
-              t("1 供应商与条款"),
-              t("2 阶梯报价"),
-              t("3 保存生效"),
-            ].map((step, index) => (
-              <div key={step} className="flex min-w-0 flex-1 items-center gap-2">
-                <span className={cn("flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === 0 ? "border-[#002fa7] bg-[#002fa7] text-white" : "border-slate-200 bg-white text-slate-500")}>{index + 1}</span>
-                <span className="truncate">{step.replace(/^\d\s/, "")}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mb-3 flex items-center gap-2"><span className="flex size-5 items-center justify-center rounded-full bg-[#eef3ff] text-[10px] font-bold tabular-nums text-[#002fa7]">1</span><h3 className="text-balance text-sm font-semibold text-slate-800">{t("供应商与报价条款")}</h3></div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label className="col-span-2 block">
+        <fieldset disabled={busy || imageBusy} aria-busy={busy || imageBusy} className="min-w-0 px-6 py-4">
+          <div className="mb-3 flex items-center gap-2"><span className="flex size-5 items-center justify-center rounded-full bg-accent text-[10px] font-bold tabular-nums text-primary">1</span><h3 className="text-balance text-sm font-semibold text-slate-800">{t("供应商与报价条款")}</h3></div>
+          <div className="proc-quote-fields grid min-w-0 grid-cols-1 gap-3">
+            <label ref={supplierFieldRef} className="col-span-full block min-w-0">
               <span className={LABEL}>{t("厂家名称")}<span className="ml-0.5 text-rose-500">*</span></span>
-              <ComboInput value={form.supplierName} onChange={(value) => { set("supplierName")(value); setFormErrors((current) => ({ ...current, supplier: undefined, submit: undefined })); }} options={supplierOptions} placeholder={t("输入或从已有供应商中选")} className={cn(FIELD, formErrors.supplier && "border-rose-300 focus:border-rose-400")} />
+              <ComboInput disabled={busy || imageBusy} value={form.supplierName} onChange={(value) => { set("supplierName")(value); setFormErrors((current) => ({ ...current, supplier: undefined, submit: undefined })); }} options={supplierOptions} placeholder={t("输入或从已有供应商中选")} className={cn(FIELD, formErrors.supplier && "border-rose-300 focus:border-rose-400")} />
               {formErrors.supplier && <span role="alert" className="mt-1 flex items-center gap-1 text-pretty text-[11px] text-rose-700"><AlertTriangle className="size-3 shrink-0" />{formErrors.supplier}</span>}
               {form.supplierName.trim() && !supplierId && <span className="mt-1 block text-[11px] text-amber-600">{t("新厂家：保存时将自动创建本地供应商")}</span>}
             </label>
             <label className="block"><span className={LABEL}>{t("厂家型号 / 品牌")}</span><Input value={form.supplierModel} onChange={(e) => set("supplierModel")(e.target.value)} className={FIELD} /></label>
             <div>
               <span className={LABEL}>{t("币种")}</span>
-              <Select value={form.currency} onValueChange={set("currency")}>
-                <SelectTrigger aria-label={t("币种")} className="mt-1 h-9 rounded-lg border-slate-200 text-sm">
+              <Select disabled={busy || imageBusy} value={form.currency} onValueChange={set("currency")}>
+                <SelectTrigger aria-label={t("币种")} className="mt-1 h-9 w-full min-w-0 rounded-lg border-slate-200 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="proc-horizon-overlay">
+                  {!["CNY", "USD", "EUR", "JPY"].includes(form.currency) && <SelectItem value={form.currency}>{form.currency}</SelectItem>}
                   <SelectItem value="CNY">CNY ¥</SelectItem>
                   <SelectItem value="USD">USD $</SelectItem>
                   <SelectItem value="EUR">EUR €</SelectItem>
@@ -241,16 +247,16 @@ export function QuoteFormDrawer({
                 </SelectContent>
               </Select>
             </div>
-            <label className="block"><span className={LABEL}>{t("交期（天）")}</span><Input aria-invalid={Boolean(formErrors.leadTime)} value={form.leadTimeDays} onChange={(e) => { set("leadTimeDays")(e.target.value); setFormErrors((current) => ({ ...current, leadTime: undefined, submit: undefined })); }} inputMode="numeric" placeholder={t("如 7")} className={cn(FIELD, "tabular-nums", formErrors.leadTime && "border-rose-300 focus:border-rose-400")} />{formErrors.leadTime && <span role="alert" className="mt-1 flex items-center gap-1 text-pretty text-[11px] text-rose-700"><AlertTriangle className="size-3 shrink-0" />{formErrors.leadTime}</span>}</label>
-            <label className="mt-6 inline-flex cursor-pointer items-center gap-1.5 text-sm text-slate-600">
+            <label className="block"><span className={LABEL}>{t("交期（天）")}</span><Input ref={leadTimeRef} aria-invalid={Boolean(formErrors.leadTime)} aria-describedby={formErrors.leadTime ? "quote-lead-time-error" : undefined} value={form.leadTimeDays} onChange={(e) => { set("leadTimeDays")(e.target.value); setFormErrors((current) => ({ ...current, leadTime: undefined, submit: undefined })); }} inputMode="numeric" placeholder={t("如 7")} className={cn(FIELD, "tabular-nums", formErrors.leadTime && "border-rose-300 focus:border-rose-400")} />{formErrors.leadTime && <span id="quote-lead-time-error" role="alert" className="mt-1 flex items-center gap-1 text-pretty text-[11px] text-rose-700"><AlertTriangle className="size-3 shrink-0" />{formErrors.leadTime}</span>}</label>
+            <label className="proc-quote-tax-field inline-flex min-h-9 cursor-pointer items-center gap-2 self-end text-sm text-slate-600">
               <Checkbox checked={form.taxIncluded} onCheckedChange={(v) => set("taxIncluded")(v === true)} />
               {t("含税价")}
             </label>
-            <div><span className={LABEL}>{t("报价日期")}</span><DateInput value={form.quoteDate} onChange={set("quoteDate")} ariaLabel={t("报价日期")} className="mt-1" /></div>
-            <div><span className={LABEL}>{t("有效期至")}</span><DateInput value={form.validUntil} onChange={set("validUntil")} ariaLabel={t("有效期至")} className="mt-1" placeholder={t("留空为长期有效")} /></div>
-            <label className="col-span-2 block"><span className={LABEL}>{t("备注")}</span><Input value={form.note} onChange={(e) => set("note")(e.target.value)} placeholder={t("如：不含抛光费用")} className={FIELD} /></label>
+            <div><span className={LABEL}>{t("报价日期")}</span><DateInput value={form.quoteDate} disabled={busy || imageBusy} onChange={set("quoteDate")} ariaLabel={t("报价日期")} className="mt-1" /></div>
+            <div><span className={LABEL}>{t("有效期至")}</span><DateInput value={form.validUntil} disabled={busy || imageBusy} onChange={set("validUntil")} ariaLabel={t("有效期至")} className="mt-1" placeholder={t("留空为长期有效")} /></div>
+            <label className="col-span-full block min-w-0"><span className={LABEL}>{t("备注")}</span><Input value={form.note} onChange={(e) => set("note")(e.target.value)} placeholder={t("如：不含抛光费用")} className={FIELD} /></label>
             {/* 商品图片：导入 .xlsx 可自动带图，这里支持手动上传/更换/移除 */}
-            <div className="col-span-2">
+            <div className="col-span-full min-w-0">
               <span className={LABEL}>{t("商品图片")}</span>
               <Input ref={imageInputRef} type="file" accept="image/*" disabled={imageBusy} className="hidden" onChange={(event) => { const picked = event.target.files?.[0]; event.target.value = ""; void pickImage(picked); }} />
               <div className="mt-1 flex items-center gap-3">
@@ -259,7 +265,7 @@ export function QuoteFormDrawer({
                     type="button"
                     aria-label={t("预览商品图片")}
                     onClick={() => setLightboxOpen(true)}
-                    className="size-16 cursor-zoom-in overflow-hidden rounded-lg border border-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]"
+                    className="size-16 cursor-zoom-in overflow-hidden rounded-lg border border-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                   >
                     <img src={imagePreview} alt="" className="size-full object-cover" />
                   </button>
@@ -269,7 +275,7 @@ export function QuoteFormDrawer({
                     variant="outline"
                     disabled={imageBusy}
                     onClick={() => imageInputRef.current?.click()}
-                    className="flex size-16 flex-col items-center justify-center gap-0.5 rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:border-[#8fa9e8] hover:text-[#002fa7] disabled:opacity-60"
+                    className="flex size-16 flex-col items-center justify-center gap-0.5 rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:border-primary/40 hover:text-primary disabled:opacity-60"
                   >
                     {imageBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
                     <span className="text-[10px]">{t("上传")}</span>
@@ -277,7 +283,7 @@ export function QuoteFormDrawer({
                 )}
                 {imagePreview && (
                   <div className="flex flex-col gap-1 text-xs">
-                    <Button type="button" variant="link" disabled={imageBusy} onClick={() => imageInputRef.current?.click()} className="h-auto justify-start p-0 text-xs text-[#002fa7]">{imageBusy ? t("上传中…") : t("更换图片")}</Button>
+                    <Button type="button" variant="link" disabled={imageBusy} onClick={() => imageInputRef.current?.click()} className="h-auto justify-start p-0 text-xs text-primary">{imageBusy ? t("上传中…") : t("更换图片")}</Button>
                     <Button type="button" variant="ghost" disabled={imageBusy} onClick={() => { if (localPreviewUrlRef.current) URL.revokeObjectURL(localPreviewUrlRef.current); localPreviewUrlRef.current = null; setImageKeyPatch(""); setImagePreview(null); }} className="h-auto justify-start p-0 text-xs text-slate-400 hover:bg-transparent hover:text-rose-500 disabled:opacity-60">{t("移除图片")}</Button>
                   </div>
                 )}
@@ -289,34 +295,41 @@ export function QuoteFormDrawer({
           {/* 阶梯报价：起订量 → 单价，档位可增删 */}
           <div className="mt-5">
             <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2 text-sm font-semibold text-slate-800"><span className="flex size-5 items-center justify-center rounded-full bg-[#eef3ff] text-[10px] font-bold tabular-nums text-[#002fa7]">2</span>{t("阶梯报价")}</span>
-              <Button type="button" variant="outline" size="sm" onClick={() => { setTiers((rows) => [...rows, { minQty: "", unitPrice: "" }]); setFormErrors((current) => ({ ...current, tiers: undefined, submit: undefined })); }} className="h-7 rounded-lg border-[#cbd8f6] bg-[#eef3ff] px-2 text-xs text-[#002fa7] hover:bg-[#e3ebff] hover:text-[#002fa7]">
+              <h3 className="flex items-center gap-2 text-balance text-sm font-semibold text-slate-800"><span className="flex size-5 items-center justify-center rounded-full bg-accent text-[10px] font-bold tabular-nums text-primary">2</span>{t("阶梯报价")}</h3>
+              <Button type="button" variant="outline" size="sm" onClick={() => { setTiers((rows) => [...rows, { minQty: "", unitPrice: "" }]); setFormErrors((current) => ({ ...current, tiers: undefined, submit: undefined })); }} className="h-7 rounded-lg border-[var(--primary-soft-border)] bg-accent px-2 text-xs text-primary hover:bg-primary/10 hover:text-primary">
                 <Plus className="h-3.5 w-3.5" />{t("加一档")}
               </Button>
             </div>
-            <p className="mt-1 text-pretty text-[11px] text-slate-400">{t("起订量留空表示不限起订量；某档不报价直接删除该行即可。")}</p>
-            <div className="mt-2 space-y-2">
+            <p className="mt-1 text-pretty text-[11px] text-slate-500">{t("起订量留空表示不限起订量；某档不报价直接删除该行即可。")}</p>
+            <div ref={tierFieldsRef} className="mt-3 space-y-3">
               {tiers.map((row, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <Input aria-label={t("第 {index} 档起订量", { index: index + 1 })} aria-invalid={Boolean(formErrors.tiers)} value={row.minQty} onChange={(e) => { setTier(index, "minQty", e.target.value); setFormErrors((current) => ({ ...current, tiers: undefined, submit: undefined })); }} inputMode="numeric" placeholder={t("起订量，如 3000")} className={cn("h-9 w-40 rounded-lg border border-slate-200 px-3 text-sm tabular-nums outline-none focus:border-[#8fa9e8]", formErrors.tiers && "border-rose-300")} />
-                  {material.unit && <span className="text-xs text-slate-400">{material.unit}</span>}
-                  <span className="text-slate-300">→</span>
-                  <Input aria-label={t("第 {index} 档单价", { index: index + 1 })} aria-invalid={Boolean(formErrors.tiers)} value={row.unitPrice} onChange={(e) => { setTier(index, "unitPrice", e.target.value); setFormErrors((current) => ({ ...current, tiers: undefined, submit: undefined })); }} inputMode="decimal" placeholder={t("单价，如 0.65")} className={cn("h-9 w-36 rounded-lg border border-slate-200 px-3 text-sm tabular-nums outline-none focus:border-[#8fa9e8]", formErrors.tiers && "border-rose-300")} />
-                  <Button type="button" variant="ghost" size="icon" aria-label={t("删除第 {index} 档报价", { index: index + 1 })} disabled={tiers.length <= 1} onClick={() => { setTiers((rows) => rows.filter((_, i) => i !== index)); setFormErrors((current) => ({ ...current, tiers: undefined, submit: undefined })); }} className="size-8 rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500">
+                <div key={index} className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2">
+                  <label className="block min-w-0">
+                    <span className="mb-1 flex min-w-0 items-baseline gap-1 text-xs text-slate-500">
+                      <span className="shrink-0">{t("起订量")}</span>
+                      {material.unit && <span className="truncate text-[11px] text-slate-400" title={material.unit}>({material.unit})</span>}
+                    </span>
+                    <Input aria-label={t("第 {index} 档起订量", { index: index + 1 })} aria-invalid={Boolean(formErrors.tiers)} aria-describedby={formErrors.tiers ? "quote-tiers-error" : undefined} value={row.minQty} onChange={(e) => { setTier(index, "minQty", e.target.value); setFormErrors((current) => ({ ...current, tiers: undefined, submit: undefined })); }} inputMode="numeric" placeholder={t("起订量，如 3000")} className={cn("h-9 w-full min-w-0 rounded-lg border border-slate-200 px-3 text-sm tabular-nums outline-none focus:border-primary/40", formErrors.tiers && "border-rose-300")} />
+                  </label>
+                  <label className="block min-w-0">
+                    <span className="mb-1 block text-xs text-slate-500">{t("单价")} <span className="text-[11px] text-slate-400">({form.currency})</span></span>
+                    <Input aria-label={t("第 {index} 档单价", { index: index + 1 })} aria-invalid={Boolean(formErrors.tiers)} aria-describedby={formErrors.tiers ? "quote-tiers-error" : undefined} value={row.unitPrice} onChange={(e) => { setTier(index, "unitPrice", e.target.value); setFormErrors((current) => ({ ...current, tiers: undefined, submit: undefined })); }} inputMode="decimal" placeholder={t("单价，如 0.65")} className={cn("h-9 w-full min-w-0 rounded-lg border border-slate-200 px-3 text-sm tabular-nums outline-none focus:border-primary/40", formErrors.tiers && "border-rose-300")} />
+                  </label>
+                  <Button type="button" variant="ghost" size="icon" aria-label={t("删除第 {index} 档报价", { index: index + 1 })} disabled={tiers.length <= 1} onClick={() => { setTiers((rows) => rows.filter((_, i) => i !== index)); setFormErrors((current) => ({ ...current, tiers: undefined, submit: undefined })); }} className="size-9 rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               ))}
             </div>
-            {formErrors.tiers && <p role="alert" className="mt-2 flex items-center gap-1 text-pretty text-xs text-rose-700"><AlertTriangle className="size-3.5 shrink-0" />{formErrors.tiers}</p>}
+            {formErrors.tiers && <p id="quote-tiers-error" role="alert" className="mt-2 flex items-center gap-1 text-pretty text-xs text-rose-700"><AlertTriangle className="size-3.5 shrink-0" />{formErrors.tiers}</p>}
           </div>
-          {formErrors.submit && <div role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{formErrors.submit}</div>}
-        </div>
+        </fieldset>
         </ScrollArea>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
-          <span className="hidden items-center gap-1.5 text-pretty text-xs text-slate-400 sm:flex"><CheckCircle2 className="size-3.5" />{t("3 核对供应商、币种、有效期与各档价格后保存")}</span>
-          <div className="flex shrink-0 items-center gap-2">
+        {Object.values(formErrors).some(Boolean) && <div role={formErrors.submit ? "alert" : "status"} className="max-h-24 shrink-0 overflow-y-auto border-t border-rose-200 bg-rose-50 px-6 py-2 text-pretty text-xs text-rose-700"><span className="break-words">{formErrors.submit || formErrors.supplier || formErrors.leadTime || formErrors.tiers || formErrors.image}</span></div>}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
+          <span className="proc-quote-save-hint hidden min-w-0 items-start gap-1.5 text-pretty text-xs leading-5 text-slate-400"><CheckCircle2 className="mt-0.5 size-3.5 shrink-0" />{t("核对供应商、币种、有效期与各档价格后保存")}</span>
+          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
           <Button type="button" variant="outline" disabled={busy || imageBusy} onClick={onClose} className="rounded-lg border-slate-200 px-4 py-2 text-sm text-slate-600">{t("取消")}</Button>
           <Button type="button" disabled={busy || imageBusy} onClick={() => void submit()} className="material-button-primary rounded-lg px-4 py-2 text-sm disabled:opacity-60">
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}{busy ? t("正在保存报价…") : t(quote ? "更新厂家报价" : "保存厂家报价")}

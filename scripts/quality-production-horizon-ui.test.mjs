@@ -16,7 +16,10 @@ const bugLog = source("src/app/BugLogPage.tsx");
 
 test("质量与生产页面复用全局 Horizon 页面原语", () => {
   assert.match(stylesEntry, /@import ['"]\.\/horizon\.css['"];?/);
-  assert.match(horizon, /--hz-primary:\s*#002fa7;/i);
+  assert.match(horizon, /--hz-primary:\s*var\(--primary\);/);
+  assert.match(horizon, /--hz-primary-hover:\s*var\(--primary-hover\);/);
+  assert.match(horizon, /--hz-canvas:\s*var\(--background\);/);
+  assert.match(horizon, /--hz-surface:\s*var\(--card\);/);
   assert.match(horizonPage, /export function HorizonPageHeader/);
   assert.match(horizonPage, /export function HorizonMetricGrid/);
 

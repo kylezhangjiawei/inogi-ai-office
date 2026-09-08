@@ -369,7 +369,7 @@ function ConfirmActionDialog({
       <AlertDialogContent className="horizon-theme horizon-portal proc-horizon-overlay sm:max-w-lg">
         <AlertDialogHeader>
           <div className="flex items-start gap-3">
-            <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-full", confirm.tone === "danger" ? "bg-rose-50 text-rose-700" : "bg-[#eef3ff] text-[#002fa7]")}><AlertTriangle className="size-5" /></span>
+            <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-full", confirm.tone === "danger" ? "bg-rose-50 text-rose-700" : "bg-accent text-primary")}><AlertTriangle className="size-5" /></span>
             <div className="min-w-0">
               <AlertDialogTitle className="text-balance">{t(confirm.title)}</AlertDialogTitle>
               <p className="mt-1 truncate text-xs tabular-nums text-slate-400" title={`${task.code} · ${task.materialName}`}>{task.code} · {task.materialName}</p>
@@ -750,7 +750,7 @@ function ActionModal({
     }
   };
 
-  const field = "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#002fa7]/40 focus:ring-2 focus:ring-[#002fa7]/15";
+  const field = "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15";
   const label = "mb-1 block text-xs font-medium text-slate-500";
   const actionSteps = kind === "quote"
     ? [t("选择供应商"), t("核对数量与阶梯价"), t("确认总价")]
@@ -786,7 +786,7 @@ function ActionModal({
 
         {actionSteps.length > 0 && (
           <div className={cn("grid border-b border-slate-100 bg-slate-50/70 px-5 py-2.5", actionSteps.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
-            {actionSteps.map((step, index) => <div key={step} className={cn("flex items-center gap-2 text-xs", index === actionStep ? "font-semibold text-[#002fa7]" : index < actionStep ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === actionStep ? "border-[#002fa7] bg-[#002fa7] text-white" : index < actionStep ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index + 1}</span><span className="truncate">{step}</span></div>)}
+            {actionSteps.map((step, index) => <div key={step} className={cn("flex items-center gap-2 text-xs", index === actionStep ? "font-semibold text-primary" : index < actionStep ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === actionStep ? "border-primary bg-primary text-white" : index < actionStep ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index + 1}</span><span className="truncate">{step}</span></div>)}
           </div>
         )}
 
@@ -796,7 +796,7 @@ function ActionModal({
             <div className="flex gap-3">
               <span className={cn(
                 "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-                confirm.tone === "danger" ? "bg-rose-50 text-rose-500" : "bg-[#eef3ff] text-[#002fa7]",
+                confirm.tone === "danger" ? "bg-rose-50 text-rose-500" : "bg-accent text-primary",
               )}>
                 <AlertTriangle className="h-5 w-5" />
               </span>
@@ -806,7 +806,7 @@ function ActionModal({
 
           {kind === "quote" && (
             <div className="space-y-3">
-              <div className="rounded-lg border border-[#dce6ff] bg-[#eef3ff] px-3 py-2 text-pretty text-xs leading-relaxed text-[#002fa7]">
+              <div className="rounded-lg border border-[var(--primary-soft-border)] bg-accent px-3 py-2 text-pretty text-xs leading-relaxed text-primary">
                 {quoteBookScope === "all"
                   ? t("该任务未绑定物料主数据，已读取全部有效报价。可按物料、供应商或型号搜索；系统会按任务数量 {count} {unit} 自动匹配阶梯价。", {
                     count: task.quantity.toLocaleString(),
@@ -831,7 +831,7 @@ function ActionModal({
                 <button
                   type="button"
                   onClick={goToQuoteBook}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:border-[#002fa7]/25 hover:bg-[#eef3ff] hover:text-[#002fa7]"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:border-primary/25 hover:bg-accent hover:text-primary"
                 >
                   <Store className="h-4 w-4" />{t("维护报价库")}<ExternalLink className="h-3.5 w-3.5" />
                 </button>
@@ -839,7 +839,7 @@ function ActionModal({
 
               {!quoteBookLoading && !quoteBookError && visibleQuoteBookOptions.length > 0 && (
                 <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-                  <label htmlFor="quote-book-select-visible" className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600 hover:text-[#002fa7]">
+                  <label htmlFor="quote-book-select-visible" className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600 hover:text-primary">
                     <Checkbox
                       id="quote-book-select-visible"
                       checked={allVisibleSelected}
@@ -868,7 +868,7 @@ function ActionModal({
                 </div>
               ) : quoteBookOptions.length === 0 ? (
                 <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-6 text-center">
-                  <span className="flex size-10 items-center justify-center rounded-full bg-white text-[#002fa7] shadow-sm"><Store className="size-5" /></span>
+                  <span className="flex size-10 items-center justify-center rounded-full bg-white text-primary shadow-sm"><Store className="size-5" /></span>
                   <b className="mt-3 text-sm text-slate-700">{t(quoteBookScope === "all" ? "报价库中暂无有效报价" : "报价库中暂无该物料的有效报价")}</b>
                   <p className="mt-1 text-xs leading-relaxed text-slate-400">{t("请先到供应商报价库新增或更新报价，维护完成后再返回任务选择。")}</p>
                   <button type="button" onClick={goToQuoteBook} className="material-button-primary mt-3 inline-flex items-center gap-1.5 px-4 py-2 text-sm">
@@ -891,7 +891,7 @@ function ActionModal({
                         key={quote.id}
                         className={cn(
                           "grid w-full grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-xl border px-3 py-3 text-left transition",
-                          selected ? "border-[#002fa7]/30 bg-[#eef3ff]" : "border-slate-200 hover:border-[#002fa7]/20 hover:bg-slate-50",
+                          selected ? "border-primary/30 bg-accent" : "border-slate-200 hover:border-primary/20 hover:bg-slate-50",
                         )}
                       >
                         <Checkbox
@@ -925,7 +925,7 @@ function ActionModal({
                           <small className="text-[10px] text-slate-400">{t("当前数量匹配单价")}</small>
                         </span>
                         {selected && line && (
-                          <div className="col-span-3 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 rounded-lg border border-[#dce6ff] bg-white px-3 py-2">
+                          <div className="col-span-3 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 rounded-lg border border-[var(--primary-soft-border)] bg-white px-3 py-2">
                             <label className="text-xs font-medium text-slate-600">
                               <span className="mb-1 block">{t("采购数量")}</span>
                               <span className="flex items-center gap-2">
@@ -969,7 +969,7 @@ function ActionModal({
                       </div>
                       <div className="flex items-center justify-between gap-4 border-t border-slate-200 pt-1.5">
                         <span className="font-medium text-slate-700">{t("折后总价")}</span>
-                        <b className="text-base tabular-nums text-[#002fa7]">{formatQuoteAmount(quoteTotal, quoteCurrency)}</b>
+                        <b className="text-base tabular-nums text-primary">{formatQuoteAmount(quoteTotal, quoteCurrency)}</b>
                       </div>
                     </div>
                     <label className="text-xs font-medium text-slate-600">
@@ -1042,7 +1042,7 @@ function ActionModal({
                     type="button"
                     disabled={busy}
                     onClick={() => void execute(() => selectQuotation(task.id, q.id), t("已选定报价"))}
-                    className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-left text-sm transition-colors hover:border-[#002fa7]/30 hover:bg-[#eef3ff]/70"
+                    className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-left text-sm transition-colors hover:border-primary/30 hover:bg-accent/70"
                   >
                     <span className="text-slate-700">{q.supplierName}</span>
                     <span className="flex items-center gap-3">
@@ -1063,7 +1063,7 @@ function ActionModal({
           {kind === "order" && (
             <div className="space-y-3">
               {isSampleOrder && (
-                <div className="rounded-lg border border-[#dce6ff] bg-[#eef3ff] px-3 py-2 text-pretty text-xs leading-relaxed text-[#002fa7]">
+                <div className="rounded-lg border border-[var(--primary-soft-border)] bg-accent px-3 py-2 text-pretty text-xs leading-relaxed text-primary">
                   {t("登记本轮出样单：只保存采购单关联和预计到样日期，任务仍停在「待到样」，样品到了再点「样品已到」。")}
                 </div>
               )}
@@ -1073,7 +1073,7 @@ function ActionModal({
                 </div>
               )}
               {purchaseOrders.length > 1 && (
-                <div className="rounded-lg border border-[#dce6ff] bg-[#eef3ff] px-3 py-2 text-pretty text-xs leading-relaxed text-[#002fa7]">
+                <div className="rounded-lg border border-[var(--primary-soft-border)] bg-accent px-3 py-2 text-pretty text-xs leading-relaxed text-primary">
                   {t("已按确认报价识别出 {count} 家供应商。请分别填写采购单号，确认后将一次性保存全部关联。", { count: purchaseOrders.length })}
                 </div>
               )}
@@ -1206,7 +1206,7 @@ function ActionModal({
         {kind !== "select" && kind !== "sample-test" && (
           <div className={cn("flex gap-2 border-t border-slate-100 px-5 py-3", kind === "quote" ? "items-center justify-between" : "justify-end")}>
             {kind === "quote" && (
-              <button type="button" onClick={goToQuoteBook} className="inline-flex items-center gap-1 text-xs font-medium text-[#002fa7] hover:underline">
+              <button type="button" onClick={goToQuoteBook} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
                 {t("没有合适报价？去报价库维护")}<ExternalLink className="h-3.5 w-3.5" />
               </button>
             )}
@@ -1273,7 +1273,7 @@ function ActionModal({
                       <span>{t("减：折扣金额")}</span>
                       <b>- {formatQuoteAmount(quoteDiscountAmount, quoteCurrency)}</b>
                     </span>
-                    <span className="mt-1 flex justify-between text-sm text-[#002fa7]">
+                    <span className="mt-1 flex justify-between text-sm text-primary">
                       <b>{t("最终总价")}</b>
                       <b>{formatQuoteAmount(quoteTotal, quoteCurrency)}</b>
                     </span>

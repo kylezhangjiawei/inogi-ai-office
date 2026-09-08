@@ -16,6 +16,7 @@ import { THOUGHT_PARAM } from '../src/modules/chat/react-loop';
  */
 function makeService(todayImageCount = 0, todayVideoCount = 0) {
   const prisma = {
+    systemSetting: { findUnique: async () => null },
     aiUsageLog: {
       count: (args?: { where?: { modality?: string } }) =>
         Promise.resolve(args?.where?.modality === 'video' ? todayVideoCount : todayImageCount),
@@ -159,7 +160,10 @@ test('配额状态随裁剪结果一起返回，供 system prompt 说明原因',
 });
 
 test('用量统计失败时放行，不能因为查不到配额就让用户没法说话', async () => {
-  const prisma = { aiUsageLog: { count: () => Promise.reject(new Error('DB 挂了')) } };
+  const prisma = {
+    systemSetting: { findUnique: async () => null },
+    aiUsageLog: { count: () => Promise.reject(new Error('DB 挂了')) },
+  };
   const ctor = ChatToolsService as unknown as new (...args: unknown[]) => ChatToolsService;
   const svc = new ctor(prisma, undefined, undefined, undefined, undefined, undefined);
 

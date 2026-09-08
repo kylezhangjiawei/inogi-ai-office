@@ -1,6 +1,6 @@
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
-import { useEffect, useState } from "react";
-import { AlertTriangle, ChevronDown, Eye, ExternalLink, FolderTree, History, Paperclip, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, ChevronDown, Eye, ExternalLink, FolderTree, History, Paperclip, Pencil, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import {
   AlertDialog,
@@ -19,13 +19,13 @@ import { ScrollArea } from "../../components/ui/scroll-area";
 import { Textarea } from "../../components/ui/textarea";
 import { cn } from "../../components/ui/utils";
 import { AttachmentPreviewDialog, type PreviewableAttachment } from "../../components/AttachmentPreviewDialog";
-import { BusinessLinePill, DIRECT_FLOW, FREE_SAMPLE_ONLY_STATUSES, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, QUOTE_RESETTABLE_STATUSES, SourcePill, StatusPill, fmtMoney, useBuyerDirectory, useProcCan } from "./common";
+import { BusinessLinePill, DIRECT_FLOW, FREE_SAMPLE_ONLY_STATUSES, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, QUOTE_RESETTABLE_STATUSES, SourcePill, StatusPill, fmtMoney, rollbackCleanupHintOf, rollbackTargetsOf, useBuyerDirectory, useProcCan } from "./common";
 import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
 import { MoveTaskDialog } from "./MoveTaskDialog";
 import { applyProcTaskUpdate, captureProcurementScope, refreshProcurement, taskRequester, useProcurementData, type ProcurementTask } from "../data";
-import { listQuotations, rejectProcTask, resetProcTaskQuotations, unlinkPurchaseOrder, type Quotation } from "../../lib/procurementApi";
+import { getProcTask, listQuotations, rejectProcTask, resetProcTaskQuotations, rollbackProcTask, unlinkPurchaseOrder, type ProcStatus, type Quotation } from "../../lib/procurementApi";
 import { toast } from "sonner";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
@@ -52,6 +52,12 @@ function Info({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function restoreConfirmationFocus(event: Event, opener: HTMLButtonElement | null, section: HTMLElement | null, header: HTMLElement | null) {
+  event.preventDefault();
+  const target = opener?.isConnected && !opener.disabled ? opener : section?.isConnected ? section : header;
+  target?.focus();
+}
+
 export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onClose: () => void }) {
   const { t } = useI18n();
   const { materials } = useProcurementData();
@@ -60,6 +66,13 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const [editOpen, setEditOpen] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState<PreviewableAttachment | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
+  const openerRef = useRef(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const drawerHeaderRef = useRef<HTMLDivElement>(null);
+  const quoteSectionRef = useRef<HTMLDivElement>(null);
+  const purchaseOrdersSectionRef = useRef<HTMLDivElement>(null);
+  const resetQuoteTriggerRef = useRef<HTMLButtonElement>(null);
+  const rollbackTriggerRef = useRef<HTMLButtonElement>(null);
+  const unlinkOrderTriggerRef = useRef<HTMLButtonElement | null>(null);
   const can = useProcCan();
   const { deptOf } = useBuyerDirectory();
   const taskAction = useProcTaskAction();
@@ -89,6 +102,111 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
       toast.error(err instanceof Error ? err.message : t("重新维护失败"));
     } finally {
       setResetBusy(false);
+    }
+  };
+  // 打开时绑定任务和原状态；更新中的任务必须重新读取、选择，不静默换成新的 from_status。
+  const [rollbackSnapshot, setRollbackSnapshot] = useState<Pick<ProcurementTask, "id" | "code" | "status" | "method" | "source" | "rdTaskId"> | null>(null);
+  const [rollbackTarget, setRollbackTarget] = useState<ProcStatus | null>(null);
+  const [rollbackReason, setRollbackReason] = useState("");
+  const [rollbackBusy, setRollbackBusy] = useState(false);
+  const [rollbackError, setRollbackError] = useState<string | null>(null);
+  const [rollbackNeedsRefresh, setRollbackNeedsRefresh] = useState(false);
+  const rollbackBusyRef = useRef(false);
+  const rollbackFirstTargetRef = useRef<HTMLButtonElement>(null);
+  const rollbackTitleRef = useRef<HTMLHeadingElement>(null);
+  const rollbackRefreshFocusRef = useRef<typeof rollbackSnapshot>(null);
+  const currentTaskRef = useRef(task);
+  currentTaskRef.current = task;
+  const rollbackTargets = rollbackTargetsOf(rollbackSnapshot?.status ?? task.status, rollbackSnapshot?.method ?? task.method, rollbackSnapshot ?? task);
+  const canRollback = can("proc-task:rollback") && rollbackTargetsOf(task.status, task.method, task).length > 0;
+  const rollbackStale = Boolean(rollbackSnapshot && (rollbackSnapshot.id !== task.id || rollbackSnapshot.status !== task.status || rollbackSnapshot.method !== task.method || rollbackSnapshot.source !== task.source || rollbackSnapshot.rdTaskId !== task.rdTaskId));
+  const rollbackHints = rollbackTarget ? rollbackCleanupHintOf(rollbackTarget) : [];
+  // 刷新成功会移除当前聚焦的重试按钮；等新节点提交到 DOM 后，把焦点留在回退框内。
+  useEffect(() => {
+    const refreshedSnapshot = rollbackRefreshFocusRef.current;
+    if (!refreshedSnapshot || rollbackBusy) return;
+    rollbackRefreshFocusRef.current = null;
+    if (refreshedSnapshot !== rollbackSnapshot || refreshedSnapshot.id !== task.id || rollbackStale || rollbackNeedsRefresh) return;
+    const firstTarget = rollbackFirstTargetRef.current;
+    const focusTarget = firstTarget?.isConnected && !firstTarget.matches(":disabled") ? firstTarget : rollbackTitleRef.current;
+    if (focusTarget?.isConnected) focusTarget.focus();
+  }, [rollbackSnapshot, rollbackBusy, rollbackStale, rollbackNeedsRefresh, task.id]);
+  const openRollback = () => {
+    rollbackRefreshFocusRef.current = null;
+    setRollbackSnapshot({ id: task.id, code: task.code, status: task.status, method: task.method, source: task.source, rdTaskId: task.rdTaskId });
+    setRollbackTarget(null);
+    setRollbackReason("");
+    setRollbackError(null);
+    setRollbackNeedsRefresh(false);
+  };
+  const closeRollback = () => {
+    if (rollbackBusyRef.current) return;
+    rollbackRefreshFocusRef.current = null;
+    setRollbackSnapshot(null);
+    setRollbackTarget(null);
+    setRollbackReason("");
+    setRollbackError(null);
+    setRollbackNeedsRefresh(false);
+  };
+  const reloadRollbackTask = async () => {
+    if (!rollbackSnapshot || rollbackBusyRef.current || rollbackSnapshot.id !== currentTaskRef.current.id) return;
+    const requestScope = captureProcurementScope();
+    rollbackBusyRef.current = true;
+    setRollbackBusy(true);
+    setRollbackTarget(null);
+    setRollbackReason("");
+    try {
+      const latest = await getProcTask(rollbackSnapshot.id);
+      if (latest.id !== currentTaskRef.current.id) return;
+      applyProcTaskUpdate(latest, requestScope);
+      const refreshedSnapshot = { id: latest.id, code: latest.code, status: latest.status, method: latest.method, source: latest.source, rdTaskId: latest.rdTaskId };
+      rollbackRefreshFocusRef.current = refreshedSnapshot;
+      setRollbackSnapshot(refreshedSnapshot);
+      setRollbackNeedsRefresh(false);
+      setRollbackError(null);
+    } catch (err) {
+      setRollbackError(err instanceof Error ? err.message : t("任务刷新失败，请重试"));
+      setRollbackNeedsRefresh(true);
+    } finally {
+      rollbackBusyRef.current = false;
+      setRollbackBusy(false);
+    }
+  };
+  const submitRollback = async () => {
+    const reason = rollbackReason.trim();
+    const requestScope = captureProcurementScope();
+    if (!rollbackSnapshot || !rollbackTarget || rollbackBusyRef.current || rollbackNeedsRefresh || !can("proc-task:rollback")) return;
+    if (rollbackSnapshot.id !== currentTaskRef.current.id || rollbackSnapshot.status !== currentTaskRef.current.status || rollbackSnapshot.method !== currentTaskRef.current.method || rollbackSnapshot.source !== currentTaskRef.current.source || rollbackSnapshot.rdTaskId !== currentTaskRef.current.rdTaskId) {
+      setRollbackError(t("任务已更新，请刷新后重新选择回退节点"));
+      setRollbackNeedsRefresh(true);
+      setRollbackTarget(null);
+      return;
+    }
+    if (!rollbackTargets.includes(rollbackTarget) || reason.length < 2 || reason.length > 200) {
+      setRollbackError(t("请选择回退节点，并填写 2–200 字的回退原因"));
+      return;
+    }
+    rollbackBusyRef.current = true;
+    setRollbackBusy(true);
+    setRollbackError(null);
+    try {
+      const updated = await rollbackProcTask(rollbackSnapshot.id, rollbackTarget, reason, rollbackSnapshot.status);
+      applyProcTaskUpdate(updated, requestScope);
+      void refreshProcurement();
+      toast.success(updated.status === "pending_rd_review"
+        ? t("已退回研发，任务已移出采购列表；原研发人员继续转采购后将重新分配采购负责人")
+        : t("已回退到「{status}」", { status: t(PROC_STATUS_META[updated.status].label) }));
+      setRollbackSnapshot(null);
+      setRollbackTarget(null);
+      setRollbackReason("");
+      if (updated.status === "pending_rd_review") onClose();
+    } catch (err) {
+      setRollbackError(err instanceof Error ? err.message : t("回退失败"));
+      setRollbackNeedsRefresh(true);
+      setRollbackTarget(null);
+    } finally {
+      rollbackBusyRef.current = false;
+      setRollbackBusy(false);
     }
   };
   // 研发流转的待处理任务走「审核」语义：通过=确认提交，驳回须理由并删除采购任务
@@ -175,24 +293,38 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
     && !task.purchaseOrders.some((order) => !order.freeSample)
     && task.arrivedQty === 0
     && can("proc-task:inquiry");
+  const materialSummary = [task.materialName, task.spec, `${task.quantity}${task.unit}`].filter(Boolean).join(" · ");
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <SheetContent side="right" className="horizon-theme horizon-portal proc-horizon-drawer w-full max-w-full gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:w-[720px] sm:max-w-[720px]" aria-describedby={undefined}>
+    <Sheet open onOpenChange={(o) => { if (!o && !rollbackBusyRef.current) onClose(); }}>
+      <SheetContent
+        side="right"
+        className="horizon-theme horizon-portal proc-horizon-drawer w-full max-w-full gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:max-w-[720px]"
+        aria-describedby={undefined}
+        onCloseAutoFocus={(event) => {
+          if (openerRef.current?.isConnected && openerRef.current !== document.body) {
+            event.preventDefault();
+            openerRef.current.focus();
+          }
+        }}
+      >
         {/* 头部（pr-8 给自带关闭 X 留位） */}
         <SheetHeader className="block border-b border-slate-100 px-6 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-2 pr-8 sm:flex-nowrap">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <div ref={drawerHeaderRef} tabIndex={-1} className="flex flex-wrap items-start justify-between gap-2 pr-8 sm:flex-nowrap">
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-1">
               <SheetTitle className="min-w-0 break-words text-balance text-lg font-bold tabular-nums text-slate-900">{task.code}</SheetTitle>
               <StatusPill status={task.status} />
               <BusinessLinePill line={task.businessLine} />
               <SourcePill source={task.source} />
               <MethodPill method={task.method} />
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex shrink-0 flex-wrap items-center gap-1.5">
               {/* 归类是整理动作，终态任务也允许移动——历史任务同样需要能归到正确的子系统下 */}
               {(can("proc-task:create") || can("proc-task:reassign")) && (
                 <Button type="button" variant="outline" size="sm" onClick={() => setMoveOpen(true)} title={t('移动到其他类目')} className="h-7 rounded-lg px-2.5 text-xs text-slate-600"><FolderTree className="h-3.5 w-3.5" />{t('移动归类')}</Button>
+              )}
+              {canRollback && (
+                <Button ref={rollbackTriggerRef} type="button" variant="outline" size="sm" disabled={rollbackBusy || taskAction.busy} onClick={openRollback} title={t('回退到更早的流程节点')} className="h-7 rounded-lg border-amber-200 px-2.5 text-xs text-amber-700 hover:bg-amber-50 hover:text-amber-800"><Undo2 className="h-3.5 w-3.5" />{t('回退')}</Button>
               )}
               {/* 终态任务只读；状态流转走「下一步」操作卡，这里只改任务信息 */}
               {!["completed", "cancelled"].includes(task.status) && can("proc-task:create") && (
@@ -200,18 +332,16 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               )}
             </div>
           </div>
-          <AutoTranslatedText
-            as="div"
-            className="mt-1 text-pretty text-sm tabular-nums text-slate-500"
-            text={[task.materialName, task.spec, `${task.quantity}${task.unit}`].filter(Boolean).join(" · ")}
-          />
+          <div className="mt-1 text-pretty text-sm tabular-nums text-slate-500" title={materialSummary}>
+            <AutoTranslatedText as="div" className="line-clamp-2 break-words" text={materialSummary} />
+          </div>
           {/* 步骤条 */}
           <div className="mt-4 flex items-center overflow-x-auto pb-1">
             {flow.map((s, i) => (
               <div key={s} className="flex items-center">
                 <div className="flex flex-col items-center gap-1">
-                  <span className={cn("flex size-6 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums", i < curIdx ? "bg-emerald-500 text-white" : i === curIdx ? "bg-[#002fa7] text-white" : "bg-slate-100 text-slate-400")}>{i + 1}</span>
-                  <span className={cn("whitespace-nowrap text-[10px]", i === curIdx ? "font-semibold text-[#002fa7]" : "text-slate-400")}>{t(PROC_STATUS_META[s].label)}</span>
+                  <span className={cn("flex size-6 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums", i < curIdx ? "bg-emerald-500 text-white" : i === curIdx ? "bg-primary text-white" : "bg-slate-100 text-slate-400")}>{i + 1}</span>
+                  <span className={cn("whitespace-nowrap text-[10px]", i === curIdx ? "font-semibold text-primary" : "text-slate-400")}>{t(PROC_STATUS_META[s].label)}</span>
                 </div>
                 {i < flow.length - 1 && <div className={cn("mx-1 h-0.5 w-5", i < curIdx ? "bg-emerald-400" : "bg-slate-200")} />}
               </div>
@@ -233,8 +363,8 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           {/* 下一步操作卡：动作码由系统管理配置到角色，无权限者只读。
               研发流转的待处理任务是「审核」语义：通过（确认提交）或驳回（理由必填，删除采购任务并通知）。 */}
           {meta.next && can(nextPermissionOf(task)) && (
-            <div className="proc-horizon-next-step rounded-xl border border-[#cbd8f6] bg-[#eef3ff] p-4">
-              <div className="text-xs font-semibold text-[#002fa7]">{t('下一步 · 责任人：')}{task.status === "testing" ? task.sampleTest?.testerName || t("待指定研发测试人员") : buyerLabel}</div>
+            <div className="proc-horizon-next-step rounded-xl border border-[var(--primary-soft-border)] bg-accent p-4">
+              <div className="text-xs font-semibold text-primary">{t('下一步 · 责任人：')}{task.status === "testing" ? task.sampleTest?.testerName || t("待指定研发测试人员") : buyerLabel}</div>
               <p className="mt-1 text-pretty text-sm text-slate-700">
                 {isRdReview
                   ? t('研发流转需求待审核：通过后进入询价流程；驳回将删除采购任务，并通知研发对接人与超级管理员。')
@@ -250,7 +380,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                 </Button>
                 {/* 询价阶段登记免费样品后进入待到样；已有待到样任务可继续登记本轮出样信息。 */}
                 {(task.status === "pending_sample" || FREE_SAMPLE_ONLY_STATUSES.includes(task.status)) && can("proc-task:order") && (
-                  <Button type="button" variant="outline" disabled={taskAction.busy} onClick={() => taskAction.linkSampleOrder(task)} className="rounded-lg border-[#bfd0fa] bg-white px-4 py-2 text-sm text-[#002fa7] hover:bg-[#eef3ff] hover:text-[#002581]">
+                  <Button type="button" variant="outline" disabled={taskAction.busy} onClick={() => taskAction.linkSampleOrder(task)} className="rounded-lg border-[var(--primary-soft-border)] bg-white px-4 py-2 text-sm text-primary hover:bg-accent hover:text-primary-hover">
                     {t(task.status === "pending_sample" ? '登记出样单' : '登记免费样品来货')}
                   </Button>
                 )}
@@ -324,8 +454,8 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                   </span>
                 } />
                 {task.rdContact && <Info label="研发对接人" value={task.rdContact} />}
-                {task.source === "rd" && task.rdTaskTitle && <Info label="关联研发任务" value={<span><AutoTranslatedText className="text-[#002fa7]" text={task.rdTaskTitle} />{task.rdTaskId && <span className="ml-1 text-[11px] tabular-nums text-slate-400">{task.rdTaskId}</span>}</span>} />}
-                {task.method === "direct" && task.purchaseLink && <Info label="商品链接" value={<a href={task.purchaseLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded text-[#002fa7] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">{t('打开链接')} <ExternalLink className="size-3.5" /></a>} />}
+                {task.source === "rd" && task.rdTaskTitle && <Info label="关联研发任务" value={<span><AutoTranslatedText className="text-primary" text={task.rdTaskTitle} />{task.rdTaskId && <span className="ml-1 text-[11px] tabular-nums text-slate-400">{task.rdTaskId}</span>}</span>} />}
+                {task.method === "direct" && task.purchaseLink && <Info label="商品链接" value={<a href={task.purchaseLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('打开链接')} <ExternalLink className="size-3.5" /></a>} />}
               </div>
             </div>
             {task.consumableNote && <div className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-700">{t('低值易耗品：')}<AutoTranslatedText text={task.consumableNote} /></div>}
@@ -339,12 +469,12 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               <div className="mb-2 text-balance text-sm font-semibold text-slate-700">{t("需求附件（{count}）", { count: task.attachmentList.length })}</div>
               <ul className="space-y-2">
                 {task.attachmentList.map((attachment) => {
-                  const className = "flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600 hover:border-[#cbd8f6] hover:bg-[#eef3ff] hover:text-[#002fa7]";
+                  const className = "flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600 hover:border-[var(--primary-soft-border)] hover:bg-accent hover:text-primary";
                   return (
                     <li key={attachment.id}>
                       <button
                         type="button"
-                        className={cn(className, "w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]")}
+                        className={cn(className, "w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40")}
                         aria-label={t("预览附件：{name}", { name: attachment.fileName })}
                         onClick={() => setPreviewAttachment(previewModel(attachment))}
                       >
@@ -382,20 +512,28 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           {task.method === "inquiry" && !quotesLoading && !quotesError && quotes.length > 0 && (
             <div className="space-y-3">
               {histLow && (
-                <div className="flex items-center justify-between rounded-xl border border-[#dce5fa] bg-[#eef3ff] px-4 py-2.5 text-xs text-slate-600">
-                  <span className="flex items-center gap-2 tabular-nums"><History className="size-4 text-[#002fa7]" />{t('该物料历史最低')} <b className="text-emerald-600">{fmtMoney(histLow.unitPrice)}</b> · {histLow.supplierName} · {histLow.quoteDate}</span>
-                  <button type="button" onClick={() => setHistoryOpen(true)} className="shrink-0 rounded font-medium text-[#002fa7] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">{t('历史价格')}</button>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--primary-soft-border)] bg-accent px-4 py-2.5 text-xs text-slate-600">
+                  <div className="min-w-0 flex-1 basis-64">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
+                      <History className="size-4 shrink-0 text-primary" />
+                      <span>{t('该物料历史最低')}</span>
+                      <b className="shrink-0 whitespace-nowrap text-emerald-600">{fmtMoney(histLow.unitPrice)}</b>
+                    </div>
+                    <p className="mt-1 break-words text-pretty tabular-nums" title={`${histLow.supplierName} · ${histLow.quoteDate}`}>{histLow.supplierName} · {histLow.quoteDate}</p>
+                  </div>
+                  <button type="button" onClick={() => setHistoryOpen(true)} className="shrink-0 rounded font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{t('历史价格')}</button>
                 </div>
               )}
               <div className="proc-horizon-drawer-section rounded-xl border border-slate-100">
-                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
+                <div ref={quoteSectionRef} tabIndex={-1} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2">
                   <span className="text-sm font-semibold tabular-nums text-slate-700">{t('供应商报价（{count}）', { count: quotes.length })}</span>
                   {/* 维护错价格此前只能作废整条任务重建，这里提供重做入口；已下单之后不再允许改 */}
                   {canResetQuotes && (
                     <button
+                      ref={resetQuoteTriggerRef}
                       type="button"
                       onClick={() => setResetting(true)}
-                      className="shrink-0 rounded text-xs font-medium text-[#002fa7] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]"
+                      className="shrink-0 rounded text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                     >
                       {t('重新维护')}
                     </button>
@@ -404,21 +542,21 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                 <ul className="divide-y divide-slate-100">
                   {quotes.map((q) => (
                     <li key={q.id} className={cn("px-4 py-2.5", q.isSelected && "bg-emerald-50/40")}>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="flex min-w-0 items-center gap-3">
-                          <span className="truncate text-sm font-medium text-slate-700">{q.supplierName}</span>
-                          <span className="text-sm font-semibold tabular-nums text-slate-900">{q.currency === "CNY" ? fmtMoney(q.unitPrice) : `${q.currency} ${q.unitPrice}`}</span>
-                          {q.channel === "quote-book" && <span className="rounded-full border border-[#cbd8f6] bg-[#eef3ff] px-2 py-0.5 text-[11px] text-[#002fa7]">{t('报价库')}</span>}
-                          {q.isSelected && <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-600">{t('已确认')}</span>}
-                        </span>
-                        <span className="shrink-0 text-xs tabular-nums text-slate-400">{t('交期 {count} 天', { count: q.leadTimeDays })}</span>
+                      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+                        <div className="flex min-w-0 flex-1 basis-64 flex-wrap items-center gap-x-3 gap-y-1.5">
+                          <span className="min-w-0 basis-full break-words text-pretty text-sm font-medium text-slate-700" title={q.supplierName}>{q.supplierName}</span>
+                          <span className="shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums text-slate-900">{q.currency === "CNY" ? fmtMoney(q.unitPrice) : `${q.currency} ${q.unitPrice}`}</span>
+                          {q.channel === "quote-book" && <span className="shrink-0 whitespace-nowrap rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-[11px] text-primary">{t('报价库')}</span>}
+                          {q.isSelected && <span className="shrink-0 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-600">{t('已确认')}</span>}
+                        </div>
+                        <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-slate-400">{t('交期 {count} 天', { count: q.leadTimeDays })}</span>
                       </div>
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] tabular-nums text-slate-400">
                         {q.quantity != null && <span>{t('采购数量')} {q.quantity.toLocaleString()} {t(task.unit)}</span>}
                         {q.lineTotal != null && <span className="font-medium text-slate-600">{t('行金额')} {q.currency === "CNY" ? fmtMoney(q.lineTotal) : `${q.currency} ${q.lineTotal}`}</span>}
                         {q.minOrderQty != null && <span>{t('起订量')} {q.minOrderQty.toLocaleString()}</span>}
                         {q.validUntil && <span>{t('有效期至 {date}', { date: q.validUntil })}</span>}
-                        {q.note && <span className="min-w-0 truncate">{q.note}</span>}
+                        {q.note && <span className="min-w-0 basis-full break-words text-pretty" title={q.note}>{q.note}</span>}
                       </div>
                     </li>
                   ))}
@@ -433,7 +571,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                       <span>{t('减：折扣金额')}</span>
                       <b>- {task.quotationCurrency === "CNY" ? fmtMoney(task.quotationDiscount ?? 0) : `${task.quotationCurrency ?? ""} ${task.quotationDiscount ?? 0}`}</b>
                     </div>
-                    <div className="flex justify-between border-t border-slate-200 pt-1.5 text-sm text-[#002fa7]">
+                    <div className="flex justify-between border-t border-slate-200 pt-1.5 text-sm text-primary">
                       <b>{t('最终总价')}</b>
                       <b>{task.quotationCurrency === "CNY" ? fmtMoney(task.quotationTotal) : `${task.quotationCurrency ?? ""} ${task.quotationTotal}`}</b>
                     </div>
@@ -492,7 +630,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           {/* 采购单关联：出样单（含免费来样）在「待到样」就登记，所以不跟 orderStage 走，有就显示 */}
           {task.purchaseOrders.length > 0 && (
             <div className="proc-horizon-drawer-section rounded-xl border border-slate-100">
-              <div className="border-b border-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
+              <div ref={purchaseOrdersSectionRef} tabIndex={-1} className="border-b border-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
                 <span className="tabular-nums">{t('采购单关联（{count}）', { count: task.purchaseOrders.length })}</span>
               </div>
               <ul className="divide-y divide-slate-100">
@@ -501,7 +639,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         {po.freeSample ? (
-                          <span className="rounded-full border border-[#cbd8f6] bg-[#eef3ff] px-2 py-0.5 text-[11px] text-[#002fa7]">{t('免费样品')}</span>
+                          <span className="rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-[11px] text-primary">{t('免费样品')}</span>
                         ) : (
                           <b className="text-sm font-medium tabular-nums text-slate-800">{po.tpOrderNo}</b>
                         )}
@@ -517,7 +655,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                     {can("proc-task:order") && (
                       <button
                         type="button"
-                        onClick={() => setUnlinking(po)}
+                        onClick={(event) => { unlinkOrderTriggerRef.current = event.currentTarget; setUnlinking(po); }}
                         title={t('撤销该关联')}
                         aria-label={t('撤销采购单关联')}
                         className="flex size-9 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200"
@@ -534,14 +672,14 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           {(orderStage || task.arrivedQty > 0) && (
             <div className="proc-horizon-drawer-section rounded-xl border border-slate-100 p-4">
               <div className="mb-2 text-balance text-sm font-semibold text-slate-700">{t('到货记录')}</div>
-              <div role="progressbar" aria-label={t('到货进度')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100"><div className={cn("h-full rounded-full", pct >= 100 ? "bg-emerald-500" : "bg-[#002fa7]")} style={{ width: `${pct}%` }} /></div>
+              <div role="progressbar" aria-label={t('到货进度')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100"><div className={cn("h-full rounded-full", pct >= 100 ? "bg-emerald-500" : "bg-primary")} style={{ width: `${pct}%` }} /></div>
               <div className="text-xs tabular-nums text-slate-500">{t('已到货')} <b>{task.arrivedQty.toLocaleString()}</b> / {task.quantity.toLocaleString()}{t(task.unit)} ({pct}%)</div>
             </div>
           )}
 
           {/* 操作日志 */}
           <Collapsible open={logsOpen} onOpenChange={setLogsOpen} className="proc-horizon-drawer-section rounded-xl border border-slate-100">
-            <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-2.5 text-balance text-sm font-semibold tabular-nums text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#8fa9e8]">{t('操作日志（{count}）', { count: task.logs.length })}<ChevronDown className={cn("size-4 text-slate-400", logsOpen && "rotate-180")} /></CollapsibleTrigger>
+            <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-2.5 text-balance text-sm font-semibold tabular-nums text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40">{t('操作日志（{count}）', { count: task.logs.length })}<ChevronDown className={cn("size-4 text-slate-400", logsOpen && "rotate-180")} /></CollapsibleTrigger>
             <CollapsibleContent>
               {task.logs.length > 0 ? (
                 <ul className="space-y-2 border-t border-slate-100 px-4 py-3">
@@ -571,7 +709,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
         />
       )}
       <AlertDialog open={Boolean(unlinking)} onOpenChange={(o) => { if (!o && !unlinkBusy) setUnlinking(null); }}>
-        <AlertDialogContent className="horizon-theme horizon-portal proc-horizon-overlay rounded-2xl sm:max-w-md">
+        <AlertDialogContent onCloseAutoFocus={(event) => restoreConfirmationFocus(event, unlinkOrderTriggerRef.current, purchaseOrdersSectionRef.current, drawerHeaderRef.current)} className="horizon-theme horizon-portal proc-horizon-overlay rounded-2xl sm:max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-balance text-slate-900">{t('撤销采购单关联？')}</AlertDialogTitle>
             <AlertDialogDescription className="text-pretty leading-relaxed">
@@ -593,7 +731,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
         </AlertDialogContent>
       </AlertDialog>
       <AlertDialog open={resetting} onOpenChange={(o) => { if (!o && !resetBusy) { setResetting(false); setResetReason(""); } }}>
-        <AlertDialogContent className="horizon-theme horizon-portal proc-horizon-overlay rounded-2xl sm:max-w-md">
+        <AlertDialogContent onCloseAutoFocus={(event) => restoreConfirmationFocus(event, resetQuoteTriggerRef.current, quoteSectionRef.current, drawerHeaderRef.current)} className="horizon-theme horizon-portal proc-horizon-overlay rounded-2xl sm:max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-balance text-slate-900">{t('重新维护报价？')}</AlertDialogTitle>
             <AlertDialogDescription className="text-pretty leading-relaxed tabular-nums">
@@ -618,6 +756,55 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               className="rounded-lg bg-amber-600 hover:bg-amber-700"
             >
               {resetBusy ? t('处理中…') : t('清空并重新维护')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={Boolean(rollbackSnapshot)} onOpenChange={(open) => { if (!open) closeRollback(); }}>
+        <AlertDialogContent onCloseAutoFocus={(event) => restoreConfirmationFocus(event, rollbackTriggerRef.current, null, drawerHeaderRef.current)} className="horizon-theme horizon-portal proc-horizon-overlay max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle ref={rollbackTitleRef} tabIndex={-1} className="text-balance text-slate-900">{t('回退任务到更早的节点')}</AlertDialogTitle>
+            <AlertDialogDescription className="text-pretty leading-relaxed">
+              {t('任务 {code}，当前状态「{status}」。请选择同一流程中更早的节点。', { code: rollbackSnapshot?.code ?? task.code, status: t(PROC_STATUS_META[rollbackSnapshot?.status ?? task.status].label) })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {(rollbackError || rollbackStale || rollbackNeedsRefresh) && (
+            <div role="alert" className="space-y-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">
+              {rollbackError && <p>{rollbackError}</p>}
+              <p>{rollbackSnapshot?.id !== task.id ? t('当前任务已切换，请关闭后重新打开回退') : t('请先刷新最新任务，再重新选择节点。不会自动重试回退。')}</p>
+              {rollbackSnapshot?.id === task.id && <Button type="button" variant="outline" size="sm" disabled={rollbackBusy} onClick={() => void reloadRollbackTask()} className="rounded-lg bg-white text-slate-700"><RefreshCw className="size-3.5" />{rollbackBusy ? t('刷新中…') : t('刷新任务后重新选择')}</Button>}
+            </div>
+          )}
+          <fieldset disabled={rollbackBusy || rollbackStale || rollbackNeedsRefresh || !can("proc-task:rollback")} className="min-w-0 space-y-3 disabled:opacity-60">
+            <legend className="mb-2 text-sm font-medium text-slate-700">{t('回退到')}</legend>
+            <div className="flex flex-wrap gap-1.5">
+              {rollbackTargets.map((target, index) => (
+                <button ref={index === 0 ? rollbackFirstTargetRef : undefined} key={target} type="button" aria-pressed={rollbackTarget === target} onClick={() => setRollbackTarget(target)} className={cn("rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50", rollbackTarget === target ? "border-amber-400 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600 hover:border-amber-200 hover:bg-amber-50")}>
+                  {t(PROC_STATUS_META[target].label)}
+                </button>
+              ))}
+            </div>
+            {rollbackTargets.length === 0 && <p className="text-sm text-slate-500">{t('当前状态没有可回退的节点')}</p>}
+            {rollbackTarget && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+                {rollbackHints.length > 0 ? <>
+                  <p className="font-semibold">{t('回退到「{status}」将清除以下数据，且不可恢复：', { status: t(PROC_STATUS_META[rollbackTarget].label) })}</p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4">{rollbackHints.map((hint) => <li key={hint}>{t(hint)}</li>)}</ul>
+                  <p className="mt-1.5">{t('免费样品来货登记、T+ 原始单据和物料主数据上的最新参考价会保留。')}</p>
+                  {rollbackTarget === "pending_rd_review" && <p className="mt-1.5 font-medium">{t('任务将离开采购列表并退回研发；原研发人员可直接继续转采购，系统会重新分配采购负责人。')}</p>}
+                </> : <p>{t('报价、采购单关联与到货记录保持不变。')}</p>}
+              </div>
+            )}
+            <div>
+              <label htmlFor="proc-task-rollback-reason" className="mb-1.5 block text-sm font-medium text-slate-700">{t('回退原因（必填，2–200 字）')}</label>
+              <Textarea id="proc-task-rollback-reason" value={rollbackReason} onChange={(event) => setRollbackReason(event.target.value)} placeholder={t('请说明回退原因，会记入操作留痕')} aria-describedby="proc-task-rollback-reason-count" className="min-h-[72px] rounded-lg text-sm" />
+              <p id="proc-task-rollback-reason-count" className={cn("mt-1 text-right text-xs tabular-nums", rollbackReason.trim().length > 200 ? "text-rose-600" : "text-slate-400")}>{rollbackReason.trim().length}/200</p>
+            </div>
+          </fieldset>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={rollbackBusy} className="rounded-lg">{t('取消')}</AlertDialogCancel>
+            <AlertDialogAction disabled={rollbackBusy || rollbackStale || rollbackNeedsRefresh || !can("proc-task:rollback") || !rollbackTarget || rollbackReason.trim().length < 2 || rollbackReason.trim().length > 200} onClick={(event) => { event.preventDefault(); void submitRollback(); }} className="rounded-lg bg-amber-600 text-white hover:bg-amber-700">
+              {rollbackBusy ? t('处理中…') : t('确认回退')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

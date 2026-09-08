@@ -124,6 +124,8 @@ import { AutoTranslatedText } from "./components/TranslatableText";
 import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
 import { toast } from "sonner";
 import { ProcSampleTestMessageCard } from "./components/ProcSampleTestMessageCard";
+import { ProcTransferReturnedMessageCard } from "./components/ProcTransferReturnedMessageCard";
+import { parseProcurementTransferReturnedMessage, transferReturnedMessageSummary } from "./lib/procurementTransferReturnedMessage";
 import { parseProcurementSampleTestMessage, sampleTestMessageSummary, withoutSampleTestQuery } from "./lib/procurementSampleTestMessage";
 import { ProcSampleTestDialog } from "./procurement/components/ProcSampleTestDialog";
 
@@ -3111,6 +3113,7 @@ function NotificationDrawer({
   const isPerfSelfAssessment = msgBodyType === "perf_self_assessment";
   const discussionMention = parseRdDiscussionMention(notification.raw_body);
   const sampleTestMessage = parseProcurementSampleTestMessage(notification.raw_body);
+  const transferReturnedMessage = parseProcurementTransferReturnedMessage(notification.raw_body);
 
   // review_request fields
   const reviewType = isReviewRequest ? String(parsedBody!.review_type ?? "") : "";
@@ -3195,6 +3198,7 @@ function NotificationDrawer({
       <div className="space-y-5">
 
         {sampleTestMessage && <ProcSampleTestMessageCard body={sampleTestMessage} onOpen={(route) => { onClose(); navigate(route); }} />}
+        {transferReturnedMessage && <ProcTransferReturnedMessageCard body={transferReturnedMessage} onOpen={(route) => { onClose(); navigate(route); }} />}
 
         {/* ── Review request card ── */}
         {isReviewRequest && (
@@ -3344,7 +3348,7 @@ function NotificationDrawer({
         )}
 
         {/* ── Plain message (fallback) ── */}
-        {!isReviewRequest && !isReviewResult && !isProcurementReviewResult && !sampleTestMessage && (
+        {!isReviewRequest && !isReviewResult && !isProcurementReviewResult && !sampleTestMessage && !transferReturnedMessage && (
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-sm leading-6 text-slate-700">{notification.message}</p>
           </div>
@@ -3362,7 +3366,7 @@ function NotificationDrawer({
         )}
 
         {/* ── Related task block ── */}
-        {relatedTask && !sampleTestMessage && (
+        {relatedTask && !sampleTestMessage && !transferReturnedMessage && (
           <div className="rounded-xl border border-slate-200 p-4">
             <div className="mb-2 flex items-start justify-between gap-3">
               <div>
@@ -3383,7 +3387,7 @@ function NotificationDrawer({
         )}
 
         {/* ── Sender info (non-review messages) ── */}
-        {notification.type === "message" && !isReviewRequest && !isReviewResult && !isProcurementReviewResult && !sampleTestMessage && (
+        {notification.type === "message" && !isReviewRequest && !isReviewResult && !isProcurementReviewResult && !sampleTestMessage && !transferReturnedMessage && (
           <div className="rounded-xl border border-[#dce5fa] bg-[#eef3ff]/60 px-4 py-3">
             <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-[#001f73]">
               <MessageSquare className="h-3.5 w-3.5" />
@@ -3453,7 +3457,7 @@ function NotificationDrawer({
             </>
           )}
           <ActionButton onClick={onClose} className="ml-auto">{t("稍后处理")}</ActionButton>
-          {!isReviewRequest && !isReviewResult && !isProcurementReviewResult && !sampleTestMessage && (
+          {!isReviewRequest && !isReviewResult && !isProcurementReviewResult && !sampleTestMessage && !transferReturnedMessage && (
             <ActionButton onClick={onDismiss} variant="primary">
               <CheckCircle2 className="h-3.5 w-3.5" />
               {t("标记已处理")}
@@ -4693,6 +4697,7 @@ export function RDMyWorkspacePage() {
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const canStartProject = canProposeProject || canDirectProject;
   const horizonWorkspace = !isProductionWorkspace();
+  const notificationsFirst = horizonWorkspace && !isUsCollabWorkspace();
   // 研发审核通知已由服务端按当前节点成员池逐人投递；是否能执行仍由审核接口做最终授权。
   const canReview = Boolean(user);
   const canReviewNotification = useCallback((notification: WorkspaceNotification) => {
@@ -4905,9 +4910,10 @@ export function RDMyWorkspacePage() {
     return () => controller.abort();
   }, [visiblePreviewTaskKey]);
 
-  // Reset pagination when filters change
+  // 用户切换筛选时从首条任务重新查看；后台刷新不重置位置。
   useEffect(() => {
     setTaskVisibleCount(WORKSPACE_PAGE_SIZE);
+    if (taskScrollRef.current) taskScrollRef.current.scrollTop = 0;
   }, [taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter, taskRoleTab]);
 
   // Infinite scroll: load more tasks when sentinel enters the task scroll area.
@@ -5269,9 +5275,9 @@ export function RDMyWorkspacePage() {
           <main className="rd-horizon-workspace-main flex min-h-0 flex-col gap-3">
             {/* Sticky filter bar */}
             <div className="rd-horizon-workspace-filters shrink-0 rounded-2xl border border-white bg-white/90 p-3 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                {/* Search — grows up to a sensible cap so the right-side filters always keep their room */}
-                <div className="rd-horizon-workspace-search relative min-w-0 flex-1 xl:max-w-[360px]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                {/* 搜索与筛选按实际可用空间换行，避免视口和工作台容器断点不一致。 */}
+                <div className="rd-horizon-workspace-search relative min-w-0 flex-1 basis-64">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
                   <Input
                     className="h-8 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-8 text-xs text-slate-700 outline-none transition-colors focus:border-[#8fa9e8] focus:bg-white focus:ring-2 focus:ring-[#dce5fa]"
@@ -5292,8 +5298,8 @@ export function RDMyWorkspacePage() {
                   )}
                 </div>
 
-                {/* 窄屏保持单行但允许横向滚动，避免筛选项被工作台 overflow-hidden 裁切。 */}
-                <div className="rd-horizon-workspace-filter-controls flex w-full min-w-0 items-center gap-1.5 overflow-x-auto pb-1 xl:w-auto xl:shrink-0 xl:overflow-visible xl:pb-0">
+                {/* 筛选组空间不足时独占一行，内部保留横向滚动。 */}
+                <div className="rd-horizon-workspace-filter-controls flex min-w-0 max-w-full items-center gap-1.5 overflow-x-auto pb-1">
                   <div
                     role="tablist"
                     aria-label={t("任务角色筛选")}
@@ -5474,7 +5480,7 @@ export function RDMyWorkspacePage() {
           {/* ── RIGHT column ── */}
           <aside className="rd-horizon-workspace-aside material-scrollbar min-h-0 space-y-4 overflow-y-auto pr-1">
             {/* MateChat 连续使用打卡（激励多用 AI） */}
-            <MateChatStreakCardConnected variant="full" className="rd-horizon-workspace-streak-card" />
+            {!notificationsFirst && <MateChatStreakCardConnected variant="full" className="rd-horizon-workspace-streak-card" />}
             {/* 通知中心 */}
             <SectionCard title={t("通知中心")} icon={Bell} count={visibleNotifications.length}>
               {visibleNotifications.length === 0 ? (
@@ -5485,6 +5491,7 @@ export function RDMyWorkspacePage() {
                     {shownNotifications.map((notification) => {
                       const isMessage = notification.type === "message";
                       const sampleTestMessage = parseProcurementSampleTestMessage(notification.raw_body);
+                      const transferReturnedMessage = parseProcurementTransferReturnedMessage(notification.raw_body);
                       return (
                         <li key={notification.id}>
                           <div
@@ -5530,7 +5537,7 @@ export function RDMyWorkspacePage() {
                                     </span>
                                   ) : null}
                                 </span>
-                                <AutoTranslatedText as="div" className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-600" text={sampleTestMessage ? sampleTestMessageSummary(sampleTestMessage) : notification.message} />
+                                <AutoTranslatedText as="div" className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-600" text={sampleTestMessage ? sampleTestMessageSummary(sampleTestMessage) : transferReturnedMessage ? transferReturnedMessageSummary(transferReturnedMessage) : notification.message} />
                                 <span className="mt-1 block text-[10px] text-slate-400">{relativeTimeLabel((notification as { created_at?: string }).created_at, notification.time)}</span>
                               </span>
                             </button>
@@ -5541,7 +5548,7 @@ export function RDMyWorkspacePage() {
                                   title: t("确认关闭通知"),
                                   message: t("将关闭「{title}」这条通知。", { title: notification.title }),
                                   confirmLabel: t("确认关闭"),
-                                  details: [t("关闭后会从通知中心移除"), t(sampleTestMessage?.type === "procurement_sample_test_request" ? "关闭通知不会完成测试；仍需研发测试人填写并确认结论。" : "不会影响关联任务本身")],
+                                  details: [t("关闭后会从通知中心移除"), t(sampleTestMessage?.type === "procurement_sample_test_request" ? "关闭通知不会完成测试；仍需研发测试人填写并确认结论。" : transferReturnedMessage ? "关闭通知不会继续转采购；仍需返回原研发任务操作。" : "不会影响关联任务本身")],
                                   onConfirm: () => {
                                     // Persist handled state to backend so it survives page refresh
                                     if (notification.id.startsWith("msg-")) {
@@ -5584,6 +5591,8 @@ export function RDMyWorkspacePage() {
                 </>
               )}
             </SectionCard>
+
+            {notificationsFirst && <MateChatStreakCardConnected variant="full" className="rd-horizon-workspace-streak-card" />}
 
             {/* AI 建议 */}
             {visibleSuggestions.length > 0 && (

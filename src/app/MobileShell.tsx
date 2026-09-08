@@ -58,7 +58,7 @@ export function MobileLayout() {
 
   if (!hydrated) {
     return (
-      <div className="horizon-theme hz-page flex min-h-[100dvh] min-w-0 items-center justify-center bg-[#f4f7fe] px-4 text-center text-sm text-[#64748b]" role="status">
+      <div className="horizon-theme hz-page flex min-h-[100dvh] min-w-0 items-center justify-center bg-background px-4 text-center text-sm text-muted-foreground" role="status">
         正在恢复登录状态...
       </div>
     );
@@ -116,19 +116,19 @@ export function MobileLayout() {
   };
 
   return (
-    <div className="horizon-theme hz-page min-h-[100dvh] min-w-0 overflow-x-hidden bg-[#f4f7fe] text-[#42526f]">
-      <div className="flex min-h-[100dvh] flex-col bg-slate-50">
+    <div className="horizon-theme hz-page min-h-[100dvh] min-w-0 overflow-x-hidden bg-card text-on-surface-variant">
+      <div className="flex min-h-[100dvh] flex-col bg-card">
         <Sheet open={menuOpen} onOpenChange={handleMenuOpenChange}>
           <header className="flex shrink-0 items-center justify-between border-b border-[#e9edf7] bg-white px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
             <div className="flex min-w-0 items-center gap-2.5">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-[#002fa7] font-black text-white shadow-[0_9px_18px_-12px_rgba(0,47,167,0.66)]" aria-hidden="true">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary font-black text-white shadow-sm" aria-hidden="true">
                 {isChatAnalytics ? <BarChart3 size={19} /> : <span className="text-base">{isUsCollabWorkspace() ? "协" : isProduction ? "产" : "研"}</span>}
               </span>
               <div className="min-w-0 leading-tight">
-                <div className="truncate text-[17px] font-bold text-[#1b2559]">
+                <div className="truncate text-[17px] font-bold text-foreground">
                   {shellTitle}
                 </div>
-                <div className="text-[11px] font-medium text-[#64748b]">
+                <div className="text-[11px] font-medium text-muted-foreground">
                   {shellSubtitle}
                 </div>
               </div>
@@ -140,18 +140,18 @@ export function MobileLayout() {
                 aria-haspopup="dialog"
                 aria-expanded={menuOpen}
                 aria-controls="mobile-shell-navigation"
-                className="flex size-11 shrink-0 items-center justify-center rounded-xl text-[#002fa7] active:bg-[#eef3ff]"
+                className="flex size-11 shrink-0 items-center justify-center rounded-xl text-primary active:bg-accent"
               >
                 <Menu size={22} aria-hidden="true" />
               </button>
             </SheetTrigger>
           </header>
 
-          <main className="flex-1">
+          <main className="flex-1 bg-background">
             <Outlet />
           </main>
 
-          <div className="border-t border-[#e9edf7] bg-white [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center [&_a]:justify-center [&_a]:rounded-lg [&_a]:px-2 [&_a]:active:text-[#002fa7]">
+          <div className="border-t border-[#e9edf7] bg-white [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center [&_a]:justify-center [&_a]:rounded-lg [&_a]:px-2 [&_a]:active:text-primary">
             <SiteRecordFooter tone="horizon" className="pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-none" />
           </div>
 
@@ -168,20 +168,20 @@ export function MobileLayout() {
                   className="h-11 w-11 shrink-0 rounded-full object-cover"
                 />
               ) : (
-                <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#eef3ff] text-lg font-bold text-[#002fa7]" aria-hidden="true">
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent text-lg font-bold text-primary" aria-hidden="true">
                   {initial}
                 </span>
               )}
               <SheetHeader className="min-w-0 flex-1 gap-0.5 p-0 text-left">
-                <SheetTitle className="truncate text-[15px] font-bold text-[#1b2559]">
+                <SheetTitle className="truncate text-[15px] font-bold text-foreground">
                   {user.name || "未命名用户"}
                 </SheetTitle>
-                <SheetDescription className="truncate text-xs font-medium text-[#64748b]">
+                <SheetDescription className="truncate text-xs font-medium text-muted-foreground">
                   {user.roleName || t("移动工作台导航")}
                 </SheetDescription>
               </SheetHeader>
               <SheetClose asChild>
-                <button type="button" aria-label="关闭菜单" className="flex size-11 shrink-0 items-center justify-center rounded-xl text-[#002fa7] active:bg-[#eef3ff]">
+                <button type="button" aria-label="关闭菜单" className="flex size-11 shrink-0 items-center justify-center rounded-xl text-primary active:bg-accent">
                   <X size={21} aria-hidden="true" />
                 </button>
               </SheetClose>
@@ -194,7 +194,7 @@ export function MobileLayout() {
                 aria-current={!isChatAnalytics ? "page" : undefined}
                 className={cn(
                   "flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold",
-                  !isChatAnalytics ? "bg-[#eef3ff] text-[#002fa7]" : "text-[#42526f] active:bg-[#f4f7fe]",
+                  !isChatAnalytics ? "bg-accent text-primary" : "text-on-surface-variant active:bg-background",
                 )}
               >
                 <LayoutDashboard size={19} className="shrink-0" aria-hidden="true" />
@@ -207,7 +207,7 @@ export function MobileLayout() {
                   aria-current={isChatAnalytics ? "page" : undefined}
                   className={cn(
                     "mt-1 flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold",
-                    isChatAnalytics ? "bg-[#eef3ff] text-[#002fa7]" : "text-[#42526f] active:bg-[#f4f7fe]",
+                    isChatAnalytics ? "bg-accent text-primary" : "text-on-surface-variant active:bg-background",
                   )}
                 >
                   <BarChart3 size={19} className="shrink-0" aria-hidden="true" />

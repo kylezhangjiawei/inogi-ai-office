@@ -1,4 +1,4 @@
-// 供应链任务驾驶舱（流程视角）：指挥区 + 状态统计 + 集中筛选栏 + 自适应任务网格。
+// 供应链任务驾驶舱：任务概览、集中筛选栏和按可用宽度排布的任务卡。
 // 分类/物料维度的浏览在「物料库」页，此页专注任务流。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../components/ui/input";
@@ -20,6 +20,7 @@ import { useI18n } from "../lib/i18n";
 import { toast } from "sonner";
 import { daysFromToday, isProcurementTaskOverdue, refreshProcurement, taskMainDate, taskRequester, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
 import { PersonAvatar, StatCell, useBuyerDirectory } from "./components/common";
+import { uniqueRosterUserIdsByName } from "./procurementLogic";
 import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
 import { ProcurementSystemTree } from "./components/ProcurementSystemTree";
 import { useProcTaskAction } from "./components/taskActions";
@@ -245,14 +246,14 @@ export function ProcurementCockpitPage() {
   }, [coreMaterialConfig.products, materials]);
 
   // 人员泳道只看采购部门正式成员；任务按采购负责人归属，不看研发对接人或需求提出人。
+  const uniqueBuyerIdsByName = useMemo(
+    () => uniqueRosterUserIdsByName(procurementDepartmentUsers),
+    [procurementDepartmentUsers],
+  );
   const people = useMemo(() => {
-    const uniqueNameIds = new Map<string, string | null>();
-    for (const user of procurementDepartmentUsers) {
-      uniqueNameIds.set(user.name, uniqueNameIds.has(user.name) ? null : user.id);
-    }
     const countsByUserId = new Map(procurementDepartmentUsers.map((user) => [user.id, 0]));
     for (const task of treeScopedTasks) {
-      const ownerId = task.buyerUserId || (task.buyer ? uniqueNameIds.get(task.buyer) : null);
+      const ownerId = task.buyerUserId || (task.buyer ? uniqueBuyerIdsByName.get(task.buyer) : null);
       if (ownerId && countsByUserId.has(ownerId)) {
         countsByUserId.set(ownerId, (countsByUserId.get(ownerId) ?? 0) + 1);
       }
@@ -260,7 +261,7 @@ export function ProcurementCockpitPage() {
     return procurementDepartmentUsers
       .map((user) => ({ ...user, taskCount: countsByUserId.get(user.id) ?? 0 }))
       .sort((a, b) => b.taskCount - a.taskCount || a.name.localeCompare(b.name, "zh-CN"));
-  }, [procurementDepartmentUsers, treeScopedTasks]);
+  }, [procurementDepartmentUsers, treeScopedTasks, uniqueBuyerIdsByName]);
 
   const buyerNameById = useMemo(
     () => new Map(procurementDepartmentUsers.map((user) => [user.id, user.name])),
@@ -288,7 +289,7 @@ export function ProcurementCockpitPage() {
       const buyerName = buyerNameById.get(buyerUserId);
       list = list.filter((task) =>
         task.buyerUserId === buyerUserId
-        || (!task.buyerUserId && Boolean(buyerName) && task.buyer === buyerName),
+        || (!task.buyerUserId && buyerName !== undefined && task.buyer === buyerName && uniqueBuyerIdsByName.get(buyerName) === buyerUserId),
       );
     }
     if (materialParam) list = list.filter((t) => t.materialName === materialParam);
@@ -301,28 +302,33 @@ export function ProcurementCockpitPage() {
       const db = taskMainDate(b).date ?? "9999";
       return da.localeCompare(db);
     });
-  }, [treeScopedTasks, stat, buyerUserId, buyerNameById, materialParam, kw]);
+  }, [treeScopedTasks, stat, buyerUserId, buyerNameById, uniqueBuyerIdsByName, materialParam, kw]);
 
   const toggleStat = (k: StatKey) => setStat((cur) => (cur === k ? null : k));
 
   // 任务分批渲染：首屏一批，滚动到底部哨兵自动追加；筛选条件变化重置
   const [visibleCount, setVisibleCount] = useState(WATERFALL_PAGE_SIZE);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => { setVisibleCount(WATERFALL_PAGE_SIZE); }, [line, treeNode?.id, buyerUserId, stat, materialParam, kw]);
+  const [sentinelElement, setSentinelElement] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || visibleCount >= filtered.length) return;
+    setVisibleCount(WATERFALL_PAGE_SIZE);
+  }, [line, treeNode?.id, buyerUserId, stat, materialParam, kw]);
+  useEffect(() => {
+    if (cockpitTab !== "tasks" || view !== "tasks" || !sentinelElement || visibleCount >= filtered.length) return;
+    let active = true;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
+        if (active && entries.some((entry) => entry.isIntersecting)) {
           setVisibleCount((count) => Math.min(count + WATERFALL_PAGE_SIZE, filtered.length));
         }
       },
       { rootMargin: "200px" },
     );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [visibleCount, filtered.length]);
+    observer.observe(sentinelElement);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [cockpitTab, view, sentinelElement, visibleCount, filtered]);
   const visibleTasks = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
   const hasActiveFilters = line !== "all" || Boolean(stat || buyerUserId || treeNode || materialParam || kw.trim());
   const clearFilters = () => {
@@ -393,14 +399,11 @@ export function ProcurementCockpitPage() {
         <section className="proc-horizon-command proc-horizon-command-cockpit mb-3">
           <div className="proc-horizon-command-layout">
             <div className="proc-horizon-command-heading">
-              <span className="proc-horizon-command-mark"><ClipboardList className="size-5" /></span>
               <div className="proc-horizon-command-copy">
-                <h2 className="text-balance">{t("供应链任务指挥台")}</h2>
-                <p className="text-pretty">
-                  {treeNode
-                    ? t("当前聚焦「{name}」，共 {count} 个任务", { name: treeNode.name, count: treeScopedTasks.length })
-                    : t("集中处理待确认、询价、在途与到货异常")}
-                </p>
+                <h2 className="text-balance">{t("任务概览")}</h2>
+                {treeNode ? (
+                  <p className="text-pretty">{t("当前聚焦「{name}」，共 {count} 个任务", { name: treeNode.name, count: treeScopedTasks.length })}</p>
+                ) : null}
               </div>
             </div>
 
@@ -496,20 +499,20 @@ export function ProcurementCockpitPage() {
           aria-label={t("按采购负责人筛选")}
           className="proc-horizon-people-list"
         >
-          <ToggleGroupItem value="all" size="sm" className="proc-horizon-person-tab">
+          <ToggleGroupItem value="all" size="sm" className="proc-horizon-person-tab" aria-label={t("{name}，{count} 个任务", { name: t("全部"), count: treeScopedTasks.length })}>
             <span className="proc-horizon-avatar-ring">
               <span className="proc-horizon-avatar-core"><Users className="size-4" /></span>
-              <span className="proc-horizon-person-count tabular-nums" data-empty={treeScopedTasks.length === 0}>{treeScopedTasks.length}</span>
             </span>
             <span className="proc-horizon-person-name">{t('全部')}</span>
+            <span className="proc-horizon-person-count tabular-nums" data-empty={treeScopedTasks.length === 0}>{treeScopedTasks.length}</span>
           </ToggleGroupItem>
           {people.map((buyer) => (
-            <ToggleGroupItem key={buyer.id} value={buyer.id} size="sm" className="proc-horizon-person-tab">
+            <ToggleGroupItem key={buyer.id} value={buyer.id} size="sm" className="proc-horizon-person-tab" aria-label={t("{name}，{count} 个任务", { name: buyer.name, count: buyer.taskCount })}>
               <span className="proc-horizon-avatar-ring">
                 <span className="proc-horizon-avatar-core"><PersonAvatar name={buyer.name} size="md" /></span>
-                <span className="proc-horizon-person-count tabular-nums" data-empty={buyer.taskCount === 0}>{buyer.taskCount}</span>
               </span>
               <span className="proc-horizon-person-name">{buyer.name}</span>
+              <span className="proc-horizon-person-count tabular-nums" data-empty={buyer.taskCount === 0}>{buyer.taskCount}</span>
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
@@ -517,7 +520,7 @@ export function ProcurementCockpitPage() {
           <Search className="pointer-events-none absolute left-3 top-1/2 z-10 size-3.5 -translate-y-1/2 text-slate-400" />
           <Input aria-label={t('搜索采购任务')} value={kw} onChange={(e) => setKw(e.target.value)} placeholder={t('搜索单号 / 物料 / 人员')} className="pl-8 pr-8 text-xs placeholder:text-slate-400" />
           {kw && (
-            <button type="button" aria-label={t('清空搜索')} onClick={() => setKw("")} className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
+            <button type="button" aria-label={t('清空搜索')} onClick={() => setKw("")} className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
               <X className="size-3.5" />
             </button>
           )}
@@ -529,7 +532,7 @@ export function ProcurementCockpitPage() {
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="font-semibold text-slate-500">{t("当前任务流")}</span>
           {stat && (
-            <button type="button" onClick={() => setStat(null)} aria-label={t("移除状态筛选：{status}", { status: t(STAT_LABELS[stat]) })} className="proc-horizon-filter-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
+            <button type="button" onClick={() => setStat(null)} aria-label={t("移除状态筛选：{status}", { status: t(STAT_LABELS[stat]) })} className="proc-horizon-filter-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
               {t(STAT_LABELS[stat])} ×
             </button>
           )}
@@ -539,7 +542,7 @@ export function ProcurementCockpitPage() {
             </Button>
           )}
           {materialParam && (
-            <button type="button" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete("material"); return n; }, { replace: true })} aria-label={t("移除物料筛选：{material}", { material: materialParam })} className="proc-horizon-filter-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8fa9e8]">
+            <button type="button" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete("material"); return n; }, { replace: true })} aria-label={t("移除物料筛选：{material}", { material: materialParam })} className="proc-horizon-filter-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
               {t('物料')}：<AutoTranslatedText text={materialParam} /> ×
             </button>
           )}
@@ -598,8 +601,8 @@ export function ProcurementCockpitPage() {
                   ))}
                 </div>
                 {visibleCount < filtered.length ? (
-                  <div ref={sentinelRef} className="flex items-center justify-center gap-2 py-4 text-xs text-slate-400">
-                    <span className="size-3 animate-spin rounded-full border-2 border-slate-300 border-t-[#002fa7] motion-reduce:animate-none" />
+                  <div ref={setSentinelElement} className="flex items-center justify-center gap-2 py-4 text-xs text-slate-400">
+                    <span className="size-3 animate-spin rounded-full border-2 border-slate-300 border-t-primary motion-reduce:animate-none" />
                     {t('下拉加载更多')}（{visibleCount} / {filtered.length}）
                   </div>
                 ) : filtered.length > WATERFALL_PAGE_SIZE ? (

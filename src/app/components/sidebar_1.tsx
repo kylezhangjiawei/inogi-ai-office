@@ -2,19 +2,13 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { Link, useLocation } from "react-router";
 import { ChevronDown, ChevronLeft } from "lucide-react";
 import { useAuth } from "../auth";
-import { hasPermission } from "../lib/permissions";
-import { useNavHiddenCodes } from "../lib/permissionCatalogApi";
 import { isNavItemActive, navGroups } from "../routesConfig";
 import { t, useI18n } from "../lib/i18n";
 import { useLayoutChromeActions, useLayoutChromeState } from "../lib/layoutChrome";
 import { cn } from "./ui/utils";
-import logo from '../../assets/logo.png'
-
-/**
- * 侧栏收放的统一过渡：与外层宽度用同一条缓动曲线与时长，宽度、内边距、文字淡出
- * 才会像一个动作，而不是各走各的。系统开了「减少动态效果」时全部退化为瞬时切换。
- */
-const SIDEBAR_EASE = "duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
+import { useVisibleNavigation } from "../lib/useVisibleNavigation";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
+import logo from "../../assets/logo.png";
 
 /** 被用户收起的菜单分组（存分组 label）。默认全展开，只记收起的那些。 */
 const NAV_GROUP_COLLAPSED_KEY = "inogi-nav-collapsed-groups";
@@ -37,13 +31,14 @@ function persistCollapsedGroups(groups: Set<string>) {
   }
 }
 
-export function Sidebar() {
+export function Sidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
   const { lang } = useI18n(); // 订阅语言切换（菜单 label 走 t()，中文即 key 全站菜单一处生效）
   const { pathname } = useLocation();
   const { user } = useAuth();
-  const { immersive, sidebarCollapsed: collapsed } = useLayoutChromeState();
+  const { immersive, sidebarCollapsed } = useLayoutChromeState();
+  const collapsed = !mobile && sidebarCollapsed;
   const { toggleSidebar } = useLayoutChromeActions();
-  const userPermissions = user?.permissions ?? [];
+  const visibleGroups = useVisibleNavigation();
   const sidebarRef = useRef<HTMLElement>(null);
   const navScrollRef = useRef<HTMLElement>(null);
 
@@ -77,30 +72,6 @@ export function Sidebar() {
     });
   }, [pathname]);
 
-  // Nav-hidden codes from the permission catalog.
-  // Hidden pages are still accessible but not shown in the sidebar.
-  const navHiddenCodes = useNavHiddenCodes(user?.id);
-
-  const visibleGroups = navGroups
-    .map((group) => ({
-      ...group,
-      items: group.items
-        .filter((item) => {
-          // 聚合入口（如部门知识库）：任一页面码有权且未被隐藏就展示
-          if (item.requiredPermissionAny?.length) {
-            return item.requiredPermissionAny.some(
-              (code) => hasPermission(userPermissions, code) && !navHiddenCodes.has(code),
-            );
-          }
-          // Must have the required permission (or no permission required)
-          if (item.requiredPermission && !hasPermission(userPermissions, item.requiredPermission)) return false;
-          // Must not be marked as nav-hidden in the permission catalog
-          if (item.requiredPermission && navHiddenCodes.has(item.requiredPermission)) return false;
-          return true;
-        }),
-    }))
-    .filter((group) => group.items.length > 0);
-
   const userInitial = user?.name?.trim().slice(0, 1) || "U";
 
   // 沉浸模式不仅要把侧栏裁出画面，也要切断内部链接和按钮的键盘访问。
@@ -117,74 +88,81 @@ export function Sidebar() {
     if (immersive) return;
 
     const nav = navScrollRef.current;
-    const activeItem = nav?.querySelector<HTMLElement>('a[aria-current="page"]');
-    if (!nav || !activeItem) return;
+    if (!nav) return;
 
-    const navRect = nav.getBoundingClientRect();
-    const activeRect = activeItem.getBoundingClientRect();
-    const edgePadding = 8;
-    const isFullyVisible =
-      activeRect.top >= navRect.top + edgePadding &&
-      activeRect.bottom <= navRect.bottom - edgePadding;
+    const keepActiveItemVisible = () => {
+      if (!nav.clientWidth || !nav.clientHeight) return;
+      const activeItem = nav.querySelector<HTMLElement>('a[aria-current="page"]');
+      if (!activeItem) return;
 
-    if (isFullyVisible) return;
+      const navRect = nav.getBoundingClientRect();
+      const activeRect = activeItem.getBoundingClientRect();
+      const edgePadding = 8;
+      const isFullyVisible =
+        activeRect.top >= navRect.top + edgePadding &&
+        activeRect.bottom <= navRect.bottom - edgePadding;
 
-    const centeredTop =
-      nav.scrollTop +
-      (activeRect.top - navRect.top) -
-      (nav.clientHeight - activeRect.height) / 2;
-    const maxScrollTop = Math.max(0, nav.scrollHeight - nav.clientHeight);
-    nav.scrollTop = Math.min(maxScrollTop, Math.max(0, centeredTop));
-  }, [collapsed, immersive, navHiddenCodes, pathname]);
+      if (isFullyVisible) return;
+
+      const centeredTop =
+        nav.scrollTop +
+        (activeRect.top - navRect.top) -
+        (nav.clientHeight - activeRect.height) / 2;
+      const maxScrollTop = Math.max(0, nav.scrollHeight - nav.clientHeight);
+      nav.scrollTop = Math.min(maxScrollTop, Math.max(0, centeredTop));
+    };
+
+    keepActiveItemVisible();
+    let lastWidth = nav.clientWidth;
+    let lastHeight = nav.clientHeight;
+    const resizeObserver = new ResizeObserver(() => {
+      const width = nav.clientWidth;
+      const height = nav.clientHeight;
+      if (width === lastWidth && height === lastHeight) return;
+      lastWidth = width;
+      lastHeight = height;
+      keepActiveItemVisible();
+    });
+    resizeObserver.observe(nav);
+    return () => resizeObserver.disconnect();
+  }, [collapsed, collapsedGroups, immersive, visibleGroups, pathname]);
 
   return (
-    // 外层只负责三态宽度：沉浸模式整体滑出(0)、手动收起成图标轨道(76)、常态(300/324)。
-    // relative 让右缘控制钮能跨在边线上；裁剪交给内层，避免把控制钮一并裁掉。
     <div
       className={cn(
-        "relative h-full shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-        immersive ? "w-0" : collapsed ? "w-[76px]" : "w-[300px] min-[1920px]:w-[324px]",
+        "rd-horizon-sidebar-frame relative h-full shrink-0",
+        mobile ? "w-full" : immersive ? "w-0" : collapsed ? "w-[76px]" : "w-64 min-[1920px]:w-[280px]",
       )}
     >
-      {/* 裁剪层：沉浸态把侧栏内部裁掉，不挤压主内容。 */}
       <div className="h-full w-full overflow-hidden">
         <aside
           ref={sidebarRef}
           aria-hidden={immersive || undefined}
           data-collapsed={collapsed ? "true" : "false"}
+          data-mobile={mobile || undefined}
           className={cn(
             "rd-horizon-global-sidebar flex h-full flex-col border-r",
-            "transition-[width,padding]",
-            SIDEBAR_EASE,
-            collapsed ? "w-[76px] items-center" : "w-[300px] min-[1920px]:w-[324px]",
+            mobile ? "w-full" : collapsed ? "w-[76px] items-center" : "w-64 min-[1920px]:w-[280px]",
           )}
         >
-          {/* 品牌区保持单一白色表面，和 Horizon Header 共用色彩令牌。 */}
           <div
             className={cn(
-              "rd-horizon-sidebar-brand flex h-[86px] w-full shrink-0 items-center border-b",
+              "rd-horizon-sidebar-brand flex h-20 w-full shrink-0 items-center border-b",
               collapsed ? "justify-center px-2" : "gap-3 px-5",
+              mobile && "pr-12",
             )}
           >
             <img
-              className={cn(
-                "rd-horizon-sidebar-logo shrink-0 rounded-[4px] object-contain transition-[height,width]",
-                SIDEBAR_EASE,
-                collapsed ? "size-10" : "size-11",
-              )}
+              className={cn("rd-horizon-sidebar-logo shrink-0 rounded-lg object-contain", collapsed ? "size-10" : "size-11")}
               src={logo}
               alt="INOGI AI"
             />
-            <div
-              className={cn(
-                "min-w-0 overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin]",
-                SIDEBAR_EASE,
-                collapsed ? "max-w-0 opacity-0" : "max-w-[220px] opacity-100",
-              )}
-            >
-              <div className="rd-horizon-sidebar-brand-title truncate text-base font-bold">INOGI AI</div>
-              <div className="rd-horizon-sidebar-brand-subtitle mt-0.5 truncate text-[11px] font-medium">Office Console</div>
-            </div>
+            {!collapsed && (
+              <div className="min-w-0 whitespace-nowrap">
+                <div className="rd-horizon-sidebar-brand-title truncate text-base font-bold">INOGI AI</div>
+                <div className="rd-horizon-sidebar-brand-subtitle mt-0.5 truncate text-xs font-medium">Office Console</div>
+              </div>
+            )}
           </div>
 
           <nav
@@ -192,160 +170,100 @@ export function Sidebar() {
             data-sidebar-scroll-container
             aria-label={lang === "en" ? "Primary navigation" : "主导航"}
             className={cn(
-              "rd-horizon-sidebar-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-4",
-              SIDEBAR_EASE,
-              // 收起态两侧留等宽滚动条槽，否则滚动条会让图标轨道视觉偏心。
-              collapsed
-                ? "w-full space-y-3 px-2 [scrollbar-gutter:stable_both-edges]"
-                : "w-full space-y-4 px-3",
+              "rd-horizon-sidebar-scroll min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden py-4",
+              collapsed ? "space-y-3 px-2 [scrollbar-gutter:stable_both-edges]" : "space-y-5 px-3",
             )}
           >
             {visibleGroups.map((group, groupIndex) => {
-              // 只有一个菜单项的分组不给折叠开关；图标轨道没有分组标题，始终展开。
               const collapsible = group.items.length > 1;
               const groupClosed = collapsible && !collapsed && collapsedGroups.has(group.label);
               return (
-                <div key={group.label}>
-                  {groupIndex > 0 ? (
-                    <div
-                      className={cn(
-                        "rd-horizon-sidebar-separator mx-auto h-px transition-[width,opacity,margin]",
-                        SIDEBAR_EASE,
-                        collapsed ? "mb-3 w-7 opacity-100" : "mb-0 w-0 opacity-0",
-                      )}
-                    />
-                  ) : null}
-
-                  {/* 隐藏组标题时必须同时切断视觉、指针和键盘访问。 */}
-                  <div
-                    aria-hidden={collapsed}
-                    className={cn(
-                      "grid transition-[grid-template-rows,opacity]",
-                      SIDEBAR_EASE,
-                      collapsed ? "pointer-events-none grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
-                    )}
-                  >
-                    <div className="overflow-hidden">
-                      {collapsible ? (
+                <Collapsible key={group.label} open={!groupClosed} onOpenChange={() => toggleGroup(group.label)}>
+                  {collapsed && groupIndex > 0 && (
+                    <div className="rd-horizon-sidebar-separator mx-auto mb-3 h-px w-7" />
+                  )}
+                  {!collapsed && (
+                    collapsible ? (
+                      <CollapsibleTrigger asChild>
                         <button
                           type="button"
-                          onClick={() => toggleGroup(group.label)}
-                          tabIndex={collapsed ? -1 : undefined}
-                          aria-expanded={!groupClosed}
                           title={groupClosed
                             ? (lang === "en" ? "Expand group" : "展开该分组")
                             : (lang === "en" ? "Collapse group" : "收起该分组")}
-                          className="rd-horizon-sidebar-group-trigger mb-1.5 flex min-h-7 w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-2 text-[11px] font-semibold"
+                          className="rd-horizon-sidebar-group-trigger mb-1.5 flex min-h-8 w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                           <span className="truncate">{t(group.label)}</span>
                           <span className="flex shrink-0 items-center gap-1">
-                            <span
-                              className={cn(
-                                "rd-horizon-sidebar-group-count overflow-hidden rounded-full text-[10px] leading-none tabular-nums transition-[max-width,opacity,padding]",
-                                SIDEBAR_EASE,
-                                groupClosed ? "max-w-[2rem] px-1.5 py-0.5 opacity-100" : "max-w-0 px-0 py-0.5 opacity-0",
-                              )}
-                            >
-                              {group.items.length}
-                            </span>
-                            <ChevronDown
-                              className={cn(
-                                "size-3.5 transition-transform",
-                                SIDEBAR_EASE,
-                                groupClosed ? "-rotate-90" : "rotate-0",
-                              )}
-                            />
+                            {groupClosed && (
+                              <span className="rd-horizon-sidebar-group-count rounded-full px-1.5 py-0.5 text-[10px] leading-none tabular-nums">
+                                {group.items.length}
+                              </span>
+                            )}
+                            <ChevronDown className={cn("size-3.5", groupClosed && "-rotate-90")} aria-hidden="true" />
                           </span>
                         </button>
-                      ) : (
-                        <div className="rd-horizon-sidebar-group-label mb-1.5 flex min-h-7 items-center px-2 text-[11px] font-semibold">
-                          {t(group.label)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div
-                    aria-hidden={groupClosed}
-                    className={cn(
-                      "grid transition-[grid-template-rows,opacity]",
-                      SIDEBAR_EASE,
-                      groupClosed ? "pointer-events-none grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
-                    )}
-                  >
-                    <div className="overflow-hidden">
-                      <div className="space-y-1">
-                        {group.items.map((item) => {
-                          // 聚合入口可能落到另一地址，必须继续复用统一激活判定与 aria-current。
-                          const isActive = isNavItemActive(item, pathname);
-                          return (
-                            <Link
-                              key={item.path}
-                              to={item.path}
-                              title={collapsed ? t(item.label) : undefined}
-                              tabIndex={groupClosed ? -1 : undefined}
-                              aria-current={isActive ? "page" : undefined}
-                              data-active={isActive ? "true" : "false"}
-                              className={cn(
-                                "rd-horizon-sidebar-item group flex min-h-11 items-center rounded-xl border text-[13px] font-medium",
-                                collapsed ? "mx-auto size-11 justify-center p-0" : "w-full gap-2.5 px-2.5",
-                              )}
-                            >
-                              <span className="rd-horizon-sidebar-item-icon flex size-9 shrink-0 items-center justify-center rounded-xl">
-                                <item.icon className="size-[18px]" />
-                              </span>
-                              <span
-                                className={cn(
-                                  "min-w-0 truncate whitespace-nowrap transition-[max-width,opacity,margin]",
-                                  SIDEBAR_EASE,
-                                  collapsed ? "max-w-0 opacity-0" : "max-w-[218px] opacity-100",
-                                )}
-                              >
-                                {t(item.label)}
-                              </span>
-                            </Link>
-                          );
-                        })}
+                      </CollapsibleTrigger>
+                    ) : (
+                      <div className="rd-horizon-sidebar-group-label mb-1.5 flex min-h-8 items-center px-3 text-xs font-semibold">
+                        {t(group.label)}
                       </div>
+                    )
+                  )}
+                  <CollapsibleContent>
+                    <div className="space-y-1">
+                      {group.items.map((item) => {
+                        const isActive = isNavItemActive(item, pathname);
+                        return (
+                          <Link
+                            key={item.path}
+                            to={item.path}
+                            title={t(item.label)}
+                            onClick={onNavigate}
+                            aria-label={collapsed ? t(item.label) : undefined}
+                            aria-current={isActive ? "page" : undefined}
+                            data-active={isActive ? "true" : "false"}
+                            className={cn(
+                              "rd-horizon-sidebar-item group flex min-h-11 cursor-pointer items-center rounded-xl border text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                              collapsed ? "mx-auto size-11 justify-center p-0" : "w-full gap-2 px-3",
+                            )}
+                          >
+                            <span className="rd-horizon-sidebar-item-icon flex size-8 shrink-0 items-center justify-center rounded-lg" aria-hidden="true">
+                              <item.icon className="size-[18px]" />
+                            </span>
+                            {!collapsed && <span className="min-w-0 truncate">{t(item.label)}</span>}
+                          </Link>
+                        );
+                      })}
                     </div>
-                  </div>
-                </div>
+                  </CollapsibleContent>
+                </Collapsible>
               );
             })}
           </nav>
 
-          {/* 用户信息放到侧栏底部，保留原字段但降低其相对导航的视觉权重。 */}
           <div className="rd-horizon-sidebar-user w-full shrink-0 border-t px-3 py-3">
             <div
-              className={cn(
-                "flex min-w-0 items-center rounded-xl",
-                collapsed ? "mx-auto size-11 justify-center" : "gap-3 px-2 py-1",
-              )}
+              className={cn("flex min-w-0 items-center rounded-xl", collapsed ? "mx-auto size-11 justify-center" : "gap-3 px-2 py-1")}
               title={collapsed ? `${t("当前用户")}: ${user?.name ?? "-"}` : undefined}
             >
               <span className="rd-horizon-sidebar-user-avatar flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-bold">
                 {userInitial}
               </span>
-              <div
-                className={cn(
-                  "min-w-0 overflow-hidden transition-[max-width,opacity]",
-                  SIDEBAR_EASE,
-                  collapsed ? "max-w-0 opacity-0" : "max-w-[220px] opacity-100",
-                )}
-              >
-                <div className="rd-horizon-sidebar-user-name truncate text-[13px] font-semibold">{user?.name ?? "-"}</div>
-                <div className="rd-horizon-sidebar-user-role truncate text-[11px]">
-                  {user?.roleName ? t(user.roleName) : t("无角色")}
+              {!collapsed && (
+                <div className="min-w-0">
+                  <div className="rd-horizon-sidebar-user-name truncate text-[13px] font-semibold">{user?.name ?? "-"}</div>
+                  <div className="rd-horizon-sidebar-user-role truncate text-xs">
+                    {user?.roleName ? t(user.roleName) : t("无角色")}
+                  </div>
+                  <div className="rd-horizon-sidebar-user-email truncate text-[10px]">{user?.email ?? ""}</div>
                 </div>
-                <div className="rd-horizon-sidebar-user-email truncate text-[10px]">{user?.email ?? ""}</div>
-              </div>
+              )}
             </div>
           </div>
         </aside>
       </div>
 
-      {/* 收起/展开控制钮沿用原有契约：跨在侧栏右缘，并以侧栏全高垂直居中。 */}
-      {!immersive && (
+      {!immersive && !mobile && (
         <button
           type="button"
           onClick={toggleSidebar}
@@ -355,16 +273,9 @@ export function Sidebar() {
           title={collapsed
             ? (lang === "en" ? "Expand sidebar" : "展开侧边栏")
             : (lang === "en" ? "Collapse sidebar" : "收起侧边栏")}
-          className="rd-horizon-sidebar-toggle group absolute -right-3.5 top-1/2 z-50 flex size-7 -translate-y-1/2 items-center justify-center rounded-full border transition-[color,background-color,border-color,box-shadow,transform] duration-150 active:scale-95"
+          className="rd-horizon-sidebar-toggle group absolute -right-3.5 top-1/2 z-50 flex size-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          <ChevronLeft
-            className={cn(
-              "size-4 transition-transform",
-              SIDEBAR_EASE,
-              collapsed ? "rotate-180" : "rotate-0",
-            )}
-            aria-hidden="true"
-          />
+          <ChevronLeft className={cn("size-4", collapsed && "rotate-180")} aria-hidden="true" />
         </button>
       )}
     </div>

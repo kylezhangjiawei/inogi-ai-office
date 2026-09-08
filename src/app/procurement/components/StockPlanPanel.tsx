@@ -95,25 +95,26 @@ function dateLabel(value?: string) {
 }
 
 function PlanStatus({ status }: { status: ProcStockPlanStatus }) {
+  const { t } = useI18n();
   const Icon = status === "completed" ? CheckCircle2 : status === "in_progress" ? Truck : CircleDashed;
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold",
+        "inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold",
         status === "completed" && "bg-emerald-50 text-emerald-700",
-        status === "in_progress" && "bg-[#eef3ff] text-[#002fa7]",
+        status === "in_progress" && "bg-accent text-primary",
         status === "not_started" && "bg-slate-100 text-slate-600",
       )}
     >
       <Icon aria-hidden="true" className="size-3.5" />
-      {STATUS_LABELS[status]}
+      {t(STATUS_LABELS[status])}
     </span>
   );
 }
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
-    <label className="grid gap-1.5 text-xs font-semibold text-slate-600">
+    <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-slate-600">
       <span>{label}{required ? <span className="ml-0.5 text-rose-600">*</span> : null}</span>
       {children}
     </label>
@@ -174,6 +175,8 @@ function StockPlanFormDialog({
       .catch((error) => { if (!controller.signal.aborted) setContextError(error.message); });
     return () => controller.abort();
   }, [form.planType]);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const openerRef = useRef(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
 
   const changeMaterial = (value: string) => {
     const matches = materials.filter((material) => material.name === value);
@@ -190,13 +193,14 @@ function StockPlanFormDialog({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (savingRef.current) return;
+    setSaveError(null);
     const targetQty = Number(form.targetQty);
     if (!form.materialName.trim()) {
-      toast.error(t("请填写物料名称"));
+      setSaveError(t("请填写物料名称"));
       return;
     }
     if (!Number.isFinite(targetQty) || targetQty <= 0) {
-      toast.error(t("目标备货量必须大于 0"));
+      setSaveError(t("目标备货量必须大于 0"));
       return;
     }
     const input: ProcStockPlanInput = {
@@ -223,7 +227,7 @@ function StockPlanFormDialog({
       toast.success(t(plan ? "备货计划已更新" : "备货总计划已创建"));
       onClose();
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : t("保存失败"));
+      setSaveError(cause instanceof Error ? cause.message : t("保存失败"));
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -232,16 +236,21 @@ function StockPlanFormDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !savingRef.current) onClose(); }}>
-      <DialogContent className="proc-horizon-overlay max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
-        <form onSubmit={submit} className="grid gap-5">
-          <DialogHeader>
+      <DialogContent
+        className="proc-horizon-overlay proc-stock-plan-form-dialog max-h-[90dvh] flex flex-col overflow-hidden p-0 sm:max-w-2xl"
+        onCloseAutoFocus={(event) => {
+          if (openerRef.current?.isConnected) { event.preventDefault(); openerRef.current.focus(); }
+        }}
+      >
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader className="px-6 pb-4 pt-6 pr-14">
             <DialogTitle>{t(plan ? "编辑备货总计划" : "新建备货总计划")}</DialogTitle>
             <DialogDescription>{t("整机按 BOM 查看物料齐套，包材和物料按本身数量备货。下单、到货与合格进度分别记录。")}</DialogDescription>
           </DialogHeader>
-          {contextError && <p role="alert" className="text-xs text-rose-600">{contextError}</p>}
-          {locked && <p className="text-xs text-slate-500">{t(targetLocked ? "已生成采购任务，计划来源和目标量已锁定。" : "已有生产或质量记录，计划归属和物料已锁定。")}</p>}
-          {form.productionTaskId && <p className="text-xs text-slate-500">{t("来自生产任务")}：{form.productionTaskId}</p>}
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="proc-stock-plan-form-fields grid min-h-0 gap-4 overflow-y-auto overscroll-contain px-6 pb-6 sm:grid-cols-2">
+            {contextError && <p role="alert" className="text-xs text-rose-600 sm:col-span-2">{contextError}</p>}
+            {locked && <p className="text-xs text-slate-500 sm:col-span-2">{t(targetLocked ? "已生成采购任务，计划来源和目标量已锁定。" : "已有生产或质量记录，计划归属和物料已锁定。")}</p>}
+            {form.productionTaskId && <p className="break-words text-xs text-slate-500 sm:col-span-2">{t("来自生产任务")}：{form.productionTaskId}</p>}
             <Field label={t("计划类型")} required>
               <select className={SELECT_CLASS} disabled={materialLocked} value={form.planType} onChange={(e) => setForm((v) => ({...v, planType: e.target.value as ProcStockPlanType, unit: e.target.value === "machine" ? "套" : v.unit, productLine: ""}))}>
                 {Object.entries(PLAN_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
@@ -271,6 +280,7 @@ function StockPlanFormDialog({
                 value={form.materialName}
                 onChange={(event) => changeMaterial(event.target.value)}
                 placeholder={t("输入或选择物料")}
+                required
                 autoFocus
                 disabled={materialLocked}
               />
@@ -308,9 +318,10 @@ function StockPlanFormDialog({
             </div>
           </div>
 
-          <DialogFooter>
-            <Button type="button" disabled={saving} variant="outline" onClick={onClose}>{t("取消")}</Button>
-            <Button type="submit" disabled={saving} className="bg-[#002fa7] text-white hover:bg-[#002581]">
+          {saveError ? <p role="alert" className="shrink-0 break-words border-t border-rose-100 bg-rose-50 px-6 py-3 text-pretty text-sm text-rose-700">{saveError}</p> : null}
+          <DialogFooter className="border-t border-slate-200 px-6 py-4">
+            <Button type="button" variant="outline" disabled={saving} onClick={onClose}>{t("取消")}</Button>
+            <Button type="submit" disabled={saving} className="bg-primary text-white hover:bg-primary-hover">
               {saving ? t("保存中...") : t(plan ? "保存修改" : "创建计划")}
             </Button>
           </DialogFooter>
@@ -349,6 +360,9 @@ function StockPlanBatchDialog({
     note: batch?.note ?? "",
   });
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const openerRef = useRef(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
+
   const savingRef = useRef(false);
   useEffect(() => {
     let active = true;
@@ -365,13 +379,14 @@ function StockPlanBatchDialog({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (savingRef.current) return;
+    setSaveError(null);
     const purchaseQty = Number(form.purchaseQty);
     if (!linked && !form.supplierName.trim()) {
-      toast.error(t("请填写供应商"));
+      setSaveError(t("请填写供应商"));
       return;
     }
     if (!linked && (!Number.isFinite(purchaseQty) || purchaseQty <= 0)) {
-      toast.error(t("本批采购量必须大于 0"));
+      setSaveError(t("本批采购量必须大于 0"));
       return;
     }
     const input: ProcStockPlanBatchInput = {
@@ -398,7 +413,7 @@ function StockPlanBatchDialog({
       toast.success(t(batch ? "采购批次已更新" : "采购批次已添加"));
       onClose();
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : t("保存失败"));
+      setSaveError(cause instanceof Error ? cause.message : t("保存失败"));
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -407,9 +422,14 @@ function StockPlanBatchDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !savingRef.current) onClose(); }}>
-      <DialogContent className="proc-horizon-overlay max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
-        <form onSubmit={submit} className="grid gap-5">
-          <DialogHeader>
+      <DialogContent
+        className="proc-horizon-overlay proc-stock-plan-form-dialog max-h-[90dvh] flex flex-col overflow-hidden p-0 sm:max-w-2xl"
+        onCloseAutoFocus={(event) => {
+          if (openerRef.current?.isConnected) { event.preventDefault(); openerRef.current.focus(); }
+        }}
+      >
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader className="px-6 pb-4 pt-6 pr-14">
             <DialogTitle>{t(batch ? "编辑采购批次" : "添加采购批次")}</DialogTitle>
             <DialogDescription>
               {plan.materialName}，{t("目标")} {quantity(plan.targetQty)} {plan.unit || t("单位")}
@@ -417,7 +437,7 @@ function StockPlanBatchDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="proc-stock-plan-form-fields grid min-h-0 gap-4 overflow-y-auto overscroll-contain px-6 pb-6 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <Field label={t("关联 ERP 采购订单行")}>
                 <select className={SELECT_CLASS} value={form.purchaseOrderMirrorId} disabled={Boolean(batch?.purchaseOrderMirrorId)} onChange={(e) => setForm((v) => ({...v, purchaseOrderMirrorId: e.target.value}))}>
@@ -437,10 +457,10 @@ function StockPlanBatchDialog({
             </Field>}
             {!linked && <>
             <Field label={t("供应商")} required>
-              <Input value={form.supplierName} onChange={(event) => setForm((current) => ({ ...current, supplierName: event.target.value }))} placeholder={t("填写本批供应商")} autoFocus />
+              <Input value={form.supplierName} onChange={(event) => setForm((current) => ({ ...current, supplierName: event.target.value }))} placeholder={t("填写本批供应商")} required autoFocus />
             </Field>
             <Field label={t("本批采购量")} required>
-              <Input type="number" min="0.001" step="0.001" value={form.purchaseQty} onChange={(event) => setForm((current) => ({ ...current, purchaseQty: event.target.value }))} placeholder="0" />
+              <Input type="number" min="0.001" step="0.001" required value={form.purchaseQty} onChange={(event) => setForm((current) => ({ ...current, purchaseQty: event.target.value }))} placeholder="0" className="tabular-nums" />
             </Field>
             <Field label={t("采购单号")}>
               <Input value={form.purchaseOrderNo} onChange={(event) => setForm((current) => ({ ...current, purchaseOrderNo: event.target.value }))} placeholder={t("可选")}/>
@@ -468,9 +488,10 @@ function StockPlanBatchDialog({
             </div>
           </div>
 
-          <DialogFooter>
-            <Button type="button" disabled={saving} variant="outline" onClick={onClose}>{t("取消")}</Button>
-            <Button type="submit" disabled={saving} className="bg-[#002fa7] text-white hover:bg-[#002581]">
+          {saveError ? <p role="alert" className="shrink-0 break-words border-t border-rose-100 bg-rose-50 px-6 py-3 text-pretty text-sm text-rose-700">{saveError}</p> : null}
+          <DialogFooter className="border-t border-slate-200 px-6 py-4">
+            <Button type="button" variant="outline" disabled={saving} onClick={onClose}>{t("取消")}</Button>
+            <Button type="submit" disabled={saving} className="bg-primary text-white hover:bg-primary-hover">
               {saving ? t("保存中...") : t(batch ? "保存修改" : "添加批次")}
             </Button>
           </DialogFooter>
@@ -516,14 +537,14 @@ function PlanReadiness({ plan, canCreate, onSaved }: {plan: ProcStockPlan; canCr
     {error ? <p role="alert" className="mt-2 text-xs text-rose-600">{error} <button className="underline" onClick={() => setVersion((v) => v + 1)}>重试</button></p> : !data ? <p className="mt-2 text-xs text-slate-400">核算库存与在途中…</p> : <>
       <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-600">
         <p>当前可用覆盖 <strong className="block text-lg text-slate-900">{quantity(data.summary.currentBuildableSets)} {plan.unit}</strong></p>
-        <p>全部在途到货后 <strong className="block text-lg text-[#002fa7]">{quantity(data.summary.withTransitBuildableSets)} {plan.unit}</strong></p>
+        <p>全部在途到货后 <strong className="block text-lg text-primary">{quantity(data.summary.withTransitBuildableSets)} {plan.unit}</strong></p>
         <p>目标缺口 <strong className="block text-lg text-rose-600">{quantity(data.summary.targetGapAfterTransit)} {plan.unit}</strong></p>
       </div>
       {!complete && <p className="mt-2 text-xs text-amber-700">BOM 或库存映射不完整，先完善数据再生成采购任务。</p>}
       {!plan.productId && <p className="mt-2 text-xs text-amber-700">请先编辑计划并选择所属产品，再生成采购任务。</p>}
       <p className="mt-2 text-[11px] text-slate-500">量产仓库快照估算，未预占库存，不代表可按计划日期交付；多个计划共享库存需排程确认。最近同步：{data.syncedAt ? new Date(data.syncedAt).toLocaleString("zh-CN") : "无记录"}。</p>
     </>}
-    {!!plan.tasks?.length && <div className="mt-3 flex flex-wrap gap-2">{plan.tasks.map((task) => <button key={task.id} className="rounded-md bg-[#eef3ff] px-2 py-1 text-xs text-[#002fa7]" onClick={() => navigate(`/proc-cockpit?line=production&task=${encodeURIComponent(task.id)}`)}>{task.code} · {task.materialName} · {quantity(task.quantity)}</button>)}</div>}
+    {!!plan.tasks?.length && <div className="mt-3 flex flex-wrap gap-2">{plan.tasks.map((task) => <button key={task.id} className="rounded-md bg-accent px-2 py-1 text-xs text-primary" onClick={() => navigate(`/proc-cockpit?line=production&task=${encodeURIComponent(task.id)}`)}>{task.code} · {task.materialName} · {quantity(task.quantity)}</button>)}</div>}
   </div>;
 }
 
@@ -565,7 +586,7 @@ function MonthlyPlanOverview({plans, month}: {plans: ProcStockPlan[]; month: str
     <div className="mt-3 grid gap-4 md:grid-cols-[170px_1fr_1.2fr]">
       <div className="h-36" role="img" aria-label={`合格 ${quantity(qualified)}，待满足 ${quantity(outstanding)} ${group.unit}`}><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={[{name: "已登记合格", value: qualified}, {name: "待满足", value: outstanding}]} dataKey="value" innerRadius={40} outerRadius={62} isAnimationActive={false}><Cell fill="#10b981" /><Cell fill="#e2e8f0" /></Pie><Tooltip /></PieChart></ResponsiveContainer></div>
       <dl className="grid grid-cols-2 items-center gap-3 text-xs text-slate-500">{[["目标需求", target], ["已登记合格", qualified], ["登记缺口", outstanding], ["本月预计到货", expected]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="mt-1 text-lg font-semibold tabular-nums text-slate-900">{quantity(Number(value))} <span className="text-xs font-normal">{group.unit}</span></dd></div>)}</dl>
-      <ol className="max-h-40 space-y-2 overflow-y-auto border-l-2 border-[#e1eaff] pl-4 text-xs">{events.map((event) => <li key={event.id}><time className="font-semibold text-[#002fa7]">{event.date}</time><p className="mt-0.5 text-slate-600">{event.text}</p></li>)}{!events.length && <li className="text-slate-500">本月暂无已登记交期。</li>}</ol>
+      <ol className="max-h-40 space-y-2 overflow-y-auto border-l-2 border-[#e1eaff] pl-4 text-xs">{events.map((event) => <li key={event.id}><time className="font-semibold text-primary">{event.date}</time><p className="mt-0.5 text-slate-600">{event.text}</p></li>)}{!events.length && <li className="text-slate-500">本月暂无已登记交期。</li>}</ol>
     </div>
     <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">{readinessError ? <span role="alert" className="text-amber-700">月度库存核算：{readinessError}</span> : !readiness ? "正在核算本月合并需求…" : <><strong className="text-slate-900">本月同组库存核算：</strong>当前可用覆盖 {quantity(readiness.summary.currentBuildableSets)}，全部在途到货后覆盖 {quantity(readiness.summary.withTransitBuildableSets)}，<strong className="text-rose-600">合并需求缺口 {quantity(readiness.summary.targetGapAfterTransit)} {group.unit}</strong>{readiness.dataQuality.provisional && <span className="ml-2 text-amber-700">数据不完整，仅供估算</span>}</>}</div>
     <p className="mt-2 text-[11px] text-slate-500">月度核算只使用一次公共库存，不含其它月份的未交付计划，未预留库存；全部在途不保证本月到货。整机库存核算先扣已订购整机套数，再核算 BOM。生产实绩见“生产与质量”。</p>
@@ -600,6 +621,23 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
     setEditingPlan("new");
     setParams((current) => { const next = new URLSearchParams(current); next.delete("newPlan"); return next; }, {replace: true});
   }, [params, canCreate, setParams]);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const deleteOpenerRef = useRef<HTMLButtonElement | null>(null);
+
+  const changeKeyword = (value: string) => {
+    setKeyword(value);
+    if (listRef.current) listRef.current.scrollTop = 0;
+  };
+  const changeStatus = (value: StatusFilter) => {
+    setStatus(value);
+    if (listRef.current) listRef.current.scrollTop = 0;
+  };
+  const clearFilters = () => {
+    changeKeyword("");
+    changeStatus("all");
+  };
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -657,6 +695,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
 
   const removeBatch = async () => {
     if (!deletingBatch) return;
+    setDeleteError(null);
     setDeleting(true);
     try {
       const saved = await deleteProcStockPlanBatch(deletingBatch.plan.id, deletingBatch.batch.id);
@@ -664,14 +703,14 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
       toast.success(t("采购批次已删除，计划进度已重新计算"));
       setDeletingBatch(null);
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : t("删除失败"));
+      setDeleteError(cause instanceof Error ? cause.message : t("删除失败"));
     } finally {
       setDeleting(false);
     }
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+    <div ref={panelRef} tabIndex={-1} className="proc-stock-plan-panel flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto">
       <section className="proc-horizon-command proc-horizon-command-cockpit">
         <div className="proc-horizon-command-layout">
           <div className="proc-horizon-command-heading">
@@ -684,9 +723,9 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
           <div className="proc-horizon-actions">
             <div className="proc-horizon-search">
               <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-              <Input aria-label={t("搜索备货计划")} value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder={t("计划编号 / 物料 / 供应商")} className="pl-8 pr-8 text-xs" />
+              <Input aria-label={t("搜索备货计划")} value={keyword} onChange={(event) => changeKeyword(event.target.value)} placeholder={t("计划编号 / 物料 / 供应商")} className="pl-8 pr-8 text-xs" />
               {keyword ? (
-                <button type="button" aria-label={t("清空搜索")} onClick={() => setKeyword("")} className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                <button type="button" aria-label={t("清空搜索")} onClick={() => changeKeyword("")} className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
                   <X aria-hidden="true" className="size-3.5" />
                 </button>
               ) : null}
@@ -698,7 +737,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
             ) : null}
           </div>
 
-          <div className="proc-horizon-kpi-grid proc-stock-plan-kpi-grid">
+          <div role="group" aria-label={t("计划状态筛选")} className="proc-horizon-kpi-grid proc-stock-plan-kpi-grid">
             {([
               ["all", "全部计划", PackagePlus],
               ["not_started", "未下单", CircleDashed],
@@ -709,11 +748,12 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                 key={key}
                 type="button"
                 data-active={status === key}
+                aria-pressed={status === key}
                 className="proc-horizon-kpi cursor-pointer text-left"
-                onClick={() => setStatus(key)}
+                onClick={() => changeStatus(key)}
               >
                 <span className="proc-horizon-kpi-icon inline-flex items-center justify-center"><Icon aria-hidden="true" className="size-4" /></span>
-                <span className="proc-horizon-kpi-value block">{counts[key]}</span>
+                <span className="proc-horizon-kpi-value block tabular-nums">{loading ? "—" : counts[key]}</span>
                 <span className="proc-horizon-kpi-label block">{t(label)}</span>
               </button>
             ))}
@@ -722,7 +762,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
       </section>
 
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
-        <div className="flex flex-wrap gap-1" role="group" aria-label="计划类型筛选">{(["all", "machine", "packaging", "material"] as const).map((type) => <button type="button" aria-pressed={planType === type} key={type} onClick={() => setPlanType(type)} className={cn("rounded-lg px-3 py-2 text-xs font-semibold", planType === type ? "bg-[#eef3ff] text-[#002fa7]" : "text-slate-500 hover:bg-slate-50")}>{type === "all" ? "全部类型" : PLAN_TYPE_LABELS[type]}</button>)}</div>
+        <div className="flex flex-wrap gap-1" role="group" aria-label="计划类型筛选">{(["all", "machine", "packaging", "material"] as const).map((type) => <button type="button" aria-pressed={planType === type} key={type} onClick={() => setPlanType(type)} className={cn("rounded-lg px-3 py-2 text-xs font-semibold", planType === type ? "bg-accent text-primary" : "text-slate-500 hover:bg-slate-50")}>{type === "all" ? "全部类型" : PLAN_TYPE_LABELS[type]}</button>)}</div>
         <label className="ml-auto flex items-center gap-2 text-xs text-slate-500">目标月份<Input type="month" aria-label="目标月份" className="w-40" value={month} onChange={(e) => setMonth(e.target.value)} /></label>
         {month && <Button size="sm" variant="ghost" onClick={() => setMonth("")}>全部月份</Button>}
       </div>
@@ -732,32 +772,36 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
           <span className="font-semibold text-slate-600">
             {status === "all" ? t("全部备货计划") : t(STATUS_LABELS[status])}
           </span>
-          <span className="font-semibold tabular-nums text-slate-500">{t("显示 {count} 个计划", { count: filtered.length })}</span>
+          <div className="flex flex-wrap items-center gap-3">
+            {status !== "all" || keyword.trim() ? <button type="button" onClick={clearFilters} className="text-xs font-semibold text-primary hover:underline">{t("清除筛选")}</button> : null}
+            <span aria-live="polite" className="font-semibold tabular-nums text-slate-500">{loading ? t("正在加载备货计划") : t("显示 {count} 个计划", { count: filtered.length })}</span>
+          </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto bg-[#f7f9fc] p-3">
+        <div ref={listRef} className="proc-stock-plan-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain bg-background p-3">
           {error ? (
             <div role="alert" className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-rose-200 bg-rose-50/50 px-4 py-12 text-center text-sm text-rose-700">
               <AlertTriangle aria-hidden="true" className="size-7 text-rose-500" />
-              <div><p className="font-semibold">{t("备货计划加载失败")}</p><p className="mt-1 text-xs">{error}</p></div>
+              <div className="min-w-0"><p className="font-semibold text-balance">{t("备货计划加载失败")}</p><p className="mt-1 break-words text-pretty text-xs">{error}</p></div>
               <Button type="button" variant="outline" size="sm" onClick={() => void load()}>{t("重新加载")}</Button>
             </div>
           ) : loading ? (
-            <div aria-label={t("正在加载备货计划")} className="grid gap-2">
+            <div role="status" aria-label={t("正在加载备货计划")} className="grid gap-2">
               {[0, 1, 2].map((item) => <div key={item} className="h-24 animate-pulse rounded-xl border border-slate-200 bg-white motion-reduce:animate-none" />)}
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-14 text-center">
               <PackagePlus aria-hidden="true" className="size-8 text-slate-300" />
               <div>
-                <p className="text-sm font-semibold text-slate-700">{t(plans.length ? "没有符合条件的备货计划" : "当前还没有备货计划")}</p>
-                <p className="mt-1 text-xs text-slate-500">{t(plans.length ? "可切换状态或修改搜索条件" : "创建总计划后，再逐批登记供应商和采购数量")}</p>
+                <p className="text-balance text-sm font-semibold text-slate-700">{t(plans.length ? "没有符合条件的备货计划" : "当前还没有备货计划")}</p>
+                <p className="mt-1 text-pretty text-xs text-slate-500">{t(plans.length ? "可切换状态或修改搜索条件" : "创建总计划后，再逐批登记供应商和采购数量")}</p>
               </div>
-              {canCreate && plans.length === 0 ? <Button type="button" size="sm" onClick={() => setEditingPlan("new")} className="bg-[#002fa7] text-white hover:bg-[#002581]">{t("新建总计划")}</Button> : null}
+              {canCreate && plans.length === 0 ? <Button type="button" size="sm" onClick={() => setEditingPlan("new")} className="bg-primary text-white hover:bg-primary-hover">{t("新建总计划")}</Button> : null}
+              {plans.length > 0 ? <Button type="button" variant="outline" size="sm" onClick={clearFilters}>{t("清除筛选")}</Button> : null}
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-              <div className="hidden grid-cols-[2.25rem_minmax(12rem,1.45fr)_minmax(7rem,.72fr)_minmax(12rem,1.05fr)_minmax(7rem,.65fr)_minmax(7rem,.65fr)_auto] items-center gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500 lg:grid">
+            <div className="proc-stock-plan-list overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <div className="proc-stock-plan-table-header hidden items-center gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500" aria-hidden="true">
                 <span />
                 <span>{t("计划 / 物料")}</span>
                 <span>{t("目标备货量")}</span>
@@ -772,45 +816,46 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                 const overQty = Math.max(plan.purchasedQty - plan.targetQty, 0);
                 const supplierCount = new Set(plan.batches.map((batch) => batch.supplierName)).size;
                 return (
-                  <article key={plan.id} className="border-b border-slate-100 last:border-b-0">
-                    <div className="grid grid-cols-2 items-center gap-3 px-3 py-3 lg:grid-cols-[2.25rem_minmax(12rem,1.45fr)_minmax(7rem,.72fr)_minmax(12rem,1.05fr)_minmax(7rem,.65fr)_minmax(7rem,.65fr)_auto]">
+                  <article key={plan.id} aria-label={`${plan.code} · ${plan.materialName}`} className="proc-stock-plan-item border-b border-slate-100 last:border-b-0">
+                    <div className="proc-stock-plan-row grid min-w-0 items-center gap-3 px-3 py-3">
                       <button
                         type="button"
-                        aria-label={t(isExpanded ? "收起采购批次" : "展开采购批次")}
+                        aria-label={`${t(isExpanded ? "收起采购批次" : "展开采购批次")} · ${plan.materialName}`}
+                        aria-controls={`proc-stock-plan-batches-${plan.id}`}
                         aria-expanded={isExpanded}
                         onClick={() => setExpanded((current) => {
                           const next = new Set(current);
                           if (next.has(plan.id)) next.delete(plan.id); else next.add(plan.id);
                           return next;
                         })}
-                        className="flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-[#eef3ff] hover:text-[#002fa7]"
+                        className="proc-stock-plan-toggle flex size-9 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-accent hover:text-primary"
                       >
                         {isExpanded ? <ChevronDown aria-hidden="true" className="size-4" /> : <ChevronRight aria-hidden="true" className="size-4" />}
                       </button>
 
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <strong className="truncate text-sm text-[#1b2559]">{plan.materialName}</strong>
+                      <div className="proc-stock-plan-material min-w-0">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <strong title={plan.materialName} className="min-w-0 break-words text-balance text-sm text-foreground">{plan.materialName}</strong>
                           <PlanStatus status={plan.status} />
                           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">{PLAN_TYPE_LABELS[plan.planType]}</span>
                         </div>
-                        <p className="mt-1 truncate text-xs text-slate-500"><span className="font-medium tabular-nums">{plan.code}</span>{plan.spec ? ` · ${plan.spec}` : ""}</p>
-                        {plan.note ? <p className="mt-1 line-clamp-1 text-xs text-slate-500">{plan.note}</p> : null}
+                        <p title={`${plan.code}${plan.spec ? ` · ${plan.spec}` : ""}`} className="mt-1 break-words text-xs text-slate-500"><span className="font-medium tabular-nums">{plan.code}</span>{plan.spec ? ` · ${plan.spec}` : ""}</p>
+                        {plan.note ? <p title={plan.note} className="mt-1 line-clamp-2 break-words text-pretty text-xs text-slate-500">{plan.note}</p> : null}
                       </div>
 
-                      <div className="text-sm tabular-nums text-slate-700">
-                        <span className="mb-1 block text-[10px] font-semibold text-slate-400 lg:hidden">{t("目标备货量")}</span>
-                        <strong className="text-[#1b2559]">{quantity(plan.targetQty)}</strong> <span className="text-xs text-slate-500">{plan.unit}</span>
+                      <div className="proc-stock-plan-target min-w-0 break-words text-sm tabular-nums text-slate-700">
+                        <span className="proc-stock-plan-field-label mb-1 block text-xs font-medium text-slate-500">{t("目标备货量")}</span>
+                        <strong className="text-foreground">{quantity(plan.targetQty)}</strong> <span className="text-xs text-slate-500">{plan.unit}</span>
                       </div>
 
-                      <div className="min-w-0">
-                        <span className="mb-1 block text-[10px] font-semibold text-slate-400 lg:hidden">{t("采购进度")}</span>
-                        <div className="flex items-center justify-between gap-2 text-xs">
-                          <span className="font-semibold tabular-nums text-[#1b2559]">{quantity(plan.purchasedQty)} / {quantity(plan.targetQty)}</span>
+                      <div className="proc-stock-plan-progress min-w-0">
+                        <span className="proc-stock-plan-field-label mb-1 block text-xs font-medium text-slate-500">{t("采购进度")}</span>
+                        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
+                          <span className="font-semibold tabular-nums text-foreground">{quantity(plan.purchasedQty)} / {quantity(plan.targetQty)}</span>
                           <span className="tabular-nums text-slate-500">{Math.round(plan.progress)}%</span>
                         </div>
                         <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                          <div className={cn("h-full rounded-full", plan.status === "completed" ? "bg-emerald-500" : "bg-[#002fa7]")} style={{ width: `${plan.progress}%` }} />
+                          <div className={cn("h-full rounded-full", plan.status === "completed" ? "bg-emerald-500" : "bg-primary")} style={{ width: `${Math.min(100, Math.max(0, plan.progress))}%` }} />
                         </div>
                         <p className="mt-1 text-[10px] text-slate-500">
                           {overQty > 0 ? `${t("超出目标")} ${quantity(overQty)}` : `${t("剩余")} ${quantity(plan.remainingQty)}`}
@@ -821,24 +866,24 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                         {plan.orderDataIssue && <p className="text-[10px] text-rose-600">采购订单异常，请展开复核</p>}
                       </div>
 
-                      <div className="text-xs text-slate-600">
-                        <span className="mb-1 block text-[10px] font-semibold text-slate-400 lg:hidden">{t("计划日期")}</span>
-                        <span className="inline-flex items-center gap-1"><CalendarClock aria-hidden="true" className="size-3.5 text-slate-400" />{dateLabel(plan.targetDate)}</span>
+                      <div className="proc-stock-plan-date min-w-0 break-words text-xs text-slate-600">
+                        <span className="proc-stock-plan-field-label mb-1 block text-xs font-medium text-slate-500">{t("计划日期")}</span>
+                        <span className="inline-flex flex-wrap items-center gap-1 tabular-nums"><CalendarClock aria-hidden="true" className="size-3.5 text-slate-400" />{plan.targetDate || t("未设置")}</span>
                       </div>
 
-                      <div className="text-xs text-slate-600">
-                        <span className="mb-1 block text-[10px] font-semibold text-slate-400 lg:hidden">{t("创建人")}</span>
+                      <div className="proc-stock-plan-creator min-w-0 break-words text-xs text-slate-600">
+                        <span className="proc-stock-plan-field-label mb-1 block text-xs font-medium text-slate-500">{t("创建人")}</span>
                         <p className="font-medium">{plan.createdByName || t("未知")}</p>
-                        <p className="mt-0.5 text-[10px] text-slate-400">{plan.createdAt.slice(0, 10)}</p>
+                        <p className="mt-0.5 tabular-nums text-xs text-slate-500">{plan.createdAt.slice(0, 10)}</p>
                       </div>
 
-                      <div className="col-span-2 flex items-center justify-end gap-1 lg:col-span-1">
+                      <div className="proc-stock-plan-row-actions flex flex-wrap items-center justify-end gap-1">
                         {canCreate ? (
                           <>
-                            <button type="button" onClick={() => setEditingPlan(plan)} className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-[#002fa7]" aria-label={t("编辑总计划")}>
-                              <Pencil aria-hidden="true" className="size-3.5" /><span className="hidden xl:inline">{t("编辑")}</span>
+                            <button type="button" onClick={() => setEditingPlan(plan)} className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-primary" aria-label={t("编辑总计划")}>
+                              <Pencil aria-hidden="true" className="size-3.5" /><span>{t("编辑")}</span>
                             </button>
-                            <button type="button" onClick={() => setEditingBatch({ plan })} className="inline-flex h-8 items-center gap-1 rounded-md bg-[#eef3ff] px-2 text-xs font-semibold text-[#002fa7] hover:bg-[#e1eaff]" aria-label={t("添加采购批次")}>
+                            <button type="button" onClick={() => setEditingBatch({ plan })} className="inline-flex h-8 items-center gap-1 rounded-md bg-accent px-2 text-xs font-semibold text-primary hover:bg-primary/10" aria-label={t("添加采购批次")}>
                               <Plus aria-hidden="true" className="size-3.5" />{t("加批次")}
                             </button>
                           </>
@@ -847,13 +892,13 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                     </div>
 
                     {isExpanded ? (
-                      <div className="border-t border-slate-100 bg-slate-50/70 px-3 py-3 lg:pl-[3.5rem]">
+                      <div id={`proc-stock-plan-batches-${plan.id}`} className="proc-stock-plan-batches min-w-0 border-t border-slate-100 bg-slate-50/70 px-3 py-3">
                         <PlanReadiness plan={plan} canCreate={canCreate} onSaved={replacePlan} />
                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs font-semibold text-slate-600">
                             {t("采购批次")} <span className="ml-1 font-normal text-slate-500">{plan.batches.length} {t("批")}，{supplierCount} {t("家供应商")}</span>
                           </p>
-                          {canCreate ? <button type="button" onClick={() => setEditingBatch({ plan })} className="inline-flex items-center gap-1 text-xs font-semibold text-[#002fa7] hover:underline"><Plus aria-hidden="true" className="size-3.5" />{t("添加批次")}</button> : null}
+                          {canCreate ? <button type="button" onClick={() => setEditingBatch({ plan })} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"><Plus aria-hidden="true" className="size-3.5" />{t("添加批次")}</button> : null}
                         </div>
                         {plan.batches.length === 0 ? (
                           <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-500">
@@ -862,14 +907,14 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                         ) : (
                           <div className="grid gap-2">
                             {plan.batches.map((batch, index) => (
-                              <div key={batch.id} className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 md:grid-cols-[minmax(8rem,1fr)_minmax(6rem,.55fr)_minmax(8rem,.8fr)_minmax(10rem,1fr)_auto] md:items-center">
+                              <div key={batch.id} className="proc-stock-plan-batch-row grid min-w-0 gap-3 rounded-lg border border-slate-200 bg-white p-3">
                                 <div className="min-w-0">
-                                  <p className="text-xs font-semibold text-[#1b2559]">{t("第 {count} 批", { count: index + 1 })} · {batch.supplierName}</p>
-                                  <p className="mt-1 text-[11px] text-slate-500">{batch.createdByName || t("未知")}，{batch.createdAt.slice(0, 10)}</p>
+                                  <p title={batch.supplierName} className="break-words text-pretty text-xs font-semibold text-foreground">{t("第 {count} 批", { count: index + 1 })} · {batch.supplierName}</p>
+                                  <p className="mt-1 break-words text-xs text-slate-500">{batch.createdByName || t("未知")}，{batch.createdAt.slice(0, 10)}</p>
                                 </div>
-                                <div className="text-xs text-slate-600"><span className="mr-1 text-slate-400">{t("采购量")}</span><strong className="tabular-nums text-[#1b2559]">{quantity(batch.purchaseQty)} {plan.unit}</strong><p className="mt-1 text-[11px]">到货 {quantity(batch.receivedQty)} · 合格 {quantity(batch.qualifiedQty)}</p>{batch.qualityDataIssue && <p className="text-[11px] text-rose-600">原登记合格 {quantity(batch.recordedQualifiedQty ?? batch.qualifiedQty)}，请复核</p>}</div>
-                                <div className="text-xs text-slate-600"><span className="mr-1 text-slate-400">{t("采购单")}</span>{batch.purchaseOrderNo || t("未填写")}</div>
-                                <div className="text-xs text-slate-600">
+                                <div className="text-xs text-slate-600"><span className="mr-1 text-slate-400">{t("采购量")}</span><strong className="tabular-nums text-foreground">{quantity(batch.purchaseQty)} {plan.unit}</strong><p className="mt-1 text-[11px]">到货 {quantity(batch.receivedQty)} · 合格 {quantity(batch.qualifiedQty)}</p>{batch.qualityDataIssue && <p className="text-[11px] text-rose-600">原登记合格 {quantity(batch.recordedQualifiedQty ?? batch.qualifiedQty)}，请复核</p>}</div>
+                                <div className="min-w-0 break-words text-xs text-slate-600"><span className="mr-1 text-slate-400">{t("采购单")}</span>{batch.purchaseOrderNo || t("未填写")}</div>
+                                <div className="proc-stock-plan-batch-dates min-w-0 break-words text-xs text-slate-600">
                                   <p>{t("下单")}：{dateLabel(batch.orderDate)}</p>
                                   <p className="mt-1">{t("预计到货")}：{dateLabel(batch.expectedArrivalDate)}</p>
                                   <p className="mt-1">实际到货：{dateLabel(batch.actualArrivalDate)}{batch.purchaseOrderMirrorId ? " · ERP 关联" : ""}</p>
@@ -877,9 +922,9 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                                   {batch.orderIssue && <p className="mt-1 text-xs text-rose-600">{batch.orderIssue}</p>}
                                 </div>
                                 {canCreate ? (
-                                  <div className="flex justify-end gap-1">
-                                    <button type="button" onClick={() => setEditingBatch({ plan, batch })} className="flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-[#eef3ff] hover:text-[#002fa7]" aria-label={t("编辑采购批次")}><Pencil aria-hidden="true" className="size-3.5" /></button>
-                                    <button type="button" onClick={() => setDeletingBatch({ plan, batch })} className="flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-rose-50 hover:text-rose-700" aria-label={t("删除采购批次")}><Trash2 aria-hidden="true" className="size-3.5" /></button>
+                                  <div className="proc-stock-plan-batch-actions flex justify-end gap-1">
+                                    <button type="button" onClick={() => setEditingBatch({ plan, batch })} className="flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-accent hover:text-primary" aria-label={t("编辑采购批次")}><Pencil aria-hidden="true" className="size-3.5" /></button>
+                                    <button type="button" onClick={(event) => { deleteOpenerRef.current = event.currentTarget; setDeleteError(null); setDeletingBatch({ plan, batch }); }} className="flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-rose-50 hover:text-rose-700" aria-label={t("删除采购批次")}><Trash2 aria-hidden="true" className="size-3.5" /></button>
                                   </div>
                                 ) : null}
                               </div>
@@ -923,13 +968,21 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
       ) : null}
 
       <AlertDialog open={Boolean(deletingBatch)} onOpenChange={(open) => { if (!open && !deleting) setDeletingBatch(null); }}>
-        <AlertDialogContent className="proc-horizon-overlay">
+        <AlertDialogContent
+          className="proc-horizon-overlay"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const opener = deleteOpenerRef.current;
+            (opener?.isConnected ? opener : panelRef.current)?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>{t("删除采购批次？")}</AlertDialogTitle>
             <AlertDialogDescription>
               {t("删除后会从累计采购量中扣除本批数量，计划状态将自动重新计算。")}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deleteError ? <p role="alert" className="rounded-lg bg-rose-50 p-3 text-pretty text-sm text-rose-700">{deleteError}</p> : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>{t("取消")}</AlertDialogCancel>
             <AlertDialogAction disabled={deleting} onClick={(event) => { event.preventDefault(); void removeBatch(); }} className="bg-rose-600 text-white hover:bg-rose-700">

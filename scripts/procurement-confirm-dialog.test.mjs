@@ -158,7 +158,7 @@ test("分类合并的实际调用链返回后台Promise，失败留窗，重试�
   const refresh = deferred();
   let calls = 0;
   const bindings = {
-    setBusy() {}, setEditing() {}, setNewName() {},
+    setBusy() {}, setEditing() {}, setNewName() {}, setError() {}, busyRef: { current: false },
     renameProcCategory: () => ++calls === 1 ? first.promise : Promise.resolve({ updated: 2 }),
     refreshProcurement: () => refresh.promise,
     toast: { success() {}, error() {} }, t: (value) => value,

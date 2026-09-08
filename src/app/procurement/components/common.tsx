@@ -116,16 +116,16 @@ export const fmtMoney = (n?: number) => (typeof n === "number" ? `¥${n.toLocale
 
 // ── 状态元数据（含「下一步」按钮文案）─────────────────────────────────────────
 export const PROC_STATUS_META: Record<ProcStatus, { label: string; pill: string; next?: string }> = {
-  pending_rd_review: { label: "待继续转采购", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]" },
+  pending_rd_review: { label: "待继续转采购", pill: "border-[var(--primary-soft-border)] bg-accent text-primary" },
   pending_confirm: { label: "待处理", pill: "border-rose-300 bg-rose-50 text-rose-700", next: "确认提交" },
   pending_inquiry: { label: "待询价", pill: "border-amber-200 bg-amber-50 text-amber-700", next: "选择报价" },
-  inquiring: { label: "询价中", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]", next: "完成询价" },
-  pending_sample: { label: "待到样", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]", next: "样品已到" },
-  testing: { label: "测试中", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]", next: "安排研发测试" },
-  priced: { label: "已定价", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]", next: "标记已下单" },
-  pending_purchase: { label: "待购买", pill: "border-slate-200 bg-slate-50 text-slate-700", next: "打开链接下单" },
-  in_transit: { label: "已下单/在途", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]", next: "登记到货" },
-  partial_arrival: { label: "部分到货", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]", next: "登记到货" },
+  inquiring: { label: "询价中", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "完成询价" },
+  pending_sample: { label: "待到样", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "样品已到" },
+  testing: { label: "测试中", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "安排研发测试" },
+  priced: { label: "已定价", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "标记已下单" },
+  pending_purchase: { label: "待购买", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "打开链接下单" },
+  in_transit: { label: "已下单/在途", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "登记到货" },
+  partial_arrival: { label: "部分到货", pill: "border-[var(--primary-soft-border)] bg-accent text-primary", next: "登记到货" },
   completed: { label: "已完成", pill: "border-emerald-200 bg-emerald-50 text-emerald-700" },
   cancelled: { label: "已取消", pill: "border-slate-200 bg-slate-100 text-slate-500" },
 };
@@ -146,41 +146,25 @@ export const QUOTE_RESETTABLE_STATUSES: ProcStatus[] = ["inquiring", "pending_sa
 export const INQUIRY_FLOW: ProcStatus[] = ["pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "in_transit", "partial_arrival", "completed"];
 export const DIRECT_FLOW: ProcStatus[] = ["pending_confirm", "pending_purchase", "in_transit", "completed"];
 
-/**
- * 回退可选节点，与服务端 PROC_ROLLBACK_MAIN_FLOW / PROC_ROLLBACK_DIRECT_FLOW 一致。
- *
- * 不复用上面的 INQUIRY_FLOW / DIRECT_FLOW：那两个是步骤条的展示序列，含
- * pending_rd_review（采购侧无权处置的审核前置环节），拿来当回退目标会给出一个
- * 必然被服务端 400 的选项。
- */
+// 与服务端回退规则一致；关联研发任务的需求还可退回研发继续转采购。
 const ROLLBACK_MAIN_FLOW: ProcStatus[] = ["pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "in_transit", "partial_arrival", "completed"];
 const ROLLBACK_DIRECT_FLOW: ProcStatus[] = ["pending_confirm", "pending_purchase", "in_transit", "partial_arrival", "completed"];
 
-/** 采购侧不可回退的状态，与服务端 PROC_ROLLBACK_BLOCKED_STATUSES 一致。 */
-const ROLLBACK_BLOCKED_STATUSES: ProcStatus[] = ["pending_rd_review", "cancelled"];
-
-/**
- * 当前状态可回退到哪些节点：同一条流程线上排在它前面的全部节点，越靠后的越靠近当前。
- * 只能往回退，不能借回退往前跳——这与服务端 rollbackTargetsOf 是同一套判据。
- */
-export function rollbackTargetsOf(status: ProcStatus, method?: string | null): ProcStatus[] {
-  if (ROLLBACK_BLOCKED_STATUSES.includes(status)) return [];
-  const flow = method === "direct" ? ROLLBACK_DIRECT_FLOW : ROLLBACK_MAIN_FLOW;
+export function rollbackTargetsOf(status: ProcStatus, method?: string | null, context?: { source?: string | null; rdTaskId?: string | null }): ProcStatus[] {
+  if (status === "completed") return [];
+  const baseFlow = method === "direct" ? ROLLBACK_DIRECT_FLOW : ROLLBACK_MAIN_FLOW;
+  const flow: ProcStatus[] = context?.source === "rd" && context.rdTaskId?.trim() ? ["pending_rd_review", ...baseFlow] : baseFlow;
   const index = flow.indexOf(status);
-  if (index <= 0) return [];
-  return flow.slice(0, index);
+  return index > 0 ? flow.slice(0, index) : [];
 }
 
-/**
- * 回退到目标节点会清掉哪些数据，用于确认框里如实告知。
- * 判据与服务端 rollbackCleanupFor 一致：目标节点下本不该存在的数据都会被清理。
- */
+/** 按服务端实际清理范围展示确认提示；T+ 原始单据不受影响。 */
 export function rollbackCleanupHintOf(target: ProcStatus): string[] {
-  const flow = ROLLBACK_MAIN_FLOW;
-  const index = target === "pending_purchase" ? flow.indexOf("priced") : flow.indexOf(target);
+  const index = target === "pending_rd_review" ? 0 : target === "pending_purchase" ? ROLLBACK_MAIN_FLOW.indexOf("priced") : ROLLBACK_MAIN_FLOW.indexOf(target);
   const hints: string[] = [];
-  if (index >= 0 && index <= flow.indexOf("pending_inquiry")) hints.push("已确认的报价与报价金额");
-  if (index >= 0 && index < flow.indexOf("in_transit")) hints.push("T+ 采购单关联与到货数量");
+  if (index >= 0 && index <= ROLLBACK_MAIN_FLOW.indexOf("pending_inquiry")) hints.push("本任务的报价记录与报价金额");
+  if (index >= 0 && index < ROLLBACK_MAIN_FLOW.indexOf("in_transit")) hints.push("非免费样品的采购单关联与到货数量");
+  if (target === "pending_rd_review") hints.push("当前采购负责人分配");
   return hints;
 }
 
@@ -192,7 +176,7 @@ export function StatusPill({ status, className }: { status: ProcStatus; classNam
 export function SourcePill({ source }: { source: ProcSource }) {
   useI18n();
   return source === "rd" ? (
-    <span className="inline-flex items-center rounded-full border border-[#002fa7]/20 bg-[#002fa7]/5 px-2 py-0.5 text-xs font-medium text-[#002fa7]">{translate("研发流转")}</span>
+    <span className="proc-horizon-context-pill inline-flex items-center rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-xs font-medium text-primary">{translate("研发流转")}</span>
   ) : (
     <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">{translate("采购自建")}</span>
   );
@@ -200,7 +184,7 @@ export function SourcePill({ source }: { source: ProcSource }) {
 export function BusinessLinePill({ line }: { line: BusinessLine }) {
   useI18n();
   return line === "rd" ? (
-    <span className="inline-flex items-center rounded-full border border-[#002fa7]/20 bg-[#002fa7]/5 px-2 py-0.5 text-xs font-medium text-[#002fa7]">{translate("研发")}</span>
+    <span className="proc-horizon-context-pill inline-flex items-center rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-xs font-medium text-primary">{translate("研发")}</span>
   ) : (
     <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700">{translate("生产")}</span>
   );
@@ -208,7 +192,7 @@ export function BusinessLinePill({ line }: { line: BusinessLine }) {
 export function MethodPill({ method }: { method: ProcMethod }) {
   useI18n();
   return method === "inquiry" ? (
-    <span className="inline-flex items-center rounded-full border border-[#002fa7]/20 bg-[#002fa7]/5 px-2 py-0.5 text-xs font-medium text-[#002fa7]">{translate("询价采购")}</span>
+    <span className="proc-horizon-context-pill inline-flex items-center rounded-full border border-[var(--primary-soft-border)] bg-accent px-2 py-0.5 text-xs font-medium text-primary">{translate("询价采购")}</span>
   ) : (
     <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">{translate("电商直购")}</span>
   );
@@ -246,7 +230,7 @@ export function MainDateBadge({ task, big = false }: { task: ProcurementTask; bi
 }
 
 // ── 头像（按名取色）───────────────────────────────────────────────────────────
-const PALETTE = ["bg-[#002fa7]/10 text-[#002fa7]", "bg-slate-100 text-slate-600", "bg-[#002fa7]/5 text-[#002fa7]", "bg-slate-200 text-slate-700"];
+const PALETTE = ["bg-accent text-primary", "bg-slate-100 text-slate-600"];
 export function avatarColor(name: string): string {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
@@ -279,8 +263,8 @@ export function PersonAvatar({ name, size = "sm" }: { name: string; size?: "xs" 
 type Tone = "slate" | "indigo" | "violet" | "amber" | "emerald" | "red";
 const TONES: Record<Tone, { text: string; chip: string; bar: string }> = {
   slate: { text: "text-slate-900", chip: "bg-slate-100 text-slate-500", bar: "bg-slate-300" },
-  indigo: { text: "text-[#002fa7]", chip: "bg-[#002fa7]/5 text-[#002fa7]", bar: "bg-[#002fa7]/60" },
-  violet: { text: "text-[#002fa7]", chip: "bg-[#002fa7]/5 text-[#002fa7]", bar: "bg-[#002fa7]/60" },
+  indigo: { text: "text-primary", chip: "bg-accent text-primary", bar: "bg-primary" },
+  violet: { text: "text-primary", chip: "bg-accent text-primary", bar: "bg-primary" },
   amber: { text: "text-amber-600", chip: "bg-amber-50 text-amber-600", bar: "bg-amber-400" },
   emerald: { text: "text-emerald-600", chip: "bg-emerald-50 text-emerald-600", bar: "bg-emerald-400" },
   red: { text: "text-rose-600", chip: "bg-rose-50 text-rose-600", bar: "bg-rose-400" },
@@ -301,9 +285,9 @@ export function StatCell({ label, value, tone = "slate", active, badge, onClick,
     </>
   );
   const className = cn(
-    "proc-horizon-kpi material-card relative flex h-auto min-w-0 w-full items-center justify-between gap-2 overflow-hidden rounded-xl px-3 py-2.5 text-left transition-shadow duration-150 sm:px-4 sm:py-3",
-    onClick && "cursor-pointer hover:shadow-md",
-    active && "ring-2 ring-[#002fa7]/20",
+    "proc-horizon-kpi material-card relative flex h-auto min-w-0 w-full items-center justify-between gap-2 overflow-hidden rounded-xl px-3 py-2.5 text-left sm:px-4 sm:py-3",
+    onClick && "cursor-pointer",
+    active && "ring-2 ring-primary/40",
   );
   if (!onClick) return <div className={className} data-tone={tone} data-active={Boolean(active)}>{content}</div>;
   return (
@@ -314,17 +298,19 @@ export function StatCell({ label, value, tone = "slate", active, badge, onClick,
 }
 export function PageHeader({ Icon, badge, title, description, right }: { Icon?: React.ComponentType<{ className?: string }>; badge?: string; title: string; description?: string; right?: React.ReactNode }) {
   return (
-    <div className="material-card mb-3 flex items-start justify-between gap-4 px-6 py-5">
-      <div className="flex min-w-0 items-start gap-3">
-        {Icon && <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#002fa7] text-white shadow-sm"><Icon className="h-5 w-5" /></span>}
-        <div className="min-w-0">
-          {badge && <span className="inline-block rounded-full bg-[#002fa7]/5 px-2.5 py-0.5 text-[11px] font-semibold text-[#002fa7]">{badge}</span>}
-          <h1 className={cn("text-balance text-xl font-bold text-slate-900", badge && "mt-2")}>{title}</h1>
-          {description && <p className="mt-1 text-pretty text-sm text-slate-500">{description}</p>}
+    <section className="proc-horizon-command material-card mb-3 px-6 py-5">
+      <div className="proc-horizon-command-layout">
+        <div className="proc-horizon-command-heading">
+          {Icon && <span className="proc-horizon-command-mark"><Icon className="h-5 w-5" /></span>}
+          <div className="proc-horizon-command-copy">
+            {badge && <span className="inline-block rounded-full bg-accent px-2.5 py-0.5 text-[10px] font-semibold text-primary">{badge}</span>}
+            <h1 className={cn("text-balance text-xl font-bold text-slate-900", badge && "mt-1.5")}>{title}</h1>
+            {description && <p className="mt-1 text-pretty text-sm text-slate-500">{description}</p>}
+          </div>
         </div>
+        {right && <div className="proc-horizon-actions shrink-0">{right}</div>}
       </div>
-      {right && <div className="shrink-0">{right}</div>}
-    </div>
+    </section>
   );
 }
 
@@ -376,7 +362,7 @@ export function ComboInput({
     return list.slice(0, 50);
   }, [normalized, kw]);
   // 输入值恰好等于唯一候选时不再弹层（选完即收）
-  const show = open && filtered.length > 0 && !(filtered.length === 1 && filtered[0].value === value);
+  const show = !disabled && open && filtered.length > 0 && !(filtered.length === 1 && filtered[0].value === value);
   return (
     // modal：在 Dialog/Sheet 内使用时，点击候选不被外层判定为 outside 而误关弹窗
     <Popover modal open={show} onOpenChange={setOpen}>
@@ -432,7 +418,7 @@ function fmtDay(d: Date): string {
 
 /** 日期输入：值为 YYYY-MM-DD 或空串；可清除。modal 模式保证在 Dialog/Sheet 内点选不误关外层弹窗。 */
 export function DateInput({
-  value, onChange, placeholder, ariaLabel, className, clearable = true,
+  value, onChange, placeholder, className, clearable = true, ariaLabel, disabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -440,17 +426,19 @@ export function DateInput({
   ariaLabel?: string;
   className?: string;
   clearable?: boolean;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   // 用本地时区构造，避免 UTC 解析导致日期偏移一天
   const selected = value ? new Date(`${value}T00:00:00`) : undefined;
   return (
-    <Popover modal open={open} onOpenChange={setOpen}>
+    <Popover modal open={!disabled && open} onOpenChange={(next) => { if (!disabled) setOpen(next); }}>
       <PopoverTrigger asChild>
         <Button
           type="button"
           aria-label={ariaLabel}
           variant="outline"
+          disabled={disabled}
           className={cn(
             "flex h-9 w-full justify-between rounded-lg border-slate-200 bg-input-background px-3 text-left text-sm font-normal hover:bg-input-background hover:text-inherit",
             !value && "text-slate-400",
@@ -461,7 +449,11 @@ export function DateInput({
           <CalendarDays className="h-4 w-4 shrink-0 text-slate-400" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-0">
+      <PopoverContent
+        align="start"
+        collisionPadding={12}
+        className="max-h-[var(--radix-popover-content-available-height)] w-auto overflow-y-auto overscroll-contain p-0"
+      >
         <Calendar
           mode="single"
           selected={selected}
@@ -479,7 +471,7 @@ export function DateInput({
         />
         {clearable && value && (
           <div className="border-t border-slate-100 px-3 py-2 text-right">
-            <Button type="button" variant="ghost" size="sm" onClick={() => { onChange(""); setOpen(false); }} className="h-7 rounded-lg px-2 text-xs text-slate-500 hover:text-[#002fa7]">{translate("清除")}</Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => { onChange(""); setOpen(false); }} className="h-7 rounded-lg px-2 text-xs text-slate-500 hover:text-primary">{translate("清除")}</Button>
           </div>
         )}
       </PopoverContent>

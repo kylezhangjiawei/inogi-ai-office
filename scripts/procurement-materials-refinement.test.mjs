@@ -25,7 +25,7 @@ test("物料页面组保持 Horizon 单强调视觉并移除装饰性样式", ()
   }
 
   assert.match(workbench, /className="proc-horizon/);
-  assert.match(table, /#002fa7/);
+  assert.match(table, /data-\[state=on\]:bg-accent data-\[state=on\]:text-primary/);
   assert.match(drawer, /proc-horizon-drawer/);
   assert.match(critical, /horizon-theme horizon-portal proc-horizon-overlay/);
 });
@@ -71,8 +71,7 @@ test("任务聚合只建立一次稳定索引并保留旧任务名称回落口�
   assert.match(table, /useMemo\([\s\S]*?buildMaterialAggregateIndex\(materials, tasks\)/);
   assert.doesNotMatch(table, /const materialRow[\s\S]{0,240}materialAggregates\(/);
 
-  assert.match(workbench, /const activeMaterialNames = new Set/);
-  assert.match(workbench, /activeMaterialNames\.has\(m\.name\)/);
+  assert.match(workbench, /countProcurementMaterialShortages\(materials, active\)/);
 });
 
 test("详情抽屉展示物料摘要、库存同步、分仓明细和关联任务层级", () => {

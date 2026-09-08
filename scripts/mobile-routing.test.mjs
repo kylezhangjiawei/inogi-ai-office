@@ -84,10 +84,10 @@ test("移动任务切换按任务 ID 重挂详情组件", () => {
 });
 
 test("移动端壳层随长内容增长，备案栏不会停在首屏中部", () => {
-  assert.match(shellSource, /<div className="flex min-h-\[100dvh\] flex-col bg-slate-50">/);
-  assert.match(shellSource, /<main className="flex-1">[\s\S]*?<Outlet \/>[\s\S]*?<\/main>/);
-  assert.doesNotMatch(shellSource, /<div className="flex h-\[100dvh\] flex-col bg-slate-50">/);
-  assert.doesNotMatch(shellSource, /<main className="min-h-0 flex-1">/);
+  assert.match(shellSource, /<div className="flex min-h-\[100dvh\] flex-col bg-card">/);
+  assert.match(shellSource, /<main className="flex-1 bg-background">[\s\S]*?<Outlet \/>[\s\S]*?<\/main>/);
+  assert.doesNotMatch(shellSource, /<div className="flex h-\[100dvh\] flex-col\b/);
+  assert.doesNotMatch(shellSource, /<main className="[^"]*\bmin-h-0\b/);
 });
 
 test("备案链接保留且仅在登录页透明展示，业务壳由组件统一隐藏", () => {

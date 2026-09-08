@@ -4,6 +4,7 @@ import test from "node:test";
 import React from "react";
 import ts from "typescript";
 import * as sample from "../src/app/lib/procurementSampleTestMessage.ts";
+import * as returned from "../src/app/lib/procurementTransferReturnedMessage.ts";
 
 const messageSource = readFileSync(new URL("../src/app/MessageCenterPage.tsx", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/RDMyWorkspacePage.tsx", import.meta.url), "utf8");
@@ -12,8 +13,9 @@ const astOf = (source) => ts.createSourceFile("component.tsx", source, ts.Script
 const messageAst = astOf(messageSource);
 const workspaceAst = astOf(workspaceSource);
 const cardAst = astOf(cardSource);
+const returnedCardAst = astOf(readFileSync(new URL("../src/app/components/ProcTransferReturnedMessageCard.tsx", import.meta.url), "utf8"));
 const translate = (text, vars = {}) => text.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? key);
-const common = { React, ...sample, t: translate, useI18n: () => ({ t: translate, lang: "zh" }), useMemo: (factory) => factory(), useCallback: (callback) => callback,
+const common = { React, ...sample, ...returned, t: translate, useI18n: () => ({ t: translate, lang: "zh" }), useMemo: (factory) => factory(), useCallback: (callback) => callback,
   useEffect() {}, useState: (initial) => [initial, () => {}], cn: (...values) => values.filter(Boolean).join(" "), i18nLocale: () => "zh-CN" };
 
 function evaluate(source, bindings) {
@@ -164,4 +166,84 @@ test("sampleTest 深链只在关闭时清除，保留其它参数，确认刷新
   assert.equal(params.has("sampleTest"), false);
   assert.equal(params.get("task"), "rd-existing");
   assert.equal(params.get("tab"), "mine");
+});
+
+function returnedBody(overrides = {}) {
+  return { type: "procurement_transfer_returned", task_id: "proc-12", procurement_task_id: "proc-12", procurement_code: "CG-0012",
+    rd_task_id: "rd-08", rd_task_title: "电源方案研发", material_name: "适配器", specification: "100W", quantity: 10, unit: "个",
+    reason: "请核对接口型号", returned_by: "李采购", route: "/rd-my-workspace?task=rd-08", action_label: "继续转采购", ...overrides };
+}
+
+test("采购退回是独立可读待办，保留旧审核消息兼容且搜索和筛选不混入审批", () => {
+  const raw = JSON.stringify(returnedBody());
+  const parsed = parseBody(raw);
+  assert.equal(parsed.type, "procurement_transfer_returned");
+  assert.equal(parsed.reason, "请核对接口型号");
+  const summary = returned.transferReturnedMessageSummary(parsed);
+  assert.ok(summary.includes("采购已退回研发"));
+  assert.ok(summary.includes("请核对接口型号"));
+  assert.ok(!summary.includes(raw));
+  const isPendingReviewMessage = getFunction(messageAst, "isPendingReviewMessage", { parseBody });
+  const messages = [{ id: "return", body: raw }, { id: "archived", body: raw, handled: true },
+    { id: "old-review", body: JSON.stringify({ type: "review_request", review_type: "procurement_transfer", task_title: "旧申请" }) }];
+  assert.equal(isPendingReviewMessage(messages[0]), false);
+  assert.equal(isPendingReviewMessage(messages[2]), true);
+  const initializer = findNode(messageAst, (node) => ts.isVariableDeclaration(node) && node.name.getText(messageAst) === "filteredMessages").initializer;
+  const filter = (filter, keyword = "") => evaluate(`return ${initializer.getText(messageAst)};`, { ...common, parseBody, isPendingReviewMessage, messages, filter, keyword });
+  assert.deepEqual(filter("transfer_returned").map((message) => message.id), ["return"]);
+  assert.deepEqual(filter("review_request").map((message) => message.id), ["old-review"]);
+  assert.deepEqual(filter("all", "继续转采购").map((message) => message.id), ["return", "archived"]);
+});
+
+test("退回通知仅进入同一原研发任务，拒绝外部路由和错任务并去掉无关参数", () => {
+  const parsed = parseBody(JSON.stringify(returnedBody()));
+  for (const route of ["/rd-my-workspace?task=rd-08", "/rd-task/rd-08"]) {
+    assert.equal(returned.transferReturnedMessageRoute({ ...parsed, route }), route);
+  }
+  assert.equal(returned.transferReturnedMessageRoute({ ...parsed, route: "/rd-my-workspace?task=rd-08&sampleTest=wrong" }), "/rd-my-workspace?task=rd-08");
+  for (const route of ["//evil.example/rd-task/rd-08", "https://evil.example", "/\\evil.example", "/rd-my-workspace?task=wrong", "/rd-task/wrong", "/proc-cockpit?task=proc-12", "/rd-task/%ZZ"]) {
+    assert.equal(returned.transferReturnedMessageRoute({ ...parsed, route }), null, route);
+  }
+  assert.equal(returned.transferReturnedMessageRoute({ ...parsed, rd_task_id: "" }), null);
+});
+
+test("退回消息卡显示原因和原任务，唯一流程按钮为继续转采购", () => {
+  const opened = [];
+  const Card = getFunction(returnedCardAst, "ProcTransferReturnedMessageCard", { Button: "Button", ArrowRight: "ArrowRight", Undo2: "Undo2" });
+  const parsed = parseBody(JSON.stringify(returnedBody({ action_label: "批准" })));
+  const tree = Card({ body: parsed, onOpen: (route) => opened.push(route) });
+  const content = renderedText(tree);
+  for (const label of ["CG-0012", "电源方案研发", "适配器", "100W", "10 个", "李采购", "退回原因", "请核对接口型号", "无需管理员审批"]) assert.ok(content.includes(label), label);
+  const buttons = elements(tree).filter((node) => node.type === "Button");
+  assert.equal(buttons.length, 1);
+  assert.equal(renderedText(buttons[0]).trim(), "继续转采购");
+  buttons[0].props.onClick({ stopPropagation() {} });
+  assert.deepEqual(opened, ["/rd-my-workspace?task=rd-08"]);
+});
+
+test("消息中心与研发抽屉实际走退回卡，不显示JSON及批准驳回，也不把打开标成已处理", () => {
+  const routes = [], reads = [], handled = [];
+  const Card = getFunction(messageAst, "MessageCard", { parseBody, useNavigate: () => (route) => routes.push(route),
+    SourceChip: "SourceChip", ProcTransferReturnedMessageCard: "ReturnCard", Button: "Button" });
+  const raw = JSON.stringify(returnedBody());
+  const message = { id: "msg-return", source: "procurement", body: raw, created_at: new Date().toISOString() };
+  let tree = Card({ msg: message, onOpen: (msg) => reads.push(msg.id), onHandle: (msg) => handled.push(msg.id) });
+  let card = elements(tree).find((node) => node.type === "ReturnCard");
+  assert.ok(card);
+  assert.ok(!renderedText(tree).includes(raw));
+  card.props.onOpen(returned.transferReturnedMessageRoute(card.props.body));
+  assert.deepEqual(reads, [message.id]);
+  assert.deepEqual(handled, []);
+  let closed = 0;
+  const Drawer = getFunction(workspaceAst, "NotificationDrawer", { useNavigate: () => (route) => routes.push(route), parseRdDiscussionMention: () => null,
+    relativeTimeLabel: () => "刚刚", DrawerShell: "DrawerShell", Bell: "Bell", ProcTransferReturnedMessageCard: "ReturnCard", ActionButton: "ActionButton" });
+  tree = Drawer({ notification: { type: "message", title: "采购退回", message: raw, raw_body: raw }, canReview: true,
+    onClose: () => { closed++; }, onDismiss: () => handled.push("dismiss") });
+  card = elements(tree).find((node) => node.type === "ReturnCard");
+  assert.ok(card);
+  for (const hidden of [raw, "批准", "驳回", "标记已处理"]) assert.ok(!renderedText(tree).includes(hidden));
+  card.props.onOpen(returned.transferReturnedMessageRoute(card.props.body));
+  assert.equal(closed, 1);
+  assert.deepEqual(routes, ["/rd-my-workspace?task=rd-08", "/rd-my-workspace?task=rd-08"]);
+  assert.deepEqual(handled, []);
 });

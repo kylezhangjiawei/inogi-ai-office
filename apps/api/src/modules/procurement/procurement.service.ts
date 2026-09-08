@@ -1574,6 +1574,87 @@ export class ProcurementService {
       where: { type: 'review_request', taskId: procTaskId, handled: false },
       data: { handled: true, read: true },
     });
+    await this.prisma.rdMessage.updateMany({
+      where: { type: 'procurement_transfer_returned', taskId: procTaskId, handled: false },
+      data: { handled: true, read: true },
+    });
+  }
+
+  /** 回退后由原研发参与人继续流转；收件人必须当前有转采购权限及可打开的研发入口。 */
+  private async notifyRdTransferReturned(task: ProcReviewNoticeTask, actor: ProcActor, reason: string): Promise<void> {
+    if (!task.rdTaskId) return;
+    const logger = new Logger(ProcurementService.name);
+    try {
+      const users = await this.prisma.user.findMany({
+        where: { status: 'ACTIVE' },
+        select: { id: true, name: true, role: { select: { permissions: true } } },
+      });
+      const relatedIds = new Set<string>();
+      for (const [id, name] of [[task.requesterUserId, task.requester], [task.rdContactUserId, task.rdContact]]) {
+        // 已有账号不改投同名账号；仅历史无账号记录允许唯一姓名回填。
+        if (id) relatedIds.add(id);
+        else if (name?.trim()) {
+          const matches = users.filter((user) => user.name.trim() === name.trim());
+          if (matches.length === 1) relatedIds.add(matches[0].id);
+        }
+      }
+      const recipients: Array<{ id: string; name: string; route: string }> = [];
+      const fallbackManagers: typeof recipients = [];
+      const encodedTaskId = encodeURIComponent(task.rdTaskId);
+      for (const user of users) {
+        const permissions = Array.isArray(user.role?.permissions)
+          ? user.role.permissions.filter((value): value is string => typeof value === 'string') : [];
+        if (!permissions.includes('*') && !permissions.includes('proc-task:transfer')) continue;
+        const route = permissions.includes('*') ? `/rd-task/${encodedTaskId}`
+          : permissions.includes('page:rd-my-workspace') ? `/rd-my-workspace?task=${encodedTaskId}`
+            : permissions.some((permission) => ['page:rd-task-management', 'page:rd-director-dashboard'].includes(permission))
+              ? `/rd-task/${encodedTaskId}` : null;
+        if (!route) continue;
+        try {
+          const rdTask = await this.rdService.requireProcurementTransferAccess(task.rdTaskId, {
+            userId: user.id, userName: user.name, permissions,
+          });
+          const isParticipant = rdTask.participantUserIds.includes(user.id)
+            || (!rdTask.participantUserIds.length && rdTask.participantNames.includes(user.name.trim())
+              && users.filter((candidate) => candidate.name.trim() === user.name.trim()).length === 1);
+          const recipient = { id: user.id, name: user.name, route };
+          if (relatedIds.has(user.id) || isParticipant || permissions.includes('*')) recipients.push(recipient);
+          else fallbackManagers.push(recipient);
+        } catch {
+          // 与继续入口复用同一任务参与校验；已离开任务或任务不可继续时不投递处理待办。
+        }
+      }
+      if (!recipients.length) recipients.push(...fallbackManagers);
+      if (!recipients.length) logger.warn(`退回研发通知无可处理收件人（${task.code}）`);
+      await this.prisma.$transaction(async (tx) => {
+        // 继续转采购与通知发布串行，避免继续动作先完成、迟到通知又变成永久待办。
+        await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${task.id} FOR NO KEY UPDATE`;
+        const current = await tx.procTask.findUnique({ where: { id: task.id }, select: { status: true } });
+        if (current?.status !== 'pending_rd_review') return;
+        for (const recipient of recipients) {
+          try {
+            await this.rdService.createMessage({
+              source: 'procurement', sender: { id: actor.id, name: actor.name, role: '采购' },
+              recipient_id: recipient.id, recipient_name: recipient.name,
+              subject: `采购已退回 · 请继续转采购 · ${task.materialName}`,
+              body: JSON.stringify({
+                type: 'procurement_transfer_returned', task_id: task.id, procurement_task_id: task.id,
+                procurement_code: task.code, rd_task_id: task.rdTaskId, rd_task_title: task.rdTaskTitle,
+                material_name: task.materialName, specification: task.spec || null, quantity: num(task.quantity), unit: task.unit || null,
+                reason, returned_by: actor.name, returned_at: new Date().toISOString(),
+                route: recipient.route, action_label: '继续转采购',
+                next_action: '请返回原研发任务，核对退回原因后点击「继续转采购」；继续后系统自动分配采购负责人。无需管理员审批。',
+              }),
+              meta: { kind: 'procurement_transfer_returned', task_id: task.id, route: recipient.route },
+            }, tx);
+          } catch (error) {
+            logger.warn(`退回研发通知发送失败（${recipient.name}）: ${(error as Error).message}`);
+          }
+        }
+      });
+    } catch (error) {
+      logger.warn(`退回研发通知处理失败: ${(error as Error).message}`);
+    }
   }
 
   private async notifyRdTransferReviewResult(
@@ -1704,61 +1785,50 @@ export class ProcurementService {
     );
   }
 
-  /**
-   * 回退到流程中任意一个更早的节点。
-   *
-   * 与 transitionTask 的区别：那条路只走 PROC_STATUS_TRANSITIONS 允许的前进边，
-   * 这条路专用于纠错，可以跨多个节点往回退，但绝不允许往前跳（rollbackTargetsOf 只返回更早的节点）。
-   * 回退会连带清理目标状态下本不该存在的数据，否则任务会停在自相矛盾的状态里。
-   */
+  /** 回退到同一流程的任意更早节点，并原子清理目标节点下不应存在的数据。 */
   async rollbackTask(id: string, dto: RollbackProcTaskDto, actor: ProcActor) {
+    const reason = typeof dto.reason === 'string' ? dto.reason.trim() : '';
+    if (reason.length < 2 || reason.length > 200) {
+      throw new BadRequestException('请填写 2–200 个字符的回退原因');
+    }
     const task = await this.requireTask(id);
     const current = task.status as ProcStatus;
     const target = dto.status as ProcStatus;
-
     if (PROC_ROLLBACK_BLOCKED_STATUSES.includes(current)) {
-      throw new BadRequestException(
-        current === 'pending_rd_review'
-          ? '该申请尚待研发管理员审核，不在采购流程内，无法回退'
-          : '已取消的任务不能回退，请重新发起采购申请',
-      );
+      throw new BadRequestException(current === 'pending_rd_review'
+        ? '该申请已在「待继续转采购」，无法继续回退'
+        : current === 'completed'
+          ? '已完成的任务不能回退'
+          : '已取消的任务不能回退，请重新发起采购申请');
     }
-    // 客户端拿的是过期数据时直接拒绝，理由同 transitionTask：
-    // 用户看到的当前节点与实际不符，那他选的回退目标也未必是他真正想要的
     if (dto.from_status !== current) {
       throw new ConflictException(
         `任务已是「${PROC_STATUS_LABELS[current] ?? current}」，页面数据已过期，请刷新后再操作`,
       );
     }
-    const targets = rollbackTargetsOf(current, task.method);
-    if (!targets.includes(target)) {
+    if (!rollbackTargetsOf(current, task.method, task).includes(target)) {
       throw new BadRequestException(
-        `不能从「${PROC_STATUS_LABELS[current] ?? current}」回退到「${
-          PROC_STATUS_LABELS[target] ?? target
-        }」：只能回退到当前流程中更早的节点`,
+        `不能从「${PROC_STATUS_LABELS[current] ?? current}」回退到「${PROC_STATUS_LABELS[target] ?? target}」：只能回退到当前流程中更早的节点`,
       );
     }
 
     const cleanup = rollbackCleanupFor(target);
+    const returnToRdReview = target === 'pending_rd_review';
     const updated = await this.prisma.$transaction(async (tx) => {
-      // 条件更新占位：并发下别人可能刚推进了状态，那时这次回退的前提已不成立
+      // 先抢占状态再清理，避免过期页面或并发推进导致误删业务数据。
       const claimed = await tx.procTask.updateMany({
-        where: { id, status: current },
+        where: { id, status: current, ...(returnToRdReview ? { source: 'rd', rdTaskId: task.rdTaskId } : {}) },
         data: {
           status: target,
-          // 回退离开终态时必须撤掉完成标记，否则任务会以「已完成」的身份继续留在统计里
           businessDone: false,
-          // 到货量记在任务上（由采购单的 receivedQty 汇总而来），退到下单之前必须归零，
-          // 否则「待询价」的任务还挂着到货数量
+          ...(returnToRdReview ? { buyer: '', buyerUserId: null } : {}),
           ...(cleanup.arrivals ? { arrivedQty: new Prisma.Decimal(0) } : {}),
-          ...(cleanup.quotations
-            ? {
-                selectedQuotationId: null,
-                quotationSubtotal: null,
-                quotationDiscount: null,
-                quotationTotal: null,
-              }
-            : {}),
+          ...(cleanup.quotations ? {
+            selectedQuotationId: null,
+            quotationSubtotal: null,
+            quotationDiscount: null,
+            quotationTotal: null,
+          } : {}),
         },
       });
       if (claimed.count !== 1) throw new ConflictException('任务状态已被其他操作更新，请刷新后重试');
@@ -1769,21 +1839,34 @@ export class ProcurementService {
         if (count > 0) cleared.push(`${count} 条报价`);
       }
       if (cleanup.purchaseOrders) {
-        // 免费样品登记独立于正式采购单保留；登记不能证明本轮样品已经收到。
-        const { count } = await tx.procPurchaseOrderRef.deleteMany({
-          where: { taskId: id, NOT: { metadata: { path: ['freeSample'], equals: true } } },
+        // 缺少 freeSample 键时 JSON path 比较为 SQL NULL，不能用 NOT equals true。
+        // 按实际元数据选出需解除的关联，仅保留严格标记为 true 的免费收样事实。
+        const refs = await tx.procPurchaseOrderRef.findMany({
+          where: { taskId: id }, select: { id: true, metadata: true },
         });
-        if (count > 0) cleared.push(`${count} 条采购单关联`);
+        const ids = refs.filter((ref) =>
+          (ref.metadata as { freeSample?: unknown } | null)?.freeSample !== true,
+        ).map((ref) => ref.id);
+        if (ids.length > 0) {
+          const { count } = await tx.procPurchaseOrderRef.deleteMany({ where: { taskId: id, id: { in: ids } } });
+          if (count > 0) cleared.push(`${count} 条采购单关联`);
+        }
       }
       await this.endPendingSampleTest(tx, id);
-
+      if (returnToRdReview) {
+        // 结束存量审核待办；提交后通知原研发参与人直接继续转采购。
+        await tx.rdMessage.updateMany({
+          where: { type: 'review_request', taskId: id, handled: false },
+          data: { handled: true, read: true },
+        });
+      }
       await tx.procTaskLog.create({
         data: {
           taskId: id,
           kind: 'action',
           text: `回退到「${PROC_STATUS_LABELS[target] ?? target}」`
             + `${cleared.length > 0 ? `，已清理 ${cleared.join('、')}` : ''}`
-            + `；原因：${dto.reason.trim()}`,
+            + `；原因：${reason}`,
           fromStatus: current,
           toStatus: target,
           actor: actor.name,
@@ -1792,6 +1875,7 @@ export class ProcurementService {
       });
       return tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
     });
+    if (returnToRdReview) await this.notifyRdTransferReturned(updated, actor, reason);
     return this.serializeTask(updated);
   }
 
@@ -3237,7 +3321,7 @@ export class ProcurementService {
   async recomputeArrival(taskId: string) {
     return this.prisma.$transaction(async (tx) => {
       // 与样品分派、测试确认及采购单关联串行；锁后读取，避免同步把已推进的状态写回旧值。
-      await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${taskId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${taskId} FOR NO KEY UPDATE`;
       const task = await tx.procTask.findUnique({
         where: { id: taskId },
         include: { purchaseOrderRefs: true },

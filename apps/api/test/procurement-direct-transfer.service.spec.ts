@@ -190,6 +190,9 @@ test('存量待审任务参与人可直接继续转采购并关闭旧待审通�
   assert.deepEqual(handled, [{
     where: { type: 'review_request', taskId: 'proc-1', handled: false },
     data: { handled: true, read: true },
+  }, {
+    where: { type: 'procurement_transfer_returned', taskId: 'proc-1', handled: false },
+    data: { handled: true, read: true },
   }]);
   assert.equal(messages.length, 1);
   assert.equal(JSON.parse(messages[0].body).type, 'procurement_assignment');
