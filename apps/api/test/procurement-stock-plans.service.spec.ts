@@ -152,7 +152,7 @@ function harness(row = fixture(), options: { mirror?: any; materials?: any[]; ba
       findMany: async ({ where }: any) => options.mirror && where.tpOrderNo.in.includes(options.mirror.tpOrderNo) ? [options.mirror] : [],
     },
     procSupplier: { findUnique: async () => ({ name: '供应商甲' }) },
-    procBomNode: { findMany: async () => options.bom ?? [] },
+    procBomNode: { findMany: async () => (options.bom ?? []).map((node) => ({ updatedAt: now, ...node })) },
     procInventoryBalance: { findMany: async () => options.balances ?? [] },
     systemSetting: { findMany: async () => options.settings ?? [], findUnique: async () => ({ value: [{ id: 'prod-portable-o2' }] }) },
   };
@@ -200,6 +200,56 @@ test('创建包材计划保留产品子系统，整机拒绝非整数套数或�
   await assert.rejects(() => h.instance.createStockPlan({ planType: 'machine', materialName: '整机', productLine: 'Q5', targetQty: 1.5 }, actor), /整数/);
   const component = harness(fixture(), { bom: [{ id: 'leaf', parentId: null, materialId: 'material-1' }] });
   await assert.rejects(() => component.instance.createStockPlan({ planType: 'machine', materialId: 'material-1', materialName: '组件', productLine: 'Q5', targetQty: 10 }, actor), /零部件/);
+});
+
+test('Q5 资料未核实也可先登记总计划，但任一必需件或包材待核实仍禁止自动生成采购', async () => {
+  const materials = [
+    { id: 'component', name: '零部件', spec: '', unit: '件', tpInventoryCode: 'A', safeStock: 0 },
+    { id: 'packaging', name: '必需包材', spec: '', unit: '个', tpInventoryCode: 'B', safeStock: 0 },
+  ];
+  for (const scenario of ['missing_code', 'missing_qty', 'missing_inventory']) {
+    const h = harness(fixture(), {
+      materials,
+      bom: [
+        { id: 'root', parentId: null, name: 'Q5 必需清单', productLine: 'Q5' },
+        { id: 'component-row', parentId: 'root', name: '零部件', code: 'A', qtyPer: 1, productLine: 'Q5' },
+        { id: 'packaging-row', parentId: 'root', name: '必需包材', code: scenario === 'missing_code' ? null : 'B', qtyPer: scenario === 'missing_qty' ? 0 : 1, productLine: 'Q5' },
+      ],
+      balances: [balance({ availableQty: 20, inTransitQty: 0 }), ...(scenario === 'missing_inventory' ? [] : [balance({ tpInventoryCode: 'B', availableQty: 0, inTransitQty: 0 })])],
+    });
+    const saved = await h.instance.createStockPlan({ planType: 'machine', materialName: 'Q5 整机', productLine: 'Q5', targetQty: 100, productId: 'prod-portable-o2' }, actor);
+    assert.equal(saved.planType, 'machine', scenario);
+    assert.equal(saved.targetQty, 100, scenario);
+    assert.equal(saved.status, 'not_started', scenario);
+    assert.equal(saved.tasks?.length, 0, '登记计划不会创建采购任务');
+    const readiness = await h.instance.getStockPlanReadiness(h.row.id);
+    assert.equal(readiness.dataQuality.provisional, true, scenario);
+    await assert.rejects(() => h.instance.generateStockPlanTasks(h.row.id, actor), /映射不完整/, scenario);
+    assert.equal(h.createdTasks.length, 0, '待核实的必需包材不能被跳过后局部生成');
+  }
+});
+
+test('必需包材有明确零库存时完整齐套为0，仍可为其生成补货采购任务', async () => {
+  const h = harness(fixture({ planType: 'machine', productLine: 'Q5', targetQty: 100 }), {
+    materials: [
+      { id: 'component', name: '零部件', spec: '', unit: '件', tpInventoryCode: 'A', safeStock: 0 },
+      { id: 'packaging', name: '必需包材', spec: '', unit: '个', tpInventoryCode: 'B', safeStock: 0 },
+    ],
+    bom: [
+      { id: 'root', parentId: null, name: 'Q5 必需清单', productLine: 'Q5' },
+      { id: 'component-row', parentId: 'root', name: '零部件', code: 'A', qtyPer: 1, productLine: 'Q5' },
+      { id: 'packaging-row', parentId: 'root', name: '必需包材', code: 'B', qtyPer: 1, productLine: 'Q5' },
+    ],
+    balances: [balance({ availableQty: 100, inTransitQty: 0 }), balance({ tpInventoryCode: 'B', stockQty: 0, availableQty: 0, inTransitQty: 0 })],
+  });
+  const readiness = await h.instance.getStockPlanReadiness(h.row.id);
+  assert.equal(readiness.dataQuality.provisional, false);
+  assert.equal(readiness.summary.currentBuildableSets, 0);
+  assert.equal(readiness.summary.withTransitBuildableSets, 0);
+  const result = await h.instance.generateStockPlanTasks(h.row.id, actor);
+  assert.equal(result.createdCount, 1);
+  assert.equal(h.createdTasks[0].materialId, 'packaging');
+  assert.equal(Number(h.createdTasks[0].quantity), 100);
 });
 
 test('生产来源只接受生产任务池中的有效任务且核对子产品归属', async () => {

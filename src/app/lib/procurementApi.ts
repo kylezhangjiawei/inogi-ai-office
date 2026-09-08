@@ -186,7 +186,7 @@ export interface InventoryBomLineInput {
   name: string;
   code: string;
   qtyPer: number;
-  parentId: string | null;
+  parentId?: string | null;
   remark: string;
   baseUpdatedAt?: string;
 }

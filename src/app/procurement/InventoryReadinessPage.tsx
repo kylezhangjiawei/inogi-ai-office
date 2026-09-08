@@ -208,6 +208,7 @@ function ReadinessRail({ data }: { data: InventoryReadinessResponse }) {
           </div>
           <p className="mt-4 text-xs leading-5 text-slate-500">{t("仅按 BOM 与量产仓库可用库存核算，不包含产能与人员排程。")}</p>
           {data.productLine === "Q5" && <p className="mt-1 text-xs leading-5 text-slate-500">{t("包材与随箱配件的配套数量待确认，见下方清单。")}</p>}
+          {data.productLine === "Q5" && <p className="mt-1 text-xs leading-5 text-slate-500">{t("完整齐套须满足清单内全部必需零部件、包材和随箱配件；数据待核实时暂不能确认完整齐套。")}</p>}
         </div>
 
         <div className="px-5 py-5 sm:px-6">
@@ -228,11 +229,11 @@ function ReadinessRail({ data }: { data: InventoryReadinessResponse }) {
             </div>
             <div className="mt-3 grid grid-cols-3 gap-3">
               <div>
-                <p className="text-[11px] text-slate-400">{t("当前齐套")}</p>
+                <p className="text-[11px] text-slate-400">{t(data.dataQuality.provisional ? "已核实部分（估算）" : "当前齐套")}</p>
                 <p className="mt-0.5 text-base font-bold text-[#002fa7] tabular-nums">{quantity(summary.currentBuildableSets, 0)}</p>
               </div>
               <div className="text-center">
-                <p className="text-[11px] text-slate-400">{t("在途到齐后")}</p>
+                <p className="text-[11px] text-slate-400">{t(data.dataQuality.provisional ? "到货后（估算）" : "在途到齐后")}</p>
                 <p className="mt-0.5 text-base font-bold text-emerald-700 tabular-nums">{quantity(summary.withTransitBuildableSets, 0)}</p>
               </div>
               <div className="text-right">
@@ -252,13 +253,15 @@ function ReadinessRail({ data }: { data: InventoryReadinessResponse }) {
 
 type BomEditorState = { mode: "create" | "edit" | "delete"; lines: InventoryBomLine[] };
 
-function InventoryBomEditor({ editor, positions, onClose, onSaved }: {
+function InventoryBomEditor({ editor, productLine, positions, onClose, onSaved }: {
   editor: BomEditorState;
+  productLine: string;
   positions: Array<{ id: string; name: string }>;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const { t } = useI18n();
+  const isQ5 = productLine === "Q5";
   const initial = editor.lines.length === 1 ? editor.lines[0] : undefined;
   const [lineId, setLineId] = useState(initial?.id ?? "");
   const [name, setName] = useState(initial?.name ?? "");
@@ -275,7 +278,7 @@ function InventoryBomEditor({ editor, positions, onClose, onSaved }: {
   useEffect(() => { activeRef.current = true; return () => { activeRef.current = false; }; }, []);
   const line = editor.lines.find((entry) => entry.id === lineId);
   const deleting = editor.mode === "delete";
-  const ready = editor.mode === "create" || Boolean(line);
+  const ready = isQ5 ? editor.mode === "edit" && Boolean(line) : editor.mode === "create" || Boolean(line);
   const lookupCode = code.trim();
   useEffect(() => {
     if (deleting || !ready || !lookupCode) return;
@@ -285,17 +288,23 @@ function InventoryBomEditor({ editor, positions, onClose, onSaved }: {
       void getInventoryMaterialReference(lookupCode, controller.signal).then((data) => {
         if (!controller.signal.aborted) setMaterialLookup({ code: lookupCode, data });
       }).catch((err) => {
-        if (!controller.signal.aborted) setMaterialLookup({ code: lookupCode, error: err instanceof Error ? err.message : t("物料分类读取失败") });
+        if (!controller.signal.aborted) setMaterialLookup({ code: lookupCode, error: err instanceof Error ? err.message : t(isQ5 ? "物料单位读取失败" : "物料分类读取失败") });
       });
     }, 220);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [lookupCode, deleting, ready, lookupAttempt, t]);
+  }, [lookupCode, isQ5, deleting, ready, lookupAttempt, t]);
   const lookupCurrent = materialLookup?.code === lookupCode ? materialLookup : null;
-  const materialCategory = !lookupCode ? t("输入物料编码后自动带出")
+  const materialCategory = isQ5 ? line?.category || t("未分类") : !lookupCode ? t("输入物料编码后自动带出")
     : lookupCurrent?.error ? t("读取失败")
       : !lookupCurrent?.data ? t("正在读取物料分类…")
         : lookupCurrent.data.matched ? lookupCurrent.data.category : t("未匹配物料库");
-  const title = deleting ? t("删除通用物料") : editor.mode === "edit" ? t("编辑通用物料") : t("新增通用物料");
+  const quantityUnit = lookupCurrent?.data?.matched ? lookupCurrent.data.unit?.trim() : "";
+  const quantityUnitHint = !lookupCode ? t("输入物料编码后核对计量单位，再填写每台用量。")
+    : lookupCurrent?.error ? t("计量单位读取失败，请核对后填写每台用量。")
+      : !lookupCurrent?.data ? t("正在读取当前编码的计量单位…")
+        : quantityUnit ? t("当前编码单位：{unit}；请填写每台用量。", { unit: quantityUnit })
+          : t("当前编码的计量单位待核对，请先核对物料档案。");
+  const title = isQ5 ? t("编辑 Q5 装配物料") : deleting ? t("删除通用物料") : editor.mode === "edit" ? t("编辑通用物料") : t("新增通用物料");
   const chooseLine = (id: string) => {
     const entry = editor.lines.find((candidate) => candidate.id === id);
     setLineId(id); setName(entry?.name ?? ""); setCode(entry?.code ?? "");
@@ -315,7 +324,7 @@ function InventoryBomEditor({ editor, positions, onClose, onSaved }: {
     savingRef.current = true; setSaving(true);
     try {
       if (deleting && line) await deleteInventoryBomLine(line.id, line.updatedAt);
-      else await saveInventoryBomLine({ name: name.trim(), code: code.trim(), qtyPer: amount, parentId: parentId || null, remark: remark.trim(), ...(line ? { baseUpdatedAt: line.updatedAt } : {}) }, line?.id);
+      else await saveInventoryBomLine({ name: name.trim(), code: code.trim(), qtyPer: amount, ...(!isQ5 ? { parentId: parentId || null } : {}), remark: remark.trim(), ...(line ? { baseUpdatedAt: line.updatedAt } : {}) }, line?.id);
       if (!activeRef.current) return;
       toast.success(deleting ? t("已删除该物料来源，正在重新计算齐套") : t("物料配置已保存，正在重新计算齐套"));
       onSaved();
@@ -330,7 +339,7 @@ function InventoryBomEditor({ editor, positions, onClose, onSaved }: {
     <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl" onEscapeKeyDown={(event) => { if (savingRef.current) event.preventDefault(); }} onPointerDownOutside={(event) => { if (savingRef.current) event.preventDefault(); }}>
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{deleting ? t("删除当前通用 BOM 中的一条物料来源，齐套数量和缺口会重新计算。物料库、库存及采购记录会保留。") : t("维护通用 BOM 的物料配置，保存后按最新单机用量重新计算齐套。库存和在途由 T+ 同步。")}</DialogDescription>
+        <DialogDescription>{isQ5 ? t("修正 Q5 装配清单中的名称、编码、单机用量或备注，保存后重新核算 Q5 齐套与缺口。产品型号和装配位置保持固定。") : deleting ? t("删除当前通用 BOM 中的一条物料来源，齐套数量和缺口会重新计算。物料库、库存及采购记录会保留。") : t("维护通用 BOM 的物料配置，保存后按最新单机用量重新计算齐套。库存和在途由 T+ 同步。")}</DialogDescription>
       </DialogHeader>
       <form onSubmit={submit} className="space-y-4">
         {editor.lines.length > 1 && <div className="space-y-2 rounded-lg border border-blue-100 bg-blue-50/50 p-3">
@@ -350,21 +359,21 @@ function InventoryBomEditor({ editor, positions, onClose, onSaved }: {
         </div> : <fieldset disabled={saving} className="grid gap-4 sm:grid-cols-2">
           <label className="grid gap-1.5 text-xs font-medium text-slate-700 sm:col-span-2">{t("物料名称")}<Input aria-label={t("物料名称")} required maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>
           <label className="grid gap-1.5 text-xs font-medium text-slate-700">{t("物料编码")}<Input aria-label={t("物料编码")} required maxLength={100} value={code} onChange={(event) => setCode(event.target.value)} /></label>
-          <label className="grid gap-1.5 text-xs font-medium text-slate-700">{t("单机用量")}<Input aria-label={t("单机用量")} type="number" required min="0.0001" max="9999999999.9999" step="0.0001" value={qty} onChange={(event) => setQty(event.target.value)} /></label>
+          <label className="grid gap-1.5 text-xs font-medium text-slate-700">{t("单机用量")}<Input aria-label={t("单机用量")} type="number" required min="0.0001" max="9999999999.9999" step="0.0001" value={qty} onChange={(event) => setQty(event.target.value)} />{isQ5 && <span aria-live="polite" className="text-[11px] font-normal leading-5 text-slate-500">{quantityUnitHint}</span>}</label>
           <label className="grid gap-1.5 text-xs font-medium text-slate-700">{t("物料分类")}
             <Input aria-label={t("物料分类")} readOnly value={materialCategory} className="bg-slate-50 text-slate-600" />
           </label>
           <label className="grid gap-1.5 text-xs font-medium text-slate-700">{t("BOM 所属位置")}
-            <select aria-label={t("BOM 所属位置")} value={parentId} onChange={(event) => setParentId(event.target.value)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
+            {isQ5 ? <Input aria-label={t("BOM 所属位置")} readOnly value={line?.bomPosition || t("未指定位置")} className="bg-slate-50 text-slate-600" /> : <select aria-label={t("BOM 所属位置")} value={parentId} onChange={(event) => setParentId(event.target.value)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
               <option value="">{t("未指定位置")}</option>
               {positions.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
-            </select>
+            </select>}
           </label>
           <div className="text-xs leading-5 text-slate-500 sm:col-span-2">
-            <p>{t("物料分类按编码从物料库带出，请在物料库统一维护；BOM 所属位置用于区分使用部位。")}</p>
-            {lookupCurrent?.error && <p role="alert" className="mt-1 text-rose-600">{lookupCurrent.error} <button type="button" className="font-semibold underline" onClick={() => { setMaterialLookup(null); setLookupAttempt((value) => value + 1); }}>{t("重试读取分类")}</button></p>}
+            <p>{t(isQ5 ? "物料分类沿用 Q5 清单中当前装配组，所属位置不可在此调整。请按已确认的装配清单填写编码与单机用量。" : "物料分类按编码从物料库带出，请在物料库统一维护；BOM 所属位置用于区分使用部位。")}</p>
+            {lookupCurrent?.error && <p role="alert" className="mt-1 text-rose-600">{lookupCurrent.error} <button type="button" className="font-semibold underline" onClick={() => { setMaterialLookup(null); setLookupAttempt((value) => value + 1); }}>{t(isQ5 ? "重试读取单位" : "重试读取分类")}</button></p>}
           </div>
-          <p className="text-xs leading-5 text-slate-500 sm:col-span-2">{t("编码用于匹配库存。数量单位沿用匹配物料的单位，未匹配时按件计算。")}</p>
+          <p className="text-xs leading-5 text-slate-500 sm:col-span-2">{t(isQ5 ? "编码用于匹配库存，计量单位来自当前编码的物料档案；如单位不符，请先核对编码与物料档案。" : "编码用于匹配库存。数量单位沿用匹配物料的单位，未匹配时按件计算。")}</p>
           <label className="grid gap-1.5 text-xs font-medium text-slate-700 sm:col-span-2">{t("备注")}<Textarea aria-label={t("备注")} maxLength={1000} value={remark} onChange={(event) => setRemark(event.target.value)} /></label>
         </fieldset>)}
         {saveError && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{saveError}</p>}
@@ -499,17 +508,29 @@ export function InventoryReadinessPage() {
   }[drilldown] : null;
   const lastSync = syncDate(data?.syncedAt) ?? t("暂无同步记录");
   const unmatchedMaterials = data?.items.filter((item) => item.status === "unmatched").length ?? 0;
-  const inventorySyncTimes = [...(data?.items ?? []), ...(data?.packaging?.items ?? [])]
-    .map((item) => item.syncedAt ? Date.parse(item.syncedAt) : NaN)
-    .filter(Number.isFinite);
+  const inventoryRecords = new Map<string, { code: string; name: string; syncedAt: string; timestamp: number }>();
+  for (const item of [...(data?.items ?? []), ...(data?.packaging?.items ?? [])]) {
+    const timestamp = item.syncedAt ? Date.parse(item.syncedAt) : NaN;
+    if (!item.syncedAt || !Number.isFinite(timestamp)) continue;
+    const key = item.code || item.id;
+    const previous = inventoryRecords.get(key);
+    if (!previous || timestamp < previous.timestamp) {
+      inventoryRecords.set(key, { code: item.code || "—", name: item.name, syncedAt: item.syncedAt, timestamp });
+    }
+  }
+  const inventorySyncTimes = [...inventoryRecords.values()].map((item) => item.timestamp);
   const oldestSyncTime = inventorySyncTimes.length > 0 ? Math.min(...inventorySyncTimes) : null;
   const oldestSync = oldestSyncTime === null ? t("暂无同步记录") : syncDate(new Date(oldestSyncTime).toISOString());
-  const staleInventory = oldestSyncTime !== null && Date.now() - oldestSyncTime > 24 * 60 * 60 * 1000;
+  const olderInventoryRecords = [...inventoryRecords.values()]
+    .filter((item) => Date.now() - item.timestamp > 24 * 60 * 60 * 1000)
+    .sort((a, b) => a.timestamp - b.timestamp || a.code.localeCompare(b.code));
+  const staleInventory = olderInventoryRecords.length > 0;
   const currentData = Boolean(data && !loading && !error && data.productLine === productLine && data.summary.targetSets === targetSets);
-  const showBomActions = canManageBom && data?.productLine === "通用" && productLine === "通用";
-  const canPlanMachineGap = Boolean(currentData && data && !data.dataQuality.provisional
-    && data.summary.targetGapAfterTransit > 0 && data.items.length > 0
-    && data.items.every((item) => !item.issue && item.syncedAt && Number.isFinite(Date.parse(item.syncedAt))));
+  const showBomActions = canManageBom && data?.productLine === productLine && (productLine === "通用" || productLine === "Q5");
+  const showBomStructureActions = showBomActions && productLine === "通用";
+  // 建立总计划仅登记需求；数据完整性由计划内“按缺口生成采购任务”再次核算并校验。
+  const canOpenMachinePlan = Boolean(currentData && data && data.dataQuality.totalBomLines > 0
+    && Number.isInteger(data.summary.targetSets) && data.summary.targetSets > 0 && data.summary.targetSets <= 1_000_000);
 
   const commitTarget = () => {
     const parsed = Math.min(1_000_000, Math.max(0, Math.floor(Number(targetDraft) || 0)));
@@ -531,14 +552,16 @@ export function InventoryReadinessPage() {
   };
   const openStockPlan = (item?: InventoryReadinessItem) => {
     if (!canCreateStockPlan || !currentData || !data) return;
-    if (item ? !hasVerifiedGap(item) : !canPlanMachineGap) return;
+    if (item ? !hasVerifiedGap(item) : !canOpenMachinePlan) return;
     const params = new URLSearchParams({
       tab: "stock-plans", newPlan: "1", planType: item ? "material" : "machine",
       productLine: data.productLine,
       targetQty: String(item ? item.targetDemand : data.summary.targetSets),
       note: item
         ? t("库存齐套核算：目标总需求 {demand} {unit}，当前缺口 {gap}，量产可用 {available}，在途 {transit}。", { demand: quantity(item.targetDemand), unit: item.unit, gap: quantity(item.gapAfterTransit), available: quantity(item.available), transit: quantity(item.inTransit) })
-        : t("库存齐套核算：目标 {target} 套，当前可齐套 {current} 套，在途到齐后 {transit} 套，仍缺 {gap} 套。", { target: data.summary.targetSets, current: data.summary.currentBuildableSets, transit: data.summary.withTransitBuildableSets, gap: data.summary.targetGapAfterTransit }),
+        : data.dataQuality.provisional
+          ? t("整机备货目标：{target} 套。当前 {invalid} 条 BOM 数据待完善，{unmatched} 种物料的量产仓库存记录待核实。先登记计划；补齐并核实数据后，再按实际缺口生成采购任务。", { target: data.summary.targetSets, invalid: data.dataQuality.invalidBomLines, unmatched: unmatchedMaterials })
+          : t("库存齐套核算：目标 {target} 套，当前可齐套 {current} 套，在途到齐后 {transit} 套，仍缺 {gap} 套。", { target: data.summary.targetSets, current: data.summary.currentBuildableSets, transit: data.summary.withTransitBuildableSets, gap: data.summary.targetGapAfterTransit }),
     });
     if (item) {
       params.set("materialCode", item.code!);
@@ -603,11 +626,22 @@ export function InventoryReadinessPage() {
       {data ? (
         <div role="status" className={cn("mb-3 flex flex-wrap items-start justify-between gap-2 rounded-xl border px-4 py-3 text-xs", staleInventory || oldestSyncTime === null ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-600")}>
           <div>
-            <p className="font-semibold">{t("ERP 库存快照")} · {t("最早一条同步")}：{oldestSync}</p>
-            <p className="mt-1">{t("最近一条同步")}：{lastSync} · {t("刷新页面只重新读取已同步库存。")}</p>
+            <p className="font-semibold">{t("量产仓库存记录")} · {t("最早记录写入")}：{oldestSync}</p>
+            <p className="mt-1">{t("最近记录写入")}：{lastSync} · {t("这是库存行的写入时间，不是整个 T+ 同步任务的执行时间。")}</p>
           </div>
-          {staleInventory ? <p className="font-semibold">{t("部分库存超过 24 小时未更新，请核对 T+ 同步后再安排采购。")}</p>
-            : oldestSyncTime === null ? <p className="font-semibold">{t("尚无有效库存同步记录，请先同步 ERP 数据。")}</p> : null}
+          {staleInventory ? <div className="w-full">
+            <p>{t("部分记录超过 24 小时未重新写入，不等于每日同步任务失败。接口未返回的旧记录会被保留，请核对这些编码是否被最近同步覆盖。")}</p>
+            <details className="mt-2">
+              <summary className="cursor-pointer font-semibold">{t("查看 {count} 种物料的较早库存记录", { count: olderInventoryRecords.length })}</summary>
+              <ul className="mt-2 max-h-44 space-y-1 overflow-auto border-t border-amber-200 pt-2">
+                {olderInventoryRecords.map((item) => <li key={item.code} className="flex flex-wrap gap-x-3 gap-y-0.5">
+                  <span className="font-mono">{item.code}</span><span className="min-w-0 break-words">{item.name}</span><span>{t("记录写入")}：{syncDate(item.syncedAt)}</span>
+                </li>)}
+              </ul>
+            </details>
+          </div>
+            : oldestSyncTime === null ? <p className="w-full">{t("当前清单尚无带有效写入时间的量产仓库存记录，不能据此判断同步任务是否失败。可先建立计划，再核对物料编码、仓库及同步结果。")}</p> : null}
+          <p className="w-full">{t("刷新页面只重新读取已同步库存。")}</p>
         </div>
       ) : null}
 
@@ -624,8 +658,8 @@ export function InventoryReadinessPage() {
 
           {canCreateStockPlan ? (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-              <p className="text-xs text-slate-500">{t(data.dataQuality.provisional ? "部分 BOM 或量产仓库存记录待核实，请先查看明细中的具体原因，再按缺口备货。" : data.summary.targetGapAfterTransit <= 0 ? "库存与在途已覆盖目标，无需新增缺口备货计划。" : "按目标总套数建立计划，采购量再扣除库存与在途；下一步填写目标日期和所属子系统。")}</p>
-              <Button type="button" size="sm" disabled={!canPlanMachineGap} onClick={() => openStockPlan()}>
+              <p className="text-xs text-slate-500">{t(targetSets <= 0 ? "目标套数须大于 0，才能建立整机备货计划。" : data.dataQuality.provisional ? "可先建立整机备货计划，登记目标套数和日期；补齐 BOM 与库存数据后，再按实际缺口生成采购任务。" : data.summary.targetGapAfterTransit <= 0 ? "库存与在途已覆盖当前目标，仍可建立计划记录备货安排。" : "按目标总套数建立计划，采购量再扣除库存与在途；下一步填写目标日期和所属子系统。")}</p>
+              <Button type="button" size="sm" disabled={!canOpenMachinePlan} onClick={() => openStockPlan()}>
                 <PackageCheck className="size-4" aria-hidden="true" />{t("建立整机备货计划")}
               </Button>
             </div>
@@ -664,7 +698,7 @@ export function InventoryReadinessPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-slate-400">{t("显示 {count} 条", { count: filteredItems.length })}</span>
-                  {showBomActions && <Button type="button" size="sm" disabled={!currentData} onClick={() => setBomEditor({ mode: "create", lines: [] })}><Plus className="size-4" aria-hidden="true" />{t("新增物料")}</Button>}
+                  {showBomStructureActions && <Button type="button" size="sm" disabled={!currentData} onClick={() => setBomEditor({ mode: "create", lines: [] })}><Plus className="size-4" aria-hidden="true" />{t("新增物料")}</Button>}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 border-b border-slate-100 bg-slate-50/50 px-4 py-3">
@@ -738,7 +772,7 @@ export function InventoryReadinessPage() {
                         {showBomActions && <TableCell className="sticky right-0 bg-white text-right" onClick={(event) => event.stopPropagation()}>
                           <div className="flex justify-end gap-1">
                             <Button type="button" variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs text-[#002fa7]" disabled={!currentData || !item.sourceLines?.length} aria-label={t("编辑物料 {code}", { code: item.code || item.name })} onClick={() => setBomEditor({ mode: "edit", lines: item.sourceLines ?? [] })}><Pencil className="size-3.5" aria-hidden="true" />{t("编辑")}</Button>
-                            <Button type="button" variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700" disabled={!currentData || !item.sourceLines?.length} aria-label={t("删除物料 {code}", { code: item.code || item.name })} onClick={() => setBomEditor({ mode: "delete", lines: item.sourceLines ?? [] })}><Trash2 className="size-3.5" aria-hidden="true" />{t("删除")}</Button>
+                            {showBomStructureActions && <Button type="button" variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700" disabled={!currentData || !item.sourceLines?.length} aria-label={t("删除物料 {code}", { code: item.code || item.name })} onClick={() => setBomEditor({ mode: "delete", lines: item.sourceLines ?? [] })}><Trash2 className="size-3.5" aria-hidden="true" />{t("删除")}</Button>}
                           </div>
                         </TableCell>}
                       </TableRow>
@@ -834,7 +868,7 @@ export function InventoryReadinessPage() {
           </div>
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 pb-1 text-[11px] text-slate-400">
-            <span>{t("数据来源：畅捷通 T+（只读）")} · {t("最近一条同步")}：{lastSync}</span>
+            <span>{t("数据来源：畅捷通 T+（只读）")} · {t("最近记录写入")}：{lastSync}</span>
             <span>{data.warehouse.matchedNames.length > 0 ? `${t("已匹配仓库")}：${data.warehouse.matchedNames.join(" / ")}` : t("未匹配到 ERP 量产仓库")}</span>
           </div>
         </>
@@ -843,7 +877,7 @@ export function InventoryReadinessPage() {
           <span className="flex size-12 items-center justify-center rounded-xl bg-[#eef3ff] text-[#002fa7]"><Boxes className="size-6" aria-hidden="true" /></span>
           <h2 className="mt-4 text-base font-bold text-slate-900">{data.productLine === "Q5" ? t("Q5 单台装配清单尚未就绪") : t("尚未找到 {model} BOM", { model: data.productLine || productLine })}</h2>
           <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">{t(data.productLine === "Q5" ? "请先按《物料清单》的「原材料」工作表完成 Q5 装配清单初始化，再按物料编码与单机用量核算量产仓库存。" : "请先完成产品 BOM 初始化；库存齐套中心会按物料编码自动连接量产仓库的 ERP 库存。")}</p>
-          {showBomActions && <Button type="button" disabled={!currentData} onClick={() => setBomEditor({ mode: "create", lines: [] })} className="mt-4"><Plus className="size-4" aria-hidden="true" />{t("新增物料")}</Button>}
+          {showBomStructureActions && <Button type="button" disabled={!currentData} onClick={() => setBomEditor({ mode: "create", lines: [] })} className="mt-4"><Plus className="size-4" aria-hidden="true" />{t("新增物料")}</Button>}
           {canViewMaterials ? <Button type="button" variant="outline" onClick={() => navigate(routePath("page:proc-materials", "/proc-materials"))} className="mt-4 border-slate-200 bg-white text-slate-700">{t("打开物料库")}</Button> : null}
         </div>
       ) : loading ? (
@@ -857,6 +891,7 @@ export function InventoryReadinessPage() {
       {showBomActions && bomEditor && <InventoryBomEditor
         key={`${productLine}:${bomEditor.mode}:${bomEditor.lines.map((line) => line.id).join(",")}`}
         editor={bomEditor}
+        productLine={productLine}
         positions={data?.bomPositions ?? []}
         onClose={() => setBomEditor(null)}
         onSaved={() => { setBomEditor(null); setSelected(null); void load(); }}

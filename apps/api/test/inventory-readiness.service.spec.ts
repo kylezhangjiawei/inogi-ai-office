@@ -4,6 +4,7 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import { Prisma } from '@prisma/client';
+import { ValidationPipe } from '@nestjs/common';
 
 import { ProcurementService } from '../src/modules/procurement/procurement.service';
 import { ProcurementController } from '../src/modules/procurement/procurement.controller';
@@ -265,7 +266,7 @@ test('拒绝修改删除其他型号、结构分类及过期版本，不产生�
   const h = commonBomHarness();
   const group = h.add({ code: null, qtyPer: null, materialId: null });
   const leaf = h.add({ parentId: group.id });
-  const other = h.add({ productLine: 'Q5' });
+  const other = h.add({ productLine: 'Q6' });
   const draft = { name: '物料 A', code: 'A', qtyPer: 1, parentId: null };
   for (const row of [group, other]) {
     await assert.rejects(() => h.service.updateInventoryBomLine(row.id, { ...draft, baseUpdatedAt: row.updatedAt.toISOString() }), /仅支持|结构分类/);
@@ -453,4 +454,121 @@ test('量产仓有零库存记录时仍为缺货，其他仓数量不混入且�
   assert.equal(result.dataQuality.provisional, false);
   assert.equal(result.summary.currentBuildableSets, 0);
   assert.deepEqual(result.warehouse.matchedNames, ['【活】量产仓']);
+});
+
+test('Q5五条缺项提供原始来源，原位补齐编码与用量后重新核算，最后一条未补前仍不完整', async () => {
+  const h = commonBomHarness();
+  const root = h.add({ id: 'q5-root', productLine: 'Q5', name: 'Q5', code: null, qtyPer: null, materialId: null });
+  const packGroup = h.add({ id: 'q5-packaging', productLine: 'Q5', parentId: root.id, level: 1, name: '包材', code: null, qtyPer: null, materialId: null });
+  const sieveGroup = h.add({ id: 'q5-sieve', productLine: 'Q5', parentId: root.id, level: 1, name: '分子筛组件', code: null, qtyPer: null, materialId: null });
+  const packaging = ['蛋托', '说明书', '快速使用手册', '物流箱'].map((name, index) => h.add({
+    id: `q5-pack-${index}`, productLine: 'Q5', parentId: packGroup.id, level: 2, name, code: null, materialId: null,
+  }));
+  const sieve = h.add({ id: 'q5-raw', productLine: 'Q5', parentId: sieveGroup.id, level: 2, name: '【原料】分子筛原料(JLOX-101SMC)', code: 'A08-072', qtyPer: new Prisma.Decimal(0), materialId: null });
+  h.materials.push(
+    ...packaging.map((row, index) => ({ id: `pack-${index}`, tpInventoryCode: `PACK-${index}`, name: row.name, spec: '', unit: '件', category: 'ERP包材分类' })),
+    { id: 'sieve-material', tpInventoryCode: 'A08-072', name: 'ERP分子筛原料', spec: '', unit: 'kg', category: 'ERP原材料分类' },
+  );
+  const balances = h.materials.slice(2).map((material) => ({
+    tpInventoryCode: material.tpInventoryCode, warehouse: '量产仓',
+    stockQty: material.unit === 'kg' ? 10 : 100, availableQty: material.unit === 'kg' ? 10 : 100,
+    inTransitQty: material.unit === 'kg' ? 2.5 : 0, syncedAt: new Date('2026-09-08T00:00:00Z'), material: { safeStock: 0 },
+  }));
+  h.db.procInventoryBalance.findMany = async ({ where }: any) => balances.filter((row) => where.tpInventoryCode.in.includes(row.tpInventoryCode));
+  const initial = await h.service.getInventoryReadiness({ productLine: 'Q5', targetSets: 100 });
+  assert.equal(initial.dataQuality.totalBomLines, 5);
+  assert.equal(initial.dataQuality.invalidBomLines, 5);
+  assert.equal(initial.dataQuality.provisional, true);
+  for (const row of [...packaging, sieve]) {
+    const source = initial.items.find((item) => item.id === row.id)?.sourceLines?.[0];
+    assert.ok(source, `${row.name}缺项必须能定位原始BOM行`);
+    assert.equal(source.id, row.id);
+    assert.equal(source.parentId, row.parentId);
+    assert.equal(source.category, row === sieve ? '分子筛组件' : '包材');
+    assert.equal(source.bomPosition, source.category);
+    assert.equal(source.updatedAt, row.updatedAt.toISOString());
+  }
+  const ids = h.nodes.map((row) => row.id);
+  for (const [index, row] of packaging.entries()) {
+    const updated = await h.service.updateInventoryBomLine(row.id, {
+      name: `${row.name}（确认）`, code: `PACK-${index}`, qtyPer: 1, remark: '已核对包装型号', baseUpdatedAt: row.updatedAt.toISOString(),
+    });
+    assert.equal(updated.id, row.id);
+    assert.equal(row.productLine, 'Q5');
+    assert.equal(row.parentId, packGroup.id, '省略parentId也不能把原位编辑变成根节点');
+    assert.equal(row.level, 2);
+    assert.equal(row.materialId, `pack-${index}`);
+  }
+  const stillIncomplete = await h.service.getInventoryReadiness({ productLine: 'Q5', targetSets: 100 });
+  assert.equal(stillIncomplete.dataQuality.invalidBomLines, 1);
+  assert.equal(stillIncomplete.dataQuality.provisional, true, '缺一项必需用量仍不能视为完整齐套');
+  await h.service.updateInventoryBomLine(sieve.id, {
+    name: sieve.name, code: 'A08-072', qtyPer: 0.25, remark: '每台0.25kg', parentId: sieveGroup.id, baseUpdatedAt: sieve.updatedAt.toISOString(),
+  });
+  const complete = await h.service.getInventoryReadiness({ productLine: 'Q5', targetSets: 100 });
+  assert.deepEqual(h.nodes.map((row) => row.id), ids, '仅更新原位行，不增加或替换BOM节点');
+  assert.equal(complete.dataQuality.invalidBomLines, 0);
+  assert.equal(complete.dataQuality.provisional, false);
+  assert.equal(complete.summary.currentBuildableSets, 40);
+  assert.equal(complete.summary.withTransitBuildableSets, 50);
+  const raw = complete.items.find((item) => item.code === 'A08-072')!;
+  assert.deepEqual([raw.qtyPer, raw.targetDemand, raw.gapAfterTransit], [0.25, 25, 12.5]);
+  assert.equal(raw.category, '分子筛组件');
+  assert.equal(raw.spec, '每台0.25kg');
+  assert.equal(raw.sourceLines?.[0].unit, 'kg');
+  assert.equal(complete.items.find((item) => item.code === 'PACK-0')?.name, '蛋托（确认）');
+  assert.deepEqual(balances.map((row) => [row.availableQty, row.inTransitQty]), [[100, 0], [100, 0], [100, 0], [100, 0], [10, 2.5]], 'BOM维护不改ERP库存镜像');
+});
+
+test('Q5编辑拒绝移动父节点、结构节点和旧版本，新增删除权限范围仍只通用', async () => {
+  const h = commonBomHarness();
+  const root = h.add({ productLine: 'Q5', name: 'Q5', code: null, qtyPer: null, materialId: null });
+  const group = h.add({ productLine: 'Q5', parentId: root.id, level: 1, name: '包材', code: null, qtyPer: null, materialId: null });
+  const emptyGroup = h.add({ productLine: 'Q5', parentId: root.id, level: 1, name: '空结构分类', code: null, qtyPer: null, materialId: null });
+  const commonGroup = h.add({ name: '通用结构分类', code: null, qtyPer: null, materialId: null });
+  const otherGroup = h.add({ productLine: 'Q6', name: 'Q6结构分类', code: null, qtyPer: null, materialId: null });
+  const leaf = h.add({ productLine: 'Q5', parentId: group.id, level: 2 });
+  const before = h.nodes.map((row) => ({ ...row }));
+  const draft = { name: '已核对物料', code: 'A', qtyPer: 2 };
+  for (const parentId of [null, '', root.id, emptyGroup.id, commonGroup.id, otherGroup.id, leaf.id, 'missing']) {
+    await assert.rejects(() => h.service.updateInventoryBomLine(leaf.id, { ...draft, parentId, baseUpdatedAt: leaf.updatedAt.toISOString() }), /所属位置|父节点|移动/);
+  }
+  for (const row of [root, group, emptyGroup]) {
+    await assert.rejects(() => h.service.updateInventoryBomLine(row.id, { ...draft, baseUpdatedAt: row.updatedAt.toISOString() }), /结构分类/);
+  }
+  for (const baseUpdatedAt of ['', 'invalid', '2025-01-01T00:00:00.000Z']) {
+    await assert.rejects(() => h.service.updateInventoryBomLine(leaf.id, { ...draft, baseUpdatedAt }), /刷新/);
+  }
+  await assert.rejects(() => h.service.createInventoryBomLine({ ...draft, parentId: group.id }), /通用物料/);
+  await assert.rejects(() => h.service.deleteInventoryBomLine(leaf.id, { baseUpdatedAt: leaf.updatedAt.toISOString() }), /仅支持维护通用物料/);
+  assert.deepEqual(h.nodes, before);
+  const oldVersion = leaf.updatedAt.toISOString();
+  await h.service.updateInventoryBomLine(leaf.id, { ...draft, baseUpdatedAt: oldVersion });
+  await assert.rejects(() => h.service.updateInventoryBomLine(leaf.id, { ...draft, qtyPer: 9, baseUpdatedAt: oldVersion }), /刷新/);
+  assert.equal(Number(leaf.qtyPer), 2, '过期保存不能覆盖最新用量');
+  const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
+  for (const field of ['productLine', 'level', 'materialId']) {
+    await assert.rejects(() => pipe.transform({ ...draft, baseUpdatedAt: leaf.updatedAt.toISOString(), [field]: '通用' }, { type: 'body', metatype: UpdateInventoryBomLineDto }), /Bad Request/);
+  }
+  assert.equal(leaf.productLine, 'Q5');
+  assert.equal(leaf.parentId, group.id);
+});
+
+test('Q5同编码装配来源保持各组信息，修改一行用量后按所有来源重新合并', async () => {
+  const h = commonBomHarness();
+  const firstGroup = h.add({ productLine: 'Q5', name: '板件', code: null, qtyPer: null, materialId: null });
+  const secondGroup = h.add({ productLine: 'Q5', name: '随箱配件', code: null, qtyPer: null, materialId: null });
+  const first = h.add({ productLine: 'Q5', parentId: firstGroup.id, level: 1, qtyPer: new Prisma.Decimal(1) });
+  const second = h.add({ productLine: 'Q5', parentId: secondGroup.id, level: 1, qtyPer: new Prisma.Decimal(2) });
+  let result = await h.service.getInventoryReadiness({ productLine: 'Q5', targetSets: 10 });
+  assert.equal(result.items.length, 1);
+  assert.deepEqual(result.items[0].sourceLines?.map((line) => [line.id, line.category, line.qtyPer]), [[first.id, '板件', 1], [second.id, '随箱配件', 2]]);
+  assert.equal(result.summary.currentBuildableSets, 10);
+  await h.service.updateInventoryBomLine(second.id, { name: second.name, code: 'A', qtyPer: 4, baseUpdatedAt: second.updatedAt.toISOString() });
+  result = await h.service.getInventoryReadiness({ productLine: 'Q5', targetSets: 10 });
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].qtyPer, 5);
+  assert.equal(result.summary.currentBuildableSets, 6);
+  assert.equal(result.items[0].gapAfterTransit, 20);
+  assert.deepEqual(result.items[0].sourceLines?.map((line) => [line.id, line.parentId, line.qtyPer]), [[first.id, firstGroup.id, 1], [second.id, secondGroup.id, 4]]);
 });

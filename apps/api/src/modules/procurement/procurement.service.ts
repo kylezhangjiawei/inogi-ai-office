@@ -3991,7 +3991,7 @@ export class ProcurementService {
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
       if ((error as { code?: string }).code === 'P2034') {
-        throw new ConflictException('通用物料已被其他操作更新，请刷新后重试');
+        throw new ConflictException('BOM 物料已被其他操作更新，请刷新后重试');
       }
       if ((error as { code?: string }).code === 'P2003') {
         throw new ConflictException('所属分类已变更，请刷新后重试');
@@ -4000,21 +4000,27 @@ export class ProcurementService {
     }
   }
 
-  private async requireInventoryBomLine(tx: Prisma.TransactionClient, id: string, baseUpdatedAt: string) {
+  private async requireInventoryBomLine(tx: Prisma.TransactionClient, id: string, baseUpdatedAt: string, allowQ5Update = false) {
     const row = await tx.procBomNode.findUnique({ where: { id }, include: { _count: { select: { children: true } } } });
-    if (!row) throw new NotFoundException('该通用物料已不存在，请刷新列表');
-    if (row.productLine.trim() !== '通用') throw new ForbiddenException('仅支持维护通用物料');
+    if (!row) throw new NotFoundException('该 BOM 物料已不存在，请刷新列表');
+    if (row.productLine.trim() !== '通用' && !(allowQ5Update && row.productLine.trim() === 'Q5')) {
+      throw new ForbiddenException(allowQ5Update ? '仅支持修改通用或 Q5 装配物料' : '仅支持维护通用物料');
+    }
     if (row._count.children > 0 || !isInventoryBomMaterial(row)) {
-      throw new BadRequestException('该节点是结构分类，不能作为通用物料修改或删除');
+      throw new BadRequestException('该节点是结构分类，不能作为物料修改或删除');
     }
     const version = new Date(baseUpdatedAt);
     if (!baseUpdatedAt || Number.isNaN(version.getTime()) || version.getTime() !== row.updatedAt.getTime()) {
-      throw new ConflictException('通用物料已被其他操作更新，请刷新后重试');
+      throw new ConflictException('BOM 物料已被其他操作更新，请刷新后重试');
     }
     return row;
   }
 
-  private async inventoryBomLineData(tx: Prisma.TransactionClient, dto: CreateInventoryBomLineDto, currentId?: string) {
+  private async inventoryBomLineData(
+    tx: Prisma.TransactionClient,
+    dto: CreateInventoryBomLineDto,
+    current?: { id: string; productLine: string; parentId: string | null; level: number },
+  ) {
     const name = dto.name?.trim();
     const code = dto.code?.trim();
     const qtyPer = dto.qtyPer;
@@ -4024,10 +4030,17 @@ export class ProcurementService {
       || new Prisma.Decimal(qtyPer).decimalPlaces() > 4) {
       throw new BadRequestException('单机用量必须大于 0，最多保留 4 位小数');
     }
-    const parentId = dto.parentId?.trim() || null;
+    const isQ5Update = current?.productLine.trim() === 'Q5';
+    let parentId = dto.parentId?.trim() || null;
     let level = 0;
-    if (parentId) {
-      if (parentId === currentId) throw new BadRequestException('物料不能归入自身');
+    if (isQ5Update) {
+      if (dto.parentId !== undefined && parentId !== current.parentId) {
+        throw new BadRequestException('Q5 装配物料只能原位修改，不能更改所属位置');
+      }
+      parentId = current.parentId;
+      level = current.level;
+    } else if (parentId) {
+      if (parentId === current?.id) throw new BadRequestException('物料不能归入自身');
       const parent = await tx.procBomNode.findUnique({ where: { id: parentId }, include: { _count: { select: { children: true } } } });
       if (!parent || parent.productLine.trim() !== '通用') throw new BadRequestException('请选择通用物料的所属分类');
       if (isInventoryBomMaterial(parent) && parent._count.children === 0) {
@@ -4038,7 +4051,7 @@ export class ProcurementService {
     const material = await tx.procMaterial.findUnique({ where: { tpInventoryCode: code }, select: { id: true } });
     const remark = dto.remark?.trim() || null;
     if (remark && remark.length > 1000) throw new BadRequestException('规格备注最多 1000 字');
-    return { name, code, qtyPer: new Prisma.Decimal(qtyPer), parentId, level, productLine: '通用', materialId: material?.id ?? null, remark };
+    return { name, code, qtyPer: new Prisma.Decimal(qtyPer), parentId, level, productLine: isQ5Update ? current.productLine : '通用', materialId: material?.id ?? null, remark };
   }
 
   async createInventoryBomLine(dto: CreateInventoryBomLineDto) {
@@ -4051,10 +4064,10 @@ export class ProcurementService {
 
   async updateInventoryBomLine(id: string, dto: UpdateInventoryBomLineDto) {
     return this.mutateInventoryBomLine(async (tx) => {
-      const current = await this.requireInventoryBomLine(tx, id, dto.baseUpdatedAt);
-      const data = await this.inventoryBomLineData(tx, dto, id);
+      const current = await this.requireInventoryBomLine(tx, id, dto.baseUpdatedAt, true);
+      const data = await this.inventoryBomLineData(tx, dto, current);
       const updated = await tx.procBomNode.updateMany({ where: { id, updatedAt: current.updatedAt }, data });
-      if (updated.count !== 1) throw new ConflictException('通用物料已被其他操作更新，请刷新后重试');
+      if (updated.count !== 1) throw new ConflictException('BOM 物料已被其他操作更新，请刷新后重试');
       const row = await tx.procBomNode.findUniqueOrThrow({ where: { id }, select: { id: true, updatedAt: true } });
       return { id: row.id, updatedAt: row.updatedAt.toISOString() };
     });
@@ -4160,7 +4173,7 @@ export class ProcurementService {
         spec: productLine === 'Q5' ? row.remark || '' : productLine === '通用' ? row.remark || row.material?.spec || '' : row.material?.spec || row.remark || '',
         unit,
         qtyPer: numOrNull(row.qtyPer),
-        ...(productLine === '通用' ? {
+        ...(productLine === '通用' || productLine === 'Q5' ? {
           sourceLines: [{
             id: row.id,
             name: row.name,

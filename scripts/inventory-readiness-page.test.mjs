@@ -50,13 +50,16 @@ function pageText(tree) {
 
 // Execute the real page and its load callback, preserving state across renders.
 // Effects are not scheduled here: tests control when each request resolves.
-function pageFixture(query = "") {
+function pageFixture(query = "", permissions = []) {
   const slots = [];
   const requests = [];
+  const writes = [];
+  const navigations = [];
   let slot = 0;
   let tree;
   let load;
   let reply = ({ productLine }) => response(productLine);
+  let writeReply = async () => ({});
   const t = (text, params = {}) => text.replace(/\{(\w+)\}/g, (match, key) => params[key] ?? match);
   const jsx = (type, props) => typeof type === "function" ? type(props) : { type, props };
   const viewComponents = new Proxy({}, { get: (_target, name) => name });
@@ -76,13 +79,17 @@ function pageFixture(query = "") {
       useEffect() {},
     },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
-    "react-router": { useNavigate: () => () => {}, useSearchParams: () => [new URLSearchParams(query)] },
+    "react-router": { useNavigate: () => (destination) => navigations.push(destination), useSearchParams: () => [new URLSearchParams(query)] },
     "../lib/i18n": { useI18n: () => ({ t }), i18nLocale: () => "zh-CN" },
-    "../hooks/usePermission": { usePermission: () => false },
+    "../hooks/usePermission": { usePermission: (permission) => permissions.includes(permission) },
     "../components/ui/utils": { cn: (...parts) => parts.filter(Boolean).join(" ") },
     "../lib/routePaths": { routePath: (_permission, fallback) => fallback },
-    "../lib/procurementApi": { getInventoryReadiness: async (params) => { requests.push(params); return reply(params); } },
-    sonner: { toast: {} },
+    "../lib/procurementApi": {
+      getInventoryReadiness: async (params) => { requests.push(params); return reply(params); },
+      saveInventoryBomLine: async (input, id) => { const request = { action: id ? "update" : "create", id, input }; writes.push(request); return writeReply(request); },
+      deleteInventoryBomLine: async (id, baseUpdatedAt) => { const request = { action: "delete", id, baseUpdatedAt }; writes.push(request); return writeReply(request); },
+    },
+    sonner: { toast: { success() {} } },
   };
   const exports = {};
   const requireFixture = (request) => {
@@ -101,9 +108,33 @@ function pageFixture(query = "") {
   new Function("exports", "require", code)(exports, requireFixture);
   return {
     requests,
+    writes,
+    navigations,
     setResponse(value) { reply = typeof value === "function" ? value : () => value; },
+    setWriteReply(value) { writeReply = value; },
     render() { slot = 0; tree = exports.InventoryReadinessPage(); return tree; },
     async load() { await load(); return this.render(); },
+    clickButton(label) {
+      const button = elements(tree).find((node) => node.type === "Button" && (node.props["aria-label"] === label || visibleText(node).trim() === label));
+      assert.ok(button, `Button ${label} must be rendered`);
+      assert.equal(Boolean(button.props.disabled), false, `Button ${label} must be enabled`);
+      button.props.onClick();
+      return this.render();
+    },
+    setEditorField(label, value) {
+      const field = elements(tree).find((node) => ["Input", "Textarea", "select"].includes(node.type) && node.props["aria-label"] === label);
+      assert.ok(field, `Editor field ${label} must be rendered`);
+      assert.ok(!field.props.readOnly && !field.props.disabled, `Editor field ${label} must be editable`);
+      field.props.onChange({ target: { value } });
+      return this.render();
+    },
+    async submitEditor() {
+      const form = elements(tree).find((node) => node.type === "form");
+      assert.ok(form, "BOM editor form must be rendered");
+      await form.props.onSubmit({ preventDefault() {} });
+      await Promise.resolve();
+      return this.render();
+    },
     openItem(code) {
       const row = materialRows(tree).find((node) => tableCells(node)[1].includes(code));
       assert.ok(row, `Material row ${code} must be rendered`);
@@ -433,4 +464,410 @@ test("数据未核实完整时顶部差额明确标估算，完整数据保留�
       assert.ok(!text.includes("数据尚未核实完整"));
     }
   }
+});
+
+const stockPlanPermissions = ["page:proc-cockpit", "proc-task:create"];
+
+function planButton(tree, type = "整机") {
+  return elements(tree).find((node) => node.type === "Button" && visibleText(node).trim() === `建立${type}备货计划`);
+}
+
+function planDestination(page) {
+  assert.equal(page.navigations.length, 1, "只能打开一次备货计划表单");
+  const destination = new URL(page.navigations[0], "http://fixture.local");
+  assert.equal(destination.pathname, "/proc-cockpit");
+  assert.equal(destination.searchParams.get("tab"), "stock-plans");
+  assert.equal(destination.searchParams.get("newPlan"), "1");
+  return destination.searchParams;
+}
+
+test("BOM及库存待核实仍能先建整机总计划，带入总目标与待核实条数而非估算缺口", async () => {
+  const page = pageFixture("", stockPlanPermissions);
+  const materials = Array.from({ length: 6 }, (_, index) => item(`A01-UNMATCHED-${index}`, "unmatched", index === 0 ? 2 : 1));
+  materials.push({ ...item("A01-MISSING-QTY", "data_missing"), qtyPer: null, issue: "missing_qty", syncedAt: null });
+  const data = response("Q5", materials);
+  data.dataQuality = { ...data.dataQuality, totalBomLines: 136, usableBomLines: 131, invalidBomLines: 5, inventoryMatchedLines: 125 };
+  data.summary = { ...data.summary, currentBuildableSets: 20, withTransitBuildableSets: 40, targetGapAfterTransit: 60 };
+  page.setResponse(data);
+  page.render();
+  const button = planButton(await page.load());
+  assert.ok(button);
+  assert.equal(button.props.disabled, false);
+  button.props.onClick();
+  const params = planDestination(page);
+  assert.equal(params.get("planType"), "machine");
+  assert.equal(params.get("productLine"), "Q5");
+  assert.equal(params.get("targetQty"), "100");
+  assert.equal(params.has("materialCode"), false);
+  const note = params.get("note");
+  assert.match(note, /5\s*条\s*BOM/);
+  assert.match(note, /6\s*(种物料|项库存)/);
+  assert.match(note, /待核实|待完善/);
+  assert.match(note, /先.*计划/);
+  assert.match(note, /生成采购任务/);
+  assert.ok(!note.includes("仍缺 60"), "估算差额不能写成已确认采购缺口");
+});
+
+test("库存已覆盖目标且行写入时间缺失时仍可登记整机总需求计划", async () => {
+  const page = pageFixture("", stockPlanPermissions);
+  const material = { ...item("A01-COVERED", "ready"), stock: 200, available: 200, currentSets: 200, withTransitSets: 200, gapAfterTransit: 0, syncedAt: null };
+  const data = response("Q5", [material]);
+  data.summary = { ...data.summary, currentBuildableSets: 200, withTransitBuildableSets: 200, targetGapAfterTransit: 0 };
+  data.dataQuality = { ...data.dataQuality, provisional: false, inventoryMatchedLines: 1 };
+  page.setResponse(data);
+  page.render();
+  const tree = await page.load();
+  const button = planButton(tree);
+  assert.ok(button);
+  assert.equal(button.props.disabled, false);
+  assert.ok(!visibleText(tree).includes("无需新增缺口备货计划"));
+  button.props.onClick();
+  assert.equal(planDestination(page).get("targetQty"), "100");
+});
+
+test("目标为0、BOM缺失或尚未读到当前结果时不能打开整机计划", async () => {
+  const zero = pageFixture("targetSets=0", stockPlanPermissions);
+  const data = response("Q5", [item("A01-ZERO-TARGET", "shortage")]);
+  data.summary.targetSets = 0;
+  data.summary.targetGapAfterTransit = 0;
+  zero.setResponse(data);
+  zero.render();
+  const button = planButton(await zero.load());
+  assert.ok(button);
+  assert.equal(button.props.disabled, true);
+  button.props.onClick();
+  assert.equal(zero.navigations.length, 0, "事件处理器也必须拒绝零目标");
+
+  const missing = pageFixture("", stockPlanPermissions);
+  assert.equal(planButton(missing.render()), undefined);
+  assert.equal(planButton(await missing.load()), undefined);
+  assert.equal(missing.navigations.length, 0);
+
+  const mismatchedTarget = pageFixture("targetSets=25", stockPlanPermissions);
+  mismatchedTarget.setResponse(response("Q5", [item("A01-STALE-TARGET", "shortage")]));
+  mismatchedTarget.render();
+  const staleButton = planButton(await mismatchedTarget.load());
+  assert.equal(staleButton.props.disabled, true);
+  staleButton.props.onClick();
+  assert.equal(mismatchedTarget.navigations.length, 0, "不能用100套响应创建25套请求的计划");
+});
+
+test("重新读取期间和读取失败后，保留的旧数据不能打开整机计划", async () => {
+  const page = pageFixture("", stockPlanPermissions);
+  page.setResponse(response("Q5", [item("A01-OLD-RESULT", "shortage")]));
+  page.render();
+  assert.equal(planButton(await page.load()).props.disabled, false);
+  let failRequest;
+  page.setResponse(() => new Promise((_resolve, reject) => { failRequest = reject; }));
+  const request = page.load();
+  const pending = planButton(page.render());
+  assert.equal(pending.props.disabled, true);
+  pending.props.onClick();
+  assert.equal(page.navigations.length, 0);
+  failRequest(new Error("库存接口暂不可用"));
+  const tree = await request;
+  const failed = planButton(tree);
+  assert.equal(failed.props.disabled, true);
+  failed.props.onClick();
+  assert.equal(page.navigations.length, 0);
+  assert.ok(visibleText(tree).includes("库存接口暂不可用"));
+});
+
+test("整机与物料建计划仍同时要求驾驶舱读取及采购创建权限", async () => {
+  for (const permissions of [[], ["page:proc-cockpit"], ["proc-task:create"]]) {
+    const page = pageFixture("", permissions);
+    const material = item("A01-RESTRICTED", "shortage");
+    page.setResponse(response("Q5", [material]));
+    page.render();
+    assert.equal(planButton(await page.load()), undefined);
+    assert.equal(planButton(page.openItem(material.code), "物料"), undefined);
+    assert.equal(page.navigations.length, 0);
+  }
+});
+
+test("整机入口放行不放宽单物料库存核实要求，已核实物料继续按总需求建计划", async () => {
+  const cases = [
+    { ...item("A01-UNKNOWN", "unmatched") },
+    { ...item("A01-NO-QTY", "data_missing"), qtyPer: null, issue: "missing_qty" },
+    { ...item("A01-NO-CODE", "data_missing"), code: null, issue: "missing_code" },
+    { ...item("A01-NO-TIME", "shortage"), syncedAt: null },
+    { ...item("A01-COVERED", "ready"), gapAfterTransit: 0 },
+  ];
+  for (const material of cases) {
+    const page = pageFixture("", stockPlanPermissions);
+    page.setResponse(response("Q5", [material]));
+    page.render();
+    assert.equal(planButton(await page.load()).props.disabled, false);
+    const button = planButton(page.openItem(material.code ?? material.name), "物料");
+    assert.ok(button);
+    assert.equal(button.props.disabled, true, `${material.id}不能作为已核实缺口建单`);
+    button.props.onClick();
+    assert.equal(page.navigations.length, 0);
+  }
+  const page = pageFixture("", stockPlanPermissions);
+  const verified = { ...item("A01-VERIFIED", "gap"), stock: 65, available: 60, inTransit: 15, gapAfterTransit: 25 };
+  page.setResponse(response("Q5", [verified]));
+  page.render();
+  await page.load();
+  const button = planButton(page.openItem(verified.code), "物料");
+  assert.equal(button.props.disabled, false);
+  button.props.onClick();
+  const params = planDestination(page);
+  assert.equal(params.get("planType"), "material");
+  assert.equal(params.get("materialCode"), verified.code);
+  assert.equal(params.get("targetQty"), "100");
+  assert.ok(params.get("note").includes("当前缺口 25"));
+});
+
+test("较早库存记录跨BOM和包材按编码去重，列出名称与写入时间并排除无效日期", async () => {
+  const timestamp = Date.now();
+  const ago = (hours) => new Date(timestamp - hours * 60 * 60 * 1000).toISOString();
+  const format = (value) => new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(Date.parse(value));
+  const packaging = packagingData();
+  Object.assign(packaging.items[0], { code: "OLD-SHARED", name: "共享编码包材来源", syncedAt: ago(72) });
+  Object.assign(packaging.items[1], { code: "OLD-PACKAGING", name: "较早记录的包材", syncedAt: ago(48) });
+  Object.assign(packaging.items[2], { code: "OLD-SHARED", name: "重复包材来源", syncedAt: ago(60) });
+  Object.assign(packaging.items[3], { code: "INVALID-PACKAGING", syncedAt: "not-a-date" });
+  const data = response("Q5", [
+    { ...item("OLD-SHARED", "shortage"), name: "共享编码装配来源", syncedAt: ago(36) },
+    { ...item("RECENT-BOM", "shortage"), syncedAt: ago(1) },
+    { ...item("INVALID-BOM", "shortage"), syncedAt: "not-a-date" },
+    item("UNMATCHED-BOM", "unmatched"),
+  ]);
+  Object.assign(data, { packaging, syncedAt: ago(1) });
+  const page = pageFixture();
+  page.setResponse(data);
+  page.render();
+  const tree = await page.load();
+  const details = elements(tree).find((node) => node.type === "details" && visibleText(node).includes("较早库存记录"));
+  assert.ok(details, "旧记录应能通过原生可展开明细查看");
+  const summary = elements(details).find((node) => node.type === "summary");
+  assert.equal(visibleText(summary).trim(), "查看 2 种物料的较早库存记录");
+  const rows = elements(details).filter((node) => node.type === "li");
+  assert.equal(rows.length, 2);
+  assert.ok(visibleText(rows[0]).includes("OLD-SHARED"));
+  assert.ok(visibleText(rows[0]).includes("共享编码包材来源"));
+  assert.ok(visibleText(rows[0]).includes(format(ago(72))), "同码取最早写入记录供核查");
+  assert.ok(visibleText(rows[1]).includes("OLD-PACKAGING"));
+  assert.ok(visibleText(rows[1]).includes("较早记录的包材"));
+  assert.ok(visibleText(rows[1]).includes(format(ago(48))));
+  assert.ok(rows.every((row) => visibleText(row).includes("记录写入")));
+  for (const excluded of ["RECENT-BOM", "INVALID-BOM", "INVALID-PACKAGING", "UNMATCHED-BOM", "重复包材来源"]) {
+    assert.ok(!visibleText(details).includes(excluded), `${excluded}不应被列为独立旧库存记录`);
+  }
+  assert.ok(visibleText(tree).includes("这是库存行的写入时间，不是整个 T+ 同步任务的执行时间。"));
+  assert.ok(visibleText(tree).includes("不等于每日同步任务失败"));
+});
+
+test("零条有效库存记录不再断言同步失败，近期有效记录不触发较早记录警告", async () => {
+  for (const hasRecentRecord of [false, true]) {
+    const page = pageFixture("", stockPlanPermissions);
+    const material = { ...item("A01-INVENTORY-TIME", hasRecentRecord ? "shortage" : "unmatched"), syncedAt: hasRecentRecord ? new Date(Date.now() - 60 * 60 * 1000).toISOString() : null };
+    const data = response("Q5", [material]);
+    page.setResponse(data);
+    page.render();
+    const tree = await page.load();
+    const text = visibleText(tree);
+    assert.ok(!elements(tree).some((node) => node.type === "details" && visibleText(node).includes("较早库存记录")));
+    assert.ok(!text.includes("部分记录超过 24 小时"));
+    assert.ok(!text.includes("尚无有效库存同步记录，请先同步 ERP 数据"));
+    assert.equal(text.includes("不能据此判断同步任务是否失败"), !hasRecentRecord);
+    assert.equal(planButton(tree).props.disabled, false, "记录写入时间不足不拦截登记总计划");
+  }
+});
+
+function bomSource(id, overrides = {}) {
+  return { id, name: "模拟装配件", code: "TEST-ONLY-01", qtyPer: 1, remark: "模拟规格",
+    parentId: "assembly-parent", category: "分子筛装配组", bomPosition: "分子筛装配组",
+    updatedAt: "2026-09-08T02:00:00.000Z", unit: "件", ...overrides };
+}
+
+function bomMaterial(line, overrides = {}) {
+  return { ...item(line.code || line.id, !line.code || line.qtyPer === null ? "data_missing" : "unmatched"),
+    id: line.id, name: line.name, code: line.code, qtyPer: line.qtyPer, category: line.category,
+    issue: !line.code ? "missing_code" : line.qtyPer === null ? "missing_qty" : "inventory_unmatched",
+    sourceLines: [line], ...overrides };
+}
+
+const bomPermissions = ["material:import", ...stockPlanPermissions];
+const editorField = (tree, label) => elements(tree).find((node) => ["Input", "Textarea", "select"].includes(node.type) && node.props["aria-label"] === label);
+
+test("Q5缺编码和缺用量行提供编辑，禁止新增删除；其他型号和无权限不开放", async () => {
+  const lines = [bomSource("missing-code", {code:null}), bomSource("missing-qty", {qtyPer:null})];
+  for (const [model, permissions, expected] of [["Q5", bomPermissions, true], ["Q5", [], false], ["Q6", bomPermissions, false]]) {
+    const page = pageFixture(`productLine=${model}`, permissions);
+    page.setResponse(response(model, lines.map(line => bomMaterial(line))));
+    page.render();
+    const tree = await page.load();
+    const buttons = elements(tree).filter(node => node.type === "Button");
+    assert.equal(buttons.filter(node => node.props["aria-label"]?.startsWith("编辑物料 ")).length, expected ? 2 : 0);
+    assert.ok(!buttons.some(node => node.props["aria-label"]?.startsWith("删除物料 ") || visibleText(node).trim() === "新增物料"));
+    if (expected) assert.equal(planButton(tree).props.disabled, false, "Q5编辑入口不回退整机总计划放行");
+  }
+});
+
+test("Q5缺码可编辑并按当前源行版本保存，不提交父级或型号，成功重算原型号缺口", async () => {
+  const page = pageFixture("", bomPermissions);
+  const line = bomSource("q5-no-code", { code:null, name:"编码待核实组件" });
+  page.setResponse(response("Q5", [bomMaterial(line)]));
+  page.render(); await page.load();
+  let tree = page.clickButton(`编辑物料 ${line.name}`);
+  assert.ok(visibleText(tree).includes("编辑 Q5 装配物料"));
+  assert.equal(editorField(tree, "物料编码").props.value, "");
+  for (const label of ["物料分类", "BOM 所属位置"]) {
+    assert.equal(editorField(tree, label).props.readOnly, true);
+    assert.equal(editorField(tree, label).props.value, "分子筛装配组");
+  }
+  assert.ok(visibleText(tree).includes("物料分类沿用 Q5 清单中当前装配组"));
+  assert.ok(!visibleText(tree).includes("物料分类按编码从物料库带出"));
+  page.setEditorField("物料编码", " TEST-ONLY-02 ");
+  page.setEditorField("物料名称", " 已核实的模拟组件 ");
+  page.setEditorField("备注", " 模拟尺寸说明 ");
+  const updated = bomMaterial({...line, code:"TEST-ONLY-02", name:"已核实的模拟组件"}, {status:"gap",issue:null,gapAfterTransit:60});
+  page.setResponse(response("Q5", [updated]));
+  tree = await page.submitEditor();
+  assert.deepEqual(page.writes, [{action:"update",id:line.id,input:{name:"已核实的模拟组件",code:"TEST-ONLY-02",qtyPer:1,remark:"模拟尺寸说明",baseUpdatedAt:line.updatedAt}}]);
+  assert.deepEqual(page.requests, [{productLine:"Q5",targetSets:100},{productLine:"Q5",targetSets:100}]);
+  assert.equal(elements(tree).filter(node => node.type === "Dialog" && node.props.open).length, 0);
+  assert.equal(tableCells(materialRows(tree)[0])[8], "60");
+  assert.equal(planButton(tree).props.disabled, false);
+});
+
+test("Q5缺用量必须补有效值，保存失败保留草稿，重试仍使用源行版本", async () => {
+  const page = pageFixture("", bomPermissions);
+  const line = bomSource("q5-no-qty", {qtyPer:null});
+  page.setResponse(response("Q5", [bomMaterial(line)]));
+  page.render(); await page.load();
+  let tree = page.clickButton(`编辑物料 ${line.code}`);
+  assert.equal(editorField(tree, "单机用量").props.value, "");
+  for (const invalid of ["", "0", "-1", "1.00001"]) {
+    page.setEditorField("单机用量", invalid);
+    tree = await page.submitEditor();
+    assert.ok(visibleText(tree).includes("请填写物料名称、编码和大于 0 的单机用量"));
+    assert.equal(page.writes.length, 0);
+  }
+  page.setEditorField("单机用量", "2.5");
+  page.setWriteReply(async () => { throw new Error("模拟版本冲突，请重试"); });
+  tree = await page.submitEditor();
+  assert.ok(visibleText(tree).includes("模拟版本冲突，请重试"));
+  assert.equal(editorField(tree, "单机用量").props.value, "2.5");
+  page.setWriteReply(async () => ({}));
+  await page.submitEditor();
+  assert.equal(page.writes.length, 2);
+  assert.deepEqual(page.writes[1], page.writes[0]);
+  assert.equal(page.writes[0].input.qtyPer, 2.5);
+  assert.ok(!("parentId" in page.writes[0].input));
+});
+
+test("Q5同编码多个BOM来源必须选具体行，修改的不是聚合总用量", async () => {
+  const page = pageFixture("", bomPermissions);
+  const first = bomSource("first-source");
+  const second = bomSource("second-source", {qtyPer:2,parentId:"case-parent",category:"外壳装配组",bomPosition:"外壳装配组",updatedAt:"2026-09-08T03:00:00.000Z"});
+  page.setResponse(response("Q5", [bomMaterial(first,{qtyPer:3,sourceLines:[first,second]})]));
+  page.render(); await page.load();
+  let tree = page.clickButton(`编辑物料 ${first.code}`);
+  assert.equal(elements(tree).find(node=>node.type==="Button"&&node.props.type==="submit").props.disabled,true);
+  tree = page.setEditorField("物料来源", second.id);
+  assert.equal(editorField(tree,"单机用量").props.value,"2");
+  assert.equal(editorField(tree,"物料分类").props.value,"外壳装配组");
+  assert.equal(editorField(tree,"BOM 所属位置").props.value,"外壳装配组");
+  page.setEditorField("单机用量","4");
+  await page.submitEditor();
+  assert.equal(page.writes[0].id,second.id);
+  assert.equal(page.writes[0].input.qtyPer,4);
+  assert.equal(page.writes[0].input.baseUpdatedAt,second.updatedAt);
+});
+
+test("通用物料仍支持新增编辑删除和位置选择，保存携带父级", async () => {
+  for (const action of ["create","update","delete"]) {
+    const page = pageFixture("productLine=通用", bomPermissions);
+    const line = bomSource("common-source");
+    page.setResponse({...response("通用",[bomMaterial(line)]),bomPositions:[{id:"new-parent",name:"模拟位置"}]});
+    page.render(); await page.load();
+    let tree = page.clickButton(action === "create" ? "新增物料" : `${action === "delete" ? "删除" : "编辑"}物料 ${line.code}`);
+    assert.ok(visibleText(tree).includes(action === "create" ? "新增通用物料" : action === "delete" ? "删除通用物料" : "编辑通用物料"));
+    if(action !== "delete") {
+      assert.equal(editorField(tree,"BOM 所属位置").type,"select");
+      assert.ok(visibleText(tree).includes("物料分类按编码从物料库带出"));
+      page.setEditorField("物料名称","模拟通用组件");
+      page.setEditorField("物料编码","COMMON-TEST-ONLY");
+      page.setEditorField("单机用量","3");
+      page.setEditorField("BOM 所属位置","new-parent");
+    }
+    await page.submitEditor();
+    assert.equal(page.writes[0].action,action);
+    if(action !== "delete") assert.equal(page.writes[0].input.parentId,"new-parent");
+    else assert.deepEqual(page.writes[0],{action:"delete",id:line.id,baseUpdatedAt:line.updatedAt});
+    assert.equal(page.requests.at(-1).productLine,"通用");
+  }
+});
+
+test("Q5明确完整齐套覆盖所有必需组件，待核实仅展示估算标签", async () => {
+  for(const provisional of [true,false]) {
+    const page=pageFixture();
+    const data=response("Q5",[item("SIMULATED-ITEM","ready")]);
+    data.dataQuality.provisional=provisional;
+    page.setResponse(data); page.render();
+    const text=visibleText(await page.load());
+    assert.ok(text.includes("完整齐套须满足清单内全部必需零部件、包材和随箱配件"));
+    assert.equal(text.includes("已核实部分（估算）"),provisional);
+    assert.equal(text.includes("到货后（估算）"),provisional);
+    if(!provisional) assert.ok(text.includes("在途到齐后"));
+  }
+});
+
+function q5UnitFixture() {
+  const slots=[], effects=[], timers=new Map(), lookups=[];
+  let slot=0, timerId=0, tree;
+  const t=(text,params={})=>text.replace(/\{(\w+)\}/g,(match,key)=>params[key]??match);
+  const jsx=(type,props)=>({type,props});
+  const react={
+    useState(initial){const index=slot++;if(!(index in slots))slots[index]=initial;return [slots[index],value=>{slots[index]=typeof value==="function"?value(slots[index]):value;}];},
+    useRef(initial){const index=slot++;return slots[index]??={current:initial};},
+    useEffect(callback,deps){const index=slot++,previous=slots[index];if(!previous||deps.some((value,i)=>value!==previous.deps[i])){previous?.cleanup?.();const record={deps,cleanup:null};slots[index]=record;effects.push(()=>{record.cleanup=callback();});}},
+  };
+  const dependencies={react,"react/jsx-runtime":{jsx,jsxs:jsx},"../lib/i18n":{useI18n:()=>({t})},
+    "../lib/procurementApi":{getInventoryMaterialReference:(code,signal)=>new Promise((resolve,reject)=>lookups.push({code,signal,resolve,reject}))}};
+  const exports={};
+  new Function("exports","require","setTimeout","clearTimeout",`${code}\nexports.Editor=InventoryBomEditor;`)(exports,name=>dependencies[name]??new Proxy({},{get:(_target,key)=>key}),
+    callback=>{const id=++timerId;timers.set(id,callback);return id;},id=>timers.delete(id));
+  const props={productLine:"Q5",editor:{mode:"edit",lines:[bomSource("unit-source",{unit:"不应显示的旧单位"})]},positions:[],onClose(){},onSaved(){}};
+  const render=()=>{slot=0;tree=exports.Editor(props);while(effects.length)effects.shift()();slot=0;tree=exports.Editor(props);return tree;};
+  return {lookups,render,
+    change(value){editorField(tree,"物料编码").props.onChange({target:{value}});return render();},
+    flush(){for(const [id,callback] of [...timers]){timers.delete(id);callback();}return render();},
+    async resolve(index,value){lookups[index].resolve(value);await Promise.resolve();await Promise.resolve();return render();},
+  };
+}
+
+test("Q5用量旁展示当前编码单位，改码立即隐藏旧单位并忽略迟到查询，分类仍为装配组", async () => {
+  const fixture=q5UnitFixture();
+  let tree=fixture.render();
+  assert.ok(visibleText(tree).includes("正在读取当前编码的计量单位"));
+  assert.ok(!visibleText(tree).includes("不应显示的旧单位"));
+  fixture.flush();
+  tree=await fixture.resolve(0,{matched:true,category:"ERP主档分类",unit:"kg"});
+  assert.ok(visibleText(tree).includes("当前编码单位：kg；请填写每台用量。"));
+  assert.equal(editorField(tree,"物料分类").props.value,"分子筛装配组");
+  tree=fixture.change("SECOND-TEST-CODE");
+  assert.ok(!visibleText(tree).includes("当前编码单位：kg"));
+  fixture.flush();
+  fixture.change("THIRD-TEST-CODE");fixture.flush();
+  assert.equal(fixture.lookups[1].signal.aborted,true);
+  tree=await fixture.resolve(2,{matched:true,category:"新主档分类",unit:"g"});
+  assert.ok(visibleText(tree).includes("当前编码单位：g"));
+  tree=await fixture.resolve(1,{matched:true,category:"迟到分类",unit:"吨"});
+  assert.ok(visibleText(tree).includes("当前编码单位：g"));
+  assert.ok(!visibleText(tree).includes("当前编码单位：吨"));
+  tree=fixture.change("");
+  assert.ok(visibleText(tree).includes("输入物料编码后核对计量单位"));
+  assert.ok(!visibleText(tree).includes("当前编码单位：g"));
+});
+
+test("Q5未匹配编码不将接口兜底的件当成已确认单位", async () => {
+  const fixture=q5UnitFixture();fixture.render();fixture.flush();
+  const tree=await fixture.resolve(0,{matched:false,category:"未分类",unit:"件"});
+  assert.ok(visibleText(tree).includes("当前编码的计量单位待核对"));
+  assert.ok(!visibleText(tree).includes("当前编码单位：件"));
+  assert.equal(editorField(tree,"物料分类").props.value,"分子筛装配组");
 });
