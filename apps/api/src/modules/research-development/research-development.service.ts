@@ -152,9 +152,11 @@ function messageCategoryOf(type: string | null | undefined): MessageCategory {
   switch (cleanText(type)) {
     case 'review_request':
     case 'perf_self_assessment':
+    case 'procurement_sample_test_request':
       return 'todo';
     case 'review_result':
     case 'procurement_review_result':
+    case 'procurement_sample_test_result':
       return 'result';
     case 'procurement_assignment':
       return 'todo';
@@ -5274,6 +5276,9 @@ export class ResearchDevelopmentService {
     const msg = await this.prisma.rdMessage.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException('消息不存在');
     if (!viewer.hasFullAccess && viewer.userId !== msg.recipientId && viewer.userId !== msg.senderId) {
+      if (msg.type === 'procurement_sample_test_request' || msg.type === 'procurement_sample_test_result') {
+        throw new BadRequestException('无权修改此消息');
+      }
       // Name-based fallback: system messages may carry only a recipient name, or a stale linked user_id.
       if (msg.recipientName && viewer.userId) {
         const users = await this.listIdentityUsers();
@@ -10007,6 +10012,10 @@ export class ResearchDevelopmentService {
       }
     }
 
+    const strictSampleRecipient = parsedBody?.type === 'procurement_sample_test_request'
+      || parsedBody?.type === 'procurement_sample_test_result';
+    if (strictSampleRecipient && !recipientId) throw new BadRequestException('样品测试通知必须指定收件人账号');
+
     return {
       // 沿用历史 msg- 前缀：前端标已读按 id 提交，collectInboxMessagesAsNotifications
       // 也靠这个前缀区分消息与派生通知。随机段用 uuid，批量插入同毫秒也不会撞 id。
@@ -10017,7 +10026,8 @@ export class ResearchDevelopmentService {
       recipientId,
       recipientPersonId,
       recipientName,
-      recipientNameKey: personNameLookupKey(recipientName) || null,
+      // 样品测试按指定账号投递；姓名仅展示，不能被同名账号的收件箱兜底命中。
+      recipientNameKey: strictSampleRecipient ? null : personNameLookupKey(recipientName) || null,
       subject: (payload.subject ?? '').trim() || null,
       body,
       meta: payload.meta ? (payload.meta as Prisma.InputJsonObject) : Prisma.DbNull,
@@ -10056,8 +10066,8 @@ export class ResearchDevelopmentService {
     };
   }
 
-  async createMessage(payload: CreateMessagePayload) {
-    const row = await this.prisma.rdMessage.create({ data: this.buildMessageRecord(payload) });
+  async createMessage(payload: CreateMessagePayload, client: Pick<Prisma.TransactionClient, 'rdMessage'> = this.prisma) {
+    const row = await client.rdMessage.create({ data: this.buildMessageRecord(payload) });
     return this.serializeMessage(row);
   }
 
@@ -10807,6 +10817,19 @@ export class ResearchDevelopmentService {
         displayMessage = approved
           ? `${reviewerName} 已通过${code ? `采购需求 ${code}` : '该采购需求'}，请继续采购流程。`
           : `${reviewerName} 已打回${code ? `采购需求 ${code}` : '该采购需求'}并删除采购任务。${reason ? `原因：${reason}` : ''}`;
+      } else if (msgType === 'procurement_sample_test_request') {
+        const materialName = cleanText(parsedBody!['material_name']) || '采购样品';
+        const code = cleanText(parsedBody!['procurement_code']);
+        defaultTitle = `待测试样品：${materialName}`;
+        displayMessage = `${senderName} 指定你测试${code ? `采购任务 ${code} 的` : ''}「${materialName}」，请填写并确认测试结论。`;
+      } else if (msgType === 'procurement_sample_test_result') {
+        const materialName = cleanText(parsedBody!['material_name']) || '采购样品';
+        const tester = cleanText(parsedBody!['tester_name']) || senderName;
+        const result = cleanText(parsedBody!['result']);
+        const label = result === 'passed' ? '测试通过' : result === 'failed_resample' ? '测试不通过，需重新送样' : '测试不通过，需重新询价';
+        const conclusion = cleanText(parsedBody!['conclusion']);
+        defaultTitle = `样品测试结果：${materialName}`;
+        displayMessage = `${tester} 已确认「${materialName}」${label}。${conclusion ? `测试结论：${conclusion}` : ''}`;
       } else if (msgType === 'procurement_assignment') {
         const materialName = String(parsedBody!['material_name'] ?? '未命名采购需求');
         const code = String(parsedBody!['procurement_code'] ?? '');
@@ -10825,6 +10848,11 @@ export class ResearchDevelopmentService {
         message: displayMessage,
         related_task_id: relatedTaskId || undefined,
         raw_body: body,
+        ...((msgType === 'procurement_sample_test_request' || msgType === 'procurement_sample_test_result') ? {
+          route: cleanText(parsedBody!['route']) || undefined,
+          action_label: cleanText(parsedBody!['action_label']) || undefined,
+          next_action: cleanText(parsedBody!['next_action']) || undefined,
+        } : {}),
         time: this.formatRelativeTime(String(m.created_at ?? '')),
         sender_id: m.sender_id ?? null,
         sender_name: senderName,

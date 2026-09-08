@@ -381,3 +381,31 @@ test('无权修改他人消息', async () => {
     /无权修改此消息/,
   );
 });
+
+for (const type of ['procurement_sample_test_request', 'procurement_sample_test_result']) {
+  test(`${type} 禁止同名账号通过消息ID修改并读取私有正文`, async () => {
+    const { service, calls } = makeService([{ id: 'msg-sample', type, recipientId: 'real-user', senderId: 'sender',
+      recipientName: '同名人员', recipientNameKey: null, body: 'private sample result', handled: false, createdAt: new Date() }]);
+    service.listIdentityUsers = async () => [{ id: 'namesake', name: '同名人员' }];
+    service.recordServerAudit = async () => undefined;
+    await assert.rejects(service.patchMessage('msg-sample', { handled: true }, { userId: 'namesake', hasFullAccess: false }), /无权修改此消息/);
+    assert.equal(calls.some((call) => call.method === 'update'), false);
+  });
+
+  test(`${type} 保留收件人、发件人及全局管理的明确账号授权`, async () => {
+    for (const viewer of [{ userId: 'recipient' }, { userId: 'sender' }, { userId: 'admin', hasFullAccess: true }]) {
+      const { service, calls } = makeService([{ id: 'msg-sample', type, recipientId: 'recipient', senderId: 'sender',
+        recipientName: '收件人', body: '样品结论', handled: false, createdAt: new Date() }]);
+      await service.patchMessage('msg-sample', { read: true }, viewer);
+      assert.equal(calls.filter((call) => call.method === 'update').length, 1);
+    }
+  });
+}
+
+test('旧普通消息继续支持只有姓名的历史收件人身份', async () => {
+  const { service, calls } = makeService([{ id: 'legacy', type: null, recipientId: null, senderId: null,
+    recipientName: '历史收件人', body: '历史消息', createdAt: new Date() }]);
+  service.listIdentityUsers = async () => [{ id: 'legacy-user', name: '历史收件人' }];
+  await service.patchMessage('legacy', { read: true }, { userId: 'legacy-user' });
+  assert.equal(calls.filter((call) => call.method === 'update').length, 1);
+});

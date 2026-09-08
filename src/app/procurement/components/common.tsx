@@ -121,7 +121,7 @@ export const PROC_STATUS_META: Record<ProcStatus, { label: string; pill: string;
   pending_inquiry: { label: "待询价", pill: "border-amber-200 bg-amber-50 text-amber-700", next: "选择报价" },
   inquiring: { label: "询价中", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]", next: "完成询价" },
   pending_sample: { label: "待到样", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]", next: "样品已到" },
-  testing: { label: "测试中", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]", next: "录入测试结论" },
+  testing: { label: "测试中", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]", next: "安排研发测试" },
   priced: { label: "已定价", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]", next: "标记已下单" },
   pending_purchase: { label: "待购买", pill: "border-slate-200 bg-slate-50 text-slate-700", next: "打开链接下单" },
   in_transit: { label: "已下单/在途", pill: "border-[#002fa7]/20 bg-[#002fa7]/5 text-[#002fa7]", next: "登记到货" },

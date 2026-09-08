@@ -12,7 +12,8 @@ test('同步把缺省行号规范为真实 ERP 首行号，历史两种引用不
     { id: 'free', taskId: 'task-1', tpOrderNo: 'PO-OLD', tpLineNo: '7', receivedQty: 75, etaDate: null, metadata: { freeSample: true } },
   ];
   let saved: Record<string, unknown> = {};
-  const prisma = {
+  const transaction = {
+    $queryRaw: async () => [],
     procPurchaseOrderRef: {
       findMany: async () => refs,
       update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
@@ -24,6 +25,7 @@ test('同步把缺省行号规范为真实 ERP 首行号，历史两种引用不
       update: async ({ data }: { data: Record<string, unknown> }) => { saved = data; },
     },
   };
+  const prisma = { ...transaction, $transaction: async (run: (client: typeof transaction) => Promise<unknown>) => run(transaction) };
   const procurement = new ProcurementService(prisma as never, {} as never, {} as never, {} as never);
   const service = new TplusSyncService(prisma as never, procurement, {} as never, {} as never);
   const orders: string[] = [];

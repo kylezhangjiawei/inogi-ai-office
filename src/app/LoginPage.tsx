@@ -188,7 +188,7 @@ export function LoginPage() {
           </div>
         </div>
       </div>
-      <SiteRecordFooter className="mt-4 w-full max-w-5xl border-white/50 bg-white/55" />
+      <SiteRecordFooter className="mt-4 w-full max-w-5xl" />
     </div>
   );
 }

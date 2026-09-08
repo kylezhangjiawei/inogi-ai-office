@@ -22,6 +22,7 @@ import {
 } from 'class-validator';
 
 import { PROC_STATUSES } from '../procurement.types';
+import { SAMPLE_TEST_RESULTS, type SampleTestResult } from '../sample-test';
 
 export class ProcAttachmentInputDto {
   @IsString()
@@ -514,6 +515,36 @@ export class SetProcCoreMaterialsDto {
   @IsString({ each: true })
   @MaxLength(64, { each: true })
   materialIds!: string[];
+}
+
+export class AssignSampleTestDto {
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  testerUserId!: string;
+
+  @IsIn(['pending_sample', 'testing'])
+  fromStatus!: 'pending_sample' | 'testing';
+
+  @IsDateString({ strict: true })
+  baseUpdatedAt!: string;
+}
+
+export class ConfirmSampleTestDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  roundId!: string;
+
+  @IsIn(SAMPLE_TEST_RESULTS)
+  result!: SampleTestResult;
+
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  note!: string;
 }
 
 export class TransitionProcTaskDto {

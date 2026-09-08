@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 import { TaskCriticalMaterials } from "./TaskCriticalMaterials";
+import { SAMPLE_TEST_RESULT_LABELS } from "./ProcSampleTestDialog";
 
 function previewModel(attachment: ProcurementTask["attachmentList"][number]): PreviewableAttachment {
   return {
@@ -64,6 +65,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const taskAction = useProcTaskAction();
   const requester = taskRequester(task);
   const buyerLabel = task.buyer?.trim() || t("未指派");
+  const awaitingTest = task.status === "testing" && task.sampleTest && !task.sampleTest.result;
   const meta = PROC_STATUS_META[task.status];
   const flow = task.method === "direct" ? DIRECT_FLOW : INQUIRY_FLOW;
   const curIdx = flow.indexOf(task.status);
@@ -232,15 +234,19 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               研发流转的待处理任务是「审核」语义：通过（确认提交）或驳回（理由必填，删除采购任务并通知）。 */}
           {meta.next && can(nextPermissionOf(task)) && (
             <div className="proc-horizon-next-step rounded-xl border border-[#cbd8f6] bg-[#eef3ff] p-4">
-              <div className="text-xs font-semibold text-[#002fa7]">{t('下一步 · 责任人：')}{task.status === "testing" ? task.rdContact ?? t("研发对接人") : buyerLabel}</div>
+              <div className="text-xs font-semibold text-[#002fa7]">{t('下一步 · 责任人：')}{task.status === "testing" ? task.sampleTest?.testerName || t("待指定研发测试人员") : buyerLabel}</div>
               <p className="mt-1 text-pretty text-sm text-slate-700">
                 {isRdReview
                   ? t('研发流转需求待审核：通过后进入询价流程；驳回将删除采购任务，并通知研发对接人与超级管理员。')
-                  : t('当前状态「{status}」，下一步：{next}。', { status: t(meta.label), next: t(meta.next) })}
+                  : task.status === "testing"
+                    ? awaitingTest
+                      ? t("已通知 {name} 进行测试，等待本人确认结论后回传供应链。", { name: task.sampleTest!.testerName })
+                      : t("请指定研发测试人员，系统会发送测试待办。")
+                    : t('当前状态「{status}」，下一步：{next}。', { status: t(meta.label), next: t(meta.next) })}
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Button type="button" disabled={taskAction.busy || rejectBusy} onClick={() => taskAction.runNext(task)} className="material-button-primary rounded-lg px-4 py-2 text-sm disabled:opacity-60">
-                  {t(isRdReview ? '审核通过' : meta.next)}{task.method === "direct" && task.status === "pending_purchase" && <ExternalLink className="h-4 w-4" />}
+                  {t(isRdReview ? '审核通过' : awaitingTest ? '调整测试人员' : meta.next)}{task.method === "direct" && task.status === "pending_purchase" && <ExternalLink className="h-4 w-4" />}
                 </Button>
                 {/* 询价阶段登记免费样品后进入待到样；已有待到样任务可继续登记本轮出样信息。 */}
                 {(task.status === "pending_sample" || FREE_SAMPLE_ONLY_STATUSES.includes(task.status)) && can("proc-task:order") && (
@@ -447,7 +453,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           )}
 
           {/* 样品测试区：仅展示已产生的数据 */}
-          {task.needSample && (
+          {(task.needSample || task.sampleTest) && (
             <div className="proc-horizon-drawer-section rounded-xl border border-slate-100 p-4">
               <div className="mb-2 text-balance text-sm font-semibold text-slate-700">{t('样品与测试')}</div>
               {selectedQuotes.length > 0 && (
@@ -465,9 +471,11 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                 />
               )}
               <Info label="到样时间" value={t(["pending_sample"].includes(task.status) ? "待到样" : "已到样")} />
-              {(task.status === "testing" || ["priced", "in_transit", "partial_arrival", "completed"].includes(task.status)) && (
-                <Info label="测试结论" value={t(task.status === "testing" ? "测试中" : "测试通过")} />
-              )}
+              <Info label="测试人员" value={task.sampleTest?.testerName || t("尚未指定")} />
+              <Info label="测试结论" value={task.sampleTest?.result ? t(SAMPLE_TEST_RESULT_LABELS[task.sampleTest.result]) : t(task.status === "testing" ? "等待研发确认" : "尚无研发确认记录")} />
+              {task.sampleTest?.note && <Info label="结论说明" value={<span className="whitespace-pre-wrap">{task.sampleTest.note}</span>} />}
+              {task.sampleTest?.confirmedByName && <Info label="确认人" value={task.sampleTest.confirmedByName} />}
+              {task.sampleTest?.confirmedAt && <Info label="确认时间" value={new Date(task.sampleTest.confirmedAt).toLocaleString()} />}
             </div>
           )}
 

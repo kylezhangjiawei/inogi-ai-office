@@ -39,6 +39,7 @@ const ContentSlotsPage = lazyNamed(() => import("./ContentSlotsPage"), "ContentS
 const ChatAnalyticsPage = lazyNamed(() => import("./ChatAnalyticsPage"), "ChatAnalyticsPage");
 const MobileChatAnalyticsPage = lazyNamed(() => import("./MobileChatAnalyticsPage"), "MobileChatAnalyticsPage");
 const MobileRDCockpit = lazyNamed(() => import("./MobileRDCockpit"), "MobileRDCockpit");
+const MobileProcSampleTestPage = lazyNamed(() => import("./MobileProcSampleTestPage"), "MobileProcSampleTestPage");
 const I18nManagementPage = lazyNamed(() => import("./I18nManagementPage"), "I18nManagementPage");
 const BOMArchive = lazyNamed(() => import("./BOMArchive"), "BOMArchive");
 const BugLogPage = lazyNamed(() => import("./BugLogPage"), "BugLogPage");
@@ -306,6 +307,12 @@ function ProtectedLayout() {
 
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
+  }
+
+  // 样品测试人可能只有研发工作台权限；手机深链在当前地址完成测试，不跳只读驾驶舱。
+  const sampleTestId = new URLSearchParams(location.search).get("sampleTest")?.trim();
+  if (isMobile && location.pathname === routePath("page:rd-my-workspace", "/rd-my-workspace") && sampleTestId) {
+    return makeLazyProtected(<MobileProcSampleTestPage key={`${user.id}:${sampleTestId}`} taskId={sampleTestId} />, "page:rd-my-workspace");
   }
 
   // L2 自动跳：移动视口直接进入移动只读视图。

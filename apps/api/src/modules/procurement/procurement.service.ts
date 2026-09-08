@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
@@ -9,6 +9,8 @@ import { OSS_BUSINESS_TYPES, SIGNED_URL_TTL_SECONDS } from '../oss/oss.constants
 import { OssService } from '../oss/oss.service';
 import {
   AiParseTaskDto,
+  AssignSampleTestDto,
+  ConfirmSampleTestDto,
   ApplyQuoteBookQuotesDto,
   BatchReassignDto,
   MoveProcTasksDto,
@@ -66,6 +68,9 @@ import {
   type InventoryReadinessBalance,
   type InventoryReadinessBomLeaf,
 } from './inventory-readiness';
+import { buildQ5PackagingReference, Q5_PACKAGING_REFERENCE_SOURCE } from './q5-packaging-reference';
+import { buildInventoryMatchDiagnostics } from './inventory-match-diagnostic';
+import { sampleTestOf, SAMPLE_TEST_RESULTS, SAMPLE_TEST_RESULT_LABELS, type ProcurementSampleTest } from './sample-test';
 
 const DEFAULT_PROC_PRODUCT_ID = 'prod-portable-o2';
 
@@ -1770,6 +1775,7 @@ export class ProcurementService {
         });
         if (count > 0) cleared.push(`${count} 条采购单关联`);
       }
+      await this.endPendingSampleTest(tx, id);
 
       await tx.procTaskLog.create({
         data: {
@@ -1787,6 +1793,162 @@ export class ProcurementService {
       return tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
     });
     return this.serializeTask(updated);
+  }
+
+  private async sampleTestUsers(client: Pick<Prisma.TransactionClient, 'user'> = this.prisma) {
+    const users = await client.user.findMany({
+      select: { id: true, name: true, department: true, status: true, role: { select: { permissions: true } } },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    });
+    return users.map((user) => ({ ...user, permissions: Array.isArray(user.role?.permissions)
+      ? user.role.permissions.filter((permission): permission is string => typeof permission === 'string') : [] }));
+  }
+
+  async listSampleTesters() {
+    const users = await this.sampleTestUsers();
+    return users.filter((user) => user.status === 'ACTIVE' && user.name.trim()
+      && (user.permissions.includes('*') || user.permissions.includes('page:rd-my-workspace')))
+      .map(({ id, name, department }) => ({ id, name, department }));
+  }
+
+  private sampleTestBuyer(task: { buyerUserId: string | null; buyer: string }, users: Awaited<ReturnType<ProcurementService['sampleTestUsers']>>) {
+    const matches = task.buyerUserId
+      ? users.filter((user) => user.id === task.buyerUserId)
+      : users.filter((user) => task.buyer.trim() && user.name.trim() === task.buyer.trim());
+    if (matches.length !== 1) return null;
+    const buyer = matches[0];
+    if (buyer.status !== 'ACTIVE' || !buyer.name.trim()) return null;
+    const route = buyer.permissions.includes('page:proc-my-workspace')
+      ? '/proc-my-workspace' : buyer.permissions.includes('*') || buyer.permissions.includes('page:proc-cockpit') ? '/proc-cockpit' : null;
+    return route ? { ...buyer, route } : null;
+  }
+
+  private sampleTestResponse(task: ProcTaskView, actor: ProcActor) {
+    const serialized = this.serializeTask(task);
+    const sampleTest = sampleTestOf(task.metadata);
+    return {
+      task: { id: task.id, code: task.code, materialName: task.materialName, spec: task.spec,
+        quantity: num(task.quantity), unit: task.unit, status: task.status, buyer: task.buyer,
+        rdTaskId: task.rdTaskId ?? undefined, rdTaskTitle: task.rdTaskTitle ?? undefined,
+        attachmentList: serialized.attachmentList },
+      sampleTest,
+      canConfirm: task.status === 'testing' && sampleTest?.testerUserId === actor.id && sampleTest.result === null,
+    };
+  }
+
+  async getSampleTest(id: string, actor: ProcActor) {
+    const task = await this.prisma.procTask.findUnique({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
+    if (!task) throw new NotFoundException('样品测试任务不存在');
+    const assigned = sampleTestOf(task.metadata)?.testerUserId === actor.id;
+    const readAll = actor.permissions.some((permission) => ['*', 'page:proc-cockpit', 'page:proc-materials'].includes(permission));
+    let readOwn = false;
+    if (!assigned && !readAll && actor.permissions.includes('page:proc-my-workspace')) {
+      readOwn = this.sampleTestBuyer(task, await this.sampleTestUsers())?.id === actor.id;
+    }
+    if (!assigned && !readAll && !readOwn) throw new NotFoundException('样品测试任务不存在');
+    return this.sampleTestResponse(task, actor);
+  }
+
+  private async handleSampleTestRequests(tx: Prisma.TransactionClient, taskId: string) {
+    await tx.rdMessage.updateMany({
+      where: { type: 'procurement_sample_test_request', taskId, handled: false },
+      data: { handled: true, read: true },
+    });
+  }
+
+  /** 调用方已锁定/更新任务行：关闭待办并失效未确认轮次，已确认结论仍保留。 */
+  private async endPendingSampleTest(tx: Prisma.TransactionClient, taskId: string) {
+    await this.handleSampleTestRequests(tx, taskId);
+    const task = await tx.procTask.findUniqueOrThrow({ where: { id: taskId }, select: { metadata: true } });
+    const current = sampleTestOf(task.metadata);
+    if (current?.result === null) {
+      await tx.procTask.updateMany({ where: { id: taskId }, data: {
+        metadata: { ...(task.metadata as Prisma.JsonObject), sampleTest: null } as Prisma.InputJsonObject,
+      } });
+    }
+  }
+
+  async assignSampleTest(id: string, dto: AssignSampleTestDto, actor: ProcActor) {
+    if (!actor.permissions.some((permission) => permission === '*' || permission === 'proc-task:inquiry')) throw new ForbiddenException('没有指定样品测试人员的权限');
+    const base = new Date(dto.baseUpdatedAt);
+    if (!Number.isFinite(base.getTime()) || !['pending_sample', 'testing'].includes(dto.fromStatus)) throw new BadRequestException('请刷新任务后重新指定测试人员');
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${id} FOR UPDATE`;
+      const task = await tx.procTask.findUnique({ where: { id } });
+      if (!task) throw new NotFoundException('采购任务不存在');
+      if (task.status !== dto.fromStatus || task.updatedAt.getTime() !== base.getTime()) throw new ConflictException('任务已更新，请刷新后重新指定测试人员');
+      const tester = (await this.sampleTestUsers(tx)).find((user) => user.id === dto.testerUserId?.trim()
+        && user.status === 'ACTIVE' && user.name.trim()
+        && (user.permissions.includes('*') || user.permissions.includes('page:rd-my-workspace')));
+      if (!tester) throw new BadRequestException('请选择启用且有研发个人工作台权限的测试人员');
+      const current = sampleTestOf(task.metadata);
+      if (task.status === 'testing' && current?.testerUserId === tester.id && current.result === null) throw new ConflictException('该人员已收到本轮测试任务，无需重复指定');
+      const sampleTest: ProcurementSampleTest = {
+        roundId: randomUUID(), testerUserId: tester.id, testerName: tester.name,
+        assignedAt: new Date().toISOString(), assignedByName: actor.name,
+        result: null, note: null, confirmedAt: null, confirmedByName: null,
+      };
+      const metadata = task.metadata && typeof task.metadata === 'object' && !Array.isArray(task.metadata) ? task.metadata : {};
+      const claimed = await tx.procTask.updateMany({ where: { id, status: dto.fromStatus, updatedAt: base }, data: {
+        status: 'testing', needSample: true, updatedAt: new Date(Math.max(Date.now(), base.getTime() + 1)),
+        metadata: { ...metadata, sampleTest } as unknown as Prisma.InputJsonObject,
+      } });
+      if (claimed.count !== 1) throw new ConflictException('任务已更新，请刷新后重试');
+      await this.handleSampleTestRequests(tx, id);
+      await tx.procTaskLog.create({ data: { taskId: id, kind: 'action',
+        text: `${task.status === 'pending_sample' ? '确认样品已到' : '指定样品测试'}，由 ${tester.name} 测试并确认结论`,
+        fromStatus: task.status, toStatus: 'testing', actor: actor.name, actorUserId: actor.id } });
+      await this.rdService.createMessage({ source: 'procurement', sender: { id: actor.id, name: actor.name, role: '采购人员' },
+        recipient_id: tester.id, recipient_name: tester.name, subject: `待测试样品 · ${task.materialName}`,
+        body: JSON.stringify({ type: 'procurement_sample_test_request', procurement_task_id: id, task_id: id,
+          procurement_code: task.code, rd_task_id: task.rdTaskId, rd_task_title: task.rdTaskTitle,
+          material_name: task.materialName, specification: task.spec, quantity: num(task.quantity), unit: task.unit,
+          tester_name: tester.name, buyer_name: task.buyer, round_id: sampleTest.roundId,
+          route: `/rd-my-workspace?sampleTest=${encodeURIComponent(id)}`, action_label: '填写并确认测试结论', next_action: '完成样品测试并确认结论' }),
+      }, tx);
+      return tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+    return this.serializeTask(updated);
+  }
+
+  async confirmSampleTest(id: string, dto: ConfirmSampleTestDto, actor: ProcActor) {
+    const note = typeof dto.note === 'string' ? dto.note.trim() : '';
+    if (!note || note.length > 500 || !SAMPLE_TEST_RESULTS.includes(dto.result)) throw new BadRequestException('请选择测试结果并填写 1–500 字测试结论');
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${id} FOR UPDATE`;
+      const task = await tx.procTask.findUnique({ where: { id } });
+      if (!task) throw new NotFoundException('样品测试任务不存在');
+      const current = sampleTestOf(task.metadata);
+      if (!current || current.testerUserId !== actor.id) throw new ForbiddenException('仅当前指定的测试人员本人可以确认测试结论');
+      if (task.status !== 'testing' || current.roundId !== dto.roundId || current.result !== null) throw new ConflictException('该轮测试已结束或已改派，请刷新任务');
+      const buyer = this.sampleTestBuyer(task, await this.sampleTestUsers(tx));
+      if (!buyer) throw new BadRequestException('采购负责人未指派、已停用、同名不唯一或无采购工作台权限，请先明确指派有效负责人');
+      const confirmedAt = new Date().toISOString();
+      const sampleTest: ProcurementSampleTest = { ...current, result: dto.result, note, confirmedAt, confirmedByName: actor.name };
+      const next = dto.result === 'passed' ? 'priced' : dto.result === 'failed_resample' ? 'pending_sample' : 'inquiring';
+      const metadata = task.metadata as Prisma.JsonObject;
+      const claimed = await tx.procTask.updateMany({ where: { id, status: 'testing', updatedAt: task.updatedAt,
+        metadata: { path: ['sampleTest', 'roundId'], equals: dto.roundId } }, data: {
+        status: next, metadata: { ...metadata, sampleTest } as unknown as Prisma.InputJsonObject,
+      } });
+      if (claimed.count !== 1) throw new ConflictException('该轮测试已被其他操作更新，请刷新后重试');
+      await this.handleSampleTestRequests(tx, id);
+      const conclusion = SAMPLE_TEST_RESULT_LABELS[dto.result];
+      await tx.procTaskLog.create({ data: { taskId: id, kind: 'action', text: `${actor.name} 确认${conclusion}；测试结论：${note}`,
+        fromStatus: 'testing', toStatus: next, actor: actor.name, actorUserId: actor.id } });
+      await this.rdService.createMessage({ source: 'procurement', sender: { id: actor.id, name: actor.name, role: '样品测试人员' },
+        recipient_id: buyer.id, recipient_name: buyer.name, subject: `样品${conclusion} · ${task.materialName}`,
+        body: JSON.stringify({ type: 'procurement_sample_test_result', procurement_task_id: id, task_id: id,
+          procurement_code: task.code, rd_task_id: task.rdTaskId, rd_task_title: task.rdTaskTitle,
+          material_name: task.materialName, specification: task.spec, quantity: num(task.quantity), unit: task.unit,
+          tester_name: current.testerName, buyer_name: buyer.name, round_id: current.roundId,
+          result: dto.result, conclusion: note, confirmed_at: confirmedAt,
+          route: `${buyer.route}?task=${encodeURIComponent(id)}`, action_label: '查看测试结论并继续采购',
+          next_action: dto.result === 'passed' ? '继续采购流程' : dto.result === 'failed_resample' ? '安排重新送样' : '重新询价' }),
+      }, tx);
+      return tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+    return this.sampleTestResponse(updated, actor);
   }
 
   /** 通用状态流转：受 PROC_STATUS_TRANSITIONS 约束。 */
@@ -1824,6 +1986,9 @@ export class ProcurementService {
         throw new BadRequestException(
           `不允许从「${PROC_STATUS_LABELS[expectedStatus] ?? expectedStatus}」流转到「${PROC_STATUS_LABELS[next] ?? next}」`,
         );
+      }
+      if (next === 'testing' || (expectedStatus === 'testing' && !(next === 'pending_sample' && !sampleTestOf(task.metadata)))) {
+        throw new BadRequestException('样品测试须指定测试人员，并由该人员在样品测试入口确认结论');
       }
       // 待询价直达待到样只用于已有免费样品登记的纠正，不放开普通任务跳过询价。
       if (expectedStatus === 'pending_inquiry' && next === 'pending_sample') {
@@ -2077,23 +2242,23 @@ export class ProcurementService {
     if (PROC_TERMINAL_STATUSES.includes(task.status as ProcStatus)) {
       throw new BadRequestException('任务已完结，无法取消');
     }
-    const updated = await this.prisma.procTask.update({
-      where: { id },
-      data: {
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.procTask.updateMany({ where: { id, status: task.status }, data: {
         status: 'cancelled',
         cancelReason: dto.reason ?? null,
-        logs: {
-          create: {
-            kind: 'action',
-            text: dto.reason ? `任务取消：${dto.reason}` : '任务取消',
-            fromStatus: task.status,
-            toStatus: 'cancelled',
-            actor: actor.name,
-            actorUserId: actor.id,
-          },
-        },
-      },
-      include: PROC_TASK_VIEW_INCLUDE,
+      } });
+      if (claimed.count !== 1) throw new ConflictException('任务状态已被其他操作更新，请刷新后重试');
+      await this.endPendingSampleTest(tx, id);
+      await tx.procTaskLog.create({ data: {
+        taskId: id,
+        kind: 'action',
+        text: dto.reason ? `任务取消：${dto.reason}` : '任务取消',
+        fromStatus: task.status,
+        toStatus: 'cancelled',
+        actor: actor.name,
+        actorUserId: actor.id,
+      } });
+      return tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
     });
     return this.serializeTask(updated);
   }
@@ -2345,7 +2510,10 @@ export class ProcurementService {
     if (task.status === 'pending_rd_review') {
       throw new BadRequestException('该申请尚待研发管理员审核，请通过审核入口打回');
     }
-    await this.prisma.procTask.delete({ where: { id } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.procTask.delete({ where: { id } });
+      await this.handleSampleTestRequests(tx, id);
+    });
     return { ok: true };
   }
 
@@ -2697,6 +2865,7 @@ export class ProcurementService {
       if (claimed.count !== 1) throw new ConflictException('任务状态已被其他操作更新，请刷新后重试');
 
       await tx.procQuotation.deleteMany({ where: { taskId } });
+      await this.endPendingSampleTest(tx, taskId);
       await tx.procTaskLog.create({
         data: {
           taskId,
@@ -3066,43 +3235,47 @@ export class ProcurementService {
    * T+ 同步落库后调用；到货齐 → 已完成，部分到货 → partial_arrival。
    */
   async recomputeArrival(taskId: string) {
-    const task = await this.prisma.procTask.findUnique({
-      where: { id: taskId },
-      include: { purchaseOrderRefs: true },
-    });
-    if (!task) return null;
-    // 历史重复引用仍保留以便人工核查；同一 ERP 行只采用最近同步的一份累计到货量。
-    const latestRefs = new Map<string, (typeof task.purchaseOrderRefs)[number]>();
-    for (const ref of task.purchaseOrderRefs) {
-      if ((ref.metadata as Prisma.JsonObject | null)?.freeSample === true) continue;
-      const key = !ref.tpOrderNo.trim() ? ref.id : `${ref.tpOrderNo.trim()}\u0000${ref.tpLineNo?.trim() || ''}`;
-      const previous = latestRefs.get(key);
-      const timestamp = (row: typeof ref) => row.syncedAt?.getTime() ?? row.updatedAt?.getTime() ?? row.createdAt?.getTime() ?? 0;
-      if (!previous || timestamp(ref) > timestamp(previous)) latestRefs.set(key, ref);
-    }
-    const received = [...latestRefs.values()].reduce((sum, ref) => sum + num(ref.receivedQty), 0);
-    const quantity = num(task.quantity);
-    let status = task.status;
-    if (PROC_ARRIVAL_STATUSES.includes(task.status as ProcStatus)) {
-      if (quantity > 0 && received >= quantity) status = 'completed';
-      else if (received > 0) status = 'partial_arrival';
-      else status = 'in_transit';
-    }
-    const eta = task.purchaseOrderRefs
-      .map((r) => r.etaDate)
-      .filter((d): d is Date => Boolean(d))
-      .sort((a, b) => a.getTime() - b.getTime())[0];
+    return this.prisma.$transaction(async (tx) => {
+      // 与样品分派、测试确认及采购单关联串行；锁后读取，避免同步把已推进的状态写回旧值。
+      await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${taskId} FOR UPDATE`;
+      const task = await tx.procTask.findUnique({
+        where: { id: taskId },
+        include: { purchaseOrderRefs: true },
+      });
+      if (!task) return null;
+      // 历史重复引用仍保留以便人工核查；同一 ERP 行只采用最近同步的一份累计到货量。
+      const latestRefs = new Map<string, (typeof task.purchaseOrderRefs)[number]>();
+      for (const ref of task.purchaseOrderRefs) {
+        if ((ref.metadata as Prisma.JsonObject | null)?.freeSample === true) continue;
+        const key = !ref.tpOrderNo.trim() ? ref.id : `${ref.tpOrderNo.trim()}\u0000${ref.tpLineNo?.trim() || ''}`;
+        const previous = latestRefs.get(key);
+        const timestamp = (row: typeof ref) => row.syncedAt?.getTime() ?? row.updatedAt?.getTime() ?? row.createdAt?.getTime() ?? 0;
+        if (!previous || timestamp(ref) > timestamp(previous)) latestRefs.set(key, ref);
+      }
+      const received = [...latestRefs.values()].reduce((sum, ref) => sum + num(ref.receivedQty), 0);
+      const quantity = num(task.quantity);
+      let status = task.status;
+      if (PROC_ARRIVAL_STATUSES.includes(task.status as ProcStatus)) {
+        if (quantity > 0 && received >= quantity) status = 'completed';
+        else if (received > 0) status = 'partial_arrival';
+        else status = 'in_transit';
+      }
+      const eta = task.purchaseOrderRefs
+        .map((r) => r.etaDate)
+        .filter((d): d is Date => Boolean(d))
+        .sort((a, b) => a.getTime() - b.getTime())[0];
 
-    await this.prisma.procTask.update({
-      where: { id: taskId },
-      data: {
-        arrivedQty: new Prisma.Decimal(received),
-        status,
-        businessDone: PROC_ARRIVAL_STATUSES.includes(task.status as ProcStatus) ? status === 'completed' : task.businessDone,
-        expectedArrivalDate: eta ?? task.expectedArrivalDate,
-      },
-    });
-    return { taskId, arrivedQty: received, status };
+      await tx.procTask.update({
+        where: { id: taskId },
+        data: {
+          arrivedQty: new Prisma.Decimal(received),
+          status,
+          businessDone: PROC_ARRIVAL_STATUSES.includes(task.status as ProcStatus) ? status === 'completed' : task.businessDone,
+          expectedArrivalDate: eta ?? task.expectedArrivalDate,
+        },
+      });
+      return { taskId, arrivedQty: received, status };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   // ── 物料主数据 ───────────────────────────────────────────────────────────────
@@ -3909,7 +4082,7 @@ export class ProcurementService {
 
   /**
    * 库存齐套中心：用 BOM 单机用量连接畅捷通库存镜像。
-   * 数据库先按「量产」收窄，再通过业务名称精确限定「量产仓 / 量产仓库」，
+   * 按编码读取全仓镜像用于解释未匹配原因，数量仍精确限定「量产仓 / 量产仓库」，
    * 避免把「研发量产仓」、样品仓或售后备件仓计入可齐套量。
    */
   async getInventoryReadiness(query: Record<string, unknown>) {
@@ -3953,13 +4126,18 @@ export class ProcurementService {
       modelMap.set('通用', commonModel);
       models.push(commonModel);
     }
-    const productLine = modelMap.has(requestedProductLine)
-      ? requestedProductLine
-      : modelMap.has('Q5')
-        ? 'Q5'
-        : models[0]?.id ?? requestedProductLine;
+    // 整机齐套默认使用 Q5 清单；缺少所选型号时保留空态，不能拿其他 BOM 代算。
+    const productLine = requestedProductLine || 'Q5';
+    if (!modelMap.has(productLine)) {
+      const selectedModel = { id: productLine, label: productLine, bomLines: 0 };
+      modelMap.set(productLine, selectedModel);
+      models.push(selectedModel);
+    }
     const materialRows = bomRows.filter((row) => row.productLine === productLine && !parentIds.has(row.id) && (productLine !== '通用' || isInventoryBomMaterial(row)));
-    const codes = [...new Set(materialRows.map((row) => row.code?.trim()).filter((code): code is string => Boolean(code)))];
+    const codes = [...new Set([
+      ...materialRows.map((row) => row.code?.trim()).filter((code): code is string => Boolean(code)),
+      ...(productLine === 'Q5' ? Q5_PACKAGING_REFERENCE_SOURCE.items.map((row) => row.code) : []),
+    ])];
     // 以当前编码匹配物料库，不能依赖导入时可能缺失或已过时的 materialId。
     const materials = codes.length > 0 ? await this.prisma.procMaterial.findMany({
       where: { tpInventoryCode: { in: codes } },
@@ -3968,16 +4146,18 @@ export class ProcurementService {
     const materialByCode = new Map(materials.map((material) => [material.tpInventoryCode, material]));
     const leaves: InventoryReadinessBomLeaf[] = materialRows.map((row) => {
       const material = materialByCode.get(row.code?.trim() || '');
-      const category = material?.category?.trim() || '未分类';
-      const bomPosition = row.parentId ? byId.get(row.parentId)?.name ?? '未指定位置' : '未指定位置';
+      const parentName = row.parentId ? byId.get(row.parentId)?.name : undefined;
+      const category = productLine === 'Q5' ? parentName?.trim() || '未分类' : material?.category?.trim() || '未分类';
+      const bomPosition = parentName ?? '未指定位置';
       const unit = material?.unit?.trim() || '件';
       return {
         id: row.id,
         category,
         bomPosition,
         code: row.code?.trim() || null,
-        name: productLine === '通用' ? row.name : row.material?.name || row.name,
-        spec: productLine === '通用' ? row.remark || row.material?.spec || '' : row.material?.spec || row.remark || '',
+        // Q5 装配清单定义名称与规格，ERP 仅按当前编码提供库存及单位。
+        name: productLine === '通用' || productLine === 'Q5' ? row.name : row.material?.name || row.name,
+        spec: productLine === 'Q5' ? row.remark || '' : productLine === '通用' ? row.remark || row.material?.spec || '' : row.material?.spec || row.remark || '',
         unit,
         qtyPer: numOrNull(row.qtyPer),
         ...(productLine === '通用' ? {
@@ -4000,7 +4180,6 @@ export class ProcurementService {
       ? await this.prisma.procInventoryBalance.findMany({
           where: {
             tpInventoryCode: { in: codes },
-            warehouse: { contains: warehouseKeyword, mode: 'insensitive' },
           },
           select: {
             tpInventoryCode: true,
@@ -4034,6 +4213,12 @@ export class ProcurementService {
       balanceMap.set(row.tpInventoryCode, current);
     }
     const calculation = calculateInventoryReadiness(leaves, [...balanceMap.values()], targetSets);
+    const inventoryDiagnostics = buildInventoryMatchDiagnostics(codes, materials, inventoryCandidates);
+    const items = calculation.items.map((item) => {
+      const inventoryDiagnostic = item.code ? inventoryDiagnostics.get(item.code) : undefined;
+      return inventoryDiagnostic ? { ...item, inventoryDiagnostic } : item;
+    });
+    const packaging = productLine === 'Q5' ? buildQ5PackagingReference(leaves, balanceMap, materials, inventoryDiagnostics) : undefined;
     const warehouseNames = [...new Set(inventoryRows.map((row) => row.warehouse || '未指定仓库'))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
     const syncedAt = [...balanceMap.values()]
       .map((balance) => balance.syncedAt)
@@ -4057,6 +4242,8 @@ export class ProcurementService {
       },
       syncedAt,
       ...calculation,
+      items,
+      ...(packaging ? { packaging } : {}),
     };
   }
 
@@ -4458,6 +4645,7 @@ export class ProcurementService {
       status: task.status,
       sampleStatusNeedsReview: task.status === 'testing'
         && lastTransition?.fromStatus === 'inquiring' && lastTransition.toStatus === 'testing',
+      sampleTest: sampleTestOf(task.metadata),
       priority: task.priority,
       needSample: task.needSample,
       needDate: day(task.needDate),

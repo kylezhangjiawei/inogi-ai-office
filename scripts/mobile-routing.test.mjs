@@ -90,7 +90,7 @@ test("移动端壳层随长内容增长，备案栏不会停在首屏中部", ()
   assert.doesNotMatch(shellSource, /<main className="min-h-0 flex-1">/);
 });
 
-test("桌面、移动端与登录页底部统一展示工信部及公安备案链接", () => {
+test("备案链接保留且仅在登录页透明展示，业务壳由组件统一隐藏", () => {
   assert.match(recordFooterSource, /苏ICP备2021046412号-3/);
   assert.match(recordFooterSource, /https:\/\/beian\.miit\.gov\.cn\/#\/Integrated\/index/);
   assert.match(recordFooterSource, /苏公网安备32011202001840号/);
@@ -105,5 +105,7 @@ test("桌面、移动端与登录页底部统一展示工信部及公安备案�
   assert.match(recordFooterSource, /rel="noopener noreferrer"/);
   assert.match(rootSource, /<SiteRecordFooter tone="horizon" className="backdrop-blur-none" \/>/);
   assert.match(shellSource, /<SiteRecordFooter tone="horizon" className="pb-\[max\(0\.5rem,env\(safe-area-inset-bottom\)\)\] backdrop-blur-none" \/>/);
-  assert.match(loginSource, /<SiteRecordFooter className="mt-4 w-full max-w-5xl border-white\/50 bg-white\/55" \/>/);
+  assert.match(loginSource, /<SiteRecordFooter className="mt-4 w-full max-w-5xl" \/>/);
+  assert.match(recordFooterSource, /useMatch\("\/login"\)/);
+  assert.match(recordFooterSource, /display: isLoginPage \? "flex" : "none", background: "transparent"/);
 });

@@ -32,7 +32,7 @@ test("登录入口保持仓库原有品牌视觉", () => {
   assert.match(page, /\bmaterial-button-primary\b/);
   assert.match(
     page,
-    /<SiteRecordFooter className="mt-4 w-full max-w-5xl border-white\/50 bg-white\/55" \/>/,
+    /<SiteRecordFooter className="mt-4 w-full max-w-5xl" \/>/,
   );
   assert.match(recordFooter, /tone = "light"/);
   assert.match(recordFooter, /hover:text-indigo-600 focus-visible:ring-indigo-300/);

@@ -123,6 +123,9 @@ import { MentionSuggestionPanel, useMentions, type MentionCandidate } from "./co
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
 import { toast } from "sonner";
+import { ProcSampleTestMessageCard } from "./components/ProcSampleTestMessageCard";
+import { parseProcurementSampleTestMessage, sampleTestMessageSummary, withoutSampleTestQuery } from "./lib/procurementSampleTestMessage";
+import { ProcSampleTestDialog } from "./procurement/components/ProcSampleTestDialog";
 
 type Priority = RdPriority;
 type TaskStatus = RdTaskStatus;
@@ -3107,6 +3110,7 @@ function NotificationDrawer({
   const isProcurementReviewResult = msgBodyType === "procurement_review_result";
   const isPerfSelfAssessment = msgBodyType === "perf_self_assessment";
   const discussionMention = parseRdDiscussionMention(notification.raw_body);
+  const sampleTestMessage = parseProcurementSampleTestMessage(notification.raw_body);
 
   // review_request fields
   const reviewType = isReviewRequest ? String(parsedBody!.review_type ?? "") : "";
@@ -3189,6 +3193,8 @@ function NotificationDrawer({
       onClose={onClose}
     >
       <div className="space-y-5">
+
+        {sampleTestMessage && <ProcSampleTestMessageCard body={sampleTestMessage} onOpen={(route) => { onClose(); navigate(route); }} />}
 
         {/* ── Review request card ── */}
         {isReviewRequest && (
@@ -3338,7 +3344,7 @@ function NotificationDrawer({
         )}
 
         {/* ── Plain message (fallback) ── */}
-        {!isReviewRequest && !isReviewResult && !isProcurementReviewResult && (
+        {!isReviewRequest && !isReviewResult && !isProcurementReviewResult && !sampleTestMessage && (
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-sm leading-6 text-slate-700">{notification.message}</p>
           </div>
@@ -3356,7 +3362,7 @@ function NotificationDrawer({
         )}
 
         {/* ── Related task block ── */}
-        {relatedTask && (
+        {relatedTask && !sampleTestMessage && (
           <div className="rounded-xl border border-slate-200 p-4">
             <div className="mb-2 flex items-start justify-between gap-3">
               <div>
@@ -3377,7 +3383,7 @@ function NotificationDrawer({
         )}
 
         {/* ── Sender info (non-review messages) ── */}
-        {notification.type === "message" && !isReviewRequest && !isReviewResult && !isProcurementReviewResult && (
+        {notification.type === "message" && !isReviewRequest && !isReviewResult && !isProcurementReviewResult && !sampleTestMessage && (
           <div className="rounded-xl border border-[#dce5fa] bg-[#eef3ff]/60 px-4 py-3">
             <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-[#001f73]">
               <MessageSquare className="h-3.5 w-3.5" />
@@ -3447,7 +3453,7 @@ function NotificationDrawer({
             </>
           )}
           <ActionButton onClick={onClose} className="ml-auto">{t("稍后处理")}</ActionButton>
-          {!isReviewRequest && !isReviewResult && !isProcurementReviewResult && (
+          {!isReviewRequest && !isReviewResult && !isProcurementReviewResult && !sampleTestMessage && (
             <ActionButton onClick={onDismiss} variant="primary">
               <CheckCircle2 className="h-3.5 w-3.5" />
               {t("标记已处理")}
@@ -3459,6 +3465,7 @@ function NotificationDrawer({
               {t("知道了")}
             </ActionButton>
           )}
+          {sampleTestMessage?.type === "procurement_sample_test_result" && <ActionButton onClick={onDismiss}>{t("知道了")}</ActionButton>}
           {isProcurementReviewResult && (
             <ActionButton onClick={onDismiss}>
               <CheckCircle2 className="size-3.5" />
@@ -4713,6 +4720,10 @@ export function RDMyWorkspacePage() {
   const [progressOverrides, setProgressOverrides] = useState<Record<string, number>>({});
   const [activePanel, setActivePanel] = useState<ActivePanel | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const sampleTestTaskId = searchParams.get("sampleTest")?.trim() || "";
+  const closeSampleTest = useCallback(() => {
+    setSearchParams((current) => withoutSampleTestQuery(current), { replace: true });
+  }, [setSearchParams]);
   // 绩效自评弹窗状态（从通知抽屉「去自评」打开）
   const [perfSelfReport, setPerfSelfReport] = useState<RdPerformanceReport | null>(null);
   const [perfSelfNotifId, setPerfSelfNotifId] = useState<string | null>(null);
@@ -5473,6 +5484,7 @@ export function RDMyWorkspacePage() {
                   <ul className="space-y-2">
                     {shownNotifications.map((notification) => {
                       const isMessage = notification.type === "message";
+                      const sampleTestMessage = parseProcurementSampleTestMessage(notification.raw_body);
                       return (
                         <li key={notification.id}>
                           <div
@@ -5518,7 +5530,7 @@ export function RDMyWorkspacePage() {
                                     </span>
                                   ) : null}
                                 </span>
-                                <AutoTranslatedText as="div" className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-600" text={notification.message} />
+                                <AutoTranslatedText as="div" className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-600" text={sampleTestMessage ? sampleTestMessageSummary(sampleTestMessage) : notification.message} />
                                 <span className="mt-1 block text-[10px] text-slate-400">{relativeTimeLabel((notification as { created_at?: string }).created_at, notification.time)}</span>
                               </span>
                             </button>
@@ -5529,7 +5541,7 @@ export function RDMyWorkspacePage() {
                                   title: t("确认关闭通知"),
                                   message: t("将关闭「{title}」这条通知。", { title: notification.title }),
                                   confirmLabel: t("确认关闭"),
-                                  details: [t("关闭后会从通知中心移除"), t("不会影响关联任务本身")],
+                                  details: [t("关闭后会从通知中心移除"), t(sampleTestMessage?.type === "procurement_sample_test_request" ? "关闭通知不会完成测试；仍需研发测试人填写并确认结论。" : "不会影响关联任务本身")],
                                   onConfirm: () => {
                                     // Persist handled state to backend so it survives page refresh
                                     if (notification.id.startsWith("msg-")) {
@@ -5771,6 +5783,8 @@ export function RDMyWorkspacePage() {
           }}
         />
       )}
+
+      {sampleTestTaskId && <ProcSampleTestDialog key={sampleTestTaskId} taskId={sampleTestTaskId} onClose={closeSampleTest} onConfirmed={() => { void loadWorkspace({ silent: true }); }} />}
 
       <AnimatePresence>
         {confirmDialog && (

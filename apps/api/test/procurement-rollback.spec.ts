@@ -39,6 +39,7 @@ function makeService(task: Json, options: { selectedQuotes?: string[] } = {}) {
       deleteMany: async (args: Json) => { calls.push({ op: 'deletePos', ...args }); return { count: 1 }; },
     },
     procTaskLog: { create: async (args: Json) => { calls.push({ op: 'log', ...args }); } },
+    rdMessage: { updateMany: async () => ({ count: 0 }) },
   };
   service.prisma = {
     procTask: { findUniqueOrThrow: async () => ({ ...task }) },

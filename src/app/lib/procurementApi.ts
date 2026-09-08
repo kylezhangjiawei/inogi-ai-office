@@ -106,12 +106,35 @@ export interface ProcurementTask {
   status: ProcStatus;
   /** 当前测试状态是否来自旧版“询价直接跳测试”，供人工核对历史样品。 */
   sampleStatusNeedsReview?: boolean;
+  sampleTest?: ProcSampleTestAssignment | null;
   logs: ProcLog[];
   createdAt: string;
   updatedAt: string;
   /** 转采购接口命中已有记录时为 true，用于幂等反馈。 */
   alreadyTransferred?: boolean;
 }
+
+export type ProcSampleTestResult = "passed" | "failed_resample" | "failed_requote";
+
+export interface ProcSampleTestAssignment {
+  roundId: string;
+  testerUserId: string;
+  testerName: string;
+  assignedAt: string;
+  assignedByName: string;
+  result: ProcSampleTestResult | null;
+  note: string | null;
+  confirmedAt: string | null;
+  confirmedByName: string | null;
+}
+
+export interface ProcSampleTestDetail {
+  task: Pick<ProcurementTask, "id" | "code" | "materialName" | "spec" | "quantity" | "unit" | "status" | "buyer" | "rdTaskId" | "rdTaskTitle" | "attachmentList">;
+  sampleTest: ProcSampleTestAssignment | null;
+  canConfirm: boolean;
+}
+
+export interface ProcSampleTester { id: string; name: string; department: string | null }
 
 export type MaterialReviewStatus = "pending" | "approved" | "rejected";
 export type MaterialReviewSource = "import" | "auto" | "manual";
@@ -168,6 +191,11 @@ export interface InventoryBomLineInput {
   baseUpdatedAt?: string;
 }
 
+export interface InventoryMatchDiagnostic {
+  reason: "material_missing" | "no_inventory_records" | "other_warehouses_only";
+  otherWarehouses: string[];
+}
+
 export interface InventoryReadinessItem {
   id: string;
   sourceLines?: InventoryBomLine[];
@@ -189,6 +217,29 @@ export interface InventoryReadinessItem {
   status: InventoryReadinessStatus;
   issue: "missing_code" | "missing_qty" | "inventory_unmatched" | null;
   syncedAt: string | null;
+  inventoryDiagnostic?: InventoryMatchDiagnostic;
+}
+
+export interface Q5PackagingInventoryItem {
+  id: string;
+  sourceRow: number;
+  code: string;
+  name: string;
+  unit: string;
+  qtyPer: number | null;
+  stock: number | null;
+  available: number | null;
+  inTransit: number | null;
+  syncedAt: string | null;
+  issue: "code_conflict" | "missing_qty" | "inventory_unmatched" | null;
+  duplicateOfRow: number | null;
+  inventoryDiagnostic?: InventoryMatchDiagnostic;
+}
+
+export interface Q5PackagingInventoryData {
+  sourceFile: string;
+  sourceSheet: string;
+  items: Q5PackagingInventoryItem[];
 }
 
 export interface InventoryReadinessResponse {
@@ -219,6 +270,7 @@ export interface InventoryReadinessResponse {
     provisional: boolean;
   };
   items: InventoryReadinessItem[];
+  packaging?: Q5PackagingInventoryData;
 }
 
 export interface ProcTaskTreeNode {
@@ -693,6 +745,28 @@ export async function setProcTaskCriticalMaterials(
     method: "PUT",
     body: JSON.stringify({ items }),
   });
+}
+
+export function listProcSampleTesters(signal?: AbortSignal): Promise<ProcSampleTester[]> {
+  return request("/sample-testers", { signal });
+}
+
+export function assignProcSampleTest(
+  id: string,
+  input: { testerUserId: string; fromStatus: "pending_sample" | "testing"; baseUpdatedAt: string },
+): Promise<ProcurementTask> {
+  return request(`/tasks/${encodeURIComponent(id)}/sample-test/assign`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function getProcSampleTest(id: string, signal?: AbortSignal): Promise<ProcSampleTestDetail> {
+  return request(`/tasks/${encodeURIComponent(id)}/sample-test`, { signal });
+}
+
+export function confirmProcSampleTest(
+  id: string,
+  input: { roundId: string; result: ProcSampleTestResult; note: string },
+): Promise<ProcSampleTestDetail> {
+  return request(`/tasks/${encodeURIComponent(id)}/sample-test/confirm`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function confirmProcTask(id: string): Promise<ProcurementTask> {

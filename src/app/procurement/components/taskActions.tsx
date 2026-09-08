@@ -4,8 +4,8 @@
 //   待处理   → 确认接收（二次确认）
 //   待询价   → 从供应商报价库多选报价，一次确认并生成任务快照，任务进入「询价中」
 //   询价中   → 完成询价（按需样情况去 已定价 / 待到样）；免费样品登记后也须等待确认到样
-//   待到样   → 样品已到（二次确认）；另可登记出样单（T+ 单号或免费样品，只登记不改状态）
-//   测试中   → 录入测试结论（决策类：通过 → 已定价 / 不通过 → 改图重新出样回「待到样」，或退回询价换供应商）
+//   待到样   → 确认到样并指定研发测试人员；另可登记出样单
+//   测试中   → 等待指定研发人员确认；采购侧可调整测试人员，不代填研发结论
 //   已定价 / 待购买 → 标记已下单（填 T+ 采购单号；直购会先打开购买链接）
 //   已下单 / 部分到货 → 登记到货（过渡期手工，T+ 接通后改由同步驱动）
 //
@@ -55,8 +55,9 @@ import {
 import { applyProcTaskUpdate, captureProcurementScope, refreshProcurement } from "../data";
 import { BuyerComboInput, DateInput, FREE_SAMPLE_ONLY_STATUSES, fmtMoney, PROC_STATUS_META, useBuyerDirectory } from "./common";
 import { TplusSupplierSelect } from "./TplusSupplierSelect";
+import { SampleTestAssignmentDialog } from "./SampleTestAssignmentDialog";
 
-type FormKind = "quote" | "select" | "order" | "receive" | "reassign" | "confirm" | "test";
+type FormKind = "quote" | "select" | "order" | "receive" | "reassign" | "confirm" | "sample-test";
 
 /** 通用确认弹窗的内容配置。 */
 interface ConfirmSpec {
@@ -143,14 +144,6 @@ function confirmSpecOf(task: ProcurementTask): ConfirmSpec | null {
         run: () => confirmProcTask(task.id),
         okText: "已确认接收",
       };
-    case "pending_sample":
-      return {
-        title: "确认样品已到？",
-        desc: "确认后任务进入「测试中」，由研发对接人评估样品是否达标。",
-        actionLabel: "样品已到",
-        run: () => transitionProcTask(task.id, "testing", "样品已到，进入测试", task.status),
-        okText: "已标记样品到货",
-      };
     default:
       return null;
   }
@@ -162,8 +155,9 @@ function formKindOf(task: ProcurementTask): FormKind | null {
       return "quote";
     case "inquiring":
       return "select";
+    case "pending_sample":
     case "testing":
-      return "test";
+      return "sample-test";
     case "priced":
     case "pending_purchase":
       return "order";
@@ -289,8 +283,19 @@ export function useProcTaskAction(options?: { onOpenDetail?: (task: ProcurementT
     });
   }, []);
 
+  const assignmentScope = captureProcurementScope();
   const modal = pending ? (
-    pending.kind === "confirm" && pending.confirm ? <ConfirmActionDialog
+    pending.kind === "sample-test" ? <SampleTestAssignmentDialog
+      key={pending.task.id}
+      task={pending.task}
+      onClose={() => setPending(null)}
+      onAssigned={(updated) => {
+        applyProcTaskUpdate(updated, assignmentScope);
+        void refreshProcurement();
+        toast.success(translate("已通知研发测试人员"));
+        setPending(null);
+      }}
+    /> : pending.kind === "confirm" && pending.confirm ? <ConfirmActionDialog
       pending={pending}
       busy={busy}
       onClose={() => setPending(null)}
@@ -323,7 +328,7 @@ const TITLES: Record<FormKind, string> = {
   receive: "登记到货",
   reassign: "转派采购负责人",
   confirm: "",
-  test: "录入测试结论",
+  "sample-test": "安排研发测试",
 };
 
 function matchQuoteTier(
@@ -799,60 +804,6 @@ function ActionModal({
             </div>
           )}
 
-          {kind === "test" && (
-            <>
-              <p className="text-sm text-slate-600">
-                {t("样品测试是否通过？通过后进入「已定价」下批量单；不通过分两种走法：同一家供应商改图再出一次样，回「待到样」；换供应商则退回「询价中」重新选报价。")}
-              </p>
-              <div><span className={label}>{t("测试结论（写入操作留痕）")}</span>
-                <Textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  rows={3}
-                  className={cn(field, "h-auto resize-none")}
-                  placeholder={t("如：尺寸公差 ±0.05 合格，硬度达标")}
-                />
-              </div>
-              <div className="space-y-2 pt-1">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void execute(
-                    () => transitionProcTask(task.id, "priced", note.trim() ? `测试通过：${note.trim()}` : "测试通过，已定价", task.status),
-                    t("已记录：测试通过"),
-                  )}
-                  className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
-                >
-                  {t("测试通过 · 下批量")}
-                </button>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void execute(
-                      () => transitionProcTask(task.id, "pending_sample", note.trim() ? `测试不通过，改图后重新出样：${note.trim()}` : "测试不通过，改图后重新出样", task.status),
-                      t("已记录：测试不通过，等待重新出样"),
-                    )}
-                    className="flex-1 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100 disabled:opacity-60"
-                  >
-                    {t("不通过 · 改图重新出样")}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void execute(
-                      () => transitionProcTask(task.id, "inquiring", note.trim() ? `测试不通过，退回询价：${note.trim()}` : "测试不通过，退回询价", task.status),
-                      t("已记录：测试不通过，退回询价"),
-                    )}
-                    className="flex-1 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 disabled:opacity-60"
-                  >
-                    {t("不通过 · 换供应商询价")}
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-
           {kind === "quote" && (
             <div className="space-y-3">
               <div className="rounded-lg border border-[#dce6ff] bg-[#eef3ff] px-3 py-2 text-pretty text-xs leading-relaxed text-[#002fa7]">
@@ -1251,8 +1202,8 @@ function ActionModal({
           )}
         </div>
 
-        {/* select 与 test 自带操作按钮，不再重复一个「确定」 */}
-        {kind !== "select" && kind !== "test" && (
+        {/* 报价选择与研发测试使用各自的操作按钮。 */}
+        {kind !== "select" && kind !== "sample-test" && (
           <div className={cn("flex gap-2 border-t border-slate-100 px-5 py-3", kind === "quote" ? "items-center justify-between" : "justify-end")}>
             {kind === "quote" && (
               <button type="button" onClick={goToQuoteBook} className="inline-flex items-center gap-1 text-xs font-medium text-[#002fa7] hover:underline">

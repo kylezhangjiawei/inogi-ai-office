@@ -6993,6 +6993,45 @@ function useMasonryColumns(): number {
   return columns;
 }
 
+function useCockpitSearchKeyword(keyword?: string, onKeywordChange?: (value: string) => void) {
+  const [value, setValue] = useState(keyword ?? "");
+  const [committedKeyword, setCommittedKeyword] = useState(keyword ?? "");
+  const composingRef = useRef(false);
+  const lastPublishedRef = useRef(keyword ?? "");
+
+  useEffect(() => {
+    if (keyword === undefined) return;
+    lastPublishedRef.current = keyword;
+    // URL 回传不能覆盖正在由输入法编辑的草稿。
+    if (!composingRef.current) {
+      setValue(keyword);
+      setCommittedKeyword(keyword);
+    }
+  }, [keyword]);
+
+  const setKeyword = useCallback((next: string) => {
+    setValue(next);
+    if (composingRef.current) return;
+    setCommittedKeyword(next);
+    if (lastPublishedRef.current !== next) {
+      lastPublishedRef.current = next;
+      onKeywordChange?.(next);
+    }
+  }, [onKeywordChange]);
+
+  return {
+    value,
+    committedKeyword,
+    setKeyword,
+    composingRef,
+    onCompositionStart: () => { composingRef.current = true; },
+    onCompositionEnd: (next: string) => {
+      composingRef.current = false;
+      setKeyword(next);
+    },
+  };
+}
+
 function PersonTaskCockpit({
   risks,
   personLoads,
@@ -7078,13 +7117,18 @@ function PersonTaskCockpit({
   // ── 任务搜索（头像行右端图标态收纳，展开为小输入框）──
   // 关键字与 KPI 筛选走同一管线（直接揉进 allActiveTasks / personTasksMap 两个 memo），
   // 懒加载留痕/AI 评分、无限滚动、批量导出等所有下游自动同口径。
-  const [localCockpitKeyword, setLocalCockpitKeyword] = useState("");
-  const cockpitKeyword = keyword ?? localCockpitKeyword;
-  const setCockpitKeyword = onKeywordChange ?? setLocalCockpitKeyword;
+  const {
+    value: cockpitKeyword,
+    committedKeyword,
+    setKeyword: setCockpitKeyword,
+    composingRef: searchComposingRef,
+    onCompositionStart: startSearchComposition,
+    onCompositionEnd: endSearchComposition,
+  } = useCockpitSearchKeyword(keyword, onKeywordChange);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const cockpitSearch = cockpitKeyword.trim();
+  const cockpitSearch = committedKeyword.trim();
   const deferredCockpitSearch = useDeferredValue(cockpitSearch);
   const searchPending = deferredCockpitSearch !== cockpitSearch;
   useEffect(() => {
@@ -8215,8 +8259,11 @@ function PersonTaskCockpit({
                   type="search"
                   value={cockpitKeyword}
                   onChange={(e) => setCockpitKeyword(e.target.value)}
-                  onBlur={() => { if (!cockpitKeyword.trim()) setSearchOpen(false); }}
+                  onCompositionStart={startSearchComposition}
+                  onCompositionEnd={(e) => endSearchComposition(e.currentTarget.value)}
+                  onBlur={() => { if (!searchComposingRef.current && !cockpitKeyword.trim()) setSearchOpen(false); }}
                   onKeyDown={(e) => {
+                    if (searchComposingRef.current || e.nativeEvent.isComposing || e.keyCode === 229) return;
                     if (e.key === "Escape") {
                       e.preventDefault();
                       closeSearchAndRestoreFocus();

@@ -2883,7 +2883,7 @@ function AttachSubtasksDialog({
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
       <DialogContent
-        className="rd-horizon-detail-dialog flex max-h-[88dvh] gap-0 overflow-hidden rounded-xl border-slate-200 bg-white p-0 sm:max-w-lg"
+        className="rd-horizon-detail-dialog flex max-h-[88dvh] flex-col gap-0 overflow-hidden rounded-xl border-slate-200 bg-white p-0 sm:max-w-lg"
         onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
         onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}
       >
@@ -2939,16 +2939,20 @@ function AttachSubtasksDialog({
                     {checked && <CheckCircle2 className="h-3 w-3" />}
                   </span>
                   <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", cfg.dot)} />
-                  <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
-                    <AutoTranslatedText text={c.title} />
-                  </span>
-                  {(c.subtasks?.length ?? 0) > 0 ? (
-                    <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500">
-                      {t("含 {n} 个下级", { n: countRelationNodes(c) - 1 })}
+                  <span className="min-w-0 flex-1 sm:flex sm:items-center sm:gap-2.5">
+                    <span className="block min-w-0 flex-1 truncate text-sm text-slate-700">
+                      <AutoTranslatedText text={c.title} />
                     </span>
-                  ) : null}
-                  <span className="shrink-0 text-[11px] text-slate-400">{displayPersonName(c.primary_owner)}</span>
-                  <span className="shrink-0 font-mono text-[11px] text-slate-400">{c.task_id}</span>
+                    <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 sm:mt-0 sm:shrink-0 sm:flex-nowrap">
+                      {(c.subtasks?.length ?? 0) > 0 ? (
+                        <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500">
+                          {t("含 {n} 个下级", { n: countRelationNodes(c) - 1 })}
+                        </span>
+                      ) : null}
+                      <span className="text-[11px] text-slate-400">{displayPersonName(c.primary_owner)}</span>
+                      <span className="break-all font-mono text-[11px] text-slate-400">{c.task_id}</span>
+                    </span>
+                  </span>
                 </button>
               );
             })
@@ -3051,7 +3055,7 @@ function DetachSubtasksDialog({
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !saving) onCancel(); }}>
       <DialogContent
-        className="rd-horizon-detail-dialog flex max-h-[88dvh] gap-0 overflow-hidden rounded-xl border-slate-200 bg-white p-0 sm:max-w-lg"
+        className="rd-horizon-detail-dialog flex max-h-[88dvh] flex-col gap-0 overflow-hidden rounded-xl border-slate-200 bg-white p-0 sm:max-w-lg"
         onEscapeKeyDown={(event) => { if (saving) event.preventDefault(); }}
         onPointerDownOutside={(event) => { if (saving) event.preventDefault(); }}
       >
@@ -3113,15 +3117,19 @@ function DetachSubtasksDialog({
                 >
                   {checked ? <CheckCircle2 className="size-3" /> : null}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
-                  <AutoTranslatedText text={candidate.title} />
-                </span>
-                {descendantCount > 0 ? (
-                  <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500">
-                    {t("含 {n} 个下级", { n: descendantCount })}
+                <span className="min-w-0 flex-1 sm:flex sm:items-center sm:gap-2.5">
+                  <span className="block min-w-0 flex-1 truncate text-sm text-slate-700">
+                    <AutoTranslatedText text={candidate.title} />
                   </span>
-                ) : null}
-                <span className="shrink-0 font-mono text-[11px] text-slate-400">{candidate.task_id}</span>
+                  <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 sm:mt-0 sm:shrink-0 sm:flex-nowrap">
+                    {descendantCount > 0 ? (
+                      <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500">
+                        {t("含 {n} 个下级", { n: descendantCount })}
+                      </span>
+                    ) : null}
+                    <span className="break-all font-mono text-[11px] text-slate-400">{candidate.task_id}</span>
+                  </span>
+                </span>
               </button>
             );
           })}

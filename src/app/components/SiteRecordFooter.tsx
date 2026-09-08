@@ -1,3 +1,4 @@
+import { useMatch } from "react-router";
 import { cn } from "./ui/utils";
 
 const ICP_RECORD_URL = "https://beian.miit.gov.cn/#/Integrated/index";
@@ -11,6 +12,7 @@ export function SiteRecordFooter({
   className?: string;
   tone?: "light" | "dark" | "horizon";
 }) {
+  const isLoginPage = useMatch("/login") !== null;
   const linkClassName = cn(
     "rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-2",
     tone === "dark"
@@ -22,8 +24,9 @@ export function SiteRecordFooter({
 
   return (
     <footer
+      style={{ display: isLoginPage ? "flex" : "none", background: "transparent" }}
       className={cn(
-        "flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 px-4 py-2 text-center text-[11px] text-slate-500 backdrop-blur-sm",
+        "shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 px-4 py-2 text-center text-[11px] text-slate-500",
         className,
       )}
     >

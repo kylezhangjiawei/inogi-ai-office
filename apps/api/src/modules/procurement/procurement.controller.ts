@@ -3,6 +3,8 @@ import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import {
   AiParseTaskDto,
+  AssignSampleTestDto,
+  ConfirmSampleTestDto,
   ApplyQuoteBookQuotesDto,
   BatchLinkPurchaseOrdersDto,
   BatchReassignDto,
@@ -281,6 +283,29 @@ export class ProcurementController {
     @Request() req: AuthedRequest,
   ) {
     return this.service.transitionTask(id, dto, this.actor(req));
+  }
+
+  @Get('sample-testers')
+  @Permissions('proc-task:inquiry')
+  sampleTesters() {
+    return this.service.listSampleTesters();
+  }
+
+  @Post('tasks/:id/sample-test/assign')
+  @Permissions('proc-task:inquiry')
+  assignSampleTest(@Param('id') id: string, @Body() dto: AssignSampleTestDto, @Request() req: AuthedRequest) {
+    return this.service.assignSampleTest(id, dto, this.actor(req));
+  }
+
+  // 普通研发可打开本人样品任务，服务内按指定测试人员或采购读取权限逐条授权。
+  @Get('tasks/:id/sample-test')
+  getSampleTest(@Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.service.getSampleTest(id, this.actor(req));
+  }
+
+  @Post('tasks/:id/sample-test/confirm')
+  confirmSampleTest(@Param('id') id: string, @Body() dto: ConfirmSampleTestDto, @Request() req: AuthedRequest) {
+    return this.service.confirmSampleTest(id, dto, this.actor(req));
   }
 
   @Post('tasks/:id/cancel')

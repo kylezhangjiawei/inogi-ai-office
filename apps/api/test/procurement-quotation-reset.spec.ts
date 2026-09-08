@@ -21,6 +21,7 @@ function makeService(task: Json, quotationCount: number) {
     },
     procQuotation: { deleteMany: async (args: Json) => { calls.push({ op: 'deleteQuotes', ...args }); return { count: quotationCount }; } },
     procTaskLog: { create: async (args: Json) => { calls.push({ op: 'log', ...args }); } },
+    rdMessage: { updateMany: async () => ({ count: 0 }) },
   };
   service.prisma = {
     procQuotation: { count: async () => quotationCount },

@@ -14,6 +14,11 @@ function withOrderTransactionReads<T extends { procTask: object; procPurchaseOrd
   };
 }
 
+function withArrivalTransaction<T extends { procTask: object }>(client: T) {
+  const tx = { ...client, $queryRaw: async () => [] };
+  return { ...client, $transaction: async (run: (value: typeof tx) => Promise<unknown>) => run(tx) };
+}
+
 function orderLinkHarness(initialRefs: Array<Record<string, unknown>> = []) {
   const task: Record<string, unknown> = { id: 'task-safe', status: 'priced', quantity: 100 };
   const refs = [...initialRefs];
@@ -92,28 +97,61 @@ test('ERP 到货下降完整重算状态与完成标记，并仅汇总历史重�
       purchaseOrderRefs: [{ id: 'ref-1', tpOrderNo: 'PO-001', tpLineNo: '1', receivedQty, etaDate: null }],
     };
     let saved: Record<string, unknown> = {};
-    const service = new ProcurementService({ procTask: {
+    const service = new ProcurementService(withArrivalTransaction({ procTask: {
       findUnique: async () => task,
       update: async ({ data }: { data: Record<string, unknown> }) => { saved = data; },
-    } } as never, {} as never, {} as never, {} as never);
+    } }) as never, {} as never, {} as never, {} as never);
     await service.recomputeArrival(task.id);
     assert.equal(saved.status, expectedStatus);
     assert.equal(saved.businessDone, receivedQty >= 100);
     assert.equal(Number(saved.arrivedQty), receivedQty);
   }
   let saved: Record<string, unknown> = {};
-  const service = new ProcurementService({ procTask: {
+  const service = new ProcurementService(withArrivalTransaction({ procTask: {
     findUnique: async () => ({ id: 'task-1', status: 'completed', quantity: 100, businessDone: true, purchaseOrderRefs: [
       { id: 'old', tpOrderNo: 'PO-001', tpLineNo: '1', receivedQty: 100, syncedAt: new Date('2026-09-01'), etaDate: null },
       { id: 'new', tpOrderNo: 'PO-001', tpLineNo: '1', receivedQty: 40, syncedAt: new Date('2026-09-02'), etaDate: null },
       { id: 'other-line', tpOrderNo: 'PO-001', tpLineNo: '2', receivedQty: 10, etaDate: null },
     ] }),
     update: async ({ data }: { data: Record<string, unknown> }) => { saved = data; },
-  } } as never, {} as never, {} as never, {} as never);
+  } }) as never, {} as never, {} as never, {} as never);
   await service.recomputeArrival('task-1');
   assert.equal(Number(saved.arrivedQty), 50);
   assert.equal(saved.status, 'partial_arrival');
   assert.equal(saved.businessDone, false);
+});
+
+test('样品到货重算保留等待/测试/定价状态，忽略免费样品且保持预计到货语义', async () => {
+  for (const status of ['pending_sample', 'testing', 'priced']) {
+    const earliest = new Date('2026-09-08T00:00:00Z');
+    const task = { id: 'sample-arrival', status, quantity: 2, businessDone: false, expectedArrivalDate: new Date('2026-09-20'),
+      purchaseOrderRefs: [
+        { id: 'paid', tpOrderNo: 'PO-SAMPLE', receivedQty: 2, etaDate: earliest, metadata: {} },
+        { id: 'free', tpOrderNo: '', receivedQty: 50, etaDate: new Date('2026-09-10'), metadata: { freeSample: true } },
+      ],
+    };
+    let saved: Record<string, unknown> = {};
+    const service = new ProcurementService(withArrivalTransaction({ procTask: {
+      findUnique: async () => task,
+      update: async ({ data }: { data: Record<string, unknown> }) => { saved = data; },
+    } }) as never, {} as never, {} as never, {} as never);
+    assert.deepEqual(await service.recomputeArrival(task.id), { taskId: task.id, arrivedQty: 2, status });
+    assert.equal(saved.status, status);
+    assert.equal(saved.businessDone, false);
+    assert.equal(Number(saved.arrivedQty), 2);
+    assert.equal(saved.expectedArrivalDate, earliest);
+    task.purchaseOrderRefs = [];
+    await service.recomputeArrival(task.id);
+    assert.equal(saved.expectedArrivalDate, task.expectedArrivalDate);
+  }
+});
+
+test('到货重算遇到已删除任务返回null且不写入', async () => {
+  const service = new ProcurementService(withArrivalTransaction({ procTask: {
+    findUnique: async () => null,
+    update: async () => assert.fail('已删除任务不应更新'),
+  } }) as never, {} as never, {} as never, {} as never);
+  assert.equal(await service.recomputeArrival('deleted-task'), null);
 });
 
 test('多供应商采购单在同一事务中保存并只流转一次任务状态', async () => {
@@ -562,7 +600,7 @@ function sampleFlowHarness(initialTask: SampleRow, initialRefs: SampleRow[] = []
   return { service, task, refs, quotes, logs, locks, hooks };
 }
 
-test('询价两档登记免费样品原子进入待到样，明确收样后才进入测试，保留报价和采购数量', async () => {
+test('询价两档登记免费样品原子进入待到样，指定测试人员前不能直接进入测试，保留报价和采购数量', async () => {
   for (const status of ['pending_inquiry', 'inquiring']) {
     const h = sampleFlowHarness({ status }, [{ id: 'old-ref', tpOrderNo: '', supplierName: '旧供应商',
       orderedQty: new Prisma.Decimal(1), receivedQty: new Prisma.Decimal(0), metadata: { freeSample: true } }]);
@@ -582,13 +620,11 @@ test('询价两档登记免费样品原子进入待到样，明确收样后才�
     assert.equal(h.logs[0].fromStatus, status);
     assert.equal(h.logs[0].toStatus, 'pending_sample');
     assert.ok(h.locks.some((args) => args[1] === h.task.id));
-    const received = await h.service.transitionTask(h.task.id, { from_status: 'pending_sample', status: 'testing', note: '样品已到，进入测试' }, sampleActor);
-    assert.equal(received.status, 'testing');
-    assert.equal(received.quantity, 500);
+    await assert.rejects(h.service.transitionTask(h.task.id, { from_status: 'pending_sample', status: 'testing', note: '样品已到，进入测试' }, sampleActor), /须指定测试人员/);
+    assert.equal(h.task.status, 'pending_sample');
+    assert.equal(Number(h.task.quantity), 500);
     assert.equal(h.refs.length, 2);
-    assert.equal(h.logs[1].fromStatus, 'pending_sample');
-    assert.equal(h.logs[1].toStatus, 'testing');
-    assert.match(h.logs[1].text, /样品已到/);
+    assert.equal(h.logs.length, 1);
   }
 });
 
@@ -650,8 +686,9 @@ test('并发推进不能让过期来源状态覆盖新状态或重复确认收�
   const receiving = sampleFlowHarness({ status: 'pending_sample', needSample: true });
   const receive = () => receiving.service.transitionTask(receiving.task.id, { from_status: 'pending_sample', status: 'testing' }, sampleActor);
   const results = await Promise.allSettled([receive(), receive()]);
-  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
-  assert.equal(receiving.logs.length, 1);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 0);
+  assert.ok(results.every((result) => result.status === 'rejected' && /须指定测试人员/.test(String(result.reason))));
+  assert.equal(receiving.logs.length, 0);
 });
 
 test('历史纠正进入事务后重新检查免费登记，已解除的登记不能放行', async () => {

@@ -138,6 +138,72 @@ function commonBomHarness() {
   return { service, nodes, materials, add, locks, db };
 }
 
+test('默认按 Q5 原材料清单核算整板和组件，不展开或混入通用 PCB 元器件', async () => {
+  const h = commonBomHarness();
+  const pcb = h.add({ name: 'PCB-主板', code: null, qtyPer: null, materialId: null });
+  h.add({ parentId: pcb.id, name: '100nF(0.1uF)/±10%/50V/0402', code: 'A02-1003', qtyPer: new Prisma.Decimal(46) });
+  const boards = h.add({ productLine: 'Q5', name: '电路板', code: null, qtyPer: null, materialId: null });
+  const cables = h.add({ productLine: 'Q5', name: '线束', code: null, qtyPer: null, materialId: null });
+  h.add({ productLine: 'Q5', parentId: boards.id, name: '【电路板】（蓝）TOP板', code: 'A01-011', qtyPer: new Prisma.Decimal(1), remark: '清单板件规格' });
+  h.add({ productLine: 'Q5', parentId: cables.id, name: '【线束】FPC软排线', code: 'A03-023', qtyPer: new Prisma.Decimal(2), remark: null, materialId: 'material-b' });
+  h.materials.push(
+    { id: 'board', tpInventoryCode: 'A01-011', name: 'ERP 另一名称', spec: 'ERP 另一规格', category: 'ERP 电子元器件', unit: '块' },
+    { id: 'cable', tpInventoryCode: 'A03-023', name: 'ERP 排线名称', spec: 'ERP 排线规格', category: 'ERP 其他类别', unit: '根' },
+  );
+  let inventoryCodes: string[] = [];
+  h.db.procInventoryBalance.findMany = async ({ where }: any) => {
+    inventoryCodes = where.tpInventoryCode.in;
+    return [
+      { tpInventoryCode: 'A01-011', warehouse: '【活】量产仓', stockQty: 70, availableQty: 60, inTransitQty: 50, syncedAt: null, material: { safeStock: 0 } },
+      { tpInventoryCode: 'A03-023', warehouse: '量产仓', stockQty: 300, availableQty: 250, inTransitQty: 0, syncedAt: null, material: { safeStock: 0 } },
+    ];
+  };
+
+  const result = await h.service.getInventoryReadiness({ targetSets: 100 });
+  assert.equal(result.productLine, 'Q5');
+  assert.ok(inventoryCodes.includes('A01-011') && inventoryCodes.includes('A03-023'));
+  assert.equal(inventoryCodes.includes('A02-1003'), false);
+  assert.equal(result.items.length, 2);
+  const board = result.items.find((item) => item.code === 'A01-011')!;
+  const cable = result.items.find((item) => item.code === 'A03-023')!;
+  assert.deepEqual([board.name, board.spec, board.category, board.unit], ['【电路板】（蓝）TOP板', '清单板件规格', '电路板', '块']);
+  assert.deepEqual([cable.name, cable.spec, cable.category, cable.unit], ['【线束】FPC软排线', '', '线束', '根']);
+  assert.equal(board.targetDemand, 100);
+  assert.equal(cable.targetDemand, 200);
+  assert.equal(result.summary.currentBuildableSets, 60);
+  assert.equal(result.summary.withTransitBuildableSets, 110);
+  assert.equal(result.dataQuality.provisional, false);
+});
+
+test('Q5 清单缺失或指定型号不存在时保留所选型号的空态，不静默切到通用', async () => {
+  const h = commonBomHarness();
+  h.add({ name: '通用 PCB 元器件' });
+  for (const query of [{}, { productLine: 'Q5' }, { productLine: '不存在的型号' }]) {
+    const result = await h.service.getInventoryReadiness(query);
+    const expectedLine = query.productLine || 'Q5';
+    assert.equal(result.productLine, expectedLine);
+    assert.equal(result.items.length, 0);
+    assert.equal(result.dataQuality.totalBomLines, 0);
+    assert.equal(result.models.find((model) => model.id === expectedLine)?.bomLines, 0);
+  }
+  const common = await h.service.getInventoryReadiness({ productLine: '通用' });
+  assert.equal(common.productLine, '通用');
+  assert.equal(common.items[0].name, '通用 PCB 元器件');
+});
+
+test('Q5 清单缺编码或单机用量时保持待完善状态，不因其他物料有库存而视为完整', async () => {
+  const h = commonBomHarness();
+  const group = h.add({ productLine: 'Q5', name: '装配组件', code: null, qtyPer: null, materialId: null });
+  h.add({ productLine: 'Q5', parentId: group.id });
+  h.add({ productLine: 'Q5', parentId: group.id, name: '待编码组件', code: null });
+  h.add({ productLine: 'Q5', parentId: group.id, name: '待用量组件', code: 'B', qtyPer: null });
+  const result = await h.service.getInventoryReadiness({ productLine: 'Q5', targetSets: 100 });
+  assert.equal(result.dataQuality.totalBomLines, 3);
+  assert.equal(result.dataQuality.invalidBomLines, 2);
+  assert.equal(result.dataQuality.provisional, true);
+  assert.deepEqual(result.items.filter((item) => item.status === 'data_missing').map((item) => item.issue).sort(), ['missing_code', 'missing_qty']);
+});
+
 test('通用物料新增、修改和删除仅作用 BOM 行并按编码重新关联物料', async () => {
   const h = commonBomHarness();
   const group = h.add({ name: 'PCB', code: null, qtyPer: null, materialId: null });
@@ -334,4 +400,57 @@ test('表单分类查询精确匹配编码并沿用齐套读取权限', async ()
   }
   await assert.rejects(() => h.service.getInventoryReadinessMaterial('x'.repeat(101)), /100/);
   assert.deepEqual(Reflect.getMetadata('permissions', ProcurementController.prototype.getInventoryReadinessMaterial), ['page:proc-inventory-readiness', 'page:proc-cockpit']);
+});
+
+test('库存诊断区分主档缺失、无任何仓库记录与仅其他仓记录，不按名称猜匹配', async () => {
+  const h = commonBomHarness();
+  h.add({ code: 'MISSING', name: 'ERP 名称 A' });
+  h.add({ code: 'A' });
+  h.add({ code: 'B' });
+  h.add({ id: 'missing-qty', code: 'B', qtyPer: null });
+  h.add({ id: 'missing-code', code: null });
+  const snapshots = ['样品仓', '【活】研发量产仓', '样品仓'].map((warehouse) => ({
+    tpInventoryCode: 'B', warehouse, stockQty: 500, availableQty: 500, inTransitQty: 100,
+    syncedAt: new Date('2026-09-08T00:00:00Z'), material: { safeStock: 0 },
+  }));
+  h.db.procInventoryBalance.findMany = async ({ where }: any) => snapshots.filter((row) =>
+    where.tpInventoryCode.in.includes(row.tpInventoryCode)
+    && (!where.warehouse || row.warehouse.includes(where.warehouse.contains)));
+  const result = await h.service.getInventoryReadiness({ productLine: '通用', targetSets: 10 });
+  assert.deepEqual((result.items.find((item) => item.code === 'MISSING') as any).inventoryDiagnostic,
+    { reason: 'material_missing', otherWarehouses: [] });
+  assert.deepEqual((result.items.find((item) => item.code === 'A') as any).inventoryDiagnostic,
+    { reason: 'no_inventory_records', otherWarehouses: [] });
+  const expected = { reason: 'other_warehouses_only', otherWarehouses: ['样品仓', '【活】研发量产仓'].sort((a, b) => a.localeCompare(b, 'zh-CN')) };
+  for (const item of result.items.filter((row) => row.code === 'B')) {
+    assert.deepEqual((item as any).inventoryDiagnostic, expected);
+    assert.equal(item.available, 0);
+    assert.equal(item.inTransit, 0);
+  }
+  assert.equal(result.items.find((item) => item.id === 'missing-qty')?.issue, 'missing_qty');
+  assert.equal('inventoryDiagnostic' in result.items.find((item) => item.id === 'missing-code')!, false);
+  assert.equal(result.summary.currentBuildableSets, 0);
+  assert.equal(result.summary.withTransitBuildableSets, 0);
+  assert.equal(result.dataQuality.inventoryMatchedLines, 0);
+  assert.deepEqual(result.warehouse.matchedNames, []);
+});
+
+test('量产仓有零库存记录时仍为缺货，其他仓数量不混入且不附加未匹配诊断', async () => {
+  const h = commonBomHarness();
+  h.add({ code: 'A', qtyPer: new Prisma.Decimal(2) });
+  h.db.procInventoryBalance.findMany = async () => [
+    { tpInventoryCode: 'A', warehouse: '【活】量产仓', stockQty: 0, availableQty: 0, inTransitQty: 0, syncedAt: null, material: { safeStock: 0 } },
+    { tpInventoryCode: 'A', warehouse: '研发量产仓', stockQty: 900, availableQty: 900, inTransitQty: 900, syncedAt: null, material: { safeStock: 0 } },
+  ];
+  const result = await h.service.getInventoryReadiness({ productLine: '通用', targetSets: 10 });
+  assert.equal(result.items[0].status, 'shortage');
+  assert.equal(result.items[0].issue, null);
+  assert.equal('inventoryDiagnostic' in result.items[0], false);
+  assert.deepEqual([result.items[0].stock, result.items[0].available, result.items[0].inTransit], [0, 0, 0]);
+  assert.equal(result.items[0].targetDemand, 20);
+  assert.equal(result.items[0].gapAfterTransit, 20);
+  assert.equal(result.dataQuality.inventoryMatchedLines, 1);
+  assert.equal(result.dataQuality.provisional, false);
+  assert.equal(result.summary.currentBuildableSets, 0);
+  assert.deepEqual(result.warehouse.matchedNames, ['【活】量产仓']);
 });
