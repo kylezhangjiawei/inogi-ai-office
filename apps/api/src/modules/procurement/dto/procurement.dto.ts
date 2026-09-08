@@ -15,6 +15,7 @@ import {
   MaxLength,
   Max,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 
@@ -395,6 +396,21 @@ export class SetProcCoreMaterialsDto {
   @IsString({ each: true })
   @MaxLength(64, { each: true })
   materialIds!: string[];
+}
+
+/** 回退会清理报价与采购单关联，必须明确目标、页面原状态和有效原因。 */
+export class RollbackProcTaskDto {
+  @IsIn(PROC_STATUSES)
+  status!: string;
+
+  @IsIn(PROC_STATUSES)
+  from_status!: string;
+
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsString()
+  @MinLength(2)
+  @MaxLength(200)
+  reason!: string;
 }
 
 export class TransitionProcTaskDto {

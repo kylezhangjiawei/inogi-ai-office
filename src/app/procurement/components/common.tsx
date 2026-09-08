@@ -146,6 +146,28 @@ export const QUOTE_RESETTABLE_STATUSES: ProcStatus[] = ["inquiring", "pending_sa
 export const INQUIRY_FLOW: ProcStatus[] = ["pending_rd_review", "pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "in_transit", "partial_arrival", "completed"];
 export const DIRECT_FLOW: ProcStatus[] = ["pending_rd_review", "pending_confirm", "pending_purchase", "in_transit", "completed"];
 
+// 与服务端回退规则一致；关联研发任务的需求还可退回研发重审。
+const ROLLBACK_MAIN_FLOW: ProcStatus[] = ["pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "in_transit", "partial_arrival", "completed"];
+const ROLLBACK_DIRECT_FLOW: ProcStatus[] = ["pending_confirm", "pending_purchase", "in_transit", "partial_arrival", "completed"];
+
+export function rollbackTargetsOf(status: ProcStatus, method?: string | null, context?: { source?: string | null; rdTaskId?: string | null }): ProcStatus[] {
+  if (status === "completed") return [];
+  const baseFlow = method === "direct" ? ROLLBACK_DIRECT_FLOW : ROLLBACK_MAIN_FLOW;
+  const flow: ProcStatus[] = context?.source === "rd" && context.rdTaskId?.trim() ? ["pending_rd_review", ...baseFlow] : baseFlow;
+  const index = flow.indexOf(status);
+  return index > 0 ? flow.slice(0, index) : [];
+}
+
+/** 按服务端实际清理范围展示确认提示；T+ 原始单据不受影响。 */
+export function rollbackCleanupHintOf(target: ProcStatus): string[] {
+  const index = target === "pending_rd_review" ? 0 : target === "pending_purchase" ? ROLLBACK_MAIN_FLOW.indexOf("priced") : ROLLBACK_MAIN_FLOW.indexOf(target);
+  const hints: string[] = [];
+  if (index >= 0 && index <= ROLLBACK_MAIN_FLOW.indexOf("pending_inquiry")) hints.push("本任务的报价记录与报价金额");
+  if (index >= 0 && index < ROLLBACK_MAIN_FLOW.indexOf("in_transit")) hints.push("非免费样品的采购单关联与到货数量");
+  if (target === "pending_rd_review") hints.push("当前采购负责人分配");
+  return hints;
+}
+
 export function StatusPill({ status, className }: { status: ProcStatus; className?: string }) {
   useI18n();
   const m = PROC_STATUS_META[status];

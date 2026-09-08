@@ -128,6 +128,51 @@ export const PROC_QUOTATION_RESETTABLE_STATUSES: ProcStatus[] = [
 /** 终态：不可再流转，也不计入待办统计。 */
 export const PROC_TERMINAL_STATUSES: ProcStatus[] = ['completed', 'cancelled'];
 
+/** 询价主干与直购旁路分别排序，回退只允许选择同流程中更早的节点。 */
+export const PROC_ROLLBACK_MAIN_FLOW: ProcStatus[] = [
+  'pending_confirm', 'pending_inquiry', 'inquiring', 'pending_sample', 'testing',
+  'priced', 'in_transit', 'partial_arrival', 'completed',
+];
+export const PROC_ROLLBACK_DIRECT_FLOW: ProcStatus[] = [
+  'pending_confirm', 'pending_purchase', 'in_transit', 'partial_arrival', 'completed',
+];
+/** 待研发审核已经是流转起点；已完成、已取消任务不允许回退。 */
+export const PROC_ROLLBACK_BLOCKED_STATUSES: ProcStatus[] = ['pending_rd_review', 'completed', 'cancelled'];
+
+export interface ProcRollbackCleanup {
+  quotations: boolean;
+  purchaseOrders: boolean;
+  arrivals: boolean;
+}
+
+/** 清理目标节点下不应存在的数据；免费样品来货事实由执行层保留。 */
+export function rollbackCleanupFor(target: ProcStatus): ProcRollbackCleanup {
+  const index = target === 'pending_rd_review' ? 0 : target === 'pending_purchase'
+    ? PROC_ROLLBACK_MAIN_FLOW.indexOf('priced')
+    : PROC_ROLLBACK_MAIN_FLOW.indexOf(target);
+  const beforeOrder = index >= 0 && index < PROC_ROLLBACK_MAIN_FLOW.indexOf('in_transit');
+  return {
+    quotations: index >= 0 && index <= PROC_ROLLBACK_MAIN_FLOW.indexOf('pending_inquiry'),
+    purchaseOrders: beforeOrder,
+    arrivals: beforeOrder,
+  };
+}
+
+export function rollbackTargetsOf(
+  current: ProcStatus,
+  method?: string | null,
+  context?: { source?: string | null; rdTaskId?: string | null },
+): ProcStatus[] {
+  if (PROC_ROLLBACK_BLOCKED_STATUSES.includes(current)) return [];
+  const flow = method === 'direct' ? PROC_ROLLBACK_DIRECT_FLOW : PROC_ROLLBACK_MAIN_FLOW;
+  const index = flow.indexOf(current);
+  if (index < 0) return [];
+  const targets = flow.slice(0, index);
+  return context?.source === 'rd' && context.rdTaskId?.trim()
+    ? ['pending_rd_review', ...targets]
+    : targets;
+}
+
 export type MaterialReviewStatus = 'pending' | 'approved' | 'rejected';
 export type MaterialReviewSource = 'import' | 'auto' | 'manual';
 export type QuotationChannel = 'manual' | 'mail';

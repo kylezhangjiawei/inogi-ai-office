@@ -22,6 +22,7 @@ import {
   ReceiveGoodsDto,
   RenameCategoryDto,
   ReviewMaterialDto,
+  RollbackProcTaskDto,
   SetProcCoreMaterialsDto,
   SetProcTaskCriticalMaterialsDto,
   TransferFromRdDto,
@@ -355,6 +356,17 @@ export class ProcurementController {
     @Request() req: AuthedRequest,
   ) {
     return this.service.confirmQuotationsFromQuoteBook(id, dto, this.actor(req));
+  }
+
+  /** 回退会清理报价与采购单关联，使用独立权限，不与日常推进共用。 */
+  @Post('tasks/:id/rollback')
+  @Permissions('proc-task:rollback')
+  rollback(
+    @Param('id') id: string,
+    @Body() dto: RollbackProcTaskDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.rollbackTask(id, dto, this.actor(req));
   }
 
   /** 重新维护报价：清空本任务已确认的报价并退回「待询价」。仅限未下单阶段。 */

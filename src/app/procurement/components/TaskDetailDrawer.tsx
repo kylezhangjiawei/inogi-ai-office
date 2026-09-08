@@ -1,6 +1,6 @@
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, Eye, ExternalLink, FolderTree, History, Paperclip, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, Eye, ExternalLink, FolderTree, History, Paperclip, Pencil, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import {
   AlertDialog,
@@ -19,13 +19,13 @@ import { ScrollArea } from "../../components/ui/scroll-area";
 import { Textarea } from "../../components/ui/textarea";
 import { cn } from "../../components/ui/utils";
 import { AttachmentPreviewDialog, type PreviewableAttachment } from "../../components/AttachmentPreviewDialog";
-import { BusinessLinePill, DIRECT_FLOW, FREE_SAMPLE_ONLY_STATUSES, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, QUOTE_RESETTABLE_STATUSES, SourcePill, StatusPill, fmtMoney, useBuyerDirectory, useProcCan } from "./common";
+import { BusinessLinePill, DIRECT_FLOW, FREE_SAMPLE_ONLY_STATUSES, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, QUOTE_RESETTABLE_STATUSES, SourcePill, StatusPill, fmtMoney, rollbackCleanupHintOf, rollbackTargetsOf, useBuyerDirectory, useProcCan } from "./common";
 import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
 import { MoveTaskDialog } from "./MoveTaskDialog";
 import { applyProcTaskUpdate, refreshProcurement, taskRequester, useProcurementData, type ProcurementTask } from "../data";
-import { listQuotations, rejectProcTask, resetProcTaskQuotations, unlinkPurchaseOrder, type Quotation } from "../../lib/procurementApi";
+import { getProcTask, listQuotations, rejectProcTask, resetProcTaskQuotations, rollbackProcTask, unlinkPurchaseOrder, type ProcStatus, type Quotation } from "../../lib/procurementApi";
 import { toast } from "sonner";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
@@ -70,6 +70,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const quoteSectionRef = useRef<HTMLDivElement>(null);
   const purchaseOrdersSectionRef = useRef<HTMLDivElement>(null);
   const resetQuoteTriggerRef = useRef<HTMLButtonElement>(null);
+  const rollbackTriggerRef = useRef<HTMLButtonElement>(null);
   const unlinkOrderTriggerRef = useRef<HTMLButtonElement | null>(null);
   const can = useProcCan();
   const { deptOf } = useBuyerDirectory();
@@ -98,6 +99,109 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
       toast.error(err instanceof Error ? err.message : t("重新维护失败"));
     } finally {
       setResetBusy(false);
+    }
+  };
+  // 打开时绑定任务和原状态；更新中的任务必须重新读取、选择，不静默换成新的 from_status。
+  const [rollbackSnapshot, setRollbackSnapshot] = useState<Pick<ProcurementTask, "id" | "code" | "status" | "method" | "source" | "rdTaskId"> | null>(null);
+  const [rollbackTarget, setRollbackTarget] = useState<ProcStatus | null>(null);
+  const [rollbackReason, setRollbackReason] = useState("");
+  const [rollbackBusy, setRollbackBusy] = useState(false);
+  const [rollbackError, setRollbackError] = useState<string | null>(null);
+  const [rollbackNeedsRefresh, setRollbackNeedsRefresh] = useState(false);
+  const rollbackBusyRef = useRef(false);
+  const rollbackFirstTargetRef = useRef<HTMLButtonElement>(null);
+  const rollbackTitleRef = useRef<HTMLHeadingElement>(null);
+  const rollbackRefreshFocusRef = useRef<typeof rollbackSnapshot>(null);
+  const currentTaskRef = useRef(task);
+  currentTaskRef.current = task;
+  const rollbackTargets = rollbackTargetsOf(rollbackSnapshot?.status ?? task.status, rollbackSnapshot?.method ?? task.method, rollbackSnapshot ?? task);
+  const canRollback = can("proc-task:rollback") && rollbackTargetsOf(task.status, task.method, task).length > 0;
+  const rollbackStale = Boolean(rollbackSnapshot && (rollbackSnapshot.id !== task.id || rollbackSnapshot.status !== task.status || rollbackSnapshot.method !== task.method || rollbackSnapshot.source !== task.source || rollbackSnapshot.rdTaskId !== task.rdTaskId));
+  const rollbackHints = rollbackTarget ? rollbackCleanupHintOf(rollbackTarget) : [];
+  // 刷新成功会移除当前聚焦的重试按钮；等新节点提交到 DOM 后，把焦点留在回退框内。
+  useEffect(() => {
+    const refreshedSnapshot = rollbackRefreshFocusRef.current;
+    if (!refreshedSnapshot || rollbackBusy) return;
+    rollbackRefreshFocusRef.current = null;
+    if (refreshedSnapshot !== rollbackSnapshot || refreshedSnapshot.id !== task.id || rollbackStale || rollbackNeedsRefresh) return;
+    const firstTarget = rollbackFirstTargetRef.current;
+    const focusTarget = firstTarget?.isConnected && !firstTarget.matches(":disabled") ? firstTarget : rollbackTitleRef.current;
+    if (focusTarget?.isConnected) focusTarget.focus();
+  }, [rollbackSnapshot, rollbackBusy, rollbackStale, rollbackNeedsRefresh, task.id]);
+  const openRollback = () => {
+    rollbackRefreshFocusRef.current = null;
+    setRollbackSnapshot({ id: task.id, code: task.code, status: task.status, method: task.method, source: task.source, rdTaskId: task.rdTaskId });
+    setRollbackTarget(null);
+    setRollbackReason("");
+    setRollbackError(null);
+    setRollbackNeedsRefresh(false);
+  };
+  const closeRollback = () => {
+    if (rollbackBusyRef.current) return;
+    rollbackRefreshFocusRef.current = null;
+    setRollbackSnapshot(null);
+    setRollbackTarget(null);
+    setRollbackReason("");
+    setRollbackError(null);
+    setRollbackNeedsRefresh(false);
+  };
+  const reloadRollbackTask = async () => {
+    if (!rollbackSnapshot || rollbackBusyRef.current || rollbackSnapshot.id !== currentTaskRef.current.id) return;
+    rollbackBusyRef.current = true;
+    setRollbackBusy(true);
+    setRollbackTarget(null);
+    setRollbackReason("");
+    try {
+      const latest = await getProcTask(rollbackSnapshot.id);
+      if (latest.id !== currentTaskRef.current.id) return;
+      applyProcTaskUpdate(latest);
+      const refreshedSnapshot = { id: latest.id, code: latest.code, status: latest.status, method: latest.method, source: latest.source, rdTaskId: latest.rdTaskId };
+      rollbackRefreshFocusRef.current = refreshedSnapshot;
+      setRollbackSnapshot(refreshedSnapshot);
+      setRollbackNeedsRefresh(false);
+      setRollbackError(null);
+    } catch (err) {
+      setRollbackError(err instanceof Error ? err.message : t("任务刷新失败，请重试"));
+      setRollbackNeedsRefresh(true);
+    } finally {
+      rollbackBusyRef.current = false;
+      setRollbackBusy(false);
+    }
+  };
+  const submitRollback = async () => {
+    const reason = rollbackReason.trim();
+    if (!rollbackSnapshot || !rollbackTarget || rollbackBusyRef.current || rollbackNeedsRefresh || !can("proc-task:rollback")) return;
+    if (rollbackSnapshot.id !== currentTaskRef.current.id || rollbackSnapshot.status !== currentTaskRef.current.status || rollbackSnapshot.method !== currentTaskRef.current.method || rollbackSnapshot.source !== currentTaskRef.current.source || rollbackSnapshot.rdTaskId !== currentTaskRef.current.rdTaskId) {
+      setRollbackError(t("任务已更新，请刷新后重新选择回退节点"));
+      setRollbackNeedsRefresh(true);
+      setRollbackTarget(null);
+      return;
+    }
+    if (!rollbackTargets.includes(rollbackTarget) || reason.length < 2 || reason.length > 200) {
+      setRollbackError(t("请选择回退节点，并填写 2–200 字的回退原因"));
+      return;
+    }
+    rollbackBusyRef.current = true;
+    setRollbackBusy(true);
+    setRollbackError(null);
+    try {
+      const updated = await rollbackProcTask(rollbackSnapshot.id, rollbackTarget, reason, rollbackSnapshot.status);
+      applyProcTaskUpdate(updated);
+      void refreshProcurement();
+      toast.success(updated.status === "pending_rd_review"
+        ? t("已退回研发重审，任务已移出采购列表；审核通过后将重新分配采购负责人")
+        : t("已回退到「{status}」", { status: t(PROC_STATUS_META[updated.status].label) }));
+      setRollbackSnapshot(null);
+      setRollbackTarget(null);
+      setRollbackReason("");
+      if (updated.status === "pending_rd_review") onClose();
+    } catch (err) {
+      setRollbackError(err instanceof Error ? err.message : t("回退失败"));
+      setRollbackNeedsRefresh(true);
+      setRollbackTarget(null);
+    } finally {
+      rollbackBusyRef.current = false;
+      setRollbackBusy(false);
     }
   };
   // 研发流转的待处理任务走「审核」语义：通过=确认提交，驳回须理由并删除采购任务
@@ -181,7 +285,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const materialSummary = [task.materialName, task.spec, `${task.quantity}${task.unit}`].filter(Boolean).join(" · ");
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Sheet open onOpenChange={(o) => { if (!o && !rollbackBusyRef.current) onClose(); }}>
       <SheetContent
         side="right"
         className="horizon-theme horizon-portal proc-horizon-drawer w-full max-w-full gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:max-w-[720px]"
@@ -196,17 +300,20 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
         {/* 头部（pr-8 给自带关闭 X 留位） */}
         <SheetHeader className="block border-b border-slate-100 px-6 py-4">
           <div ref={drawerHeaderRef} tabIndex={-1} className="flex flex-wrap items-start justify-between gap-2 pr-8 sm:flex-nowrap">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-1">
               <SheetTitle className="min-w-0 break-words text-balance text-lg font-bold tabular-nums text-slate-900">{task.code}</SheetTitle>
               <StatusPill status={task.status} />
               <BusinessLinePill line={task.businessLine} />
               <SourcePill source={task.source} />
               <MethodPill method={task.method} />
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex shrink-0 flex-wrap items-center gap-1.5">
               {/* 归类是整理动作，终态任务也允许移动——历史任务同样需要能归到正确的子系统下 */}
               {(can("proc-task:create") || can("proc-task:reassign")) && (
                 <Button type="button" variant="outline" size="sm" onClick={() => setMoveOpen(true)} title={t('移动到其他类目')} className="h-7 rounded-lg px-2.5 text-xs text-slate-600"><FolderTree className="h-3.5 w-3.5" />{t('移动归类')}</Button>
+              )}
+              {canRollback && (
+                <Button ref={rollbackTriggerRef} type="button" variant="outline" size="sm" disabled={rollbackBusy || taskAction.busy} onClick={openRollback} title={t('回退到更早的流程节点')} className="h-7 rounded-lg border-amber-200 px-2.5 text-xs text-amber-700 hover:bg-amber-50 hover:text-amber-800"><Undo2 className="h-3.5 w-3.5" />{t('回退')}</Button>
               )}
               {/* 终态任务只读；状态流转走「下一步」操作卡，这里只改任务信息 */}
               {!["completed", "cancelled"].includes(task.status) && can("proc-task:create") && (
@@ -625,6 +732,55 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               className="rounded-lg bg-amber-600 hover:bg-amber-700"
             >
               {resetBusy ? t('处理中…') : t('清空并重新维护')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={Boolean(rollbackSnapshot)} onOpenChange={(open) => { if (!open) closeRollback(); }}>
+        <AlertDialogContent onCloseAutoFocus={(event) => restoreConfirmationFocus(event, rollbackTriggerRef.current, null, drawerHeaderRef.current)} className="horizon-theme horizon-portal proc-horizon-overlay max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle ref={rollbackTitleRef} tabIndex={-1} className="text-balance text-slate-900">{t('回退任务到更早的节点')}</AlertDialogTitle>
+            <AlertDialogDescription className="text-pretty leading-relaxed">
+              {t('任务 {code}，当前状态「{status}」。请选择同一流程中更早的节点。', { code: rollbackSnapshot?.code ?? task.code, status: t(PROC_STATUS_META[rollbackSnapshot?.status ?? task.status].label) })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {(rollbackError || rollbackStale || rollbackNeedsRefresh) && (
+            <div role="alert" className="space-y-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">
+              {rollbackError && <p>{rollbackError}</p>}
+              <p>{rollbackSnapshot?.id !== task.id ? t('当前任务已切换，请关闭后重新打开回退') : t('请先刷新最新任务，再重新选择节点。不会自动重试回退。')}</p>
+              {rollbackSnapshot?.id === task.id && <Button type="button" variant="outline" size="sm" disabled={rollbackBusy} onClick={() => void reloadRollbackTask()} className="rounded-lg bg-white text-slate-700"><RefreshCw className="size-3.5" />{rollbackBusy ? t('刷新中…') : t('刷新任务后重新选择')}</Button>}
+            </div>
+          )}
+          <fieldset disabled={rollbackBusy || rollbackStale || rollbackNeedsRefresh || !can("proc-task:rollback")} className="min-w-0 space-y-3 disabled:opacity-60">
+            <legend className="mb-2 text-sm font-medium text-slate-700">{t('回退到')}</legend>
+            <div className="flex flex-wrap gap-1.5">
+              {rollbackTargets.map((target, index) => (
+                <button ref={index === 0 ? rollbackFirstTargetRef : undefined} key={target} type="button" aria-pressed={rollbackTarget === target} onClick={() => setRollbackTarget(target)} className={cn("rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50", rollbackTarget === target ? "border-amber-400 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600 hover:border-amber-200 hover:bg-amber-50")}>
+                  {t(PROC_STATUS_META[target].label)}
+                </button>
+              ))}
+            </div>
+            {rollbackTargets.length === 0 && <p className="text-sm text-slate-500">{t('当前状态没有可回退的节点')}</p>}
+            {rollbackTarget && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+                {rollbackHints.length > 0 ? <>
+                  <p className="font-semibold">{t('回退到「{status}」将清除以下数据，且不可恢复：', { status: t(PROC_STATUS_META[rollbackTarget].label) })}</p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4">{rollbackHints.map((hint) => <li key={hint}>{t(hint)}</li>)}</ul>
+                  <p className="mt-1.5">{t('免费样品来货登记、T+ 原始单据和物料主数据上的最新参考价会保留。')}</p>
+                  {rollbackTarget === "pending_rd_review" && <p className="mt-1.5 font-medium">{t('任务将离开采购列表并退回研发重审；审核通过后会自动重新分配采购负责人。')}</p>}
+                </> : <p>{t('报价、采购单关联与到货记录保持不变。')}</p>}
+              </div>
+            )}
+            <div>
+              <label htmlFor="proc-task-rollback-reason" className="mb-1.5 block text-sm font-medium text-slate-700">{t('回退原因（必填，2–200 字）')}</label>
+              <Textarea id="proc-task-rollback-reason" value={rollbackReason} onChange={(event) => setRollbackReason(event.target.value)} placeholder={t('请说明回退原因，会记入操作留痕')} aria-describedby="proc-task-rollback-reason-count" className="min-h-[72px] rounded-lg text-sm" />
+              <p id="proc-task-rollback-reason-count" className={cn("mt-1 text-right text-xs tabular-nums", rollbackReason.trim().length > 200 ? "text-rose-600" : "text-slate-400")}>{rollbackReason.trim().length}/200</p>
+            </div>
+          </fieldset>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={rollbackBusy} className="rounded-lg">{t('取消')}</AlertDialogCancel>
+            <AlertDialogAction disabled={rollbackBusy || rollbackStale || rollbackNeedsRefresh || !can("proc-task:rollback") || !rollbackTarget || rollbackReason.trim().length < 2 || rollbackReason.trim().length > 200} onClick={(event) => { event.preventDefault(); void submitRollback(); }} className="rounded-lg bg-amber-600 text-white hover:bg-amber-700">
+              {rollbackBusy ? t('处理中…') : t('确认回退')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
