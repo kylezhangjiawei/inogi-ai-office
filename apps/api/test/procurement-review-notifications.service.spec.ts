@@ -39,8 +39,10 @@ function makeService(task: Record<string, unknown>, users: Array<Record<string, 
   const handledReviewMessages: Array<Record<string, unknown>> = [];
   const taskUpdates: Array<Record<string, unknown>> = [];
   const taskLogs: Array<Record<string, unknown>> = [];
-  let taskRow: Record<string, unknown> | null = { ...task };
+  let taskRow: Record<string, unknown> | null = { ...task, logs: [] };
   const prisma = {
+    $queryRaw: async () => [{ id: task.id }],
+    auditLog: { create: async ({ data }: { data: Record<string, unknown> }) => data },
     procTask: {
       findUnique: async () => taskRow,
       findUniqueOrThrow: async () => {

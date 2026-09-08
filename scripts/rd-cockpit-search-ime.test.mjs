@@ -69,9 +69,8 @@ function fixture(initialKeyword = "") {
       endSearchComposition: current.onCompositionEnd,
       searchComposingRef: current.composingRef,
       cockpitKeyword: current.value,
-      setSearchOpen: (open) => { if (!open) closed++; },
       searchInputRef: { current: { focus: () => { focused++; } } },
-      closeSearchAndRestoreFocus: () => { closed++; current.setKeyword(""); },
+      clearSearchAndRestoreFocus: () => { closed++; current.setKeyword(""); },
     });
   };
   render();
@@ -84,7 +83,6 @@ function fixture(initialKeyword = "") {
     change(value) { handler("onChange")({ target: { value } }); return render(); },
     start() { handler("onCompositionStart")(); return render(); },
     end(value) { handler("onCompositionEnd")({ currentTarget: { value } }); return render(); },
-    blur() { handler("onBlur")(); return render(); },
     clear() { handler("onClick", clearButton)(); return render(); },
     key(key, nativeEvent = {}, keyCode = 0) {
       const event = { key, nativeEvent, keyCode, prevented: false, preventDefault() { this.prevented = true; } };
@@ -98,8 +96,7 @@ function fixture(initialKeyword = "") {
 test("拼音组词期间保留输入草稿，不更新 URL 或任务筛选，选字后提交完整中文一次", () => {
   const search = fixture();
   search.start();
-  search.blur();
-  assert.equal(search.closed, 0, "输入法组合尚未写入字符时失焦也不能卸载输入框");
+  assert.ok(!input.attributes.properties.some((prop) => prop.name?.getText(ast) === "onBlur"), "失焦不再折叠或卸载常驻搜索框");
   search.change("yan");
   assert.equal(search.state.value, "yan");
   assert.equal(search.state.committedKeyword, "");
@@ -128,7 +125,7 @@ test("路由的迟到值不会覆盖正在输入的中文组合草稿", () => {
   assert.deepEqual(search.published, ["R", "R研发"]);
 });
 
-test("输入法候选中的 Escape 或229键不清空关闭搜索，普通 Escape 仍恢复原交互", () => {
+test("输入法候选中的 Escape 或229键不清空搜索，普通 Escape 仍可清空", () => {
   const search = fixture("研发");
   search.start();
   search.change("研发ren");

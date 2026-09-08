@@ -58,10 +58,15 @@ export function ProcMyWorkspacePage() {
   const { user } = useAuth();
   const { tasks, materials, loading, error } = useProcurementData();
   const [open, setOpen] = useState<ProcurementTask | null>(null);
+  const [detailAction, setDetailAction] = useState<"rollback" | "logs" | undefined>();
   const [stat, setStat] = useState<StatKey | null>(null);
   const [query, setQuery] = useState("");
   const pageRef = useRef<HTMLDivElement>(null);
-  const taskAction = useProcTaskAction({ onOpenDetail: setOpen });
+  const openDetail = (task: ProcurementTask, action?: "rollback" | "logs") => {
+    setDetailAction(action);
+    setOpen(task);
+  };
+  const taskAction = useProcTaskAction({ onOpenDetail: (task) => openDetail(task) });
   const isInitialLoading = loading && tasks.length === 0;
 
   // 我的任务：优先按 buyerUserId 精确匹配，回退姓名（兼容仅按姓名指派的历史任务）
@@ -234,7 +239,9 @@ export function ProcMyWorkspacePage() {
                       key={task.id}
                       task={task}
                       materials={materials}
-                      onOpen={setOpen}
+                      onOpen={(task) => openDetail(task)}
+                      onRollback={(task) => openDetail(task, "rollback")}
+                      onViewLogs={(task) => openDetail(task, "logs")}
                       onNext={(x) => taskAction.runNext(x, "card")}
                       onReassign={taskAction.reassign}
                       onRemove={taskAction.remove}
@@ -247,7 +254,7 @@ export function ProcMyWorkspacePage() {
         </div>
       )}
 
-      {open && <TaskDetailDrawer task={open} onClose={() => setOpen(null)} />}
+      {open && <TaskDetailDrawer key={open.id} task={open} initialAction={detailAction} onClose={() => { setOpen(null); setDetailAction(undefined); }} />}
       {taskAction.modal}
     </div>
   );

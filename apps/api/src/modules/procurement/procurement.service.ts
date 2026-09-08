@@ -1815,6 +1815,13 @@ export class ProcurementService {
     const cleanup = rollbackCleanupFor(target);
     const returnToRdReview = target === 'pending_rd_review';
     const updated = await this.prisma.$transaction(async (tx) => {
+      // 同步到货或转派可能不改变状态；锁后读取实际清理前数据，避免日志沿用页面旧快照。
+      await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${id} FOR UPDATE`;
+      const beforeCleanup = await tx.procTask.findUnique({
+        where: { id },
+        select: { arrivedQty: true, unit: true, buyer: true, buyerUserId: true },
+      });
+      if (!beforeCleanup) throw new ConflictException('任务状态已被其他操作更新，请刷新后重试');
       // 先抢占状态再清理，避免过期页面或并发推进导致误删业务数据。
       const claimed = await tx.procTask.updateMany({
         where: { id, status: current, ...(returnToRdReview ? { source: 'rd', rdTaskId: task.rdTaskId } : {}) },
@@ -1852,7 +1859,15 @@ export class ProcurementService {
           if (count > 0) cleared.push(`${count} 条采购单关联`);
         }
       }
-      await this.endPendingSampleTest(tx, id);
+      const endedSampleTest = await this.endPendingSampleTest(tx, id);
+      const resetDetails: string[] = [];
+      if (cleanup.arrivals && num(beforeCleanup.arrivedQty) !== 0) {
+        resetDetails.push(`到货数量由 ${num(beforeCleanup.arrivedQty)} ${beforeCleanup.unit ?? ''}清零`);
+      }
+      if (returnToRdReview && (beforeCleanup.buyer || beforeCleanup.buyerUserId)) {
+        resetDetails.push(`解除采购负责人：${beforeCleanup.buyer || beforeCleanup.buyerUserId}`);
+      }
+      if (endedSampleTest) resetDetails.push(`终止未确认测试：${endedSampleTest.testerName}`);
       if (returnToRdReview) {
         // 结束存量审核待办；提交后通知原研发参与人直接继续转采购。
         await tx.rdMessage.updateMany({
@@ -1866,6 +1881,7 @@ export class ProcurementService {
           kind: 'action',
           text: `回退到「${PROC_STATUS_LABELS[target] ?? target}」`
             + `${cleared.length > 0 ? `，已清理 ${cleared.join('、')}` : ''}`
+            + `${resetDetails.length > 0 ? `；${resetDetails.join('；')}` : ''}`
             + `；原因：${reason}`,
           fromStatus: current,
           toStatus: target,
@@ -1949,7 +1965,9 @@ export class ProcurementService {
       await tx.procTask.updateMany({ where: { id: taskId }, data: {
         metadata: { ...(task.metadata as Prisma.JsonObject), sampleTest: null } as Prisma.InputJsonObject,
       } });
+      return current;
     }
+    return null;
   }
 
   async assignSampleTest(id: string, dto: AssignSampleTestDto, actor: ProcActor) {
@@ -2124,10 +2142,13 @@ export class ProcurementService {
     }
     // 外键均配置了级联删除：采购附件记录、报价快照、采购单关联、重点物料配置和日志一并移除。
     // OSS 文件不在这里物理删除，因为转采购附件可能复用研发任务的原始文件。
-    const deleted = await this.prisma.procTask.deleteMany({
-      where: { id, source: 'rd', status: 'pending_confirm' },
+    await this.prisma.$transaction(async (tx) => {
+      await this.preserveDeletedTaskAudit(tx, task, actor, trimmed, '审核驳回并删除采购任务');
+      const deleted = await tx.procTask.deleteMany({
+        where: { id, source: 'rd', status: 'pending_confirm' },
+      });
+      if (deleted.count !== 1) throw new ConflictException('该任务已被其他审核人处理，请刷新后查看');
     });
-    if (deleted.count !== 1) throw new ConflictException('该任务已被其他审核人处理，请刷新后查看');
     await this.notifyProcReviewResult(task, actor, 'rejected', 'cancelled', trimmed);
     return { ok: true, deletedId: id };
   }
@@ -2589,12 +2610,63 @@ export class ProcurementService {
     return { assigned: tasks.length, distribution: [...distribution.values()] };
   }
 
-  async deleteTask(id: string) {
+  /** 删除会级联移除任务日志，先在同一事务中保存独立审计及历史快照。 */
+  private async preserveDeletedTaskAudit(
+    tx: Prisma.TransactionClient,
+    expectedTask: { id: string; status: string; source: string },
+    actor: ProcActor,
+    reason: string,
+    actionLabel: string,
+  ) {
+    const id = expectedTask.id;
+    await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${id} FOR UPDATE`;
+    const task = await tx.procTask.findUnique({
+      where: { id },
+      include: { logs: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] } },
+    });
+    if (!task || task.status !== expectedTask.status || task.source !== expectedTask.source) {
+      throw new ConflictException('任务已被其他操作更新，请刷新后重试');
+    }
+    await tx.auditLog.create({
+      data: {
+        module: 'procurement',
+        source: 'web',
+        action: 'task.deleted',
+        resource: 'proc-task',
+        resourceId: task.id,
+        resourceName: `${task.code} · ${task.materialName}`,
+        userId: actor.id,
+        actorName: actor.name,
+        summary: `${actionLabel}「${task.code} · ${task.materialName}」；原因：${reason}`,
+        meta: {
+          changes: [{ field: 'status', before: task.status, after: 'deleted' }],
+          metadata: {
+            reason,
+            task: {
+              id: task.id, code: task.code, materialName: task.materialName,
+              spec: task.spec, quantity: num(task.quantity), unit: task.unit,
+              status: task.status, source: task.source, rdTaskId: task.rdTaskId,
+              buyer: task.buyer, buyerUserId: task.buyerUserId,
+            },
+            logs: task.logs.map((log) => ({
+              id: log.id, kind: log.kind, text: log.text,
+              actor: log.actor, actorUserId: log.actorUserId,
+              fromStatus: log.fromStatus, toStatus: log.toStatus,
+              createdAt: log.createdAt.toISOString(),
+            })),
+          },
+        },
+      },
+    });
+  }
+
+  async deleteTask(id: string, actor: ProcActor) {
     const task = await this.requireTask(id);
     if (task.status === 'pending_rd_review') {
       throw new BadRequestException('该申请尚待研发管理员审核，请通过审核入口打回');
     }
     await this.prisma.$transaction(async (tx) => {
+      await this.preserveDeletedTaskAudit(tx, task, actor, '用户确认手动删除', '删除采购任务');
       await tx.procTask.delete({ where: { id } });
       await this.handleSampleTestRequests(tx, id);
     });
@@ -2606,9 +2678,19 @@ export class ProcurementService {
     if (task.status === 'pending_rd_review') {
       throw new BadRequestException('该申请尚待研发管理员审核，采购侧不能修改附件');
     }
-    await this.prisma.procTaskAttachment.createMany({
-      data: items.map((a) => ({ taskId: id, ...this.attachmentData(a, actor) })),
-    });
+    if (items.length > 0) {
+      const attachments = items.map((a) => ({ taskId: id, ...this.attachmentData(a, actor) }));
+      await this.prisma.$transaction(async (tx) => {
+        await tx.procTaskAttachment.createMany({ data: attachments });
+        await tx.procTaskLog.create({
+          data: {
+            taskId: id, kind: 'action',
+            text: `追加 ${attachments.length} 个附件：${attachments.map((item) => item.fileName).join('、')}`,
+            actor: actor.name, actorUserId: actor.id,
+          },
+        });
+      });
+    }
     // getTask 不带 actor 会一律判无权限抛 404：写入已提交、接口却报错，前端弹红条还不刷新
     return this.getTask(id, actor);
   }
@@ -2711,28 +2793,37 @@ export class ProcurementService {
       .filter((quote) => !existingKeys.has(`${quote.materialId}\u0000${quote.supplierName}`));
     if (additions.length === 0) throw new BadRequestException('所选报价已带入当前任务');
 
-    await this.prisma.procQuotation.createMany({
-      data: additions.map((quote) => ({
-        taskId,
-        materialId: task.materialId ?? quote.materialId,
-        materialName: task.materialId ? task.materialName : quote.materialName,
-        supplierId: quote.supplierId ?? null,
-        supplierName: quote.supplierName,
-        unitPrice: new Prisma.Decimal(quote.matchedTier.unitPrice),
-        currency: quote.currency,
-        leadTimeDays: quote.leadTimeDays,
-        minOrderQty: new Prisma.Decimal(quote.matchedTier.minQty),
-        quoteDate: parseDay(quote.quoteDate) ?? new Date(),
-        validUntil: parseDay(quote.validUntil),
-        channel: 'quote-book',
-        note: [
-          quote.supplierModel ? `供应商型号：${quote.supplierModel}` : '',
-          `税费：${quote.taxIncluded ? '含税' : '未税'}`,
-          quote.belowMinOrder ? `任务数量低于起订量，按 MOQ ${quote.matchedTier.minQty} 计价` : '',
-          quote.note ?? '',
-        ].filter(Boolean).join('；'),
-        createdBy: actor.id,
-      })),
+    await this.prisma.$transaction(async (tx) => {
+      await tx.procQuotation.createMany({
+        data: additions.map((quote) => ({
+          taskId,
+          materialId: task.materialId ?? quote.materialId,
+          materialName: task.materialId ? task.materialName : quote.materialName,
+          supplierId: quote.supplierId ?? null,
+          supplierName: quote.supplierName,
+          unitPrice: new Prisma.Decimal(quote.matchedTier.unitPrice),
+          currency: quote.currency,
+          leadTimeDays: quote.leadTimeDays,
+          minOrderQty: new Prisma.Decimal(quote.matchedTier.minQty),
+          quoteDate: parseDay(quote.quoteDate) ?? new Date(),
+          validUntil: parseDay(quote.validUntil),
+          channel: 'quote-book',
+          note: [
+            quote.supplierModel ? `供应商型号：${quote.supplierModel}` : '',
+            `税费：${quote.taxIncluded ? '含税' : '未税'}`,
+            quote.belowMinOrder ? `任务数量低于起订量，按 MOQ ${quote.matchedTier.minQty} 计价` : '',
+            quote.note ?? '',
+          ].filter(Boolean).join('；'),
+          createdBy: actor.id,
+        })),
+      });
+      await tx.procTaskLog.create({
+        data: {
+          taskId, kind: 'action',
+          text: `从供应商报价库带入 ${additions.length} 条报价：${additions.map((quote) => quote.supplierName).join('、')}`,
+          actor: actor.name, actorUserId: actor.id,
+        },
+      });
     });
 
     if (task.status === 'pending_inquiry') {
@@ -2743,16 +2834,6 @@ export class ProcurementService {
         `从供应商报价库带入 ${additions.length} 条报价，进入询价中`,
         task.status,
       );
-    } else {
-      await this.prisma.procTaskLog.create({
-        data: {
-          taskId,
-          kind: 'action',
-          text: `从供应商报价库补充 ${additions.length} 条报价`,
-          actor: actor.name,
-          actorUserId: actor.id,
-        },
-      });
     }
 
     return this.listQuotations({ taskId });
@@ -2977,17 +3058,17 @@ export class ProcurementService {
 
     const selectedQuantity = quotation.quantity ?? task.quantity;
     const selectedLineTotal = quotation.unitPrice.mul(selectedQuantity).toDecimalPlaces(4);
-    await this.prisma.$transaction([
-      this.prisma.procQuotation.updateMany({ where: { taskId }, data: { isSelected: false } }),
-      this.prisma.procQuotation.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.procQuotation.updateMany({ where: { taskId }, data: { isSelected: false } });
+      await tx.procQuotation.update({
         where: { id: quotationId },
         data: {
           isSelected: true,
           quantity: selectedQuantity,
           lineTotal: selectedLineTotal,
         },
-      }),
-      this.prisma.procTask.update({
+      });
+      await tx.procTask.update({
         where: { id: taskId },
         data: {
           selectedQuotationId: quotationId,
@@ -2995,9 +3076,17 @@ export class ProcurementService {
           quotationDiscount: new Prisma.Decimal(0),
           quotationTotal: selectedLineTotal,
           quotationCurrency: quotation.currency,
+          logs: {
+            create: {
+              kind: 'action',
+              text: `选定报价：${quotation.supplierName}；单价 ${quotation.currency} ${num(quotation.unitPrice)}，数量 ${num(selectedQuantity)}，总价 ${selectedLineTotal.toFixed(4)}`,
+              actor: actor.name,
+              actorUserId: actor.id,
+            },
+          },
         },
-      }),
-    ]);
+      });
+    });
     if (task.materialId) {
       await this.prisma.procMaterial.update({
         where: { id: task.materialId },
@@ -4815,7 +4904,13 @@ export class ProcurementService {
         leadTimeDays: item.leadTimeDays ?? undefined,
       })),
       logs: task.logs.map((l) => ({
+        id: l.id,
         at: l.createdAt.toISOString().slice(0, 10),
+        createdAt: l.createdAt.toISOString(),
+        actor: l.actor ?? undefined,
+        actorUserId: l.actorUserId ?? undefined,
+        fromStatus: l.fromStatus ?? undefined,
+        toStatus: l.toStatus ?? undefined,
         text: l.text,
         kind: l.kind as 'system' | 'action',
       })),

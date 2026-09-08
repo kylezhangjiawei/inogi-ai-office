@@ -34,8 +34,46 @@ import { getProcCoreMaterialConfig, setProcCoreMaterialConfig, type ProcCoreMate
 
 const ACTIVE_STATUSES: ProcStatus[] = ["pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "pending_purchase", "in_transit", "partial_arrival"];
 const TRANSIT_STATUSES: ProcStatus[] = ["in_transit", "partial_arrival"];
-/** 瀑布流每批渲染数量（约一屏三列），滚动到底自动追加 */
+/** 任务分批渲染，滚动到底自动追加。 */
 const WATERFALL_PAGE_SIZE = 9;
+
+// 与研发驾驶舱一致：按既有排序轮转分列，各列独立堆叠；追加不重排已展示的任务。
+function distributeIntoColumns<T>(items: T[], columnCount: number): T[][] {
+  const columns: T[][] = Array.from({ length: columnCount }, () => []);
+  items.forEach((item, index) => columns[index % columnCount].push(item));
+  return columns;
+}
+
+function useMasonryColumns(container: HTMLDivElement | null, reflowPaused: boolean): number {
+  const [columns, setColumns] = useState(1);
+  useEffect(() => {
+    if (!container) return;
+    const touchQuery = window.matchMedia("(pointer: coarse)");
+    const tabletQuery = window.matchMedia("(max-width: 1023px)");
+    const update = () => {
+      // 卡片换列会重挂载；弹窗打开时延后重排，保留预览位置与未保存的编辑内容。
+      if (reflowPaused) return;
+      const availableWidth = container.clientWidth - 8;
+      if (availableWidth <= 0) return;
+      // 使用任务区实际宽度，兼容侧栏收起；窄触屏保持单列阅读，桌面最多六列。
+      const next = touchQuery.matches && tabletQuery.matches
+        ? 1
+        : Math.max(1, Math.min(6, Math.floor((availableWidth + 16) / (288 + 16))));
+      setColumns((previous) => previous === next ? previous : next);
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    touchQuery.addEventListener("change", update);
+    tabletQuery.addEventListener("change", update);
+    update();
+    return () => {
+      observer.disconnect();
+      touchQuery.removeEventListener("change", update);
+      tabletQuery.removeEventListener("change", update);
+    };
+  }, [container, reflowPaused]);
+  return columns;
+}
 
 type StatKey = "inprogress" | "pending" | "inquiring" | "transit" | "overdue" | "week";
 
@@ -308,6 +346,18 @@ export function ProcurementCockpitPage() {
 
   // 任务分批渲染：首屏一批，滚动到底部哨兵自动追加；筛选条件变化重置
   const [visibleCount, setVisibleCount] = useState(WATERFALL_PAGE_SIZE);
+  const [taskStreamElement, setTaskStreamElement] = useState<HTMLDivElement | null>(null);
+  const [openTaskOverlays, setOpenTaskOverlays] = useState<Set<string>>(() => new Set());
+  const onTaskOverlayOpenChange = useCallback((taskId: string, open: boolean) => {
+    setOpenTaskOverlays((current) => {
+      if (current.has(taskId) === open) return current;
+      const next = new Set(current);
+      if (open) next.add(taskId);
+      else next.delete(taskId);
+      return next;
+    });
+  }, []);
+  const masonryColumns = useMasonryColumns(taskStreamElement, openTaskOverlays.size > 0);
   const [sentinelElement, setSentinelElement] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
     setVisibleCount(WATERFALL_PAGE_SIZE);
@@ -551,7 +601,7 @@ export function ProcurementCockpitPage() {
       </div>
 
       {/* 任务展示区 */}
-        <div className="proc-horizon-task-scroll">
+        <div ref={setTaskStreamElement} className="proc-horizon-task-scroll">
           {error ? (
             <div role="alert" className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-rose-200 bg-rose-50/40 px-4 py-12 text-center text-sm text-rose-700">
               <AlertTriangle className="size-7 text-rose-500" />
@@ -562,9 +612,9 @@ export function ProcurementCockpitPage() {
               <button type="button" onClick={() => void refreshProcurement()} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</button>
             </div>
           ) : loading && tasks.length === 0 ? (
-            <div aria-label={t("正在加载采购任务")} className="proc-horizon-task-grid">
-              {[0, 1, 2].map((item) => (
-                <div key={item} className="min-h-52 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div aria-label={t("正在加载采购任务")} className="proc-horizon-task-masonry">
+              {Array.from({ length: masonryColumns }, (_, item) => (
+                <div key={item} className="min-h-52 min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <div className="flex gap-2"><span className="h-5 w-16 rounded bg-slate-100" /><span className="h-5 w-20 rounded bg-slate-100" /></div>
                   <div className="mt-4 h-5 w-3/4 rounded bg-slate-100" />
                   <div className="mt-3 h-4 w-full rounded bg-slate-100" />
@@ -585,18 +635,21 @@ export function ProcurementCockpitPage() {
             </div>
           ) : (
               <>
-                {/* 根据内容区宽度分列，同一行卡片及底部操作对齐。 */}
-                <div className="proc-horizon-task-grid">
-                  {visibleTasks.map((t) => (
-                    <div key={t.id} className="min-w-0">
-                      <ProcurementTaskCard
-                        task={t}
-                        materials={materials}
-                        onOpen={setOpen}
-                        onNext={(task) => taskAction.runNext(task, "card")}
-                        onReassign={taskAction.reassign}
-                        onRemove={taskAction.remove}
-                      />
+                <div className="proc-horizon-task-masonry">
+                  {distributeIntoColumns(visibleTasks, masonryColumns).map((column, columnIndex) => (
+                    <div key={columnIndex} className="proc-horizon-task-masonry-column">
+                      {column.map((task) => (
+                        <ProcurementTaskCard
+                          key={task.id}
+                          task={task}
+                          materials={materials}
+                          onOpen={setOpen}
+                          onNext={(nextTask) => taskAction.runNext(nextTask, "card")}
+                          onReassign={taskAction.reassign}
+                          onRemove={taskAction.remove}
+                          onOverlayOpenChange={onTaskOverlayOpenChange}
+                        />
+                      ))}
                     </div>
                   ))}
                 </div>

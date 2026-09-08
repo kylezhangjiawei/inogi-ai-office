@@ -337,8 +337,9 @@ export interface ComboOption {
  * 候选点击用 onSelect（cmdk 处理 pointer 事件），焦点始终留在输入框。
  */
 export function ComboInput({
-  value, onChange, options, placeholder, className, disabled, autoFocus, ariaLabel, onEnter, onEscape,
+  id, value, onChange, options, placeholder, className, disabled, autoFocus, ariaLabel, required, onEnter, onEscape,
 }: {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   options: Array<ComboOption | string>;
@@ -347,6 +348,7 @@ export function ComboInput({
   className?: string;
   disabled?: boolean;
   autoFocus?: boolean;
+  required?: boolean;
   /** 回车（弹层已收起后）提交，如「输入姓名回车添加」 */
   onEnter?: () => void;
   onEscape?: () => void;
@@ -368,6 +370,8 @@ export function ComboInput({
     <Popover modal open={show} onOpenChange={setOpen}>
       <PopoverAnchor asChild>
         <Input
+          id={id}
+          required={required}
           value={value}
           disabled={disabled}
           autoFocus={autoFocus}
@@ -418,8 +422,9 @@ function fmtDay(d: Date): string {
 
 /** 日期输入：值为 YYYY-MM-DD 或空串；可清除。modal 模式保证在 Dialog/Sheet 内点选不误关外层弹窗。 */
 export function DateInput({
-  value, onChange, placeholder, className, clearable = true, ariaLabel, disabled = false,
+  id, value, onChange, placeholder, className, clearable = true, ariaLabel, disabled = false,
 }: {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -435,6 +440,7 @@ export function DateInput({
     <Popover modal open={!disabled && open} onOpenChange={(next) => { if (!disabled) setOpen(next); }}>
       <PopoverTrigger asChild>
         <Button
+          id={id}
           type="button"
           aria-label={ariaLabel}
           variant="outline"

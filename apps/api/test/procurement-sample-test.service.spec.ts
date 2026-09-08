@@ -63,6 +63,7 @@ function harness() {
     procQuotation: { count: async () => 1, deleteMany: async () => ({ count: 1 }) },
     procPurchaseOrderRef: { findMany: async () => [], deleteMany: async () => ({ count: 0 }) },
     procTaskLog: { create: async ({ data }: any) => { logs.push({ ...data, createdAt: new Date() }); return data; } },
+    auditLog: { create: async ({ data }: any) => data },
     rdMessage: {
       create: async ({ data }: any) => { if (hooks.failMessage) throw new Error('message write failed'); messages.push(data); return data; },
       updateMany: async ({ where, data }: any) => {
@@ -268,7 +269,7 @@ for (const action of ['rollback', 'cancel', 'reset', 'delete'] as const) {
   const operate = (h: ReturnType<typeof harness>) => action === 'rollback'
     ? h.service.rollbackTask(h.task.id, { from_status: 'testing', status: 'pending_sample', reason: '本轮样品作废' }, buyerActor)
     : action === 'cancel' ? h.service.cancelTask(h.task.id, { reason: '需求取消' }, buyerActor)
-      : action === 'reset' ? h.service.resetTaskQuotations(h.task.id, '报价错误', buyerActor) : h.service.deleteTask(h.task.id);
+      : action === 'reset' ? h.service.resetTaskQuotations(h.task.id, '报价错误', buyerActor) : h.service.deleteTask(h.task.id, buyerActor);
 
   test(`${action} 结束旧样品待办且保留通知留痕，旧轮次不能恢复确认`, async () => {
     const h = harness();

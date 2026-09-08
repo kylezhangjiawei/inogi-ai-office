@@ -25,7 +25,7 @@ import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
 import { MoveTaskDialog } from "./MoveTaskDialog";
 import { applyProcTaskUpdate, captureProcurementScope, refreshProcurement, taskRequester, useProcurementData, type ProcurementTask } from "../data";
-import { getProcTask, listQuotations, rejectProcTask, resetProcTaskQuotations, rollbackProcTask, unlinkPurchaseOrder, type ProcStatus, type Quotation } from "../../lib/procurementApi";
+import { getProcTask, listQuotations, rejectProcTask, resetProcTaskQuotations, rollbackProcTask, unlinkPurchaseOrder, type ProcLog, type ProcStatus, type Quotation } from "../../lib/procurementApi";
 import { toast } from "sonner";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
@@ -39,6 +39,7 @@ function previewModel(attachment: ProcurementTask["attachmentList"][number]): Pr
     mime: attachment.mimeType,
     size: attachment.fileSize,
     url: attachment.fileUrl,
+    thumbUrl: attachment.thumbUrl,
   };
 }
 
@@ -58,7 +59,17 @@ function restoreConfirmationFocus(event: Event, opener: HTMLButtonElement | null
   target?.focus();
 }
 
-export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onClose: () => void }) {
+function formatProcLogTime(log: ProcLog): string {
+  if (log.createdAt) {
+    const date = new Date(log.createdAt);
+    if (Number.isFinite(date.getTime())) return date.toLocaleString(undefined, {
+      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    });
+  }
+  return log.at || "";
+}
+
+export function TaskDetailDrawer({ task, onClose, initialAction }: { task: ProcurementTask; onClose: () => void; initialAction?: "rollback" | "logs" }) {
   const { t } = useI18n();
   const { materials } = useProcurementData();
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -72,6 +83,10 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const purchaseOrdersSectionRef = useRef<HTMLDivElement>(null);
   const resetQuoteTriggerRef = useRef<HTMLButtonElement>(null);
   const rollbackTriggerRef = useRef<HTMLButtonElement>(null);
+  const logsSectionRef = useRef<HTMLDivElement>(null);
+  const logsTriggerRef = useRef<HTMLButtonElement>(null);
+  const logsFocusRequestRef = useRef<string | null>(null);
+  const initialActionHandledRef = useRef<string | null>(null);
   const unlinkOrderTriggerRef = useRef<HTMLButtonElement | null>(null);
   const can = useProcCan();
   const { deptOf } = useBuyerDirectory();
@@ -132,6 +147,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
     if (focusTarget?.isConnected) focusTarget.focus();
   }, [rollbackSnapshot, rollbackBusy, rollbackStale, rollbackNeedsRefresh, task.id]);
   const openRollback = () => {
+    if (!canRollback || rollbackBusyRef.current || taskAction.busy) return;
     rollbackRefreshFocusRef.current = null;
     setRollbackSnapshot({ id: task.id, code: task.code, status: task.status, method: task.method, source: task.source, rdTaskId: task.rdTaskId });
     setRollbackTarget(null);
@@ -139,6 +155,24 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
     setRollbackError(null);
     setRollbackNeedsRefresh(false);
   };
+  useEffect(() => {
+    if (!initialAction) return;
+    const requestKey = `${task.id}:${initialAction}`;
+    if (initialActionHandledRef.current === requestKey) return;
+    initialActionHandledRef.current = requestKey;
+    if (initialAction === "rollback") {
+      openRollback();
+    } else {
+      logsFocusRequestRef.current = task.id;
+      setLogsOpen(true);
+    }
+  }, [initialAction, task.id]);
+  useEffect(() => {
+    if (!logsOpen || logsFocusRequestRef.current !== task.id) return;
+    logsFocusRequestRef.current = null;
+    logsTriggerRef.current?.focus({ preventScroll: true });
+    logsSectionRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+  }, [logsOpen, task.id]);
   const closeRollback = () => {
     if (rollbackBusyRef.current) return;
     rollbackRefreshFocusRef.current = null;
@@ -678,15 +712,23 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           )}
 
           {/* 操作日志 */}
-          <Collapsible open={logsOpen} onOpenChange={setLogsOpen} className="proc-horizon-drawer-section rounded-xl border border-slate-100">
-            <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-2.5 text-balance text-sm font-semibold tabular-nums text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40">{t('操作日志（{count}）', { count: task.logs.length })}<ChevronDown className={cn("size-4 text-slate-400", logsOpen && "rotate-180")} /></CollapsibleTrigger>
+          <Collapsible ref={logsSectionRef} open={logsOpen} onOpenChange={setLogsOpen} className="proc-horizon-drawer-section scroll-mt-4 rounded-xl border border-slate-100">
+            <CollapsibleTrigger ref={logsTriggerRef} className="flex w-full items-center justify-between px-4 py-2.5 text-balance text-sm font-semibold tabular-nums text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40">{t('操作日志（{count}）', { count: task.logs.length })}<ChevronDown className={cn("size-4 text-slate-400", logsOpen && "rotate-180")} /></CollapsibleTrigger>
             <CollapsibleContent>
               {task.logs.length > 0 ? (
                 <ul className="space-y-2 border-t border-slate-100 px-4 py-3">
                   {task.logs.map((log, index) => (
-                    <li key={index} className="flex gap-3 text-sm">
-                      <span className="w-24 shrink-0 text-xs tabular-nums text-slate-400">{log.at}</span>
-                      <AutoTranslatedText className="min-w-0 break-words text-pretty text-slate-600" text={log.text} />
+                    <li key={log.id ?? `${log.at}-${index}`} className="min-w-0 space-y-1.5 rounded-lg bg-slate-50 px-3 py-2.5 text-sm">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                        <span className="break-words text-xs font-semibold text-slate-700">{log.actor?.trim() || t("操作人未记录")}</span>
+                        <time dateTime={log.createdAt || undefined} className="text-xs tabular-nums text-slate-400">{formatProcLogTime(log) || t("时间未记录")}</time>
+                      </div>
+                      {(log.fromStatus || log.toStatus) ? <div className="text-xs text-slate-500">
+                        {log.fromStatus ? t(PROC_STATUS_META[log.fromStatus]?.label ?? log.fromStatus) : t("未记录")}
+                        <span aria-label={t("变更为")} className="px-1.5">→</span>
+                        {log.toStatus ? t(PROC_STATUS_META[log.toStatus]?.label ?? log.toStatus) : t("未记录")}
+                      </div> : null}
+                      <AutoTranslatedText as="p" className="min-w-0 break-words text-pretty text-xs leading-5 text-slate-600" text={log.text} />
                     </li>
                   ))}
                 </ul>
@@ -811,7 +853,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
       </AlertDialog>
       {editOpen && <EditTaskModal task={task} onClose={() => setEditOpen(false)} />}
       {previewAttachment ? (
-        <AttachmentPreviewDialog attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
+        <AttachmentPreviewDialog attachment={previewAttachment} attachments={task.attachmentList.map(previewModel)} onClose={() => setPreviewAttachment(null)} />
       ) : null}
       </SheetContent>
     </Sheet>

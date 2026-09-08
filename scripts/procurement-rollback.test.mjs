@@ -71,7 +71,7 @@ test("回退客户端保留原状态、规范原因且转义任务路径", async
 });
 
 // 运行真实详情组件的事件处理与 hooks 状态；可视布局、Radix 焦点/键盘交互另由浏览器验收。
-function drawerHarness({ allowed = true, status = "partial_arrival", method = "inquiry", source: taskSource = "self", rdTaskId, rollback, reload } = {}) {
+function drawerHarness({ allowed = true, status = "partial_arrival", method = "inquiry", source: taskSource = "self", rdTaskId, rollback, reload, initialAction, logs = [] } = {}) {
   const text = source("src/app/procurement/components/TaskDetailDrawer.tsx");
   const file = ts.createSourceFile("TaskDetailDrawer.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const imports = file.statements.filter(ts.isImportDeclaration).flatMap((node) => {
@@ -82,7 +82,7 @@ function drawerHarness({ allowed = true, status = "partial_arrival", method = "i
   const body = file.statements.filter((node) => !ts.isImportDeclaration(node)).map((node) => node.getText(file)).join("\n");
   let task = {
     id: "task-1", code: "PO-001", status, method, materialName: "测试物料", unit: "件", quantity: 10, arrivedQty: 10,
-    attachmentList: [], purchaseOrders: [], criticalMaterials: [], logs: [], businessLine: "rd", source: taskSource, rdTaskId, paymentStatus: "paid",
+    attachmentList: [], purchaseOrders: [], criticalMaterials: [], logs, businessLine: "rd", source: taskSource, rdTaskId, paymentStatus: "paid",
   };
   const values = [];
   let cursor = 0;
@@ -92,6 +92,7 @@ function drawerHarness({ allowed = true, status = "partial_arrival", method = "i
   const notifications = [];
   const effects = [];
   const focusEvents = [];
+  const scrollEvents = [];
   const attachedRefs = new Set();
   const stubs = Object.fromEntries(imports.map((name) => [name, name]));
   Object.assign(stubs, helpers, {
@@ -126,7 +127,7 @@ function drawerHarness({ allowed = true, status = "partial_arrival", method = "i
   const exports = {};
   const React = { createElement: (type, props, ...children) => ({ type, props: { ...props, children } }) };
   new Function("exports", "stubs", "React", `const { ${imports.join(",")} } = stubs;\n${transpile(body)}`)(exports, stubs, React);
-  const render = () => { cursor = 0; effects.length = 0; return exports.TaskDetailDrawer({ task, onClose() { events.push("close"); } }); };
+  const render = () => { cursor = 0; effects.length = 0; return exports.TaskDetailDrawer({ task, initialAction, onClose() { events.push("close"); } }); };
   const nodes = (node) => !node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)];
   const content = (node) => node == null || typeof node === "boolean" ? "" : Array.isArray(node) ? node.map(content).join("") : typeof node === "object" ? content(node.props?.children) : String(node);
   const find = (predicate) => nodes(render()).find(predicate);
@@ -148,7 +149,7 @@ function drawerHarness({ allowed = true, status = "partial_arrival", method = "i
       const isDisabled = disabled || Boolean(node.props?.disabled);
       const ref = node.props?.ref;
       if (ref && typeof ref === "object") {
-        ref.current = { isConnected: connected, matches: () => isDisabled, focus: () => focusEvents.push(content(node)) };
+        ref.current = { isConnected: connected, matches: () => isDisabled, focus: () => focusEvents.push(content(node)), scrollIntoView: (options) => scrollEvents.push(options) };
         attachedRefs.add(ref);
       }
       attach(node.props?.children, isDisabled);
@@ -156,8 +157,55 @@ function drawerHarness({ allowed = true, status = "partial_arrival", method = "i
     attach(tree);
     for (const effect of effects) effect();
   };
-  return { render, button, click, reason, alert, find, calls, updates, events, notifications, text: () => content(render()), settle, commitEffects, detachRefs, focusEvents, changeTask: (patch) => { task = { ...task, ...patch }; } };
+  return { render, button, click, reason, alert, find, calls, updates, events, notifications, text: () => content(render()), settle, commitEffects, detachRefs, focusEvents, scrollEvents, changeTask: (patch) => { task = { ...task, ...patch }; } };
 }
+
+test("个人工作台直达回退只触发一次，刷新状态不会重开已关闭的确认", () => {
+  const ui = drawerHarness({ initialAction: "rollback" });
+  ui.commitEffects();
+  assert.ok(ui.find((node) => node.type === "AlertDialog" && node.props.open));
+  assert.equal(ui.button("确认回退").props.disabled, true, "仍须选择节点和填写原因");
+  ui.find((node) => node.type === "AlertDialog" && node.props.open).props.onOpenChange(false);
+  ui.changeTask({ status: "testing" });
+  ui.commitEffects();
+  assert.equal(ui.find((node) => node.type === "AlertDialog" && node.props.open), undefined);
+  assert.equal(ui.calls.length, 0);
+  for (const options of [{ allowed: false }, { status: "completed" }, { status: "cancelled" }]) {
+    const denied = drawerHarness({ initialAction: "rollback", ...options });
+    denied.commitEffects();
+    assert.equal(denied.find((node) => node.type === "AlertDialog" && node.props.open), undefined);
+  }
+});
+
+test("操作记录入口展开并定位日志，数据刷新不会重复滚动打断阅读", () => {
+  const ui = drawerHarness({ initialAction: "logs" });
+  ui.commitEffects();
+  ui.commitEffects();
+  const logs = ui.find((node) => node.type === "Collapsible");
+  assert.equal(logs.props.open, true);
+  assert.equal(ui.scrollEvents.length, 1);
+  assert.ok(ui.focusEvents.some((value) => value.startsWith("操作日志")));
+  ui.changeTask({ logs: [{ at: "2026-09-08", text: "新增记录" }] });
+  ui.commitEffects();
+  assert.equal(ui.scrollEvents.length, 1);
+});
+
+test("新操作记录显示真实操作人、完整本地时间及前后状态；历史记录不伪造身份时间", () => {
+  const createdAt = "2026-09-08T06:37:42.000Z";
+  const ui = drawerHarness({ logs: [
+    { id: "log-1", at: "2026-09-08", createdAt, actor: "采购张工", actorUserId: "buyer-1", fromStatus: "testing", toStatus: "inquiring", text: "回退原因：样品型号不符" },
+    { at: "2026-07-20", text: "历史导入记录" },
+  ] });
+  const expectedTime = new Date(createdAt).toLocaleString(undefined, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  assert.ok(ui.text().includes(expectedTime));
+  assert.ok(ui.text().includes("采购张工"));
+  assert.ok(ui.text().includes("操作人未记录"));
+  assert.ok(ui.text().includes("测试中"));
+  assert.ok(ui.text().includes("询价中"));
+  assert.ok(ui.text().includes("2026-07-20"));
+  assert.ok(ui.find((node) => node.type === "AutoTranslatedText" && node.props.text === "回退原因：样品型号不符"));
+  assert.ok(ui.find((node) => node.type === "time" && node.props.dateTime === createdAt));
+});
 
 test("进行中任务按独立权限展示回退，原因边界通过后只提交一次", async () => {
   const noPermission = drawerHarness({ allowed: false });

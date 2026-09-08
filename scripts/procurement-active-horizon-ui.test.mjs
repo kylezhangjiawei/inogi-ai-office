@@ -60,7 +60,7 @@ test("采购弹窗和键盘交互继续使用项目可访问原语", () => {
   assert.match(quoteForm, /aria-label=\{t\("预览商品图片"\)\}/);
   assert.match(taskDetail, /<Sheet open/);
   assert.match(taskDetail, /<AlertDialog open=/);
-  assert.match(taskDetail, /<Collapsible open=/);
+  assert.match(taskDetail, /<Collapsible\b[^>]*\bopen=\{logsOpen\}/);
 
   assert.match(systemTree, /<Tabs value=/);
   assert.match(systemTree, /<Select[\s\S]*?<SelectTrigger/);

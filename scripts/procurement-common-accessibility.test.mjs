@@ -75,8 +75,15 @@ test("旧联想输入不传标签时保留输入值和占位提示", () => {
   assert.doesNotMatch(html, /aria-label=/);
 });
 
+test("物料联想输入将字段 ID 与必填约束传到真实输入框", () => {
+  const html = render(ComboInput, { id: "stock-plan-material", value: "", onChange() {}, options: [], required: true });
+  assert.match(html, /<input\b[^>]*id="stock-plan-material"/);
+  assert.match(html, /<input\b[^>]*required=""/);
+});
+
 test("日期字段标签落到可操作按钮，已有日期仍可见", () => {
-  const html = render(DateInput, { value: "2026-09-04", onChange() {}, ariaLabel: "报价日期" });
+  const html = render(DateInput, { id: "quote-date", value: "2026-09-04", onChange() {}, ariaLabel: "报价日期" });
+  assert.match(html, /<button\b[^>]*id="quote-date"/);
   assert.match(html, /<button\b[^>]*aria-label="报价日期"/);
   assert.match(html, />2026-09-04<\/span>/);
   assert.doesNotMatch(html, /ariaLabel=/);

@@ -2058,10 +2058,6 @@
   box-shadow: none !important;
 }
 
-.rd-horizon-cockpit .rd-horizon-search input {
-  width: clamp(8.5rem, 18vw, 13rem) !important;
-}
-
 .rd-horizon-cockpit .rd-horizon-search input:focus,
 .rd-horizon-cockpit .rd-horizon-search > button:hover {
   border-color: rgba(var(--primary-rgb), 0.28) !important;
@@ -6824,519 +6820,638 @@ html.mobile-route select {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * 原生研发操作留痕：Horizon / Klein Blue 精修
- * 仅 RDAuditLogPage 在非协同、非生产工作区挂载根类后生效。
- * 三栏切换以有效内容容器宽度为准，避免侧边栏占宽后仍命中 viewport xl。
+ * 原生研发操作留痕：完整宽度的列表与独立详情抽屉
+ * 仅原生研发根类及其详情 portal 生效；页面自然纵向滚动，表格只负责横向溢出。
  * ──────────────────────────────────────────────────────────────────────────── */
 .rd-horizon-audit {
-  padding: 0.875rem 1rem 1.25rem !important;
-  background: transparent !important;
+  min-width: 0;
+  color: var(--on-surface-variant);
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 }
 
 .rd-horizon-audit .rd-horizon-audit-shell {
   width: 100%;
-  max-width: 95rem !important;
-  gap: 1rem !important;
-  container-name: rd-audit;
-  container-type: inline-size;
+  min-width: 0;
+  gap: 0.75rem;
 }
 
-.rd-horizon-audit :where(h2, h3, h4) {
-  color: var(--rd-ink);
-}
-
-.rd-horizon-audit :where(button, input, select, textarea, [role="button"], [tabindex]):focus-visible,
-.rd-horizon-audit .rd-horizon-audit-row:focus-visible {
-  outline: 2px solid rgba(var(--primary-rgb), 0.72) !important;
-  outline-offset: -2px !important;
-  box-shadow: none !important;
+.rd-horizon-audit :where(h1, h2, h3, h4),
+.rd-horizon-audit-dialog :where(h2, h3, h4) {
+  color: var(--foreground);
+  text-wrap: balance;
 }
 
 .rd-horizon-audit .rd-horizon-audit-command {
-  min-height: 4.875rem;
-  align-items: center !important;
-  overflow: hidden;
-  border: 1px solid transparent;
-  border-radius: 20px;
-  padding: 1rem 1.125rem !important;
-  background: var(--rd-surface);
-  box-shadow: var(--rd-shadow-focal);
+  align-items: center;
+  gap: 1rem;
+  padding: 0;
+  min-height: 2.75rem;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
-.rd-horizon-audit .rd-horizon-audit-command-icon {
-  width: 2.5rem !important;
-  height: 2.5rem !important;
-  border-radius: 12px !important;
-  background: var(--rd-primary) !important;
-  box-shadow: 0 9px 18px -13px rgba(var(--primary-rgb), 0.74) !important;
+.rd-horizon-audit .rd-horizon-audit-command .hz-command-heading { align-items: center; }
+
+.rd-horizon-audit .rd-horizon-audit-command .hz-command-heading > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.375rem 1rem;
 }
 
-.rd-horizon-audit .rd-horizon-audit-command-copy h2 {
-  color: var(--rd-ink) !important;
-  font-size: 1.05rem !important;
-  font-weight: 700 !important;
-  letter-spacing: -0.012em;
+.rd-horizon-audit .rd-horizon-audit-command .hz-eyebrow:empty { display: none; }
+
+.rd-horizon-audit .rd-horizon-audit-command .hz-meta { margin: 0; }
+
+.rd-horizon-audit .rd-horizon-audit-command .hz-title {
+  font-size: 1.125rem;
+  margin: 0;
 }
 
-.rd-horizon-audit .rd-horizon-audit-command-copy p {
-  color: var(--rd-muted) !important;
-  font-size: 0.75rem !important;
+.rd-horizon-audit .rd-horizon-audit-command .hz-actions {
+  flex-shrink: 0;
 }
 
-.rd-horizon-audit .rd-horizon-audit-presets {
-  justify-content: flex-end;
+.rd-horizon-audit .rd-horizon-audit-metrics {
+  gap: 0.75rem;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
-.rd-horizon-audit .rd-horizon-audit-preset,
-.rd-horizon-audit .rd-horizon-audit-reset {
-  min-height: 2.5rem;
-  border-radius: 10px !important;
-  box-shadow: none !important;
-  transform: none !important;
+.rd-horizon-audit .rd-horizon-audit-metrics .hz-stat {
+  min-height: 4.5rem;
+  align-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 1rem;
+  padding: 0.75rem;
+  background: var(--card);
+  box-shadow: var(--shadow-card);
 }
 
-.rd-horizon-audit .rd-horizon-audit-preset {
-  border-color: var(--rd-line) !important;
-  color: var(--rd-body) !important;
-  background: var(--rd-surface) !important;
+.rd-horizon-audit .rd-horizon-audit-metrics .hz-stat > div {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
 }
 
-.rd-horizon-audit .rd-horizon-audit-preset:hover {
-  border-color: rgba(var(--primary-rgb), 0.2) !important;
-  color: var(--rd-primary) !important;
-  background: var(--rd-soft-blue) !important;
-  transform: none !important;
+.rd-horizon-audit .rd-horizon-audit-metrics .hz-stat-note {
+  grid-column: 1;
+  grid-row: 2;
+  margin: 0;
 }
 
-.rd-horizon-audit .rd-horizon-audit-reset {
-  background: var(--rd-primary) !important;
-  box-shadow: 0 10px 20px -14px rgba(var(--primary-rgb), 0.7) !important;
+.rd-horizon-audit .rd-horizon-audit-metrics .hz-stat-value {
+  margin-top: 0;
+  font-size: 1.5rem;
+  grid-column: 2;
+  grid-row: 1 / span 2;
 }
 
-.rd-horizon-audit .rd-horizon-audit-reset:hover {
-  background: var(--rd-primary-hover) !important;
-  transform: none !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-stats {
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  gap: 0 !important;
-  overflow: hidden;
-  border: 1px solid transparent;
-  border-radius: 20px;
-  background: var(--rd-surface);
-  box-shadow: var(--rd-shadow-card);
-}
-
-.rd-horizon-audit .rd-horizon-audit-stat {
-  min-height: 5rem !important;
-  border: 0 !important;
-  border-right: 1px solid var(--rd-line) !important;
-  border-bottom: 1px solid var(--rd-line) !important;
-  border-radius: 0 !important;
-  padding: 0.875rem 1rem !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  transform: none !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-stat:hover {
-  border-color: var(--rd-line) !important;
-  background: rgba(var(--accent-rgb), 0.36) !important;
-  box-shadow: none !important;
-  transform: none !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-stat:nth-child(2n) {
-  border-right: 0 !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-stat:last-child {
-  grid-column: span 2;
-  border-right: 0 !important;
-  border-bottom: 0 !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-stat > svg {
-  width: 1.125rem;
-  height: 1.125rem;
-}
-
-.rd-horizon-audit .rd-horizon-audit-stat > div > div:first-child {
-  color: var(--rd-ink);
-  font-size: 1.375rem !important;
-  font-weight: 700 !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-stat[data-tone="risk"] > div > div:first-child {
-  color: #d97706;
-}
-
-.rd-horizon-audit .rd-horizon-audit-grid {
-  grid-template-columns: minmax(0, 1fr) !important;
-  align-content: start;
-  gap: 1rem !important;
-  overflow-y: auto;
-  padding-right: 0.25rem;
-  scrollbar-gutter: stable;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filters,
-.rd-horizon-audit .rd-horizon-audit-list,
-.rd-horizon-audit .rd-horizon-audit-detail {
-  border: 1px solid transparent !important;
-  border-radius: 20px !important;
-  background: var(--rd-surface) !important;
-  box-shadow: var(--rd-shadow-card) !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filters {
-  padding: 1rem !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filter-heading {
-  min-height: 2rem;
-  margin-bottom: 0.25rem;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filter-heading h2,
-.rd-horizon-audit .rd-horizon-audit-list-header h2 {
-  color: var(--rd-ink) !important;
-  font-weight: 700 !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filter-heading h2 > svg,
-.rd-horizon-audit .rd-horizon-audit-list-header h2 > svg {
-  color: var(--rd-primary) !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filter-heading > span {
-  color: var(--rd-primary) !important;
-  background: var(--rd-soft-blue) !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filters label > span,
-.rd-horizon-audit .rd-horizon-audit-filter-categories > div:first-child {
-  color: var(--rd-body) !important;
-  font-weight: 600 !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filter-search > div {
-  min-height: 2.5rem;
-  border-color: transparent !important;
-  border-radius: 11px !important;
-  background: var(--rd-canvas) !important;
-  box-shadow: inset 0 0 0 1px var(--rd-line) !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filter-search > div:focus-within {
-  border-color: rgba(var(--primary-rgb), 0.28) !important;
-  background: var(--rd-surface) !important;
-  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.08) !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filter-search input {
-  border: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filter-categories button {
-  min-height: 2.375rem;
-  border-color: var(--rd-line) !important;
-  border-radius: 9px !important;
-  color: var(--rd-muted) !important;
-  background: var(--rd-surface) !important;
-  box-shadow: none !important;
-  transform: none !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filter-categories button:hover {
-  color: var(--rd-primary) !important;
-  background: var(--rd-soft-blue) !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filter-categories button[aria-pressed="true"] {
-  border-color: transparent !important;
-  color: #ffffff !important;
-  background: var(--rd-primary) !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filters select,
-.rd-horizon-audit .rd-horizon-audit-filters input[type="date"],
-.rd-horizon-audit .rd-horizon-audit-list-header select {
-  min-height: 2.5rem !important;
-  border-color: var(--rd-line) !important;
-  border-radius: 10px !important;
-  color: var(--rd-body) !important;
-  background-color: var(--rd-surface) !important;
-  box-shadow: none !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-filters :where(select, input[type="date"]):hover,
-.rd-horizon-audit .rd-horizon-audit-list-header select:hover {
-  border-color: rgba(var(--primary-rgb), 0.2) !important;
+.rd-horizon-audit .rd-horizon-audit-metrics .hz-stat-label {
+  overflow: visible;
+  white-space: normal;
+  text-wrap: pretty;
+  grid-column: 1;
+  grid-row: 1;
 }
 
 .rd-horizon-audit .rd-horizon-audit-list {
-  min-height: 32rem;
+  min-width: 0;
+  background: var(--card);
 }
 
-.rd-horizon-audit .rd-horizon-audit-list-header,
-.rd-horizon-audit .rd-horizon-audit-list-footer,
-.rd-horizon-audit .rd-horizon-audit-detail-header {
-  border-color: var(--rd-line) !important;
-  background: var(--rd-surface) !important;
+.rd-horizon-audit .rd-horizon-audit-filters {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.rd-horizon-audit .rd-horizon-audit-primary-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-search {
+  flex: 1.2 1 14rem;
+  min-width: 0;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-module {
+  flex: 0.7 1 9rem;
+  min-width: 0;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-dates {
+  flex: 1 1 18rem;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rd-horizon-audit .rd-horizon-audit-filters :where(label, fieldset) {
+  min-width: 0;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filters :where(label > span, legend) {
+  color: var(--on-surface-variant);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-search > div {
+  height: 2.75rem;
+  padding: 0 0.75rem;
+  border-color: var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-search > div:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-search input {
+  height: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filters :where([role="combobox"], input[type="date"]) {
+  width: 100%;
+  min-width: 0;
+  height: 2.75rem;
+  border-color: var(--border);
+  border-radius: 0.75rem;
+  background-color: var(--card);
+  color: var(--on-surface-variant);
+  font-size: 0.875rem;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-toggle {
+  flex: 0 0 auto;
+  min-height: 2.75rem;
+  white-space: nowrap;
+}
+
+.rd-horizon-audit .rd-horizon-audit-advanced-filters[data-state="open"] {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+  gap: 1rem;
+  margin-top: 1rem;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 1rem;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-categories {
+  grid-column: 1 / -1;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-categories > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-categories button {
+  min-height: 2.5rem;
+  border-color: var(--border);
+  border-radius: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--card);
+  color: var(--muted-foreground);
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-categories button:hover,
+.rd-horizon-audit .rd-horizon-audit-filter-categories button[aria-pressed="true"] {
+  border-color: var(--primary-soft-border);
+  background: var(--accent);
+  color: var(--primary);
+}
+
+.rd-horizon-audit .rd-horizon-audit-filter-entities {
+  grid-column: span 2;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rd-horizon-audit .rd-horizon-audit-quick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.rd-horizon-audit .rd-horizon-audit-presets {
+  min-width: 0;
+}
+
+.rd-horizon-audit :where(.rd-horizon-audit-preset, .rd-horizon-audit-reset) {
+  min-height: 2rem;
+  gap: 0.375rem;
+  white-space: nowrap;
 }
 
 .rd-horizon-audit .rd-horizon-audit-list-header {
-  min-height: 4.5rem;
-  padding: 0.875rem 1rem !important;
+  min-width: 0;
+  min-height: 3.5rem;
+  padding: 0.5rem 1rem;
+  border-color: var(--border-subtle);
 }
 
-.rd-horizon-audit .rd-horizon-audit-list-header button,
-.rd-horizon-audit .rd-horizon-audit-list-footer button {
+.rd-horizon-audit .rd-horizon-audit-list-header .rd-horizon-audit-quick-filters {
+  flex: 1 1 30rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.rd-horizon-audit .rd-horizon-audit-list-header h2 > svg {
+  color: var(--primary);
+}
+
+.rd-horizon-audit .rd-horizon-audit-list-controls {
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+}
+
+.rd-horizon-audit .rd-horizon-audit-list-controls > button {
+  flex: 0 0 auto;
   min-height: 2.5rem;
-  border-color: var(--rd-line) !important;
-  border-radius: 10px !important;
-  color: var(--rd-body) !important;
-  background: var(--rd-surface) !important;
-  box-shadow: none !important;
-  transform: none !important;
+  white-space: nowrap;
 }
 
-.rd-horizon-audit .rd-horizon-audit-list-header button:hover,
-.rd-horizon-audit .rd-horizon-audit-list-footer button:not(:disabled):hover {
-  border-color: rgba(var(--primary-rgb), 0.2) !important;
-  color: var(--rd-primary) !important;
-  background: var(--rd-soft-blue) !important;
-  transform: none !important;
+.rd-horizon-audit .rd-horizon-audit-list-controls [role="combobox"] {
+  flex: 0 0 7rem;
+  width: 7rem;
+  max-width: 7rem;
+  border-color: var(--border);
+  background: var(--card);
 }
 
 .rd-horizon-audit .rd-horizon-audit-table-scroll {
-  scrollbar-gutter: stable both-edges;
-  scrollbar-color: var(--rd-line-strong) transparent;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-color: var(--border) transparent;
+}
+
+.rd-horizon-audit .rd-horizon-audit-table {
+  width: 100%;
+  min-width: 58rem;
+  table-layout: fixed;
+  border-collapse: collapse;
 }
 
 .rd-horizon-audit .rd-horizon-audit-table thead {
-  position: sticky;
-  z-index: 2;
-  top: 0;
+  position: static;
 }
 
-.rd-horizon-audit .rd-horizon-audit-table thead tr {
-  border-color: var(--rd-line) !important;
-  color: var(--rd-muted) !important;
-  background: var(--rd-canvas) !important;
-}
-
-.rd-horizon-audit .rd-horizon-audit-table tbody {
-  border-color: var(--rd-line) !important;
+.rd-horizon-audit .rd-horizon-audit-table th {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  background: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .rd-horizon-audit .rd-horizon-audit-row {
-  background: var(--rd-surface) !important;
-  box-shadow: none !important;
+  height: 4rem;
+  border-color: var(--border-subtle);
+  background: var(--card);
+}
+
+.rd-horizon-audit .rd-horizon-audit-row > td {
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+  overflow-wrap: anywhere;
+  vertical-align: top;
 }
 
 .rd-horizon-audit .rd-horizon-audit-row:hover,
-.rd-horizon-audit .rd-horizon-audit-row:focus-visible {
-  background: rgba(var(--accent-rgb), 0.48) !important;
+.rd-horizon-audit .rd-horizon-audit-row:focus-within,
+.rd-horizon-audit .rd-horizon-audit-row[data-selected="true"] {
+  background: var(--accent);
 }
 
-.rd-horizon-audit .rd-horizon-audit-row[data-selected="true"] {
-  background: var(--rd-soft-blue) !important;
-  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.24) !important;
+.rd-horizon-audit .rd-horizon-audit-row [data-cell="summary"] > div:first-child {
+  flex-wrap: nowrap;
+  line-height: 1.4;
+}
+
+.rd-horizon-audit .rd-horizon-audit-row [data-cell="summary"] > div:first-child > span:first-child {
+  flex-shrink: 0;
+  padding: 0 0.375rem;
+}
+
+.rd-horizon-audit .rd-horizon-audit-row [data-cell="summary"] > div:first-child > .font-mono,
+.rd-horizon-audit .rd-horizon-audit-row [data-cell="actor"] > div {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rd-horizon-audit .rd-horizon-audit-open-detail {
+  border-radius: 0.375rem;
+  color: var(--foreground);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  margin-top: 0.125rem;
+  font-size: 0.8125rem;
+}
+
+.rd-horizon-audit .rd-horizon-audit-open-detail > span {
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+
+.rd-horizon-audit .rd-horizon-audit-open-detail:hover {
+  color: var(--primary);
 }
 
 .rd-horizon-audit .rd-horizon-audit-list-footer {
   min-height: 4rem;
-  padding: 0.75rem 1rem !important;
+  padding: 0.75rem 1rem;
+  border-color: var(--border-subtle);
 }
 
-.rd-horizon-audit .rd-horizon-audit-detail {
-  min-height: 30rem;
+.rd-horizon-audit .rd-horizon-audit-list-footer button {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-color: var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  color: var(--on-surface-variant);
 }
 
-.rd-horizon-audit .rd-horizon-audit-detail-header {
-  padding: 1rem !important;
+.rd-horizon-audit .rd-horizon-audit-list-footer button:not(:disabled):hover {
+  border-color: var(--primary-soft-border);
+  background: var(--accent);
+  color: var(--primary);
 }
 
-.rd-horizon-audit .rd-horizon-audit-detail-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0 !important;
-  padding: 0 1rem 1.25rem !important;
+/* 详情挂载到 body，使用自己的作用域与全局语义令牌。 */
+.rd-horizon-audit-dialog {
+  width: 100%;
+  max-width: 42rem;
+  height: 100dvh;
+  min-height: 0;
+  gap: 0;
+  padding: 0;
+  color: var(--on-surface-variant);
+  background: var(--card);
 }
 
-.rd-horizon-audit .rd-horizon-audit-detail-body > section {
-  border-bottom: 1px solid var(--rd-line);
-  padding: 1rem 0;
+.rd-horizon-audit-dialog .rd-horizon-audit-sheet-header {
+  flex: none;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: max(1rem, env(safe-area-inset-top)) max(3.5rem, env(safe-area-inset-right)) 1rem max(1.25rem, env(safe-area-inset-left));
+  background: var(--card);
 }
 
-.rd-horizon-audit .rd-horizon-audit-detail-body > section:last-child {
-  border-bottom: 0;
+.rd-horizon-audit-dialog .rd-horizon-audit-detail-content {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
 }
 
-.rd-horizon-audit .rd-horizon-audit-detail-body > section > :where(.rounded-lg, p.rounded-lg) {
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
+.rd-horizon-audit-dialog .rd-horizon-audit-detail-header {
+  min-width: 0;
+  padding: 1rem max(1.25rem, env(safe-area-inset-right)) 1rem max(1.25rem, env(safe-area-inset-left));
+  border-color: var(--border-subtle);
+  background: var(--muted);
+  overflow-wrap: anywhere;
 }
 
-.rd-horizon-audit .rd-horizon-audit-detail-body section > .space-y-2 {
-  gap: 0 !important;
+.rd-horizon-audit-dialog .rd-horizon-audit-detail-header > div:first-child {
+  flex-wrap: wrap;
 }
 
-.rd-horizon-audit .rd-horizon-audit-detail-body section > .space-y-2 > * + * {
-  margin-top: 0 !important;
+.rd-horizon-audit-dialog .rd-horizon-audit-detail-header .font-mono {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.rd-horizon-audit .rd-horizon-audit-detail-body section > .space-y-2 > .rounded-lg {
-  border: 0 !important;
-  border-bottom: 1px solid var(--rd-line) !important;
-  border-radius: 0 !important;
-  padding: 0.75rem 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
+.rd-horizon-audit-dialog .rd-horizon-audit-detail-body {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--border) transparent;
+  padding: 1.25rem max(1.25rem, env(safe-area-inset-right)) max(1.5rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left));
 }
 
-.rd-horizon-audit .rd-horizon-audit-detail-body section > .space-y-2 > .rounded-lg:last-child {
-  border-bottom: 0 !important;
+.rd-horizon-audit-dialog .rd-horizon-audit-detail-body :where(section, div, p, span, pre) {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.rd-horizon-audit .rd-horizon-audit-detail-body .group:hover {
-  transform: none !important;
+.rd-horizon-audit-dialog .rd-horizon-audit-detail-body > section + section {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 1.25rem;
 }
 
-@container rd-audit (min-width: 48rem) {
-  .rd-horizon-audit-stats {
-    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+.rd-horizon-audit-dialog .rd-horizon-audit-detail-body pre {
+  white-space: pre-wrap;
+}
+
+@media (max-width: 767px) {
+  .rd-horizon-audit .rd-horizon-audit-command {
+    padding: 0;
   }
 
-  .rd-horizon-audit-stat {
+  .rd-horizon-audit .rd-horizon-audit-metrics .hz-stat {
+    min-height: 6.5rem;
+    gap: 0.5rem;
+    padding: 0.875rem;
+  }
+
+.rd-horizon-audit .rd-horizon-audit-metrics .hz-stat > div { display: block; }
+.rd-horizon-audit .rd-horizon-audit-metrics .hz-stat-value { margin-top: 0.375rem; }
+.rd-horizon-audit .rd-horizon-audit-metrics .hz-stat-note { margin-top: 0.25rem; }
+
+  .rd-horizon-audit .rd-horizon-audit-metrics .hz-stat-icon {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-primary-filters > :where(label, .rd-horizon-audit-filter-dates) {
+    flex-basis: 100%;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-advanced-filters[data-state="open"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-filter-entities {
     grid-column: auto;
-    border-right: 1px solid var(--rd-line) !important;
-    border-bottom: 0 !important;
   }
 
-  .rd-horizon-audit-stat:last-child {
-    border-right: 0 !important;
-  }
-}
-
-@container rd-audit (min-width: 60rem) and (max-width: 81.999rem) {
-  .rd-horizon-audit-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(19rem, 22rem) !important;
-    grid-template-rows: auto minmax(0, 1fr);
-    align-content: stretch;
-    overflow: hidden;
-    padding-right: 0;
+  .rd-horizon-audit :where(.rd-horizon-audit-filters, .rd-horizon-audit-list-header, .rd-horizon-audit-list-footer) {
+    padding-left: 1rem;
+    padding-right: 1rem;
   }
 
-  .rd-horizon-audit-filters {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    align-items: end;
-    gap: 0.75rem 1rem !important;
-    overflow: visible !important;
+  .rd-horizon-audit .rd-horizon-audit-table-scroll {
+    overflow: visible;
   }
 
-  .rd-horizon-audit-filters > * + * {
-    margin-top: 0 !important;
-  }
-
-  .rd-horizon-audit-filter-heading {
-    grid-column: 1 / -1;
-  }
-
-  .rd-horizon-audit-filter-search,
-  .rd-horizon-audit-filter-categories {
-    grid-column: span 2;
-  }
-
-  .rd-horizon-audit-list,
-  .rd-horizon-audit-detail {
-    min-height: 0 !important;
-  }
-}
-
-@container rd-audit (min-width: 82rem) {
-  .rd-horizon-audit-grid {
-    grid-template-columns: minmax(17rem, 18.75rem) minmax(0, 1fr) minmax(21rem, 22.5rem) !important;
-    grid-template-rows: minmax(0, 1fr);
-    align-content: stretch;
-    overflow: hidden;
-    padding-right: 0;
-  }
-
-  .rd-horizon-audit-filters {
+  .rd-horizon-audit .rd-horizon-audit-table {
     display: block;
-    overflow-y: auto !important;
+    min-width: 0;
+    table-layout: auto;
   }
 
-  .rd-horizon-audit-filters > * + * {
-    margin-top: 0.75rem !important;
+  /* 保留列标题的可访问语义；手机记录卡直接复用同一组 td。 */
+  .rd-horizon-audit .rd-horizon-audit-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
   }
 
-  .rd-horizon-audit-list,
-  .rd-horizon-audit-detail {
-    min-height: 0 !important;
-  }
-}
-
-@container rd-audit (min-width: 44rem) and (max-width: 59.999rem) {
-  .rd-horizon-audit-filters {
+  .rd-horizon-audit .rd-horizon-audit-table tbody {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: end;
-    gap: 0.75rem 1rem !important;
-    overflow: visible !important;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--background);
   }
 
-  .rd-horizon-audit-filters > * + * {
-    margin-top: 0 !important;
+  .rd-horizon-audit .rd-horizon-audit-row {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    align-items: start;
+    gap: 0.875rem 0.75rem;
+    height: auto;
+    min-width: 0;
+    padding: 1rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 1rem;
   }
 
-  .rd-horizon-audit-filter-heading,
-  .rd-horizon-audit-filter-categories {
+  .rd-horizon-audit .rd-horizon-audit-row > td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-row > td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.375rem;
+    color: var(--muted-foreground);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-row > [data-cell="time"] {
+    grid-column: 1 / span 3;
+    grid-row: 1;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-row > [data-cell="source"] {
+    grid-column: 4 / span 3;
+    grid-row: 1;
+    text-align: right;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-row > [data-cell="summary"] {
     grid-column: 1 / -1;
-  }
-}
-
-@container rd-audit (max-width: 54rem) {
-  .rd-horizon-audit-command {
-    align-items: flex-start !important;
+    grid-row: 2;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-subtle);
   }
 
-  .rd-horizon-audit-command > div:first-child,
-  .rd-horizon-audit-presets {
+  .rd-horizon-audit .rd-horizon-audit-row > [data-cell="actor"] {
+    grid-column: 1 / span 2;
+    grid-row: 3;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-row > [data-cell="action"] {
+    grid-column: 3 / span 2;
+    grid-row: 3;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-row > [data-cell="changes"] {
+    grid-column: 5 / span 2;
+    grid-row: 3;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-row [data-cell="summary"] > .line-clamp-1 {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-row [data-cell="summary"] > div:first-child {
+    flex-wrap: nowrap;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-row [data-cell="summary"] > div:first-child > .font-mono,
+  .rd-horizon-audit .rd-horizon-audit-row [data-cell="actor"] > div {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-row [data-cell="summary"] > div:first-child > .font-mono {
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+
+  .rd-horizon-audit :where(.rd-horizon-audit-preset, .rd-horizon-audit-reset) {
+    min-height: 2.75rem;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-open-detail {
+    min-height: 2.75rem;
+    align-items: center;
+    padding: 0.375rem 0;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-open-detail > span {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  .rd-horizon-audit .rd-horizon-audit-table tbody > tr:not(.rd-horizon-audit-row),
+  .rd-horizon-audit .rd-horizon-audit-table td[colspan] {
+    display: block;
     width: 100%;
-  }
-
-  .rd-horizon-audit-presets {
-    justify-content: flex-start;
-    overflow-x: auto;
-    flex-wrap: nowrap !important;
-    padding-bottom: 0.125rem;
-  }
-
-  .rd-horizon-audit-preset,
-  .rd-horizon-audit-reset {
-    flex: 0 0 auto;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rd-horizon-audit *,
-  .rd-horizon-audit *::before,
-  .rd-horizon-audit *::after {
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
+    min-width: 0;
   }
 }
 

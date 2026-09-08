@@ -45,11 +45,13 @@ test("专用图片与附件预览保留手势能力并使用可恢复焦点的�
   assert.doesNotMatch(progressEvidence, /createPortal/);
   assert.doesNotMatch(progressEvidence, /backdrop-blur/);
 
-  assert.match(attachmentPreview, /createPortal/);
-  assert.match(attachmentPreview, /className="horizon-portal fixed inset-0 z-50/);
-  assert.match(attachmentPreview, /const previousFocus = document\.activeElement instanceof HTMLElement/);
-  assert.match(attachmentPreview, /previousFocus\?\.focus\(\)/);
-  assert.match(attachmentPreview, /ref=\{closeButtonRef\}/);
+  assert.match(attachmentPreview, /\.\/ui\/dialog/);
+  assert.match(attachmentPreview, /<Dialog open onOpenChange=/);
+  assert.match(attachmentPreview, /className="horizon-portal flex h-\[90dvh\]/);
+  assert.match(attachmentPreview, /onCloseAutoFocus=/);
+  assert.match(attachmentPreview, /openerRef\.current\.focus\(\)/);
+  assert.match(attachmentPreview, /<DialogClose asChild>/);
+  assert.doesNotMatch(attachmentPreview, /createPortal|window\.addEventListener\("keydown"/);
   assert.doesNotMatch(attachmentPreview, /backdrop-blur/);
   assert.match(progressEvidence, /pinchTaskImageTransform/);
   assert.match(progressEvidence, /zoomTaskImageTransform/);

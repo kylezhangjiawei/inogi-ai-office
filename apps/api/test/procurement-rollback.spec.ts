@@ -21,8 +21,9 @@ type Json = Record<string, any>;
 const actor = { id: 'u1', name: '采购员', permissions: ['proc-task:rollback'] };
 const rollback = { status: 'pending_inquiry', from_status: 'partial_arrival', reason: '  供应商报错价，整单重做  ' };
 
-function makeService(task: Json = { id: 'p1', status: 'partial_arrival', method: 'inquiry' }, claimCount = 1) {
+function makeService(task: Json = { id: 'p1', status: 'partial_arrival', method: 'inquiry' }, claimCount = 1, beforeTransaction?: (row: Json) => Json) {
   const calls: Json[] = [];
+  const transactionReads: string[] = [];
   let taskRow = { ...task };
   const refs = [
     { id: 'ordinary', metadata: {} }, { id: 'false', metadata: { freeSample: false } },
@@ -31,10 +32,11 @@ function makeService(task: Json = { id: 'p1', status: 'partial_arrival', method:
   ];
   const service = Object.create(ProcurementService.prototype) as ProcurementService;
   const tx = {
-    $queryRaw: async () => [{ id: taskRow.id }],
+    $queryRaw: async () => { transactionReads.push('lock'); return [{ id: taskRow.id }]; },
     procTask: {
-      findUnique: async () => ({ ...taskRow }),
+      findUnique: async () => { transactionReads.push('read'); return { ...taskRow }; },
       updateMany: async (args: Json) => {
+        transactionReads.push('update');
         calls.push({ op: 'update', ...args });
         if (claimCount === 1) taskRow = { ...taskRow, ...args.data };
         return { count: claimCount };
@@ -54,7 +56,10 @@ function makeService(task: Json = { id: 'p1', status: 'partial_arrival', method:
   };
   Object.assign(service, {
     prisma: {
-      $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(tx),
+      $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+        if (beforeTransaction) taskRow = beforeTransaction(taskRow);
+        return fn(tx);
+      },
       user: { findMany: async () => [
         { id: 'reviewer', name: '原研发人员', role: { permissions: ['proc-task:transfer', 'page:rd-my-workspace'] } },
         { id: 'buyer', name: '采购员', role: { permissions: ['proc-task:rollback'] } },
@@ -64,7 +69,7 @@ function makeService(task: Json = { id: 'p1', status: 'partial_arrival', method:
     requireTask: async () => taskRow,
     serializeTask: (row: Json) => row,
   });
-  return { service, calls };
+  return { service, calls, transactionReads };
 }
 
 test('部分到货任务可退回待询价，并留下清理与原因记录', async () => {
@@ -88,6 +93,63 @@ test('部分到货任务可退回待询价，并留下清理与原因记录', as
   assert.equal(log.actorUserId, actor.id);
   assert.match(log.text, /已清理 2 条报价、5 条采购单关联/);
   assert.match(log.text, /原因：供应商报错价，整单重做$/);
+});
+
+test('回退记录包含实际清零数量、解除负责人和终止测试安排', async () => {
+  const { service, calls } = makeService({
+    id: 'p1', status: 'testing', method: 'inquiry', source: 'rd', rdTaskId: 'RD-001',
+    buyer: '原采购员', buyerUserId: 'buyer-1', arrivedQty: new Prisma.Decimal(12), unit: '件',
+    metadata: { sampleTest: { roundId: 'round-1', testerUserId: 'rd-1', testerName: '测试员',
+      assignedAt: '2026-09-08T01:00:00.000Z', assignedByName: '采购员', result: null } },
+  });
+  await service.rollbackTask('p1', { ...rollback, from_status: 'testing', status: 'pending_rd_review' }, actor);
+  const log = calls.find((call) => call.op === 'log')!.data;
+  assert.match(log.text, /到货数量由 12 件清零/);
+  assert.match(log.text, /解除采购负责人：原采购员/);
+  assert.match(log.text, /终止未确认测试：测试员/);
+  assert.equal(log.actor, actor.name);
+  assert.equal(log.actorUserId, actor.id);
+});
+
+test('到货同步或转派未改变状态时，回退记录锁后最新清理数量与采购负责人', async () => {
+  for (const [before, latest] of [[12, 15], [0, 15], [12, 0]]) {
+    const { service, calls, transactionReads } = makeService({
+      id: 'p1', status: 'partial_arrival', method: 'inquiry', source: 'rd', rdTaskId: 'RD-001',
+      buyer: '先前采购员', buyerUserId: 'buyer-before', arrivedQty: new Prisma.Decimal(before), unit: '件',
+    }, 1, (row) => ({ ...row, arrivedQty: new Prisma.Decimal(latest), buyer: '刚转派采购员', buyerUserId: 'buyer-current' }));
+    const result = await service.rollbackTask('p1', { ...rollback, status: 'pending_rd_review' }, actor);
+    const log = calls.find((call) => call.op === 'log')!.data;
+    if (latest > 0) assert.match(log.text, new RegExp(`到货数量由 ${latest} 件清零`));
+    else assert.doesNotMatch(log.text, /到货数量由/);
+    assert.match(log.text, /解除采购负责人：刚转派采购员/);
+    assert.doesNotMatch(log.text, /先前采购员|由 12 件清零/);
+    assert.deepEqual(transactionReads.slice(0, 3), ['lock', 'read', 'update']);
+    assert.equal(Number(result.arrivedQty), 0);
+    assert.equal(result.buyer, '');
+  }
+});
+
+test('回退保留已确认测试结论，未发生的清理不写入日志', async () => {
+  const { service, calls } = makeService({ id: 'p1', status: 'partial_arrival', method: 'inquiry',
+    metadata: { sampleTest: { roundId: 'round-1', testerUserId: 'rd-1', testerName: '测试员',
+      assignedAt: '2026-09-08T01:00:00.000Z', assignedByName: '采购员', result: 'passed' } } });
+  await service.rollbackTask('p1', { ...rollback, status: 'in_transit' }, actor);
+  assert.doesNotMatch(calls.find((call) => call.op === 'log')!.data.text, /到货数量|解除采购负责人|终止未确认测试/);
+});
+
+test('任务详情接口保留日志操作人、精确时间与前后状态，兼容旧日志', () => {
+  const service = Object.create(ProcurementService.prototype) as any;
+  const createdAt = new Date('2026-09-08T03:04:05.678Z');
+  const first = { id: 'log-1', createdAt, actor: '采购员', actorUserId: 'u1',
+    fromStatus: 'testing', toStatus: 'pending_inquiry', text: '回退；原因：重新核对', kind: 'action' };
+  const result = service.serializeTask({ id: 'p1', status: 'pending_inquiry', createdAt, updatedAt: createdAt,
+    attachments: [], purchaseOrderRefs: [], criticalMaterials: [], logs: [first,
+      { ...first, id: 'old-log', actor: null, actorUserId: null, fromStatus: null, toStatus: null }] });
+  assert.deepEqual(result.logs[0], { ...first, createdAt: createdAt.toISOString(), at: '2026-09-08' });
+  assert.equal(result.logs[1].actor, undefined);
+  assert.equal(result.logs[1].actorUserId, undefined);
+  assert.equal(result.logs[1].fromStatus, undefined);
+  assert.equal(result.logs[1].toStatus, undefined);
 });
 
 test('所有进行中的询价与直购节点均可退回同一流程的任意更早节点，研发流转包含待研发审核', () => {

@@ -75,7 +75,7 @@ test("窄屏、键盘焦点和语义交互不退化", () => {
   assert.match(personCockpit, /sm:ml-2 sm:w-auto/);
   assert.match(personCockpit, /type="search"/);
   assert.match(personCockpit, /aria-describedby="rd-cockpit-search-results"/);
-  assert.match(personCockpit, /requestAnimationFrame\(\(\) => searchTriggerRef\.current\?\.focus\(\)\)/);
+  assert.match(personCockpit, /requestAnimationFrame\(\(\) => searchInputRef\.current\?\.focus\(\)\)/);
   assert.match(personCockpit, /aria-busy=\{searchPending\}/);
   assert.match(personCockpit, /aria-label=\{t\("打开任务：\{title\}"/);
   assert.match(personCockpit, /aria-label=\{t\("更多操作"\)\}/);

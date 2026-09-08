@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { cloneElement, FormEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CalendarClock,
@@ -66,8 +66,12 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "../../components/ui/toggle-group";
 import { cn } from "../../components/ui/utils";
+import { ComboInput } from "./common";
+import { StockPlanSelect, StockPlanDateInput, StockPlanMonthInput } from "./StockPlanControls";
 
 type StatusFilter = "all" | ProcStockPlanStatus;
 
@@ -77,7 +81,6 @@ const STATUS_LABELS: Record<ProcStockPlanStatus, string> = {
   completed: "下单达标",
 };
 const PLAN_TYPE_LABELS: Record<ProcStockPlanType, string> = { machine: "整机", packaging: "包材", material: "物料" };
-const SELECT_CLASS = "h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 disabled:bg-slate-100";
 
 function flattenNodes(nodes: ProcTaskTreeNode[], prefix = ""): Array<{id: string; name: string}> {
   return nodes.flatMap((node) => {
@@ -112,12 +115,13 @@ function PlanStatus({ status }: { status: ProcStockPlanStatus }) {
   );
 }
 
-function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactElement<{ id?: string }> }) {
+  const id = useId();
   return (
-    <label className="grid min-w-0 gap-1.5 text-xs font-semibold text-slate-600">
-      <span>{label}{required ? <span className="ml-0.5 text-rose-600">*</span> : null}</span>
-      {children}
-    </label>
+    <div className="grid min-w-0 gap-1.5">
+      <Label htmlFor={id} className="text-xs font-semibold text-slate-600">{label}{required ? <span className="ml-0.5 text-rose-600">*</span> : null}</Label>
+      {cloneElement(children, { id })}
+    </div>
   );
 }
 
@@ -177,6 +181,8 @@ function StockPlanFormDialog({
   }, [form.planType]);
   const [saveError, setSaveError] = useState<string | null>(null);
   const openerRef = useRef(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  // 名称可以自由填写；同名的不同档案只能在“关联物料编码”中按 ID 明确选择。
+  const materialNameOptions = useMemo(() => [...new Set(materials.map((material) => material.name))], [materials]);
 
   const changeMaterial = (value: string) => {
     const matches = materials.filter((material) => material.name === value);
@@ -197,6 +203,10 @@ function StockPlanFormDialog({
     const targetQty = Number(form.targetQty);
     if (!form.materialName.trim()) {
       setSaveError(t("请填写物料名称"));
+      return;
+    }
+    if (form.planType === "machine" && !form.productLine) {
+      setSaveError(t("请选择整机 BOM 型号"));
       return;
     }
     if (!Number.isFinite(targetQty) || targetQty <= 0) {
@@ -252,52 +262,44 @@ function StockPlanFormDialog({
             {locked && <p className="text-xs text-slate-500 sm:col-span-2">{t(targetLocked ? "已生成采购任务，计划来源和目标量已锁定。" : "已有生产或质量记录，计划归属和物料已锁定。")}</p>}
             {form.productionTaskId && <p className="break-words text-xs text-slate-500 sm:col-span-2">{t("来自生产任务")}：{form.productionTaskId}</p>}
             <Field label={t("计划类型")} required>
-              <select className={SELECT_CLASS} disabled={materialLocked} value={form.planType} onChange={(e) => setForm((v) => ({...v, planType: e.target.value as ProcStockPlanType, unit: e.target.value === "machine" ? "套" : v.unit, productLine: ""}))}>
-                {Object.entries(PLAN_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
-              </select>
+              <StockPlanSelect label={t("计划类型")} required disabled={materialLocked} value={form.planType}
+                onValueChange={(value) => setForm((v) => ({...v, planType: value as ProcStockPlanType, unit: value === "machine" ? "套" : v.unit, productLine: ""}))}
+                options={Object.entries(PLAN_TYPE_LABELS).map(([value, label]) => ({ value, label: t(label) }))} />
             </Field>
             <Field label={t("所属产品")}>
-              <select className={SELECT_CLASS} disabled={locked || Boolean(defaults?.productId)} value={form.productId} onChange={(e) => setForm((v) => ({...v, productId: e.target.value, treeNodeId: ""}))}>
-                <option value="">{t("请选择产品")}</option>
-                {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              <StockPlanSelect label={t("所属产品")} disabled={locked || Boolean(defaults?.productId)} value={form.productId}
+                onValueChange={(value) => setForm((v) => ({...v, productId: value, treeNodeId: ""}))}
+                emptyLabel={t("请选择产品")} options={products.map((p) => ({ value: p.id, label: p.name }))} />
             </Field>
             <Field label={t("所属子系统")}>
-              <select className={SELECT_CLASS} disabled={locked || !form.productId || Boolean(defaults?.treeNodeId)} value={form.treeNodeId} onChange={(e) => setForm((v) => ({...v, treeNodeId: e.target.value}))}>
-                <option value="">{t("请选择子系统")}</option>
-                {nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
-              </select>
+              <StockPlanSelect label={t("所属子系统")} disabled={locked || !form.productId || Boolean(defaults?.treeNodeId)} value={form.treeNodeId}
+                onValueChange={(value) => setForm((v) => ({...v, treeNodeId: value}))}
+                emptyLabel={t("请选择子系统")} options={nodes.map((node) => ({ value: node.id, label: node.name }))} />
             </Field>
             {form.planType === "machine" && <Field label={t("整机 BOM 型号")} required>
-              <select required className={SELECT_CLASS} disabled={materialLocked} value={form.productLine} onChange={(e) => setForm((v) => ({...v, productLine: e.target.value}))}>
-                <option value="">{t("选择 BOM 型号")}</option>
-                {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-              </select>
+              <StockPlanSelect label={t("整机 BOM 型号")} required disabled={materialLocked} value={form.productLine}
+                onValueChange={(value) => setForm((v) => ({...v, productLine: value}))}
+                emptyLabel={t("选择 BOM 型号")} options={models.map((m) => ({ value: m.id, label: m.label }))} />
             </Field>}
             <Field label={t("物料名称")} required>
-              <Input
-                list="proc-stock-plan-material-options"
+              <ComboInput
                 value={form.materialName}
-                onChange={(event) => changeMaterial(event.target.value)}
+                onChange={changeMaterial}
+                options={materialNameOptions}
+                ariaLabel={t("物料名称")}
                 placeholder={t("输入或选择物料")}
                 required
                 autoFocus
                 disabled={materialLocked}
               />
-              <datalist id="proc-stock-plan-material-options">
-                {materials.map((material) => (
-                  <option key={material.id} value={material.name}>{material.spec}</option>
-                ))}
-              </datalist>
             </Field>
             <Field label={t("关联物料编码")}>
-              <select className={SELECT_CLASS} disabled={materialLocked} value={form.materialId} onChange={(e) => {
-                const material = materials.find((m) => m.id === e.target.value);
-                setForm((v) => ({...v, materialId: e.target.value, ...(material ? {materialName: material.name, spec: material.spec, unit: form.planType === "machine" ? "套" : material.unit} : {})}));
-              }}>
-                <option value="">{t("未关联（单物料生成采购任务前须关联）")}</option>
-                {materials.filter((m) => !form.materialName || m.name.includes(form.materialName) || m.id === form.materialId).map((m) => <option key={m.id} value={m.id}>{m.tpInventoryCode || m.erpCode || "未编码"} · {m.name} · {m.spec}</option>)}
-              </select>
+              <StockPlanSelect label={t("关联物料编码")} searchable disabled={materialLocked} value={form.materialId} onValueChange={(value) => {
+                const material = materials.find((m) => m.id === value);
+                setForm((v) => ({...v, materialId: value, ...(material ? {materialName: material.name, spec: material.spec, unit: v.planType === "machine" ? "套" : material.unit} : {})}));
+              }} emptyLabel={t("未关联（单物料生成采购任务前须关联）")}
+                options={materials.filter((m) => !form.materialName || m.name.includes(form.materialName) || m.id === form.materialId)
+                  .map((m) => ({ value: m.id, label: `${m.tpInventoryCode || m.erpCode || t("未编码")} · ${m.name} · ${m.spec}` }))} />
             </Field>
             <Field label={t("规格型号")}>
               <Input disabled={materialLocked} value={form.spec} onChange={(event) => setForm((current) => ({ ...current, spec: event.target.value }))} placeholder={t("可选")} />
@@ -309,7 +311,7 @@ function StockPlanFormDialog({
               <Input disabled={materialLocked || form.planType === "machine" || Boolean(form.materialId)} value={form.unit} onChange={(event) => setForm((current) => ({ ...current, unit: event.target.value }))} placeholder={t("如：件、套、kg")} />
             </Field>
             <Field label={t("计划完成日期")}>
-              <Input disabled={targetLocked} type="date" value={form.targetDate} onChange={(event) => setForm((current) => ({ ...current, targetDate: event.target.value }))} />
+              <StockPlanDateInput label={t("计划完成日期")} disabled={targetLocked} value={form.targetDate} onChange={(value) => setForm((current) => ({ ...current, targetDate: value }))} />
             </Field>
             <div className="sm:col-span-2">
               <Field label={t("计划备注")}>
@@ -440,20 +442,36 @@ function StockPlanBatchDialog({
           <div className="proc-stock-plan-form-fields grid min-h-0 gap-4 overflow-y-auto overscroll-contain px-6 pb-6 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <Field label={t("关联 ERP 采购订单行")}>
-                <select className={SELECT_CLASS} value={form.purchaseOrderMirrorId} disabled={Boolean(batch?.purchaseOrderMirrorId)} onChange={(e) => setForm((v) => ({...v, purchaseOrderMirrorId: e.target.value}))}>
-                  <option value="">{t("手工登记批次")}</option>
-                  {batch?.purchaseOrderMirrorId && !mirrors.some((m) => m.id === batch.purchaseOrderMirrorId) && <option value={batch.purchaseOrderMirrorId}>{batch.purchaseOrderNo} · {batch.supplierName}</option>}
-                  {mirrors.map((m) => <option key={m.id} value={m.id}>{m.tpOrderNo} / {m.tpLineNo || "单行"} · {m.inventoryName} · {m.supplierName} · {quantity(m.orderedQty)}</option>)}
-                </select>
+                <StockPlanSelect
+                  label={t("关联 ERP 采购订单行")}
+                  searchable
+                  value={form.purchaseOrderMirrorId}
+                  disabled={Boolean(batch?.purchaseOrderMirrorId)}
+                  emptyLabel={t("手工登记批次")}
+                  onValueChange={(value) => setForm((current) => ({ ...current, purchaseOrderMirrorId: value }))}
+                  options={[
+                    ...(batch?.purchaseOrderMirrorId && !mirrors.some((mirror) => mirror.id === batch.purchaseOrderMirrorId)
+                      ? [{ value: batch.purchaseOrderMirrorId, label: `${batch.purchaseOrderNo} · ${batch.supplierName}` }]
+                      : []),
+                    ...mirrors.map((mirror) => ({
+                      value: mirror.id,
+                      label: `${mirror.tpOrderNo} / ${mirror.tpLineNo || "单行"} · ${mirror.inventoryName} · ${mirror.supplierName} · ${quantity(mirror.orderedQty)}`,
+                    })),
+                  ]}
+                />
               </Field>
               {optionsError && <p role="alert" className="mt-1 text-xs text-amber-700">{optionsError}</p>}
               {linked && <p className="mt-2 text-xs text-slate-500">{t("采购数量、到货量、供应商和交期随 ERP 更新；这里仅登记检验合格量和实际到货日。")}</p>}
             </div>
             {!linked && <Field label={t("关联供应商档案")}>
-              <select className={SELECT_CLASS} value={form.supplierId} onChange={(e) => setForm((v) => ({...v, supplierId: e.target.value, supplierName: suppliers.find((s) => s.id === e.target.value)?.name || v.supplierName}))}>
-                <option value="">{t("手工填写供应商")}</option>
-                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
+              <StockPlanSelect
+                label={t("关联供应商档案")}
+                searchable
+                value={form.supplierId}
+                emptyLabel={t("手工填写供应商")}
+                onValueChange={(value) => setForm((current) => ({ ...current, supplierId: value, supplierName: suppliers.find((supplier) => supplier.id === value)?.name || current.supplierName }))}
+                options={suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name }))}
+              />
             </Field>}
             {!linked && <>
             <Field label={t("供应商")} required>
@@ -466,10 +484,10 @@ function StockPlanBatchDialog({
               <Input value={form.purchaseOrderNo} onChange={(event) => setForm((current) => ({ ...current, purchaseOrderNo: event.target.value }))} placeholder={t("可选")}/>
             </Field>
             <Field label={t("下单日期")}>
-              <Input type="date" value={form.orderDate} onChange={(event) => setForm((current) => ({ ...current, orderDate: event.target.value }))} />
+              <StockPlanDateInput label={t("下单日期")} value={form.orderDate} onChange={(value) => setForm((current) => ({ ...current, orderDate: value }))} />
             </Field>
             <Field label={t("预计到货日期")}>
-              <Input type="date" value={form.expectedArrivalDate} onChange={(event) => setForm((current) => ({ ...current, expectedArrivalDate: event.target.value }))} />
+              <StockPlanDateInput label={t("预计到货日期")} value={form.expectedArrivalDate} onChange={(value) => setForm((current) => ({ ...current, expectedArrivalDate: value }))} />
             </Field>
             <Field label={t("实际到货量")}>
               <Input type="number" min="0" step="0.001" max={form.purchaseQty || undefined} value={form.receivedQty} onChange={(e) => setForm((v) => ({...v, receivedQty: e.target.value}))} />
@@ -479,7 +497,7 @@ function StockPlanBatchDialog({
               <Input type="number" min="0" step="0.001" value={form.qualifiedQty} onChange={(e) => setForm((v) => ({...v, qualifiedQty: e.target.value}))} />
             </Field>
             <Field label={t("实际到货日期")}>
-              <Input type="date" value={form.actualArrivalDate} onChange={(e) => setForm((v) => ({...v, actualArrivalDate: e.target.value}))} />
+              <StockPlanDateInput label={t("实际到货日期")} value={form.actualArrivalDate} onChange={(value) => setForm((current) => ({ ...current, actualArrivalDate: value }))} />
             </Field>
             <div className="sm:col-span-2">
               <Field label={t("批次备注")}>
@@ -534,7 +552,7 @@ function PlanReadiness({ plan, canCreate, onSaved }: {plan: ProcStockPlan; canCr
         {canCreate && <Button size="sm" disabled={busy || !complete || !plan.productId || Boolean(plan.tasks?.length)} onClick={() => void generate()}>{busy ? "生成中…" : plan.tasks?.length ? "已关联采购任务" : "按缺口生成采购任务"}</Button>}
       </div>
     </div>
-    {error ? <p role="alert" className="mt-2 text-xs text-rose-600">{error} <button className="underline" onClick={() => setVersion((v) => v + 1)}>重试</button></p> : !data ? <p className="mt-2 text-xs text-slate-400">核算库存与在途中…</p> : <>
+    {error ? <p role="alert" className="mt-2 text-xs text-rose-600">{error} <Button type="button" variant="link" size="sm" className="h-auto px-0 py-0 text-xs underline" onClick={() => setVersion((v) => v + 1)}>重试</Button></p> : !data ? <p className="mt-2 text-xs text-slate-400">核算库存与在途中…</p> : <>
       <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-600">
         <p>当前可用覆盖 <strong className="block text-lg text-slate-900">{quantity(data.summary.currentBuildableSets)} {plan.unit}</strong></p>
         <p>全部在途到货后 <strong className="block text-lg text-primary">{quantity(data.summary.withTransitBuildableSets)} {plan.unit}</strong></p>
@@ -544,7 +562,7 @@ function PlanReadiness({ plan, canCreate, onSaved }: {plan: ProcStockPlan; canCr
       {!plan.productId && <p className="mt-2 text-xs text-amber-700">请先编辑计划并选择所属产品，再生成采购任务。</p>}
       <p className="mt-2 text-[11px] text-slate-500">量产仓库快照估算，未预占库存，不代表可按计划日期交付；多个计划共享库存需排程确认。最近同步：{data.syncedAt ? new Date(data.syncedAt).toLocaleString("zh-CN") : "无记录"}。</p>
     </>}
-    {!!plan.tasks?.length && <div className="mt-3 flex flex-wrap gap-2">{plan.tasks.map((task) => <button key={task.id} className="rounded-md bg-accent px-2 py-1 text-xs text-primary" onClick={() => navigate(`/proc-cockpit?line=production&task=${encodeURIComponent(task.id)}`)}>{task.code} · {task.materialName} · {quantity(task.quantity)}</button>)}</div>}
+    {!!plan.tasks?.length && <div className="mt-3 flex flex-wrap gap-2">{plan.tasks.map((task) => <Button type="button" variant="secondary" size="sm" key={task.id} className="h-auto min-w-0 max-w-full justify-start whitespace-normal rounded-md bg-accent px-2 py-1 text-left text-xs text-primary [overflow-wrap:anywhere]" onClick={() => navigate(`/proc-cockpit?line=production&task=${encodeURIComponent(task.id)}`)}>{task.code} · {task.materialName} · {quantity(task.quantity)}</Button>)}</div>}
   </div>;
 }
 
@@ -582,7 +600,7 @@ function MonthlyPlanOverview({plans, month}: {plans: ProcStockPlan[]; month: str
     ...p.batches.filter((b) => b.expectedArrivalDate).map((b) => ({id: b.id, date: b.expectedArrivalDate, text: `${b.supplierName} · 预计到货 ${quantity(Math.max(0, b.purchaseQty - b.receivedQty))} ${p.unit}`})),
   ]).filter((e) => e.date?.startsWith(month)).sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   return <section className="rounded-xl border border-slate-200 bg-white p-4">
-    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold text-slate-900">{month} 备货目标与交期</h3><p className="mt-1 text-xs text-slate-500">按同产品、同物料或型号、同单位核对；环形图表示本计划已登记合格进度。</p></div><select aria-label="月度统计物料" className={`${SELECT_CLASS} sm:max-w-80`} value={group.key} onChange={(e) => setSelectedGroup(e.target.value)}>{groups.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}</select></div>
+    <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold text-slate-900">{month} 备货目标与交期</h3><p className="mt-1 text-xs text-slate-500">按同产品、同物料或型号、同单位核对；环形图表示本计划已登记合格进度。</p></div><StockPlanSelect label="月度统计物料" className="sm:max-w-80" value={group.key} onValueChange={setSelectedGroup} options={groups.map((item) => ({ value: item.key, label: item.label }))} /></div>
     <div className="mt-3 grid gap-4 md:grid-cols-[170px_1fr_1.2fr]">
       <div className="h-36" role="img" aria-label={`合格 ${quantity(qualified)}，待满足 ${quantity(outstanding)} ${group.unit}`}><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={[{name: "已登记合格", value: qualified}, {name: "待满足", value: outstanding}]} dataKey="value" innerRadius={40} outerRadius={62} isAnimationActive={false}><Cell fill="#10b981" /><Cell fill="#e2e8f0" /></Pie><Tooltip /></PieChart></ResponsiveContainer></div>
       <dl className="grid grid-cols-2 items-center gap-3 text-xs text-slate-500">{[["目标需求", target], ["已登记合格", qualified], ["登记缺口", outstanding], ["本月预计到货", expected]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="mt-1 text-lg font-semibold tabular-nums text-slate-900">{quantity(Number(value))} <span className="text-xs font-normal">{group.unit}</span></dd></div>)}</dl>
@@ -725,15 +743,15 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
               <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
               <Input aria-label={t("搜索备货计划")} value={keyword} onChange={(event) => changeKeyword(event.target.value)} placeholder={t("计划编号 / 物料 / 供应商")} className="pl-8 pr-8 text-xs" />
               {keyword ? (
-                <button type="button" aria-label={t("清空搜索")} onClick={() => changeKeyword("")} className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                <Button type="button" variant="ghost" size="icon" aria-label={t("清空搜索")} onClick={() => changeKeyword("")} className="absolute right-2 top-1/2 size-7 -translate-y-1/2 rounded-md p-0 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
                   <X aria-hidden="true" className="size-3.5" />
-                </button>
+                </Button>
               ) : null}
             </div>
             {canCreate ? (
-              <button type="button" onClick={() => setEditingPlan("new")} className="proc-horizon-primary-action inline-flex items-center gap-1.5 text-xs">
+              <Button type="button" onClick={() => setEditingPlan("new")} className="proc-horizon-primary-action gap-1.5 text-xs">
                 <Plus aria-hidden="true" className="size-4" />{t("新建总计划")}
-              </button>
+              </Button>
             ) : null}
           </div>
 
@@ -744,26 +762,45 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
               ["in_progress", "下单中", Truck],
               ["completed", "下单达标", CheckCircle2],
             ] as const).map(([key, label, Icon]) => (
-              <button
+              <Button
                 key={key}
                 type="button"
+                variant="ghost"
                 data-active={status === key}
                 aria-pressed={status === key}
-                className="proc-horizon-kpi cursor-pointer text-left"
+                className="proc-horizon-kpi h-auto min-w-0 flex-col items-start gap-1 whitespace-normal text-left"
                 onClick={() => changeStatus(key)}
               >
                 <span className="proc-horizon-kpi-icon inline-flex items-center justify-center"><Icon aria-hidden="true" className="size-4" /></span>
                 <span className="proc-horizon-kpi-value block tabular-nums">{loading ? "—" : counts[key]}</span>
                 <span className="proc-horizon-kpi-label block">{t(label)}</span>
-              </button>
+              </Button>
             ))}
           </div>
         </div>
       </section>
 
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
-        <div className="flex flex-wrap gap-1" role="group" aria-label="计划类型筛选">{(["all", "machine", "packaging", "material"] as const).map((type) => <button type="button" aria-pressed={planType === type} key={type} onClick={() => setPlanType(type)} className={cn("rounded-lg px-3 py-2 text-xs font-semibold", planType === type ? "bg-accent text-primary" : "text-slate-500 hover:bg-slate-50")}>{type === "all" ? "全部类型" : PLAN_TYPE_LABELS[type]}</button>)}</div>
-        <label className="ml-auto flex items-center gap-2 text-xs text-slate-500">目标月份<Input type="month" aria-label="目标月份" className="w-40" value={month} onChange={(e) => setMonth(e.target.value)} /></label>
+        <ToggleGroup
+          type="single"
+          size="sm"
+          value={planType}
+          onValueChange={(value) => {
+            if (value === "all" || value === "machine" || value === "packaging" || value === "material") setPlanType(value);
+          }}
+          className="max-w-full flex-wrap gap-1"
+          aria-label={t("计划类型筛选")}
+        >
+          {(["all", "machine", "packaging", "material"] as const).map((type) => (
+            <ToggleGroupItem value={type} key={type} className="flex-none rounded-lg px-3 text-xs font-semibold data-[state=on]:text-primary">
+              {type === "all" ? t("全部类型") : t(PLAN_TYPE_LABELS[type])}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <div className="ml-auto flex items-center gap-2 text-xs text-slate-500">
+          <Label htmlFor="stock-plan-month" className="shrink-0 text-xs text-slate-500">{t("目标月份")}</Label>
+          <StockPlanMonthInput id="stock-plan-month" label={t("目标月份")} className="w-40" value={month} onChange={setMonth} />
+        </div>
         {month && <Button size="sm" variant="ghost" onClick={() => setMonth("")}>全部月份</Button>}
       </div>
       {!loading && !error && month && <MonthlyPlanOverview month={month} plans={scopedPlans} />}
@@ -773,7 +810,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
             {status === "all" ? t("全部备货计划") : t(STATUS_LABELS[status])}
           </span>
           <div className="flex flex-wrap items-center gap-3">
-            {status !== "all" || keyword.trim() ? <button type="button" onClick={clearFilters} className="text-xs font-semibold text-primary hover:underline">{t("清除筛选")}</button> : null}
+            {status !== "all" || keyword.trim() ? <Button type="button" variant="link" size="sm" onClick={clearFilters} className="h-auto px-0 py-0 text-xs font-semibold">{t("清除筛选")}</Button> : null}
             <span aria-live="polite" className="font-semibold tabular-nums text-slate-500">{loading ? t("正在加载备货计划") : t("显示 {count} 个计划", { count: filtered.length })}</span>
           </div>
         </div>
@@ -818,8 +855,10 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                 return (
                   <article key={plan.id} aria-label={`${plan.code} · ${plan.materialName}`} className="proc-stock-plan-item border-b border-slate-100 last:border-b-0">
                     <div className="proc-stock-plan-row grid min-w-0 items-center gap-3 px-3 py-3">
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="icon"
                         aria-label={`${t(isExpanded ? "收起采购批次" : "展开采购批次")} · ${plan.materialName}`}
                         aria-controls={`proc-stock-plan-batches-${plan.id}`}
                         aria-expanded={isExpanded}
@@ -828,10 +867,10 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                           if (next.has(plan.id)) next.delete(plan.id); else next.add(plan.id);
                           return next;
                         })}
-                        className="proc-stock-plan-toggle flex size-9 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-accent hover:text-primary"
+                        className="proc-stock-plan-toggle size-9 rounded-md p-0 text-slate-500 hover:bg-accent hover:text-primary"
                       >
                         {isExpanded ? <ChevronDown aria-hidden="true" className="size-4" /> : <ChevronRight aria-hidden="true" className="size-4" />}
-                      </button>
+                      </Button>
 
                       <div className="proc-stock-plan-material min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -880,12 +919,12 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                       <div className="proc-stock-plan-row-actions flex flex-wrap items-center justify-end gap-1">
                         {canCreate ? (
                           <>
-                            <button type="button" onClick={() => setEditingPlan(plan)} className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-primary" aria-label={t("编辑总计划")}>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => setEditingPlan(plan)} className="gap-1 rounded-md px-2 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-primary" aria-label={t("编辑总计划")}>
                               <Pencil aria-hidden="true" className="size-3.5" /><span>{t("编辑")}</span>
-                            </button>
-                            <button type="button" onClick={() => setEditingBatch({ plan })} className="inline-flex h-8 items-center gap-1 rounded-md bg-accent px-2 text-xs font-semibold text-primary hover:bg-primary/10" aria-label={t("添加采购批次")}>
+                            </Button>
+                            <Button type="button" variant="secondary" size="sm" onClick={() => setEditingBatch({ plan })} className="gap-1 rounded-md bg-accent px-2 text-xs font-semibold text-primary hover:bg-primary/10" aria-label={t("添加采购批次")}>
                               <Plus aria-hidden="true" className="size-3.5" />{t("加批次")}
-                            </button>
+                            </Button>
                           </>
                         ) : null}
                       </div>
@@ -898,7 +937,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                           <p className="text-xs font-semibold text-slate-600">
                             {t("采购批次")} <span className="ml-1 font-normal text-slate-500">{plan.batches.length} {t("批")}，{supplierCount} {t("家供应商")}</span>
                           </p>
-                          {canCreate ? <button type="button" onClick={() => setEditingBatch({ plan })} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"><Plus aria-hidden="true" className="size-3.5" />{t("添加批次")}</button> : null}
+                          {canCreate ? <Button type="button" variant="link" size="sm" onClick={() => setEditingBatch({ plan })} className="gap-1 px-0 text-xs font-semibold"><Plus aria-hidden="true" className="size-3.5" />{t("添加批次")}</Button> : null}
                         </div>
                         {plan.batches.length === 0 ? (
                           <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-500">
@@ -923,8 +962,8 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                                 </div>
                                 {canCreate ? (
                                   <div className="proc-stock-plan-batch-actions flex justify-end gap-1">
-                                    <button type="button" onClick={() => setEditingBatch({ plan, batch })} className="flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-accent hover:text-primary" aria-label={t("编辑采购批次")}><Pencil aria-hidden="true" className="size-3.5" /></button>
-                                    <button type="button" onClick={(event) => { deleteOpenerRef.current = event.currentTarget; setDeleteError(null); setDeletingBatch({ plan, batch }); }} className="flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-rose-50 hover:text-rose-700" aria-label={t("删除采购批次")}><Trash2 aria-hidden="true" className="size-3.5" /></button>
+                                    <Button type="button" variant="ghost" size="icon" onClick={() => setEditingBatch({ plan, batch })} className="size-8 rounded-md p-0 text-slate-500 hover:bg-accent hover:text-primary" aria-label={t("编辑采购批次")}><Pencil aria-hidden="true" className="size-3.5" /></Button>
+                                    <Button type="button" variant="ghost" size="icon" onClick={(event) => { deleteOpenerRef.current = event.currentTarget; setDeleteError(null); setDeletingBatch({ plan, batch }); }} className="size-8 rounded-md p-0 text-slate-500 hover:bg-rose-50 hover:text-rose-700" aria-label={t("删除采购批次")}><Trash2 aria-hidden="true" className="size-3.5" /></Button>
                                   </div>
                                 ) : null}
                               </div>

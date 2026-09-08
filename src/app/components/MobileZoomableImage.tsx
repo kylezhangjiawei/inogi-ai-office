@@ -39,9 +39,11 @@ type MobileZoomableImageProps = {
   loading?: "eager" | "lazy";
   decoding?: "async" | "auto" | "sync";
   showControls?: boolean;
+  controlsPlacement?: "overlay" | "below";
   enabled?: boolean;
   stopPropagation?: boolean;
   onLoad?: React.ReactEventHandler<HTMLImageElement>;
+  onError?: React.ReactEventHandler<HTMLImageElement>;
 };
 
 const IMAGE_FILE_EXTENSION = /\.(?:avif|bmp|gif|heic|heif|jpe?g|png|svg|webp)(?:[?#]|$)/i;
@@ -115,9 +117,11 @@ export function MobileZoomableImage({
   loading = "eager",
   decoding = "async",
   showControls = true,
+  controlsPlacement = "overlay",
   enabled,
   stopPropagation = true,
   onLoad,
+  onError,
 }: MobileZoomableImageProps) {
   const zoomEnabled = useMobileZoomEnabled(enabled);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -259,7 +263,7 @@ export function MobileZoomableImage({
     flushTransform();
     measureLayout();
     resetTransform(false);
-  }, [flushTransform, measureLayout, resetTransform, src, zoomEnabled]);
+  }, [flushTransform, measureLayout, resetTransform, src, zoomEnabled, controlsPlacement, showControls]);
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -274,19 +278,53 @@ export function MobileZoomableImage({
     observer.observe(viewport);
     if (imageRef.current) observer.observe(imageRef.current);
     return () => observer.disconnect();
-  }, [applyTransform, measureLayout, src]);
+  }, [applyTransform, measureLayout, src, zoomEnabled, controlsPlacement, showControls]);
 
   useEffect(() => () => {
     if (transformFrameRef.current != null) window.cancelAnimationFrame(transformFrameRef.current);
   }, []);
 
-  return (
+  const controlsBelow = zoomEnabled && showControls && controlsPlacement === "below";
+  const controls = zoomEnabled && showControls ? (
+    <div
+      className={cn(
+        controlsBelow
+          ? "flex shrink-0 items-center justify-center gap-1 border-t border-slate-200 bg-white p-1 text-slate-700"
+          : "absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-slate-950/90 p-1 text-white shadow-lg",
+        controlsClassName,
+      )}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={() => zoomTo(transformRef.current.scale - TASK_IMAGE_ZOOM_STEP)}
+        className={cn("flex size-11 items-center justify-center rounded-full", controlsBelow ? "hover:bg-slate-100 active:bg-slate-200" : "transition active:bg-white/20")}
+        aria-label="缩小图片"
+        title="缩小图片"
+      >
+        <ZoomOut className="size-4" aria-hidden="true" />
+      </button>
+      <span ref={zoomLabelRef} className={cn("w-11 text-center text-[11px] tabular-nums", controlsBelow ? "text-slate-500" : "text-white/85")} aria-live="polite">100%</span>
+      <button
+        type="button"
+        onClick={() => zoomTo(transformRef.current.scale + TASK_IMAGE_ZOOM_STEP)}
+        className={cn("flex size-11 items-center justify-center rounded-full", controlsBelow ? "hover:bg-slate-100 active:bg-slate-200" : "transition active:bg-white/20")}
+        aria-label="放大图片"
+        title="放大图片"
+      >
+        <ZoomIn className="size-4" aria-hidden="true" />
+      </button>
+    </div>
+  ) : null;
+
+  const viewport = (
     <div
       ref={viewportRef}
       className={cn(
         "relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden",
         zoomEnabled && "touch-none select-none",
-        className,
+        controlsBelow ? "w-full flex-1" : className,
       )}
       aria-label={zoomEnabled ? "图片手势区域，可双指缩放，放大后拖动" : undefined}
       onClick={(event) => {
@@ -356,6 +394,7 @@ export function MobileZoomableImage({
           loading={loading}
           decoding={decoding}
           draggable={false}
+          onError={onError}
           onClick={(event) => event.stopPropagation()}
           onLoad={(event) => {
             measureLayout();
@@ -366,38 +405,15 @@ export function MobileZoomableImage({
         />
       </div>
 
-      {zoomEnabled && showControls ? (
-        <div
-          className={cn(
-            "absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-slate-950/90 p-1 text-white shadow-lg",
-            controlsClassName,
-          )}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <button
-            type="button"
-            onClick={() => zoomTo(transformRef.current.scale - TASK_IMAGE_ZOOM_STEP)}
-            className="flex h-11 w-11 items-center justify-center rounded-full transition active:bg-white/20"
-            aria-label="缩小图片"
-            title="缩小图片"
-          >
-            <ZoomOut className="h-4 w-4" aria-hidden="true" />
-          </button>
-          <span ref={zoomLabelRef} className="w-11 text-center text-[11px] tabular-nums text-white/85" aria-live="polite">100%</span>
-          <button
-            type="button"
-            onClick={() => zoomTo(transformRef.current.scale + TASK_IMAGE_ZOOM_STEP)}
-            className="flex h-11 w-11 items-center justify-center rounded-full transition active:bg-white/20"
-            aria-label="放大图片"
-            title="放大图片"
-          >
-            <ZoomIn className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
-      ) : null}
+      {!controlsBelow ? controls : null}
     </div>
   );
+  return controlsBelow ? (
+    <div className={cn("flex min-h-0 min-w-0 flex-col overflow-hidden", className)}>
+      {viewport}
+      {controls}
+    </div>
+  ) : viewport;
 }
 
 export function MobileImageLightbox({

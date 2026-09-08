@@ -1,4 +1,4 @@
-import { useDeferredValue, useId, useMemo, useState, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, PackageSearch, ShieldCheck, Truck, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -167,13 +167,16 @@ export function TaskCriticalMaterialsEditor({
   task,
   materials,
   children,
+  onOpenChange,
 }: {
   task: ProcurementTask;
   materials: Material[];
   children: (controls: { openEditor: () => void }) => ReactNode;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const { t } = useI18n();
   const [editorOpen, setEditorOpen] = useState(false);
+  useEffect(() => { onOpenChange?.(editorOpen); }, [editorOpen, onOpenChange]);
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [leadTimeById, setLeadTimeById] = useState<Record<string, string>>({});

@@ -358,8 +358,8 @@ export class ProcurementController {
 
   @Delete('tasks/:id')
   @Permissions('proc-task:delete')
-  remove(@Param('id') id: string) {
-    return this.service.deleteTask(id);
+  remove(@Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.service.deleteTask(id, this.actor(req));
   }
 
   @Post('tasks/:id/attachments')

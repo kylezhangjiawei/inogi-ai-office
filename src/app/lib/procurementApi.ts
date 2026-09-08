@@ -21,7 +21,13 @@ export type ProcStatus =
   | "cancelled";
 
 export interface ProcLog {
+  id?: string;
   at: string;
+  createdAt?: string;
+  actor?: string | null;
+  actorUserId?: string | null;
+  fromStatus?: ProcStatus | null;
+  toStatus?: ProcStatus | null;
   text: string;
   kind?: "system" | "action";
 }

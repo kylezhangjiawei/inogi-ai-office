@@ -7107,19 +7107,13 @@ function PersonTaskCockpit({
     onCompositionStart: startSearchComposition,
     onCompositionEnd: endSearchComposition,
   } = useCockpitSearchKeyword(keyword, onKeywordChange);
-  const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const searchTriggerRef = useRef<HTMLButtonElement | null>(null);
   const cockpitSearch = committedKeyword.trim();
   const deferredCockpitSearch = useDeferredValue(cockpitSearch);
   const searchPending = deferredCockpitSearch !== cockpitSearch;
-  useEffect(() => {
-    if (searchOpen) searchInputRef.current?.focus();
-  }, [searchOpen]);
-  const closeSearchAndRestoreFocus = useCallback(() => {
+  const clearSearchAndRestoreFocus = useCallback(() => {
     setCockpitKeyword("");
-    setSearchOpen(false);
-    requestAnimationFrame(() => searchTriggerRef.current?.focus());
+    requestAnimationFrame(() => searchInputRef.current?.focus());
   }, [setCockpitKeyword]);
 
   // 异步刷新后（如删除了某人最后一个任务），该成员会从 personLoads 中消失。
@@ -8222,10 +8216,8 @@ function PersonTaskCockpit({
             })}
           </TabsList>
 
-          {/* 任务搜索：默认仅一枚圆形图标，点击展开为小输入框；为空失焦自动缩回 */}
-          {(keyword === undefined || headerCollapsed) && (
+          {/* 搜索常驻人员栏右侧；与顶栏共享关键词，大屏和普通视图保持同一个输入框。 */}
           <div className="rd-horizon-search flex w-full shrink-0 items-center px-4 pb-3 sm:ml-2 sm:w-auto sm:px-0 sm:pb-0">
-            {searchOpen || cockpitSearch ? (
               <label className="relative block w-full sm:w-auto">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <input
@@ -8235,12 +8227,11 @@ function PersonTaskCockpit({
                   onChange={(e) => setCockpitKeyword(e.target.value)}
                   onCompositionStart={startSearchComposition}
                   onCompositionEnd={(e) => endSearchComposition(e.currentTarget.value)}
-                  onBlur={() => { if (!searchComposingRef.current && !cockpitKeyword.trim()) setSearchOpen(false); }}
                   onKeyDown={(e) => {
                     if (searchComposingRef.current || e.nativeEvent.isComposing || e.keyCode === 229) return;
                     if (e.key === "Escape") {
                       e.preventDefault();
-                      closeSearchAndRestoreFocus();
+                      clearSearchAndRestoreFocus();
                     }
                   }}
                   placeholder={t("搜索任务全部内容")}
@@ -8273,20 +8264,7 @@ function PersonTaskCockpit({
                   </button>
                 ) : null}
               </label>
-            ) : (
-              <button
-                ref={searchTriggerRef}
-                type="button"
-                onClick={() => setSearchOpen(true)}
-                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                title={t("搜索任务全部内容（描述、人员、进度、工作项等）")}
-                aria-label={t("搜索任务")}
-              >
-                <Search className="h-4 w-4" />
-              </button>
-            )}
           </div>
-          )}
           </div>
 
           {/* ── 当前 KPI 筛选条 ── */}
@@ -8441,7 +8419,7 @@ function PersonTaskCockpit({
                           {cockpitSearch && (
                             <button
                               type="button"
-                              onClick={closeSearchAndRestoreFocus}
+                              onClick={clearSearchAndRestoreFocus}
                               className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                             >
                               <X className="h-3 w-3" />
@@ -8563,7 +8541,7 @@ function PersonTaskCockpit({
                           {cockpitSearch && (
                             <button
                               type="button"
-                              onClick={closeSearchAndRestoreFocus}
+                              onClick={clearSearchAndRestoreFocus}
                               className="inline-flex min-h-11 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-600 transition-colors hover:border-primary/20 hover:bg-accent hover:text-primary"
                             >
                               <X className="h-3 w-3" />
@@ -9638,9 +9616,9 @@ function ExecutiveOverview({
   // 沉浸模式（整屏看任务）：把顶部概览的收起信号上报给 Root，联动隐藏全局顶栏 + 滑出侧边栏。
   const { setImmersive } = useLayoutChromeActions();
 
-  // 默认保留概览和全局导航；用户可主动进入大屏，或在更多菜单启用滚动自动收起。
+  // 默认下滑任务流自动进入大屏；用户可在更多菜单关闭自动收起，仍可手动进入大屏。
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
-  const [headerPinned, setHeaderPinned] = useState(true);
+  const [headerPinned, setHeaderPinned] = useState(false);
   // 来自 PersonTaskCockpit 的下滑收起信号：钉住时丢弃；展开由沉浸模式控制条显式触发。
   const handleHeaderCollapseChange = useCallback(
     (collapsed: boolean) => {
@@ -9671,7 +9649,7 @@ function ExecutiveOverview({
       aria-label={productionWorkspace ? t("生产任务核心驾驶舱") : t("研发任务核心驾驶舱")}
     >
       <div className="rd-horizon-layout mx-auto space-y-6 rd-stagger-children">
-        {/* 概览与按需展开的报告摘要；大屏由用户主动开启，自动收起在更多菜单中设置。 */}
+        {/* 概览与报告摘要；支持滚动自动进入大屏，也保留手动入口。 */}
         <div className="rd-horizon-overview-top relative">
         {/* Horizon 驾驶舱提供沉浸模式控制：收起后通过 portal 固定到视口右上角，不占布局且不受面板层级遮挡。 */}
         {!usCollabLayout && headerCollapsed && typeof document !== "undefined" && createPortal(

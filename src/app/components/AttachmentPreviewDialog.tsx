@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Download, FileText, Loader2, Table2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileText, ImageOff, Loader2, Table2, X } from "lucide-react";
 
-import { useBodyScrollLock } from "../hooks/useMobileOverlay";
 import { useI18n } from "../lib/i18n";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "../lib/xlsxPreview";
 import { MobileZoomableImage } from "./MobileZoomableImage";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 import { cn } from "./ui/utils";
 
 export type PreviewableAttachment = {
@@ -15,6 +14,7 @@ export type PreviewableAttachment = {
   size?: number;
   url: string;
   previewUrl?: string;
+  thumbUrl?: string;
   downloadUrl?: string;
 };
 
@@ -71,128 +71,180 @@ function isMobileRoute(): boolean {
 
 export function AttachmentPreviewDialog({
   attachment,
+  attachments,
   onClose,
 }: {
   attachment: PreviewableAttachment;
+  attachments?: PreviewableAttachment[];
   onClose: () => void;
 }) {
   const { t } = useI18n();
-  const mime = attachmentMime(attachment);
-  const previewUrl = attachment.previewUrl || attachment.url;
-  const downloadUrl = attachment.downloadUrl || attachment.url;
-  const isImage = mime.startsWith("image/");
-  const isVideo = mime.startsWith("video/");
-  const isAudio = mime.startsWith("audio/");
-  const isSpreadsheet = isSpreadsheetAttachment(attachment, mime);
-  const canInlinePreview = mime === "application/pdf" || mime === "text/plain" || mime === "application/json";
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
-  useBodyScrollLock(true);
+  const requestedKey = attachmentKey(attachment);
+  const [selection, setSelection] = useState({ requestedKey, activeKey: requestedKey });
+  const items = [...new Map((attachments?.length ? attachments : [attachment]).map((item) => [attachmentKey(item), item])).values()];
+  if (!items.some((item) => attachmentKey(item) === requestedKey)) items.unshift(attachment);
+  const selectedKey = selection.requestedKey === requestedKey ? selection.activeKey : requestedKey;
+  const selectedIndex = items.findIndex((item) => attachmentKey(item) === selectedKey);
+  const activeIndex = selectedIndex >= 0 ? selectedIndex : items.findIndex((item) => attachmentKey(item) === requestedKey);
+  const activeAttachment = items[activeIndex];
+  const activeKey = attachmentKey(activeAttachment);
+  const mime = attachmentMime(activeAttachment);
+  const downloadUrl = activeAttachment.downloadUrl || activeAttachment.url;
+  const openerRef = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const selectedThumbnailRef = useRef<HTMLButtonElement>(null);
+  const hasGallery = items.length > 1;
+  const selectAttachment = (index: number) => {
+    if (index < 0 || index >= items.length) return;
+    setSelection({ requestedKey, activeKey: attachmentKey(items[index]) });
+  };
 
   useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const focusFrame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    return () => {
-      window.cancelAnimationFrame(focusFrame);
-      previousFocus?.focus();
-    };
-  }, []);
+    selectedThumbnailRef.current?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+  }, [activeKey]);
 
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      className="horizon-portal fixed inset-0 z-50 flex items-center justify-center overscroll-none bg-slate-950/75 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]"
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("附件预览：{name}", { name: attachment.name })}
-      onClick={(event) => {
-        if (!isMobileRoute() && event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div className="relative flex max-h-[88dvh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
+        className="horizon-portal flex h-[90dvh] min-w-0 flex-col gap-0 overflow-hidden rounded-xl border-slate-200 bg-white p-0 shadow-xl data-[state=open]:animate-none data-[state=closed]:animate-none sm:max-w-7xl [&>button.absolute]:hidden"
+        onCloseAutoFocus={(event) => {
+          // Callers open this dialog from several conditional attachment controls, without a DialogTrigger.
+          if (openerRef.current?.isConnected) {
+            event.preventDefault();
+            openerRef.current.focus();
+          }
+        }}
+        onPointerDownOutside={(event) => { if (isMobileRoute()) event.preventDefault(); }}
+        onKeyDown={(event) => {
+          if (event.defaultPrevented || event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+          if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"], [role="slider"], [role="combobox"], video, audio, [data-attachment-local-keys]')) return;
+          if (!hasGallery || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+          event.preventDefault();
+          selectAttachment(activeIndex + (event.key === "ArrowLeft" ? -1 : 1));
+        }}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-3 py-3 sm:px-5">
           <div className="min-w-0">
-            <div className="truncate text-balance text-sm font-semibold text-[#1b2559]">{attachment.name}</div>
-            <div className="mt-0.5 text-xs tabular-nums text-slate-500">{mime} · {formatFileSize(attachment.size)}</div>
+            <DialogTitle className="truncate text-balance text-sm font-semibold text-[#1b2559]" title={activeAttachment.name}>{activeAttachment.name}</DialogTitle>
+            <DialogDescription className="mt-1 truncate text-xs leading-4 tabular-nums text-slate-500">
+              {hasGallery ? t("第 {current} / {total} 个附件", { current: activeIndex + 1, total: items.length }) : t("附件预览")} · {formatFileSize(activeAttachment.size)}
+            </DialogDescription>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <a
               href={downloadUrl}
-              download={attachment.name}
+              download={activeAttachment.name}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dce6ff] bg-white px-3 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
+              className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-[var(--primary-soft-border)] bg-white px-3 text-xs font-semibold text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
             >
-              <Download className="h-3.5 w-3.5" />
+              <Download className="size-4" aria-hidden="true" />
               {t("下载")}
             </a>
-            <button
-              ref={closeButtonRef}
-              type="button"
-              onClick={onClose}
-              className="flex size-8 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
-              aria-label={t("关闭预览")}
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <DialogClose asChild>
+              <button
+                type="button"
+                className="flex size-10 cursor-pointer items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                aria-label={t("关闭预览")}
+              >
+                <X className="size-4" aria-hidden="true" />
+              </button>
+            </DialogClose>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-4">
-          {isImage ? (
-            <div className="flex min-h-[52vh] items-center justify-center">
-              <MobileZoomableImage
-                src={previewUrl}
-                alt={attachment.name}
-                loading="eager"
-                decoding="async"
-                enabled
-                stopPropagation={false}
-                className="h-[72vh] max-h-[72vh] w-full overflow-hidden rounded-lg bg-white shadow-sm"
-                imageClassName="h-full w-full object-contain"
-              />
-            </div>
-          ) : isVideo ? (
-            <div className="flex min-h-[52vh] items-center justify-center">
-              <video src={previewUrl} controls autoPlay playsInline className="max-h-[72vh] max-w-full rounded-lg bg-slate-950 shadow-sm">
-                {t("当前浏览器暂不支持视频播放")}
-              </video>
-            </div>
-          ) : isAudio ? (
-            <div className="flex min-h-[52vh] items-center justify-center">
-              <audio src={previewUrl} controls autoPlay className="w-full max-w-xl" />
-            </div>
-          ) : isSpreadsheet ? (
-            <XlsxTablePreview url={previewUrl} />
-          ) : canInlinePreview ? (
-            <iframe
-              /*
-               * 不能加 sandbox 属性：空 sandbox 会把 Chrome 内置 PDF 查看器一并禁掉，PDF 一律白屏。
-               * 预览地址由 ossService.buildInlinePreviewUrl 生成，走 CDN inline 或同源
-               * /api/research-development/oss-preview 代理；该代理响应带
-               * Content-Security-Policy: default-src 'none'; sandbox 的文档级沙箱 +
-               * X-Content-Type-Options: nosniff，且 html/svg/js 等主动内容被强制改写为
-               * octet-stream + Content-Disposition: attachment，不会在 iframe 里渲染。
-               */
-              src={previewUrl}
-              title={attachment.name}
-              referrerPolicy="no-referrer"
-              className="h-[72vh] w-full rounded-lg border border-slate-200 bg-white"
-            />
-          ) : (
-            <UnsupportedPreview />
-          )}
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-slate-100 p-2 sm:p-4">
+          <AttachmentContent key={`${activeKey}:${activeAttachment.previewUrl || activeAttachment.url}`} attachment={activeAttachment} mime={mime} />
         </div>
-      </div>
-    </div>,
-    document.body,
+        {hasGallery ? (
+          <div className="min-w-0 shrink-0 border-t border-slate-200 bg-white px-3 pb-3 pt-2 sm:px-5">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="min-w-0 text-xs font-medium text-slate-600">{t("全部附件")} <span className="tabular-nums text-slate-400">{items.length}</span></div>
+              <nav aria-label={t("切换预览附件")} className="flex shrink-0 items-center gap-2">
+                <button type="button" disabled={activeIndex === 0} onClick={() => selectAttachment(activeIndex - 1)} aria-label={t("上一个附件")} className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--primary-soft-border)] px-2 text-xs text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40">
+                  <ChevronLeft className="size-4" aria-hidden="true" />{t(mime.startsWith("image/") ? "上一张" : "上一项")}
+                </button>
+                <span aria-live="polite" aria-atomic="true" className="min-w-10 text-center text-xs tabular-nums text-slate-500">{activeIndex + 1} / {items.length}</span>
+                <button type="button" disabled={activeIndex === items.length - 1} onClick={() => selectAttachment(activeIndex + 1)} aria-label={t("下一个附件")} className="inline-flex h-9 items-center gap-1 rounded-lg border border-[var(--primary-soft-border)] px-2 text-xs text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-40">
+                  {t(mime.startsWith("image/") ? "下一张" : "下一项")}<ChevronRight className="size-4" aria-hidden="true" />
+                </button>
+              </nav>
+            </div>
+            <div className="flex min-w-0 gap-2 overflow-x-auto overscroll-x-contain pb-1" role="group" aria-label={t("全部附件缩略图")}>
+              {items.map((item, index) => (
+                <button
+                  key={attachmentKey(item)}
+                  ref={index === activeIndex ? selectedThumbnailRef : undefined}
+                  type="button"
+                  onClick={() => selectAttachment(index)}
+                  aria-label={t("预览第 {index} 个附件：{name}", { index: index + 1, name: item.name })}
+                  aria-current={index === activeIndex ? "true" : undefined}
+                  title={item.name}
+                  className={cn("w-24 shrink-0 overflow-hidden rounded-lg border-2 p-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30", index === activeIndex ? "border-[var(--primary)] bg-accent" : "border-transparent bg-slate-50 hover:border-slate-200")}
+                >
+                  <AttachmentThumbnail attachment={item} />
+                  <div className="mt-1 truncate text-xs text-slate-600">{item.name}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
+}
+
+function attachmentKey(attachment: PreviewableAttachment): string {
+  return attachment.id ? `id:${attachment.id}` : `url:${attachment.url}:${attachment.name}`;
+}
+
+function AttachmentThumbnail({ attachment }: { attachment: PreviewableAttachment }) {
+  const [failed, setFailed] = useState(false);
+  const isImage = attachmentMime(attachment).startsWith("image/");
+  return (
+    <div className="flex h-14 items-center justify-center overflow-hidden rounded bg-white text-slate-400">
+      {isImage && !failed ? <img src={attachment.thumbUrl || attachment.previewUrl || attachment.url} alt="" loading="lazy" decoding="async" className="h-full w-full object-contain" onError={() => setFailed(true)} /> : <FileText className="size-6" aria-hidden="true" />}
+    </div>
+  );
+}
+
+function AttachmentContent({ attachment, mime }: { attachment: PreviewableAttachment; mime: string }) {
+  const { t } = useI18n();
+  const previewUrl = attachment.previewUrl || attachment.url;
+  const [imageFailed, setImageFailed] = useState(false);
+  const [imageLoading, setImageLoading] = useState(true);
+  if (mime.startsWith("image/")) {
+    return (
+      <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-lg bg-white" data-attachment-local-keys>
+        {imageFailed ? (
+          <div role="status" className="flex max-w-md flex-col items-center gap-3 p-6 text-center">
+            <ImageOff className="size-10 text-slate-300" aria-hidden="true" />
+            <div className="text-balance text-sm font-semibold text-[#1b2559]">{t("图片加载失败")}</div>
+            <p className="text-pretty text-xs leading-5 text-slate-500">{t("可切换其他附件，或点击右上角下载查看。")}</p>
+          </div>
+        ) : (
+          <>
+            {imageLoading ? <div role="status" aria-label={t("正在加载图片")} className="pointer-events-none absolute inset-4 rounded-lg bg-slate-50" /> : null}
+            <MobileZoomableImage src={previewUrl} alt={attachment.name} loading="eager" decoding="async" enabled controlsPlacement="below" stopPropagation={false} onLoad={() => setImageLoading(false)} onError={() => setImageFailed(true)} className="h-full w-full" imageClassName="h-full w-full object-contain" />
+          </>
+        )}
+      </div>
+    );
+  }
+  if (mime.startsWith("video/")) return <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center"><video src={previewUrl} controls autoPlay playsInline className="h-full max-h-full w-full rounded-lg bg-slate-950 object-contain">{t("当前浏览器暂不支持视频播放")}</video></div>;
+  if (mime.startsWith("audio/")) return <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center"><audio src={previewUrl} controls autoPlay className="w-full max-w-xl" /></div>;
+  if (isSpreadsheetAttachment(attachment, mime)) return <div className="min-h-0 min-w-0 flex-1 overflow-auto"><XlsxTablePreview url={previewUrl} /></div>;
+  if (mime === "application/pdf" || mime === "text/plain" || mime === "application/json") {
+    return (
+      <iframe
+        /* Do not add sandbox: it disables the built-in PDF viewer. The OSS preview proxy applies its document CSP and forces active content to download. */
+        src={previewUrl}
+        title={attachment.name}
+        referrerPolicy="no-referrer"
+        className="h-full min-h-0 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white"
+      />
+    );
+  }
+  return <div className="min-h-0 min-w-0 flex-1 overflow-auto"><UnsupportedPreview /></div>;
 }
 
 function UnsupportedPreview() {
