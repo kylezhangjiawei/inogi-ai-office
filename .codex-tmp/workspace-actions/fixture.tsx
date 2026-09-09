@@ -1,0 +1,10 @@
+import React from 'react';import {createRoot} from 'react-dom/client';import {MemoryRouter} from 'react-router';
+import {TooltipProvider} from '/src/app/components/ui/tooltip';
+import {ProcMyWorkspacePage} from '/src/app/procurement/ProcMyWorkspacePage';
+import {ProcurementTaskCard} from '/src/app/procurement/components/ProcurementTaskCard';
+import {tasks,materials} from '/scripts/ui-preview/fixtures';
+import {testUser} from './auth-preview';
+import '/src/styles/index.css';import '/src/app/procurement/horizon.css';
+localStorage.setItem('inogi-auth-user',JSON.stringify(testUser));
+const completed={...tasks[10],code:'QA-COMPLETED',materialName:'已完成状态禁止回退验收',buyer:'采购验收员',buyerUserId:testUser.id,status:'completed'};
+createRoot(document.getElementById('root')!).render(<MemoryRouter initialEntries={['/proc-my-workspace']}><TooltipProvider><div className="horizon-theme" style={{padding:16,minHeight:'100dvh',background:'#f4f6fc'}}><h1 style={{fontSize:22,fontWeight:700,marginBottom:16}}>采购工作台 · 本地虚构资料</h1>{new URLSearchParams(location.search).get('mode')==='completed'?<div style={{maxWidth:600}}><ProcurementTaskCard task={completed as any} materials={materials} onOpen={()=>{}} onRollback={()=>{}} onViewLogs={()=>{}}/></div>:<ProcMyWorkspacePage/>}</div></TooltipProvider></MemoryRouter>);

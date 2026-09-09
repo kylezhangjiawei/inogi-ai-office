@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-08",
+  "fixture": "Real StockPlanPanel with synthetic products, materials, subsystem and BOM options; only local POST stock-plans records last-submit.json and returns a synthetic plan",
+  "browser": "Chrome through CUA; simulated 1440x900 and390x900 viewports",
+  "passed": [
+    "New-plan dialog opens with shared Select controls and searchable material popover",
+    "Select packaging plan type and Q5 synthetic product through their visible options",
+    "Material popover accepts Chinese search and selects QA-MAT-1 / Q5 outer packaging box",
+    "Linked material correctly fills materialId, materialName, specification and unit",
+    "Shared date calendar opens above dialog, September20 selection yields2026-09-20",
+    "Local create submission matches planType packaging, productId qa-product-q5, materialId preview-material-1, targetQty120, unit个, targetDate2026-09-20",
+    "Successful response closes dialog and renders QA-STOCK-001 in plan list",
+    "390px viewport: dialog x16..374, width358, height810, inner clientWidth equals scrollWidth357; create button visible",
+    "390px product menu x41..334, width293, option selection works without page overflow"
+  ],
+  "payloadEvidence": "last-submit.json",
+  "scope": "One create flow and mobile layout check. Not expanded to batch editing, machine BOM, locked records, date clearing or month-year boundaries; parent automated tests cover these.",
+  "notes": "The optional note field was not included in the asserted payload fields; recorded note is empty. No production access or writes. Dropdown hidden native select elements are aria-hidden; visible options use shared UI.",
+  "cleanup": "Browser tab closed, viewport reset, local Vite server stopped"
+}

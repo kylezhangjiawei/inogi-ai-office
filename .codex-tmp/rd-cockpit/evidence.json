@@ -1,0 +1,29 @@
+{
+  "environment": "Local Vite 5190, real RDTaskManagementPage + Header/LayoutChrome providers, real MobileRDCockpit, 72 synthetic tasks, 6 people and 12 synthetic attachments. No production requests or writes.",
+  "desktop": {
+    "sizes": [[1440,940],[1920,1080],[768,1024],[1024,768]],
+    "searchWidth": 208,
+    "passed": [
+      "Personnel search permanently visible at right; tab strip does not overlap search. Tablet members remain accessible through horizontal scroll.",
+      "Typing 电池安全测试 in personnel search synchronizes header search and URL q after debounce; clear works.",
+      "Select 李设计 and scroll task stream downward enters immersive mode, retaining selected person and search.",
+      "Exit immersive retains 李设计 and remains expanded without immediate bounce.",
+      "Disable scroll-auto-collapse: stream scrollTop reaches 592.67 and immersive remains false; enable restores automatic collapse.",
+      "Exit button and search occupy separate vertical areas at desktop/tablet tested sizes.",
+      "Document scrollWidth equals viewport width at 1440,1920,768,1024."
+    ]
+  },
+  "mobile": {
+    "size": [390,844],
+    "passed": [
+      "Chinese search 电池安全测试 plus 张测试 yields 12 matching tasks.",
+      "Task 7 opens real /m/task/QA-RD-7 detail with correct owner and title.",
+      "Attachment library lists all 12 files.",
+      "Attachment 1 opens image preview with 1/12 count, image, zoom controls and download.",
+      "Document scrollWidth 390 equals viewport 390."
+    ]
+  },
+  "unverified": ["375px mobile", "mobile landscape", "physical Chinese IME composition", "real touchscreen gestures", "desktop attachment-scroll isolation assertion"],
+  "fixtureLimit": "Discussion endpoint was not fully mocked; initial mobile discussion panel showed fixture-only unavailable message, attachment library and preview succeeded independently.",
+  "cleanup": "Temporary Chrome tab closed, viewport reset, Vite server stopped."
+}

@@ -847,6 +847,7 @@ export const AUDIT_MODULE_LABELS: Record<string, string> = {
   image_generation_upstream: "图片生成上游",
   "video-generation": "视频生成",
   "integration-management": "集成管理",
+  "electronic-gate": "电子闸门",
   i18n: "多语言",
   rag: "知识检索",
   other: "其他",

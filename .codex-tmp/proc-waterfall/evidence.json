@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-08",
+  "fixture": "Real ProcurementCockpitPage, ProcurementTaskCard, Header, TaskDetailDrawer and attachment gallery; Root-equivalent shell with synthetic 224px sidebar; 36 local tasks with mixed lengths, states and 4 attachments on every third task",
+  "environment": "Chrome through CUA; 1440x900, 1920x900 and 390x900 viewports; no physical touch device",
+  "safety": "All business APIs are local fixtures, unknown APIs return 404, all non-GET/HEAD requests return 405, CSP restricts resources to localhost/data/blob",
+  "passed": [
+    "1440px: three independent columns around 375px each; first cards have natural heights 577.33 / 356.33 / 339.33px",
+    "Within each column next card begins 16px below preceding card, rather than aligning to adjacent column card height",
+    "Lazy append 9 -> 18 -> 27 -> 36 completed; 36 distinct task IDs and loaded-all label",
+    "When appending 9 -> 18, every initial task retained x coordinate, scroll-adjusted y coordinate and height within 1px",
+    "390px: one column; document width exactly390px, card width346.67px with no horizontal page overflow",
+    "Chinese keyword filter narrows 36 tasks to one; explicit clear-search button restores tasks",
+    "Mobile gallery opens and navigates to hidden fourth attachment, showing 4/4",
+    "Mobile View Task opens QA-WF-001 detail with task metadata and all four attachments",
+    "Cross-column gallery preservation: open fourth task's gallery at1440/3 columns, resize1920; gallery remains open at1/4 and background columns remain3",
+    "After gallery close at1920, columns recompute to5 for actual available width, no dialog remains, fourth task is now column index3"
+  ],
+  "limitations": [
+    "Inventory editor draft preservation was not tested manually; parent covers through automated hook/notification regression",
+    "CUA screenshot inspected inline, no local screenshot file returned",
+    "Header displays System Home because harness uses a synthetic route; tested cockpit and its behavior are real product components"
+  ],
+  "cleanup": "Dedicated browser tab closed, viewport reset, local Vite server stopped"
+}

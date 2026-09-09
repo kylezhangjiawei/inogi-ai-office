@@ -713,7 +713,7 @@ export function MobileRDCockpit() {
           <div className="mt-3 h-6 w-44 rounded bg-slate-200" />
           <div className="mt-2 h-3 w-full max-w-72 rounded bg-slate-100" />
         </div>
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2" aria-hidden="true">
+        <div className="mt-4 grid grid-cols-2 gap-3" aria-hidden="true">
           {[0, 1, 2, 3].map((item) => (
             <div key={item} className="h-44 rounded-2xl border border-slate-200 bg-white shadow-sm" />
           ))}
@@ -915,21 +915,25 @@ export function MobileRDCockpit() {
             </button>
           </div>
         ) : (
-          // 手机按时间顺序单列阅读；宽度足够的平板再并排，长任务名有完整阅读空间。
-          <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2">
-            {shownTasks.map((task, index) => (
-              <MobileFeedCard
-                key={task.task_id}
-                task={task}
-                isRisk={riskTaskIds.has(task.task_id)}
-                priority={index < 2}
-                onOpen={() => openTask(task)}
-                onPreview={(images, thumbnails, imageIndex) => {
-                  pushMobileOverlayState(CARD_IMAGE_OVERLAY);
-                  setLightbox({ images, thumbnails, index: imageIndex });
-                }}
-                unreadCount={noteUnread[task.task_id] ?? 0}
-              />
+          // 双列独立堆叠，封面和长内容只撑高所在列；轮转分列保持最新任务顺序。
+          <div className="flex items-start gap-3">
+            {[0, 1].map((column) => (
+              <div key={column} className="flex min-w-0 flex-1 flex-col gap-3">
+                {shownTasks.filter((_, index) => index % 2 === column).map((task, columnIndex) => (
+                  <MobileFeedCard
+                    key={task.task_id}
+                    task={task}
+                    isRisk={riskTaskIds.has(task.task_id)}
+                    priority={columnIndex === 0}
+                    onOpen={() => openTask(task)}
+                    onPreview={(images, thumbnails, imageIndex) => {
+                      pushMobileOverlayState(CARD_IMAGE_OVERLAY);
+                      setLightbox({ images, thumbnails, index: imageIndex });
+                    }}
+                    unreadCount={noteUnread[task.task_id] ?? 0}
+                  />
+                ))}
+              </div>
             ))}
           </div>
         )}

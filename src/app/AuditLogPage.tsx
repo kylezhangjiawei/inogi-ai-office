@@ -131,6 +131,7 @@ const RESOURCE_LABELS: Record<FilterValue<ResourceType>, string> = {
 
 const LEGACY_RESOURCE_LABELS: Record<string, string> = {
   "rd-task-module": "研发任务模块",
+  "electronic-gate": "电子闸门",
 };
 
 // 标签查表后过 t()：中文即字典 key，英文态翻译、缺词条回退中文
