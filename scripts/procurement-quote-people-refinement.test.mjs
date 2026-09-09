@@ -198,7 +198,13 @@ test("共享操作弹层保留危险确认、原子提交和采购业务调用",
   assert.match(files.common, /event\.preventDefault\(\); void execute\(\)/);
   assert.match(files.common, /if \(!open && !busyRef\.current\) setReq\(null\)/);
   assert.match(files.common, /aria-label=\{ariaLabel\}/);
-  assert.match(files.common, /autoFocus, ariaLabel, onEnter/);
+  const comboInput = files.common.slice(
+    files.common.indexOf("export function ComboInput("),
+    files.common.indexOf("export function DateInput("),
+  );
+  assert.match(comboInput, /autoFocus=\{autoFocus\}/);
+  assert.match(comboInput, /aria-label=\{ariaLabel\}/);
+  assert.match(comboInput, /if \(e\.key === "Enter"\) onEnter\?\.\(\)/);
 
   assert.match(files.actions, /function ConfirmActionDialog/);
   assert.match(files.actions, /<AlertDialog open/);
