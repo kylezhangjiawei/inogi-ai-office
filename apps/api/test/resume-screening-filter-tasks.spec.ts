@@ -224,7 +224,11 @@ test('旧提交接口与异步接口均进入同一持久队列，所有查询�
   controller.iterateCandidateFilter(payload, { user: { id: 'u' } });
   controller.createCandidateFilterTask({ user: { sub: 'u' } }, payload);
   controller.getCandidateFilterTask({ user: { id: 'u' } }, 't');
-  controller.getCurrentCandidateFilterTask({ user: { id: 'u' } });
+  const currentResponses: unknown[] = [];
+  const response = { json: (body: unknown) => { currentResponses.push(body); } };
+  await controller.getCurrentCandidateFilterTask({ user: { id: 'u', sub: 'ignored-sub' } }, response as never);
+  await controller.getCurrentCandidateFilterTask({ user: { sub: 'sub-user' } }, response as never);
   controller.retryCandidateFilterTask({ user: { id: 'u' } }, 't');
-  assert.deepEqual(calls, [['u', payload], ['u', payload], ['u', 't'], ['u'], ['u', 't']]);
+  assert.deepEqual(calls, [['u', payload], ['u', payload], ['u', 't'], ['u'], ['sub-user'], ['u', 't']]);
+  assert.deepEqual(currentResponses, [{}, {}]);
 });

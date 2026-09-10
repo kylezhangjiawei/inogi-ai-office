@@ -422,7 +422,7 @@ export class CandidateFilterTaskHttpError extends Error {
   }
 }
 
-async function requestCandidateFilterTask<T>(path: string, init?: RequestInit): Promise<T> {
+async function requestCandidateFilterTask<T>(path: string, init?: RequestInit, emptyAsNull = false): Promise<T> {
   const userId = getStoredUser()?.id;
   const generation = candidateFilterAuthGeneration;
   if (!userId) throw new DOMException("登录已失效", "AbortError");
@@ -452,7 +452,10 @@ async function requestCandidateFilterTask<T>(path: string, init?: RequestInit): 
       if (!response.ok) {
         throw new CandidateFilterTaskHttpError(await readErrorMessage(response, `请求失败：${response.status}`), response.status);
       }
-      const result = await response.json() as T;
+      const body = await response.text();
+      // Older Nest/Express responses serialize a nullable current task as an empty body.
+      // Only that read endpoint permits "no task"; other task responses must contain JSON.
+      const result = (emptyAsNull && !body.trim() ? null : JSON.parse(body)) as T;
       controller.signal.throwIfAborted();
       if (getStoredUser()?.id !== userId || generation !== candidateFilterAuthGeneration) {
         throw new DOMException("登录账号已变更", "AbortError");
@@ -769,7 +772,7 @@ export const recruitmentApi = {
   getCandidateFilterTask,
   watchCandidateFilterTask,
   getCurrentCandidateFilterTask(signal?: AbortSignal) {
-    return requestCandidateFilterTask<CandidateFilterTask | null>("/api/recruitment/candidate-filter-tasks/current", { signal });
+    return requestCandidateFilterTask<CandidateFilterTask | null>("/api/recruitment/candidate-filter-tasks/current", { signal }, true);
   },
   retryCandidateFilterTask(taskId: string, signal?: AbortSignal) {
     return requestCandidateFilterTask<CandidateFilterTask>(`/api/recruitment/candidate-filter-tasks/${encodeURIComponent(taskId)}/retry`, { method: "POST", signal });

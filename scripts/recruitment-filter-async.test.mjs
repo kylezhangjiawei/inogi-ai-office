@@ -131,7 +131,7 @@ test("单次20秒超时会中止读取；外部AbortSignal立即退出且不取�
   for (const phase of ["refresh", "body"]) {
     for (const cancel of ["timeout", "external"]) {
       const stalled = deferred();
-      const waiting = apiFixture(async () => phase === "refresh" ? stalled.promise : { ok: true, json: () => stalled.promise });
+      const waiting = apiFixture(async () => phase === "refresh" ? stalled.promise : { ok: true, text: () => stalled.promise });
       const stop = new AbortController();
       const read = waiting.api.getCurrentCandidateFilterTask(stop.signal);
       await flush();
@@ -141,7 +141,7 @@ test("单次20秒超时会中止读取；外部AbortSignal立即退出且不取�
       await flush();
       assert.equal(await Promise.race([settled, Promise.resolve("still-pending")]), "AbortError", `${phase}/${cancel} must stop even if the underlying promise ignores abort`);
       // A late completion must remain rejected and cannot restore a stale task.
-      stalled.resolve(phase === "refresh" ? Response.json(task()) : task());
+      stalled.resolve(phase === "refresh" ? Response.json(task()) : JSON.stringify(task()));
       await flush();
       assert.equal(await settled, "AbortError");
     }
@@ -165,6 +165,36 @@ test("current恢复和retry使用独立协议，重试不提交候选人或评�
   assert.equal((await h.api.retryCandidateFilterTask("task/a")).processed_count, 160);
   assert.equal(calls[1].url, "/api/recruitment/candidate-filter-tasks/task%2Fa/retry");
   assert.equal(calls[1].init.method, "POST"); assert.equal(calls[1].init.body, undefined);
+});
+
+test("首次进入没有历史任务，兼容旧接口200/204空响应，页面可正常开始新筛选", async () => {
+  for (const status of [200, 204]) {
+    const calls = [];
+    const h = apiFixture(async (url, init) => {
+      calls.push({ url, method: init.method ?? "GET" });
+      return url.endsWith("/current") ? new Response(null, { status }) : Response.json(task());
+    });
+    const page = pageFixture(h.api);
+    const stop = page.queryEffect(); await flush();
+    assert.equal(page.scope.filterQuerying, false);
+    assert.equal(page.scope.filterQueryError, "", `${status}无任务不是JSON解析错误`);
+    assert.equal(page.scope.filterTask, null);
+    await page.handleIterateCandidateFilter();
+    assert.equal(page.scope.filterTask.task_id, "task-1");
+    assert.deepEqual(calls.map((call) => call.method), ["GET", "POST"]);
+    stop();
+  }
+});
+
+test("只有current允许无任务空响应，提交/重试/指定任务空响应及损坏JSON仍报错", async () => {
+  const empty = apiFixture(async () => new Response(null, { status: 200 }));
+  await assert.rejects(empty.api.createCandidateFilterTask(payload), SyntaxError);
+  await assert.rejects(empty.api.retryCandidateFilterTask("task-1"), SyntaxError);
+  await assert.rejects(empty.api.getCandidateFilterTask("task-1"), SyntaxError);
+  const broken = apiFixture(async () => new Response('{"task_id":', { status: 200 }));
+  await assert.rejects(broken.api.getCurrentCandidateFilterTask(), SyntaxError);
+  const failed = apiFixture(async () => new Response(null, { status: 503 }));
+  await assert.rejects(failed.api.getCurrentCandidateFilterTask(), (error) => error.status === 503);
 });
 
 test("查询401/403/404不会网络重试或创建替代任务", async () => {

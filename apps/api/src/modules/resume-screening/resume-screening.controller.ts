@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, Post, Query, Req, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Param, Post, Query, Req, Res, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 
 import { Public } from '../auth/decorators/public.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -155,8 +156,13 @@ export class ResumeScreeningController {
   @Get('candidate-filter-tasks/current')
   @Header('Cache-Control', 'no-store')
   @Permissions('resume:screen')
-  getCurrentCandidateFilterTask(@Req() req: { user?: { id?: string; sub?: string } }) {
-    return this.resumeScreeningService.getCurrentCandidateFilterTask(req.user?.id ?? req.user?.sub ?? '');
+  async getCurrentCandidateFilterTask(
+    @Req() req: { user?: { id?: string; sub?: string } },
+    @Res() response: Response,
+  ) {
+    const task = await this.resumeScreeningService.getCurrentCandidateFilterTask(req.user?.id ?? req.user?.sub ?? '');
+    // Nest's Express adapter sends an empty body for null; this endpoint promises JSON task | null.
+    response.json(task);
   }
 
   @Post('candidate-filter-tasks/:taskId/retry')
