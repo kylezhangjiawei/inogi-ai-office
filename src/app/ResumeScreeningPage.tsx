@@ -79,6 +79,8 @@ import {
   type CandidateAiUpdateSuggestion,
   type CandidateFilterSessionMessage,
   type CandidateFilterSessionVersion,
+  type CandidateFilterTask,
+  CandidateFilterTaskHttpError,
   type CandidateListItem,
   type Decision,
   type HealthResponse,
@@ -94,6 +96,8 @@ import {
 } from "./lib/recruitmentApi";
 import { usePermission } from "./hooks/usePermission";
 import { PERMISSIONS } from "./lib/permissions";
+import { useAuth } from "./auth";
+import { getStoredUser } from "./lib/authSession";
 
 type RuleFormState = {
   id?: string;
@@ -604,6 +608,8 @@ function TooltipIconButton({
 }
 
 export function ResumeScreeningPage() {
+  const { user: filterUser } = useAuth();
+  const filterUserId = filterUser?.id ?? "";
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [jobRules, setJobRules] = useState<JobRule[]>([]);
   const [loadingRules, setLoadingRules] = useState(false);
@@ -626,6 +632,9 @@ export function ResumeScreeningPage() {
   const [selectedOpenAiConfigId, setSelectedOpenAiConfigId] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState | null>(null);
   const canDeleteCandidate = usePermission(PERMISSIONS.RESUME_DELETE);
+  const canScreenCandidates = usePermission(PERMISSIONS.RESUME_SCREEN);
+  const filterPermissionRef = useRef(canScreenCandidates);
+  filterPermissionRef.current = canScreenCandidates;
 
   const [scheduleForm, setScheduleForm] = useState<ScheduleFormState>(defaultScheduleForm);
   const [savingSchedule, setSavingSchedule] = useState(false);
@@ -652,10 +661,22 @@ export function ResumeScreeningPage() {
   const [filterConversation, setFilterConversation] = useState<CandidateFilterSessionMessage[]>([]);
   const [filterInstruction, setFilterInstruction] = useState("");
   const [filterRunning, setFilterRunning] = useState(false);
-  const filterContextRef = useRef({ jobRuleId: jobRuleFilter, version: selectedFilterVersion });
-  if (filterContextRef.current.jobRuleId !== jobRuleFilter || filterContextRef.current.version !== selectedFilterVersion) {
-    filterContextRef.current = { jobRuleId: jobRuleFilter, version: selectedFilterVersion };
+  const [filterTask, setFilterTask] = useState<CandidateFilterTask | null>(null);
+  const [filterQuerying, setFilterQuerying] = useState(false);
+  const [filterQueryError, setFilterQueryError] = useState("");
+  const [filterQueryEpoch, setFilterQueryEpoch] = useState(0);
+  const filterRequestRef = useRef<AbortController | null>(null);
+  const filterSubmitRef = useRef<AbortController | null>(null);
+  const appliedFilterTaskRef = useRef("");
+  const filterTaskUserRef = useRef("");
+  const pendingFilterScopeRef = useRef<{ jobRuleId: string; version: string } | null>(null);
+  const filterContextRef = useRef({ userId: filterUserId, jobRuleId: jobRuleFilter, version: selectedFilterVersion });
+  if (filterContextRef.current.userId !== filterUserId || filterContextRef.current.jobRuleId !== jobRuleFilter || filterContextRef.current.version !== selectedFilterVersion) {
+    filterContextRef.current = { userId: filterUserId, jobRuleId: jobRuleFilter, version: selectedFilterVersion };
   }
+  const filterResultPending = Boolean(canScreenCandidates && filterTask?.status === "completed" && filterTask.result
+    && appliedFilterTaskRef.current !== filterTask.task_id && filterTaskUserRef.current === filterUserId
+    && (filterTask.job_rule_id ?? "") === jobRuleFilter && (filterTask.base_version ?? "") === selectedFilterVersion);
   const [showFilterDialog, setShowFilterDialog] = useState(false);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("");
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateDetail | null>(null);
@@ -868,10 +889,106 @@ export function ResumeScreeningPage() {
   }, [candidateFilterKey, candidatePage, candidateRowsPerPage]);
 
   useEffect(() => {
-    setSelectedFilterVersion("");
+    setSelectedFilterVersion(pendingFilterScopeRef.current?.jobRuleId === jobRuleFilter ? pendingFilterScopeRef.current.version : "");
+    pendingFilterScopeRef.current = null;
     setFilterConversation([]);
     void loadCandidateFilterSessions(jobRuleFilter);
   }, [jobRuleFilter]);
+
+  useEffect(() => {
+    setFilterTask(null);
+    setFilterRunning(false);
+    setFilterQueryError("");
+    setFilterInstruction("");
+    setFilterConversation([]);
+    setFilterSessions([]);
+    setSelectedFilterVersion("");
+    setJobRuleFilter("");
+    setCandidates([]);
+    setSelectedCandidateId("");
+    setSelectedCandidate(null);
+    appliedFilterTaskRef.current = "";
+    filterTaskUserRef.current = "";
+    return () => { filterRequestRef.current?.abort(); filterSubmitRef.current?.abort(); };
+  }, [filterUserId]);
+
+  useEffect(() => {
+    if (!filterUserId || !canScreenCandidates) {
+      filterRequestRef.current?.abort();
+      filterSubmitRef.current?.abort();
+      filterTaskUserRef.current = "";
+      setFilterTask(null);
+      setFilterRunning(false);
+      setFilterQuerying(false);
+      setFilterQueryError("");
+      setShowFilterDialog(false);
+      return;
+    }
+    const controller = new AbortController();
+    filterRequestRef.current?.abort();
+    filterSubmitRef.current?.abort();
+    filterRequestRef.current = controller;
+    const scope = filterContextRef.current;
+    const valid = () => filterPermissionRef.current && !controller.signal.aborted && filterContextRef.current === scope && getStoredUser()?.id === scope.userId;
+    const receive = (task: CandidateFilterTask | null) => {
+      if (!valid()) return;
+      filterTaskUserRef.current = scope.userId;
+      setFilterTask(task);
+      setFilterRunning(task?.status === "pending" || task?.status === "processing");
+      if (task && task.status !== "completed" && (task.job_rule_id ?? "") === scope.jobRuleId && (task.base_version ?? "") === scope.version) {
+        setFilterInstruction((current) => current || task.instruction);
+      }
+    };
+    setFilterQuerying(true);
+    setFilterQueryError("");
+    void (async () => {
+      if (filterTask && filterTaskUserRef.current === filterUserId) {
+        await recruitmentApi.watchCandidateFilterTask(filterTask.task_id, { signal: controller.signal, onProgress: receive });
+        return;
+      }
+      const task = await recruitmentApi.getCurrentCandidateFilterTask(controller.signal);
+      if (!valid()) return;
+      receive(task);
+      if (task?.status === "pending" || task?.status === "processing") {
+        await recruitmentApi.watchCandidateFilterTask(task.task_id, { signal: controller.signal, onProgress: receive });
+      }
+    })().catch((error) => {
+      if (!valid()) return;
+      if (error instanceof CandidateFilterTaskHttpError && error.status === 404 && filterTask) {
+        setFilterTask(null);
+        setFilterRunning(false);
+      } else setFilterQueryError(getErrorMessage(error, "任务查询暂时中断，请点击继续查询。"));
+    }).finally(() => { if (valid()) setFilterQuerying(false); });
+    return () => controller.abort();
+  }, [canScreenCandidates, filterUserId, jobRuleFilter, selectedFilterVersion, filterQueryEpoch, filterTask?.task_id]);
+
+  useEffect(() => {
+    if (!canScreenCandidates || !filterTask || filterTaskUserRef.current !== filterUserId || filterTask.status !== "completed" || !filterTask.result || appliedFilterTaskRef.current === filterTask.task_id) return;
+    const scope = filterContextRef.current;
+    if ((filterTask.job_rule_id ?? "") !== scope.jobRuleId || (filterTask.base_version ?? "") !== scope.version) return;
+    let stopped = false;
+    const valid = () => filterPermissionRef.current && !stopped && filterContextRef.current === scope && getStoredUser()?.id === scope.userId;
+    void (async () => {
+      const response = filterTask.result!;
+      const sessions = response.action === "filter" && response.version_id
+        ? await recruitmentApi.listCandidateFilterSessions(scope.jobRuleId || undefined) : null;
+      if (!valid()) return;
+      appliedFilterTaskRef.current = filterTask.task_id;
+      setFilterInstruction((current) => current.trim() === filterTask.instruction.trim() ? "" : current);
+      setFilterConversation((current) => {
+        const messages = current.at(-1)?.role === "user" && current.at(-1)?.content === filterTask.instruction
+          ? current : [...current, { role: "user" as const, content: filterTask.instruction }];
+        return [...messages, { role: "assistant" as const, content: response.answer || response.filter_summary }].slice(-12);
+      });
+      if (sessions && response.version_id) {
+        setFilterSessions(sessions);
+        setSelectedFilterVersion(response.version_id);
+        setCandidatePage(0);
+        toast.success(`已生成新筛选版本，共 ${response.total_count} 人`);
+      }
+    })().catch((error) => { if (valid()) setFilterQueryError(getErrorMessage(error, "读取筛选结果失败，请继续查询。")); });
+    return () => { stopped = true; };
+  }, [canScreenCandidates, filterTask, filterUserId, jobRuleFilter, selectedFilterVersion, filterQueryEpoch]);
 
   useEffect(() => {
     if (!selectedFilterVersion) {
@@ -1262,8 +1379,11 @@ export function ResumeScreeningPage() {
   }
 
   async function loadCandidateFilterSessions(jobRuleId = jobRuleFilter) {
+    const userId = filterContextRef.current.userId;
+    const valid = () => filterContextRef.current.jobRuleId === jobRuleId && getStoredUser()?.id === userId;
     try {
       const next = await recruitmentApi.listCandidateFilterSessions(jobRuleId || undefined);
+      if (!valid()) return;
       setFilterSessions(next);
       setSelectedFilterVersion((current) => {
         if (!current || next.some((item) => item.version_id === current)) {
@@ -1272,11 +1392,14 @@ export function ResumeScreeningPage() {
         return "";
       });
     } catch (error) {
+      if (!valid()) return;
       toast.error(getErrorMessage(error, "读取 AI 迭代筛选记录失败"));
     }
   }
 
   async function loadCandidates(options: CandidateLoadOptions = {}) {
+    const scope = filterContextRef.current;
+    const valid = () => filterContextRef.current === scope && getStoredUser()?.id === scope.userId;
     if (!options.silent) {
       setLoadingCandidates(true);
     }
@@ -1297,6 +1420,7 @@ export function ResumeScreeningPage() {
         pageSize: candidateRowsPerPage,
       });
       const next = response.items;
+      if (!valid()) return;
       setCandidates(next);
       setCandidatePagination(response.pagination);
       const normalizedPage = Math.max(0, response.pagination.page - 1);
@@ -1308,6 +1432,7 @@ export function ResumeScreeningPage() {
         return "";
       });
     } catch (error) {
+      if (!valid()) return;
       if (!options.silent) {
         toast.error(getErrorMessage(error, "读取候选人列表失败"));
         setCandidates([]);
@@ -1315,13 +1440,15 @@ export function ResumeScreeningPage() {
         setSelectedCandidateId("");
       }
     } finally {
-      if (!options.silent) {
+      if (!options.silent && valid()) {
         setLoadingCandidates(false);
       }
     }
   }
 
   async function loadCandidateDetail(candidateId: string, options: CandidateDetailLoadOptions = {}) {
+    const scope = filterContextRef.current;
+    const valid = () => filterContextRef.current === scope && getStoredUser()?.id === scope.userId;
     if (!options.silent) {
       setLoadingDetail(true);
     }
@@ -1331,6 +1458,7 @@ export function ResumeScreeningPage() {
           typeof options.screeningVersion === "string" ? options.screeningVersion || undefined : selectedFilterVersion || undefined,
       });
       const detailActiveScreening = next.active_screening ?? next.screenings?.[0] ?? null;
+      if (!valid()) return;
       const detailScreeningStatus = toCandidateScreeningStatus(detailActiveScreening?.status);
 
       setSelectedCandidate((current) => (candidateId === selectedCandidateIdRef.current ? next : current));
@@ -1396,12 +1524,13 @@ export function ResumeScreeningPage() {
         return changed ? { ...current, mail_previews: nextPreviews } : current;
       });
     } catch (error) {
+      if (!valid()) return;
       if (!options.silent) {
         toast.error(getErrorMessage(error, "读取候选人详情失败"));
         setSelectedCandidate(null);
       }
     } finally {
-      if (!options.silent) {
+      if (!options.silent && valid()) {
         setLoadingDetail(false);
       }
     }
@@ -1826,54 +1955,107 @@ export function ResumeScreeningPage() {
   }
 
   async function handleIterateCandidateFilter() {
+    if (!canScreenCandidates) return;
     const instruction = filterInstruction.trim();
-    const jobRuleId = jobRuleFilter;
-    const filterContext = filterContextRef.current;
     if (!instruction) {
       toast.error("请输入本轮筛选希望 AI 关注的条件");
       return;
     }
-    if (filterRunning) {
-      return;
-    }
-
-    const nextConversation: CandidateFilterSessionMessage[] = [
-      ...filterConversation,
-      { role: "user" as const, content: instruction },
-    ].slice(-12);
-    setFilterConversation(nextConversation);
+    if (filterRunning || filterQuerying || filterQueryError || filterResultPending || filterSubmitRef.current) return;
+    const scope = filterContextRef.current;
+    const controller = new AbortController();
+    filterRequestRef.current?.abort();
+    filterSubmitRef.current = controller;
+    const valid = () => filterPermissionRef.current && !controller.signal.aborted && filterContextRef.current === scope && getStoredUser()?.id === scope.userId;
     setFilterRunning(true);
     try {
-      const response = await recruitmentApi.iterateCandidateFilter({
-        job_rule_id: jobRuleId || undefined,
+      const task = await recruitmentApi.createCandidateFilterTask({
+        job_rule_id: scope.jobRuleId || undefined,
         instruction,
-        base_version: selectedFilterVersion || undefined,
-        history: filterConversation,
-        limit: 80,
-      });
-      if (filterContextRef.current !== filterContext) return;
-      setFilterInstruction("");
-      const assistantMessage = response.answer || response.filter_summary || "已完成本轮候选人二次筛选。";
-      setFilterConversation((current) => [...current, { role: "assistant" as const, content: assistantMessage }].slice(-12));
-      if (response.action !== "filter" || !response.version_id) {
-        toast.message("AI 需要先确认筛选条件");
-        return;
-      }
-      setSelectedFilterVersion(response.version_id);
-      setCandidatePage(0);
-      await loadCandidateFilterSessions(jobRuleId);
-      await loadCandidates({ jobRuleId, screeningVersion: response.version_id });
-      if (selectedCandidateIdRef.current) {
-        await loadCandidateDetail(selectedCandidateIdRef.current, { silent: true, screeningVersion: response.version_id });
-      }
-      toast.success(`已生成新筛选版本：推荐 ${response.recommend_count} 人，待定 ${response.hold_count} 人，淘汰 ${response.reject_count} 人`);
+        base_version: scope.version || undefined,
+        history: filterConversation.slice(-10),
+      }, controller.signal);
+      if (!valid()) return;
+      filterTaskUserRef.current = scope.userId;
+      setFilterTask(task);
+      setFilterRunning(task.status === "pending" || task.status === "processing");
+      setFilterConversation((current) => [...current, { role: "user" as const, content: instruction }].slice(-12));
+      setFilterQueryEpoch((value) => value + 1);
     } catch (error) {
-      if (filterContextRef.current !== filterContext) return;
-      setFilterConversation(filterConversation);
-      toast.error(getErrorMessage(error, "AI 二次筛选失败"));
-    } finally {
+      if (!valid()) return;
       setFilterRunning(false);
+      // A lost POST response may already have created a durable task. Recover via GET before any resend.
+      if (!(error instanceof CandidateFilterTaskHttpError) || error.status >= 500 || error.status === 409) {
+        setFilterTask(null);
+        setFilterQueryError("提交结果暂未确认，输入已保留。请继续查询后台任务。");
+      } else toast.error(getErrorMessage(error, "AI 二次筛选提交失败"));
+    } finally {
+      if (filterSubmitRef.current === controller) filterSubmitRef.current = null;
     }
+  }
+
+  async function handleRetryCandidateFilterTask() {
+    if (!canScreenCandidates || !filterTask?.retryable || filterQuerying || filterRunning || filterSubmitRef.current) return;
+    const taskId = filterTask.task_id;
+    const scope = filterContextRef.current;
+    const controller = new AbortController();
+    filterSubmitRef.current = controller;
+    const valid = () => filterPermissionRef.current && !controller.signal.aborted && filterContextRef.current === scope && getStoredUser()?.id === scope.userId;
+    setFilterRunning(true);
+    setFilterQueryError("");
+    try {
+      const task = await recruitmentApi.retryCandidateFilterTask(taskId, controller.signal);
+      if (!valid()) return;
+      filterTaskUserRef.current = scope.userId;
+      setFilterTask(task);
+      setFilterQueryEpoch((value) => value + 1);
+    } catch (error) {
+      if (!valid()) return;
+      setFilterRunning(false);
+      setFilterQueryError(getErrorMessage(error, "继续执行结果暂未确认，请继续查询。"));
+    } finally {
+      if (filterSubmitRef.current === controller) filterSubmitRef.current = null;
+    }
+  }
+
+  function showCandidateFilterTaskScope() {
+    if (!canScreenCandidates || !filterTask) return;
+    const next = { jobRuleId: filterTask.job_rule_id ?? "", version: filterTask.base_version ?? "" };
+    if (next.jobRuleId === jobRuleFilter) setSelectedFilterVersion(next.version);
+    else { pendingFilterScopeRef.current = next; setJobRuleFilter(next.jobRuleId); }
+    if (filterTask.status !== "completed") setFilterInstruction(filterTask.instruction);
+    setShowFilterDialog(true);
+  }
+
+  function renderCandidateFilterProgress() {
+    if (!canScreenCandidates) return null;
+    const task = filterTaskUserRef.current === filterUserId ? filterTask : null;
+    if (!task && !filterQueryError) return null;
+    const phaseLabels: Record<CandidateFilterTask["phase"], string> = {
+      queued: "等待处理", preparing: "正在准备候选人", analyzing: "正在分析筛选条件",
+      scoring: "正在逐批评分", saving: "正在保存完整版本", complete: "本轮已完成", failed: "本轮处理暂停",
+    };
+    const sameScope = task && (task.job_rule_id ?? "") === jobRuleFilter
+      && ((task.base_version ?? "") === selectedFilterVersion || task.result?.version_id === selectedFilterVersion);
+    return (
+      <div className="mt-3 rounded-lg border border-blue-100 bg-white px-4 py-3 text-sm text-slate-700" role="status" aria-live="polite">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-2 font-medium">
+            {filterRunning && !filterQueryError ? <Loader2 className="size-4 animate-spin text-blue-700" /> : <Clock3 className="size-4 text-blue-700" />}
+            {task ? phaseLabels[task.phase] : "确认后台任务"}
+          </span>
+          {task ? <span className="tabular-nums">已评分 {task.processed_count} / {task.total_count} 人</span> : null}
+        </div>
+        {task ? <p className="mt-2 text-xs text-slate-500">范围：{task.job_rule_id ? jobRules.find((rule) => rule.id === task.job_rule_id)?.name || "指定岗位" : "全部岗位"} · 关闭页面后仍会继续处理</p> : null}
+        {task?.status === "failed" && task.error ? <p className="mt-2 break-words text-sm text-red-700">{task.error}</p> : null}
+        {filterQueryError ? <p className="mt-2 text-sm text-amber-800">{filterQueryError}</p> : null}
+        <div className="mt-2 flex flex-wrap gap-2">
+          {filterQueryError ? <Button size="sm" variant="outline" disabled={filterQuerying} onClick={() => setFilterQueryEpoch((value) => value + 1)}>{filterQuerying ? "查询中" : "继续查询"}</Button> : null}
+          {task?.status === "failed" && task.retryable && !filterQueryError ? <Button size="sm" variant="outline" disabled={filterRunning || filterQuerying} onClick={() => void handleRetryCandidateFilterTask()}>继续执行</Button> : null}
+          {task && !sameScope ? <Button size="sm" variant="outline" onClick={showCandidateFilterTaskScope}>查看任务范围</Button> : null}
+        </div>
+      </div>
+    );
   }
 
   async function handleAskCandidateAi() {
@@ -2932,16 +3114,18 @@ export function ResumeScreeningPage() {
                   placeholder="选择筛选版本"
                   className="h-10"
                 />
-                <button
+                {canScreenCandidates ? <button
                   type="button"
                   onClick={() => setShowFilterDialog(true)}
                   className="material-neu-primary inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] px-4 text-sm font-semibold text-white transition"
                 >
                   <Sparkles className="h-4 w-4" />
                   AI 二次筛选
-                </button>
+                </button> : null}
               </div>
             </div>
+
+            {renderCandidateFilterProgress()}
 
             {selectedFilterSession ? (
               <div className="mt-3 rounded-lg border border-blue-100 bg-white px-3 py-2 text-pretty text-xs leading-5 text-blue-950">
@@ -3696,7 +3880,7 @@ export function ResumeScreeningPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showFilterDialog} onOpenChange={setShowFilterDialog}>
+      <Dialog open={canScreenCandidates && showFilterDialog} onOpenChange={setShowFilterDialog}>
         <DialogContent className="horizon-portal resume-screening-surface flex h-[78vh] w-[calc(100vw-32px)] grid-rows-none flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-0 sm:max-w-[900px]">
           <div className="flex items-start justify-between gap-4 border-b border-slate-200/80 px-6 py-5">
             <div className="min-w-0">
@@ -3724,6 +3908,7 @@ export function ResumeScreeningPage() {
           </div>
 
           <div className="material-scrollbar flex-1 overflow-y-auto bg-slate-50 px-6 py-6">
+            {renderCandidateFilterProgress()}
             {selectedFilterSession ? (
               <div className="mb-5 rounded-lg border border-blue-100 bg-white px-4 py-3 text-pretty text-sm leading-6 text-blue-950">
                 {selectedFilterSession.filter_summary || selectedFilterSession.instruction}
@@ -3753,7 +3938,7 @@ export function ResumeScreeningPage() {
                   <div className="flex justify-start">
                     <div className="material-neu-card inline-flex items-center gap-2 rounded-xl rounded-tl-md px-4 py-3 text-sm text-slate-600">
                       <Loader2 className="h-4 w-4 animate-spin text-[#002fa7]" />
-                      AI 正在分析筛选条件并处理候选人，请稍候
+                      {filterQueryError ? "后台任务仍保留，可继续查询进度" : "AI 正在处理候选人，可关闭页面稍后查看"}
                     </div>
                   </div>
                 ) : null}
@@ -3778,20 +3963,20 @@ export function ResumeScreeningPage() {
                     void handleIterateCandidateFilter();
                   }
                 }}
-                disabled={filterRunning}
+                disabled={!canScreenCandidates || filterRunning || filterQuerying || filterResultPending}
                 className="material-scrollbar min-h-[72px] w-full resize-none bg-transparent text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-400 disabled:opacity-50"
                 placeholder="例如：优先保留机械制图经验明确、会 SolidWorks、南京周边、薪资不超过 10k 的候选人；对道路工程背景降权。"
               />
               <div className="mt-3 flex items-center justify-between gap-3">
-                <div className="text-xs text-slate-400">Ctrl/Command + Enter 发送，AI 会先分析，明确后生成版本。</div>
+                <div className="text-xs text-slate-400">处理当前岗位范围的全部候选人；Ctrl/Command + Enter 发送。</div>
                 <button
                   type="button"
                   onClick={() => void handleIterateCandidateFilter()}
-                  disabled={!filterInstruction.trim() || filterRunning}
+                  disabled={!canScreenCandidates || !filterInstruction.trim() || filterRunning || filterQuerying || filterResultPending || Boolean(filterQueryError)}
                   className="material-neu-primary inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] px-5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {filterRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  {filterRunning ? "分析中" : "发送给 AI"}
+                  {filterRunning ? "处理中" : "发送给 AI"}
                 </button>
               </div>
             </div>

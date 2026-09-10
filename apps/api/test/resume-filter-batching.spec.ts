@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { setImmediate } from 'node:timers/promises';
 import { ConfigService } from '@nestjs/config';
 import { ServiceUnavailableException } from '@nestjs/common';
-import { OpenAiScreeningService } from '../src/modules/resume-screening/openai-screening.service';
+import { OpenAiScreeningService, CandidateFilterExecution, CandidateFilterCompletion } from '../src/modules/resume-screening/openai-screening.service';
 import type { AiGatewayChatRequest } from '../src/modules/ai-gateway/ai-gateway.types';
 
 const instruction = '海外品牌与内容营销经理，如果没有美国经验、没有医疗背景，一律低分';
@@ -70,8 +70,8 @@ function fixture(options: {
     },
   };
   const service = new OpenAiScreeningService(new ConfigService({ OPENAI_TIMEOUT_MS: 60_000 }), gateway as never);
-  const run = (count = 80) => service.iterateCandidateFilter(
-    jobContext, candidates(count), instruction, [], 'test-key', 'qwen3.8-max-preview', 'https://example.com/v1', 'Qwen',
+  const run = (count = 80, execution: CandidateFilterExecution = {}) => service.iterateCandidateFilter(
+    jobContext, candidates(count), instruction, [], 'test-key', 'qwen3.8-max-preview', 'https://example.com/v1', 'Qwen', execution,
   );
   return { run, calls, peak: () => peakActive, active: () => active };
 }
@@ -82,9 +82,8 @@ test('80人先分析共同条件再分10批评分，保持60秒预算且完整�
   assert.equal(f.calls.length, 11);
   assert.equal(f.calls[0].payload.phase, 'analyze');
   assert.equal(f.calls[0].request.maxTokens, 1600);
-  assert.equal(f.calls[0].payload.candidates.length, 80);
-  assert.ok(f.calls[0].payload.candidates.every((candidate) => !candidate.resume_excerpt));
-  assert.ok(f.calls[0].payload.candidates.every((candidate) => candidate.current_summary.length <= 240));
+  assert.equal(f.calls[0].payload.candidates.length, 0, '意图分析不随候选人数增长而输入更多简历');
+  assert.equal((f.calls[0].payload.job_context as unknown as { total_count: number }).total_count, 80);
   const scoring = f.calls.slice(1);
   assert.ok(scoring.every(({ payload, request }) => payload.phase === 'score' && payload.candidates.length === 8 && request.maxTokens === 6000));
   assert.ok(f.calls.every(({ request }) => request.timeoutMs === 60_000));
@@ -193,4 +192,47 @@ test('无法化为绝对规则或单个名额的相对条件先澄清，不能�
   assert.equal(result.result.action, 'clarify');
   assert.equal(f.calls.length, 1);
   assert.equal(result.result.candidate_updates.length, 0);
+});
+
+test('500人分63批，分析输入大小与人数基本无关', async () => {
+  const small = fixture(); await small.run(8);
+  const large = fixture(); const result = await large.run(500);
+  assert.equal(result.result.candidate_updates.length, 500);
+  assert.equal(large.calls.length, 64);
+  assert.equal(large.peak(), 2);
+  const size = (f: ReturnType<typeof fixture>) => JSON.stringify(f.calls[0].payload).length;
+  assert.ok(size(large) - size(small) < 100, '不得把几百人摘要重新塞入意图分析');
+  assert.ok(large.calls.slice(1).every(({ payload }) => payload.candidates.length <= 8));
+});
+
+test('500人中途失败后复用分析与已完成批次，仅请求未完成候选人', async () => {
+  let analysis: CandidateFilterCompletion | undefined;
+  const batches: Record<number, CandidateFilterCompletion> = {};
+  let processed = 0;
+  const hooks: CandidateFilterExecution = {
+    onAnalysis: async (completion) => { analysis = structuredClone(completion); },
+    onBatch: async (index, completion, count) => { assert.equal(batches[index], undefined); batches[index] = structuredClone(completion); processed += count; },
+  };
+  const interrupted = fixture({ score: (_payload, number, updates) => {
+    if (number === 3) throw new Error('Request timed out.');
+    return { action: 'filter', candidate_updates: updates };
+  } });
+  await assert.rejects(interrupted.run(500, hooks), /timed out/);
+  assert.equal(processed, 24);
+  const completedIds = new Set(Object.values(batches).flatMap((batch) => JSON.parse(batch.content).candidate_updates.map((item: Update) => item.candidate_id)));
+  const resumed = fixture();
+  const result = await resumed.run(500, { ...hooks, analysis, batches });
+  assert.equal(processed, 500);
+  assert.equal(result.result.candidate_updates.length, 500);
+  assert.equal(new Set(result.result.candidate_updates.map((item) => item.candidate_id)).size, 500);
+  assert.equal(resumed.calls.length, 60, '已有3批及条件分析不重复调用');
+  assert.ok(resumed.calls.every(({ payload }) => payload.phase === 'score' && payload.candidates.every((candidate) => !completedIds.has(candidate.candidate_id))));
+  assert.deepEqual(result.usage, { inputTokens: 448, outputTokens: 192, totalTokens: 640 });
+});
+
+test('执行权丢失时终止下一批调用，不能继续消耗模型额度', async () => {
+  const abort = new AbortController();
+  const f = fixture();
+  await assert.rejects(f.run(500, { signal: abort.signal, onAnalysis: async () => { abort.abort(new Error('lease lost')); } }), /lease lost/);
+  assert.equal(f.calls.length, 1);
 });

@@ -277,7 +277,7 @@ export interface CandidateFilterIterationResponse {
   duration_ms: number;
 }
 
-type CandidateFilterIterationPayload = {
+export type CandidateFilterIterationPayload = {
   instruction: string;
   job_rule_id?: string;
   base_version?: string;
@@ -286,9 +286,18 @@ type CandidateFilterIterationPayload = {
   limit?: number;
 };
 
-type CandidateFilterTask = {
+export type CandidateFilterTask = {
   task_id: string;
   status: "pending" | "processing" | "completed" | "failed";
+  phase: "queued" | "preparing" | "analyzing" | "scoring" | "saving" | "complete" | "failed";
+  processed_count: number;
+  total_count: number;
+  instruction: string;
+  job_rule_id: string | null;
+  base_version: string | null;
+  created_at: string;
+  updated_at: string;
+  retryable: boolean;
   result?: CandidateFilterIterationResponse;
   error?: string;
 };
@@ -397,78 +406,117 @@ const API_BASE = (import.meta.env.VITE_RECRUITMENT_API_BASE as string | undefine
 const LEGACY_PLAIN_SECRET_ERROR = "plain_secret should not exist";
 let cachedPublicKey: Promise<CryptoKey> | null = null;
 
-// Keep accepted tasks after a polling interruption so retrying does not create another version.
-const candidateFilterTasks = new Map<string, { taskId?: string; promise?: Promise<CandidateFilterIterationResponse> }>();
-addAuthClearedListener(() => candidateFilterTasks.clear());
+// Only coalesce in-flight submissions. Durable task recovery always comes from the server.
+const candidateFilterSubmissions = new Map<string, Promise<CandidateFilterTask>>();
+const candidateFilterRequests = new Set<AbortController>();
+let candidateFilterAuthGeneration = 0;
+addAuthClearedListener(() => {
+  candidateFilterAuthGeneration += 1;
+  candidateFilterSubmissions.clear();
+  for (const controller of candidateFilterRequests) controller.abort();
+});
 
-class CandidateFilterTaskHttpError extends Error {
+export class CandidateFilterTaskHttpError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
   }
 }
 
-async function requestCandidateFilterTask(path: string, init?: RequestInit): Promise<CandidateFilterTask> {
+async function requestCandidateFilterTask<T>(path: string, init?: RequestInit): Promise<T> {
+  const userId = getStoredUser()?.id;
+  const generation = candidateFilterAuthGeneration;
+  if (!userId) throw new DOMException("登录已失效", "AbortError");
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  init?.signal?.addEventListener("abort", abort, { once: true });
+  if (init?.signal?.aborted) abort();
+  candidateFilterRequests.add(controller);
+  let rejectOnAbort!: () => void;
+  const canceled = new Promise<never>((_resolve, reject) => {
+    rejectOnAbort = () => reject(new DOMException("查询已停止", "AbortError"));
+    controller.signal.addEventListener("abort", rejectOnAbort, { once: true });
+    if (controller.signal.aborted) rejectOnAbort();
+  });
   const timer = setTimeout(() => controller.abort(), 20_000);
   try {
-    const response = await authFetch(`${API_BASE}${path}`, {
-      ...init,
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new CandidateFilterTaskHttpError(await readErrorMessage(response, `请求失败：${response.status}`), response.status);
-    }
-    return await response.json() as CandidateFilterTask;
+    // Shared auth refresh can outlive a caller's signal. Bound our entire wait,
+    // including refresh and response parsing, without canceling refresh for other callers.
+    return await Promise.race([(async () => {
+      controller.signal.throwIfAborted();
+      const response = await authFetch(`${API_BASE}${path}`, {
+        ...init,
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+      });
+      controller.signal.throwIfAborted();
+      if (!response.ok) {
+        throw new CandidateFilterTaskHttpError(await readErrorMessage(response, `请求失败：${response.status}`), response.status);
+      }
+      const result = await response.json() as T;
+      controller.signal.throwIfAborted();
+      if (getStoredUser()?.id !== userId || generation !== candidateFilterAuthGeneration) {
+        throw new DOMException("登录账号已变更", "AbortError");
+      }
+      return result;
+    })(), canceled]);
   } finally {
     clearTimeout(timer);
+    init?.signal?.removeEventListener("abort", abort);
+    controller.signal.removeEventListener("abort", rejectOnAbort);
+    candidateFilterRequests.delete(controller);
   }
 }
 
-function iterateCandidateFilter(payload: CandidateFilterIterationPayload): Promise<CandidateFilterIterationResponse> {
+function createCandidateFilterTask(payload: CandidateFilterIterationPayload, signal?: AbortSignal): Promise<CandidateFilterTask> {
   const userId = getStoredUser()?.id;
   const key = JSON.stringify([userId, payload]);
-  const task = candidateFilterTasks.get(key) ?? {};
-  if (task.promise) return task.promise;
-  candidateFilterTasks.set(key, task);
-  task.promise = (async () => {
-    if (!task.taskId) {
-      const submitted = await requestCandidateFilterTask("/api/recruitment/candidate-filter-sessions/iterate/async", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      task.taskId = submitted.task_id;
-    }
-    const deadline = Date.now() + 15 * 60_000;
-    while (Date.now() < deadline) {
-      if (getStoredUser()?.id !== userId) throw new Error("登录账号已变更，请重新打开简历筛选");
-      let status: CandidateFilterTask;
-      try {
-        status = await requestCandidateFilterTask(`/api/recruitment/candidate-filter-tasks/${encodeURIComponent(task.taskId!)}`);
-      } catch (error) {
-        if (error instanceof CandidateFilterTaskHttpError && error.status === 404) {
-          candidateFilterTasks.delete(key);
-          throw new Error("筛选任务已失效，请先查看筛选版本确认结果，再重新提交");
-        }
-        throw new Error("筛选结果查询暂时中断，输入已保留；再次发送相同条件将继续查询原任务");
-      }
-      if (getStoredUser()?.id !== userId) throw new Error("登录账号已变更，请重新打开简历筛选");
-      if (status.status === "completed" && status.result) {
-        candidateFilterTasks.delete(key);
-        return status.result;
-      }
-      if (status.status === "failed") {
-        candidateFilterTasks.delete(key);
-        throw new Error(status.error || "AI 二次筛选失败");
-      }
-      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
-    }
-    throw new Error("AI 仍在处理候选人，输入已保留；稍后再次发送相同条件将继续查询原任务");
-  })().finally(() => {
-    task.promise = undefined;
-    if (!task.taskId) candidateFilterTasks.delete(key);
+  const existing = candidateFilterSubmissions.get(key);
+  if (existing) return existing;
+  const submitted = requestCandidateFilterTask<CandidateFilterTask>("/api/recruitment/candidate-filter-sessions/iterate/async", {
+    method: "POST", body: JSON.stringify(payload), signal,
+  }).finally(() => {
+    if (candidateFilterSubmissions.get(key) === submitted) candidateFilterSubmissions.delete(key);
   });
-  return task.promise;
+  candidateFilterSubmissions.set(key, submitted);
+  return submitted;
+}
+
+function candidateFilterDelay(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const abort = () => { clearTimeout(timer); reject(new DOMException("查询已停止", "AbortError")); };
+    const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, ms);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+  });
+}
+
+function getCandidateFilterTask(taskId: string, signal?: AbortSignal) {
+  return requestCandidateFilterTask<CandidateFilterTask>(`/api/recruitment/candidate-filter-tasks/${encodeURIComponent(taskId)}`, { signal });
+}
+
+async function watchCandidateFilterTask(taskId: string, options: { signal?: AbortSignal; onProgress: (task: CandidateFilterTask) => void }) {
+  const userId = getStoredUser()?.id;
+  const generation = candidateFilterAuthGeneration;
+  let failures = 0;
+  for (;;) {
+    options.signal?.throwIfAborted();
+    if (getStoredUser()?.id !== userId || generation !== candidateFilterAuthGeneration) throw new DOMException("登录账号已变更", "AbortError");
+    let task: CandidateFilterTask;
+    try {
+      task = await getCandidateFilterTask(taskId, options.signal);
+    } catch (error) {
+      options.signal?.throwIfAborted();
+      if (getStoredUser()?.id !== userId || generation !== candidateFilterAuthGeneration) throw new DOMException("登录账号已变更", "AbortError");
+      if (error instanceof CandidateFilterTaskHttpError && [401, 403, 404].includes(error.status)) throw error;
+      if (++failures > 3) throw new Error("任务查询暂时中断，后台会继续处理。请点击继续查询。");
+      await candidateFilterDelay(3000 * 2 ** (failures - 1), options.signal);
+      continue;
+    }
+    failures = 0;
+    options.onProgress(task);
+    if (task.status === "completed" || task.status === "failed") return task;
+    await candidateFilterDelay(3000, options.signal);
+  }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -717,7 +765,15 @@ export const recruitmentApi = {
     const suffix = params.toString() ? `?${params.toString()}` : "";
     return request<CandidateFilterSessionVersion[]>(`/api/recruitment/candidate-filter-sessions${suffix}`);
   },
-  iterateCandidateFilter,
+  createCandidateFilterTask,
+  getCandidateFilterTask,
+  watchCandidateFilterTask,
+  getCurrentCandidateFilterTask(signal?: AbortSignal) {
+    return requestCandidateFilterTask<CandidateFilterTask | null>("/api/recruitment/candidate-filter-tasks/current", { signal });
+  },
+  retryCandidateFilterTask(taskId: string, signal?: AbortSignal) {
+    return requestCandidateFilterTask<CandidateFilterTask>(`/api/recruitment/candidate-filter-tasks/${encodeURIComponent(taskId)}/retry`, { method: "POST", signal });
+  },
   clearCandidates() {
     return request<ClearCandidatesResponse>("/api/recruitment/candidates", {
       method: "DELETE",

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 
 class CandidateFilterChatMessageDto {
   @IsIn(['user', 'assistant'])
@@ -25,11 +25,13 @@ export class IterateCandidateFilterDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(5000)
   @IsString({ each: true })
   candidate_ids?: string[];
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(10)
   @ValidateNested({ each: true })
   @Type(() => CandidateFilterChatMessageDto)
   history?: CandidateFilterChatMessageDto[];
@@ -38,6 +40,6 @@ export class IterateCandidateFilterDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(80)
+  @Max(5000)
   limit?: number;
 }

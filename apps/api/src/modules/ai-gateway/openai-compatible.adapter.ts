@@ -74,7 +74,7 @@ export class OpenAiCompatibleAdapter {
       ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {}),
       ...(typeof request.maxTokens === 'number' ? { max_tokens: request.maxTokens } : {}),
       ...(isQwenTarget ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
-    });
+    }, { ...(request.signal ? { signal: request.signal } : {}) });
 
     return {
       content: (response.choices[0]?.message?.content ?? '').trim(),

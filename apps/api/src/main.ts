@@ -77,6 +77,8 @@ async function bootstrap() {
   }
 
   const app = await NestFactory.create(AppModule, { bodyParser: false });
+  // Stop background workers on deployment; durable leases let another instance resume.
+  app.enableShutdownHooks(['SIGINT', 'SIGTERM']);
   app.use(text({ type: ['text/*', 'application/xml', 'text/xml'], limit: '5mb' }));
   // 研发数据表会把高保真工作簿（含 base64 图片）作为 JSON 保存；当前线上快照
   // 已超过通用 25 MB 上限。仅对此路由放宽，避免扩大其他 JSON 接口的攻击面。

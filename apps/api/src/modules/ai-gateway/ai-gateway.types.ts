@@ -68,6 +68,8 @@ export type AiGatewayChatRequest = {
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
+  /** Stop a background call when its worker loses ownership or shuts down. */
+  signal?: AbortSignal;
   /** 选模来源（route/fallback/user/vision），仅用于观测落库，不影响调用行为。 */
   routeMeta?: AiGatewayRouteMeta;
 };

@@ -675,6 +675,46 @@ model CandidateScreening {
   createdAt       DateTime           @default(now())
 }
 
+/// 二次筛选的持久队列；activeUserId 的唯一约束限制每个账号只有一个进行中任务。
+model CandidateFilterTask {
+  id             String                     @id @default(uuid())
+  userId         String
+  activeUserId   String?                    @unique
+  fingerprint    String                     @db.VarChar(64)
+  status         String                     @default("pending") @db.VarChar(20)
+  phase          String                     @default("queued") @db.VarChar(20)
+  payloadJson    Json
+  snapshotJson   Json?
+  analysisJson   Json?
+  totalCount     Int                        @default(0)
+  processedCount Int                        @default(0)
+  resultJson     Json?
+  error          String?
+  claimToken     String?
+  leaseUntil     DateTime?
+  attempts       Int                        @default(0)
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+  completedAt    DateTime?
+  batches        CandidateFilterTaskBatch[]
+
+  @@index([status, leaseUntil, createdAt])
+  @@index([userId, createdAt])
+}
+
+/// 只保存模型结果，不保存连接配置、API key 或其他运行凭据。
+model CandidateFilterTaskBatch {
+  id             String              @id @default(uuid())
+  taskId         String
+  task           CandidateFilterTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  batchIndex     Int
+  candidateCount Int
+  completionJson Json
+  createdAt      DateTime            @default(now())
+
+  @@unique([taskId, batchIndex])
+}
+
 model IntegrationConfig {
   id                    String                 @id @default(cuid())
   kind                  String // mail | openai | sync_schedule

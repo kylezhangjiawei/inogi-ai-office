@@ -20,6 +20,33 @@ const fallback: AiGatewayTarget = {
   apiKey: 'test-key',
 };
 
+test('后台租约取消透传到适配器，停止备用调用且不污染模型熔断状态', async () => {
+  const controller = new AbortController();
+  const reason = new Error('worker lease lost');
+  const called: string[] = [];
+  const service = createService(async (target, request) => {
+    called.push(target.id!);
+    assert.equal(request.signal, controller.signal);
+    controller.abort(reason);
+    throw Object.assign(new Error('response_format unsupported'), { status: 400 });
+  });
+  await assert.rejects(service.complete({
+    scene: 'hr.resume_screening', targets: [primary, fallback], messages: [{ role: 'user', content: '匿名测试' }],
+    responseFormat: { type: 'json_object' }, retryWithoutResponseFormat: true, signal: controller.signal,
+  }));
+  assert.deepEqual(called, ['primary']);
+  assert.deepEqual(service.getCircuitSnapshots(), []);
+});
+
+test('已取消的后台任务不启动任何模型请求', async () => {
+  const controller = new AbortController(); controller.abort(new Error('worker stopped'));
+  let called = false;
+  const service = createService(async () => { called = true; throw new Error('must not call'); });
+  await assert.rejects(service.complete({ scene: 'hr.resume_screening', targets: [primary, fallback],
+    messages: [{ role: 'user', content: '匿名测试' }], signal: controller.signal }), /worker stopped/);
+  assert.equal(called, false);
+});
+
 function createService(
   complete: OpenAiCompatibleAdapter['complete'],
   settings: Record<string, unknown> = {},

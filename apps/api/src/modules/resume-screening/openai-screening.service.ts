@@ -69,9 +69,24 @@ type CandidateFilterOutput = {
 
 type CandidateFilterGlobalSelection = { top_n: number; job_rule_id?: string };
 
-type CandidateFilterMessage = { role: 'user' | 'assistant'; content: string };
+export type CandidateFilterMessage = { role: 'user' | 'assistant'; content: string };
 
-type CandidateFilterSnapshot = {
+export type CandidateFilterCompletion = {
+  content: string;
+  modelName: string;
+  usage: { inputTokens: number | null; outputTokens: number | null; totalTokens: number | null };
+};
+
+export type CandidateFilterExecution = {
+  analysis?: CandidateFilterCompletion;
+  batches?: Record<number, CandidateFilterCompletion>;
+  beforeCall?: () => Promise<void>;
+  onAnalysis?: (completion: CandidateFilterCompletion) => Promise<void>;
+  onBatch?: (index: number, completion: CandidateFilterCompletion, count: number) => Promise<void>;
+  signal?: AbortSignal;
+};
+
+export type CandidateFilterSnapshot = {
   candidate_id: string;
   job_rule_id?: string | null;
   job_rule_name?: string | null;
@@ -382,6 +397,7 @@ export class OpenAiScreeningService {
     overrideModel?: string,
     overrideBaseUrl?: string,
     provider?: string,
+    execution: CandidateFilterExecution = {},
   ) {
     const apiKey = this.resolveApiKey(provider, overrideApiKey);
     if (!apiKey) {
@@ -400,17 +416,23 @@ export class OpenAiScreeningService {
     };
 
     const startedAt = Date.now();
-    // Analyze once for the whole pool, but do not generate 80 detailed scores in one response.
-    const analysisCandidates = candidates.map((candidate) => ({
-      candidate_id: candidate.candidate_id,
-      job_rule_id: candidate.job_rule_id,
-      job_rule_name: candidate.job_rule_name,
-      current_score: candidate.current_score,
-      current_decision: candidate.current_decision,
-      target_job: candidate.target_job,
-      current_summary: candidate.current_summary?.slice(0, 240) ?? null,
-    }));
-    const analysis = await this.callCompletionApi(
+    // Intent analysis depends on job scope and instructions, not hundreds of resumes.
+    const context = jobContext && typeof jobContext === 'object' && !Array.isArray(jobContext)
+      ? jobContext as Record<string, unknown> : {};
+    const jobCounts = new Map<string, number>();
+    for (const candidate of candidates) jobCounts.set(candidate.job_rule_id ?? '', (jobCounts.get(candidate.job_rule_id ?? '') ?? 0) + 1);
+    const analysisContext = {
+      scope: context.scope,
+      job_rules: Array.isArray(context.job_rules) ? context.job_rules.map((job) => ({
+        id: job.id, name: job.name, jd_text: typeof job.jd_text === 'string' ? job.jd_text.slice(0, 600) : '',
+        candidate_count: jobCounts.get(job.id) ?? 0,
+      })) : [],
+      total_count: candidates.length,
+    };
+    if (JSON.stringify(analysisContext).length > 24000) throw new Error('本次涉及的岗位过多，请先选择岗位后再筛选；尚未处理或保存候选人。');
+    await execution.beforeCall?.();
+    execution.signal?.throwIfAborted();
+    const analysis = execution.analysis ?? await this.callCompletionApi(
       client,
       {
         model,
@@ -431,10 +453,11 @@ export class OpenAiScreeningService {
               `Return strict JSON: {"action":"filter"|"clarify","answer":string,"clarification_question"?:string,"filter_summary":string,"criteria":[string,...],"global_selection":{"top_n":positive integer,"job_rule_id"?:string}|null}. ` +
               `Use Simplified Chinese and keep the rubric concise.`,
           },
-          { role: 'user', content: JSON.stringify({ ...payload, candidates: analysisCandidates, phase: 'analyze', task: 'Analyze the instruction and return only the shared absolute scoring rubric, an optional single global top-N cap, or a clarification question. Do not generate candidate scores.' }) },
+          { role: 'user', content: JSON.stringify({ ...payload, job_context: analysisContext, candidates: [], phase: 'analyze', task: 'Analyze the instruction and return only the shared absolute scoring rubric, an optional single global top-N cap, or a clarification question. Do not generate candidate scores.' }) },
         ],
         jsonMode: true,
         maxTokens: 1600,
+        signal: execution.signal,
       },
       provider,
       this.toGatewayTarget(apiKey, model, overrideBaseUrl, provider),
@@ -453,11 +476,15 @@ export class OpenAiScreeningService {
     const globalSelection = parsed.action === 'filter'
       ? this.validateCandidateFilterGlobalSelection(parsed.global_selection, candidates)
       : null;
+    if (!execution.analysis) await execution.onAnalysis?.(analysis);
     const candidateUpdates: Record<string, unknown>[] = [];
     const completions = [analysis];
     if (parsed.action === 'filter') {
-      const scoreBatch = async (batch: CandidateFilterSnapshot[]) => {
-        const completion = await this.callCompletionApi(client, {
+      const scoreBatch = async (batch: CandidateFilterSnapshot[], index: number) => {
+        await execution.beforeCall?.();
+        execution.signal?.throwIfAborted();
+        const cached = execution.batches?.[index];
+        const completion = cached ?? await this.callCompletionApi(client, {
           model,
           messages: [{
             role: 'system',
@@ -480,18 +507,28 @@ export class OpenAiScreeningService {
           }],
           jsonMode: true,
           maxTokens: 6000,
+          signal: execution.signal,
         }, provider, this.toGatewayTarget(apiKey, model, overrideBaseUrl, provider));
         const output = this.parseJsonObject<CandidateFilterOutput>(completion.content || '{}');
-        return { completion, updates: this.validateCandidateFilterBatch(output, batch) };
+        const updates = this.validateCandidateFilterBatch(output, batch);
+        if (!cached) await execution.onBatch?.(index, completion, batch.length);
+        return { completion, updates };
       };
-      // Drain each small wave before starting another. A failed batch cannot publish partial scores.
-      for (let offset = 0; offset < candidates.length; offset += CANDIDATE_FILTER_BATCH_SIZE * CANDIDATE_FILTER_CONCURRENCY) {
-        const batches: CandidateFilterSnapshot[][] = [];
-        for (let slot = 0; slot < CANDIDATE_FILTER_CONCURRENCY; slot += 1) {
-          const batch = candidates.slice(offset + slot * CANDIDATE_FILTER_BATCH_SIZE, offset + (slot + 1) * CANDIDATE_FILTER_BATCH_SIZE);
-          if (batch.length) batches.push(batch);
+      const batches: CandidateFilterSnapshot[][] = [];
+      let batch: CandidateFilterSnapshot[] = [];
+      let batchSize = 0;
+      for (const candidate of candidates) {
+        const size = JSON.stringify(candidate).length;
+        if (size > 24000) throw new Error('候选人资料过长，请缩短摘要后重试；本轮评分未保存。');
+        if (batch.length && (batch.length >= CANDIDATE_FILTER_BATCH_SIZE || batchSize + size > 24000)) {
+          batches.push(batch); batch = []; batchSize = 0;
         }
-        const settled = await Promise.allSettled(batches.map(scoreBatch));
+        batch.push(candidate); batchSize += size;
+      }
+      if (batch.length) batches.push(batch);
+      // Drain each small wave before starting another. A failed batch cannot publish partial scores.
+      for (let offset = 0; offset < batches.length; offset += CANDIDATE_FILTER_CONCURRENCY) {
+        const settled = await Promise.allSettled(batches.slice(offset, offset + CANDIDATE_FILTER_CONCURRENCY).map((batch, index) => scoreBatch(batch, offset + index)));
         for (const batch of settled) {
           if (batch.status === 'rejected') throw batch.reason;
         }
@@ -1099,6 +1136,7 @@ export class OpenAiScreeningService {
       messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
       jsonMode?: boolean;
       maxTokens?: number;
+      signal?: AbortSignal;
     },
     provider?: string,
     fallbackTarget?: AiGatewayTarget,
@@ -1114,6 +1152,7 @@ export class OpenAiScreeningService {
         retryWithoutResponseFormat: Boolean(params.jsonMode),
         ...(params.maxTokens ? { maxTokens: params.maxTokens } : {}),
         timeoutMs: routing.timeoutMs ?? this.timeoutMs,
+        signal: params.signal,
       });
       return {
         content: result.content,

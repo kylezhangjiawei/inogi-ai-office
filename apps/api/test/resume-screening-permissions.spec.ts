@@ -53,7 +53,7 @@ test('招聘配置删除按配置类型校验管理权限，禁止删除其他�
   const service = new ResumeScreeningService({ integrationConfig: {
     findUnique: async ({ where }: { where: { id: string } }) => configs.get(where.id),
     delete: async ({ where }: { where: { id: string } }) => { deleted.push(where.id); },
-  } } as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+  } } as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
   await assert.rejects(service.deleteIntegrationConfig('mail', ['page:ai-model-management']), ForbiddenException);
   await assert.rejects(service.deleteIntegrationConfig('model', ['page:mailbox-management']), ForbiddenException);
   await assert.rejects(service.deleteIntegrationConfig('expense', ['*']), NotFoundException);
