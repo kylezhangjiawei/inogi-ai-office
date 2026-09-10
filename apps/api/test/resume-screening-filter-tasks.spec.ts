@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setImmediate } from 'node:timers/promises';
-import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { ResumeScreeningController } from '../src/modules/resume-screening/resume-screening.controller';
 import { ResumeScreeningService } from '../src/modules/resume-screening/resume-screening.service';
 import { OpenAiScreeningService } from '../src/modules/resume-screening/openai-screening.service';
@@ -26,23 +26,24 @@ const payload = {
 };
 
 function modelResult(action: 'filter' | 'clarify' = 'filter'): ModelResult {
+  const result = {
+    action,
+    answer: action === 'filter' ? '已完成评分。' : '美国经验是否为必选条件？',
+    clarification_question: action === 'clarify' ? '美国经验是否为必选条件？' : '',
+    filter_summary: '优先美国市场与医疗行业经验。',
+    criteria: ['美国市场经验', '医疗行业经验'],
+    candidate_updates: action === 'filter' ? [{
+      candidate_id: 'candidate-1', score: 30, decision: 'reject',
+      summary: '缺少医疗行业经验。', change_reason: '缺少必要背景。',
+    }] : [],
+  };
   return {
-    result: {
-      action,
-      answer: action === 'filter' ? '已完成评分。' : '美国经验是否为必选条件？',
-      clarification_question: action === 'clarify' ? '美国经验是否为必选条件？' : '',
-      filter_summary: '优先美国市场与医疗行业经验。',
-      criteria: ['美国市场经验', '医疗行业经验'],
-      candidate_updates: action === 'filter' ? [{
-        candidate_id: 'candidate-1', score: 30, decision: 'reject',
-        summary: '缺少医疗行业经验。', change_reason: '缺少必要背景。',
-      }] : [],
-    },
+    result,
     modelName: 'test-model',
     durationMs: 120000,
-    usage: { promptTokens: 100, completionTokens: 100, totalTokens: 200 },
+    usage: { inputTokens: 100, outputTokens: 100, totalTokens: 200 },
     requestPayload: { job_context: {}, candidates: [], conversation_history: [], recruiter_instruction: payload.instruction, task: 'test' },
-    responsePayload: { raw_output: '{}', structured_output: {} },
+    responsePayload: { raw_output: JSON.stringify(result), structured_output: result },
   };
 }
 
@@ -146,6 +147,82 @@ test('模型失败可查询明确错误，结束后允许重新提交', async ()
   assert.notEqual(retry.task_id, submission.task_id);
   await setImmediate();
   assert.equal(calls.model, 2);
+});
+
+function unavailableGatewayError() {
+  return new ServiceUnavailableException({
+    message: 'AI 服务暂时不可用，请稍后重试',
+    request_id: 'gateway-request-503',
+    error_code: 'UPSTREAM_ERROR',
+    scene: 'hr.resume_screening',
+    attempts: [{ apiKey: 'test-secret-never-return', endpoint: 'https://private.example.invalid' }],
+    upstream_payload: { secret: 'test-secret-never-return' },
+  });
+}
+
+test('网关 503 经过异步筛选失败路径后只显示真实状态一次，并保留安全追踪信息', async () => {
+  const { service, model, calls } = fixture();
+  const submission = service.createCandidateFilterTask('user-1', payload);
+  await setImmediate();
+  model.reject(unavailableGatewayError());
+  await setImmediate();
+  const failed = service.getCandidateFilterTask('user-1', submission.task_id);
+  assert.equal(failed.status, 'failed');
+  assert.equal((failed.error?.match(/status=/g) ?? []).length, 1);
+  assert.match(failed.error ?? '', /status=503/);
+  assert.doesNotMatch(failed.error ?? '', /status=400/);
+  assert.match(failed.error ?? '', /request_id=gateway-request-503/);
+  assert.match(failed.error ?? '', /error_code=UPSTREAM_ERROR/);
+  assert.match(failed.error ?? '', /scene=hr\.resume_screening/);
+  assert.doesNotMatch(JSON.stringify(failed), /attempts|upstream_payload|test-secret|private\.example/);
+  assert.equal(failed.result, undefined);
+  assert.equal(calls.transactions, 0);
+});
+
+test('同步筛选保留网关 HTTP 状态，响应只包含错误消息与允许的追踪字段', async () => {
+  const { service, model } = fixture();
+  const request = service.iterateCandidateFilter(payload);
+  const rejection = assert.rejects(request, (error: unknown) => {
+    assert.ok(error instanceof HttpException);
+    assert.equal(error.getStatus(), 503);
+    assert.deepEqual(error.getResponse(), {
+      message: 'AI 迭代筛选失败：AI 服务暂时不可用，请稍后重试',
+      request_id: 'gateway-request-503', error_code: 'UPSTREAM_ERROR', scene: 'hr.resume_screening',
+    });
+    return true;
+  });
+  await setImmediate();
+  model.reject(unavailableGatewayError());
+  await rejection;
+});
+
+test('非法追踪字段不会透传，普通输入与配置异常仍为 400', async () => {
+  const { service, model } = fixture();
+  const task = service.createCandidateFilterTask('user-1', payload);
+  await setImmediate();
+  model.reject(new ServiceUnavailableException({
+    message: 'AI 服务暂时不可用，请稍后重试',
+    request_id: 'https://private.example.invalid/token?secret=test-secret',
+    error_code: { token: 'test-secret' },
+    scene: 'unsafe\ntrace',
+  }));
+  await setImmediate();
+  const failure = service.getCandidateFilterTask('user-1', task.task_id);
+  assert.match(failure.error ?? '', /status=503/);
+  assert.doesNotMatch(failure.error ?? '', /request_id=|error_code=|scene=|test-secret|private\.example|unsafe/);
+
+  const configured = fixture();
+  const request = configured.service.iterateCandidateFilter(payload);
+  const rejection = assert.rejects(request, (error: unknown) => {
+    assert.ok(error instanceof HttpException);
+    assert.equal(error.getStatus(), 400);
+    assert.equal(error.message, 'AI 迭代筛选失败：模型配置不可用');
+    return true;
+  });
+  await setImmediate();
+  configured.model.reject(new BadRequestException('模型配置不可用'));
+  await rejection;
+  await assert.rejects(configured.service.iterateCandidateFilter({ instruction: ' ' }), BadRequestException);
 });
 
 test('同用户执行中的不同条件拒绝并发，不同用户的任务互相独立且禁止越权查询', async () => {

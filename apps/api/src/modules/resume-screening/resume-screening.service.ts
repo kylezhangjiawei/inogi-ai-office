@@ -2,6 +2,7 @@
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
   OnModuleInit,
@@ -1346,7 +1347,7 @@ export class ResumeScreeningService implements OnModuleInit {
       task.result = await this.iterateCandidateFilter(payload);
       task.status = 'completed';
     } catch (error) {
-      task.error = this.getSourceErrorMessage(error);
+      task.error = this.getCandidateFilterErrorMessage(error);
       task.status = 'failed';
     } finally {
       task.updatedAt = Date.now();
@@ -1479,13 +1480,16 @@ export class ResumeScreeningService implements OnModuleInit {
         totalTokens: result.usage.totalTokens,
       });
     } catch (error) {
-      const message = this.getSourceErrorMessage(error);
+      const message = `AI 迭代筛选失败：${error instanceof Error ? error.message : '未知处理错误'}`;
+      const failure = error instanceof HttpException
+        ? new HttpException({ message, ...this.getCandidateFilterErrorMetadata(error) }, error.getStatus())
+        : new BadRequestException(message);
       await this.updateOpenAiModelRuntime(openAiCreds?.id, {
         success: false,
         baseUrl: openAiCreds?.baseUrl,
-        errorMessage: message,
+        errorMessage: this.getCandidateFilterErrorMessage(failure),
       });
-      throw new BadRequestException(`AI 迭代筛选失败：${message}`);
+      throw failure;
     }
 
     if (result.result.action !== 'filter') {
@@ -2959,6 +2963,26 @@ export class ResumeScreeningService implements OnModuleInit {
       created_at: jobRule.createdAt.toISOString(),
       updated_at: jobRule.updatedAt.toISOString(),
     };
+  }
+
+  private getCandidateFilterErrorMetadata(error: HttpException) {
+    const response = this.asRecord(error.getResponse());
+    const metadata: Partial<Record<'request_id' | 'error_code' | 'scene', string>> = {};
+    for (const key of ['request_id', 'error_code', 'scene'] as const) {
+      const value = response[key];
+      // Gateway identifiers only; never copy upstream payloads, attempts, URLs or credentials.
+      if (typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,160}$/.test(value)) metadata[key] = value;
+    }
+    return metadata;
+  }
+
+  private getCandidateFilterErrorMessage(error: unknown) {
+    if (!(error instanceof HttpException)) return this.getSourceErrorMessage(error);
+    const metadata = [
+      `status=${error.getStatus()}`,
+      ...Object.entries(this.getCandidateFilterErrorMetadata(error)).map(([key, value]) => `${key}=${value}`),
+    ];
+    return `${error.message} (${metadata.join(', ')})`;
   }
 
   private getSourceErrorMessage(error: unknown) {
