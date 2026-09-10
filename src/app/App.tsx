@@ -37,6 +37,7 @@ const AiModelManagementPage = lazyNamed(() => import("./AiModelManagementPage"),
 const AiUsageDashboardPage = lazyNamed(() => import("./AiUsageDashboardPage"), "AiUsageDashboardPage");
 const ContentSlotsPage = lazyNamed(() => import("./ContentSlotsPage"), "ContentSlotsPage");
 const ElectronicGatePage = lazyNamed(() => import("./ElectronicGatePage"), "ElectronicGatePage");
+const DeviceInspectionRecordsPage = lazyNamed(() => import("./DeviceInspectionRecordsPage"), "DeviceInspectionRecordsPage");
 const ChatAnalyticsPage = lazyNamed(() => import("./ChatAnalyticsPage"), "ChatAnalyticsPage");
 const MobileChatAnalyticsPage = lazyNamed(() => import("./MobileChatAnalyticsPage"), "MobileChatAnalyticsPage");
 const MobileRDCockpit = lazyNamed(() => import("./MobileRDCockpit"), "MobileRDCockpit");
@@ -497,6 +498,7 @@ const router = createBrowserRouter([
       { path: asChildPath(routePath("page:bug-log", "/bug-log")), element: makeLazyProtected(<BugLogPage />, "page:bug-log") },
       { path: asChildPath(routePath("page:contract-review", "/contract-review")), element: makeLazyProtected(<ContractReviewPage />, "page:contract-review") },
       { path: asChildPath(routePath("page:electronic-gate", "/electronic-gate")), element: makeLazyProtected(<ElectronicGatePage />, "page:electronic-gate") },
+      { path: asChildPath(routePath("page:device-inspection-records", "/device-inspection-records")), element: makeLazyProtected(<DeviceInspectionRecordsPage />, "page:device-inspection-records") },
       { path: asChildPath(routePath("page:mailbox-management", "/mailbox-management")), element: makeLazyProtected(<MailboxManagementPage />, "page:mailbox-management") },
       { path: asChildPath(routePath("page:ai-model-management", "/ai-model-management")), element: makeLazyProtected(<AiModelManagementPage />, "page:ai-model-management") },
       { path: asChildPath(routePath("page:ai-usage-dashboard", "/ai-usage")), element: makeLazyProtected(<AiUsageDashboardPage />, "page:ai-usage-dashboard") },

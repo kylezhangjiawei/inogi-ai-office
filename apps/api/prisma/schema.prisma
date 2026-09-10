@@ -675,6 +675,55 @@ model CandidateScreening {
   createdAt       DateTime           @default(now())
 }
 
+/// Append-only Windows inspection evidence. Reinspection creates a new testId.
+model DeviceInspectionRecord {
+  id                 String   @id @default(cuid())
+  clientId           String   @db.VarChar(128)
+  testId             String   @db.VarChar(160)
+  contractVersion    Int
+  snapshotSchema     String   @db.VarChar(64)
+  recordAppVersion   String?  @db.VarChar(64)
+  uploaderAppVersion String   @db.VarChar(64)
+  payloadHash        String   @db.VarChar(64)
+  snapshot           Json
+  resultProjection   Json
+  collectionAt       DateTime
+  saveAt             DateTime?
+  receivedAt         DateTime @default(now())
+  uid                String?  @db.VarChar(24)
+  uidVerified        Boolean  @default(false)
+  serialNumber       String   @default("") @db.VarChar(256)
+  model              String   @default("") @db.VarChar(256)
+  market             String   @default("") @db.VarChar(256)
+  station            String   @default("") @db.VarChar(256)
+  operator           String   @default("") @db.VarChar(256)
+  firmwareVersion    String?  @db.VarChar(512)
+  ruleVersion        String?  @db.VarChar(256)
+  protocolVersion    String?  @db.VarChar(256)
+  inspectionResult   String   @db.VarChar(16)
+  productionPass     Boolean
+  itemCount          Int
+  abnormalCount      Int
+  pendingCount       Int
+  abnormalItems      Json
+  itemIds            String[]
+  readStatuses       String[]
+  itemStatusKeys     String[]
+  abnormalItemIds    String[]
+  abnormalReadStatuses String[]
+
+  @@unique([clientId, testId])
+  @@index([collectionAt, id])
+  @@index([uid, uidVerified, collectionAt, id])
+  @@index([inspectionResult, collectionAt, id])
+  @@index([receivedAt, id])
+  @@index([itemIds], type: Gin)
+  @@index([readStatuses], type: Gin)
+  @@index([itemStatusKeys], type: Gin)
+  @@index([abnormalItemIds], type: Gin)
+  @@index([abnormalReadStatuses], type: Gin)
+}
+
 /// 二次筛选的持久队列；activeUserId 的唯一约束限制每个账号只有一个进行中任务。
 model CandidateFilterTask {
   id             String                     @id @default(uuid())

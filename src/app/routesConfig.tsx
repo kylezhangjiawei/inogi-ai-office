@@ -244,6 +244,7 @@ const BASE_NAV_GROUPS: NavGroup[] = [
     label: "系统管理",
     items: [
       { label: "电子闸门", path: "/electronic-gate", icon: ShieldCheck, requiredPermission: "page:electronic-gate" },
+      { label: "设备检测记录", path: "/device-inspection-records", icon: ClipboardList, requiredPermission: "page:device-inspection-records" },
       { label: "邮箱管理", path: "/mailbox-management", icon: Mail, requiredPermission: "page:mailbox-management" },
       { label: "AI模型管理", path: "/ai-model-management", icon: Bot, requiredPermission: "page:ai-model-management" },
       { label: "AI使用情况", path: "/ai-usage", icon: BarChart3, requiredPermission: "page:ai-usage-dashboard" },

@@ -4,6 +4,7 @@ import { gzip } from 'node:zlib';
 
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { inspectionUploadBody } from './modules/device-inspection-records/device-inspection-upload-body';
 import { json, text, urlencoded, type NextFunction, type Request, type Response } from 'express';
 
 import { AppModule } from './app.module';
@@ -85,6 +86,7 @@ async function bootstrap() {
   app.use('/api/research-development/sheet-workbook', json({ limit: '50mb' }));
   // 大快照读取的下行提速（图片出仓后快照为纯文本，压缩率 5~10x）
   app.use('/api/research-development/sheet-workbook', gzipJsonResponses);
+  app.use('/api/factory-qc/records', inspectionUploadBody);
   app.use(json({ limit: '25mb' }));
   app.use(urlencoded({ extended: true, limit: '25mb' }));
   app.setGlobalPrefix('api');
