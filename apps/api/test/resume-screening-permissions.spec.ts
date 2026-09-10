@@ -34,6 +34,7 @@ test('招聘查看权限不能清空、删除、上传或执行筛选，对应�
     ['clearCandidates', 'resume:delete'], ['deleteCandidate', 'resume:delete'],
     ['uploadResumeFiles', 'resume:upload'], ['runMailSync', 'resume:screen'],
     ['applyCandidateAiUpdate', 'resume:screen'], ['saveMailSyncSchedule', 'resume:screen'],
+    ['createCandidateFilterTask', 'resume:screen'], ['getCandidateFilterTask', 'resume:screen'],
     ['saveMailConfig', 'page:mailbox-management'], ['saveOpenAiConfig', 'page:ai-model-management'],
   ] as const;
   for (const [method, permission] of cases) {

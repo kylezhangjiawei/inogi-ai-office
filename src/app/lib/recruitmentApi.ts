@@ -1,4 +1,4 @@
-import { authFetch, readErrorMessage } from "./authSession";
+import { addAuthClearedListener, authFetch, getStoredUser, readErrorMessage } from "./authSession";
 
 export type Decision = "recommend" | "hold" | "reject";
 
@@ -277,6 +277,22 @@ export interface CandidateFilterIterationResponse {
   duration_ms: number;
 }
 
+type CandidateFilterIterationPayload = {
+  instruction: string;
+  job_rule_id?: string;
+  base_version?: string;
+  candidate_ids?: string[];
+  history?: CandidateFilterSessionMessage[];
+  limit?: number;
+};
+
+type CandidateFilterTask = {
+  task_id: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  result?: CandidateFilterIterationResponse;
+  error?: string;
+};
+
 export interface CandidateDetail {
   id: string;
   unique_key?: string | null;
@@ -380,6 +396,80 @@ type SecurityPublicKeyResponse = {
 const API_BASE = (import.meta.env.VITE_RECRUITMENT_API_BASE as string | undefined)?.replace(/\/$/, "") ?? "";
 const LEGACY_PLAIN_SECRET_ERROR = "plain_secret should not exist";
 let cachedPublicKey: Promise<CryptoKey> | null = null;
+
+// Keep accepted tasks after a polling interruption so retrying does not create another version.
+const candidateFilterTasks = new Map<string, { taskId?: string; promise?: Promise<CandidateFilterIterationResponse> }>();
+addAuthClearedListener(() => candidateFilterTasks.clear());
+
+class CandidateFilterTaskHttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
+async function requestCandidateFilterTask(path: string, init?: RequestInit): Promise<CandidateFilterTask> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const response = await authFetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new CandidateFilterTaskHttpError(await readErrorMessage(response, `请求失败：${response.status}`), response.status);
+    }
+    return await response.json() as CandidateFilterTask;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function iterateCandidateFilter(payload: CandidateFilterIterationPayload): Promise<CandidateFilterIterationResponse> {
+  const userId = getStoredUser()?.id;
+  const key = JSON.stringify([userId, payload]);
+  const task = candidateFilterTasks.get(key) ?? {};
+  if (task.promise) return task.promise;
+  candidateFilterTasks.set(key, task);
+  task.promise = (async () => {
+    if (!task.taskId) {
+      const submitted = await requestCandidateFilterTask("/api/recruitment/candidate-filter-sessions/iterate/async", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      task.taskId = submitted.task_id;
+    }
+    const deadline = Date.now() + 15 * 60_000;
+    while (Date.now() < deadline) {
+      if (getStoredUser()?.id !== userId) throw new Error("登录账号已变更，请重新打开简历筛选");
+      let status: CandidateFilterTask;
+      try {
+        status = await requestCandidateFilterTask(`/api/recruitment/candidate-filter-tasks/${encodeURIComponent(task.taskId!)}`);
+      } catch (error) {
+        if (error instanceof CandidateFilterTaskHttpError && error.status === 404) {
+          candidateFilterTasks.delete(key);
+          throw new Error("筛选任务已失效，请先查看筛选版本确认结果，再重新提交");
+        }
+        throw new Error("筛选结果查询暂时中断，输入已保留；再次发送相同条件将继续查询原任务");
+      }
+      if (getStoredUser()?.id !== userId) throw new Error("登录账号已变更，请重新打开简历筛选");
+      if (status.status === "completed" && status.result) {
+        candidateFilterTasks.delete(key);
+        return status.result;
+      }
+      if (status.status === "failed") {
+        candidateFilterTasks.delete(key);
+        throw new Error(status.error || "AI 二次筛选失败");
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+    }
+    throw new Error("AI 仍在处理候选人，输入已保留；稍后再次发送相同条件将继续查询原任务");
+  })().finally(() => {
+    task.promise = undefined;
+    if (!task.taskId) candidateFilterTasks.delete(key);
+  });
+  return task.promise;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormDataRequest = typeof FormData !== "undefined" && init?.body instanceof FormData;
@@ -627,19 +717,7 @@ export const recruitmentApi = {
     const suffix = params.toString() ? `?${params.toString()}` : "";
     return request<CandidateFilterSessionVersion[]>(`/api/recruitment/candidate-filter-sessions${suffix}`);
   },
-  iterateCandidateFilter(payload: {
-    instruction: string;
-    job_rule_id?: string;
-    base_version?: string;
-    candidate_ids?: string[];
-    history?: CandidateFilterSessionMessage[];
-    limit?: number;
-  }) {
-    return request<CandidateFilterIterationResponse>("/api/recruitment/candidate-filter-sessions/iterate", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-  },
+  iterateCandidateFilter,
   clearCandidates() {
     return request<ClearCandidatesResponse>("/api/recruitment/candidates", {
       method: "DELETE",

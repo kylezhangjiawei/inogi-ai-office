@@ -5,10 +5,11 @@
   Injectable,
   NotFoundException,
   OnModuleInit,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
@@ -98,6 +99,17 @@ type ScheduleMetadata = {
 
 const SCHEDULE_CONFIG_NAME = 'mail-sync-schedule';
 const ITERATIVE_FILTER_PROMPT_PREFIX = 'iterative-filter:';
+const CANDIDATE_FILTER_TASK_TTL_MS = 60 * 60 * 1000;
+
+type CandidateFilterTask = {
+  id: string;
+  userId: string;
+  fingerprint: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  updatedAt: number;
+  result?: Awaited<ReturnType<ResumeScreeningService['iterateCandidateFilter']>>;
+  error?: string;
+};
 
 @Injectable()
 export class ResumeScreeningService implements OnModuleInit {
@@ -108,6 +120,7 @@ export class ResumeScreeningService implements OnModuleInit {
   private fileScreeningQueue: FileScreeningTaskPayload[] = [];
   private fileScreeningActiveCount = 0;
   private aiFailureCache = new Map<string, { message: string; expiresAt: number }>();
+  private readonly candidateFilterTasks = new Map<string, CandidateFilterTask>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -1282,6 +1295,72 @@ export class ResumeScreeningService implements OnModuleInit {
     }
 
     return Array.from(grouped.values()).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  }
+
+  createCandidateFilterTask(userId: string, payload: IterateCandidateFilterDto) {
+    if (!userId) throw new UnauthorizedException();
+    if (!payload.instruction?.trim()) {
+      throw new BadRequestException('请输入本轮希望 AI 重新筛选的条件。');
+    }
+    this.pruneExpiredCandidateFilterTasks();
+    const fingerprint = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+    for (const task of this.candidateFilterTasks.values()) {
+      if (task.userId !== userId || (task.status !== 'pending' && task.status !== 'processing')) continue;
+      if (task.fingerprint === fingerprint) {
+        return { task_id: task.id, status: task.status };
+      }
+      throw new ConflictException('上一轮 AI 筛选仍在处理中，请等待完成后再提交。');
+    }
+    const task: CandidateFilterTask = {
+      id: randomUUID(),
+      userId,
+      fingerprint,
+      status: 'pending',
+      updatedAt: Date.now(),
+    };
+    this.candidateFilterTasks.set(task.id, task);
+    // 与图片生成任务一致：HTTP 提交立即结束，AI 和评分入库在后台完成。
+    void this.runCandidateFilterTask(task, payload);
+    return { task_id: task.id, status: 'pending' as const };
+  }
+
+  getCandidateFilterTask(userId: string, taskId: string) {
+    if (!userId) throw new UnauthorizedException();
+    this.pruneExpiredCandidateFilterTasks();
+    const task = this.candidateFilterTasks.get(taskId);
+    if (!task) {
+      throw new NotFoundException('筛选任务不存在或已过期，请先查看筛选版本记录，再重新提交。');
+    }
+    if (task.userId !== userId) throw new ForbiddenException('无权访问该筛选任务。');
+    return {
+      task_id: task.id,
+      status: task.status,
+      result: task.status === 'completed' ? task.result : undefined,
+      error: task.status === 'failed' ? task.error : undefined,
+    };
+  }
+
+  private async runCandidateFilterTask(task: CandidateFilterTask, payload: IterateCandidateFilterDto) {
+    task.status = 'processing';
+    try {
+      task.result = await this.iterateCandidateFilter(payload);
+      task.status = 'completed';
+    } catch (error) {
+      task.error = this.getSourceErrorMessage(error);
+      task.status = 'failed';
+    } finally {
+      task.updatedAt = Date.now();
+    }
+  }
+
+  @Interval(10 * 60 * 1000)
+  private pruneExpiredCandidateFilterTasks() {
+    const now = Date.now();
+    for (const [id, task] of this.candidateFilterTasks) {
+      if ((task.status === 'completed' || task.status === 'failed') && now - task.updatedAt > CANDIDATE_FILTER_TASK_TTL_MS) {
+        this.candidateFilterTasks.delete(id);
+      }
+    }
   }
 
   async iterateCandidateFilter(payload: IterateCandidateFilterDto) {

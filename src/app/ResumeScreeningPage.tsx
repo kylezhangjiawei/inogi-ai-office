@@ -652,6 +652,10 @@ export function ResumeScreeningPage() {
   const [filterConversation, setFilterConversation] = useState<CandidateFilterSessionMessage[]>([]);
   const [filterInstruction, setFilterInstruction] = useState("");
   const [filterRunning, setFilterRunning] = useState(false);
+  const filterContextRef = useRef({ jobRuleId: jobRuleFilter, version: selectedFilterVersion });
+  if (filterContextRef.current.jobRuleId !== jobRuleFilter || filterContextRef.current.version !== selectedFilterVersion) {
+    filterContextRef.current = { jobRuleId: jobRuleFilter, version: selectedFilterVersion };
+  }
   const [showFilterDialog, setShowFilterDialog] = useState(false);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("");
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateDetail | null>(null);
@@ -1824,6 +1828,7 @@ export function ResumeScreeningPage() {
   async function handleIterateCandidateFilter() {
     const instruction = filterInstruction.trim();
     const jobRuleId = jobRuleFilter;
+    const filterContext = filterContextRef.current;
     if (!instruction) {
       toast.error("请输入本轮筛选希望 AI 关注的条件");
       return;
@@ -1837,7 +1842,6 @@ export function ResumeScreeningPage() {
       { role: "user" as const, content: instruction },
     ].slice(-12);
     setFilterConversation(nextConversation);
-    setFilterInstruction("");
     setFilterRunning(true);
     try {
       const response = await recruitmentApi.iterateCandidateFilter({
@@ -1847,6 +1851,8 @@ export function ResumeScreeningPage() {
         history: filterConversation,
         limit: 80,
       });
+      if (filterContextRef.current !== filterContext) return;
+      setFilterInstruction("");
       const assistantMessage = response.answer || response.filter_summary || "已完成本轮候选人二次筛选。";
       setFilterConversation((current) => [...current, { role: "assistant" as const, content: assistantMessage }].slice(-12));
       if (response.action !== "filter" || !response.version_id) {
@@ -1862,6 +1868,7 @@ export function ResumeScreeningPage() {
       }
       toast.success(`已生成新筛选版本：推荐 ${response.recommend_count} 人，待定 ${response.hold_count} 人，淘汰 ${response.reject_count} 人`);
     } catch (error) {
+      if (filterContextRef.current !== filterContext) return;
       setFilterConversation(filterConversation);
       toast.error(getErrorMessage(error, "AI 二次筛选失败"));
     } finally {
@@ -3746,7 +3753,7 @@ export function ResumeScreeningPage() {
                   <div className="flex justify-start">
                     <div className="material-neu-card inline-flex items-center gap-2 rounded-xl rounded-tl-md px-4 py-3 text-sm text-slate-600">
                       <Loader2 className="h-4 w-4 animate-spin text-[#002fa7]" />
-                      AI 正在分析本轮筛选意图
+                      AI 正在分析筛选条件并处理候选人，请稍候
                     </div>
                   </div>
                 ) : null}

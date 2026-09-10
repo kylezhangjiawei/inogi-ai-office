@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Param, Post, Query, Req, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 
 import { Public } from '../auth/decorators/public.decorator';
@@ -139,6 +139,25 @@ export class ResumeScreeningController {
   @Permissions('resume:screen')
   iterateCandidateFilter(@Body() payload: IterateCandidateFilterDto) {
     return this.resumeScreeningService.iterateCandidateFilter(payload);
+  }
+
+  @Post('candidate-filter-sessions/iterate/async')
+  @Permissions('resume:screen')
+  createCandidateFilterTask(
+    @Req() req: { user?: { id?: string; sub?: string } },
+    @Body() payload: IterateCandidateFilterDto,
+  ) {
+    return this.resumeScreeningService.createCandidateFilterTask(req.user?.id ?? req.user?.sub ?? '', payload);
+  }
+
+  @Get('candidate-filter-tasks/:taskId')
+  @Header('Cache-Control', 'no-store')
+  @Permissions('resume:screen')
+  getCandidateFilterTask(
+    @Req() req: { user?: { id?: string; sub?: string } },
+    @Param('taskId') taskId: string,
+  ) {
+    return this.resumeScreeningService.getCandidateFilterTask(req.user?.id ?? req.user?.sub ?? '', taskId);
   }
 
   @Delete('candidates')
