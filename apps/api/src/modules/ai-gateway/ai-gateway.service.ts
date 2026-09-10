@@ -724,7 +724,7 @@ export class AiGatewayService {
     const record = error && typeof error === 'object' ? error as Record<string, unknown> : {};
     const status = Number(record.status ?? record.statusCode);
     const message = this.errorMessage(error).toLowerCase();
-    return status === 400 && /response[_ -]?format|json[_ -]?mode|json_object/.test(message);
+    return status === 400 && /response[_ -]?format|json[_ -]?mode|json_object|json_schema/.test(message);
   }
 
   private errorCode(error: unknown): string {

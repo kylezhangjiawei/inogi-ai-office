@@ -64,7 +64,7 @@ function fixture(options: {
       }
       return {
         requestId: `request-${calls.length}`, scene: request.scene,
-        content: JSON.stringify(output), model: 'qwen3.8-max-preview', provider: 'Qwen',
+        content: typeof output === 'string' ? output : JSON.stringify(output), model: 'qwen3.8-max-preview', provider: 'Qwen',
         usage: { promptTokens: 7, completionTokens: 3, totalTokens: 10 },
       };
     },
@@ -235,4 +235,96 @@ test('执行权丢失时终止下一批调用，不能继续消耗模型额度',
   const f = fixture();
   await assert.rejects(f.run(500, { signal: abort.signal, onAnalysis: async () => { abort.abort(new Error('lease lost')); } }), /lease lost/);
   assert.equal(f.calls.length, 1);
+});
+
+test('101人第二批返回错误结构时自动纠正，只保存有效评分且不重算第一批', async () => {
+  const saved: Record<number, CandidateFilterCompletion> = {};
+  const f = fixture({ score: (_payload, number, updates) => number === 2
+    ? { action: 'clarify', answer: '是否要调整这些候选人？', candidate_updates: [] }
+    : { action: 'filter', candidate_updates: updates } });
+  const result = await f.run(101, { onBatch: async (index, completion) => {
+    assert.equal(saved[index], undefined);
+    saved[index] = completion;
+  } });
+  assert.equal(result.result.candidate_updates.length, 101);
+  assert.equal(new Set(result.result.candidate_updates.map((item) => item.candidate_id)).size, 101);
+  assert.equal(Object.keys(saved).length, 13);
+  assert.equal(f.calls.length, 15, '分析1次、13批、仅错误批次多调用1次');
+  const batchRequests = f.calls.filter(({ payload }) => payload.candidates[0]?.candidate_id === 'candidate-008');
+  assert.equal(batchRequests.length, 2);
+  assert.deepEqual(batchRequests[0].payload, batchRequests[1].payload, '纠正不能改变原候选人和统一规则');
+  assert.match(String(batchRequests[1].request.messages[0].content), /INVALID_ACTION/);
+  assert.equal(f.calls.filter(({ payload }) => payload.candidates[0]?.candidate_id === 'candidate-000').length, 1);
+  assert.equal(f.peak(), 2);
+  assert.deepEqual(result.usage, { inputTokens: 105, outputTokens: 45, totalTokens: 150 });
+  assert.equal(saved[1].usage.totalTokens, 20, '纠正用量随成功断点保存');
+});
+
+test('评分请求使用只允许filter的严格schema，不能再输出分析或追问格式', async () => {
+  const f = fixture(); await f.run(8);
+  const request = f.calls[1].request;
+  assert.equal(request.responseFormat?.type, 'json_schema');
+  if (request.responseFormat?.type !== 'json_schema') assert.fail('missing strict score schema');
+  assert.equal(request.responseFormat.json_schema.strict, true);
+  const schema = request.responseFormat.json_schema.schema as any;
+  assert.deepEqual(schema.properties.action.enum, ['filter']);
+  assert.deepEqual(schema.required, ['action', 'candidate_updates']);
+  assert.deepEqual(schema.properties.candidate_updates.items.properties.candidate_id.enum, candidates(8).map((row) => row.candidate_id));
+  assert.doesNotMatch(String(request.messages[0].content), /"filter"\|"clarify"/);
+});
+
+test('空响应、截断JSON和业务格式错误均有界纠正，不能补造或丢掉候选人', async (t) => {
+  const invalid: Array<[string, (rows: Update[]) => unknown]> = [
+    ['空响应', () => ''], ['截断JSON', () => '{"action":"filter","candidate_updates":['],
+    ['缺action', (rows) => ({ candidate_updates: rows })],
+    ['错误字段名', (rows) => ({ action: 'filter', candidates: rows })],
+    ['对象代替数组', () => ({ action: 'filter', candidate_updates: {} })],
+    ['额外封装', (rows) => ({ data: { action: 'filter', candidate_updates: rows } })],
+    ['顶层数组', (rows) => rows], ['null', () => null],
+    ['二次编码', (rows) => JSON.stringify(JSON.stringify({ action: 'filter', candidate_updates: rows }))],
+    ['漏掉候选人', (rows) => ({ action: 'filter', candidate_updates: rows.slice(1) })],
+    ['重复候选人', (rows) => ({ action: 'filter', candidate_updates: [...rows, rows[0]] })],
+    ['其他候选人', (rows) => ({ action: 'filter', candidate_updates: [{ ...rows[0], candidate_id: 'other' }, ...rows.slice(1)] })],
+    ['无效评分', (rows) => ({ action: 'filter', candidate_updates: [{ ...rows[0], score: '30' }, ...rows.slice(1)] })],
+  ];
+  for (const [name, mutate] of invalid) await t.test(name, async () => {
+    let saved = 0;
+    const f = fixture({ score: (_payload, number, rows) => number <= 2 ? mutate(rows) : { action: 'filter', candidate_updates: rows } });
+    const result = await f.run(8, { onBatch: async () => { saved += 1; } });
+    assert.equal(result.result.candidate_updates.length, 8);
+    assert.equal(f.calls.length, 4, '只允许分析加3次评分');
+    assert.equal(saved, 1, '错误响应不可成为断点');
+    assert.equal(result.usage.totalTokens, 40);
+  });
+});
+
+test('持续不合格最多评分3次，明确失败且不保存错误结果', async () => {
+  let saved = 0;
+  const f = fixture({ score: () => ({ action: 'clarify', candidate_updates: [] }) });
+  await assert.rejects(f.run(8, { onBatch: async () => { saved += 1; } }), /第 1 批.*3 次.*INVALID_ACTION/);
+  assert.equal(f.calls.length, 4);
+  assert.equal(saved, 0);
+});
+
+test('纠正前重新检查执行权，取消或权限撤销不会多调用模型', async (t) => {
+  for (const kind of ['abort', 'permission'] as const) await t.test(kind, async () => {
+    const abort = new AbortController();
+    let checks = 0;
+    const f = fixture({ score: () => {
+      if (kind === 'abort') abort.abort(new Error('lease lost'));
+      return {};
+    } });
+    await assert.rejects(f.run(8, { signal: abort.signal, beforeCall: async () => {
+      checks += 1;
+      if (kind === 'permission' && checks === 3) throw new Error('permission revoked');
+    } }), /lease lost|permission revoked/);
+    assert.equal(f.calls.length, 2);
+  });
+});
+
+test('数据库保存错误不进入模型格式纠正', async () => {
+  const f = fixture();
+  const error = new Error('checkpoint write failed');
+  await assert.rejects(f.run(8, { onBatch: async () => { throw error; } }), (actual) => actual === error);
+  assert.equal(f.calls.length, 2);
 });
