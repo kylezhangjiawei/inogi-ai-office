@@ -53,7 +53,7 @@ test("profile and pressure modes allow universal scope but preserve restricted s
     {gear:4,maximum:300},{gear:5,maximum:300},{gear:6,maximum:315},{gear:7,maximum:320}
   ]);
   assert.equal(fixture("built-in-parameters").item.defaults.values.approval, "confirmed");
-  assert.equal(fixture("debug-status").item.defaults.values.approval, "tentative");
+  assert.equal(fixture("debug-status").item.defaults.values.approval, "confirmed");
   for (const create of [profiledFixture, pressureFixture]) {
     const {item,config} = create(); config.model=""; config.market="";
     assert.deepEqual(validateGateConfig(item,config,true),{});

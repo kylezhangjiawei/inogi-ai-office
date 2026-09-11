@@ -64,9 +64,29 @@ test("production route does not import synthetic adapters or replace authenticat
 const pageSource = fs.readFileSync(new URL("../src/app/DeviceInspectionRecordsPage.tsx", import.meta.url), "utf8");
 const pageModule = { exports: {} };
 const require = createRequire(import.meta.url);
+function loadUiModule(file) {
+  const url = new URL(`../src/app/components/ui/${file}`, import.meta.url);
+  const code = ts.transpileModule(fs.readFileSync(url, "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, esModuleInterop: true } }).outputText;
+  const loaded = { exports: {} };
+  new Function("require", "module", "exports", code)(id => id === "./utils" ? loadUiModule("utils.ts") : require(id), loaded, loaded.exports);
+  return loaded.exports;
+}
+const uiModules = Object.fromEntries(["tooltip", "button", "input", "checkbox", "select", "tabs"].map(name => ["./components/ui/" + name, loadUiModule(name + ".tsx")]));
 const pageCode = ts.transpileModule(pageSource + "\nexport { RecordStaff, ManualConfirmations };", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, esModuleInterop: true } }).outputText;
-new Function("require", "module", "exports", pageCode)(id => id.endsWith(".css") ? {} : id === "./lib/deviceInspectionRecords" ? m : id === "./lib/deviceInspectionRecordsApi" ? {} : require(id), pageModule, pageModule.exports);
+new Function("require", "module", "exports", pageCode)(id => id.endsWith(".css") ? {} : id === "./lib/deviceInspectionRecords" ? m : id === "./lib/deviceInspectionRecordsApi" ? {} : uiModules[id] ?? require(id), pageModule, pageModule.exports);
 const render = (component, evidence) => renderToStaticMarkup(React.createElement(pageModule.exports[component], { record: evidence }));
+test("record filters and pagination render shared controls with labelled tabs and inputs", () => {
+  const html = renderToStaticMarkup(React.createElement(pageModule.exports.DeviceInspectionRecordsPage));
+  assert.equal((html.match(/role="combobox"/g) || []).length, 4);
+  assert.equal((html.match(/role="tab"/g) || []).length, 2);
+  assert.match(html, /role="tabpanel"/);
+  assert.match(html, /data-slot="input"/);
+  for (const id of ["dir-search", "dir-preset", "dir-item", "dir-read-status"]) {
+    assert.ok(html.includes(`for="${id}"`));
+    assert.ok(html.includes(`id="${id}"`));
+  }
+  assert.doesNotMatch(pageSource, /<(?:select|option|input|button)\b/);
+});
 test("list displays the uploaded station and operator, including absent historical metadata", () => {
   const html = render("RecordStaff", { station: "产线 A / 02", operator: "张三（夜班）" });
   assert.match(html, /工位：产线 A \/ 02/); assert.match(html, /操作员：张三（夜班）/);
