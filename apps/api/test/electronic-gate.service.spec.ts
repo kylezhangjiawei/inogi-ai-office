@@ -187,6 +187,7 @@ test('新版目录按主表区分已确认和暂定条件，不隐式发布；�
   assert.equal(get('button-volume').defaults.values.expected, '3');
   const confirmed = new Set(['device-model', 'shipping-market', 'firmware-version', 'valve-type', 'fpga-version', 'compressor-speed', 'alarm-status', 'sensor-pressure', 'internal-temperature', 'fan-status', 'compressor-recovery', 'v-pressure', 'v-pressure-temperature', 'default-sensitivity', 'total-usage', 'button-volume', 'default-gear', 'calibration-230', 'calibration-232', 'current-pressure']);
   confirmed.add('built-in-parameters');
+  confirmed.add('debug-status');
   for (const item of items.filter(item => ['critical', 'routine'].includes(item.category))) assert.equal(item.defaults.values.approval, confirmed.has(item.id) ? 'confirmed' : 'tentative');
   assert.equal(get('total-usage').defaults.values.maximum, '20.5');
   assert.equal(get('total-usage').defaults.values.operator, 'lte');
@@ -283,7 +284,7 @@ test('新模板默认停用独立开机基线，当前大气压保留正式范�
   assert.match(get('button-volume').defaults.helpText, /EEPROM.*0～3/);
   assert.match(get('button-volume').defaults.helpText, /0xFF.*不能.*1/);
   assert.match(get('button-volume').fields.find(field => field.key === 'readbackSource')!.help!, /当前运行音量/);
-  assert.deepEqual([get('debug-status').defaults.values.expected, get('debug-status').defaults.values.approval], ['0', 'tentative']);
+  assert.deepEqual([get('debug-status').defaults.values.expected, get('debug-status').defaults.values.approval], ['0', 'confirmed']);
   assert.equal(rows.size, 0, '读取模板不得创建配置记录');
 });
 
