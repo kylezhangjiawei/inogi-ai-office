@@ -230,7 +230,7 @@ test("task image preview supports pinch zoom, panning and scale-aware gallery sw
   assert.match(progressEvidenceSource, /imageTransformRef\.current\.scale > TASK_IMAGE_MIN_SCALE/);
   assert.match(progressEvidenceSource, /\[currentImageId, flushScheduledImageTransform, resetImageTransform, setGalleryOffset\]/);
   assert.match(progressEvidenceSource, /new ResizeObserver\(updateLayout\)/);
-  assert.match(progressEvidenceSource, /onLoad=\{\(\) => \{\s+setLoadedUrl\(currentUrl\);\s+measureGestureLayout\(\);\s+applyImageTransform/);
+  assert.match(progressEvidenceSource, /onLoad=\{\(\) => \{\s+resource\.onLoad\(\);\s+setLoadedUrl\(currentUrl\);\s+measureGestureLayout\(\);\s+applyImageTransform/);
   assert.match(progressEvidenceSource, /suppressBackdropClickRef\.current = draggedRef\.current \|\| wasMultitouch;\s+\n\s+if \(activePointersRef\.current\.size > 0\)/);
 });
 

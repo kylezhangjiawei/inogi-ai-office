@@ -682,26 +682,24 @@ export class ImageGenerationService {
   }
 
   /**
-   * 列表项统一映射：imageUrl 字段存的是 objectKey（私有 Bucket），响应时转为签名 URL；
-   * 旧数据 imageUrl 为 http(s) URL 时原样返回（兼容历史记录）。
+   * 在已授权的响应层为对象键及历史 OSS/CDN 地址重新签名；未知外部图片地址保持原样。
+   * 数据库存储仍保留对象键，短期访问地址仅用于本次响应。
    */
   private toLibraryItem<T extends { imageUrl: string; imageData?: string }>(item: T) {
-    const objectKey = item.imageUrl && !item.imageUrl.startsWith('http') ? item.imageUrl : null;
     const resolvedUrl = item.imageUrl
-      ? (item.imageUrl.startsWith('http')
-          ? item.imageUrl
-          : this.ossService.getSignedUrl(item.imageUrl, 24 * 3600))
+      ? this.ossService.getReadUrl(item.imageUrl, 24 * 3600)?.url
+        ?? (/^https?:\/\//i.test(item.imageUrl) ? item.imageUrl : null)
       : null;
     return {
       ...item,
       imageUrl: resolvedUrl,
-      thumbnailUrl: objectKey
-        ? this.ossService.getSignedUrl(
-            objectKey,
+      thumbnailUrl: resolvedUrl
+        ? this.ossService.getReadUrl(
+            item.imageUrl,
             24 * 3600,
             'image/resize,m_lfit,w_640/format,webp/quality,q_82',
-          )
-        : resolvedUrl,
+          )?.url ?? resolvedUrl
+        : null,
       imageData: resolvedUrl ? undefined : item.imageData,
     };
   }
@@ -1110,6 +1108,26 @@ export class ImageGenerationService {
       data: { isFavorite: !img.isFavorite },
       select: { id: true, isFavorite: true },
     });
+  }
+
+  /** Renew display links only after checking the stored image's owner; never accept an object key from the request. */
+  async getImageReadUrls(userId: string, imageId: string) {
+    const image = await this.assertOwner(imageId, userId);
+    const source = image.imageUrl || '';
+    // Preview/download use original bytes, even when a historical stored URL included a resize process.
+    const original = source ? this.ossService.getReadUrl(source, 24 * 3600, '') : null;
+    const imageUrl = original?.url ?? (/^https?:\/\//i.test(source) ? source : null);
+    const thumbnail = imageUrl
+      ? this.ossService.getReadUrl(source, 24 * 3600, 'image/resize,m_lfit,w_640/format,webp/quality,q_82')
+      : null;
+    return {
+      imageId: image.id,
+      imageUrl,
+      thumbnailUrl: thumbnail?.url ?? imageUrl,
+      imageData: imageUrl ? undefined : image.imageData,
+      imageExpiresIn: original?.expiresIn ?? null,
+      thumbnailExpiresIn: thumbnail?.expiresIn ?? original?.expiresIn ?? null,
+    };
   }
 
   /**
@@ -2700,6 +2718,7 @@ export class ImageGenerationService {
     usageDetails?: unknown;
     createdAt: Date;
   }) {
+    const display = this.toLibraryItem({ ...img, imageUrl: img.imageUrl ?? '' });
     return {
       id: img.id,
       prompt: img.prompt,
@@ -2707,19 +2726,9 @@ export class ImageGenerationService {
       style: img.style,
       size: img.size,
       quality: img.quality,
-      imageData: img.imageUrl ? undefined : img.imageData,
-      imageUrl: img.imageUrl
-        ? (img.imageUrl.startsWith('http') ? img.imageUrl : this.ossService.getSignedUrl(img.imageUrl, 24 * 3600))
-        : null,
-      thumbnailUrl: img.imageUrl
-        ? (img.imageUrl.startsWith('http')
-            ? img.imageUrl
-            : this.ossService.getSignedUrl(
-                img.imageUrl,
-                24 * 3600,
-                'image/resize,m_lfit,w_640/format,webp/quality,q_82',
-              ))
-        : null,
+      imageData: display.imageData,
+      imageUrl: display.imageUrl,
+      thumbnailUrl: display.thumbnailUrl,
       model: img.model,
       isFavorite: img.isFavorite,
       requestId: img.requestId ?? null,

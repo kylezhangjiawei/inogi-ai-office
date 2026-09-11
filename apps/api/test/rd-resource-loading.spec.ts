@@ -368,7 +368,7 @@ test('cockpit attachment previews batch reads once and returns only five lightwe
     for (const attachment of result[taskId].attachments) {
       assert.deepEqual(
         Object.keys(attachment).sort(),
-        ['id', 'mime', 'name', 'preview_url', 'size', 'thumb_url'],
+        ['id', 'mime', 'name', 'preview_url', 'size', 'task_id', 'thumb_url'],
       );
     }
   }

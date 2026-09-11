@@ -31,6 +31,75 @@ function fixture(id, values = {}) {
   return { item, config };
 }
 
+
+function profiledFixture() {
+  return fixture("built-in-parameters", { operator: "profile-slots", parameterPlan: "shipping", performanceClass: "A", approval: "confirmed",
+    parameterSlots: "", parameterProfiles: JSON.stringify([
+    { models: ['Q5'], valveType: 0, plan: 'shipping', performanceClass: 'A', slots: [{ gear: 3, speed: 1000, duration: 200 }] },
+    { models: ['Q6', 'Q7'], valveType: 1, plan: 'shipping', performanceClass: 'A', slots: [{ gear: 1, speed: 1500, duration: 250 }, { gear: 3, speed: 1800, duration: 300 }] },
+    { models: ['Q5'], valveType: 0, plan: 'fixed-mac', performanceClass: 'A', slots: [{ gear: 3, speed: 900, duration: 180 }] }
+  ]), readbackSource: "新版73/74" });
+}
+function pressureFixture() {
+  return fixture("sensor-pressure", { operator: "gear-upper", gear: "", minimum: "", maximum: "", boundary: "unconfirmed", readbackSource: "新版78",
+    gearUpperBounds: JSON.stringify([{gear:0,maximum:120,models:["Q5"]},{gear:0,maximum:130,models:["Q6","Q7"]},{gear:3,maximum:160}]) });
+}
+test("profile and pressure modes allow universal scope but preserve restricted scope for legacy modes", () => {
+  const defaults = fixture("sensor-pressure").item.defaults;
+  assert.equal(defaults.values.boundary, "exclusive");
+  assert.equal(defaults.model, ""); assert.equal(defaults.market, "");
+  assert.deepEqual(JSON.parse(defaults.values.gearUpperBounds), [
+    {gear:0,maximum:315},{gear:1,maximum:200},{gear:2,maximum:235},{gear:3,maximum:275},
+    {gear:4,maximum:300},{gear:5,maximum:300},{gear:6,maximum:315},{gear:7,maximum:320}
+  ]);
+  assert.equal(fixture("built-in-parameters").item.defaults.values.approval, "confirmed");
+  assert.equal(fixture("debug-status").item.defaults.values.approval, "tentative");
+  for (const create of [profiledFixture, pressureFixture]) {
+    const {item,config} = create(); config.model=""; config.market="";
+    assert.deepEqual(validateGateConfig(item,config,true),{});
+  }
+  for (const id of ["default-gear","built-in-parameters","sensor-pressure"]) {
+    const {item,config}=fixture(id); config.model=""; config.market="";
+    if(id==="built-in-parameters") config.values.operator="slots";
+    if(id==="sensor-pressure") config.values.operator="range";
+    const errors=validateGateConfig(item,config,true); assert.ok(errors.model); assert.ok(errors.market);
+  }
+});
+test("profile JSON validates every field, model/type/plan overlap and selected model coverage", () => {
+  const base=JSON.parse(profiledFixture().config.values.parameterProfiles);
+  const mutate=change=>{const p=structuredClone(base);change(p);return JSON.stringify(p);};
+  for(const value of ["bad","[]","{}",mutate(p=>p[0].models=[]),mutate(p=>p[0].models=["Q5","Q5"]),mutate(p=>p[0].valveType="0"),
+    mutate(p=>p[0].performanceClass="B"),mutate(p=>p[0].plan="other"),mutate(p=>p[0].slots=[]),mutate(p=>p[0].slots[0].gear=8),
+    mutate(p=>p[0].slots[0].speed=65536),mutate(p=>p[0].slots[0].duration="200"),mutate(p=>p[0].slots[0].enabled=true),
+    mutate(p=>p[0].slots.push({...p[0].slots[0]})),mutate(p=>p.push({...p[0],models:["Q5","Q8"]})),mutate(p=>p[0].unknown=1)]) {
+    const {item,config}=profiledFixture(); config.model="";config.values.parameterProfiles=value;
+    assert.ok(validateGateConfig(item,config).parameterProfiles,value);
+  }
+  const {item,config}=profiledFixture();config.model="Q6";config.values.parameterPlan="fixed-mac";
+  assert.ok(validateGateConfig(item,config).parameterProfiles);
+  config.model="Q5";assert.deepEqual(validateGateConfig(item,config,true),{});
+});
+test("pressure JSON supports model-specific same-gear thresholds and rejects overlaps/unknown values",()=>{
+  const base=JSON.parse(pressureFixture().config.values.gearUpperBounds);
+  const mutate=change=>{const r=structuredClone(base);change(r);return JSON.stringify(r);};
+  for(const value of ["bad","[]","{}",mutate(r=>r[0].models=[]),mutate(r=>r[0].models=["Q6"]),mutate(r=>delete r[0].models),
+    mutate(r=>r[0].maximum=Infinity),mutate(r=>r[0].maximum="120"),mutate(r=>r[0].maximum=-1),mutate(r=>r[0].gear=.5),mutate(r=>r[0].unknown=1)]) {
+    const {item,config}=pressureFixture();config.model="";config.values.gearUpperBounds=value;
+    assert.ok(validateGateConfig(item,config).gearUpperBounds,value);
+  }
+  for(const boundary of ["inclusive","exclusive","unconfirmed"]) {
+    const {item,config}=pressureFixture();config.model="";config.market="";config.values.boundary=boundary;
+    assert.deepEqual(validateGateConfig(item,config,true),{});
+  }
+});
+test("new modes require their own fields and reject conflicts and unknown keys before publication",()=>{
+  for(const [create,required,conflicts] of [[profiledFixture,["parameterPlan","performanceClass","parameterProfiles"],["parameterSlots","time310"]],[pressureFixture,["gearUpperBounds","boundary"],["gear","minimum","maximum"]]]) {
+    for(const key of required) {const {item,config}=create();config.model="";config.values[key]="";assert.ok(validateGateConfig(item,config,true)[key]);}
+    for(const key of conflicts) {const {item,config}=create();config.model="";config.values[key]="1";assert.ok(validateGateConfig(item,config,true)[key]);}
+    const {item,config}=create();config.model="";config.values.unknownField="x";assert.ok(validateGateConfig(item,config).values);
+  }
+});
+
 test("incomplete drafts can be saved while validation prevents publication", () => {
   const { item } = fixture("default-sensitivity");
   const incomplete = structuredClone(item.defaults);
@@ -76,6 +145,7 @@ test("signed micropressure and temperature ranges accept negative lower and uppe
   const values = { operator: "range", minimum: "-10.5", maximum: "-2", boundary: "inclusive", readbackSource: "TEST-READBACK", measurementUnit: "TEST-UNIT" };
   for (const id of ["v-pressure", "internal-temperature", "v-pressure-temperature"]) {
     const { item, config } = fixture(id, values);
+    if (id !== "v-pressure") delete config.values.measurementUnit;
     assert.deepEqual(validateGateConfig(item, config), {}, id);
     assert.deepEqual(validateGateConfig(item, config, true), {}, id);
     config.values.maximum = "10.5";
@@ -112,9 +182,9 @@ test("signed ranges retain order and open-boundary validation without invented t
   config.values.boundary = "exclusive";
   assert.deepEqual(validateGateConfig(item, config), {});
   assert.equal(validateGateConfig(item, config, true).maximum, "不包含上下限时，上限必须大于下限");
-  assert.equal(item.defaults.values.minimum, "");
-  assert.equal(item.defaults.values.maximum, "");
-  assert.equal(item.defaults.values.measurementUnit, "");
+  assert.equal(item.defaults.values.minimum, "16");
+  assert.equal(item.defaults.values.maximum, "38");
+  assert.equal(item.defaults.values.measurementUnit, "raw");
   assert.equal(item.defaults.values.readbackSource, "");
   for (const field of item.fields.filter(field => field.type === "number")) {
     assert.equal(field.min, undefined);
@@ -196,4 +266,29 @@ test("all 12 serial parameters are independent and do not require business scope
     const { item, config } = fixture("serial-port", { mode: "fixed", port });
     assert.ok(validateGateConfig(item, config).port, port);
   }
+});
+
+test("display mode is available only to identity items and allowlist publication remains conditional", () => {
+  for (const id of ["device-model", "shipping-market", "firmware-version"]) {
+    const { item, config } = fixture(id, { operator: "display", allowedValues: "", readbackSource: "TEST-READBACK" });
+    assert.equal(item.defaults.values.operator, "display");
+    assert.deepEqual(validateGateConfig(item, config, true), {});
+    config.values.operator = "allowlist";
+    assert.ok(validateGateConfig(item, config, true).allowedValues);
+    assert.deepEqual(validateGateConfig(item, config), {});
+    config.values.allowedValues = "TEST-ALLOWED";
+    assert.deepEqual(validateGateConfig(item, config, true), {});
+  }
+  for (const id of ["valve-type", "fpga-version"]) {
+    const { item, config } = fixture(id, { operator: "display", readbackSource: "TEST-READBACK" });
+    assert.ok(validateGateConfig(item, config).operator);
+    config.values.operator = "allowlist"; config.values.allowedValues = "";
+    assert.ok(validateGateConfig(item, config, true).allowedValues);
+  }
+});
+
+test("display mode does not remove scope or evidence requirements", () => {
+  const { item, config } = fixture("device-model", { operator: "display", allowedValues: "", readbackSource: "" });
+  config.model = ""; config.market = ""; config.values.evidence = "";
+  assert.deepEqual(Object.keys(validateGateConfig(item, config, true)).sort(), ["evidence", "market", "model", "readbackSource"]);
 });

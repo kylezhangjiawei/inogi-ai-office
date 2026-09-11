@@ -1,5 +1,6 @@
 export type RdAttachmentPayloadItem = {
   id: string;
+  task_id?: string;
   name: string;
   mime: string;
   size: number;
@@ -12,6 +13,7 @@ export type RdAttachmentPayloadItem = {
 };
 
 type RdAttachmentPayloadNote = {
+  task_id?: string;
   created_at?: string;
   attachments?: Array<RdAttachmentPayloadItem & {
     extracted_text?: unknown;
@@ -36,7 +38,7 @@ export function buildRdTaskAttachmentPayload(
   const allAttachments = notes
     .slice()
     .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")))
-    .flatMap((note) => note.attachments ?? []);
+    .flatMap((note) => (note.attachments ?? []).map((attachment) => ({ ...attachment, task_id: attachment.task_id ?? note.task_id })));
   const selected = typeof previewLimit === "number"
     ? [
         ...allAttachments.filter((attachment) => attachment.mime.startsWith("image/")),
@@ -47,6 +49,7 @@ export function buildRdTaskAttachmentPayload(
     attachment_count: allAttachments.length,
     attachments: selected.map((attachment) => ({
       id: attachment.id,
+      ...(attachment.task_id ? { task_id: attachment.task_id } : {}),
       name: attachment.name,
       mime: attachment.mime,
       size: attachment.size,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ImgHTMLAttributes } from "react";
 import {
   Activity,
   CheckCircle2,
@@ -34,6 +34,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { cn } from "./components/ui/utils";
 import { MobileZoomableImage } from "./components/MobileZoomableImage";
 import { authFetch, readErrorMessage } from "./lib/authSession";
+import { reportResourceFailure, requestResourceRefresh } from "./lib/resourceAccess";
+import { useRenewableResource } from "./lib/useRenewableResource";
 import { flattenCategories } from "./lib/mediaCategory";
 import { Pager } from "./components/Pager";
 
@@ -83,6 +85,68 @@ export type GeneratedImage = {
   fromCache?: boolean;
   similarity?: number;
 };
+
+export type ImageReadUrls = {
+  imageId: string;
+  imageUrl: string | null;
+  thumbnailUrl: string | null;
+  imageData?: string;
+  imageExpiresIn: number | null;
+  thumbnailExpiresIn: number | null;
+};
+
+export function apiReadImageUrls(imageId: string): Promise<ImageReadUrls> {
+  return requestResourceRefresh(`image-read:${imageId}`, async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20_000);
+    try {
+      const response = await authFetch(`/api/image-generation/images/${encodeURIComponent(imageId)}/read-urls`, {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        reportResourceFailure("renew", response.status);
+        throw new Error("无法读取图片，请确认图片仍存在且有权访问");
+      }
+      return await response.json() as ImageReadUrls;
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
+}
+
+function useGeneratedImageResource(item: GeneratedImage, variant: "thumbnail" | "original" = "thumbnail") {
+  const refresh = useCallback(async () => {
+    const urls = await apiReadImageUrls(item.id);
+    const src = variant === "thumbnail"
+      ? urls.thumbnailUrl || urls.imageUrl || urls.imageData
+      : urls.imageUrl || urls.imageData;
+    if (!src) throw new Error("图片暂时不可用");
+    return src;
+  }, [item.id, variant]);
+  return useRenewableResource({
+    src: variant === "thumbnail" ? item.thumbnailUrl || item.imageUrl || item.imageData : undefined,
+    resourceKey: `image-${variant}:${item.id}`,
+    refresh,
+    refreshOnMount: variant === "original",
+  });
+}
+
+export function RenewableGeneratedImage({
+  item, variant = "thumbnail", ...props
+}: Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "onError" | "onLoad"> & {
+  item: GeneratedImage;
+  variant?: "thumbnail" | "original";
+}) {
+  const image = useGeneratedImageResource(item, variant);
+  if (image.failed && !image.refreshing) {
+    return <span role="img" aria-label="图片加载失败" className={cn("inline-flex items-center justify-center text-xs text-slate-500", props.className)}>图片加载失败</span>;
+  }
+  if (!image.src) {
+    return <span role="status" className={cn("inline-flex items-center justify-center", props.className)}><Loader2 aria-label="正在加载图片" className="size-4 animate-spin" /></span>;
+  }
+  return <img {...props} src={image.src} onLoad={image.onLoad} onError={image.onError} />;
+}
 
 export type ImageEditMessage = {
   id: string;
@@ -817,8 +881,8 @@ export function ArtworkCard({
   return (
     <article className="group overflow-hidden rounded-[10px] border border-border/80 bg-surface-container-lowest shadow-[0_16px_34px_rgba(15,23,42,0.055)] ring-1 ring-white/70 transition duration-200 hover:border-primary/30 hover:shadow-[0_24px_48px_rgba(15,23,42,0.1)]">
       <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
-        <img
-          src={item.thumbnailUrl || item.imageUrl || item.imageData}
+        <RenewableGeneratedImage
+          item={item}
           alt={item.prompt}
           loading="lazy"
           decoding="async"
@@ -901,30 +965,57 @@ export function GeneratingImageCard() {
   );
 }
 
-export async function downloadGeneratedImage(item: GeneratedImage) {
-  const src = item.imageUrl || item.imageData;
-  if (!src) return;
-  const link = document.createElement("a");
-  if (item.imageUrl) {
-    try {
-      const resp = await fetch(item.imageUrl);
-      const blob = await resp.blob();
-      link.href = URL.createObjectURL(blob);
-      link.download = `ai-image-${item.id}.png`;
-      link.click();
-      URL.revokeObjectURL(link.href);
-      return;
-    } catch {
-      window.open(item.imageUrl, "_blank");
-      return;
+export async function fetchGeneratedImageDownload(imageId: string): Promise<Blob> {
+  return requestResourceRefresh(`image-download:${imageId}`, async () => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const urls = await apiReadImageUrls(imageId);
+      const src = urls.imageUrl || urls.imageData;
+      if (!src) throw new Error("图片暂时不可用");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30_000);
+      let status: number | undefined;
+      try {
+        const response = await fetch(src, { signal: controller.signal });
+        status = response.status;
+        if (!response.ok) throw new Error("图片下载失败");
+        const blob = await response.blob();
+        if (blob.type && !blob.type.startsWith("image/") && blob.type !== "application/octet-stream") {
+          throw new Error("图片下载失败");
+        }
+        return blob;
+      } catch {
+        reportResourceFailure("download", status);
+        if (attempt === 1) throw new Error("图片下载失败，请稍后重试");
+      } finally {
+        clearTimeout(timeout);
+      }
     }
+    throw new Error("图片下载失败，请稍后重试");
+  });
+}
+
+export async function downloadGeneratedImage(item: GeneratedImage) {
+  try {
+    const blob = await fetchGeneratedImageDownload(item.id);
+    const extension = ({ "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" } as Record<string, string>)[blob.type] || "png";
+    const link = document.createElement("a");
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      link.href = objectUrl;
+      link.download = `ai-image-${item.id}.${extension}`;
+      document.body.appendChild(link);
+      link.click();
+    } finally {
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    }
+  } catch {
+    toast.error("图片下载失败，请确认图片仍存在且有权访问后重试");
   }
-  link.href = src;
-  link.download = `ai-image-${item.id}.png`;
-  link.click();
 }
 
 export function ImagePreviewModal({ item, onClose }: { item: GeneratedImage; onClose: () => void }) {
+  const image = useGeneratedImageResource(item, "original");
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="horizon-portal h-[70dvh] w-[calc(100vw-2rem)] gap-0 overflow-hidden border-white/15 bg-slate-950 p-0 shadow-xl sm:w-[70dvw] sm:max-w-[70dvw] [&>button]:right-3 [&>button]:top-3 [&>button]:z-10 [&>button]:bg-white [&>button]:p-2 [&>button]:text-slate-700 [&>button]:opacity-100">
@@ -932,11 +1023,13 @@ export function ImagePreviewModal({ item, onClose }: { item: GeneratedImage; onC
           <DialogTitle>图片预览</DialogTitle>
           <DialogDescription>{item.prompt || "查看当前生成图片的高清预览。"}</DialogDescription>
         </DialogHeader>
-        <MobileZoomableImage
-          src={item.imageUrl || item.imageData || ""}
-          alt={item.prompt}
-          className="h-full w-full"
-        />
+        {image.failed && !image.refreshing ? (
+          <div role="alert" className="flex h-full items-center justify-center text-sm text-slate-300">图片加载失败，请关闭后重试</div>
+        ) : image.src ? (
+          <MobileZoomableImage src={image.src} alt={item.prompt} className="h-full w-full" onLoad={image.onLoad} onError={image.onError} />
+        ) : (
+          <div role="status" className="flex h-full items-center justify-center text-sm text-slate-300"><Loader2 className="mr-2 size-4 animate-spin" />正在加载原图</div>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -1065,7 +1158,7 @@ export function ImageEditModal({
         </DialogHeader>
         <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="relative min-h-[260px] bg-slate-100 md:min-h-0">
-            <img src={current.imageUrl || current.imageData} alt={current.prompt} className="h-full w-full object-contain" />
+            <RenewableGeneratedImage item={current} variant="original" alt={current.prompt} className="h-full w-full object-contain" />
           </div>
           <aside className="flex min-h-0 max-h-[46vh] flex-col border-t border-slate-200/70 bg-white md:max-h-none md:border-l md:border-t-0">
             <div className="shrink-0 border-b border-slate-200/70 p-4">

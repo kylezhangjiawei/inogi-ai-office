@@ -1,0 +1,1947 @@
+{
+  "schemaVersion": 1,
+  "minAppVersion": "0.5.5",
+  "version": "builtin-20260910-v1",
+  "profiles": [
+    {
+      "id": "legacy-v1",
+      "name": "\u65E7\u7248\u4E09\u5B57\u8282\u56FA\u4EF6\u534F\u8BAE",
+      "commands": [
+        {
+          "id": "firmware",
+          "name": "\u56FA\u4EF6\u7248\u672C",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "72",
+          "responseCode": "72",
+          "payloadLength": 3,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 3,
+              "type": "hex",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "V"
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 07 F8 72 01 02 03",
+              "expected": {
+                "value": "V010203"
+              }
+            }
+          ]
+        },
+        {
+          "id": "valve",
+          "name": "\u9600\u7C7B\u578B",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "74",
+          "responseCode": "74",
+          "payloadLength": 1,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "MAC \u9600",
+                "1": "\u65B9\u9600"
+              }
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 74 01",
+              "expected": {
+                "value": "\u65B9\u9600"
+              }
+            }
+          ]
+        },
+        {
+          "id": "debug",
+          "name": "Debug \u72B6\u6001",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "75",
+          "responseCode": "75",
+          "payloadLength": 1,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "0",
+                "1": "1"
+              }
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 75 01",
+              "expected": {
+                "value": "1"
+              }
+            }
+          ]
+        },
+        {
+          "id": "usage",
+          "name": "\u7D2F\u8BA1\u4F7F\u7528\u65F6\u95F4",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "76",
+          "responseCode": "76",
+          "payloadLength": 4,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 4,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "\u79D2",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 08 F7 76 00 01 E2 40",
+              "expected": {
+                "value": "123456"
+              }
+            }
+          ]
+        },
+        {
+          "id": "fpga",
+          "name": "FPGA \u7248\u672C",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "82",
+          "responseCode": "82",
+          "payloadLength": 1,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 82 29",
+              "expected": {
+                "value": "41"
+              }
+            }
+          ]
+        },
+        {
+          "id": "calibration232",
+          "name": "232 \u72B6\u6001",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "84",
+          "responseCode": "84",
+          "payloadLength": 1,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "0",
+                "1": "1"
+              }
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 84 01",
+              "expected": {
+                "value": "1"
+              }
+            }
+          ]
+        },
+        {
+          "id": "pressure",
+          "name": "\u5F53\u524D\u5927\u6C14\u538B",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "85",
+          "responseCode": "85",
+          "payloadLength": 1,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "kPa",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 85 65",
+              "expected": {
+                "value": "101"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v4-20260910",
+      "name": "2026-09-10 \u6574\u7406\u7248\u534F\u8BAE\uFF08\u987B\u624B\u52A8\u9009\u62E9\u5E76\u786E\u8BA4\u65B0\u7248\u56FA\u4EF6\uFF09",
+      "commands": [
+        {
+          "id": "firmware",
+          "name": "\u56FA\u4EF6\u5B8C\u6574\u7248\u672C\uFF08BCD \u5B50\u7248\u672C\uFF09",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "72",
+          "responseCode": "72",
+          "payloadLength": 9,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "main",
+              "name": "\u4E3B\u7248\u672C",
+              "offset": 0,
+              "length": 8,
+              "type": "ascii",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": ""
+            },
+            {
+              "id": "sub",
+              "name": "BCD \u5B50\u7248\u672C",
+              "offset": 8,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "00",
+                "1": "01",
+                "2": "02",
+                "3": "03",
+                "4": "04",
+                "5": "05",
+                "6": "06",
+                "7": "07",
+                "8": "08",
+                "9": "09",
+                "16": "10",
+                "17": "11",
+                "18": "12",
+                "19": "13",
+                "20": "14",
+                "21": "15",
+                "22": "16",
+                "23": "17",
+                "24": "18",
+                "25": "19",
+                "32": "20",
+                "33": "21",
+                "34": "22",
+                "35": "23",
+                "36": "24",
+                "37": "25",
+                "38": "26",
+                "39": "27",
+                "40": "28",
+                "41": "29",
+                "48": "30",
+                "49": "31",
+                "50": "32",
+                "51": "33",
+                "52": "34",
+                "53": "35",
+                "54": "36",
+                "55": "37",
+                "56": "38",
+                "57": "39",
+                "64": "40",
+                "65": "41",
+                "66": "42",
+                "67": "43",
+                "68": "44",
+                "69": "45",
+                "70": "46",
+                "71": "47",
+                "72": "48",
+                "73": "49",
+                "80": "50",
+                "81": "51",
+                "82": "52",
+                "83": "53",
+                "84": "54",
+                "85": "55",
+                "86": "56",
+                "87": "57",
+                "88": "58",
+                "89": "59",
+                "96": "60",
+                "97": "61",
+                "98": "62",
+                "99": "63",
+                "100": "64",
+                "101": "65",
+                "102": "66",
+                "103": "67",
+                "104": "68",
+                "105": "69",
+                "112": "70",
+                "113": "71",
+                "114": "72",
+                "115": "73",
+                "116": "74",
+                "117": "75",
+                "118": "76",
+                "119": "77",
+                "120": "78",
+                "121": "79",
+                "128": "80",
+                "129": "81",
+                "130": "82",
+                "131": "83",
+                "132": "84",
+                "133": "85",
+                "134": "86",
+                "135": "87",
+                "136": "88",
+                "137": "89",
+                "144": "90",
+                "145": "91",
+                "146": "92",
+                "147": "93",
+                "148": "94",
+                "149": "95",
+                "150": "96",
+                "151": "97",
+                "152": "98",
+                "153": "99"
+              }
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 0D F2 72 5445535430393130 10",
+              "expected": {
+                "main": "TEST0910",
+                "sub": "10"
+              }
+            }
+          ]
+        },
+        {
+          "id": "model",
+          "name": "\u673A\u5668\u578B\u53F7",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "70",
+          "responseCode": "70",
+          "payloadLength": 1,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "Q4",
+                "1": "Q5",
+                "2": "Q6",
+                "3": "Q7",
+                "255": "\u65E0\u6CD5\u8BC6\u522B"
+              }
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 70 00",
+              "expected": {
+                "value": "Q4"
+              }
+            }
+          ]
+        },
+        {
+          "id": "market",
+          "name": "\u53D1\u8D27\u5E02\u573A",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "71",
+          "responseCode": "71",
+          "payloadLength": 1,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "\u7F8E\u56FD",
+                "1": "\u4E2D\u56FD",
+                "2": "\u667A\u5229",
+                "3": "\u4E4C\u62C9\u572D",
+                "4": "\u53F0\u6E7E",
+                "255": "\u65E0\u6CD5\u8BC6\u522B"
+              }
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 71 00",
+              "expected": {
+                "value": "\u7F8E\u56FD"
+              }
+            }
+          ]
+        },
+        {
+          "id": "parameters",
+          "name": "\u5F53\u524D\u5B9E\u9645\u751F\u6548\u53C2\u6570\uFF08\u516B\u7EC4\uFF09",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "73",
+          "responseCode": "73",
+          "payloadLength": 40,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "slot0Gear",
+              "name": "\u53C2\u6570\u7EC4 1 \u6863\u4F4D",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot0Speed",
+              "name": "\u53C2\u6570\u7EC4 1 \u8BBE\u5B9A\u8F6C\u901F",
+              "offset": 1,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot0Duration",
+              "name": "\u53C2\u6570\u7EC4 1 R210A \u65F6\u957F",
+              "offset": 3,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot1Gear",
+              "name": "\u53C2\u6570\u7EC4 2 \u6863\u4F4D",
+              "offset": 5,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot1Speed",
+              "name": "\u53C2\u6570\u7EC4 2 \u8BBE\u5B9A\u8F6C\u901F",
+              "offset": 6,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot1Duration",
+              "name": "\u53C2\u6570\u7EC4 2 R210A \u65F6\u957F",
+              "offset": 8,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot2Gear",
+              "name": "\u53C2\u6570\u7EC4 3 \u6863\u4F4D",
+              "offset": 10,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot2Speed",
+              "name": "\u53C2\u6570\u7EC4 3 \u8BBE\u5B9A\u8F6C\u901F",
+              "offset": 11,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot2Duration",
+              "name": "\u53C2\u6570\u7EC4 3 R210A \u65F6\u957F",
+              "offset": 13,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot3Gear",
+              "name": "\u53C2\u6570\u7EC4 4 \u6863\u4F4D",
+              "offset": 15,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot3Speed",
+              "name": "\u53C2\u6570\u7EC4 4 \u8BBE\u5B9A\u8F6C\u901F",
+              "offset": 16,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot3Duration",
+              "name": "\u53C2\u6570\u7EC4 4 R210A \u65F6\u957F",
+              "offset": 18,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot4Gear",
+              "name": "\u53C2\u6570\u7EC4 5 \u6863\u4F4D",
+              "offset": 20,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot4Speed",
+              "name": "\u53C2\u6570\u7EC4 5 \u8BBE\u5B9A\u8F6C\u901F",
+              "offset": 21,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot4Duration",
+              "name": "\u53C2\u6570\u7EC4 5 R210A \u65F6\u957F",
+              "offset": 23,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot5Gear",
+              "name": "\u53C2\u6570\u7EC4 6 \u6863\u4F4D",
+              "offset": 25,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot5Speed",
+              "name": "\u53C2\u6570\u7EC4 6 \u8BBE\u5B9A\u8F6C\u901F",
+              "offset": 26,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot5Duration",
+              "name": "\u53C2\u6570\u7EC4 6 R210A \u65F6\u957F",
+              "offset": 28,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot6Gear",
+              "name": "\u53C2\u6570\u7EC4 7 \u6863\u4F4D",
+              "offset": 30,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot6Speed",
+              "name": "\u53C2\u6570\u7EC4 7 \u8BBE\u5B9A\u8F6C\u901F",
+              "offset": 31,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot6Duration",
+              "name": "\u53C2\u6570\u7EC4 7 R210A \u65F6\u957F",
+              "offset": 33,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot7Gear",
+              "name": "\u53C2\u6570\u7EC4 8 \u6863\u4F4D",
+              "offset": 35,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot7Speed",
+              "name": "\u53C2\u6570\u7EC4 8 \u8BBE\u5B9A\u8F6C\u901F",
+              "offset": 36,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot7Duration",
+              "name": "\u53C2\u6570\u7EC4 8 R210A \u65F6\u957F",
+              "offset": 38,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 2C D3 73 0003E800C801044C00D20204B000DC03051400E604057800F00505DC00FA06064001040706A4010E",
+              "expected": {
+                "slot0Gear": "A",
+                "slot0Speed": "1000",
+                "slot0Duration": "200",
+                "slot1Gear": "1",
+                "slot1Speed": "1100",
+                "slot1Duration": "210",
+                "slot2Gear": "2",
+                "slot2Speed": "1200",
+                "slot2Duration": "220",
+                "slot3Gear": "3",
+                "slot3Speed": "1300",
+                "slot3Duration": "230",
+                "slot4Gear": "4",
+                "slot4Speed": "1400",
+                "slot4Duration": "240",
+                "slot5Gear": "5",
+                "slot5Speed": "1500",
+                "slot5Duration": "250",
+                "slot6Gear": "6",
+                "slot6Speed": "1600",
+                "slot6Duration": "260",
+                "slot7Gear": "S",
+                "slot7Speed": "1700",
+                "slot7Duration": "270"
+              }
+            }
+          ]
+        },
+        {
+          "id": "valve",
+          "name": "\u9600\u7C7B\u578B",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "74",
+          "responseCode": "74",
+          "payloadLength": 1,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "MAC \u9600",
+                "1": "\u65B9\u9600"
+              }
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 74 01",
+              "expected": {
+                "value": "\u65B9\u9600"
+              }
+            }
+          ]
+        },
+        {
+          "id": "debug",
+          "name": "Debug \u72B6\u6001",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "75",
+          "responseCode": "75",
+          "payloadLength": 1,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "0",
+                "1": "1"
+              }
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 75 00",
+              "expected": {
+                "value": "0"
+              }
+            }
+          ]
+        },
+        {
+          "id": "usage",
+          "name": "\u7D2F\u8BA1\u4F7F\u7528\u65F6\u957F",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "76",
+          "responseCode": "76",
+          "payloadLength": 4,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 4,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 60,
+              "bias": 0,
+              "unit": "\u5C0F\u65F6",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 08 F7 76 00 03 25 3C",
+              "expected": {
+                "value": "3435.6666666666666666666666667"
+              }
+            }
+          ]
+        },
+        {
+          "id": "alarms",
+          "name": "\u5F53\u524D\u62A5\u8B66\uFF08\u6570\u91CF\u4E0E\u7F16\u53F7\uFF09",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "77",
+          "responseCode": "77",
+          "payloadLength": 24,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "count",
+              "name": "\u6570\u91CF",
+              "offset": 0,
+              "length": 1,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "\u6761",
+              "prefix": ""
+            },
+            {
+              "id": "codes",
+              "name": "\u62A5\u8B66\u7F16\u53F7",
+              "offset": 1,
+              "length": 1,
+              "type": "countedEnum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "\u7F16\u53F7 0x00\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "1": "0x01 \u6C27\u6D53\u5EA6\u4F4E\u4E8E82%",
+                "2": "0x02 \u6C27\u6D53\u5EA6\u957F\u671F\u4F4E\u4E8E82%",
+                "3": "0x03 \u6C27\u6D53\u5EA682\uFF5E86%",
+                "4": "0x04 \u6C27\u6D53\u5EA6\u65E0\u6570\u636E",
+                "5": "0x05 \u673A\u5668\u5185\u90E8\u6E29\u5EA6\u8FC7\u9AD8",
+                "6": "0x06 \u673A\u5668\u5185\u90E8\u6E29\u5EA6\u8FC7\u4F4E",
+                "7": "0x07 \u673A\u5668\u6E29\u5EA6\u4F20\u611F\u5668\u65E0\u6570\u636E",
+                "8": "0x08 \u7535\u6C60\u4E25\u91CD\u4F4E\u7535\u91CF",
+                "9": "0x09 \u7535\u6C60\u4F4E\u7535\u91CF",
+                "10": "0x0A \u7535\u6C6010%\u4F4E\u7535\u91CF\u72B6\u6001",
+                "11": "0x0B \u7535\u6C60\u6E29\u5EA6\u8FC7\u9AD8",
+                "12": "0x0C \u7535\u6C60\u9AD8\u6E29\u5173\u673A",
+                "13": "0x0D \u7535\u6C60\u6E29\u5EA6\u65E0\u6570\u636E",
+                "14": "0x0E \u7535\u6C60\u7535\u91CF\u6570\u636E\u5F02\u5E38",
+                "15": "0x0F \u538B\u529B\u8FC7\u9AD8",
+                "16": "0x10 \u4E25\u91CD\u8FC7\u538B",
+                "17": "0x11 \u5927\u6C14\u538B\u4F20\u611F\u5668\u5F02\u5E38",
+                "18": "0x12 \u5FAE\u538B\u4F20\u611F\u5668\u5F02\u5E38",
+                "19": "0x13 \u65E0\u547C\u5438",
+                "20": "0x14 \u538B\u7F29\u673A\u8F6C\u901F\u65E0\u53CD\u9988",
+                "21": "0x15 R210\u9600\u5DE5\u4F5C\u5F02\u5E38",
+                "22": "0x16 \u98CE\u6247\u8F6C\u901F\u65E0\u53CD\u9988",
+                "23": "0x17 \u5FAE\u538B\u6A21\u5757\u6E29\u5EA6\u8FC7\u9AD8\u5173\u673A",
+                "24": "\u7F16\u53F7 0x18\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "25": "\u7F16\u53F7 0x19\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "26": "\u7F16\u53F7 0x1A\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "27": "\u7F16\u53F7 0x1B\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "28": "\u7F16\u53F7 0x1C\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "29": "\u7F16\u53F7 0x1D\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "30": "\u7F16\u53F7 0x1E\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "31": "\u7F16\u53F7 0x1F\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "32": "\u7F16\u53F7 0x20\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "33": "\u7F16\u53F7 0x21\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "34": "\u7F16\u53F7 0x22\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "35": "\u7F16\u53F7 0x23\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "36": "\u7F16\u53F7 0x24\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "37": "\u7F16\u53F7 0x25\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "38": "\u7F16\u53F7 0x26\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "39": "\u7F16\u53F7 0x27\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "40": "\u7F16\u53F7 0x28\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "41": "\u7F16\u53F7 0x29\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "42": "\u7F16\u53F7 0x2A\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "43": "\u7F16\u53F7 0x2B\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "44": "\u7F16\u53F7 0x2C\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "45": "\u7F16\u53F7 0x2D\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "46": "\u7F16\u53F7 0x2E\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "47": "\u7F16\u53F7 0x2F\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "48": "\u7F16\u53F7 0x30\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "49": "\u7F16\u53F7 0x31\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "50": "\u7F16\u53F7 0x32\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "51": "\u7F16\u53F7 0x33\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "52": "\u7F16\u53F7 0x34\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "53": "\u7F16\u53F7 0x35\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "54": "\u7F16\u53F7 0x36\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "55": "\u7F16\u53F7 0x37\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "56": "\u7F16\u53F7 0x38\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "57": "\u7F16\u53F7 0x39\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "58": "\u7F16\u53F7 0x3A\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "59": "\u7F16\u53F7 0x3B\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "60": "\u7F16\u53F7 0x3C\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "61": "\u7F16\u53F7 0x3D\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "62": "\u7F16\u53F7 0x3E\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "63": "\u7F16\u53F7 0x3F\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "64": "\u7F16\u53F7 0x40\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "65": "\u7F16\u53F7 0x41\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "66": "\u7F16\u53F7 0x42\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "67": "\u7F16\u53F7 0x43\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "68": "\u7F16\u53F7 0x44\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "69": "\u7F16\u53F7 0x45\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "70": "\u7F16\u53F7 0x46\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "71": "\u7F16\u53F7 0x47\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "72": "\u7F16\u53F7 0x48\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "73": "\u7F16\u53F7 0x49\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "74": "\u7F16\u53F7 0x4A\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "75": "\u7F16\u53F7 0x4B\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "76": "\u7F16\u53F7 0x4C\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "77": "\u7F16\u53F7 0x4D\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "78": "\u7F16\u53F7 0x4E\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "79": "\u7F16\u53F7 0x4F\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "80": "\u7F16\u53F7 0x50\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "81": "\u7F16\u53F7 0x51\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "82": "\u7F16\u53F7 0x52\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "83": "\u7F16\u53F7 0x53\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "84": "\u7F16\u53F7 0x54\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "85": "\u7F16\u53F7 0x55\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "86": "\u7F16\u53F7 0x56\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "87": "\u7F16\u53F7 0x57\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "88": "\u7F16\u53F7 0x58\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "89": "\u7F16\u53F7 0x59\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "90": "\u7F16\u53F7 0x5A\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "91": "\u7F16\u53F7 0x5B\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "92": "\u7F16\u53F7 0x5C\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "93": "\u7F16\u53F7 0x5D\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "94": "\u7F16\u53F7 0x5E\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "95": "\u7F16\u53F7 0x5F\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "96": "\u7F16\u53F7 0x60\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "97": "\u7F16\u53F7 0x61\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "98": "\u7F16\u53F7 0x62\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "99": "\u7F16\u53F7 0x63\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "100": "\u7F16\u53F7 0x64\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "101": "\u7F16\u53F7 0x65\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "102": "\u7F16\u53F7 0x66\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "103": "\u7F16\u53F7 0x67\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "104": "\u7F16\u53F7 0x68\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "105": "\u7F16\u53F7 0x69\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "106": "\u7F16\u53F7 0x6A\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "107": "\u7F16\u53F7 0x6B\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "108": "\u7F16\u53F7 0x6C\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "109": "\u7F16\u53F7 0x6D\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "110": "\u7F16\u53F7 0x6E\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "111": "\u7F16\u53F7 0x6F\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "112": "\u7F16\u53F7 0x70\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "113": "\u7F16\u53F7 0x71\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "114": "\u7F16\u53F7 0x72\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "115": "\u7F16\u53F7 0x73\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "116": "\u7F16\u53F7 0x74\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "117": "\u7F16\u53F7 0x75\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "118": "\u7F16\u53F7 0x76\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "119": "\u7F16\u53F7 0x77\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "120": "\u7F16\u53F7 0x78\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "121": "\u7F16\u53F7 0x79\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "122": "\u7F16\u53F7 0x7A\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "123": "\u7F16\u53F7 0x7B\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "124": "\u7F16\u53F7 0x7C\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "125": "\u7F16\u53F7 0x7D\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "126": "\u7F16\u53F7 0x7E\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "127": "\u7F16\u53F7 0x7F\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "128": "\u7F16\u53F7 0x80\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "129": "\u7F16\u53F7 0x81\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "130": "\u7F16\u53F7 0x82\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "131": "\u7F16\u53F7 0x83\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "132": "\u7F16\u53F7 0x84\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "133": "\u7F16\u53F7 0x85\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "134": "\u7F16\u53F7 0x86\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "135": "\u7F16\u53F7 0x87\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "136": "\u7F16\u53F7 0x88\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "137": "\u7F16\u53F7 0x89\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "138": "\u7F16\u53F7 0x8A\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "139": "\u7F16\u53F7 0x8B\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "140": "\u7F16\u53F7 0x8C\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "141": "\u7F16\u53F7 0x8D\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "142": "\u7F16\u53F7 0x8E\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "143": "\u7F16\u53F7 0x8F\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "144": "\u7F16\u53F7 0x90\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "145": "\u7F16\u53F7 0x91\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "146": "\u7F16\u53F7 0x92\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "147": "\u7F16\u53F7 0x93\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "148": "\u7F16\u53F7 0x94\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "149": "\u7F16\u53F7 0x95\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "150": "\u7F16\u53F7 0x96\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "151": "\u7F16\u53F7 0x97\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "152": "\u7F16\u53F7 0x98\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "153": "\u7F16\u53F7 0x99\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "154": "\u7F16\u53F7 0x9A\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "155": "\u7F16\u53F7 0x9B\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "156": "\u7F16\u53F7 0x9C\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "157": "\u7F16\u53F7 0x9D\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "158": "\u7F16\u53F7 0x9E\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "159": "\u7F16\u53F7 0x9F\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "160": "\u7F16\u53F7 0xA0\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "161": "\u7F16\u53F7 0xA1\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "162": "\u7F16\u53F7 0xA2\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "163": "\u7F16\u53F7 0xA3\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "164": "\u7F16\u53F7 0xA4\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "165": "\u7F16\u53F7 0xA5\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "166": "\u7F16\u53F7 0xA6\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "167": "\u7F16\u53F7 0xA7\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "168": "\u7F16\u53F7 0xA8\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "169": "\u7F16\u53F7 0xA9\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "170": "\u7F16\u53F7 0xAA\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "171": "\u7F16\u53F7 0xAB\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "172": "\u7F16\u53F7 0xAC\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "173": "\u7F16\u53F7 0xAD\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "174": "\u7F16\u53F7 0xAE\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "175": "\u7F16\u53F7 0xAF\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "176": "\u7F16\u53F7 0xB0\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "177": "\u7F16\u53F7 0xB1\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "178": "\u7F16\u53F7 0xB2\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "179": "\u7F16\u53F7 0xB3\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "180": "\u7F16\u53F7 0xB4\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "181": "\u7F16\u53F7 0xB5\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "182": "\u7F16\u53F7 0xB6\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "183": "\u7F16\u53F7 0xB7\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "184": "\u7F16\u53F7 0xB8\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "185": "\u7F16\u53F7 0xB9\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "186": "\u7F16\u53F7 0xBA\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "187": "\u7F16\u53F7 0xBB\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "188": "\u7F16\u53F7 0xBC\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "189": "\u7F16\u53F7 0xBD\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "190": "\u7F16\u53F7 0xBE\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "191": "\u7F16\u53F7 0xBF\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "192": "\u7F16\u53F7 0xC0\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "193": "\u7F16\u53F7 0xC1\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "194": "\u7F16\u53F7 0xC2\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "195": "\u7F16\u53F7 0xC3\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "196": "\u7F16\u53F7 0xC4\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "197": "\u7F16\u53F7 0xC5\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "198": "\u7F16\u53F7 0xC6\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "199": "\u7F16\u53F7 0xC7\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "200": "\u7F16\u53F7 0xC8\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "201": "\u7F16\u53F7 0xC9\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "202": "\u7F16\u53F7 0xCA\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "203": "\u7F16\u53F7 0xCB\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "204": "\u7F16\u53F7 0xCC\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "205": "\u7F16\u53F7 0xCD\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "206": "\u7F16\u53F7 0xCE\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "207": "\u7F16\u53F7 0xCF\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "208": "\u7F16\u53F7 0xD0\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "209": "\u7F16\u53F7 0xD1\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "210": "\u7F16\u53F7 0xD2\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "211": "\u7F16\u53F7 0xD3\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "212": "\u7F16\u53F7 0xD4\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "213": "\u7F16\u53F7 0xD5\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "214": "\u7F16\u53F7 0xD6\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "215": "\u7F16\u53F7 0xD7\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "216": "\u7F16\u53F7 0xD8\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "217": "\u7F16\u53F7 0xD9\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "218": "\u7F16\u53F7 0xDA\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "219": "\u7F16\u53F7 0xDB\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "220": "\u7F16\u53F7 0xDC\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "221": "\u7F16\u53F7 0xDD\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "222": "\u7F16\u53F7 0xDE\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "223": "\u7F16\u53F7 0xDF\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "224": "\u7F16\u53F7 0xE0\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "225": "\u7F16\u53F7 0xE1\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "226": "\u7F16\u53F7 0xE2\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "227": "\u7F16\u53F7 0xE3\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "228": "\u7F16\u53F7 0xE4\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "229": "\u7F16\u53F7 0xE5\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "230": "\u7F16\u53F7 0xE6\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "231": "\u7F16\u53F7 0xE7\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "232": "\u7F16\u53F7 0xE8\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "233": "\u7F16\u53F7 0xE9\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "234": "\u7F16\u53F7 0xEA\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "235": "\u7F16\u53F7 0xEB\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "236": "\u7F16\u53F7 0xEC\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "237": "\u7F16\u53F7 0xED\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "238": "\u7F16\u53F7 0xEE\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "239": "\u7F16\u53F7 0xEF\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "240": "\u7F16\u53F7 0xF0\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "241": "\u7F16\u53F7 0xF1\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "242": "\u7F16\u53F7 0xF2\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "243": "\u7F16\u53F7 0xF3\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "244": "\u7F16\u53F7 0xF4\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "245": "\u7F16\u53F7 0xF5\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "246": "\u7F16\u53F7 0xF6\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "247": "\u7F16\u53F7 0xF7\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "248": "\u7F16\u53F7 0xF8\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "249": "\u7F16\u53F7 0xF9\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "250": "\u7F16\u53F7 0xFA\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "251": "\u7F16\u53F7 0xFB\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "252": "\u7F16\u53F7 0xFC\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "253": "\u7F16\u53F7 0xFD\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "254": "\u7F16\u53F7 0xFE\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09",
+                "255": "\u7F16\u53F7 0xFF\uFF08\u542B\u4E49\u672A\u914D\u7F6E\uFF09"
+              },
+              "countOffset": 0,
+              "maxCount": 23
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 77 00",
+              "expected": {
+                "count": "0",
+                "codes": "\u65E0"
+              }
+            },
+            {
+              "frameHex": "F5 06 F9 77 01 13",
+              "expected": {
+                "count": "1",
+                "codes": "0x13 \u65E0\u547C\u5438"
+              }
+            },
+            {
+              "frameHex": "F5 07 F8 77 02 01 13",
+              "expected": {
+                "count": "2",
+                "codes": "0x01 \u6C27\u6D53\u5EA6\u4F4E\u4E8E82%\u30010x13 \u65E0\u547C\u5438"
+              }
+            },
+            {
+              "frameHex": "F5 09 F6 77 04 01 05 13 16",
+              "expected": {
+                "count": "4",
+                "codes": "0x01 \u6C27\u6D53\u5EA6\u4F4E\u4E8E82%\u30010x05 \u673A\u5668\u5185\u90E8\u6E29\u5EA6\u8FC7\u9AD8\u30010x13 \u65E0\u547C\u5438\u30010x16 \u98CE\u6247\u8F6C\u901F\u65E0\u53CD\u9988"
+              }
+            },
+            {
+              "frameHex": "F5 1C E3 77 17 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17",
+              "expected": {
+                "count": "23",
+                "codes": "0x01 \u6C27\u6D53\u5EA6\u4F4E\u4E8E82%\u30010x02 \u6C27\u6D53\u5EA6\u957F\u671F\u4F4E\u4E8E82%\u30010x03 \u6C27\u6D53\u5EA682\uFF5E86%\u30010x04 \u6C27\u6D53\u5EA6\u65E0\u6570\u636E\u30010x05 \u673A\u5668\u5185\u90E8\u6E29\u5EA6\u8FC7\u9AD8\u30010x06 \u673A\u5668\u5185\u90E8\u6E29\u5EA6\u8FC7\u4F4E\u30010x07 \u673A\u5668\u6E29\u5EA6\u4F20\u611F\u5668\u65E0\u6570\u636E\u30010x08 \u7535\u6C60\u4E25\u91CD\u4F4E\u7535\u91CF\u30010x09 \u7535\u6C60\u4F4E\u7535\u91CF\u30010x0A \u7535\u6C6010%\u4F4E\u7535\u91CF\u72B6\u6001\u30010x0B \u7535\u6C60\u6E29\u5EA6\u8FC7\u9AD8\u30010x0C \u7535\u6C60\u9AD8\u6E29\u5173\u673A\u30010x0D \u7535\u6C60\u6E29\u5EA6\u65E0\u6570\u636E\u30010x0E \u7535\u6C60\u7535\u91CF\u6570\u636E\u5F02\u5E38\u30010x0F \u538B\u529B\u8FC7\u9AD8\u30010x10 \u4E25\u91CD\u8FC7\u538B\u30010x11 \u5927\u6C14\u538B\u4F20\u611F\u5668\u5F02\u5E38\u30010x12 \u5FAE\u538B\u4F20\u611F\u5668\u5F02\u5E38\u30010x13 \u65E0\u547C\u5438\u30010x14 \u538B\u7F29\u673A\u8F6C\u901F\u65E0\u53CD\u9988\u30010x15 R210\u9600\u5DE5\u4F5C\u5F02\u5E38\u30010x16 \u98CE\u6247\u8F6C\u901F\u65E0\u53CD\u9988\u30010x17 \u5FAE\u538B\u6A21\u5757\u6E29\u5EA6\u8FC7\u9AD8\u5173\u673A"
+              }
+            }
+          ]
+        },
+        {
+          "id": "pressure-check",
+          "name": "\u538B\u529B\u4F20\u611F\u5668\u6570\u503C\uFF08\u542B\u6709\u6548\u72B6\u6001\uFF09",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "78",
+          "responseCode": "78",
+          "payloadLength": 3,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "status",
+              "name": "\u6570\u636E\u72B6\u6001",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "\u6570\u636E\u6709\u6548",
+                "1": "\u6D4B\u91CF\u672A\u5B8C\u6210",
+                "2": "\u4F20\u611F\u5668\u65E0\u6570\u636E/\u5F02\u5E38"
+              }
+            },
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 1,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "kPa",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 07 F8 78 00 00 AD",
+              "expected": {
+                "status": "\u6570\u636E\u6709\u6548",
+                "value": "173"
+              }
+            },
+            {
+              "frameHex": "F5 07 F8 78 01 00 00",
+              "expected": {
+                "status": "\u6D4B\u91CF\u672A\u5B8C\u6210",
+                "value": "0"
+              }
+            },
+            {
+              "frameHex": "F5 07 F8 78 02 00 00",
+              "expected": {
+                "status": "\u4F20\u611F\u5668\u65E0\u6570\u636E/\u5F02\u5E38",
+                "value": "0"
+              }
+            }
+          ]
+        },
+        {
+          "id": "temperature-check",
+          "name": "\u5185\u90E8\u6E29\u5EA6\uFF08\u542B\u6709\u6548\u72B6\u6001\uFF09",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "79",
+          "responseCode": "79",
+          "payloadLength": 3,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "status",
+              "name": "\u6570\u636E\u72B6\u6001",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "\u6570\u636E\u6709\u6548",
+                "1": "\u6D4B\u91CF\u672A\u5B8C\u6210",
+                "2": "\u4F20\u611F\u5668\u65E0\u6570\u636E/\u5F02\u5E38"
+              }
+            },
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 1,
+              "length": 2,
+              "type": "int",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "\u2103",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 07 F8 79 00 FF FB",
+              "expected": {
+                "status": "\u6570\u636E\u6709\u6548",
+                "value": "-5"
+              }
+            },
+            {
+              "frameHex": "F5 07 F8 79 01 00 00",
+              "expected": {
+                "status": "\u6D4B\u91CF\u672A\u5B8C\u6210",
+                "value": "0"
+              }
+            },
+            {
+              "frameHex": "F5 07 F8 79 02 00 00",
+              "expected": {
+                "status": "\u4F20\u611F\u5668\u65E0\u6570\u636E/\u5F02\u5E38",
+                "value": "0"
+              }
+            }
+          ]
+        },
+        {
+          "id": "fan",
+          "name": "\u98CE\u6247\u5B9E\u9645\u53CD\u9988\u6BD4\u4F8B",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "7A",
+          "responseCode": "7A",
+          "payloadLength": 1,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "%",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 7A 2D",
+              "expected": {
+                "value": "45"
+              }
+            }
+          ]
+        },
+        {
+          "id": "compressor",
+          "name": "\u538B\u7F29\u673A\u72B6\u6001",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "7B",
+          "responseCode": "7B",
+          "payloadLength": 3,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "gear",
+              "name": "\u6863\u4F4D",
+              "offset": 0,
+              "length": 1,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": ""
+            },
+            {
+              "id": "speed",
+              "name": "\u8F6C\u901F",
+              "offset": 1,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 07 F8 7B 07 0D E8",
+              "expected": {
+                "gear": "7",
+                "speed": "3560"
+              }
+            }
+          ]
+        },
+        {
+          "id": "restarts",
+          "name": "\u538B\u7F29\u673A\u5F02\u5E38\u81EA\u52A8\u91CD\u542F\u6B21\u6570",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "7C",
+          "responseCode": "7C",
+          "payloadLength": 2,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "\u6B21",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 06 F9 7C 00 00",
+              "expected": {
+                "value": "0"
+              }
+            }
+          ]
+        },
+        {
+          "id": "valve-pressure",
+          "name": "\u5FAE\u538B/V \u538B\u5DEE\u503C\u5E73\u5747\u503C\uFF08\u65E0\u5355\u4F4D\uFF09",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "7D",
+          "responseCode": "7D",
+          "payloadLength": 2,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u6709\u7B26\u53F7\u539F\u59CB\u503C",
+              "offset": 0,
+              "length": 2,
+              "type": "int",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 06 F9 7D 00 23",
+              "expected": {
+                "value": "35"
+              }
+            },
+            {
+              "frameHex": "F5 06 F9 7D FF FB",
+              "expected": {
+                "value": "-5"
+              }
+            }
+          ]
+        },
+        {
+          "id": "valve-temperature",
+          "name": "V \u6E29\u5EA6",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "7E",
+          "responseCode": "7E",
+          "payloadLength": 1,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "\u2103",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 7E 21",
+              "expected": {
+                "value": "33"
+              }
+            }
+          ]
+        },
+        {
+          "id": "sensitivity",
+          "name": "\u5DF2\u4FDD\u5B58\u7075\u654F\u5EA6",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "7F",
+          "responseCode": "7F",
+          "payloadLength": 1,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 7F 03",
+              "expected": {
+                "value": "3"
+              }
+            }
+          ]
+        },
+        {
+          "id": "volume",
+          "name": "\u5DF2\u4FDD\u5B58\u97F3\u91CF",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "80",
+          "responseCode": "80",
+          "payloadLength": 1,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 80 03",
+              "expected": {
+                "value": "3"
+              }
+            }
+          ]
+        },
+        {
+          "id": "fpga",
+          "name": "FPGA \u7248\u672C",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "82",
+          "responseCode": "82",
+          "payloadLength": 1,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 82 25",
+              "expected": {
+                "value": "37"
+              }
+            }
+          ]
+        },
+        {
+          "id": "calibration230",
+          "name": "230 \u6821\u51C6\u72B6\u6001",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "83",
+          "responseCode": "83",
+          "payloadLength": 3,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "status",
+              "name": "\u72B6\u6001",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "\u672A\u5B8C\u6210",
+                "1": "\u5DF2\u5B8C\u6210"
+              }
+            },
+            {
+              "id": "value",
+              "name": "230 \u62B9\u5E73\u503C\u539F\u59CB\u5B57\u8282\uFF08\u7B26\u53F7\u4E0E\u89E3\u91CA\u5F85\u786E\u8BA4\uFF09",
+              "offset": 1,
+              "length": 2,
+              "type": "hex",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "HEX "
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 07 F8 83 01 00 0B",
+              "expected": {
+                "status": "\u5DF2\u5B8C\u6210",
+                "value": "HEX 000B"
+              }
+            }
+          ]
+        },
+        {
+          "id": "calibration232",
+          "name": "232 \u72B6\u6001",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "84",
+          "responseCode": "84",
+          "payloadLength": 1,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "\u672A\u5B8C\u6210",
+                "1": "\u5DF2\u5B8C\u6210"
+              }
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 84 01",
+              "expected": {
+                "value": "\u5DF2\u5B8C\u6210"
+              }
+            }
+          ]
+        },
+        {
+          "id": "pressure",
+          "name": "\u5F53\u524D\u5927\u6C14\u538B",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "85",
+          "responseCode": "85",
+          "payloadLength": 1,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "kPa",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 85 65",
+              "expected": {
+                "value": "101"
+              }
+            }
+          ]
+        },
+        {
+          "id": "delivery",
+          "name": "\u5F53\u524D\u6863\u4F4D\uFF08RAM\uFF09",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "86",
+          "responseCode": "86",
+          "payloadLength": 1,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "value",
+              "name": "\u503C",
+              "offset": 0,
+              "length": 1,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "\u6863",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 05 FA 86 03",
+              "expected": {
+                "value": "3"
+              }
+            }
+          ]
+        },
+        {
+          "id": "uid",
+          "name": "STM32 UID\uFF08\u77ED UID \u6821\u9A8C\u7B97\u6CD5\u5F85\u786E\u8BA4\uFF09",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "87",
+          "responseCode": "87",
+          "payloadLength": 16,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "uid",
+              "name": "\u5B8C\u6574 96 \u4F4D UID",
+              "offset": 0,
+              "length": 12,
+              "type": "hex",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": ""
+            },
+            {
+              "id": "shortUid",
+              "name": "\u77ED UID \u539F\u59CB\u5B57\u8282\uFF08CRC \u672A\u6821\u9A8C\uFF09",
+              "offset": 12,
+              "length": 4,
+              "type": "hex",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 14 EB 87 10 32 54 76 98 BA DC FE 01 23 45 67 89 AB CD EF",
+              "expected": {
+                "uid": "1032547698BADCFE01234567",
+                "shortUid": "89ABCDEF"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

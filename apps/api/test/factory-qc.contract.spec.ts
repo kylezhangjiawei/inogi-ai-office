@@ -1,5 +1,7 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   parseProtocolJson, parseSerialJson, validateProtocolCatalog, validateSerialConfig,
   type FactoryCommand, type FactoryField, type FactoryProtocolCatalog,
@@ -7,15 +9,16 @@ import {
 import { FACTORY_PROTOCOL_EXAMPLE, FACTORY_SERIAL_DEFAULTS } from '../src/modules/electronic-gate/factory-qc.example';
 
 const example = () => structuredClone(FACTORY_PROTOCOL_EXAMPLE);
+const reorganized = () => JSON.parse(readFileSync(join(__dirname, 'fixtures', 'factory-qc-protocol-20260910.json'), 'utf8')) as FactoryProtocolCatalog;
 
-test('客户端版本上限随当前0.5.1更新，按数值比较并保留较早版本兼容', () => {
-  for (const version of ['0.4.2', '0.4.99', '0.5.0', '0.5.1']) {
+test('客户端版本上限随当前0.5.8更新，按数值比较并保留较早版本兼容', () => {
+  for (const version of ['0.4.2', '0.4.99', '0.5.0', '0.5.1', '0.5.2', '0.5.3', '0.5.4', '0.5.5', '0.5.6', '0.5.7', '0.5.8']) {
     const catalog = example(); catalog.minAppVersion = version;
     assert.equal(validateProtocolCatalog(catalog).minAppVersion, version);
   }
-  for (const version of ['0.5.2', '0.6.0', '1.0.0']) {
+  for (const version of ['0.5.9', '0.6.0', '1.0.0']) {
     const catalog = example(); catalog.minAppVersion = version;
-    assert.throws(() => validateProtocolCatalog(catalog), /0\.5\.1/);
+    assert.throws(() => validateProtocolCatalog(catalog), /0\.5\.8/);
   }
 });
 const frame = (payload: number[], response = 0x74) => [0xf5, payload.length + 4, 0xff - payload.length - 4, response, ...payload].map((byte) => byte.toString(16).padStart(2, '0').toUpperCase()).join(' ');
@@ -37,6 +40,113 @@ test('交付原始示例通过完整解析校验；30份sample全部断言且不
   assert.equal(validated.profiles.flatMap((profile) => profile.commands.flatMap((command) => command.fields)).filter((field) => field.rule != null).length, 0);
   assert.deepEqual(parseProtocolJson(JSON.stringify(FACTORY_PROTOCOL_EXAMPLE)), FACTORY_PROTOCOL_EXAMPLE);
   assert.deepEqual(validateSerialConfig(FACTORY_SERIAL_DEFAULTS), FACTORY_SERIAL_DEFAULTS);
+});
+
+test('0.5.5整理版完整JSON可显式导入，23条查询沿用schema1普通字段而不改旧示例', () => {
+  const source = reorganized();
+  const validated = parseProtocolJson(JSON.stringify(source));
+  assert.deepEqual(validated, source);
+  assert.equal(validated.schemaVersion, 1);
+  assert.equal(validated.minAppVersion, '0.5.5');
+  assert.deepEqual(validated.profiles.map(profile => profile.commands.length), [7, 23]);
+  const profile = validated.profiles.find(profile => profile.id === 'v4-20260910')!;
+  assert.equal(profile.firmwarePrefix ?? null, null);
+  const parameters = profile.commands.find(command => command.queryCode === '73')!;
+  assert.equal(parameters.payloadLength, 40);
+  assert.equal(parameters.fields.length, 24);
+  assert.equal(parameters.samples[0].expected.slot7Speed, '1700');
+  const uid = profile.commands.find(command => command.queryCode === '87')!;
+  assert.equal(uid.responseCode, '87');
+  assert.equal(uid.payloadLength, 16);
+  assert.deepEqual(uid.fields.map(field => [field.id, field.type, field.offset, field.length]), [['uid', 'hex', 0, 12], ['shortUid', 'hex', 12, 4]]);
+  assert.deepEqual(FACTORY_PROTOCOL_EXAMPLE.profiles.map(profile => profile.commands.length), [7, 22]);
+  assert.equal(FACTORY_PROTOCOL_EXAMPLE.profiles.some(profile => profile.id === 'v4-20260910'), false);
+});
+
+
+test('0.5.8阀类型状态与类型双enum可导入，配置异常作为有效回包保留', () => {
+  const source = reorganized();
+  source.minAppVersion = '0.5.8';
+  source.version = 'builtin-20260910-v3';
+  const valve = source.profiles[1].commands.find(command => command.queryCode === '74')!;
+  valve.name = '阀类型（含配置状态）';
+  valve.payloadLength = 2;
+  valve.fields = [
+    { id: 'status', name: '阀类型配置状态', type: 'enum', offset: 0, length: 1, endian: 'big',
+      enumValues: { '0': '阀类型配置有效', '1': '未配置阀类型，无法读取/判断', '2': '阀类型配置冲突' } },
+    { id: 'value', name: '阀类型', type: 'enum', offset: 1, length: 1, endian: 'big',
+      enumValues: { '0': 'MAC 阀', '1': '方阀', '255': '无有效阀类型' } },
+  ];
+  valve.samples = [
+    { frameHex: 'F5 06 F9 74 00 00', expected: { status: '阀类型配置有效', value: 'MAC 阀' } },
+    { frameHex: 'F5 06 F9 74 00 01', expected: { status: '阀类型配置有效', value: '方阀' } },
+    { frameHex: 'F5 06 F9 74 01 FF', expected: { status: '未配置阀类型，无法读取/判断', value: '无有效阀类型' } },
+    { frameHex: 'F5 06 F9 74 02 FF', expected: { status: '阀类型配置冲突', value: '无有效阀类型' } },
+    { frameHex: 'F5 06 F9 74 00 FF', expected: { status: '阀类型配置有效', value: '无有效阀类型' } },
+  ];
+  assert.deepEqual(parseProtocolJson(JSON.stringify(source)), source);
+  assert.equal(source.schemaVersion, 1);
+  assert.deepEqual(valve.fields.map(field => [field.id, field.type, field.offset, field.length]),
+    [['status', 'enum', 0, 1], ['value', 'enum', 1, 1]]);
+  assert.equal(FACTORY_PROTOCOL_EXAMPLE.profiles[1].commands.find(command => command.queryCode === '74')!.payloadLength, 1);
+  for (const [payload, error] of [
+    [[3, 0], /未定义的枚举值 3/],
+    [[0, 2], /未定义的枚举值 2/],
+    [[0], /载荷长度/],
+  ] as Array<[number[], RegExp]>) {
+    const invalid = structuredClone(source);
+    invalid.profiles[1].commands.find(command => command.queryCode === '74')!.samples[0].frameHex = frame(payload, 0x74);
+    assert.throws(() => validateProtocolCatalog(invalid), error);
+  }
+});
+
+test('BCD子版本通过100个普通enum映射表示，00至99均可导入，非法BCD样例拒绝', () => {
+  const source = reorganized();
+  const firmware = source.profiles[1].commands[0];
+  const sub = firmware.fields.find(field => field.id === 'sub')!;
+  assert.equal(sub.type, 'enum');
+  assert.equal(Object.keys(sub.enumValues!).length, 100);
+  for (let number = 0; number < 100; number++) {
+    const packed = (Math.floor(number / 10) << 4) | (number % 10);
+    const expected = String(number).padStart(2, '0');
+    assert.equal(sub.enumValues![String(packed)], expected);
+    firmware.samples[0].frameHex = frame([...Buffer.from('TEST0910', 'ascii'), packed], 0x72);
+    firmware.samples[0].expected.sub = expected;
+    assert.doesNotThrow(() => validateProtocolCatalog(source));
+  }
+  firmware.samples[0].frameHex = frame([...Buffer.from('TEST0910', 'ascii'), 0x1a], 0x72);
+  assert.throws(() => validateProtocolCatalog(source), /未定义的枚举值 26/);
+});
+
+test('78/79有效状态是普通enum；未知状态、旧长度与新增未支持字段仍拒绝', () => {
+  for (const code of ['78', '79']) {
+    const source = reorganized();
+    const command = source.profiles[1].commands.find(command => command.queryCode === code)!;
+    assert.equal(command.payloadLength, 3);
+    assert.deepEqual(command.fields.map(field => field.id), ['status', 'value']);
+    command.samples[0].frameHex = frame([3, 0, 23], Number.parseInt(code, 16));
+    assert.throws(() => validateProtocolCatalog(source), /未定义的枚举值 3/);
+    command.samples[0].frameHex = frame([0, 23], Number.parseInt(code, 16));
+    assert.throws(() => validateProtocolCatalog(source));
+  }
+  const unknown = reorganized();
+  (unknown.profiles[1].commands[0].fields[1] as any).type = 'bcd';
+  assert.throws(() => validateProtocolCatalog(unknown), /不支持此字段类型/);
+  const validity = reorganized();
+  (validity.profiles[1].commands.find(command => command.queryCode === '79') as any).validity = { field: 'status', equals: 0 };
+  assert.throws(() => validateProtocolCatalog(validity), /不支持此字段/);
+});
+
+test('只读范围仅增加87，81和88仍拒绝；新版无前缀profile不能与旧九字节固件混装', () => {
+  for (const code of ['81', '88']) {
+    const source = reorganized();
+    const uid = source.profiles[1].commands.find(command => command.queryCode === '87')!;
+    uid.queryCode = code;
+    assert.throws(() => validateProtocolCatalog(source), /只读范围/);
+  }
+  const overlap = reorganized();
+  overlap.profiles.push(structuredClone(FACTORY_PROTOCOL_EXAMPLE.profiles[1]));
+  assert.throws(() => validateProtocolCatalog(overlap), /重叠/);
 });
 
 test('串口schema/version必填，保留省略语义，运行字段不暗中填默认值', () => {
@@ -160,7 +270,7 @@ test('固件探测指令、适用前缀、同长度profile选择不能歧义', (
     (catalog) => { catalog.profiles[1].firmwarePrefix = 'OTHER'; },
     (catalog) => { const cloned = structuredClone(catalog.profiles[1]); cloned.id = 'overlap'; cloned.firmwarePrefix = 'V4'; catalog.profiles.push(cloned); },
     (catalog) => { catalog.profiles[1].id = catalog.profiles[0].id; },
-    (catalog) => { catalog.minAppVersion = '0.5.2'; },
+    (catalog) => { catalog.minAppVersion = '0.5.9'; },
   ];
   for (const mutate of mutations) { const catalog = example(); mutate(catalog); assert.throws(() => validateProtocolCatalog(catalog)); }
 });

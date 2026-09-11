@@ -60,6 +60,7 @@ import {
   ImageEditModal,
   ImagePreviewModal,
   Pager,
+  RenewableGeneratedImage,
   UNCATEGORIZED_FILTER,
   type DateRangeKey,
   type GeneratedImage,
@@ -962,12 +963,11 @@ function CategoryTag({ category, className }: { category?: ImageCategory | null;
 
 function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, onAssign, onFavorite }: ArtworkItemProps) {
   const title = item.revisedPrompt || item.prompt;
-  const src = item.thumbnailUrl || item.imageUrl || item.imageData;
 
   return (
     <article className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-blue-200 hover:shadow-md">
       <div className="relative aspect-[16/10] w-full overflow-hidden bg-slate-50">
-        <img src={src} alt={item.prompt} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+        <RenewableGeneratedImage item={item} alt={item.prompt} loading="lazy" decoding="async" className="h-full w-full object-cover" />
         <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 shadow-sm ring-1 ring-slate-200/70 backdrop-blur">
           {item.size}
         </span>
@@ -1070,7 +1070,6 @@ function ArtworkGridCard({ item, busy, category, onPreview, onDownload, onEdit, 
 
 function ArtworkListRow({ item, busy, category, onPreview, onDownload, onEdit, onAssign, onFavorite }: ArtworkItemProps) {
   const title = item.revisedPrompt || item.prompt;
-  const src = item.thumbnailUrl || item.imageUrl || item.imageData;
 
   return (
     <article className="group flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-blue-200 hover:shadow-md">
@@ -1081,7 +1080,7 @@ function ArtworkListRow({ item, busy, category, onPreview, onDownload, onEdit, o
         aria-label={`预览作品：${title}`}
         className="h-11 w-14 shrink-0 overflow-hidden rounded-md border border-slate-200/80 bg-slate-50"
       >
-        <img src={src} alt={item.prompt} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+        <RenewableGeneratedImage item={item} alt={item.prompt} loading="lazy" decoding="async" className="h-full w-full object-cover" />
       </button>
 
       <span className="hidden shrink-0 items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200/70 sm:inline-flex">

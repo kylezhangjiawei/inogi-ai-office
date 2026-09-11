@@ -67,6 +67,12 @@ function fixture() {
 test('current defaults retain safe disabled commands and the historical v2 source stays unchanged', () => {
   assert.deepEqual(validateProtocolCatalog(FACTORY_PROTOCOL_DEFAULT), FACTORY_PROTOCOL_DEFAULT);
   assert.deepEqual(validateSerialConfig(FACTORY_SERIAL_DEFAULT), FACTORY_SERIAL_DEFAULT);
+  assert.equal(FACTORY_SERIAL_DEFAULT.version, 'serial-config-002');
+  assert.equal(FACTORY_SERIAL_DEFAULT.portName, 'COM3');
+  assert.equal(FACTORY_SERIAL_DEFAULT.baudRate, 9600);
+  assert.equal(FACTORY_SERIAL_DEFAULT.autoConnect, true);
+  assert.deepEqual(GATE_DEFINITIONS.find(item => item.id === 'serial-port')!.defaults.values, { mode: 'fixed', port: 'COM3', evidence: '' });
+  assert.equal(GATE_DEFINITIONS.find(item => item.id === 'baud-rate')!.defaults.values.baudRate, '9600');
   assert.equal(FACTORY_PROTOCOL_DEFAULT.version, 'builtin-20260909-v3');
   assert.equal(FACTORY_PROTOCOL_EXAMPLE.version, 'builtin-20260909-v2');
   const current = FACTORY_PROTOCOL_DEFAULT.profiles.find(profile => profile.id === 'v4-20260908')!;
@@ -123,7 +129,7 @@ test('an existing catalog draft is preserved byte-for-byte while the empty seria
 test('any single connection draft prevents seeding or silently completing the serial domain', async () => {
   const f = fixture();
   const definition = GATE_DEFINITIONS.find(item => item.id === 'baud-rate')!;
-  const draft = structuredClone(definition.defaults); draft.values.baudRate = '9600';
+  const draft = structuredClone(definition.defaults); draft.values.baudRate = '19200';
   await f.gate.saveDraft('baud-rate', { expectedRevision: 0, draft }, actor);
   const original = structuredClone(f.rows().get(`${GATE_SETTING_PREFIX}baud-rate`));
   assert.deepEqual(await f.service.initializeDefaults(), { protocol: 'initialized', serial: 'preserved' });
@@ -181,19 +187,19 @@ test('a failed serial snapshot rolls back all 12 items without rewriting the alr
 test('initialized defaults support normal item editing, immutable history and serial rollback with private drafts preserved', async () => {
   const f = fixture(); await f.service.initializeDefaults();
   const item = (await f.gate.list()).items.find(item => item.id === 'baud-rate')!;
-  const draft = structuredClone(item.active!); draft.values.baudRate = '9600';
+  const draft = structuredClone(item.active!); draft.values.baudRate = '19200';
   const saved = await f.gate.saveDraft(item.id, { expectedRevision: item.revision, draft }, actor);
   await f.gate.publish(item.id, { expectedRevision: saved.revision }, actor);
-  assert.equal((await f.service.downloadSerial()).baudRate, 9600);
+  assert.equal((await f.service.downloadSerial()).baudRate, 19200);
   const current = (await f.gate.list()).items.find(item => item.id === 'baud-rate')!;
-  const privateDraft = structuredClone(current.active!); privateDraft.values.baudRate = '19200';
+  const privateDraft = structuredClone(current.active!); privateDraft.values.baudRate = '38400';
   await f.gate.saveDraft(item.id, { expectedRevision: current.revision, draft: privateDraft }, actor);
   const state = await f.service.getState();
   await f.service.rollback({ kind: 'serial', version: FACTORY_SERIAL_DEFAULT.version, expectedRevision: state.serial.revision }, actor);
   assert.deepEqual(await f.service.downloadSerial(), FACTORY_SERIAL_DEFAULT);
   const restored = (await f.gate.list()).items.find(item => item.id === 'baud-rate')!;
-  assert.equal(restored.active!.values.baudRate, '115200');
-  assert.equal(restored.draft!.values.baudRate, '19200');
+  assert.equal(restored.active!.values.baudRate, '9600');
+  assert.equal(restored.draft!.values.baudRate, '38400');
   const prior = structuredClone(f.rows());
   await f.service.initializeDefaults();
   assert.deepEqual(f.rows(), prior);

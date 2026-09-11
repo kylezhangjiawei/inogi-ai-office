@@ -161,6 +161,12 @@ export class ImageGenerationController {
     return this.service.getImageConversation(userId, id);
   }
 
+  @Get('images/:id/read-urls')
+  @Header('Cache-Control', 'no-store')
+  getImageReadUrls(@Req() req: Request, @Param('id') id: string) {
+    return this.service.getImageReadUrls(this.getUserId(req), id);
+  }
+
   @Post('images/:id/edit')
   editImage(@Req() req: Request, @Param('id') id: string, @Body() dto: EditImageDto) {
     const userId = this.getUserId(req);

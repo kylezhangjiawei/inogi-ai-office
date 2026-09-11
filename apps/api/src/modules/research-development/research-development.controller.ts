@@ -1399,6 +1399,12 @@ export class ResearchDevelopmentController {
     return this.rdService.uploadSheetAsset(file.buffer, file.originalname, file.mimetype);
   }
 
+  @Post('sheet-workbook/assets/renew')
+  @Permissions('page:rd-sheet', 'rd-sheet:edit')
+  renewSheetAssetUrls(@Body() body: { sources?: unknown }) {
+    return this.rdService.renewSheetAssetUrls(body.sources);
+  }
+
   /**
    * 数据表图片资产读取：Public + HMAC 能力 URL（Univer 通过 <img> 加载，带不了 Authorization）。
    * 内容按 key 不可变 → 允许浏览器长缓存一年，二次打开图片零流量。

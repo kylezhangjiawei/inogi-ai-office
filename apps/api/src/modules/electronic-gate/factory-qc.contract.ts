@@ -1,4 +1,4 @@
-/** Browser/Node shared contract matching the FactoryQc 0.5.1 download parsers. */
+/** Browser/Node shared contract matching the FactoryQc 0.5.8 download parsers. */
 export type FactorySerialConfig = {
   schemaVersion: 1;
   version: string;
@@ -51,7 +51,7 @@ export type FactoryProtocolCatalog = { schemaVersion: 1; minAppVersion: string; 
 
 export const FACTORY_PROTOCOL_MAX_BYTES = 1_048_576;
 export const FACTORY_SERIAL_MAX_BYTES = 65_536;
-export const FACTORY_CLIENT_VERSION = '0.5.1';
+export const FACTORY_CLIENT_VERSION = '0.5.8';
 
 type JsonObject = Record<string, unknown>;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
@@ -408,7 +408,7 @@ export function validateProtocolCatalog(input: unknown): FactoryProtocolCatalog 
       if ('enabled' in data && typeof data.enabled !== 'boolean') fail(`${commandPath}.enabled`, '必须是 JSON 布尔值');
       const query = code(data.queryCode, `${commandPath}.queryCode`);
       const response = code(data.responseCode, `${commandPath}.responseCode`);
-      if (query < 0x70 || query > 0x86 || query === 0x81) fail(commandPath, '查询码必须位于只读范围 70～80、82～86');
+      if (query < 0x70 || query > 0x87 || query === 0x81) fail(commandPath, '查询码必须位于只读范围 70～80、82～87');
       if (queries.has(query) || responses.has(response)) fail(commandPath, '同一协议内查询码或返回码重复');
       queries.add(query); responses.add(response);
       const payloadLength = integer(data.payloadLength, `${commandPath}.payloadLength`, 1, 251);

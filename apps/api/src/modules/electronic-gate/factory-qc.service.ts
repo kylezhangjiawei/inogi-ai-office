@@ -76,7 +76,7 @@ export class FactoryQcService implements OnApplicationBootstrap {
         const definition = GATE_DEFINITIONS.find(item => item.id === id && item.category === 'connection');
         if (!definition) throw new InternalServerErrorException(`默认串口配置项缺失：${id}`);
         const active: GateConfig = { ...structuredClone(definition.defaults), enabled: true,
-          values: { ...definition.defaults.values, ...values[id], evidence: 'FactoryQc v0.5.0 已确认默认串口配置' } };
+          values: { ...definition.defaults.values, ...values[id], evidence: 'FactoryQc v0.5.2 已确认默认串口配置' } };
         activeItems[id] = active;
         await tx.systemSetting.create({ data: {
           key: `${GATE_SETTING_PREFIX}${id}`, category: GATE_SETTING_CATEGORY, description: definition.title,

@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Post,
   Req,
@@ -15,6 +16,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 
 import { AbortFileUploadDto, PresignFileUploadDto, RegisterFileUploadDto } from './dto/direct-file-upload.dto';
+import { FileAccessFailureDto } from './dto/file-access-failure.dto';
 import { FilesService } from './files.service';
 import { UploadFileDto } from './dto/upload-file.dto';
 
@@ -55,6 +57,12 @@ export class FilesController {
   async getSignedUrl(@Req() req: Request, @Param('id') fileId: string) {
     const userId = this.getUserId(req);
     return this.filesService.getSignedUrl(userId, fileId);
+  }
+
+  @Post('access-failures')
+  @HttpCode(204)
+  reportAccessFailure(@Req() req: Request, @Body() dto: FileAccessFailureDto): void {
+    this.filesService.reportAccessFailure(this.getUserId(req), dto);
   }
 
   @Delete(':id')

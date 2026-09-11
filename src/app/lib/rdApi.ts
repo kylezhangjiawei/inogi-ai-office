@@ -1,4 +1,4 @@
-import { authFetch, readErrorMessage } from "./authSession";
+import { addAuthClearedListener, authFetch, getStoredUser, readErrorMessage } from "./authSession";
 import { buildRdTaskAttachmentPayload } from "./rdAttachmentPayload";
 import { compressImageFile } from "./resourceImage";
 
@@ -795,6 +795,14 @@ export function fetchRdSheetWorkbook(signal?: AbortSignal) {
   });
 }
 
+export type RdSheetAssetRenewal = { source: string; url: string; expires_in: number };
+
+export function renewRdSheetAssetUrls(sources: string[], signal?: AbortSignal) {
+  return requestJson<RdSheetAssetRenewal[]>("/sheet-workbook/assets/renew", {
+    method: "POST", body: JSON.stringify({ sources }), signal, timeoutMs: 20_000,
+  });
+}
+
 /**
  * 保存整簿快照（仅 rd-sheet:edit / 超管）。
  * baseUpdatedAt：乐观锁基线（加载/上次保存时的 updated_at）；服务器版本不一致时返回 409，
@@ -1546,6 +1554,8 @@ export async function assessRdTaskProgress(payload: {
 
 export type RdTaskProgressAttachment = {
   id: string;
+  /** 所属留痕的任务 ID，用于通过原业务权限重新获取附件链接。 */
+  task_id?: string;
   name: string;
   mime: string;
   size: number;
@@ -1755,8 +1765,18 @@ const rdTaskAttachmentCache = new Map<string, { at: number; data: RdTaskAttachme
 const rdTaskAttachmentInflight = new Map<string, Promise<RdTaskAttachmentPreview>>();
 let rdAttachmentCacheGeneration = 0;
 
-function rdAttachmentCacheKey(taskId: string): string {
-  return `${currentRdWorkspace() ?? "rd"}|${taskId}`;
+function rdAttachmentScopeKey(): string {
+  return `${getStoredUser()?.id ?? "anonymous"}|${currentRdWorkspace() ?? "rd"}`;
+}
+
+function rdAttachmentCacheKey(taskId: string, scope = rdAttachmentScopeKey()): string {
+  return `${scope}|${taskId}`;
+}
+
+function assertRdAttachmentRequestCurrent(scope: string, generation: number): void {
+  if (scope !== rdAttachmentScopeKey() || generation !== rdAttachmentCacheGeneration) {
+    throw new Error("登录状态、任务工作区或附件已变更，请重新打开附件");
+  }
 }
 
 /** Invalidate cached attachment metadata after create/add/replace/delete mutations. */
@@ -1774,11 +1794,13 @@ export function clearRdTaskAttachmentCache(taskId?: string) {
   rdTaskAttachmentCache.delete(key);
   rdTaskAttachmentInflight.delete(key);
   for (const inflightKey of rdAttachmentPreviewInflight.keys()) {
-    if (inflightKey.split("|").slice(1).includes(taskId)) {
+    if (inflightKey.split("|").slice(2).includes(taskId)) {
       rdAttachmentPreviewInflight.delete(inflightKey);
     }
   }
 }
+
+addAuthClearedListener(() => clearRdTaskAttachmentCache());
 
 /** 驾驶舱卡片批量摘要：单请求返回最多 60 个任务、每任务最多 5 个轻量附件预览。 */
 export async function fetchRdTaskAttachmentPreviews(
@@ -1787,29 +1809,29 @@ export async function fetchRdTaskAttachmentPreviews(
 ) {
   const ids = Array.from(new Set(taskIds.map((id) => id.trim()).filter(Boolean))).slice(0, 60);
   if (ids.length === 0) return {};
+  const scope = rdAttachmentScopeKey();
+  const generation = rdAttachmentCacheGeneration;
   const now = Date.now();
   const output: Record<string, RdTaskAttachmentPreview> = {};
   const missing: string[] = [];
   for (const taskId of ids) {
-    const cached = rdAttachmentPreviewCache.get(rdAttachmentCacheKey(taskId));
+    const cached = rdAttachmentPreviewCache.get(rdAttachmentCacheKey(taskId, scope));
     if (cached && now - cached.at < RD_ATTACHMENT_CACHE_TTL_MS) output[taskId] = cached.data;
     else missing.push(taskId);
   }
   if (missing.length === 0) return output;
 
-  const wsKey = currentRdWorkspace() ?? "rd";
   const sortedMissing = missing.slice().sort();
-  const inflightKey = `${wsKey}|${sortedMissing.join("|")}`;
-  const generation = rdAttachmentCacheGeneration;
+  const inflightKey = `${scope}|${sortedMissing.join("|")}`;
   const query = new URLSearchParams({ task_ids: sortedMissing.join(",") });
   const loadMissing = (signal?: AbortSignal) => requestJson<Record<string, RdTaskAttachmentPreview>>(
     `/task-attachment-previews?${query.toString()}`,
     signal ? { signal } : undefined,
   ).then((data) => {
-    if (generation !== rdAttachmentCacheGeneration) return data;
+    assertRdAttachmentRequestCurrent(scope, generation);
     const cachedAt = Date.now();
     for (const [taskId, preview] of Object.entries(data)) {
-      rdAttachmentPreviewCache.set(rdAttachmentCacheKey(taskId), { at: cachedAt, data: preview });
+      rdAttachmentPreviewCache.set(rdAttachmentCacheKey(taskId, scope), { at: cachedAt, data: preview });
     }
     return data;
   });
@@ -1817,7 +1839,9 @@ export async function fetchRdTaskAttachmentPreviews(
   // A view-scoped request must be independently abortable. It deliberately does not join the
   // global in-flight promise, because unmounting one cockpit must not cancel another consumer.
   if (options?.signal) {
-    return { ...output, ...await loadMissing(options.signal) };
+    const data = await loadMissing(options.signal);
+    assertRdAttachmentRequestCurrent(scope, generation);
+    return { ...output, ...data };
   }
 
   let request = rdAttachmentPreviewInflight.get(inflightKey);
@@ -1830,27 +1854,32 @@ export async function fetchRdTaskAttachmentPreviews(
       });
     rdAttachmentPreviewInflight.set(inflightKey, request);
   }
-  return { ...output, ...await request };
+  const data = await request;
+  assertRdAttachmentRequestCurrent(scope, generation);
+  return { ...output, ...data };
 }
 
 /** Load every attachment for one task only after an explicit view-all/gallery action. */
-export async function fetchRdTaskAttachments(taskId: string) {
-  const key = rdAttachmentCacheKey(taskId);
-  const cached = rdTaskAttachmentCache.get(key);
-  if (cached && Date.now() - cached.at < RD_ATTACHMENT_CACHE_TTL_MS) return cached.data;
-  const existing = rdTaskAttachmentInflight.get(key);
-  if (existing) return existing;
+export async function fetchRdTaskAttachments(taskId: string, options?: { force?: boolean }) {
+  const scope = rdAttachmentScopeKey();
   const generation = rdAttachmentCacheGeneration;
+  const key = rdAttachmentCacheKey(taskId, scope);
+  const cached = rdTaskAttachmentCache.get(key);
+  if (!options?.force && cached && Date.now() - cached.at < RD_ATTACHMENT_CACHE_TTL_MS) return cached.data;
+  const existing = rdTaskAttachmentInflight.get(key);
+  if (!options?.force && existing) return existing;
   const request = (async () => {
     try {
       return await requestJson<RdTaskAttachmentPreview>(`/task-attachments/${encodeURIComponent(taskId)}`);
     } catch (error) {
+      assertRdAttachmentRequestCurrent(scope, generation);
       if ((error as RdApiError).status !== 404) throw error;
       return buildRdTaskAttachmentPayload(await fetchRdTaskProgressNotes(taskId));
     }
   })()
     .then((data) => {
-      if (generation === rdAttachmentCacheGeneration) {
+      assertRdAttachmentRequestCurrent(scope, generation);
+      if (rdTaskAttachmentInflight.get(key) === request) {
         rdTaskAttachmentCache.set(key, { at: Date.now(), data });
       }
       return data;

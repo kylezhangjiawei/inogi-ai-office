@@ -101,6 +101,28 @@ function PreviousComparison({ current, api, onClose }: { current: InspectionReco
     </>}
   </section>;
 }
+function RecordStaff({ record }: { record: InspectionRecordSummary }) {
+  return <div className="dir-staff"><span>工位：{textValue(record.station, "未记录")}</span><small>操作员：{textValue(record.operator, "未记录")}</small></div>;
+}
+function ManualConfirmations({ record }: { record: InspectionRecordDetail }) {
+  const checks = Array.isArray(record.snapshot.manualChecks) ? record.snapshot.manualChecks.map(objectValue) : [];
+  return <section className="dir-manual-checks" aria-label="人工确认项">
+    <div className="dir-section-title"><h3>人工确认项</h3><span>本次保存的确认结果</span></div>
+    {!checks.length ? <p className="dir-muted">该记录未包含人工确认信息。</p> : <div className="dir-manual-table"><table>
+      <thead><tr><th>人工确认项目</th><th>结果</th><th>原因 / 备注</th><th>确认人</th><th>确认时间</th></tr></thead>
+      <tbody>{checks.map((check, index) => {
+        const result = check.result === "Pass" ? "合格" : check.result === "Fail" ? "不合格" : check.result === "NotChecked" ? "未确认" : "未记录";
+        const tone = check.result === "Pass" ? "pass" : check.result === "Fail" ? "ng" : "pending";
+        const at = typeof check.confirmedAt === "string" && Number.isFinite(Date.parse(check.confirmedAt)) ? check.confirmedAt : null;
+        return <tr key={textValue(check.id, "manual") + "-" + index}>
+          <td>{textValue(check.name, "未记录")}</td><td><span className={"dir-result dir-result--" + tone}>{result}</span></td>
+          <td>{textValue(check.reason, "—")}</td><td>{textValue(check.operator, "未记录")}</td>
+          <td><time dateTime={at ?? undefined}>{at ? new Date(at).toLocaleString("zh-CN", { hour12: false }) : "未记录"}</time></td>
+        </tr>;
+      })}</tbody>
+    </table></div>}
+  </section>;
+}
 function RecordEvidence({ id, api, preferredItem }: { id: string; api: DeviceInspectionRecordsApi; preferredItem: string }) {
   const [record, setRecord] = useState<InspectionRecordDetail | null>(null); const [loading, setLoading] = useState(true);
   const [error, setError] = useState(""); const [attempt, setAttempt] = useState(0); const [selectedId, setSelectedId] = useState(""); const [historyOpen, setHistoryOpen] = useState(false);
@@ -118,11 +140,12 @@ function RecordEvidence({ id, api, preferredItem }: { id: string; api: DeviceIns
   if (error) return <ErrorState message={error} retry={() => setAttempt(attempt + 1)} />;
   if (!record) return null;
   const items = snapshotItems(record); const item = items.find(value => value.id === selectedId);
-  if (!item) return <div className="dir-state"><FileSearch size={24} /><span>本次记录没有检测项明细。</span><button className="dir-button" onClick={() => downloadRecord(record)}>导出原始记录</button></div>;
+  if (!item) return <><ManualConfirmations record={record} /><div className="dir-state"><FileSearch size={24} /><span>本次记录没有检测项明细。</span><button className="dir-button" onClick={() => downloadRecord(record)}>导出原始记录</button></div></>;
   const evidence = objectValue(item.readEvidence); const status = readState(item); const result = itemResult(item, record);
   const fields = Array.isArray(evidence.fields) ? evidence.fields.map(objectValue) : [];
   const request = textValue(evidence.requestHex, ""); const command = request.trim().split(/\s+/)[3];
   return <div className="dir-evidence" id={`evidence-${id}`}>
+    <ManualConfirmations record={record} />
     <div className="dir-evidence-heading"><h3>{item.name} · 本次证据</h3><label>检测项目<select aria-label="查看检测项证据" value={selectedId} onChange={event => setSelectedId(event.target.value)}>{items.map(value => <option key={value.id} value={value.id}>{value.id.replace("QC-", "")} · {value.name} · {itemResult(value, record)}</option>)}</select></label></div>
     <div className="dir-evidence-grid"><section className="dir-reading-block" aria-label="本次检测项读数与报文">
       <div className="dir-reading-banner"><strong className={`dir-read-state${["ReadError", "WaitingMeasurement", "Interrupted", "ValidityUnknown"].includes(item.status || "") ? " dir-read-state--warning" : ""}`}>{status}</strong><p>{textValue(item.qcConditionExplanation, textValue(item.detail, "此记录未保存补充说明。"))}</p></div>
@@ -176,15 +199,15 @@ export function DeviceInspectionRecordsPage({ api = deviceInspectionRecordsApi, 
         <button className="dir-link dir-reset" onClick={reset}>重置</button>
         {preset === "custom" && <div className="dir-custom-dates"><label>开始日期<input type="date" value={fromDate} max={toDate || undefined} onChange={event => { setFromDate(event.target.value); setPage(1); }} /></label><span>至</span><label>结束日期<input type="date" value={toDate} min={fromDate || undefined} onChange={event => { setToDate(event.target.value); setPage(1); }} /></label>{range.error && <span role="alert">{range.error}</span>}</div>}
       </div>
-      <div className="dir-table-scroll"><table className="dir-record-table"><thead><tr><th>检测编号</th><th>检测时间</th><th>设备</th><th>检测结果</th><th>异常项目</th><th>客户端 / 固件</th><th>接收状态</th><th>操作</th></tr></thead><tbody>
-        {loading ? <tr><td colSpan={8}><Loading /></td></tr> : error ? <tr><td colSpan={8}><ErrorState message={error} retry={() => setAttempt(attempt + 1)} /></td></tr> : range.error ? <tr><td colSpan={8}><div className="dir-state">请选择有效的检测时间范围。</div></td></tr> : !data.items.length ? <tr><td colSpan={8}><div className="dir-state"><FileSearch size={32} /><strong>{filtered ? "没有符合筛选条件的记录" : "暂无设备检测记录"}</strong><span>{filtered ? "调整筛选条件后重试。" : "Windows 客户端上传并收到后台确认后，记录会显示在这里。"}</span>{filtered && <button className="dir-button" onClick={() => { reset(); setAbnormalOnly(false); }}>查看全部记录</button>}</div></td></tr>
+      <div className="dir-table-scroll"><table className="dir-record-table"><thead><tr><th>检测编号</th><th>检测时间</th><th>设备</th><th>工位 / 操作员</th><th>检测结果</th><th>异常项目</th><th>客户端 / 固件</th><th>接收状态</th><th>操作</th></tr></thead><tbody>
+        {loading ? <tr><td colSpan={9}><Loading /></td></tr> : error ? <tr><td colSpan={9}><ErrorState message={error} retry={() => setAttempt(attempt + 1)} /></td></tr> : range.error ? <tr><td colSpan={9}><div className="dir-state">请选择有效的检测时间范围。</div></td></tr> : !data.items.length ? <tr><td colSpan={9}><div className="dir-state"><FileSearch size={32} /><strong>{filtered ? "没有符合筛选条件的记录" : "暂无设备检测记录"}</strong><span>{filtered ? "调整筛选条件后重试。" : "Windows 客户端上传并收到后台确认后，记录会显示在这里。"}</span>{filtered && <button className="dir-button" onClick={() => { reset(); setAbnormalOnly(false); }}>查看全部记录</button>}</div></td></tr>
           : data.items.map(record => { const open = openId === record.id; return <Fragment key={record.id}><tr className={`dir-record-row${open ? " dir-record-row--open" : ""}`}>
             <td><button className="dir-record-toggle" aria-expanded={open} aria-controls={open ? `evidence-${record.id}` : undefined} onClick={() => setOpenId(open ? null : record.id)}>{open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}<span title={record.testId}>{record.testId}</span></button></td>
             <td><time dateTime={record.collectionAt}>{formatTime(record.collectionAt)}</time></td><td><div className="dir-device"><strong>{textValue(record.model)}{record.uidShort ? ` ··· ${record.uidShort}` : ""}</strong><small title={record.uid || undefined}>UID: {record.uidShort ? `··· ${record.uidShort}` : "未记录"}</small><small>SN: {textValue(record.serialNumber)}</small>{record.uid && !record.uidVerified && <small className="dir-warning">UID 未核验</small>}</div></td>
-            <td><ResultBadge value={record.inspectionResult} /></td><td><span className="dir-abnormal-items">{record.abnormalItems.length ? record.abnormalItems.map(item => item.name).join(" · ") : "无"}</span></td>
+            <td><RecordStaff record={record} /></td><td><ResultBadge value={record.inspectionResult} /></td><td><span className="dir-abnormal-items">{record.abnormalItems.length ? record.abnormalItems.map(item => item.name).join(" · ") : "无"}</span></td>
             <td><span className="dir-client-version">{textValue(record.recordAppVersion, "未记录")} / {textValue(record.firmwareVersion, "未记录")}</span></td><td><span className="dir-received">已接收</span></td>
             <td><button className="dir-link" aria-label={`${open ? "收起" : "查看"}检测记录 ${record.testId}`} aria-expanded={open} onClick={() => setOpenId(open ? null : record.id)}>{open ? "收起" : "查看"}{open ? <ChevronDown size={14} className="dir-up" /> : <ChevronRight size={14} />}</button></td>
-          </tr>{open && <tr className="dir-expanded-row"><td colSpan={8}><RecordEvidence id={record.id} api={api} preferredItem={itemId} /></td></tr>}</Fragment>; })}
+          </tr>{open && <tr className="dir-expanded-row"><td colSpan={9}><RecordEvidence id={record.id} api={api} preferredItem={itemId} /></td></tr>}</Fragment>; })}
       </tbody></table></div>
       <div className="dir-pagination"><span aria-live="polite">{loading ? "正在读取…" : error || range.error ? "记录暂不可用" : `共 ${data.total} 条记录`}</span><div><button className="dir-icon-button" aria-label="上一页" disabled={loading || page <= 1 || Boolean(error || range.error)} onClick={() => setPage(page - 1)}><ChevronLeft size={17} /></button><span className="dir-page-index">{page}</span><span className="dir-page-total">/ {totalPages}</span><button className="dir-icon-button" aria-label="下一页" disabled={loading || page >= totalPages || Boolean(error || range.error)} onClick={() => setPage(page + 1)}><ChevronRight size={17} /></button><select aria-label="每页条数" value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={10}>10 条/页</option><option value={25}>25 条/页</option><option value={50}>50 条/页</option></select></div></div>
     </section>

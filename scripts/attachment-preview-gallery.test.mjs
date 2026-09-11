@@ -46,13 +46,31 @@ function fixture(component = "AttachmentPreviewDialog", initialProps = {}) {
         return [slots[index], (value) => { slots[index] = typeof value === "function" ? value(slots[index]) : value; }];
       },
       useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial }; },
-      useEffect() {},
+      useEffect(callback, deps) {
+        const index = cursor++;
+        if (!slots[index] || deps.some((value, i) => value !== slots[index].deps[i])) {
+          slots[index]?.cleanup?.();
+          slots[index] = { deps, cleanup: callback() };
+        }
+      },
+      useCallback(callback, deps) {
+        const index = cursor++;
+        if (!slots[index] || deps.some((value, i) => value !== slots[index].deps[i])) slots[index] = { deps, callback };
+        return slots[index].callback;
+      },
     },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "../lib/i18n": { useI18n: () => ({ t: (value, params = {}) => value.replace(/\{(\w+)\}/g, (match, key) => params[key] ?? match) }) },
+    "../lib/resourceAccess": { downloadResource: async () => undefined },
     "../lib/xlsxPreview": { parseXlsxForPreview: async () => [] },
     "./ui/utils": { cn: (...parts) => parts.filter(Boolean).join(" ") },
   };
+  const hookExports = {};
+  const hookCode = ts.transpileModule(readFileSync(new URL("../src/app/lib/useRenewableResource.ts", import.meta.url), "utf8"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  new Function("exports", "require", hookCode)(hookExports, (name) => name === "react" ? dependencies.react : { reportResourceFailure() {} });
+  dependencies["../lib/useRenewableResource"] = hookExports;
   const exports = {};
   new Function("exports", "require", "document", "HTMLElement", "Element", code)(exports, (name) => {
     if (name in dependencies) return dependencies[name];

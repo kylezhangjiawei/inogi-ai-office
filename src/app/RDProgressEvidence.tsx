@@ -1,3 +1,7 @@
+import { RenewableImage } from "./components/RenewableImage";
+import { ResourceDownloadLink } from "./components/ResourceDownloadLink";
+import { refreshRdAttachment } from "./lib/attachmentAccess";
+import { useRenewableResource } from "./lib/useRenewableResource";
 import React, { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, PlayCircle, RefreshCw, Table2, Trash2, Video, X, ZoomIn, ZoomOut } from "lucide-react";
 import { cn } from "./components/ui/utils";
@@ -213,7 +217,9 @@ export function TaskImageGallery({
                     title={`${img.att.name}${img.actor ? ` · ${img.actor}` : ""}`}
                     className="size-[72px] shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-slate-100 hover:border-[#002fa7]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30"
                   >
-                    <img
+                    <RenewableImage
+                      resourceKey={`rd-thumb:${img.att.task_id}:${img.att.id}`}
+                      refresh={img.att.task_id ? async () => getAttachmentThumbUrl(await refreshRdAttachment(img.att)) : undefined}
                       src={getAttachmentThumbUrl(img.att)}
                       alt={img.att.name}
                       className="h-full w-full object-cover"
@@ -259,7 +265,12 @@ export function TaskImageLightbox({
   // Enable gestures by actual viewport as well as by the dedicated /m route.
   const zoomEnabled = isMobileRoute() || isMobileViewport();
   const currentImageId = current.att.id;
-  const currentUrl = getAttachmentUrl(current.att);
+  const resource = useRenewableResource({
+    src: getAttachmentUrl(current.att), resourceKey: `rd-original:${current.att.task_id}:${current.att.id}`,
+    refresh: current.att.task_id ? async () => getAttachmentUrl(await refreshRdAttachment(current.att)) : undefined,
+    refreshOnMount: true,
+  });
+  const currentUrl = resource.src;
   const gestureViewportRef = useRef<HTMLDivElement>(null);
   const carouselFrameRef = useRef<HTMLDivElement>(null);
   const imageFrameRef = useRef<HTMLDivElement>(null);
@@ -498,7 +509,8 @@ export function TaskImageLightbox({
               </button>
             </>
           )}
-          <a
+          <ResourceDownloadLink
+            refresh={current.att.task_id ? async () => getAttachmentDownloadUrl(await refreshRdAttachment(current.att)) : undefined}
             href={getAttachmentDownloadUrl(current.att)}
             download={current.att.name}
             target="_blank"
@@ -507,7 +519,7 @@ export function TaskImageLightbox({
             aria-label="下载原图"
           >
             <Download className="h-4 w-4" />
-          </a>
+          </ResourceDownloadLink>
           <button
             ref={closeButtonRef}
             type="button"
@@ -624,17 +636,20 @@ export function TaskImageLightbox({
           </button>
         )}
         <div ref={carouselFrameRef} className="relative flex h-full w-full items-center justify-center">
-          {loadedUrl !== currentUrl && <Loader2 className="absolute size-7 animate-spin text-white/70" aria-hidden="true" />}
+          {!resource.failed && (resource.refreshing || loadedUrl !== currentUrl) && <Loader2 className="absolute size-7 animate-spin text-white/70" aria-hidden="true" />}
+          {resource.failed ? <span role="alert" className="absolute text-sm text-white">{t("图片加载失败，请重新打开或下载查看")}</span> : null}
           <div ref={imageFrameRef} className="relative flex h-full w-full origin-center items-center justify-center">
             <img
               ref={imageElementRef}
               key={currentUrl}
-              src={currentUrl}
+              src={currentUrl || undefined}
+              onError={resource.onError}
               alt={current.att.name}
               loading="eager"
               decoding="async"
               draggable={false}
               onLoad={() => {
+                resource.onLoad();
                 setLoadedUrl(currentUrl);
                 measureGestureLayout();
                 applyImageTransform(imageTransformRef.current, false);
@@ -855,7 +870,9 @@ export function ProgressAttachmentGrid({
                     "relative overflow-hidden bg-slate-100",
                     thumbnailMode ? "h-full" : clippedCardMode ? "h-16" : compact ? "h-12" : "h-32",
                   )}>
-                    <img
+                    <RenewableImage
+                      resourceKey={`rd-thumb:${att.task_id}:${att.id}`}
+                      refresh={att.task_id ? async () => getAttachmentThumbUrl(await refreshRdAttachment(att)) : undefined}
                       src={getAttachmentThumbUrl(att)}
                       alt={att.name}
                       className="h-full w-full object-cover"
@@ -1064,7 +1081,12 @@ export function AttachmentPreviewModal({
     mime === "application/pdf" ||
     mime === "text/plain" ||
     mime === "application/json";
-  const inlinePreview = useInlinePreviewSrc(attachment);
+  const resource = useRenewableResource({
+    src: getAttachmentPreviewUrl(attachment), resourceKey: `rd-preview:${attachment.task_id}:${attachment.id}`,
+    refresh: attachment.task_id ? async () => getAttachmentPreviewUrl(await refreshRdAttachment(attachment)) : undefined,
+    refreshOnMount: true,
+  });
+  const inlinePreview = useInlinePreviewSrc({ ...attachment, preview_url: resource.src });
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -1086,7 +1108,8 @@ export function AttachmentPreviewModal({
             </DialogDescription>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <a
+            <ResourceDownloadLink
+              refresh={attachment.task_id ? async () => getAttachmentDownloadUrl(await refreshRdAttachment(attachment)) : undefined}
               href={getAttachmentDownloadUrl(attachment)}
               download={attachment.name}
               target="_blank"
@@ -1095,7 +1118,7 @@ export function AttachmentPreviewModal({
             >
               <Download className="h-3.5 w-3.5" />
               下载
-            </a>
+            </ResourceDownloadLink>
             <button
               ref={closeButtonRef}
               type="button"
@@ -1108,10 +1131,12 @@ export function AttachmentPreviewModal({
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-4">
-          {isImage ? (
+          {resource.refreshing ? <div role="status" className="flex min-h-[52vh] items-center justify-center"><Loader2 className="size-6 animate-spin text-slate-400" /></div> : resource.failed ? <div role="alert" className="p-6 text-sm text-slate-500">{t("附件加载失败，请重新打开或下载查看。")}</div> : isImage ? (
             <div className="flex min-h-[52vh] items-center justify-center">
               <img
-                src={getAttachmentUrl(attachment)}
+                src={resource.src || undefined}
+                onError={resource.onError}
+                onLoad={resource.onLoad}
                 alt={attachment.name}
                 loading="eager"
                 decoding="async"
@@ -1121,7 +1146,8 @@ export function AttachmentPreviewModal({
           ) : isVideo ? (
             <div className="flex min-h-[52vh] items-center justify-center">
               <video
-                src={getAttachmentUrl(attachment)}
+                src={resource.src || undefined}
+                onError={resource.onError}
                 controls
                 autoPlay
                 playsInline
@@ -1131,7 +1157,7 @@ export function AttachmentPreviewModal({
               </video>
             </div>
           ) : isSpreadsheet ? (
-            <XlsxTablePreview attachment={attachment} />
+            <XlsxTablePreview url={resource.src} />
           ) : canInlinePreview && inlinePreview.src ? (
             <iframe
               /*
@@ -1174,7 +1200,7 @@ export function AttachmentPreviewModal({
   );
 }
 /** Excel 附件的只读 HTML 表格预览：拉取文件 → exceljs 解析 → 渲染表格（支持多 sheet 切页、合并单元格）。 */
-function XlsxTablePreview({ attachment }: { attachment: RdTaskProgressAttachment }) {
+function XlsxTablePreview({ url }: { url: string }) {
   const [sheets, setSheets] = useState<XlsxPreviewSheet[] | null>(null);
   const [active, setActive] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -1187,7 +1213,7 @@ function XlsxTablePreview({ attachment }: { attachment: RdTaskProgressAttachment
     setActive(0);
     (async () => {
       try {
-        const res = await fetch(getAttachmentPreviewUrl(attachment));
+        const res = await fetch(url);
         if (!res.ok) throw new Error(`文件下载失败（${res.status}）`);
         const buf = await res.arrayBuffer();
         const parsed = await parseXlsxForPreview(buf);
@@ -1199,7 +1225,7 @@ function XlsxTablePreview({ attachment }: { attachment: RdTaskProgressAttachment
     return () => {
       cancelled = true;
     };
-  }, [attachment, retryKey]);
+  }, [url, retryKey]);
 
   if (error) {
     return (

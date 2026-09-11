@@ -40,10 +40,12 @@ import {
   fetchRdSheetVersions,
   restoreRdSheetVersion,
   saveRdSheetWorkbook,
+  renewRdSheetAssetUrls,
   type RdApiError,
   type RdSheetVersionMeta,
 } from "./lib/rdApi";
-import { externalizeSnapshotImages } from "./lib/rdSheetAssets";
+import { externalizeSnapshotImages, startSheetAssetRenewal } from "./lib/rdSheetAssets";
+import { reportResourceFailure, requestResourceRefresh } from "./lib/resourceAccess";
 import { clearRdSheetDraft, loadRdSheetDraft, saveRdSheetDraft } from "./lib/rdSheetDraft";
 import { xlsxToUniverSnapshot } from "./lib/xlsxToUniver";
 import { t, useI18n } from "./lib/i18n";
@@ -120,6 +122,15 @@ export function RDSheetPage() {
   /** 会话级图片出仓缓存（dataURL → 资产 URL），避免每次保存重复上传同一图片 */
   const assetCacheRef = useRef(new Map<string, string | null>());
   const confirmationResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+
+  useEffect(() => {
+    if (loading || !snapshot || !user?.id) return;
+    return startSheetAssetRenewal({
+      getEditor: () => handleRef.current,
+      renew: (sources, signal) => requestResourceRefresh(`rd-sheet-assets:${JSON.stringify(sources)}`, () => renewRdSheetAssetUrls(sources, signal)),
+      onFailure: () => reportResourceFailure("renew"),
+    });
+  }, [loading, reloadKey, user?.id, snapshot]);
 
   const requestConfirmation = useCallback((next: SheetConfirmation) => {
     confirmationResolverRef.current?.(false);

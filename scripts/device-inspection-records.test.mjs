@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import ts from "typescript";
+import { createRequire } from "node:module";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 const source = fs.readFileSync(new URL("../src/app/lib/deviceInspectionRecords.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const m = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
@@ -55,4 +58,48 @@ test("production route does not import synthetic adapters or replace authenticat
   const page = fs.readFileSync(new URL("../src/app/DeviceInspectionRecordsPage.tsx", import.meta.url), "utf8");
   const api = fs.readFileSync(new URL("../src/app/lib/deviceInspectionRecordsApi.ts", import.meta.url), "utf8");
   assert.doesNotMatch(page, /preview-api|DEMO-QC|synthetic-/); assert.match(api, /authFetch/); assert.doesNotMatch(api, /localStorage|Bearer/);
+});
+
+// Render the real, pure evidence components without mounting the authenticated page or calling an API.
+const pageSource = fs.readFileSync(new URL("../src/app/DeviceInspectionRecordsPage.tsx", import.meta.url), "utf8");
+const pageModule = { exports: {} };
+const require = createRequire(import.meta.url);
+const pageCode = ts.transpileModule(pageSource + "\nexport { RecordStaff, ManualConfirmations };", { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React, esModuleInterop: true } }).outputText;
+new Function("require", "module", "exports", pageCode)(id => id.endsWith(".css") ? {} : id === "./lib/deviceInspectionRecords" ? m : id === "./lib/deviceInspectionRecordsApi" ? {} : require(id), pageModule, pageModule.exports);
+const render = (component, evidence) => renderToStaticMarkup(React.createElement(pageModule.exports[component], { record: evidence }));
+test("list displays the uploaded station and operator, including absent historical metadata", () => {
+  const html = render("RecordStaff", { station: "产线 A / 02", operator: "张三（夜班）" });
+  assert.match(html, /工位：产线 A \/ 02/); assert.match(html, /操作员：张三（夜班）/);
+  const missing = render("RecordStaff", { station: "", operator: null });
+  assert.match(missing, /工位：未记录/); assert.match(missing, /操作员：未记录/);
+});
+test("manual evidence renders all frozen fields and preserves mixed results without inventing confirmations", () => {
+  const checks = [
+    { id: "MAN-001", name: "实体按键回弹", result: "Pass", reason: "回弹正常", operator: "原确认人", confirmedAt: "2026-09-11T08:00:01Z" },
+    { id: "MAN-002", name: "各档位共振", result: "Fail", reason: "三档异常抖动", operator: "另一确认人", confirmedAt: "2026-09-11T08:00:02Z" },
+    { id: "MAN-003", name: "屏幕显示", result: "NotChecked", reason: "", operator: "", confirmedAt: null },
+    { id: "MAN-004", name: "风扇旋转", result: "Pass", reason: "", operator: "原确认人", confirmedAt: "2026-09-11T08:00:03Z" },
+    { id: "MAN-005", name: "吸气灵敏度", result: "NotChecked", reason: "", operator: "", confirmedAt: null },
+  ];
+  const evidence = { ...record([]), operator: "后续操作员不应代填", snapshot: { manualChecks: checks } };
+  const before = JSON.stringify(evidence), html = render("ManualConfirmations", evidence);
+  for (const check of checks) assert.ok(html.includes(check.name));
+  assert.equal((html.match(/>合格<\/span>/g) || []).length, 2);
+  assert.equal((html.match(/>不合格<\/span>/g) || []).length, 1);
+  assert.equal((html.match(/>未确认<\/span>/g) || []).length, 2);
+  assert.match(html, /三档异常抖动/); assert.match(html, /原确认人/); assert.match(html, /另一确认人/);
+  for (const check of checks.filter(value => value.confirmedAt)) assert.ok(html.includes('dateTime="' + check.confirmedAt + '"'));
+  assert.doesNotMatch(html, /后续操作员不应代填/); assert.equal((html.match(/<time>未记录<\/time>/g) || []).length, 2);
+  assert.equal(JSON.stringify(evidence), before);
+});
+test("five unchecked items remain visibly unchecked with no invented confirmation person or time", () => {
+  const html = render("ManualConfirmations", { ...record([]), operator: "不可代填", snapshot: { manualChecks: Array.from({ length: 5 }, (_,index) => ({ id: "MAN-"+index, name: "项目"+index, result: "NotChecked", operator: "", reason: "", confirmedAt: null })) } });
+  assert.equal((html.match(/>未确认<\/span>/g) || []).length, 5);
+  assert.equal((html.match(/<time>未记录<\/time>/g) || []).length, 5);
+  assert.doesNotMatch(html, /dir-result--pass|dir-result--ng|不可代填|dateTime=/);
+});
+test("missing historical manual evidence is explicit and supplied text is safely escaped", () => {
+  for (const manualChecks of [undefined, null, [], "legacy-unknown"]) assert.match(render("ManualConfirmations", { ...record([]), snapshot: { manualChecks } }), /该记录未包含人工确认信息/);
+  const html = render("ManualConfirmations", { ...record([]), snapshot: { manualChecks: [{ name: "<script>alert(1)</script>", result: "unknown", reason: "<img src=x onerror=alert(1)>", operator: "<b>某人</b>", confirmedAt: "not-a-time" }] } });
+  assert.doesNotMatch(html, /<script>|<img|<b>|dir-result--pass|dateTime=/); assert.match(html, /&lt;script&gt;/); assert.match(html, /未记录/);
 });

@@ -1,6 +1,6 @@
 import type { FactoryProtocolCatalog, FactorySerialConfig } from './factory-qc.contract';
 
-/** Confirmed desktop v0.5.0 defaults; changing these never overwrites an existing database domain. */
+/** Confirmed desktop v0.5.2 defaults; changing these never overwrites an existing database domain. */
 export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
   "schemaVersion": 1,
   "minAppVersion": "0.4.0",
@@ -1311,10 +1311,10 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
 
 export const FACTORY_SERIAL_DEFAULT: FactorySerialConfig = {
   "schemaVersion": 1,
-  "version": "serial-config-001",
+  "version": "serial-config-002",
   "autoConnect": true,
-  "portName": "auto",
-  "baudRate": 115200,
+  "portName": "COM3",
+  "baudRate": 9600,
   "dataBits": 8,
   "parity": "None",
   "stopBits": "One",

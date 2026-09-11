@@ -1,3 +1,5 @@
+import { RenewableImage } from "../../components/RenewableImage";
+import { procurementAttachmentPreview } from "../../lib/attachmentAccess";
 // 采购任务共享卡：驾驶舱与个人工作台共用，视觉结构对齐研发任务驾驶舱。
 import { useEffect, useState } from "react";
 import {
@@ -39,16 +41,6 @@ const PRIORITY_TONE = {
   low: { label: "低优先", className: "bg-slate-100 text-slate-600" },
 } as const;
 
-function previewModel(attachment: ProcurementTask["attachmentList"][number]): PreviewableAttachment {
-  return {
-    id: attachment.id,
-    name: attachment.fileName,
-    mime: attachment.mimeType,
-    size: attachment.fileSize,
-    url: attachment.fileUrl,
-    thumbUrl: attachment.thumbUrl,
-  };
-}
 
 export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassign, onRemove, onRollback, onViewLogs, onOverlayOpenChange }: {
   task: ProcurementTask;
@@ -75,7 +67,7 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
   const latestLog = task.logs.at(-1)?.text?.trim() || t("暂无流程更新");
   const buyerLabel = task.buyer?.trim() || t("未指派");
   const previewAttachments = task.attachmentList.slice(0, 3);
-  const allPreviewAttachments = task.attachmentList.map(previewModel);
+  const allPreviewAttachments = task.attachmentList.map((attachment) => procurementAttachmentPreview(task.id, attachment));
   const hiddenAttachmentCount = Math.max(0, allPreviewAttachments.length - previewAttachments.length);
   const canAdvance = Boolean(meta.next && can(nextPermissionOf(task)) && onNext);
   const canRollback = Boolean(onRollback && can("proc-task:rollback") && rollbackTargetsOf(task.status, task.method, task).length > 0);
@@ -219,13 +211,13 @@ export function ProcurementTaskCard({ task, materials, onOpen, onNext, onReassig
                     title={attachment.fileName}
                     onClick={(event) => {
                       event.stopPropagation();
-                      setPreviewAttachment(previewModel(attachment));
+                      setPreviewAttachment(procurementAttachmentPreview(task.id, attachment));
                     }}
                   >
                     {isImage ? (
                       // 缩略图优先用后端给的 OSS 实时缩放地址（同一对象 375KB → 13.5KB）：
                       // 列表仅加载缩略图，点开预览时才用原图；contain 保留图纸全貌。
-                      <img src={attachment.thumbUrl ?? attachment.fileUrl} alt={attachment.fileName} loading="lazy" decoding="async" className="h-24 w-full bg-slate-50 object-contain p-1" />
+                      <RenewableImage resourceKey={`proc-thumb:${task.id}:${attachment.id}`} refresh={async () => { const latest = await procurementAttachmentPreview(task.id, attachment).refresh!(); return latest.thumbUrl || latest.url; }} src={attachment.thumbUrl ?? attachment.fileUrl} alt={attachment.fileName} loading="lazy" decoding="async" className="h-24 w-full bg-slate-50 object-contain p-1" />
                     ) : (
                       <div className="flex h-24 items-center justify-center text-slate-400"><Paperclip className="size-6" /></div>
                     )}
