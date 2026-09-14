@@ -155,8 +155,9 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
           </div>
         </SheetHeader>
 
-        <ScrollArea className="proc-horizon-material-drawer-scroll min-h-0 min-w-0 flex-1">
-          <div className="proc-horizon-material-drawer-body min-w-0 space-y-4 px-4 py-4 sm:px-6">
+        {/* Keep Radix's table-sized content wrapper from expanding to the warehouse table width. */}
+        <ScrollArea className="proc-horizon-material-drawer-scroll min-h-0 min-w-0 w-full flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block [&>[data-slot=scroll-area-viewport]>div]:!min-w-0 [&>[data-slot=scroll-area-viewport]>div]:w-full">
+          <div className="proc-horizon-material-drawer-body min-w-0 w-full max-w-full space-y-4 px-4 py-4 sm:px-6">
             {material.reviewStatus === "pending" && can("material:review") && (
               <section aria-labelledby="material-review-title" aria-describedby={reviewError ? "material-review-error" : undefined} aria-busy={reviewBusy} className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -302,7 +303,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
               </div>
 
               {warehouses.length > 0 ? (
-                <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200" role="region" aria-label={t("分仓库存明细")} tabIndex={0}>
+                <div className="mt-3 min-w-0 w-full max-w-full overflow-x-auto rounded-lg border border-slate-200" role="region" aria-label={t("分仓库存明细")} tabIndex={0}>
                   <table className="w-full min-w-[420px] table-fixed border-separate border-spacing-0 text-xs">
                     <caption className="sr-only">{t("分仓现存量与可用量")}</caption>
                     <colgroup><col className="w-48" /><col /><col /></colgroup>
@@ -389,7 +390,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
           </div>
         </ScrollArea>
 
-        <PriceHistoryModal materialName={material.name} open={historyOpen} onClose={() => setHistoryOpen(false)} />
+        <PriceHistoryModal materialId={material.id} materialName={material.name} open={historyOpen} onClose={() => setHistoryOpen(false)} />
         {editOpen && <MaterialFormModal material={material} onClose={() => setEditOpen(false)} />}
         {imageOpen && material.imageUrl && (
           <ImageLightbox

@@ -85,15 +85,18 @@ test("卡片和灯箱键盘交互不会串联打开详情", () => {
   assert.match(source, /aria-valuenow=\{progress\}/);
 });
 
-test("任务详情默认展示进度并保留五个事实视图", () => {
+test("任务详情默认展示进度并保留五个事实视图，仅研发启用资料版本", () => {
   assert.match(
     source,
     /useState<"overview" \| "progress" \| "conversation" \| "attachments" \| "activity">\("progress"\)/,
   );
   assert.match(
     source,
-    /\{ key: "progress", label: t\("进度留痕"\), icon: History \},\s*\{ key: "overview", label: t\("任务概览"\), icon: Info \},\s*\{ key: "conversation", label: t\("任务讨论"\), icon: MessageCircleMore \},\s*\{ key: "attachments", label: t\("附件库"\), icon: Paperclip \},\s*\{ key: "activity", label: t\("操作记录"\), icon: Activity \}/,
+    /\{ key: "progress", label: t\("进度留痕"\), icon: History \},\s*\{ key: "overview", label: t\("任务概览"\), icon: Info \},\s*\{ key: "conversation", label: t\("任务讨论"\), icon: MessageCircleMore \},\s*\{ key: "attachments", label: technicalDocumentsEnabled \? t\("资料与附件"\) : t\("附件库"\), icon: Paperclip \},\s*\{ key: "activity", label: t\("操作记录"\), icon: Activity \}/,
   );
+  // 默认研发池才扩充资料版本；协同、生产继续使用原附件库入口。
+  assert.match(source, /const technicalDocumentsEnabled = currentRdWorkspace\(\) === null;/);
+  assert.match(source, /technicalDocumentsEnabled && !loading && !loadError && [^\n]*<TechnicalDocumentsPanel key=\{task\.task_id\} taskId=\{task\.task_id\}/);
   assert.match(source, /role="alert"/);
   assert.match(source, /onClick=\{reload\}/);
   assert.match(source, /<MissingTaskDialog taskId=\{routeTaskId\} onClose=\{closeActiveTask\} \/>/);

@@ -7,6 +7,13 @@ const source = readFileSync(new URL("../src/app/procurement/components/StockPlan
 const code = ts.transpileModule(`${source}\nexport { StockPlanFormDialog, StockPlanBatchDialog, PlanReadiness };`, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
+const navigationHelpers = {};
+for (const name of ['stockPlanNavigation', 'purchaseOrderLineNavigation']) {
+  const exports = {};
+  const helperCode = ts.transpileModule(readFileSync(new URL(`../src/app/lib/${name}.ts`, import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
+  new Function('exports', 'require', helperCode)(exports, () => ({ routePath: (_code, fallback) => fallback, subRoutePath: (_code, fallback, suffix) => `${fallback}/${suffix}` }));
+  navigationHelpers[`../../lib/${name}`] = exports;
+}
 
 function nodes(tree) {
   if (Array.isArray(tree)) return tree.flatMap(nodes);
@@ -44,8 +51,11 @@ function fixture(component, props, api = {}) {
     return api[name] ? api[name](...args) : plan;
   };
   const deps = {
+    ...navigationHelpers,
     react, "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
-    "react-router": { useNavigate: () => (value) => navigations.push(value), useSearchParams: () => [new URLSearchParams(), () => {}] },
+    "react-router": { useNavigate: () => (value) => navigations.push(value), useSearchParams: () => [new URLSearchParams(), () => {}], useLocation: () => ({ pathname: '/proc-cockpit', search: '', state: null }) },
+    "../../hooks/usePermission": { usePermission: () => true },
+    "./StockPlanOrderDateCheck": { StockPlanOrderDateCheck: 'StockPlanOrderDateCheck' },
     "../../lib/i18n": { useI18n: () => ({ t: (value, params = {}) => value.replace(/\{(\w+)\}/g, (match, key) => params[key] ?? match) }) },
     "../../components/ui/utils": { cn: (...parts) => parts.filter(Boolean).join(" ") },
     "../data": { useProcurementProducts: () => [{ id: "product-q5", name: "Q5" }, { id: "product-q7", name: "Q7" }], refreshProcurement: async () => {} },

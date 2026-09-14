@@ -101,8 +101,9 @@ test("三套人员管理路由统一启用 Horizon 视觉且保留实例与权�
 });
 
 test("Horizon 放开不改变工作区识别、数据过滤和 API 参数隔离", () => {
-  assert.match(rdApi, /window\.location\.pathname\.startsWith\("\/us-collab"\)/);
-  assert.match(rdApi, /window\.location\.pathname\.startsWith\("\/production-"\)/);
+  assert.match(rdApi, /import \{ currentRdWorkspace \} from "\.\/rdWorkspace"/);
+  assert.match(rdApi, /return currentRdWorkspace\(\) === "us-collab"/);
+  assert.match(rdApi, /return currentRdWorkspace\(\) === "production"/);
   assert.match(rdApi, /workspace=\$\{encodeURIComponent\(workspace\)\}/);
   assert.match(rdApi, /RD_API_BASE\}\$\{withWorkspace\(path\)\}/);
 

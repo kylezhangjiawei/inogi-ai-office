@@ -406,6 +406,7 @@ export function ProcurementSystemTree({
   const panoramaScrollRef = useRef<HTMLDivElement | null>(null);
   const treeRequestRef = useRef(0);
   const [categoryNavEdges, setCategoryNavEdges] = useState({ left: false, right: false });
+  const requestedProductMissing = Boolean(requestedProductId && !products.some((product) => product.id === requestedProductId));
 
   const taskFingerprint = useMemo(
     () => tasks
@@ -417,6 +418,10 @@ export function ProcurementSystemTree({
 
   const loadTree = useCallback(async () => {
     const requestId = ++treeRequestRef.current;
+    if (requestedProductMissing || (requestedProductId && activeProductId !== requestedProductId)) {
+      setRoots([]); setLoading(false); setError(null);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -430,12 +435,12 @@ export function ProcurementSystemTree({
     } finally {
       if (requestId === treeRequestRef.current) setLoading(false);
     }
-  }, [activeProductId, t]);
+  }, [activeProductId, requestedProductId, requestedProductMissing, t]);
 
   useEffect(() => {
-    if (products.length === 0 || products.some((product) => product.id === activeProductId)) return;
+    if (requestedProductId || products.length === 0 || products.some((product) => product.id === activeProductId)) return;
     setActiveProductId(products[0].id);
-  }, [activeProductId, products]);
+  }, [activeProductId, products, requestedProductId]);
 
   useEffect(() => {
     if (!requestedProductId || requestedProductId === activeProductId) return;
@@ -448,6 +453,7 @@ export function ProcurementSystemTree({
 
   useEffect(() => {
     void loadTree();
+    return () => { treeRequestRef.current += 1; };
   }, [loadTree, taskFingerprint]);
 
   useEffect(() => {
@@ -558,6 +564,17 @@ export function ProcurementSystemTree({
 
   const detailNode = detailNodeId ? findNode(roots, detailNodeId) : null;
   const detailParent = detailNode?.parentId ? findNode(roots, detailNode.parentId) : null;
+
+  if (requestedProductMissing) {
+    return <section role="status" className="proc-horizon-system-panorama material-card flex min-h-0 flex-1 items-center justify-center border-slate-200 bg-white px-4 py-8 shadow-sm">
+      <div className="max-w-lg text-center">
+        <AlertTriangle className="mx-auto size-7 text-amber-600" />
+        <p className="mt-2 text-sm font-semibold text-slate-700">{t("原产品不在当前可用列表中，可能已删除或移出。")}</p>
+        <p className="mt-1 text-pretty text-xs text-slate-500">{t("请重新选择产品；不会自动打开其他产品的计划。")}</p>
+        {onShowTasks ? <button type="button" onClick={() => onShowTasks(requestedProductId || activeProductId)} className="material-button-secondary mt-3 px-3 py-1.5 text-xs">{t("返回任务驾驶舱")}</button> : null}
+      </div>
+    </section>;
+  }
 
   if (detailNodeId) {
     if (detailNode) {

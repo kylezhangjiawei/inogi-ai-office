@@ -7,6 +7,7 @@ import { NestFactory } from '@nestjs/core';
 import { json, text, urlencoded, type NextFunction, type Request, type Response } from 'express';
 
 import { AppModule } from './app.module';
+import { parseTrustedProxy } from './common/trusted-proxy';
 
 /**
  * 进程级兜底：任何未被捕获的 Promise rejection / 同步异常，只记日志、不退出进程。
@@ -76,7 +77,15 @@ async function bootstrap() {
     process.exit(1);
   }
 
+  let trustedProxy: ReturnType<typeof parseTrustedProxy>;
+  try { trustedProxy = parseTrustedProxy(process.env.TRUST_PROXY); }
+  catch (error) {
+    console.error(`[FATAL] ${error instanceof Error ? error.message : 'TRUST_PROXY 配置无效'}`);
+    process.exit(1);
+  }
   const app = await NestFactory.create(AppModule, { bodyParser: false });
+  // The bundled Nginx forwards from loopback. Trust only configured proxy peers; direct clients cannot choose req.ip through XFF.
+  app.getHttpAdapter().getInstance().set('trust proxy', trustedProxy);
   app.use(text({ type: ['text/*', 'application/xml', 'text/xml'], limit: '5mb' }));
   // 研发数据表会把高保真工作簿（含 base64 图片）作为 JSON 保存；当前线上快照
   // 已超过通用 25 MB 上限。仅对此路由放宽，避免扩大其他 JSON 接口的攻击面。

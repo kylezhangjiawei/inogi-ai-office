@@ -1,12 +1,14 @@
 import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
+import { createDecipheriv } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { TplusConfigDto, TplusExchangeCodeDto } from './dto/procurement.dto';
 import { ProcurementService } from './procurement.service';
 import { TplusPoMatchService } from './tplus-po-match.service';
+import { persistMirrorDelivery } from './purchase-delivery-store';
 
 /**
  * 畅捷通 T+ 只读同步适配层。
@@ -197,6 +199,7 @@ export interface TplusPurchaseOrderLine {
 export class TplusSyncService {
   private readonly logger = new Logger(TplusSyncService.name);
   private materialMasterSyncInFlight: Promise<TplusMaterialMasterSyncResult> | null = null;
+  private openTokenRefreshInFlight: Promise<string> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -338,33 +341,36 @@ export class TplusSyncService {
    * 消息类型（对齐官方消息列表文档）：APP_TEST 配置验证；APP_TICKET 每 10 分钟推送的
    * 应用票据（换 appAccessToken 的原料）；TEMP_AUTH_CODE 企业临时授权码（10 分钟有效，
    * 收到立即串链换成企业永久授权码落库）；APP_CANCEL_* 取消开通/授权告警。
-   * 无论处理结果如何都应答成功，避免平台重试轰炸；原始报文留最近 20 条（票据消息除外，太频繁）。
+   * 只处理使用平台环境密钥加密且 appKey 匹配的消息；验证失败不写库。
    */
   async handlePlatformMessage(body: Record<string, unknown>) {
-    const msgType = String(body?.msgType ?? '').toUpperCase();
-    const biz = (body?.bizContent ?? {}) as Record<string, unknown>;
     const config = await this.findConfigRow();
     if (!config) {
-      this.logger.warn(`收到 T+ 平台消息但集成未配置：${msgType}`);
-      return { result: 'success' };
+      throw new ServiceUnavailableException('T+ 消息接收未配置集成');
     }
     const meta = (config.metadata ?? {}) as Record<string, unknown>;
+    const message = this.decryptPlatformMessage(body, String(meta.appKey ?? ''));
+    const msgType = String(message.msgType).toUpperCase();
+    const biz = message.bizContent as Record<string, unknown>;
     const patch: Record<string, unknown> = {};
     if (msgType !== 'APP_TICKET') {
       const log = Array.isArray(meta.notifyLog) ? (meta.notifyLog as unknown[]) : [];
       patch.notifyLog = [
-        { msgType, at: new Date().toISOString(), raw: JSON.stringify(body).slice(0, 800) },
+        { msgType, at: new Date().toISOString(), id: message.id },
         ...log,
       ].slice(0, 20);
     }
 
     try {
       if (msgType === 'APP_TICKET') {
+        const messageTime = Number(message.time);
+        if (messageTime <= Number(meta.appTicketMessageTime ?? 0)) return { result: 'success' };
         // 公网端点：入库字符串一律截断，防恶意超长报文撑爆 metadata
         const ticket = String(biz.appTicket ?? '').slice(0, 256);
         if (ticket) {
           patch.appTicket = ticket;
           patch.appTicketAt = new Date().toISOString();
+          patch.appTicketMessageTime = messageTime;
         }
       } else if (msgType === 'TEMP_AUTH_CODE') {
         const tempAuthCode = String(biz.tempAuthCode ?? '').slice(0, 256);
@@ -392,17 +398,54 @@ export class TplusSyncService {
       }
     } catch (error) {
       // 串链失败不影响应答：下次「开通授权」会再推临时码
-      this.logger.warn(`平台消息 ${msgType} 处理失败：${(error as Error).message}`);
+      this.logger.warn(`平台消息 ${msgType} 处理失败：${redactTplusText((error as Error).message)}`);
     }
 
     if (Object.keys(patch).length > 0) {
-      await this.prisma.integrationConfig.update({
-        where: { id: config.id },
+      const updated = await this.prisma.integrationConfig.updateMany({
+        where: { id: config.id, metadata: { equals: meta as Prisma.InputJsonObject } },
         data: { metadata: { ...meta, ...patch } as Prisma.InputJsonObject },
       });
+      if (!updated.count) {
+        // 平台会补偿重试；不能用回调开始时的快照覆盖期间轮转的新令牌。
+        throw new ServiceUnavailableException('T+ 配置已更新，请重试消息');
+      }
     }
     // 应答格式对齐开放平台校验要求：必须是 {'result':'success'}
     return { result: 'success' };
+  }
+
+  /** 官方协议：encryptMsg = Base64(AES/ECB/PKCS5Padding(JSON))，密钥为平台的 16 位环境密钥。
+   * https://open.chanjet.com/docs/file/guide/commonContent/jcwd-xxts/xxgs-jrzy
+   */
+  private decryptPlatformMessage(body: Record<string, unknown>, appKey: string): Record<string, unknown> {
+    const key = process.env.TPLUS_MESSAGE_AES_KEY ?? '';
+    if (!/^[A-Za-z0-9]{16}$/.test(key)) {
+      throw new ServiceUnavailableException('请配置与开放平台环境密钥一致的 TPLUS_MESSAGE_AES_KEY（16 位字母数字）');
+    }
+    const encrypted = body?.encryptMsg;
+    if (typeof encrypted !== 'string' || encrypted.length > 65536
+      || !/^[A-Za-z0-9+/]+={0,2}$/.test(encrypted)) {
+      throw new BadRequestException('T+ 回调缺少有效加密消息 encryptMsg');
+    }
+    let message: Record<string, unknown>;
+    try {
+      const decipher = createDecipheriv('aes-128-ecb', Buffer.from(key, 'utf8'), null);
+      const plaintext = Buffer.concat([decipher.update(Buffer.from(encrypted, 'base64')), decipher.final()]);
+      message = JSON.parse(plaintext.toString('utf8'));
+    } catch {
+      throw new BadRequestException('T+ 加密消息验证失败');
+    }
+    if (!message || message.appKey !== appKey || !appKey) {
+      throw new BadRequestException('T+ 消息应用不匹配');
+    }
+    if (typeof message.id !== 'string' || !message.id || message.id.length > 128
+      || typeof message.msgType !== 'string' || message.msgType.length > 64
+      || !Number.isFinite(Number(message.time)) || Number(message.time) <= 0
+      || !message.bizContent || typeof message.bizContent !== 'object' || Array.isArray(message.bizContent)) {
+      throw new BadRequestException('T+ 消息格式无效');
+    }
+    return message;
   }
 
   /** 鉴权类 POST（appKey/appSecret 放 header），成功返回 result 对象。 */
@@ -569,6 +612,17 @@ export class TplusSyncService {
    * 立即失效且 refresh_token 轮转，必须先落库再返回）。刷新失败时清空 token 要求重新授权。
    */
   private async ensureOpenToken(): Promise<string> {
+    if (this.openTokenRefreshInFlight) return this.openTokenRefreshInFlight;
+    const pending = this.resolveOpenToken();
+    this.openTokenRefreshInFlight = pending;
+    try {
+      return await pending;
+    } finally {
+      this.openTokenRefreshInFlight = null;
+    }
+  }
+
+  private async resolveOpenToken(): Promise<string> {
     const config = await this.findConfigRow();
     const meta = (config?.metadata ?? {}) as Record<string, unknown>;
     const openToken = typeof meta.openToken === 'string' ? meta.openToken : '';
@@ -629,8 +683,17 @@ export class TplusSyncService {
       // 而那正是事后查「这次为什么断」的唯一依据。
       const latest = await this.findConfigRow();
       const freshMeta = (latest?.metadata ?? meta) as Record<string, unknown>;
-      await this.prisma.integrationConfig.update({
-        where: { id: config.id },
+      // 其他实例或人工重新授权可能已换新；旧请求只能清理自己尝试过的凭据。
+      if (!latest || latest.id !== config.id || freshMeta.refreshToken !== refreshToken
+        || freshMeta.openToken !== openToken) {
+        throw lastError;
+      }
+      await this.prisma.integrationConfig.updateMany({
+        where: {
+          id: config.id,
+          // 比较最终快照，避免上述重读与本次写入之间又发生换新或配置修改。
+          metadata: { equals: freshMeta as Prisma.InputJsonObject },
+        },
         data: {
           metadata: {
             ...freshMeta,
@@ -1440,11 +1503,7 @@ export class TplusSyncService {
           materialId,
           syncedAt: new Date(),
         };
-        await this.prisma.procPurchaseOrderMirror.upsert({
-          where: { tpOrderNo_tpLineNo: { tpOrderNo: orderNo, tpLineNo: lineNo } },
-          create: { tpOrderNo: orderNo, tpLineNo: lineNo, ...data },
-          update: data,
-        });
+        await persistMirrorDelivery(this.prisma, orderNo, lineNo, data);
         upserted += 1;
       }
     }

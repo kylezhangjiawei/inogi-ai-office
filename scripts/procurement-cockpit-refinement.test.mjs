@@ -16,7 +16,7 @@ const moduleDetail = source("src/app/procurement/components/ProcurementModuleDet
 
 const surfaces = {
   "采购驾驶舱": cockpit,
-  "采购个人工作台": workspace,
+  "采购个人工作台": [workspace, source("src/app/procurement/components/ProcWorkspaceTaskList.tsx"), source("src/app/procurement/components/ProcWorkspaceTaskPanel.tsx"), source("src/app/procurement/components/ProcWorkspaceArrivals.tsx")].join("\n"),
   "采购系统树": systemTree,
   "采购任务卡": taskCard,
   "采购任务详情": taskDetail,
@@ -51,16 +51,17 @@ test("采购驾驶舱首屏让统计、搜索与失败恢复都可直接操作",
   assert.match(cockpit, /setProcCoreMaterialConfig/);
 });
 
-test("个人工作台支持搜索、阶段分组和可恢复空态", () => {
+test("个人工作台支持搜索、月份入口、任务列表和可恢复空态", () => {
   assert.match(workspace, /aria-label=\{t\("我的采购任务筛选"\)\}/);
   assert.match(workspace, /aria-label=\{t\("搜索我的采购任务"\)\}/);
-  assert.match(workspace, /const stageGroups = useMemo/);
-  assert.match(workspace, /StageIcon className="size-4/);
+  assert.match(workspace, /aria-label=\{t\("需求月份"\)\}/);
+  assert.match(workspace, /跨月未完成/);
+  assert.match(workspace, /日期待确认/);
   assert.match(workspace, /role="alert"[\s\S]*?我的采购任务加载失败/);
   assert.match(workspace, /正在加载我的采购任务[\s\S]*?min-h-52/);
-  assert.match(workspace, /当前没有需要推进的采购任务[\s\S]*?查看采购驾驶舱/);
+  assert.match(workspace, /当前没有需要推进的采购任务[\s\S]*?重新加载/);
   assert.match(workspace, /没有符合筛选条件的任务[\s\S]*?clearFilters/);
-  assert.match(workspace, /<ProcurementTaskCard/);
+  assert.match(workspace, /<ProcWorkspaceTaskList/);
   assert.match(workspace, /taskAction\.runNext/);
 });
 

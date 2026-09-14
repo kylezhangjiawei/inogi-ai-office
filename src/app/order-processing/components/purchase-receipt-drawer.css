@@ -1,0 +1,26 @@
+.purchase-receipt-drawer[data-state] {
+  animation: none;
+  transition: none;
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.purchase-receipt-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+}
+
+@media (min-width: 1024px) {
+  .purchase-receipt-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 20rem);
+    align-items: start;
+  }
+}
+
+@media (max-width: 767px) {
+  .purchase-receipt-layout:has(form) .purchase-receipt-aside {
+    grid-row: 1;
+  }
+}

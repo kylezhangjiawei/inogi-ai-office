@@ -1,11 +1,13 @@
 import React, { Suspense, useEffect, useState } from "react";
 import { CssBaseline, ThemeProvider } from "@mui/material";
-import { createBrowserRouter, Navigate, RouterProvider, useLocation, useParams } from "react-router";
+import { createBrowserRouter, matchPath, Navigate, RouterProvider, useLocation, useParams } from "react-router";
 import { toast } from "sonner";
 import { materialTheme } from "../styles/materialTheme";
 import { AuthProvider, useAuth } from "./auth";
 import { hasAnyPermission, hasPermission } from "./lib/permissions";
 import { isMobileViewport } from "./lib/mobileRouting";
+import { rdWorkspaceForPath } from "./lib/rdWorkspace";
+import { procurementWorkspaceReturnPath } from "./lib/procurementWorkspaceNavigation";
 import { DEPT_KBS, routePermissionMap } from "./routesConfig";
 // 路径解析：页面挂载路径以「页面路由管理」的配置为准，目录不可用时回退内置默认值
 import { asChildPath, routePath, subRoutePath } from "./lib/routePaths";
@@ -54,6 +56,8 @@ const ManualTopicPage = lazyNamed(() => import("./ManualPage"), "ManualTopicPage
 const EBPRPage = lazyNamed(() => import("./EBPRPage"), "EBPRPage");
 const EmailAIPage = lazyNamed(() => import("./EmailAIPage"), "EmailAIPage");
 const EmployeeArchivePage = lazyNamed(() => import("./EmployeeArchivePage"), "EmployeeArchivePage");
+const ApplicantFormsPage = lazyNamed(() => import("./ApplicantFormsPage"), "ApplicantFormsPage");
+const PublicApplicantFormPage = lazyNamed(() => import("./applicant-forms/PublicApplicantFormPage"), "PublicApplicantFormPage");
 const ExpenseCenterPage = lazyNamed(() => import("./ExpenseCenterPage"), "ExpenseCenterPage");
 const ExternalDocsPage = lazyNamed(() => import("./ExternalDocsPage"), "ExternalDocsPage");
 const InspectionReleasePage = lazyNamed(() => import("./InspectionReleasePage"), "InspectionReleasePage");
@@ -67,6 +71,62 @@ const InventoryManagementPage = lazyNamed(() => import("./order-processing"), "I
 const OrderWorkbenchPage = lazyNamed(() => import("./order-processing"), "OrderWorkbenchPage");
 const PurchaseOrderDetailPage = lazyNamed(() => import("./order-processing"), "PurchaseOrderDetailPage");
 const PurchaseOrdersPage = lazyNamed(() => import("./order-processing"), "PurchaseOrdersPage");
+// The unfinished warehouse workflow is available for frontend review only.
+// It carries its own in-memory demonstration data and is excluded from production routes.
+const ReceiptDispositionPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./procurement/ReceiptDispositionPreviewPage"), "ReceiptDispositionPreviewPage")
+  : null;
+const QualityExceptionsPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./procurement/quality/QualityExceptionsPreviewPage"), "QualityExceptionsPreviewPage")
+  : null;
+const WarehousePreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./procurement/warehouse/WarehousePreviewPage"), "WarehousePreviewPage")
+  : null;
+const ShipmentPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./procurement/shipments/ShipmentPreviewPage"), "ShipmentPreviewPage")
+  : null;
+const BatchArchivePreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./production/batch-archives/BatchArchivePreviewPage"), "BatchArchivePreviewPage")
+  : null;
+const EcnPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./production/ecn/EcnPreviewPage"), "EcnPreviewPage")
+  : null;
+const PlanningPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./production/planning/PlanningPreviewPage"), "PlanningPreviewPage")
+  : null;
+const DefectPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./production/defects/DefectPreviewPage"), "DefectPreviewPage")
+  : null;
+const ProductionRdPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./production/rd-collaboration/ProductionRdPreviewPage"), "ProductionRdPreviewPage")
+  : null;
+const TransferPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./production/transfer/TransferPreviewPage"), "TransferPreviewPage")
+  : null;
+const ProductionOverviewPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./production/overview/ProductionOverviewPreviewPage"), "ProductionOverviewPreviewPage")
+  : null;
+const ProductionTasksPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./production/overview/ProductionTasksPreviewPage"), "ProductionTasksPreviewPage")
+  : null;
+const InspectionPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./production/inspections/InspectionPreviewPage"), "InspectionPreviewPage")
+  : null;
+const FieldPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./production/field-tasks/FieldPreviewPage"), "FieldPreviewPage")
+  : null;
+const PreviewIndexPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./preview/PreviewIndexPage"), "PreviewIndexPage")
+  : null;
+const MonthlyReadinessPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./procurement/monthly-readiness/MonthlyReadinessPreviewPage"), "MonthlyReadinessPreviewPage")
+  : null;
+const KeyMaterialsPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./procurement/key-materials/KeyMaterialsPreviewPage"), "KeyMaterialsPreviewPage")
+  : null;
+const CompanyOverviewPreviewPage = import.meta.env.DEV
+  ? lazyNamed(() => import("./company-overview/CompanyOverviewPreviewPage"), "CompanyOverviewPreviewPage")
+  : null;
 // 采购管理（静态流程页面）
 const ProcurementCockpitPage = lazyNamed(() => import("./procurement"), "ProcurementCockpitPage");
 const ProcMyWorkspacePage = lazyNamed(() => import("./procurement"), "ProcMyWorkspacePage");
@@ -74,6 +134,7 @@ const MaterialWorkbenchPage = lazyNamed(() => import("./procurement"), "Material
 const InventoryReadinessPage = lazyNamed(() => import("./procurement"), "InventoryReadinessPage");
 const QuoteBookPage = lazyNamed(() => import("./procurement"), "QuoteBookPage");
 const ProcPeopleManagementPage = lazyNamed(() => import("./procurement"), "ProcPeopleManagementPage");
+const OperationalTasksPage = lazyNamed(() => import("./procurement/people/OperationalTasksPage"), "OperationalTasksPage");
 const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");
 const ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");
 const QualityDMSPage = lazyNamed(() => import("./QualityDMSPage"), "QualityDMSPage");
@@ -309,6 +370,19 @@ function ProtectedLayout() {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
   }
 
+  // 行政登记页自身适配窄屏；不转到无关的研发移动驾驶舱。
+  if (location.pathname === routePath("page:applicant-forms", "/applicant-forms")) return <Root />;
+
+  // 采购工作台及关联页自身支持窄屏，保留工作上下文和原路由权限检查。
+  if (location.pathname === routePath("page:proc-my-workspace", "/proc-my-workspace")
+    || location.pathname === "/proc-operational-tasks"
+    || location.pathname === routePath("page:proc-cockpit", "/proc-cockpit")
+    || location.pathname === routePath("page:proc-inventory-readiness", "/proc-inventory-readiness")
+    || location.pathname === routePath("page:proc-materials", "/proc-materials")
+    || matchPath({ path: routePath("page:purchase-orders", "/purchase-orders"), end: true }, location.pathname)
+    || matchPath({ path: subRoutePath("page:purchase-orders", "/purchase-orders", ":id"), end: true }, location.pathname)
+    || (/^\/rd-task\/[^/]+$/.test(location.pathname) && procurementWorkspaceReturnPath(location.state))) return <Root />;
+
   // 样品测试人可能只有研发工作台权限；手机深链在当前地址完成测试，不跳只读驾驶舱。
   const sampleTestId = new URLSearchParams(location.search).get("sampleTest")?.trim();
   if (isMobile && location.pathname === routePath("page:rd-my-workspace", "/rd-my-workspace") && sampleTestId) {
@@ -317,7 +391,7 @@ function ProtectedLayout() {
 
   // L2 自动跳：移动视口直接进入移动只读视图。
   // 已移除「切换到电脑版」偏好开关——领导用手机即看移动版；如需桌面版改用宽屏访问。
-  // 工作区感知：协同路由（/us-collab-*）跳协同移动端，其余跳研发移动端——否则协同用户
+  // 工作区感知：按当前路由配置识别协同页面并跳协同移动端——否则协同用户
   // 会被甩到研发池的移动驾驶舱（数据完全对不上）。
   if (isMobile) {
     const taskMatch = location.pathname.match(/^\/(rd-task|us-collab-task|production-task)\/([^/]+)$/);
@@ -328,9 +402,10 @@ function ProtectedLayout() {
       : taskMatch?.[1] === "production-task"
         ? "/production-m"
         : "/m";
-    const workspaceMobileBase = location.pathname.startsWith("/us-collab")
+    const workspace = rdWorkspaceForPath(location.pathname);
+    const workspaceMobileBase = workspace === "us-collab"
       ? "/us-collab-m"
-      : location.pathname.startsWith("/production-") || location.pathname === "/rd-director-dashboard"
+      : workspace === "production" || location.pathname === "/rd-director-dashboard"
         ? "/production-m"
         : "/m";
     const target = taskMatch
@@ -401,6 +476,25 @@ function lazyWrap(node: React.ReactNode) {
 
 const router = createBrowserRouter([
   { path: "/login", Component: LoginPage },
+  { path: "/apply/:slug", element: lazyWrap(<PublicApplicantFormPage />) },
+  ...(PreviewIndexPage ? [{ path: "/__preview", element: lazyWrap(<PreviewIndexPage />) }] : []),
+  ...(MonthlyReadinessPreviewPage ? [{ path: "/__preview/monthly-readiness", element: lazyWrap(<MonthlyReadinessPreviewPage />) }] : []),
+  ...(KeyMaterialsPreviewPage ? [{ path: "/__preview/key-materials", element: lazyWrap(<KeyMaterialsPreviewPage />) }] : []),
+  ...(CompanyOverviewPreviewPage ? [{ path: "/__preview/company-overview", element: lazyWrap(<CompanyOverviewPreviewPage />) }] : []),
+  ...(ReceiptDispositionPreviewPage ? [{ path: "/__preview/receipt-disposition", element: lazyWrap(<ReceiptDispositionPreviewPage />) }] : []),
+  ...(QualityExceptionsPreviewPage ? [{ path: "/__preview/quality-exceptions", element: lazyWrap(<QualityExceptionsPreviewPage />) }] : []),
+  ...(WarehousePreviewPage ? [{ path: "/__preview/warehouse", element: lazyWrap(<WarehousePreviewPage />) }] : []),
+  ...(ShipmentPreviewPage ? [{ path: "/__preview/shipments", element: lazyWrap(<ShipmentPreviewPage />) }] : []),
+  ...(BatchArchivePreviewPage ? [{ path: "/__preview/batch-archives", element: lazyWrap(<BatchArchivePreviewPage />) }] : []),
+  ...(EcnPreviewPage ? [{ path: "/__preview/ecn", element: lazyWrap(<EcnPreviewPage />) }] : []),
+  ...(PlanningPreviewPage ? [{ path: "/__preview/production-planning", element: lazyWrap(<PlanningPreviewPage />) }] : []),
+  ...(DefectPreviewPage ? [{ path: "/__preview/production-defects", element: lazyWrap(<DefectPreviewPage />) }] : []),
+  ...(ProductionRdPreviewPage ? [{ path: "/__preview/production-rd", element: lazyWrap(<ProductionRdPreviewPage />) }] : []),
+  ...(TransferPreviewPage ? [{ path: "/__preview/production-transfer", element: lazyWrap(<TransferPreviewPage />) }] : []),
+  ...(ProductionOverviewPreviewPage ? [{ path: "/__preview/production-overview", element: lazyWrap(<ProductionOverviewPreviewPage />) }] : []),
+  ...(ProductionTasksPreviewPage ? [{ path: "/__preview/production-tasks", element: lazyWrap(<ProductionTasksPreviewPage />) }] : []),
+  ...(InspectionPreviewPage ? [{ path: "/__preview/production-inspections", element: lazyWrap(<InspectionPreviewPage />) }] : []),
+  ...(FieldPreviewPage ? [{ path: "/__preview/field-tasks", element: lazyWrap(<FieldPreviewPage />) }] : []),
   {
     path: "/",
     Component: ProtectedLayout,
@@ -431,8 +525,7 @@ const router = createBrowserRouter([
       { path: asChildPath(routePath("page:us-collab-cockpit", "/us-collab-cockpit")), element: makeLazyProtected(<RDTaskManagementPage key="ws-us" hideSystemPanorama />, "page:us-collab-cockpit") },
       { path: asChildPath(routePath("page:us-collab-workspace", "/us-collab-workspace")), element: makeLazyProtected(<RDMyWorkspacePage key="ws-us" />, "page:us-collab-workspace") },
       { path: "us-collab-rd-discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
-      // 协同人员管理：路径保持 /us-collab 前缀，rdApi 据此路由到独立的协同人员池
-      // 同上：动作码守卫，且 rdApi 依赖 /us-collab 前缀区分协同池，路径不可配置
+      // 协同人员管理：动作码守卫；固定辅助路由由 rdWorkspace 显式归属协同池。
       { path: "us-collab-people-management", element: makeLazyProtected(<RDPeopleManagementPage key="ws-us" visualVariant="rd-horizon" onBack={() => window.history.back()} />, "rd-people:manage") },
       { path: "production-people-management", element: makeLazyProtected(<RDPeopleManagementPage key="ws-production" visualVariant="rd-horizon" onBack={() => window.history.back()} />, "rd-people:manage") },
       // 协同任务全屏详情（双栏）：页面内部按协同页面码任一做门禁，不进侧边栏
@@ -441,8 +534,8 @@ const router = createBrowserRouter([
       { path: "rd-task/:taskId", element: lazyWrap(<RDTaskDetailPage />) },
       { path: "production-task/:taskId", element: makeLazyProtected(<RDTaskDetailPage key="ws-production-detail" />, "page:rd-director-dashboard") },
       { path: "us-collab-kb", element: makeLazyProtected(<RDKnowledgeBasePage key="kb-us-collab" kbScope={{ kbId: "us-collab", label: "协同" }} visualVariant="rd-horizon" />, "page:dept-kb-us-collab") },
-      // 协同审批流 / 留痕 / AI 策略：与上面三行一样是研发页面的原样复用，隔离全靠 /us-collab 路径前缀
-      // —— rdApi 据此给请求带 ?workspace=us-collab，后端把 rd.* 存储键改写成 rdws.us-collab.*。
+      // 协同审批流 / 留痕 / AI 策略复用研发页面；rdWorkspace 按当前页面路径配置给请求带
+      // ?workspace=us-collab，后端把 rd.* 存储键改写成 rdws.us-collab.*。
       // key="ws-us" 强制与研发路由分离组件实例，避免两池间切换时残留上一池的状态。
       { path: asChildPath(routePath("page:us-collab-approval-flow", "/us-collab-approval-flow")), element: makeLazyProtected(<RDApprovalFlowPage key="ws-us" />, "page:us-collab-approval-flow") },
       { path: "us-collab-audit-log", element: <Navigate to="/audit-log?module=us-collab" replace /> },
@@ -484,8 +577,10 @@ const router = createBrowserRouter([
       // 若也用 routePath("page:proc-cockpit") 解析，两条路由会解析到同一路径，本页直接失联。
       // 一个权限码只能有一条「主路由」跟随目录配置。
       { path: "proc-people-management", element: makeLazyProtected(<ProcPeopleManagementPage />, "page:proc-cockpit") },
+      { path: "proc-operational-tasks", element: makeLazyProtected(<OperationalTasksPage />, "page:purchase-order-detail") },
       { path: asChildPath(routePath("page:resume-screening", "/resume-screening")), element: makeLazyProtected(<ResumeScreeningPage />, "page:resume-screening") },
       { path: asChildPath(routePath("page:employee-archive", "/employee-archive")), element: makeLazyProtected(<EmployeeArchivePage />, "page:employee-archive") },
+      { path: asChildPath(routePath("page:applicant-forms", "/applicant-forms")), element: makeLazyProtected(<ApplicantFormsPage />, "page:applicant-forms") },
       { path: asChildPath(routePath("page:quick-capture", "/attendance")), element: makeLazyProtected(<AttendancePage />, "page:quick-capture") },
       // 旧链接重定向：路径固定（就是要兜住历史 URL），目标跟随考勤页的当前主路径。
       // 同样不能用 routePath 解析自身路径 —— 会与上面的主路由解析到同一路径而互相覆盖。
@@ -533,16 +628,15 @@ const router = createBrowserRouter([
     path: "/m",
     Component: ResponsiveMobileLayout,
     children: [
-      { index: true, element: makeLazyProtected(<MobileRDCockpit />, "page:rd-task-management") },
-      { path: "task/:taskId", element: makeLazyProtected(<MobileRDCockpit />, "page:rd-task-management") },
+      { index: true, element: makeLazyProtected(<MobileRDCockpit />, ["page:rd-task-management", "page:rd-my-workspace"]) },
+      { path: "task/:taskId", element: makeLazyProtected(<MobileRDCockpit />, ["page:rd-task-management", "page:rd-my-workspace"]) },
       { path: "discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       { path: asChildPath(routePath("page:chat-analytics", "/chat-analytics")), element: makeLazyProtected(<MobileChatAnalyticsPage />, "page:chat-analytics") },
       { path: "*", element: <Navigate to="/m" replace /> },
     ],
   },
   {
-    // 协同移动端：完整复用研发移动驾驶舱组件。路由必须以 /us-collab 开头——
-    // rdApi 按该前缀自动给所有请求带 ?workspace=us-collab，数据即协同池，组件零改动。
+    // 协同移动端：复用研发移动驾驶舱组件，固定路由由 rdWorkspace 显式归属协同池。
     path: "/us-collab-m",
     Component: ResponsiveMobileLayout,
     children: [
@@ -553,7 +647,7 @@ const router = createBrowserRouter([
     ],
   },
   {
-    // Keep the /production- prefix so rdApi consistently targets the production workspace.
+    // This fixed route is explicitly assigned to the production workspace in rdWorkspace.
     path: "/production-m",
     Component: ResponsiveMobileLayout,
     children: [

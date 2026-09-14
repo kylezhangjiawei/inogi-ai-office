@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   DatabaseZap,
+  Download,
   PackageCheck,
   Pencil,
   Plus,
@@ -62,11 +63,12 @@ import {
   type InventoryReadinessStatus,
 } from "../lib/procurementApi";
 import { routePath } from "../lib/routePaths";
+import { buildInventoryReadinessPath, parseInventoryReadinessViewState, type InventoryReadinessViewStatus } from "../lib/inventoryReadinessNavigation";
+import { buildPurchaseOrderLinePath } from "../lib/purchaseOrderLineNavigation";
+import { exportInventoryReadinessXlsx } from "./inventoryReadinessExport";
 import { Q5PackagingInventory } from "./components/Q5PackagingInventory";
 import { getInventoryDiagnosticCopy, InventoryMatchExplanation } from "./components/InventoryMatchExplanation";
-
-const DEFAULT_TARGET_SETS = 100;
-const DEFAULT_PAGE_SIZE = 20;
+import { MaterialPurchaseOrderLines } from "./components/MaterialPurchaseOrderLines";
 
 const STATUS_META: Record<InventoryReadinessStatus, { label: string; className: string }> = {
   ready: { label: "目标可覆盖", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
@@ -83,12 +85,6 @@ function quantity(value: number, maximumFractionDigits = 4) {
 
 function percent(value: number) {
   return new Intl.NumberFormat(i18nLocale(), { style: "percent", maximumFractionDigits: 0 }).format(value);
-}
-
-function targetFromQuery(raw: string | null) {
-  if (raw === null || raw.trim() === "") return DEFAULT_TARGET_SETS;
-  const value = Number(raw);
-  return Number.isFinite(value) ? Math.min(1_000_000, Math.max(0, Math.floor(value))) : DEFAULT_TARGET_SETS;
 }
 
 function affectedSets(item: InventoryReadinessItem) {
@@ -119,7 +115,9 @@ function inventoryStatusLabel(item: InventoryReadinessItem) {
 }
 
 function inventoryQuantity(item: InventoryReadinessItem, value: number, fractionDigits = 4) {
-  return item.status === "unmatched" || item.inventoryDiagnostic ? "—" : quantity(value, fractionDigits);
+  // 无效 BOM 行的库存及计算结果由齐套接口统一填 0，不能作为真实零库存展示。
+  // 包材参考表保留独立库存来源，继续使用其自身的 null 判断。
+  return item.status === "data_missing" || item.status === "unmatched" || item.inventoryDiagnostic ? "—" : quantity(value, fractionDigits);
 }
 
 function StatusBadge({ item }: { item: InventoryReadinessItem }) {
@@ -190,17 +188,17 @@ function ReadinessRail({ data }: { data: InventoryReadinessResponse }) {
   return (
     <section aria-label={t("{model} 齐套路径", { model: data.productLine })} className="proc-readiness-rail rounded-xl border border-slate-200 bg-white p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span>{t("{model} 齐套路径", { model: data.productLine })}</span><span>{t("目标")} {quantity(summary.targetSets, 0)} {t("套")}</span></div>
-      <div className="grid grid-cols-3 gap-4 [&>div]:min-w-0 [&_p]:break-words">
+      <div className="proc-readiness-results grid grid-cols-3 gap-4 [&>div]:min-w-0 [&_p]:break-words">
         <div>
           <p className="text-xs font-medium text-slate-600">{t(data.productLine === "Q5" ? data.dataQuality.provisional ? "当前装配物料可齐套（估算）" : "当前装配物料可齐套" : data.dataQuality.provisional ? "当前物料可齐套（估算）" : "当前物料可齐套")}</p>
           <p className="mt-1 text-3xl font-bold tabular-nums text-primary">{quantity(summary.currentBuildableSets, 0)} <span className="text-xs font-medium text-slate-500">{t("套")}</span></p>
         </div>
         <div>
-          <p className="text-xs font-medium text-slate-600">{t(data.dataQuality.provisional ? "到货后（估算）" : "在途到齐后")}</p>
+          <p className="text-xs font-medium text-slate-600">{t(data.dataQuality.provisional ? "在途全部到齐后（估算）" : "在途全部到齐后")}</p>
           <p className="mt-1 text-3xl font-bold tabular-nums text-emerald-700">{quantity(summary.withTransitBuildableSets, 0)} <span className="text-xs font-medium text-slate-500">{t("套")}</span></p>
         </div>
         <div>
-          <p className="text-xs font-medium text-slate-600">{t(data.dataQuality.provisional ? "目标差额（估算）" : "仍缺")}</p>
+          <p className="text-xs font-medium text-slate-600">{t(data.dataQuality.provisional ? "到齐后目标差额（估算）" : "到齐后目标差额")}</p>
           <p className={cn("mt-1 text-3xl font-bold tabular-nums", summary.targetGapAfterTransit > 0 ? "text-rose-600" : "text-emerald-700")}>{quantity(summary.targetGapAfterTransit, 0)} <span className="text-xs font-medium text-slate-500">{t("套")}</span></p>
         </div>
       </div>
@@ -208,21 +206,21 @@ function ReadinessRail({ data }: { data: InventoryReadinessResponse }) {
         <div className="absolute inset-y-0 left-0 bg-primary" style={{ width: `${currentPercent}%` }} />
         <div className="absolute inset-y-0 bg-emerald-400" style={{ left: `${currentPercent}%`, width: `${Math.max(0, transitPercent - currentPercent)}%` }} />
       </div>
-      <p className="mt-2 text-pretty text-xs text-slate-500">{t("仅按 BOM 与量产仓库可用库存核算，不包含产能与人员排程。")}</p>
-      {data.productLine === "Q5" && <><p className="mt-1 text-xs leading-5 text-slate-500">{t("包材与随箱配件的配套数量待确认，见下方清单。")}</p><p className="mt-1 text-xs leading-5 text-slate-500">{t("完整齐套须满足清单内全部必需零部件、包材和随箱配件；数据待核实时暂不能确认完整齐套。")}</p></>}
-      {data.dataQuality.provisional && <p className="mt-2 text-xs leading-5 text-amber-800">{t("数据尚未核实完整，齐套与目标差额仅为估算，不能直接作为采购数量。")}</p>}
+      <p className="mt-2 text-pretty text-xs leading-5 text-slate-500">{t("以上为全 BOM 理论套数，在途未按到货日期筛选，不代表按期齐套。")}</p>
+      {data.dataQuality.provisional && <p className="mt-1 text-pretty text-xs leading-5 text-amber-800">{t("数据尚未核实完整，齐套与目标差额仅为估算，不能直接作为采购数量。")}</p>}
     </section>
   );
 }
 
 type BomEditorState = { mode: "create" | "edit" | "delete"; lines: InventoryBomLine[] };
 
-function InventoryBomEditor({ editor, productLine, positions, onClose, onSaved }: {
+function InventoryBomEditor({ editor, productLine, positions, onClose, onSaved, onCloseAutoFocus }: {
   editor: BomEditorState;
   productLine: string;
   positions: Array<{ id: string; name: string }>;
   onClose: () => void;
   onSaved: () => void;
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const { t } = useI18n();
   const isQ5 = productLine === "Q5";
@@ -300,7 +298,7 @@ function InventoryBomEditor({ editor, productLine, positions, onClose, onSaved }
     }
   };
   return <Dialog open onOpenChange={(open) => { if (!open) close(); }}>
-    <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl" onEscapeKeyDown={(event) => { if (savingRef.current) event.preventDefault(); }} onPointerDownOutside={(event) => { if (savingRef.current) event.preventDefault(); }}>
+    <DialogContent onCloseAutoFocus={onCloseAutoFocus} className="max-h-[90dvh] overflow-y-auto sm:max-w-xl" onEscapeKeyDown={(event) => { if (savingRef.current) event.preventDefault(); }} onPointerDownOutside={(event) => { if (savingRef.current) event.preventDefault(); }}>
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{isQ5 ? t("修正 Q5 装配清单中的名称、编码、单机用量或备注，保存后重新核算 Q5 齐套与缺口。产品型号和装配位置保持固定。") : deleting ? t("删除当前通用 BOM 中的一条物料来源，齐套数量和缺口会重新计算。物料库、库存及采购记录会保留。") : t("维护通用 BOM 的物料配置，保存后按最新单机用量重新计算齐套。库存和在途由 T+ 同步。")}</DialogDescription>
@@ -354,42 +352,55 @@ export function InventoryReadinessPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const requestedProductLine = searchParams.get("productLine")?.trim() || "Q5";
-  const requestedTargetSets = targetFromQuery(searchParams.get("targetSets"));
+  const requestedQuery = searchParams.toString();
+  const requestedView = useMemo(() => parseInventoryReadinessViewState(requestedQuery), [requestedQuery]);
   const canViewMaterials = usePermission("page:proc-materials");
   const canViewPurchaseOrders = usePermission("page:purchase-orders");
+  const canViewPurchaseOrderDetail = usePermission("page:purchase-order-detail");
   const canViewStockPlans = usePermission("page:proc-cockpit");
   const canCreateTask = usePermission("proc-task:create");
   const canCreateStockPlan = canViewStockPlans && canCreateTask;
   const canManageBom = usePermission("material:import");
   const [bomEditor, setBomEditor] = useState<BomEditorState | null>(null);
   const [data, setData] = useState<InventoryReadinessResponse | null>(null);
-  const [productLine, setProductLine] = useState(requestedProductLine);
-  const [targetDraft, setTargetDraft] = useState(String(requestedTargetSets));
-  const [targetSets, setTargetSets] = useState(requestedTargetSets);
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("all");
-  const [status, setStatus] = useState("all");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [productLine, setProductLine] = useState(requestedView.productLine);
+  const [targetDraft, setTargetDraft] = useState(String(requestedView.targetSets));
+  const [targetSets, setTargetSets] = useState(requestedView.targetSets);
+  const [query, setQuery] = useState(requestedView.q);
+  const [category, setCategory] = useState(requestedView.category);
+  const [status, setStatus] = useState<InventoryReadinessViewStatus>(requestedView.status);
+  const [page, setPage] = useState(requestedView.page);
+  const [pageSize, setPageSize] = useState<20 | 50 | 100>(requestedView.pageSize);
   const [drilldown, setDrilldown] = useState<DrilldownKind | null>(null);
   const [selected, setSelected] = useState<InventoryReadinessItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [targetError, setTargetError] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const exportBusyRef = useRef(false);
   const pageRef = useRef<HTMLDivElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const sheetOpenRef = useRef(false);
-  sheetOpenRef.current = Boolean(drilldown || selected);
+  sheetOpenRef.current = Boolean(drilldown || selected || bomEditor);
+  const editorFromDetailRef = useRef(false);
   const loadRequestRef = useRef(0);
 
+  const pendingItemRef = useRef<{ itemId?: string; productLine: string; targetSets: number } | undefined>(requestedView.itemId ? requestedView : undefined);
   useEffect(() => {
-    setProductLine(requestedProductLine);
-    setTargetSets(requestedTargetSets);
-    setTargetDraft(String(requestedTargetSets));
+    setProductLine(requestedView.productLine);
+    setTargetSets(requestedView.targetSets);
+    setTargetDraft(String(requestedView.targetSets));
+    setQuery(requestedView.q);
+    setCategory(requestedView.category);
+    setStatus(requestedView.status);
+    setPage(requestedView.page);
+    setPageSize(requestedView.pageSize);
+    setTargetError("");
     setSelected(null);
-  }, [requestedProductLine, requestedTargetSets]);
+    pendingItemRef.current = requestedView.itemId ? requestedView : undefined;
+  }, [requestedView]);
 
   const load = useCallback(async (signal?: AbortSignal, requestedTarget = targetSets) => {
     const requestId = ++loadRequestRef.current;
@@ -419,8 +430,18 @@ export function InventoryReadinessPage() {
   }, [load]);
 
   useEffect(() => {
-    setSelected((current) => current ? data?.items.find((item) => item.id === current.id) ?? null : null);
-  }, [data]);
+    if (!data || loading || data.productLine !== productLine || data.summary.targetSets !== targetSets) return;
+    const pending = pendingItemRef.current;
+    if (pending && (pending.productLine !== data.productLine || pending.targetSets !== data.summary.targetSets)) return;
+    const restoreId = pending?.itemId;
+    if (restoreId) openerRef.current = Array.from(pageRef.current?.querySelectorAll<HTMLElement>("[data-readiness-item-id]") ?? [])
+      .find((node) => node.getAttribute("data-readiness-item-id") === restoreId && node.getClientRects().length > 0) ?? null;
+    pendingItemRef.current = undefined;
+    setSelected((current) => {
+      const id = restoreId ?? current?.id;
+      return id ? data.items.find((item) => item.id === id) ?? null : null;
+    });
+  }, [data, loading, productLine, targetSets, requestedView]);
 
   const categories = useMemo(
     () => [...new Set((data?.items ?? []).flatMap((item) => [item.category, ...(item.sourceLines ?? []).map((line) => line.category)]).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN")),
@@ -445,15 +466,11 @@ export function InventoryReadinessPage() {
   const pageStart = filteredItems.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const pageEnd = Math.min(page * pageSize, filteredItems.length);
 
-  useEffect(() => {
-    setPage(1);
-  }, [category, productLine, query, status, pageSize]);
-
   useEffect(() => { setBomEditor(null); }, [productLine]);
 
   useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+    if (!loading && data?.productLine === productLine && data.summary.targetSets === targetSets && page > totalPages) setPage(totalPages);
+  }, [data, loading, productLine, targetSets, page, totalPages]);
   useLayoutEffect(() => {
     if (tableScrollRef.current) tableScrollRef.current.scrollTop = 0;
   }, [category, productLine, query, status, page, pageSize]);
@@ -498,6 +515,7 @@ export function InventoryReadinessPage() {
     .filter((item) => Date.now() - item.timestamp > 24 * 60 * 60 * 1000)
     .sort((a, b) => a.timestamp - b.timestamp || a.code.localeCompare(b.code));
   const staleInventory = olderInventoryRecords.length > 0;
+  const resultScopeMatches = Boolean(data && data.productLine === productLine && data.summary.targetSets === targetSets);
   const currentData = Boolean(data && !loading && !error && targetDraft.trim() && Number(targetDraft) === targetSets
     && data.productLine === productLine && data.summary.targetSets === targetSets);
   const showBomActions = canManageBom && data?.productLine === productLine && (productLine === "通用" || productLine === "Q5");
@@ -506,6 +524,21 @@ export function InventoryReadinessPage() {
   const canOpenMachinePlan = Boolean(currentData && data && data.dataQuality.totalBomLines > 0
     && Number.isInteger(data.summary.targetSets) && data.summary.targetSets > 0 && data.summary.targetSets <= 1_000_000);
 
+  const exportShortages = async () => {
+    if (!currentData || !data || exportBusyRef.current) return;
+    exportBusyRef.current = true;
+    setExporting(true);
+    setExportError("");
+    try {
+      const result = await exportInventoryReadinessXlsx(data);
+      toast.success(t("已导出 {shortage} 种当前缺料、{unverified} 项待核实物料", { shortage: result.shortageCount, unverified: result.unverifiedCount }));
+    } catch (cause) {
+      setExportError(cause instanceof Error ? cause.message : t("缺料清单导出失败，请重试。"));
+    } finally {
+      exportBusyRef.current = false;
+      setExporting(false);
+    }
+  };
   const commitTarget = () => {
     const parsed = Number(targetDraft);
     if (!targetDraft.trim() || !Number.isInteger(parsed) || parsed < 0 || parsed > 1_000_000) {
@@ -517,7 +550,7 @@ export function InventoryReadinessPage() {
     setTargetSets(parsed);
     return parsed;
   };
-  const clearFilters = () => { setQuery(""); setCategory("all"); setStatus("all"); };
+  const clearFilters = () => { setQuery(""); setCategory("all"); setStatus("all"); setPage(1); };
   const hasFilters = Boolean(query.trim() || category !== "all" || status !== "all");
   const openDrilldown = (kind: DrilldownKind, opener: HTMLButtonElement) => {
     openerRef.current = opener;
@@ -531,14 +564,35 @@ export function InventoryReadinessPage() {
     event.preventDefault();
     if (!sheetOpenRef.current) (openerRef.current?.isConnected ? openerRef.current : pageRef.current)?.focus();
   };
+  const readinessPath = (itemId?: string) => buildInventoryReadinessPath({
+    productLine, targetSets, q: query, category, status, page, pageSize, itemId,
+  });
+  const closeItem = () => {
+    setSelected(null);
+    pendingItemRef.current = undefined;
+    if (searchParams.has("itemId")) navigate(readinessPath(), { replace: true });
+  };
+  const editSelectedSource = (mode: "edit" | "delete") => {
+    if (!currentData || !selected?.sourceLines?.length || !showBomActions || (mode === "delete" && !showBomStructureActions)) return;
+    editorFromDetailRef.current = true;
+    setBomEditor({ mode, lines: selected.sourceLines });
+    closeItem();
+  };
   const openMaterialLibrary = (item?: InventoryReadinessItem) => {
     const destination = routePath("page:proc-materials", "/proc-materials");
-    if (!item?.code) {
-      navigate(destination);
-      return;
-    }
-    const params = new URLSearchParams({ materialCode: item.code });
-    navigate(`${destination}?${params.toString()}`);
+    const returnPath = readinessPath(item?.id ?? selected?.id);
+    const params = item?.code ? `?${new URLSearchParams({ materialCode: item.code })}` : "";
+    // Update the current history entry first, so browser Back restores the same view too.
+    navigate(returnPath, { replace: true });
+    navigate(`${destination}${params}`, { state: { inventoryReadinessReturnTo: returnPath, inventoryReadinessHistoryBack: true } });
+  };
+  const openPurchaseOrderLine = (orderNo: string, lineId: string) => {
+    if (!currentData || !selected?.code || !canViewPurchaseOrderDetail) return;
+    const destination = buildPurchaseOrderLinePath(orderNo, lineId);
+    if (!destination) return;
+    const returnPath = readinessPath(selected.id);
+    navigate(returnPath, { replace: true });
+    navigate(destination, { state: { inventoryReadinessReturnTo: returnPath, inventoryReadinessHistoryBack: true } });
   };
   const openDrilldownItem = (item: InventoryReadinessItem) => {
     setDrilldown(null);
@@ -552,7 +606,7 @@ export function InventoryReadinessPage() {
       productLine: data.productLine,
       targetQty: String(item ? item.targetDemand : data.summary.targetSets),
       note: item
-        ? t("库存齐套核算：目标总需求 {demand} {unit}，当前缺口 {gap}，量产可用 {available}，在途 {transit}。", { demand: quantity(item.targetDemand), unit: item.unit, gap: quantity(item.gapAfterTransit), available: quantity(item.available), transit: quantity(item.inTransit) })
+        ? t("库存齐套核算：目标总需求 {demand} {unit}，在途到齐后缺口 {gap}，量产可用 {available}，在途 {transit}。", { demand: quantity(item.targetDemand), unit: item.unit, gap: quantity(item.gapAfterTransit), available: quantity(item.available), transit: quantity(item.inTransit) })
         : data.dataQuality.provisional
           ? t("整机备货目标：{target} 套。当前 {invalid} 条 BOM 数据待完善，{unmatched} 种物料的量产仓库存记录待核实。先登记计划；补齐并核实数据后，再按实际缺口生成采购任务。", { target: data.summary.targetSets, invalid: data.dataQuality.invalidBomLines, unmatched: unmatchedMaterials })
           : t("库存齐套核算：目标 {target} 套，当前可齐套 {current} 套，在途到齐后 {transit} 套，仍缺 {gap} 套。", { target: data.summary.targetSets, current: data.summary.currentBuildableSets, transit: data.summary.withTransitBuildableSets, gap: data.summary.targetGapAfterTransit }),
@@ -568,10 +622,10 @@ export function InventoryReadinessPage() {
   return (
     <div ref={pageRef} tabIndex={-1} className="proc-horizon proc-readiness-page min-w-0 space-y-3">
       <section className="proc-readiness-toolbar rounded-xl border border-slate-200 bg-white p-4">
-          <div className="flex flex-wrap items-end gap-3">
+          <div className="proc-readiness-controls flex flex-wrap items-end gap-3">
             <label className="grid gap-1 text-[11px] font-medium text-slate-500">
               <span>{t("产品型号")}</span>
-              <Select value={productLine} onValueChange={(value) => { setProductLine(value); setCategory("all"); }} disabled={!data?.models.length}>
+              <Select value={productLine} onValueChange={(value) => { setProductLine(value); setCategory("all"); setPage(1); setSelected(null); pendingItemRef.current = undefined; }} disabled={!data?.models.length}>
                 <SelectTrigger className="h-9 min-w-28 border-slate-200 bg-white" aria-label={t("选择产品型号")}>
                   <SelectValue placeholder={t(loading ? "正在加载型号" : "暂无型号")} />
                 </SelectTrigger>
@@ -599,42 +653,27 @@ export function InventoryReadinessPage() {
                 aria-label={t("目标套数")}
               />
             </label>
-            <div className="grid gap-1 text-[11px] font-medium text-slate-500">
+            <div className="proc-readiness-warehouse grid gap-1 text-[11px] font-medium text-slate-500">
               <span>{t("库存范围")}</span>
               <div className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700">
                 <Warehouse className="size-4 text-primary" aria-hidden="true" />
                 {t("量产仓库")}
               </div>
             </div>
-            <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => { const target = commitTarget(); if (target !== null) void load(undefined, target); }} className="h-9 border-slate-200 bg-white text-slate-600">
-              <RefreshCw className={cn("size-4", loading && "animate-spin")} aria-hidden="true" />
-              {t("刷新")}
-            </Button>
+            <div className="proc-readiness-toolbar-actions ml-auto flex flex-wrap items-center justify-end gap-2">
+              {canViewMaterials && <Button type="button" variant="outline" size="sm" onClick={() => openMaterialLibrary()} className="h-9 border-slate-200 bg-white text-slate-600"><Boxes className="size-4" aria-hidden="true" />{t("打开物料库")}</Button>}
+              <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => { const target = commitTarget(); if (target !== null) void load(undefined, target); }} className="h-9 border-slate-200 bg-white text-slate-600">
+                <RefreshCw className={cn("size-4", loading && "animate-spin motion-reduce:animate-none")} aria-hidden="true" />
+                {t("刷新")}
+              </Button>
+              {canCreateStockPlan && data && data.dataQuality.totalBomLines > 0 && <Button type="button" size="sm" disabled={!canOpenMachinePlan} onClick={() => openStockPlan()} className="proc-readiness-plan-action h-9" aria-describedby="readiness-plan-note">
+                <PackageCheck className="size-4" aria-hidden="true" />{t("建立整机备货计划")}
+              </Button>}
+            </div>
           </div>
         {targetError ? <p id="readiness-target-error" role="alert" className="mt-2 text-pretty text-xs text-rose-700">{targetError}</p> : null}
+        {canCreateStockPlan && data && data.dataQuality.totalBomLines > 0 && <p id="readiness-plan-note" className="mt-3 text-pretty text-xs leading-5 text-slate-500">{t(targetSets <= 0 ? "目标套数须大于 0，才能建立整机备货计划。" : data.dataQuality.provisional ? "可先建立整机备货计划，登记目标套数和日期；补齐 BOM 与库存数据后，再按实际缺口生成采购任务。" : data.summary.targetGapAfterTransit <= 0 ? "库存与在途已覆盖当前目标，仍可建立计划记录备货安排。" : "按目标总套数建立计划，采购量再扣除库存与在途；下一步填写目标日期和所属子系统。")}</p>}
       </section>
-
-      {data ? (
-        <div role="status" className={cn("mb-3 flex flex-wrap items-start justify-between gap-2 rounded-xl border px-4 py-3 text-xs", staleInventory || oldestSyncTime === null ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-600")}>
-          <div>
-            <p className="font-semibold">{t("量产仓库存记录")} · {t("最早记录写入")}：{oldestSync}</p>
-            <p className="mt-1">{t("最近记录写入")}：{lastSync} · {t("这是库存行的写入时间，不是整个 T+ 同步任务的执行时间。")}</p>
-          </div>
-          {staleInventory ? <div className="w-full">
-            <p>{t("部分记录超过 24 小时未重新写入，不等于每日同步任务失败。接口未返回的旧记录会被保留，请核对这些编码是否被最近同步覆盖。")}</p>
-            <details className="mt-2">
-              <summary className="cursor-pointer font-semibold">{t("查看 {count} 种物料的较早库存记录", { count: olderInventoryRecords.length })}</summary>
-              <ul className="mt-2 max-h-44 space-y-1 overflow-auto border-t border-amber-200 pt-2">
-                {olderInventoryRecords.map((item) => <li key={item.code} className="flex flex-wrap gap-x-3 gap-y-0.5">
-                  <span className="font-mono">{item.code}</span><span className="min-w-0 break-words">{item.name}</span><span>{t("记录写入")}：{syncDate(item.syncedAt)}</span>
-                </li>)}
-              </ul>
-            </details>
-          </div>
-            : oldestSyncTime === null ? <p className="w-full">{t("当前清单尚无带有效写入时间的量产仓库存记录，不能据此判断同步任务是否失败。可先建立计划，再核对物料编码、仓库及同步结果。")}</p> : null}
-          <p className="w-full">{t("刷新页面只重新读取已同步库存。")}</p>
-        </div>
-      ) : null}
 
       {error ? (
         <div role="alert" className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -643,18 +682,9 @@ export function InventoryReadinessPage() {
         </div>
       ) : null}
 
-      {data && data.dataQuality.totalBomLines > 0 ? (
+      {data && resultScopeMatches && data.dataQuality.totalBomLines > 0 ? (
         <>
           <ReadinessRail data={data} />
-
-          {canCreateStockPlan ? (
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-              <p className="text-xs text-slate-500">{t(targetSets <= 0 ? "目标套数须大于 0，才能建立整机备货计划。" : data.dataQuality.provisional ? "可先建立整机备货计划，登记目标套数和日期；补齐 BOM 与库存数据后，再按实际缺口生成采购任务。" : data.summary.targetGapAfterTransit <= 0 ? "库存与在途已覆盖当前目标，仍可建立计划记录备货安排。" : "按目标总套数建立计划，采购量再扣除库存与在途；下一步填写目标日期和所属子系统。")}</p>
-              <Button type="button" size="sm" disabled={!canOpenMachinePlan} onClick={() => openStockPlan()}>
-                <PackageCheck className="size-4" aria-hidden="true" />{t("建立整机备货计划")}
-              </Button>
-            </div>
-          ) : null}
 
           <section className="proc-readiness-metrics grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
             <MetricCard Icon={ShieldAlert} label={t("库存预警")} value={data.summary.warningMaterials} note={t("含缺货、目标缺口与数据异常")} actionLabel={`${t("库存预警")} · ${t("查看详情")}`} onClick={(opener) => openDrilldown("warning", opener)} tone={data.summary.warningMaterials > 0 ? "rose" : "emerald"} />
@@ -663,22 +693,38 @@ export function InventoryReadinessPage() {
             <MetricCard Icon={DatabaseZap} label={t("BOM 可核算率")} value={percent(data.dataQuality.bomCompleteness)} note={`${data.dataQuality.usableBomLines} / ${data.dataQuality.totalBomLines} ${t("条物料")}`} actionLabel={`${t("BOM 可核算率")} · ${t("查看详情")}`} onClick={(opener) => openDrilldown("bom", opener)} tone={data.dataQuality.provisional ? "amber" : "emerald"} />
           </section>
 
-          {data.dataQuality.provisional ? (
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-2.5 text-xs text-amber-800">
-              <span className="flex min-w-0 items-center gap-2 text-pretty">
-                <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
-                <span>{t("当前结果为可核算范围估算：{invalid} 条 BOM 数据待完善，{unmatched} 种物料未找到该编码在量产仓的库存记录。", {
-                  invalid: data.dataQuality.invalidBomLines,
-                  unmatched: unmatchedMaterials,
-                })}{unmatchedMaterials > 0 && <span className="mt-1 block">{t("具体原因见物料下方，点击可查看处理建议。— 表示库存数据待核实，不代表实际库存为 0。")}</span>}</span>
-              </span>
-              {canViewMaterials ? (
-                <button type="button" onClick={() => navigate(routePath("page:proc-materials", "/proc-materials"))} className="inline-flex shrink-0 items-center gap-1 font-semibold text-amber-900 hover:text-primary">
-                  {t("核对物料及库存")}<ArrowRight className="size-3.5" aria-hidden="true" />
-                </button>
-              ) : null}
+          <details className={cn("overflow-hidden rounded-xl border text-xs", data.dataQuality.provisional || staleInventory || oldestSyncTime === null ? "border-amber-200 bg-amber-50/70 text-amber-900" : "border-slate-200 bg-white text-slate-600")}>
+            <summary className="cursor-pointer px-4 py-3 leading-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/35">
+              <span className="font-semibold">{data.dataQuality.provisional
+                ? t("{invalid} 条 BOM 待完善 · {unmatched} 种物料库存待匹配", { invalid: data.dataQuality.invalidBomLines, unmatched: unmatchedMaterials })
+                : t("BOM 编码及用量已填写，量产仓记录已匹配")}</span>
+              <span className="ml-3">{staleInventory ? t("{count} 种物料库存记录超过 24 小时未写入", { count: olderInventoryRecords.length }) : oldestSyncTime === null ? t("暂无有效库存写入记录") : `${t("最近记录写入")}：${lastSync}`}</span>
+              <span className="ml-3 font-medium underline decoration-current/40 underline-offset-4">{t("核算与库存说明")}</span>
+            </summary>
+            <div className="space-y-3 border-t border-current/10 px-4 py-3 leading-5">
+              {data.dataQuality.provisional && <p className="text-pretty">{t("当前结果为可核算范围估算：{invalid} 条 BOM 数据待完善，{unmatched} 种物料未找到该编码在量产仓的库存记录。", { invalid: data.dataQuality.invalidBomLines, unmatched: unmatchedMaterials })} {t("具体原因见物料下方，点击可查看处理建议。— 表示库存数据待核实，不代表实际库存为 0。")}</p>}
+              <div className="space-y-1 text-pretty">
+                <p>{t("仅按 BOM 与量产仓库可用库存核算，不包含产能与人员排程。")}</p>
+                <p>{t("按 ERP 可用量核算；字段未提供时会使用现存量，请核对同步口径。")}</p>
+                {data.productLine === "Q5" && <><p>{t("包材与随箱配件的配套数量待确认，见下方清单。")}</p><p>{t("完整齐套须满足清单内全部必需零部件、包材和随箱配件；数据待核实时暂不能确认完整齐套。")}</p></>}
+              </div>
+              <div className="space-y-1 text-pretty">
+                <p className="font-semibold">{t("量产仓库存记录")} · {t("最早记录写入")}：{oldestSync}</p>
+                <p>{t("最近记录写入")}：{lastSync} · {t("这是库存行的写入时间，不是整个 T+ 同步任务的执行时间。")}</p>
+                {staleInventory ? <p>{t("部分记录超过 24 小时未重新写入，不等于每日同步任务失败。接口未返回的旧记录会被保留，请核对这些编码是否被最近同步覆盖。")}</p>
+                  : oldestSyncTime === null ? <p>{t("当前清单尚无带有效写入时间的量产仓库存记录，不能据此判断同步任务是否失败。可先建立计划，再核对物料编码、仓库及同步结果。")}</p> : null}
+                <p>{t("刷新页面只重新读取已同步库存。")}</p>
+              </div>
+              {staleInventory && <details>
+                <summary className="cursor-pointer font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35">{t("查看 {count} 种物料的较早库存记录", { count: olderInventoryRecords.length })}</summary>
+                <ul className="mt-2 max-h-44 space-y-1 overflow-auto border-t border-amber-200 pt-2">
+                  {olderInventoryRecords.map((item) => <li key={item.code} className="flex flex-wrap gap-x-3 gap-y-0.5">
+                    <span className="font-mono">{item.code}</span><span className="min-w-0 break-words">{item.name}</span><span>{t("记录写入")}：{syncDate(item.syncedAt)}</span>
+                  </li>)}
+                </ul>
+              </details>}
             </div>
-          ) : null}
+          </details>
 
           <div className="proc-readiness-detail-grid grid min-w-0 gap-3">
             <section className="proc-readiness-detail flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -687,24 +733,29 @@ export function InventoryReadinessPage() {
                   <h2 className="text-sm font-bold text-slate-900">{t("{model} 物料齐套明细", { model: data.productLine })}</h2>
                   <p className="mt-0.5 text-xs text-slate-500">{t(data.productLine === "Q5" ? "按 Q5 单台装配清单与单机用量核算，电路板按整板计入；库存与在途来自量产仓库。" : "按风险优先排列，库存与在途均来自量产仓库。")}</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center justify-end gap-3">
                   <span className="text-xs text-slate-400">{t("显示 {count} 条", { count: filteredItems.length })}</span>
+                  <Button type="button" variant="outline" size="sm" disabled={!currentData || exporting} onClick={() => void exportShortages()} aria-describedby="readiness-export-note" className="h-9">
+                    {exporting ? <RefreshCw className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Download className="size-4" aria-hidden="true" />}{t(exporting ? "正在导出…" : "导出缺料清单")}
+                  </Button>
                   {showBomStructureActions && <Button type="button" size="sm" disabled={!currentData} onClick={() => setBomEditor({ mode: "create", lines: [] })}><Plus className="size-4" aria-hidden="true" />{t("新增物料")}</Button>}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2 border-b border-slate-100 bg-slate-50/50 px-4 py-3">
+              <p id="readiness-export-note" className="px-4 pt-2 text-pretty text-[11px] leading-5 text-slate-500">{t("导出当前型号全部缺料与待核实物料，不受筛选或分页影响。")}</p>
+              {exportError && <p role="alert" className="px-4 pt-2 text-pretty text-xs text-rose-700">{exportError}</p>}
+              <div className="proc-readiness-filters flex flex-wrap gap-2 border-b border-slate-100 bg-slate-50/50 px-4 py-3">
                 <div className="relative min-w-0 flex-1 basis-56">
                   <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-                  <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("搜索物料编码、名称或规格")} className="h-9 border-slate-200 bg-white pl-9" aria-label={t("搜索物料齐套明细")} />
+                  <Input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder={t("搜索物料编码、名称或规格")} className="h-9 border-slate-200 bg-white pl-9" aria-label={t("搜索物料齐套明细")} />
                 </div>
-                <Select value={category} onValueChange={setCategory}>
+                <Select value={category} onValueChange={(value) => { setCategory(value); setPage(1); }}>
                   <SelectTrigger className="h-9 w-[160px] border-slate-200 bg-white" aria-label={t("按物料分类筛选")}><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{t("全部物料分类")}</SelectItem>
                     {categories.map((item) => <SelectItem key={item} value={item}><AutoTranslatedText text={item} /></SelectItem>)}
                   </SelectContent>
                 </Select>
-                <Select value={status} onValueChange={setStatus}>
+                <Select value={status} onValueChange={(value) => { setStatus(value as InventoryReadinessViewStatus); setPage(1); }}>
                   <SelectTrigger className="h-9 w-40 border-slate-200 bg-white" aria-label={t("按状态筛选")}><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{t("全部状态")}</SelectItem>
@@ -726,7 +777,32 @@ export function InventoryReadinessPage() {
                     <p className="text-pretty text-sm text-slate-600">{t("没有符合当前条件的物料")}</p>
                     {hasFilters ? <Button variant="outline" size="sm" onClick={clearFilters}>{t("清除筛选")}</Button> : null}
                   </div>
-                ) : <Table id="inventory-readiness-table" className="proc-readiness-table table-fixed" containerClassName="overflow-visible">
+                ) : <>
+                  <ul className="proc-readiness-compact-list divide-y divide-slate-200" aria-label={t("物料齐套卡片")}>
+                    {pagedItems.map((item) => <li key={item.id} className="space-y-3 p-4">
+                      <button type="button" data-readiness-item-id={item.id} aria-label={t("查看物料 {code}", { code: item.code || item.name })} onClick={(event) => openItem(item, event.currentTarget)} className="flex w-full items-start gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+                        <span className="min-w-0 flex-1">
+                          <span className="block break-words text-sm font-semibold text-slate-900"><AutoTranslatedText text={item.name} /></span>
+                          <span className="mt-1 block font-mono text-xs text-slate-500">{item.code || t("编码待补")}</span>
+                        </span>
+                        <ChevronRight className="mt-1 size-4 shrink-0 text-slate-400" aria-hidden="true" />
+                      </button>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <StatusBadge item={item} />
+                        <span className="text-xs text-slate-500">{t("单机用量")} {item.qtyPer ? `${quantity(item.qtyPer)} ${item.unit}` : t("待补充")}</span>
+                      </div>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs [&>div]:min-w-0 [&_dd]:break-words">
+                        <div><dt className="text-slate-500">{t("量产仓库可用量")}</dt><dd className="mt-1 font-semibold tabular-nums text-slate-900">{inventoryQuantity(item, item.available)} {item.unit}</dd></div>
+                        <div><dt className="text-slate-500">{t("确认在途")}</dt><dd className="mt-1 font-semibold tabular-nums text-slate-900">{inventoryQuantity(item, item.inTransit)} {item.unit}</dd></div>
+                        <div><dt className="text-slate-500">{t("当前可齐套")}</dt><dd className="mt-1 font-semibold tabular-nums text-slate-900">{inventoryQuantity(item, item.currentSets, 0)} {t("套")}</dd></div>
+                        <div><dt className="text-slate-500">{t("在途到齐后缺口")}</dt><dd className="mt-1 font-semibold tabular-nums text-rose-700">{inventoryQuantity(item, item.gapAfterTransit)} {item.unit}</dd></div>
+                      </dl>
+                      {(item.status === "unmatched" || item.inventoryDiagnostic) && <InventoryMatchExplanation diagnostic={item.inventoryDiagnostic} compact />}
+                      {item.issue === "missing_code" && <p className="text-pretty text-xs leading-5 text-amber-800">{t("缺少物料编码，库存与齐套结果待核实。")}</p>}
+                      {item.issue === "missing_qty" && <p className="text-pretty text-xs leading-5 text-amber-800">{t("单机用量待补充，暂不能核算需求及齐套。")}</p>}
+                    </li>)}
+                  </ul>
+                  <Table id="inventory-readiness-table" className="proc-readiness-table table-fixed" containerClassName="proc-readiness-table-container overflow-visible">
                   <colgroup><col className="w-36" /><col className="w-64" />{Array.from({ length: 7 }, (_, index) => <col key={index} className="w-28" />)}{showBomActions && <col className="w-28" />}</colgroup>
                   <TableHeader className="sticky top-0 z-10 bg-background">
                     <TableRow className="border-slate-100 hover:bg-background">
@@ -737,14 +813,14 @@ export function InventoryReadinessPage() {
                       <TableHead className="text-right text-[11px] font-semibold text-slate-500">{t("可用量")}</TableHead>
                       <TableHead className="text-right text-[11px] font-semibold text-slate-500">{t("在途")}</TableHead>
                       <TableHead className="text-right text-[11px] font-semibold text-slate-500">{t("当前可齐套")}</TableHead>
-                      <TableHead className="text-right text-[11px] font-semibold text-slate-500">{t("到货后可齐套")}</TableHead>
-                      <TableHead className="text-right text-[11px] font-semibold text-slate-500">{t("目标缺口")}</TableHead>
+                      <TableHead className="text-right text-[11px] font-semibold text-slate-500">{t("在途到齐后可齐套")}</TableHead>
+                      <TableHead className="text-right text-[11px] font-semibold text-slate-500">{t("在途到齐后缺口")}</TableHead>
                       {showBomActions && <TableHead className="sticky right-0 min-w-[112px] bg-white text-right text-[11px] font-semibold text-slate-500">{t("操作")}</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {pagedItems.map((item) => (
-                      <TableRow key={item.id} tabIndex={0} onClick={(event) => openItem(item, event.currentTarget)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openItem(item, event.currentTarget); } }} className="cursor-pointer border-slate-100 focus-visible:bg-[#f4f7ff] focus-visible:outline-none hover:bg-slate-50/70">
+                      <TableRow key={item.id} data-readiness-item-id={item.id} tabIndex={0} onClick={(event) => openItem(item, event.currentTarget)} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openItem(item, event.currentTarget); } }} className="cursor-pointer border-slate-100 focus-visible:bg-[#f4f7ff] focus-visible:outline-none hover:bg-slate-50/70">
                         <TableCell><StatusBadge item={item} /></TableCell>
                         <TableCell className="proc-readiness-identity whitespace-normal">
                           <div className="min-w-0">
@@ -759,6 +835,8 @@ export function InventoryReadinessPage() {
                               {item.spec ? <span className="truncate">· <AutoTranslatedText text={item.spec} /></span> : null}
                             </div>
                             {(item.status === "unmatched" || item.inventoryDiagnostic) && <InventoryMatchExplanation diagnostic={item.inventoryDiagnostic} compact />}
+                            {item.issue === "missing_code" && <p className="mt-1 text-pretty text-xs leading-5 text-amber-800">{t("缺少物料编码，库存与齐套结果待核实。")}</p>}
+                            {item.issue === "missing_qty" && <p className="mt-1 text-pretty text-xs leading-5 text-amber-800">{t("单机用量待补充，暂不能核算需求及齐套。")}</p>}
                           </div>
                         </TableCell>
                         <TableCell className="text-right font-medium text-slate-700 tabular-nums">{item.qtyPer ? quantity(item.qtyPer) : "—"}</TableCell>
@@ -780,7 +858,7 @@ export function InventoryReadinessPage() {
                       <TableRow><TableCell colSpan={showBomActions ? 10 : 9} className="h-44 text-center text-sm text-slate-500">{t("没有符合当前条件的物料")}</TableCell></TableRow>
                     ) : null}
                   </TableBody>
-                </Table>}
+                </Table></>}
               </div>
 
               <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-white px-4 py-3 text-xs text-slate-500">
@@ -789,7 +867,7 @@ export function InventoryReadinessPage() {
                 </span>
                 <div className="flex items-center gap-2">
                   <span className="hidden text-slate-400 sm:inline">{t("每页")}</span>
-                  <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))}>
+                  <Select value={String(pageSize)} onValueChange={(value) => { setPageSize(value === "100" ? 100 : value === "50" ? 50 : 20); setPage(1); }}>
                     <SelectTrigger aria-label={t("每页条数")} className="h-8 w-[74px] border-slate-200 bg-white text-xs">
                       <SelectValue />
                     </SelectTrigger>
@@ -871,21 +949,21 @@ export function InventoryReadinessPage() {
             <span>{data.warehouse.matchedNames.length > 0 ? `${t("已匹配仓库")}：${data.warehouse.matchedNames.join(" / ")}` : t("未匹配到 ERP 量产仓库")}</span>
           </div>
         </>
-      ) : data ? (
+      ) : data && resultScopeMatches ? (
         <div className="flex min-h-[32rem] flex-col items-center justify-center rounded-[14px] border border-slate-200 bg-white px-6 text-center shadow-[0_1px_2px_rgba(15,23,42,.03)]">
           <span className="flex size-12 items-center justify-center rounded-xl bg-accent text-primary"><Boxes className="size-6" aria-hidden="true" /></span>
           <h2 className="mt-4 text-base font-bold text-slate-900">{data.productLine === "Q5" ? t("Q5 单台装配清单尚未就绪") : t("尚未找到 {model} BOM", { model: data.productLine || productLine })}</h2>
           <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">{t(data.productLine === "Q5" ? "请先按《物料清单》的「原材料」工作表完成 Q5 装配清单初始化，再按物料编码与单机用量核算量产仓库存。" : "请先完成产品 BOM 初始化；库存齐套中心会按物料编码自动连接量产仓库的 ERP 库存。")}</p>
           {showBomStructureActions && <Button type="button" disabled={!currentData} onClick={() => setBomEditor({ mode: "create", lines: [] })} className="mt-4"><Plus className="size-4" aria-hidden="true" />{t("新增物料")}</Button>}
-          {canViewMaterials ? <Button type="button" variant="outline" onClick={() => navigate(routePath("page:proc-materials", "/proc-materials"))} className="mt-4 border-slate-200 bg-white text-slate-700">{t("打开物料库")}</Button> : null}
+          {canViewMaterials ? <Button type="button" variant="outline" onClick={() => openMaterialLibrary()} className="mt-4 border-slate-200 bg-white text-slate-700">{t("打开物料库")}</Button> : null}
         </div>
-      ) : loading ? (
+      ) : loading || (!error && !resultScopeMatches) ? (
         <div className="flex min-h-64 items-center justify-center rounded-[14px] border border-slate-200 bg-white text-sm text-slate-500">
           <RefreshCw className="mr-2 size-4 animate-spin text-primary" aria-hidden="true" />{t("正在核算库存齐套情况…")}
         </div>
       ) : null}
 
-      {productLine === "Q5" && data?.productLine === "Q5" && data.packaging && <Q5PackagingInventory data={data.packaging} />}
+      {resultScopeMatches && productLine === "Q5" && data?.productLine === "Q5" && data.packaging && <Q5PackagingInventory data={data.packaging} />}
 
       {showBomActions && bomEditor && <InventoryBomEditor
         key={`${productLine}:${bomEditor.mode}:${bomEditor.lines.map((line) => line.id).join(",")}`}
@@ -893,6 +971,7 @@ export function InventoryReadinessPage() {
         productLine={productLine}
         positions={data?.bomPositions ?? []}
         onClose={() => setBomEditor(null)}
+        onCloseAutoFocus={(event) => { if (editorFromDetailRef.current) { editorFromDetailRef.current = false; restoreSheetFocus(event); } }}
         onSaved={() => { setBomEditor(null); setSelected(null); void load(); }}
       />}
 
@@ -976,8 +1055,8 @@ export function InventoryReadinessPage() {
         </SheetContent>
       </Sheet>
 
-      <Sheet open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelected(null); }}>
-        <SheetContent onCloseAutoFocus={restoreSheetFocus} className="proc-horizon-drawer w-full gap-0 overflow-y-auto border-slate-200 bg-background p-0 sm:max-w-xl">
+      <Sheet open={Boolean(selected)} onOpenChange={(open) => { if (!open) closeItem(); }}>
+        <SheetContent onCloseAutoFocus={restoreSheetFocus} className="proc-horizon-drawer proc-readiness-item-sheet w-full gap-0 overflow-y-auto border-slate-200 bg-background p-0 sm:max-w-xl">
           {selected ? (
             <>
               <SheetHeader className="border-b border-slate-200 bg-white px-5 py-5 pr-12 text-left">
@@ -992,17 +1071,17 @@ export function InventoryReadinessPage() {
               <div className="space-y-3 p-4">
                 <section className="rounded-xl border border-slate-200 bg-white p-4">
                   <h3 className="text-xs font-bold text-slate-900">{t("齐套贡献")}</h3>
-                  <div className="mt-3 grid grid-cols-3 divide-x divide-slate-100 [&>div]:min-w-0 [&_p]:break-words">
+                  <div className="proc-readiness-item-results mt-3 grid grid-cols-3 divide-x divide-slate-100 [&>div]:min-w-0 [&_p]:break-words">
                     <div className="pr-3"><p className="text-[11px] text-slate-400">{t("当前可齐套")}</p><p className="mt-1 text-xl font-bold text-primary tabular-nums">{inventoryQuantity(selected, selected.currentSets, 0)}</p></div>
-                    <div className="px-3"><p className="text-[11px] text-slate-400">{t("到货后可齐套")}</p><p className="mt-1 text-xl font-bold text-emerald-700 tabular-nums">{inventoryQuantity(selected, selected.withTransitSets, 0)}</p></div>
-                    <div className="pl-3"><p className="text-[11px] text-slate-400">{t("目标缺口")}</p><p className="mt-1 text-xl font-bold text-rose-600 tabular-nums">{inventoryQuantity(selected, selected.gapAfterTransit)}</p></div>
+                    <div className="px-3"><p className="text-[11px] text-slate-400">{t("在途到齐后可齐套")}</p><p className="mt-1 text-xl font-bold text-emerald-700 tabular-nums">{inventoryQuantity(selected, selected.withTransitSets, 0)}</p></div>
+                    <div className="pl-3"><p className="text-[11px] text-slate-400">{t("在途到齐后缺口")}</p><p className="mt-1 text-xl font-bold text-rose-600 tabular-nums">{inventoryQuantity(selected, selected.gapAfterTransit)}</p></div>
                   </div>
                 </section>
                 <section className="rounded-xl border border-slate-200 bg-white p-4">
                   <h3 className="text-xs font-bold text-slate-900">{t("数量口径")}</h3>
                   <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-4 text-xs [&>div]:min-w-0 [&_dd]:break-words">
                     <div><dt className="text-slate-400">{t("单机用量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{selected.qtyPer ? `${quantity(selected.qtyPer)} ${selected.unit}` : "—"}</dd></div>
-                    <div><dt className="text-slate-400">{t("目标需求量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{quantity(selected.targetDemand)} {selected.unit}</dd></div>
+                    <div><dt className="text-slate-400">{t("目标需求量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{selected.status === "data_missing" ? "—" : quantity(selected.targetDemand)} {selected.unit}</dd></div>
                     <div><dt className="text-slate-400">{t("量产仓库现存量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inventoryQuantity(selected, selected.stock)} {selected.unit}</dd></div>
                     <div><dt className="text-slate-400">{t("量产仓库可用量")}</dt><dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inventoryQuantity(selected, selected.available)} {selected.unit}</dd></div>
                     <div><dt className="text-slate-400">{t("确认在途")}</dt><dd className="mt-1 font-semibold text-primary tabular-nums">{inventoryQuantity(selected, selected.inTransit)} {selected.unit}</dd></div>
@@ -1015,6 +1094,12 @@ export function InventoryReadinessPage() {
                     {selected.issue === "missing_qty" && selected.inventoryDiagnostic && <InventoryMatchExplanation diagnostic={selected.inventoryDiagnostic} />}
                   </div>
                 ) : null}
+                {showBomActions && <div className="flex flex-wrap justify-end gap-2">
+                  {showBomStructureActions && <Button type="button" variant="outline" size="sm" className="border-rose-200 text-rose-700" disabled={!currentData || !selected.sourceLines?.length} onClick={() => editSelectedSource("delete")}><Trash2 className="size-4" aria-hidden="true" />{t("删除 BOM 来源")}</Button>}
+                  <Button type="button" variant="outline" size="sm" disabled={!currentData || !selected.sourceLines?.length} onClick={() => editSelectedSource("edit")}>
+                    <Pencil className="size-4" aria-hidden="true" />{t("编辑 BOM 来源")}
+                  </Button>
+                </div>}
                 {canCreateStockPlan ? (
                   <div className="space-y-2">
                     <Button type="button" disabled={!currentData || !hasVerifiedGap(selected)} onClick={() => openStockPlan(selected)} className="w-full">
@@ -1028,6 +1113,7 @@ export function InventoryReadinessPage() {
                     <Boxes className="size-4" aria-hidden="true" />{t("打开物料库")}
                   </Button>
                 ) : null}
+                <MaterialPurchaseOrderLines key={selected.id} inventoryCode={selected.code || ""} onOpenOrderLine={openPurchaseOrderLine} />
               </div>
             </>
           ) : null}

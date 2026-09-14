@@ -22,7 +22,7 @@ test("生产任务详情路由与研发详情共用 Horizon 视觉作用域", ()
   );
   assert.match(
     detailSource,
-    /className=\{cn\(\s*RD_TASK_DETAIL_HORIZON_SCOPE,\s*"mx-auto flex max-w-\[1440px\]/,
+    /className=\{cn\(\s*RD_TASK_DETAIL_HORIZON_SCOPE,\s*researchWorkspace && "rd-reference-detail",\s*"mx-auto flex max-w-\[1440px\]/,
   );
   assert.match(detailSource, /<div className="rd-horizon-detail-shell">/);
   assert.match(detailSource, /<div className="rd-horizon-detail-context">/);
@@ -46,12 +46,17 @@ test("权限、加载、空态与弹层不再按生产工作区关闭 Horizon", 
   assert.doesNotMatch(detailSource, /!productionWorkspace && "rd-horizon-detail-(?:select|dialog)"/);
 });
 
-test("生产工作区的数据、路由、同步门禁与左右栏业务结构保持不变", () => {
+test("生产保留原路由与业务门禁，研发详情按页面权限返回驾驶舱或个人工作台", () => {
   assert.match(detailSource, /const productionWorkspace = isProductionWorkspace\(\);/);
+  assert.match(detailSource, /const canOpenRdCockpit = usePermission\(PERMISSIONS\.PAGE_RD_TASK_MANAGEMENT\);/);
   assert.match(
     detailSource,
-    /const cockpitPath = productionWorkspace\s*\? "\/production-dashboard"\s*: routePath\("page:rd-task-management", "\/rd-task-management"\);/,
+    /const cockpitPath = productionWorkspace\s*\? "\/production-dashboard"\s*: canOpenRdCockpit \? routePath\("page:rd-task-management", "\/rd-task-management"\) : routePath\("page:rd-my-workspace", "\/rd-my-workspace"\);/,
   );
+  assert.match(detailSource, /const cockpitReturnPath = `\$\{cockpitPath\}\$\{location\.search\}`;/);
+  assert.match(detailSource, /const canViewRd = useAnyPermission\(PERMISSIONS\.PAGE_RD_TASK_MANAGEMENT, PERMISSIONS\.PAGE_RD_MY_WORKSPACE\);/);
+  assert.match(detailSource, /const canViewProduction = usePermission\(PERMISSIONS\.PAGE_RD_DIRECTOR_DASHBOARD\);/);
+  assert.match(detailSource, /const canView = productionWorkspace \? canViewProduction : canViewRd;/);
   assert.match(
     detailSource,
     /\(id: string\) => `\$\{productionWorkspace \? "\/production-task" : "\/rd-task"\}\/\$\{encodeURIComponent\(id\)\}/,

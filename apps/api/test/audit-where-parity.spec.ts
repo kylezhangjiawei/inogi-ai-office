@@ -4,6 +4,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 
 import { AuditService, type AuditViewer } from '../src/modules/audit/audit.service';
 import { AuditLogQueryDto } from '../src/modules/audit/dto/audit-log-query.dto';
+import { auditReceiptsTestDatabaseUrl } from './helpers/audit-receipts-database';
 
 /**
  * 「涉及对象」的去重计数走裸 SQL（Prisma 拿不到 count(distinct)），于是筛选条件存在两份实现：
@@ -11,37 +12,15 @@ import { AuditLogQueryDto } from '../src/modules/audit/dto/audit-log-query.dto';
  *
  * 这个用例用同一批 fixture 同时跑两条路径，断言命中的记录集完全一致 —— 把两份实现钉死。
  *
- * 两条安全约束（都是踩过才加的）：
- * 1. 全程在事务里跑、结束一律回滚 —— 部署脚本会在服务器上执行 `npm test`，那里的
- *    DATABASE_URL 指向**生产库**。往真表插 fixture 再删，一旦中途失败就会留下脏数据。
- * 2. 先检查 schema 是否已含新列再跑 —— 部署顺序是「跑测试 → 再迁移」（deploy.sh:813 / 868），
- *    所以测试执行时生产库可能还没有 module/source/summary 这些列，此时应跳过而不是失败。
+ * 只由 npm run test:audit-receipts:postgres 创建的临时数据库执行，不读取 DATABASE_URL。
+ * 默认部署套件不运行数据库写入；专用套件初始化当前结构，缺表/缺列须直接失败。
+ * 即便在隔离库中，也保留事务回滚及残留检查。
  */
 const PREFIX = 'parity-test-';
+const databaseUrl = process.env.AUDIT_RECEIPTS_TEST_DATABASE_URL;
 
 /** 用来强制回滚的哨兵：Prisma 只认「回调抛错」这一种回滚方式。 */
 const ROLLBACK = Symbol('rollback');
-
-async function reachable(prisma: PrismaClient): Promise<boolean> {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function schemaReady(prisma: PrismaClient): Promise<boolean> {
-  try {
-    const rows = await prisma.$queryRaw<Array<{ n: bigint }>>`
-      SELECT count(*)::bigint AS n FROM information_schema.columns
-      WHERE table_name = 'AuditLog' AND column_name IN ('module', 'source', 'summary')
-    `;
-    return Number(rows[0]?.n ?? 0) === 3;
-  } catch {
-    return false;
-  }
-}
 
 const FIXTURES = [
   { id: `${PREFIX}rd-alice`, module: 'rd', source: 'web', action: 'task.updated', resource: 'task', resourceId: 'T-1', resourceName: '电池测试', actorName: '张三', userId: null, summary: '更新任务进度' },
@@ -84,28 +63,15 @@ const CASES: Array<{ name: string; query: Partial<AuditLogQueryDto>; viewer: Aud
   { name: '普通成员叠加关键字', query: { keyword: '任务' }, viewer: { userId: 'x', userName: '张三', permissions: ['page:audit-log'] } },
 ];
 
-test('buildWhere 与 buildSqlWhere 命中的记录集必须完全一致', async (t) => {
-  const prisma = new PrismaClient();
-  if (!(await reachable(prisma))) {
-    await prisma.$disconnect();
-    t.skip('数据库不可用，跳过 where 一致性用例');
-    return;
-  }
-  // 部署顺序是「先跑测试、再执行迁移」（deploy.sh:813 / 868），
-  // 所以服务器上跑到这里时库里可能还没有 module/source/summary 这几列。
-  // 那种情况下跳过 —— 用还没迁移的 schema 去插新字段必然失败，但那不是回归。
-  if (!(await schemaReady(prisma))) {
-    await prisma.$disconnect();
-    t.skip('AuditLog 尚未包含合并后的新列（迁移未执行），跳过 where 一致性用例');
-    return;
-  }
+test('buildWhere 与 buildSqlWhere 命中的记录集必须完全一致', { skip: !databaseUrl, timeout: 30_000 }, async () => {
+  const url = auditReceiptsTestDatabaseUrl(databaseUrl!);
+  const prisma = new PrismaClient({ datasourceUrl: url.toString() });
 
   const service = Object.create(AuditService.prototype) as any;
   const snapshotAt = new Date(Date.now() + 60_000);
 
   try {
-    // 整段放进事务并强制回滚：这段代码会在部署机上跑，而那里的 DATABASE_URL 指向生产库，
-    // 绝不能留下任何 fixture。回滚由抛哨兵触发，Prisma 只认这一种方式。
+    // 隔离数据库仍保留回滚断言，避免测试执行之间互相污染。
     await prisma.$transaction(async (tx) => {
       service.prisma = tx;
       await tx.auditLog.createMany({ data: FIXTURES });
@@ -138,8 +104,8 @@ test('buildWhere 与 buildSqlWhere 命中的记录集必须完全一致', async 
     await prisma.$disconnect();
   }
 
-  // 回滚是否真的生效：留一条 fixture 都说明这套写法在生产上会留脏数据
-  const verifier = new PrismaClient();
+  // 使用同一隔离连接检查回滚结果，绝不回退到应用数据库。
+  const verifier = new PrismaClient({ datasourceUrl: url.toString() });
   try {
     const leftover = await verifier.auditLog.count({ where: { id: { startsWith: PREFIX } } });
     assert.equal(leftover, 0, 'fixture 必须随事务回滚，一条都不能留在库里');

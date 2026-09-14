@@ -300,13 +300,13 @@ function releaseWorkspaceScrollLock(element: HTMLElement) {
 function focusBelongsToNestedWorkspacePortal(layer: HTMLElement): boolean {
   const active = document.activeElement;
   if (!(active instanceof HTMLElement) || layer.contains(active)) return false;
-  const modal = active.closest<HTMLElement>('[role="dialog"][aria-modal="true"]');
+  const modal = active.closest<HTMLElement>('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]');
   if (modal && modal !== layer) return true;
   return Boolean(active.closest(WORKSPACE_NESTED_PORTAL_SELECTOR));
 }
 
 function hasExternalModalDialog(): boolean {
-  return Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')).some(
+  return Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')).some(
     (dialog) => dialog.isConnected && dialog.getClientRects().length > 0,
   );
 }
@@ -1645,10 +1645,7 @@ function TaskOperationDrawer({
     }))).filter((attachment) => Boolean(attachment.fileUrl)),
     [progressNotes],
   );
-  // 采购关联是异步查回来的：查到在途关联就收起弹窗（即便提交也会被后端幂等挡下）。
-  useEffect(() => {
-    if (procTaskBlocksTransfer) setTransferOpen(false);
-  }, [procTaskBlocksTransfer]);
+  // 关联晚到时由弹窗阻止重复生成，保留正在填写的需求并沿用关闭确认。
 
   const submitAbandon = async () => {
     const reason = abandonReason.trim();
@@ -1948,6 +1945,11 @@ function TaskOperationDrawer({
               </div>
             </div>
 
+            {!isUsCollabWorkspace() && task.source_workspace !== "us-collab" && (
+              <Button type="button" variant="outline" size="sm" className="min-h-10 gap-1.5 text-xs" onClick={() => navigate(`/rd-task/${encodeURIComponent(task.task_id)}`, { state: { task } })}>
+                <FileText className="size-3.5" />{t("技术资料与任务详情")}
+              </Button>
+            )}
             {/* 转采购入口 / 已转状态：已有关联展示流转芯片（含「待研发审核」等状态；无采购
                 驾驶舱权限的成员自动降级为只读芯片），可转时展示按钮，弹窗与详情页共用。 */}
             {(procTask || (canTransferProc && !procTaskBlocksTransfer)) && (
@@ -2875,6 +2877,7 @@ function TaskOperationDrawer({
           dueDate={task.due_date}
           attachments={transferAttachments}
           resubmitFrom={procTaskBlocksTransfer ? null : procTask}
+          blockingTask={procTaskBlocksTransfer ? procTask : null}
           onTransferred={setProcTask}
           onClose={() => setTransferOpen(false)}
         />

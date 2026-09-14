@@ -2,6 +2,7 @@ import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { ProcurementService } from '../src/modules/procurement/procurement.service';
+import { RdTechnicalDocumentsService } from '../src/modules/research-development/rd-technical-documents.service';
 
 /**
  * 研发转采购只存了当时的预览地址（带 24h HMAC 令牌）、没存 object key，
@@ -20,7 +21,7 @@ function ossStub(oss: Record<string, unknown>) {
   };
 }
 
-function createService(attachments: Array<Record<string, unknown>>, oss: Record<string, unknown>) {
+function createService(attachments: Array<Record<string, unknown>>, oss: Record<string, unknown>, metadata?: unknown) {
   const task = {
     id: 'task-1',
     materialName: '零件',
@@ -37,6 +38,7 @@ function createService(attachments: Array<Record<string, unknown>>, oss: Record<
     material: null,
     createdAt: new Date(),
     updatedAt: new Date(),
+    metadata,
   };
   const prisma = { procTask: { findUnique: async () => task } };
   return new ProcurementService(prisma as never, ossStub(oss) as never, {} as never, {} as never);
@@ -123,4 +125,50 @@ test('fileUrl 指向白名单外的 key 时不构造预览地址，避免签出�
 
   assert.equal(result.attachmentList[0].fileUrl, '/api/research-development/oss-preview?key=prod/expense/vouchers/2026-salary.xlsx&exp=1&sig=x', '原样返回旧地址，不重新签名');
   assert.equal(result.attachmentList[0].thumbUrl, undefined);
+});
+
+test('当前与历史交付快照每次读取按各自原文件 key 重签，快照原版本和地址不被改写', async () => {
+  const metadata = { rdTransferSnapshots: [
+    { id: 'delivery-1', attachments: [{ fileName: 'A.pdf', version: 'A', fileKey: LEGACY_KEY, fileUrl: LEGACY_URL }] },
+    { id: 'delivery-2', attachments: [{ fileName: 'B.pdf', version: 'B', fileKey: 'prod/assets/B.pdf', fileUrl: '/expired-B' }] },
+  ] };
+  const service = createService([], { buildInlinePreviewUrl: (key: string) => `/fresh?key=${key}` }, metadata);
+  const result = await service.getTask('task-1', { id: 'u1', name: '张三', permissions: ['*'] } as never);
+  assert.equal(result.rdTransferSnapshots[0].attachments[0].fileUrl, `/fresh?key=${LEGACY_KEY}`);
+  assert.equal(result.rdTransferSnapshots[1].attachments[0].fileUrl, '/fresh?key=prod/assets/B.pdf');
+  assert.equal(result.rdTransferSnapshots[0].attachments[0].version, 'A');
+  assert.equal(metadata.rdTransferSnapshots[0].attachments[0].fileUrl, LEGACY_URL);
+});
+
+test('嵌入式版本的快照与采购附件每次读取获得新预览能力，原文件内容仍可由版本读取', async () => {
+  const file = Buffer.from('%PDF-1.7\noriginal embedded content');
+  const embedded = `data:application/pdf;base64,${file.toString('base64')}`;
+  const metadata = { rdTransferSnapshots: [{ id: 'delivery', attachments: [{
+    fileName: '嵌入.pdf', version: '1.0', fileKey: null, fileUrl: embedded,
+    technicalDocumentVersionId: 'embedded-v1', documentId: 'embedded-doc',
+  }] }] };
+  let sequence = 0;
+  const tokens: string[] = [];
+  const service = createService([{ id: 'a1', fileName: '嵌入.pdf', fileKey: null, fileUrl: embedded, kind: 'drawing', fileSize: file.length }], {
+    signPreviewToken: (identity: string) => { tokens.push(identity); return { exp: 2000000000 + sequence++, sig: `fresh-${sequence}` }; },
+  }, metadata);
+  const actor = { id: 'u1', name: '张三', permissions: ['*'] };
+  const first = await service.getTask('task-1', actor);
+  const second = await service.getTask('task-1', actor);
+  assert.match(first.rdTransferSnapshots[0].attachments[0].fileUrl, /^\/api\/research-development\/technical-document-files\/embedded-v1\?exp=.*sig=fresh-1$/);
+  assert.equal(first.attachmentList[0].fileUrl, first.rdTransferSnapshots[0].attachments[0].fileUrl);
+  assert.notEqual(first.attachmentList[0].fileUrl, second.attachmentList[0].fileUrl);
+  assert.deepEqual(tokens, ['rd-tech-doc:embedded-v1', 'rd-tech-doc:embedded-v1']);
+  assert.equal(metadata.rdTransferSnapshots[0].attachments[0].fileUrl, embedded);
+  const documents = new RdTechnicalDocumentsService({ rdTechnicalDocumentVersion: { findUnique: async () => ({ fileName: '嵌入.pdf', mimeType: 'application/pdf', fileKey: null, fileUrl: embedded }) } } as never, {} as never, {} as never);
+  assert.deepEqual((await documents.readEmbeddedVersion('embedded-v1'))?.buffer, file);
+});
+
+test('客户端文件地址中伪造其他技术版本编号，不能获得技术文件的新签名', async () => {
+  const raw = '/api/research-development/technical-document-files/other-version?exp=1&sig=invalid';
+  const service = createService([{ id: 'a1', fileName: 'untrusted.pdf', fileKey: null, fileUrl: raw, kind: 'drawing', fileSize: 1 }], {
+    signPreviewToken: () => { throw new Error('不得签名未由可信交付快照关联的版本'); },
+  });
+  const result = await service.getTask('task-1', { id: 'u1', name: '张三', permissions: ['*'] });
+  assert.equal(result.attachmentList[0].fileUrl, raw);
 });

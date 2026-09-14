@@ -134,6 +134,7 @@ export class OssService implements OnModuleInit {
     businessType: string,
     originalname: string,
     mimetype?: string,
+    options?: { private?: boolean },
   ): Promise<string | null> {
     const primaryClient = this.internalClient;
     const fallbackClient = this.publicClient;
@@ -146,7 +147,9 @@ export class OssService implements OnModuleInit {
     const objectKey = this.buildObjectKey(businessType, originalname);
     const putOptions = {
       mime: mimetype ?? this.guessMime(ext),
-      headers: { 'Cache-Control': 'public, max-age=31536000, immutable' },
+      headers: options?.private
+        ? { 'Cache-Control': 'private, no-store', 'x-oss-object-acl': 'private' }
+        : { 'Cache-Control': 'public, max-age=31536000, immutable' },
     };
 
     // 收集所有尝试的错误，便于一次性暴露给调用方

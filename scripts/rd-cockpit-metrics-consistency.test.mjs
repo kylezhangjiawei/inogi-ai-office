@@ -180,18 +180,21 @@ test("移动端人员目录低频刷新且失败时保留最后成功快照", ()
   assert.doesNotMatch(hookSource, /setPeopleDirectory\(\[\]\)/);
 });
 
-test("移动端驾驶舱从全产品合并接口一次获取任务事实与全部封面", () => {
+test("移动端全产品任务与封面同源，研发按个人范围读取且协同生产保留驾驶舱入口", () => {
   // 任务事实和图片必须来自同一棵全产品树，避免主库以外的任务在移动端丢图。
-  assert.match(hookSource, /fetchRdCockpitTaskCategories\(\{ includeCovers: true, signal: controller\.signal \}\)/);
+  assert.match(hookSource, /const fetchCategories = currentRdWorkspace\(\) === null \? fetchMergedTaskCategories : fetchRdCockpitTaskCategories;/);
+  assert.match(hookSource, /fetchCategories\(\{ includeCovers: true, signal: controller\.signal \}\)/);
   assert.doesNotMatch(hookSource, /fetchRdTaskCategories|mergeTaskCovers|Promise\.all/);
+  assert.match(rdApiSource, /merged-task-categories\$\{options\.includeCovers \? "\?include_covers=1" : ""\}/);
   assert.match(rdApiSource, /cockpit-task-categories\$\{options\.includeCovers \? "\?include_covers=1" : ""\}/);
-  assert.match(
-    rdControllerSource,
-    /cockpitTaskCategories\(@Query\('include_covers'\) includeCovers\?: string\)[\s\S]*?getMergedTaskCategories\(\{ includeCovers: includeCovers === '1' \}\)/,
-  );
-  assert.match(rdServiceSource, /async getMergedTaskCategories\(options: \{ includeCovers\?: boolean \} = \{\}\)/);
+  for (const method of ['mergedTaskCategories', 'cockpitTaskCategories']) {
+    assert.match(rdControllerSource, new RegExp(`${method}\\(@Query\\('include_covers'\\) includeCovers: string \\| undefined, @Request\\(\\) req: AuthedRequest\\) \\{\\s*return this\\.rdService\\.getMergedTaskCategories\\(\\{ includeCovers: includeCovers === '1', viewer: buildTaskViewer\\(req\\) \\}\\)`));
+  }
+  assert.match(rdControllerSource, /function buildTaskViewer[\s\S]*?currentRdWorkspace\(\) === 'rd'\s*\? rdTaskReadViewer\([\s\S]*?: buildViewer\(req\)/);
+  assert.match(rdServiceSource, /async getMergedTaskCategories\(options: \{ includeCovers\?: boolean; viewer\?: TaskProgressNoteViewer \} = \{\}\)/);
+  assert.match(rdServiceSource, /return currentRdWorkspace\(\) === 'rd' && viewer\?\.enforceTaskScope \? viewer : undefined;/);
   assert.match(rdServiceSource, /'merged-task-categories:covers'/);
-  assert.match(rdServiceSource, /applyProgressAttachmentCounts\(categories, noteMap, scoreMap, options\)/);
+  assert.match(rdServiceSource, /applyProgressAttachmentCounts\(this\.scopeTaskCategories\(categories, options\.viewer\), noteMap, scoreMap, options\)/);
 });
 
 test("人员身份按 memberIdentityKey 索引，不用姓名当主键", () => {

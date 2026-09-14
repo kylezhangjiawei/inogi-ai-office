@@ -186,9 +186,10 @@ test("采购驾驶舱提供核心配件数量和异常摘要入口", () => {
   assert.match(cockpit, /异常/);
 });
 
-test("采购驾驶舱和个人工作台共用研发式任务卡", () => {
+test("采购驾驶舱保留研发式任务卡，个人工作台使用紧凑任务行与右侧详情", () => {
   assert.match(cockpit, /<ProcurementTaskCard/);
-  assert.match(workspace, /<ProcurementTaskCard/);
+  assert.match(workspace, /<ProcWorkspaceTaskList/);
+  assert.match(workspace, /<ProcWorkspaceTaskPanel/);
   assert.match(cockpit, /materials=\{materials\}/);
   assert.match(workspace, /materials=\{materials\}/);
   assert.doesNotMatch(card, /role="button"/);
@@ -199,8 +200,8 @@ test("采购驾驶舱和个人工作台共用研发式任务卡", () => {
   assert.match(card, /DropdownMenu/);
   assert.match(card, /tabular-nums/);
   assert.doesNotMatch(card, /material-card relative w-full overflow-hidden p-4/);
-  assert.match(workspace, /proc-workspace-task-grid/);
-  assert.match(source("src/app/procurement/horizon.css"), /\.proc-workspace-task-grid[\s\S]*?repeat\(auto-fit, minmax/);
+  assert.match(workspace, /proc-s01-layout/);
+  assert.match(source("src/app/procurement/procurementWorkspace.css"), /\.proc-s01-layout[\s\S]*?grid-template-columns/);
 });
 
 test("采购驾驶舱人员泳道只按采购部门负责人账号统计和筛选", () => {

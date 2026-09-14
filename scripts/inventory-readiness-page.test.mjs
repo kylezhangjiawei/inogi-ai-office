@@ -7,6 +7,12 @@ const source = readFileSync(new URL("../src/app/procurement/InventoryReadinessPa
 const code = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
+const navigationCode = ts.transpileModule(readFileSync(new URL("../src/app/lib/inventoryReadinessNavigation.ts", import.meta.url), "utf8"), {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+}).outputText;
+const orderNavigationCode = ts.transpileModule(readFileSync(new URL("../src/app/lib/purchaseOrderLineNavigation.ts", import.meta.url), "utf8"), {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+}).outputText;
 const packagingCode = ts.transpileModule(readFileSync(new URL("../src/app/procurement/components/Q5PackagingInventory.tsx", import.meta.url), "utf8"), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
@@ -55,10 +61,13 @@ function pageFixture(query = "", permissions = []) {
   const requests = [];
   const writes = [];
   const navigations = [];
+  const navigationOptions = [];
+  const exportCalls = [];
+  let exportReply = async () => ({ shortageCount: 0, unverifiedCount: 0 });
   let slot = 0;
   let tree;
   let load;
-  let reply = ({ productLine }) => response(productLine);
+  let reply = ({ productLine, targetSets }) => { const data = response(productLine); data.summary.targetSets = targetSets; return data; };
   let writeReply = async () => ({});
   const t = (text, params = {}) => text.replace(/\{(\w+)\}/g, (match, key) => params[key] ?? match);
   const jsx = (type, props) => typeof type === "function" ? type(props) : { type, props };
@@ -80,11 +89,14 @@ function pageFixture(query = "", permissions = []) {
       useLayoutEffect() {},
     },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
-    "react-router": { useNavigate: () => (destination) => navigations.push(destination), useSearchParams: () => [new URLSearchParams(query)] },
+    "react-router": { useNavigate: () => (destination, options) => { navigations.push(destination); navigationOptions.push(options); }, useSearchParams: () => [new URLSearchParams(query)] },
     "../lib/i18n": { useI18n: () => ({ t }), i18nLocale: () => "zh-CN" },
     "../hooks/usePermission": { usePermission: (permission) => permissions.includes(permission) },
     "../components/ui/utils": { cn: (...parts) => parts.filter(Boolean).join(" ") },
     "../lib/routePaths": { routePath: (_permission, fallback) => fallback },
+    "./routePaths": { routePath: (_permission, fallback) => fallback, subRoutePath: (_permission, fallback, suffix) => `${fallback}/${suffix}` },
+    "./components/MaterialPurchaseOrderLines": { MaterialPurchaseOrderLines: "MaterialPurchaseOrderLines" },
+    "./inventoryReadinessExport": { exportInventoryReadinessXlsx: async (data) => { exportCalls.push(data); return exportReply(data); } },
     "../lib/procurementApi": {
       getInventoryReadiness: async (params) => { requests.push(params); return reply(params); },
       saveInventoryBomLine: async (input, id) => { const request = { action: id ? "update" : "create", id, input }; writes.push(request); return writeReply(request); },
@@ -99,6 +111,12 @@ function pageFixture(query = "", permissions = []) {
     assert.ok(name === "lucide-react" || name.startsWith("../components/") || name === "./components/common", `Unexpected dependency: ${name}`);
     return viewComponents;
   };
+  const navigationExports = {};
+  new Function("exports", "require", navigationCode)(navigationExports, requireFixture);
+  dependencies["../lib/inventoryReadinessNavigation"] = navigationExports;
+  const orderNavigationExports = {};
+  new Function("exports", "require", orderNavigationCode)(orderNavigationExports, requireFixture);
+  dependencies["../lib/purchaseOrderLineNavigation"] = orderNavigationExports;
   const packagingExports = {};
   const explanationExports = {};
   new Function("exports", "require", explanationCode)(explanationExports, requireFixture);
@@ -111,6 +129,9 @@ function pageFixture(query = "", permissions = []) {
     requests,
     writes,
     navigations,
+    navigationOptions,
+    exportCalls,
+    setExportReply(reply) { exportReply = reply; },
     setResponse(value) { reply = typeof value === "function" ? value : () => value; },
     setWriteReply(value) { writeReply = value; },
     render() { slot = 0; tree = exports.InventoryReadinessPage(); return tree; },
@@ -302,18 +323,41 @@ test("包材未知库存显示破折号、真实零显示0，用量和库存缺�
   assert.deepEqual(cells(rows[29]).slice(2, 6), ["—", "—", "—", "—"]);
 });
 
+test("包材缺配套用量时仍展示已取得的库存，正数和真实零均不因用量缺失被隐藏", async () => {
+  const page = pageFixture();
+  const packaging = packagingData();
+  Object.assign(packaging.items[0], { qtyPer: null, issue: "missing_qty", stock: 24, available: 15, inTransit: 9 });
+  Object.assign(packaging.items[1], { qtyPer: null, issue: "missing_qty", stock: 0, available: 0, inTransit: 0 });
+  page.setResponse({ ...response(), packaging });
+  page.render();
+  const rows = packagingRows(await page.load());
+  assert.deepEqual(tableCells(rows[0]).slice(3, 6), ["24", "15", "9"]);
+  assert.deepEqual(tableCells(rows[1]).slice(3, 6), ["0", "0", "0"]);
+  for (const row of rows.slice(0, 2)) {
+    assert.equal(tableCells(row)[2], "待补充");
+    assert.ok(visibleText(row).includes("装配用量待补充"));
+    assert.ok(!visibleText(row).includes("量产仓记录待匹配"));
+  }
+});
+
 test("包材不改变装配明细与指标口径，其他型号不显示Q5包材", async () => {
   const page = pageFixture();
   const data = { ...response("Q5", [item("A01-011", "ready")]), packaging: packagingData() };
   data.dataQuality.provisional = false;
+  Object.assign(data.summary, { currentBuildableSets: 18, withTransitBuildableSets: 42, targetGapAfterTransit: 58 });
   page.setResponse(data);
   page.render();
-  const text = pageText(await page.load());
+  const tree = await page.load();
+  const text = pageText(tree);
   assert.ok(text.includes("当前装配物料可齐套"));
-  assert.ok(text.includes("包材与随箱配件的配套数量待确认，见下方清单。"));
   assert.ok(text.includes("包材表未填写配套数量；装配用量按同编码引用，仅供参考。"));
-  assert.equal(data.items.length, 1);
-  assert.equal(data.dataQuality.totalBomLines, 1);
+  assert.equal(materialRows(tree).length, 1);
+  assert.equal(packagingRows(tree).length, 37);
+  const rail = elements(tree).find((node) => node.type === "section" && elements(node).some((child) => child.props?.["aria-label"] === "齐套进度"));
+  assert.ok(rail);
+  assert.match(visibleText(rail), /当前装配物料可齐套\s+18\s+套/);
+  assert.match(visibleText(rail), /在途全部到齐后\s+42\s+套/);
+  assert.match(visibleText(rail), /到齐后目标差额\s+58\s+套/);
   const other = pageFixture("productLine=Q6");
   other.setResponse({ ...response("Q6"), packaging: packagingData() });
   other.render();
@@ -387,6 +431,25 @@ test("已经匹配量产仓的真实零库存仍显示0，并显示实际缺货�
   assert.ok(!pageText(detail).includes("暂不能确认具体原因"));
 });
 
+test("BOM用量已知但库存未匹配时保留目标需求，库存和齐套缺口继续标为未知", async () => {
+  const page = pageFixture();
+  const material = {
+    ...item("A01-KNOWN-DEMAND", "unmatched"), qtyPer: 2.5, targetDemand: 250, gapAfterTransit: 250,
+    issue: "inventory_unmatched", inventoryDiagnostic: { reason: "no_inventory_records", otherWarehouses: [] },
+  };
+  page.setResponse(response("Q5", [material]));
+  page.render();
+  const row = materialRows(await page.load())[0];
+  assert.equal(tableCells(row)[2], "2.5");
+  assert.deepEqual(tableCells(row).slice(3, 9), Array(6).fill("—"));
+  const detail = openDetail(page.openItem(material.code));
+  assert.match(detailQuantity(detail, "单机用量"), /^2\.5\s+个$/);
+  assert.match(detailQuantity(detail, "目标需求量"), /^250\s+个$/);
+  for (const label of ["量产仓库现存量", "量产仓库可用量", "确认在途", "安全库存"]) {
+    assert.match(detailQuantity(detail, label), /^—\s+个$/);
+  }
+});
+
 test("包材同时显示缺用量与三类库存原因，具体仓库名称和下一步不丢失", async () => {
   const page = pageFixture();
   const packaging = packagingData();
@@ -411,6 +474,38 @@ test("包材同时显示缺用量与三类库存原因，具体仓库名称和�
   assert.ok(pageText(rows[29]).includes("货号待核对"));
   assert.deepEqual(tableCells(rows[0]).slice(3, 6), ["0", "0", "0"]);
   assert.ok(!pageText(rows[0]).includes("暂无对应记录"));
+});
+
+test("缺编码或用量的BOM行不把接口占位零当作真实库存、目标需求或齐套结果", async () => {
+  for (const invalid of [
+    { code: null, qtyPer: 1, issue: "missing_code" },
+    { code: "A01-QTY-NULL", qtyPer: null, issue: "missing_qty" },
+    { code: "A01-QTY-ZERO", qtyPer: 0, issue: "missing_qty" },
+  ]) {
+    const page = pageFixture();
+    // The real readiness calculation returns zero placeholders for invalid BOM
+    // leaves even when a matching ERP balance exists; no diagnostic is attached
+    // when that balance exists, so absence of a diagnostic cannot verify zero.
+    const material = {
+      ...item("INVALID-BOM", "data_missing"), ...invalid,
+      stock: 0, available: 0, inTransit: 0, safeStock: 0,
+      currentSets: 0, withTransitSets: 0, targetDemand: 0, gapAfterTransit: 0, syncedAt: null,
+    };
+    page.setResponse(response("Q5", [material]));
+    page.render();
+    const row = materialRows(await page.load())[0];
+    assert.equal(tableCells(row)[2], invalid.qtyPer === 1 ? "1" : "—");
+    assert.deepEqual(tableCells(row).slice(3, 9), Array(6).fill("—"));
+    row.props.onClick({ currentTarget: null });
+    const detail = openDetail(page.render());
+    for (const label of ["目标需求量", "量产仓库现存量", "量产仓库可用量", "确认在途", "安全库存"]) {
+      assert.match(detailQuantity(detail, label), /^—(?:\s+个)?$/);
+    }
+    const contribution = elements(detail).find((node) => node.type === "section" && visibleText(node).includes("齐套贡献"));
+    assert.ok(contribution);
+    const quantities = elements(contribution).filter((node) => node.type === "p").filter((_node, index) => index % 2 === 1);
+    assert.deepEqual(quantities.map(visibleText), ["—", "—", "—"]);
+  }
 });
 
 test("缺单机用量且未取得库存的BOM行同时解释两类问题，未知数量不会显示为0", async () => {
@@ -439,7 +534,7 @@ test("缺单机用量且未取得库存的BOM行同时解释两类问题，未�
     }
     const contribution = elements(detail).find((node) => node.type === "section" && visibleText(node).includes("齐套贡献"));
     assert.ok(contribution);
-    assert.match(visibleText(contribution), /当前可齐套\s+—\s+到货后可齐套\s+—\s+目标缺口\s+—/);
+    assert.match(visibleText(contribution), /当前可齐套\s+—\s+在途到齐后可齐套\s+—\s+在途到齐后缺口\s+—/);
   }
 });
 
@@ -456,12 +551,12 @@ test("数据未核实完整时顶部差额明确标估算，完整数据保留�
     assert.ok(rail, "顶部齐套概览必须显示");
     const text = visibleText(rail);
     if (provisional) {
-      assert.match(text, /目标差额（估算）\s+100\s+套/);
+      assert.match(text, /到齐后目标差额（估算）\s+100\s+套/);
       assert.ok(text.includes("数据尚未核实完整，齐套与目标差额仅为估算，不能直接作为采购数量。"));
       assert.ok(!text.includes("仍缺"), "未核实数据不能呈现为已确认缺口");
     } else {
-      assert.match(text, /仍缺\s+100\s+套/);
-      assert.ok(!text.includes("目标差额（估算）"));
+      assert.match(text, /到齐后目标差额\s+100\s+套/);
+      assert.ok(!text.includes("到齐后目标差额（估算）"));
       assert.ok(!text.includes("数据尚未核实完整"));
     }
   }
@@ -617,7 +712,7 @@ test("整机入口放行不放宽单物料库存核实要求，已核实物料�
   assert.equal(params.get("planType"), "material");
   assert.equal(params.get("materialCode"), verified.code);
   assert.equal(params.get("targetQty"), "100");
-  assert.ok(params.get("note").includes("当前缺口 25"));
+  assert.ok(params.get("note").includes("在途到齐后缺口 25"));
 });
 
 test("较早库存记录跨BOM和包材按编码去重，列出名称与写入时间并排除无效日期", async () => {
@@ -640,9 +735,9 @@ test("较早库存记录跨BOM和包材按编码去重，列出名称与写入�
   page.setResponse(data);
   page.render();
   const tree = await page.load();
-  const details = elements(tree).find((node) => node.type === "details" && visibleText(node).includes("较早库存记录"));
+  const details = elements(tree).find((node) => node.type === "details" && [node.props.children].flat().some((child) => child?.type === "summary" && visibleText(child).includes("较早库存记录")));
   assert.ok(details, "旧记录应能通过原生可展开明细查看");
-  const summary = elements(details).find((node) => node.type === "summary");
+  const summary = [details.props.children].flat().find((node) => node?.type === "summary");
   assert.equal(visibleText(summary).trim(), "查看 2 种物料的较早库存记录");
   const rows = elements(details).filter((node) => node.type === "li");
   assert.equal(rows.length, 2);
@@ -803,17 +898,18 @@ test("通用物料仍支持新增编辑删除和位置选择，保存携带父�
   }
 });
 
-test("Q5明确完整齐套覆盖所有必需组件，待核实仅展示估算标签", async () => {
+test("Q5理论结果沿用全BOM口径并说明在途不代表按期齐套，待核实展示估算标签", async () => {
   for(const provisional of [true,false]) {
     const page=pageFixture();
     const data=response("Q5",[item("SIMULATED-ITEM","ready")]);
     data.dataQuality.provisional=provisional;
     page.setResponse(data); page.render();
     const text=visibleText(await page.load());
-    assert.ok(text.includes("完整齐套须满足清单内全部必需零部件、包材和随箱配件"));
+    assert.ok(text.includes("全 BOM 理论套数"));
+    assert.ok(text.includes("不代表按期齐套"));
     assert.equal(text.includes("当前装配物料可齐套（估算）"),provisional);
-    assert.equal(text.includes("到货后（估算）"),provisional);
-    if(!provisional) assert.ok(text.includes("在途到齐后"));
+    assert.equal(text.includes("在途全部到齐后（估算）"),provisional);
+    if(!provisional) assert.ok(text.includes("在途全部到齐后"));
   }
 });
 
@@ -937,4 +1033,203 @@ test("Q5未匹配编码不将接口兜底的件当成已确认单位", async () 
   assert.ok(visibleText(tree).includes("当前编码的计量单位待核对"));
   assert.ok(!visibleText(tree).includes("当前编码单位：件"));
   assert.equal(editorField(tree,"物料分类").props.value,"分子筛装配组");
+});
+
+
+test("齐套链接恢复目标、分类、搜索与页码，下钻物料库携带完整视图且保留浏览器后退入口", async () => {
+  const page = pageFixture("productLine=Q5&targetSets=300&q=ROW&category=%E6%9D%BF%E4%BB%B6&status=gap&page=2&pageSize=20", ["page:proc-materials"]);
+  const data = response("Q5", Array.from({ length: 45 }, (_, index) => item(`ROW-${String(index + 1).padStart(2, "0")}`, "gap")));
+  data.summary.targetSets = 300;
+  page.setResponse(data);
+  page.render();
+  let tree = await page.load();
+  assert.deepEqual(page.requests.at(-1), { productLine: "Q5", targetSets: 300 });
+  assert.match(pageText(tree), /显示 21-40 \/ 共 45 条/);
+  assert.equal(elements(tree).find((node) => node.type === "Input" && node.props["aria-label"] === "搜索物料齐套明细").props.value, "ROW");
+  const rowCode = tableCells(materialRows(tree)[0])[1].match(/ROW-\d+/)[0];
+  tree = page.openItem(rowCode);
+  const sheet = elements(tree).find((node) => node.type === "Sheet" && node.props.open);
+  const libraryButton = elements(sheet).find((node) => node.type === "Button" && visibleText(node).trim() === "打开物料库");
+  libraryButton.props.onClick();
+  assert.equal(page.navigations.length, 2);
+  assert.deepEqual(page.navigationOptions[0], { replace: true });
+  const returnUrl = new URL(page.navigations[0], "http://fixture.local");
+  assert.deepEqual(Object.fromEntries(returnUrl.searchParams), { productLine: "Q5", targetSets: "300", q: "ROW", category: "板件", status: "gap", page: "2", itemId: rowCode });
+  assert.equal(page.navigations[1], `/proc-materials?materialCode=${rowCode}`);
+  assert.deepEqual(page.navigationOptions[1], { state: { inventoryReadinessReturnTo: page.navigations[0], inventoryReadinessHistoryBack: true } });
+});
+
+test("返回页继续搜索会回到第一页，未提交的套数草稿不写入返回地址", async () => {
+  const page = pageFixture("targetSets=100&page=2", ["page:proc-materials"]);
+  page.setResponse(response("Q5", Array.from({ length: 45 }, (_, index) => item(`ROW-${index + 1}`, "gap"))));
+  page.render();
+  let tree = await page.load();
+  const search = elements(tree).find((node) => node.type === "Input" && node.props["aria-label"] === "搜索物料齐套明细");
+  search.props.onChange({ target: { value: "ROW-1" } });
+  tree = page.render();
+  assert.match(pageText(tree), /显示 1-11 \/ 共 11 条/);
+  const target = elements(tree).find((node) => node.type === "Input" && node.props["aria-label"] === "目标套数");
+  target.props.onChange({ target: { value: "abc" } });
+  tree = page.render();
+  page.clickButton("打开物料库");
+  const returnUrl = new URL(page.navigations[0], "http://fixture.local");
+  assert.equal(returnUrl.searchParams.get("targetSets"), "100");
+  assert.equal(returnUrl.searchParams.get("page"), null);
+});
+
+test("移动卡片与桌面共用异常口径和详情，编辑来源仍受权限约束", async () => {
+  for (const permissions of [[], ["material:import"]]) {
+    const page = pageFixture("", permissions);
+    const material = { ...item("MOBILE-MISSING", "data_missing"), qtyPer: null, issue: "missing_qty" };
+    page.setResponse(response("Q5", [material]));
+    page.render();
+    let tree = await page.load();
+    const list = elements(tree).find((node) => node.type === "ul" && node.props["aria-label"] === "物料齐套卡片");
+    assert.match(visibleText(list), /单机用量\s+待补充/);
+    assert.doesNotMatch(visibleText(list), /0\s+个|0\s+套/);
+    const opener = { isConnected: true, focus() {} };
+    elements(list).find((node) => node.type === "button").props.onClick({ currentTarget: opener });
+    tree = page.render();
+    const sheet = elements(tree).find((node) => node.type === "Sheet" && node.props.open);
+    const edit = elements(sheet).find((node) => node.type === "Button" && visibleText(node).trim() === "编辑 BOM 来源");
+    assert.equal(Boolean(edit), permissions.length > 0);
+    if (edit) {
+      assert.equal(edit.props.disabled, false);
+      edit.props.onClick();
+      tree = page.render();
+      assert.ok(elements(tree).some((node) => node.type === "Dialog" && node.props.open));
+      assert.ok(!elements(tree).some((node) => node.type === "Sheet" && node.props.open));
+      assert.equal(page.writes.length, 0, "Opening the editor never writes a BOM record");
+    }
+  }
+});
+
+
+test("切换型号与核算目标时不会交互打开上一范围的旧物料", async () => {
+  const page = pageFixture("", ["page:proc-materials"]);
+  page.setResponse(response("Q5", [item("OLD-Q5", "gap")]));
+  page.render();
+  let tree = await page.load();
+  assert.equal(materialRows(tree).length, 1);
+  tree = page.selectModel("通用");
+  assert.equal(materialRows(tree).length, 0);
+  assert.ok(!elements(tree).some((node) => node.props["aria-label"] === "查看物料 OLD-Q5"));
+  assert.match(visibleText(tree), /正在核算库存齐套情况/);
+});
+
+test("空BOM去物料库也携带返回上下文，通用物料详情保留来源删除确认入口", async () => {
+  const empty = pageFixture("productLine=Q5&targetSets=300", ["page:proc-materials"]);
+  empty.render();
+  let tree = await empty.load();
+  const buttons = elements(tree).filter((node) => node.type === "Button" && visibleText(node).trim() === "打开物料库");
+  assert.equal(buttons.length, 2);
+  buttons.at(-1).props.onClick();
+  assert.match(empty.navigations[0], /targetSets=300/);
+  assert.equal(empty.navigationOptions[1].state.inventoryReadinessReturnTo, empty.navigations[0]);
+
+  const page = pageFixture("productLine=%E9%80%9A%E7%94%A8", ["material:import"]);
+  page.setResponse(response("通用", [item("GENERIC-1", "gap")]));
+  page.render();
+  await page.load();
+  tree = page.openItem("GENERIC-1");
+  const sheet = elements(tree).find((node) => node.type === "Sheet" && node.props.open);
+  const remove = elements(sheet).find((node) => node.type === "Button" && visibleText(node).trim() === "删除 BOM 来源");
+  assert.ok(remove);
+  remove.props.onClick();
+  tree = page.render();
+  assert.match(visibleText(tree), /删除通用物料/);
+  assert.equal(page.writes.length, 0, "Only opens the existing confirmation dialog");
+});
+
+
+test("缺料导出使用全型号数据而非搜索分页，导出期间阻止重复触发", async () => {
+  const page = pageFixture("q=ROW-1&page=1");
+  const data = response("Q5", Array.from({ length: 45 }, (_, index) => item(`ROW-${index + 1}`, "gap")));
+  page.setResponse(data);
+  let resolveExport;
+  page.setExportReply(() => new Promise((resolve) => { resolveExport = resolve; }));
+  page.render();
+  let tree = await page.load();
+  const button = elements(tree).find((node) => node.type === "Button" && visibleText(node).trim() === "导出缺料清单");
+  assert.ok(button && !button.props.disabled);
+  button.props.onClick();
+  button.props.onClick();
+  tree = page.render();
+  assert.equal(page.exportCalls.length, 1);
+  assert.equal(page.exportCalls[0].items.length, 45);
+  assert.equal(page.exportCalls[0], data);
+  assert.ok(elements(tree).some((node) => node.type === "Button" && visibleText(node).trim() === "正在导出…" && node.props.disabled));
+  resolveExport({ shortageCount: 45, unverifiedCount: 0 });
+  await new Promise((resolve) => setImmediate(resolve));
+  tree = page.render();
+  assert.ok(elements(tree).some((node) => node.type === "Button" && visibleText(node).trim() === "导出缺料清单" && !node.props.disabled));
+});
+
+test("导出失败保留原物料并在操作处报错，可以重试；未提交目标不能导出旧结果", async () => {
+  const page = pageFixture();
+  page.setResponse(response("Q5", [item("EXPORT-1", "gap")]));
+  page.setExportReply(async () => { throw new Error("文件生成失败"); });
+  page.render();
+  await page.load();
+  page.clickButton("导出缺料清单");
+  await new Promise((resolve) => setImmediate(resolve));
+  let tree = page.render();
+  assert.ok(elements(tree).some((node) => node.props.role === "alert" && visibleText(node).includes("文件生成失败")));
+  assert.equal(materialRows(tree).length, 1);
+  const input = elements(tree).find((node) => node.type === "Input" && node.props["aria-label"] === "目标套数");
+  input.props.onChange({ target: { value: "999" } });
+  tree = page.render();
+  const button = elements(tree).find((node) => node.type === "Button" && visibleText(node).trim() === "导出缺料清单");
+  assert.equal(button.props.disabled, true);
+  button.props.onClick();
+  assert.equal(page.exportCalls.length, 1);
+});
+
+test("物料订单下钻携带完整齐套视图并精确编码单号和行标识", async () => {
+  const page = pageFixture("productLine=Q5&targetSets=300&q=ROW&category=%E6%9D%BF%E4%BB%B6&status=gap&page=2&pageSize=20", ["page:purchase-order-detail"]);
+  const data = response("Q5", Array.from({ length: 45 }, (_, index) => item(`ROW-${String(index + 1).padStart(2, "0")}`, "gap")));
+  data.summary.targetSets = 300;
+  page.setResponse(data);
+  page.render();
+  await page.load();
+  const tree = page.openItem("ROW-21");
+  const panel = elements(openDetail(tree)).find((node) => node.type === "MaterialPurchaseOrderLines");
+  assert.equal(panel.props.inventoryCode, "ROW-21");
+  panel.props.onOpenOrderLine("PO/%2F 中文", "line/%20+1");
+  assert.equal(page.navigations.length, 2);
+  assert.deepEqual(page.navigationOptions[0], { replace: true });
+  const returnUrl = new URL(page.navigations[0], "http://fixture.local");
+  assert.deepEqual(Object.fromEntries(returnUrl.searchParams), { productLine: "Q5", targetSets: "300", q: "ROW", category: "板件", status: "gap", page: "2", itemId: "ROW-21" });
+  assert.equal(page.navigations[1], "/purchase-orders/PO%2F%252F%20%E4%B8%AD%E6%96%87?lineId=line%2F%2520%2B1");
+  assert.deepEqual(page.navigationOptions[1], { state: { inventoryReadinessReturnTo: page.navigations[0], inventoryReadinessHistoryBack: true } });
+  assert.equal(page.writes.length, 0);
+});
+
+test("有正式编码但缺单机用量仍提供订单查询，无详情权限及不合法订单不导航", async () => {
+  for (const permissions of [[], ["page:purchase-order-detail"]]) {
+    const page = pageFixture("", permissions);
+    page.setResponse(response("Q5", [{ ...item("FORMAL/01", "data_missing"), qtyPer: null, issue: "missing_qty" }]));
+    page.render();
+    await page.load();
+    const panel = elements(openDetail(page.openItem("FORMAL/01"))).find((node) => node.type === "MaterialPurchaseOrderLines");
+    assert.equal(panel.props.inventoryCode, "FORMAL/01");
+    panel.props.onOpenOrderLine("", "line-1");
+    panel.props.onOpenOrderLine("..", "line-1");
+    assert.equal(page.navigations.length, 0);
+    panel.props.onOpenOrderLine("PO-1", "line-1");
+    assert.equal(page.navigations.length, permissions.length ? 2 : 0);
+  }
+});
+
+test("目标草稿尚未核算时阻止从旧物料详情跳转订单", async () => {
+  const page = pageFixture("", ["page:purchase-order-detail"]);
+  page.setResponse(response("Q5", [item("TARGET-1", "gap")]));
+  page.render();
+  await page.load();
+  let tree = page.openItem("TARGET-1");
+  elements(tree).find((node) => node.type === "Input" && node.props["aria-label"] === "目标套数").props.onChange({ target: { value: "300" } });
+  tree = page.render();
+  const panel = elements(tree).find((node) => node.type === "MaterialPurchaseOrderLines");
+  if (panel) panel.props.onOpenOrderLine("PO-1", "line-1");
+  assert.equal(page.navigations.length, 0);
 });

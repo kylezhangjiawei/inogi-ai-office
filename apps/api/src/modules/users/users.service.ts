@@ -210,6 +210,9 @@ export class UsersService {
    * isSelf = false 时禁止修改超管账号密码。
    */
   async adminResetPassword(id: string, newPassword: string, isSelf = false) {
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      throw new BadRequestException('新密码至少需要 8 位');
+    }
     const user = await this.prisma.user.findUnique({
       where: { id },
       include: { role: true },
@@ -221,7 +224,10 @@ export class UsersService {
     }
 
     const passwordHash = await argon2.hash(newPassword, { type: argon2.argon2id });
-    await this.prisma.user.update({ where: { id }, data: { passwordHash } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id }, data: { passwordHash } });
+      await tx.refreshToken.deleteMany({ where: { userId: id } });
+    });
     return { ok: true };
   }
 

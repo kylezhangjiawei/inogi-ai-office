@@ -8,7 +8,8 @@ import { Public } from '../auth/decorators/public.decorator';
 import { OssService } from '../oss/oss.service';
 import { canInlineAttachment, isActiveAttachmentContent } from './attachment-security';
 import { KbMultipartService } from './kb-multipart.service';
-import { RdWorkspaceInterceptor } from './rd-workspace.context';
+import { currentRdWorkspace, RdWorkspaceInterceptor } from './rd-workspace.context';
+import { rdTaskReadViewer, type RdTaskReadViewer } from './rd-task-access';
 import { ResearchDevelopmentService } from './research-development.service';
 
 const RD_READ_PERMISSIONS = [
@@ -72,7 +73,8 @@ function buildAuditLogViewer(req: AuthedRequest) {
   return {
     userId: req.user?.id,
     userName: req.user?.name,
-    canReadAll: canManageAnyTask(permissions),
+    canReadAll: canManageAnyTask(permissions) || (currentRdWorkspace() === 'rd' && permissions.includes('rd-task:view-all')),
+    enforceTaskScope: currentRdWorkspace() === 'rd',
   };
 }
 
@@ -117,6 +119,13 @@ function buildViewer(req: AuthedRequest): { userId?: string; hasFullAccess: bool
   return { userId: req.user?.id, hasFullAccess, canReadAll };
 }
 
+/** Task reads have an explicit scope; unrelated report/message mutations retain their original policy. */
+function buildTaskViewer(req: AuthedRequest): RdTaskReadViewer {
+  return currentRdWorkspace() === 'rd'
+    ? rdTaskReadViewer({ userId: req.user?.id, userName: req.user?.name, permissions: req.user?.permissions })
+    : buildViewer(req);
+}
+
 function buildDiscussionViewer(req: AuthedRequest) {
   const permissions = req.user?.permissions ?? [];
   const canPost =
@@ -124,8 +133,9 @@ function buildDiscussionViewer(req: AuthedRequest) {
     permissions.includes('page:rd-my-workspace') ||
     permissions.includes('page:us-collab-workspace') ||
     canManageAnyTask(permissions);
-  const canAccessAny =
-    permissions.includes('*') ||
+  const canAccessAny = currentRdWorkspace() === 'rd'
+    ? Boolean(buildTaskViewer(req).canReadAll)
+    : permissions.includes('*') ||
     permissions.includes('page:rd-task-management') ||
     permissions.includes('page:rd-director-dashboard') ||
     permissions.includes('page:us-collab-cockpit') ||
@@ -137,6 +147,8 @@ function buildDiscussionViewer(req: AuthedRequest) {
     userRole: req.user?.role,
     canAccessAny,
     canPost,
+    enforceTaskScope: currentRdWorkspace() === 'rd',
+    canManageTasks: currentRdWorkspace() === 'rd' && canManageAnyTask(permissions),
   };
 }
 
@@ -165,25 +177,25 @@ export class ResearchDevelopmentController {
 
   @Get('snapshot')
   snapshot(@Request() req: AuthedRequest) {
-    return this.rdService.snapshot(buildAuditLogViewer(req));
+    return this.rdService.snapshot(buildAuditLogViewer(req), buildTaskViewer(req));
   }
 
   @Get('task-categories')
-  taskCategories(@Query('include_covers') includeCovers?: string) {
-    return this.rdService.getTaskCategories({ includeCovers: includeCovers === '1' });
+  taskCategories(@Query('include_covers') includeCovers: string | undefined, @Request() req: AuthedRequest) {
+    return this.rdService.getTaskCategories({ includeCovers: includeCovers === '1', viewer: buildTaskViewer(req) });
   }
 
   /** 主库 + 所有产品库合并的分类树。供研发驾驶舱概览「人员任务」跨产品聚合，与个人工作台主责口径一致。 */
   @Get('merged-task-categories')
-  mergedTaskCategories(@Query('include_covers') includeCovers?: string) {
-    return this.rdService.getMergedTaskCategories({ includeCovers: includeCovers === '1' });
+  mergedTaskCategories(@Query('include_covers') includeCovers: string | undefined, @Request() req: AuthedRequest) {
+    return this.rdService.getMergedTaskCategories({ includeCovers: includeCovers === '1', viewer: buildTaskViewer(req) });
   }
 
   /** 驾驶舱专用全产品任务树。后端强制校验页面权限，避免仅靠前端路由隔离。 */
   @Get('cockpit-task-categories')
   @Permissions('page:rd-task-management', 'page:us-collab-cockpit', 'page:rd-director-dashboard')
-  cockpitTaskCategories(@Query('include_covers') includeCovers?: string) {
-    return this.rdService.getMergedTaskCategories({ includeCovers: includeCovers === '1' });
+  cockpitTaskCategories(@Query('include_covers') includeCovers: string | undefined, @Request() req: AuthedRequest) {
+    return this.rdService.getMergedTaskCategories({ includeCovers: includeCovers === '1', viewer: buildTaskViewer(req) });
   }
 
 
@@ -465,8 +477,8 @@ export class ResearchDevelopmentController {
   }
 
   @Get('products')
-  getProducts() {
-    return this.rdService.getProducts();
+  getProducts(@Request() req: AuthedRequest) {
+    return this.rdService.getProducts(buildTaskViewer(req));
   }
 
   @Put('products')
@@ -476,8 +488,8 @@ export class ResearchDevelopmentController {
   }
 
   @Get('product-task-categories/:productId')
-  getProductTaskCategories(@Param('productId') productId: string) {
-    return this.rdService.getProductTaskCategories(productId);
+  getProductTaskCategories(@Param('productId') productId: string, @Request() req: AuthedRequest) {
+    return this.rdService.getProductTaskCategories(productId, buildTaskViewer(req));
   }
 
   @Put('product-task-categories/:productId')
@@ -494,7 +506,7 @@ export class ResearchDevelopmentController {
 
   @Get('task-progress-notes')
   listTaskProgressNotes(@Request() req: AuthedRequest) {
-    return this.rdService.listAllTaskProgressNotes(buildViewer(req));
+    return this.rdService.listAllTaskProgressNotes(buildTaskViewer(req));
   }
 
   // ── 评论未读红点：任务级未读数与已读上报 ────────────────────────────────────
@@ -505,15 +517,15 @@ export class ResearchDevelopmentController {
     return this.rdService.getNoteUnreadSummary(buildDiscussionViewer(req));
   }
 
-  // 驾驶舱备注回执：所有有驾驶舱页面权限者可见（类级 @Permissions 已含 page:rd-task-management / us-collab-cockpit）
+  // 研发备注回执沿任务读取范围过滤；协同和生产保持原有范围。
   @Get('task-note-receipts')
-  getTaskNoteReceipts() {
-    return this.rdService.getTaskNoteReceipts();
+  getTaskNoteReceipts(@Request() req: AuthedRequest) {
+    return this.rdService.getTaskNoteReceipts(buildTaskViewer(req));
   }
 
   @Post('task-progress-notes/:taskId/read')
   markTaskNotesRead(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
-    return this.rdService.markTaskNotesRead(taskId, { userId: req.user?.id });
+    return this.rdService.markTaskNotesRead(taskId, buildTaskViewer(req));
   }
 
   // ── 任务协作对话：主会话 + 围绕进度/消息的原位讨论线程 ───────────────────
@@ -592,10 +604,11 @@ export class ResearchDevelopmentController {
   /** 单任务 AI 小结（协同模块纵向视图）：任务近况浓缩成几句话；AI 未配置时本地兜底，不失败。 */
   @Post('tasks/:taskId/brief')
   generateTaskBrief(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
-    // 可见性与留痕接口同口径：驾驶舱/管理员级页面码可看全部，仅工作台码的普通成员限本人参与任务
+    // 研发可见性与留痕接口一致：主责/协作或管理、跨任务只读权限；其他工作区保持原口径。
     const perms = req.user?.permissions ?? [];
-    const canViewAny =
-      perms.includes('*') ||
+    const canViewAny = currentRdWorkspace() === 'rd'
+      ? Boolean(buildTaskViewer(req).canReadAll)
+      : perms.includes('*') ||
       perms.includes('page:rd-task-management') ||
       perms.includes('page:us-collab-cockpit') ||
       perms.includes('page:rd-director-dashboard') ||
@@ -615,14 +628,14 @@ export class ResearchDevelopmentController {
   ) {
     return this.rdService.getTaskAttachmentPreviews(
       (taskIds ?? '').split(','),
-      { ...buildViewer(req), userName: req.user?.name },
+      { ...buildTaskViewer(req), userName: req.user?.name },
     );
   }
 
   @Get('task-attachments/:taskId')
   getTaskAttachments(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
     return this.rdService.getTaskAttachments(taskId, {
-      ...buildViewer(req),
+      ...buildTaskViewer(req),
       userName: req.user?.name,
     });
   }
@@ -630,7 +643,7 @@ export class ResearchDevelopmentController {
   @Get('task-progress-note-groups/:taskId')
   getTaskProgressNoteGroup(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
     return this.rdService.getTaskProgressNoteGroup(taskId, {
-      ...buildViewer(req),
+      ...buildTaskViewer(req),
       userName: req.user?.name,
       canEditAttachments: canManageAnyTask(req.user?.permissions ?? []),
     });
@@ -638,10 +651,9 @@ export class ResearchDevelopmentController {
 
   @Get('task-progress-notes/:taskId')
   getTaskProgressNotes(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
-    // 单任务读取额外带上 userName：参与人（含历史仅按姓名指派的任务）可见该任务全部进展。
-    // 仅此路由透传，不改动共享的 buildViewer（其它路由口径不变）。
+    // 参与人（含历史仅按姓名指派的任务）可见该任务全部进展。
     return this.rdService.getTaskProgressNotes(taskId, {
-      ...buildViewer(req),
+      ...buildTaskViewer(req),
       userName: req.user?.name,
       // 附件可编辑标记的管理员口径与写接口 canEditAny 完全一致（同一函数）
       canEditAttachments: canManageAnyTask(req.user?.permissions ?? []),
@@ -765,12 +777,12 @@ export class ResearchDevelopmentController {
     @Query('task_ids') taskIds: string | undefined,
     @Request() req: AuthedRequest,
   ) {
-    return this.rdService.getTaskCompletionScores((taskIds ?? '').split(','), buildViewer(req));
+    return this.rdService.getTaskCompletionScores((taskIds ?? '').split(','), buildTaskViewer(req));
   }
 
   @Get('task-completion-scores/:taskId')
   getTaskCompletionScore(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
-    return this.rdService.getTaskCompletionScore(taskId, buildViewer(req));
+    return this.rdService.getTaskCompletionScore(taskId, buildTaskViewer(req));
   }
 
   /**
@@ -1227,8 +1239,8 @@ export class ResearchDevelopmentController {
   }
 
   @Get('director-dashboard')
-  directorDashboard() {
-    return this.rdService.getDirectorDashboard();
+  directorDashboard(@Request() req: AuthedRequest) {
+    return this.rdService.getDirectorDashboard(buildTaskViewer(req));
   }
 
   @Put('director-dashboard')
@@ -1254,8 +1266,8 @@ export class ResearchDevelopmentController {
   // 否则其人员管理页只能写不能读（写端点有专属码、读端点走类级 RD_READ 缺该码）。QA 套件覆盖此回归。
   @Get('people')
   @Permissions(...RD_READ_PERMISSIONS, 'rd-people:manage')
-  people() {
-    return this.rdService.getPeople();
+  people(@Request() req: AuthedRequest) {
+    return this.rdService.getPeople(buildTaskViewer(req));
   }
 
   @Get('people/user-options')

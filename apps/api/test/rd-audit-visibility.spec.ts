@@ -117,11 +117,11 @@ test('audit and snapshot controllers derive visibility from authenticated admini
   });
 
   assert.deepEqual(auditViewers, [
-    { userId: 'member', userName: '普通成员', canReadAll: false },
-    { userId: 'rd-admin', userName: '研发管理员', canReadAll: true },
-    { userId: 'system-admin', userName: '系统管理员', canReadAll: true },
+    { userId: 'member', userName: '普通成员', canReadAll: false, enforceTaskScope: true },
+    { userId: 'rd-admin', userName: '研发管理员', canReadAll: true, enforceTaskScope: true },
+    { userId: 'system-admin', userName: '系统管理员', canReadAll: true, enforceTaskScope: true },
   ]);
   assert.deepEqual(snapshotViewers, [
-    { userId: 'member', userName: '普通成员', canReadAll: false },
+    { userId: 'member', userName: '普通成员', canReadAll: false, enforceTaskScope: true },
   ]);
 });

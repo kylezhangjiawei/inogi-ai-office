@@ -14,9 +14,25 @@ new Function("exports", transpile(commonAst.statements.filter((node) => commonNa
   .map((node) => node.getText(commonAst)).join("\n")))(common);
 const logic = {};
 new Function("exports", transpile(read("src/app/procurement/procurementLogic.ts")))(logic);
+const dates = {};
+new Function("exports", "require", "window", transpile(read("src/app/procurement/data.ts")))(dates, (name) => {
+  const dependencies = { react: {}, "../auth": {}, "../lib/authSession": { addAuthClearedListener() {} }, "../lib/procurementApi": {}, "../lib/rdApi": {} };
+  assert.ok(name in dependencies);
+  return dependencies[name];
+}, undefined);
+const workspaceModel = {};
+new Function("exports", "require", transpile(read("src/app/procurement/procurementWorkspaceModel.ts")))(workspaceModel, (name) => {
+  assert.equal(name, "./data");
+  return dates;
+});
+const arrivalNavigation = {};
+new Function("exports", "require", transpile(read("src/app/lib/workspaceArrivalNavigation.ts")))(arrivalNavigation, (name) => {
+  assert.equal(name, "./routePaths");
+  return { routePath: (_permission, fallback) => fallback };
+});
 
 const own = { id: "mine", buyerUserId: "buyer-1", buyer: "张工", code: "PR-001", status: "testing", method: "inquiry", source: "self", businessLine: "rd",
-  materialName: "组件", unit: "件", quantity: 1, arrivedQty: 0, priority: "low", attachmentList: [], logs: [], paymentStatus: "unpaid" };
+  materialName: "组件", unit: "件", quantity: 1, arrivedQty: 0, priority: "low", attachmentList: [], purchaseOrders: [], logs: [], paymentStatus: "unpaid" };
 
 function nodes(tree) {
   if (Array.isArray(tree)) return tree.flatMap(nodes);
@@ -33,7 +49,8 @@ function fixture(component, { allowed = true, task = own, tasks = [own], props =
   const stubs = Object.fromEntries(imports.map((name) => [name, name]));
   const slots = [];
   let cursor = 0;
-  Object.assign(stubs, common, logic, {
+  let params = new URLSearchParams("period=all&task=mine");
+  Object.assign(stubs, common, logic, workspaceModel, arrivalNavigation, {
     useState(initial) {
       const index = cursor++;
       if (!(index in slots)) slots[index] = typeof initial === "function" ? initial() : initial;
@@ -44,7 +61,11 @@ function fixture(component, { allowed = true, task = own, tasks = [own], props =
     useAuth: () => ({ user: { id: "buyer-1", name: "张工" } }),
     useI18n: () => ({ t: (value, params = {}) => value.replace(/\{(\w+)\}/g, (_, key) => params[key] ?? key) }),
     useNavigate: () => () => {},
+    useLocation: () => ({ pathname: '/proc-my-workspace', search: '', key: 'workspace-action-test' }),
+    useSearchParams: () => [params, (next) => { params = typeof next === "function" ? next(params) : next; }],
+    routePath: (_permission, fallback) => fallback,
     useProcurementData: () => ({ tasks, materials: [], loading: false }),
+    useProcurementProducts: () => [],
     useProcTaskAction: () => ({}), useProcCan: () => (permission) => allowed && permission === "proc-task:rollback",
     isProcurementTaskOverdue: () => false, daysFromToday: () => null, taskMainDate: () => ({}), taskRequester: () => ({ name: "研发员" }),
     nextPermissionOf: () => "proc-task:transition", removalModeOf: () => "delete", cn: (...values) => values.filter(Boolean).join(" "),
@@ -67,22 +88,24 @@ function fixture(component, { allowed = true, task = own, tasks = [own], props =
   };
 }
 
-test("个人工作台只给本人任务绑定回退和日志入口，直接动作路由到同一详情抽屉", () => {
+test("个人工作台右侧只绑定本人任务，回退和日志仍路由到同一详情抽屉", () => {
   const view = fixture("ProcMyWorkspacePage", { tasks: [own, { ...own, id: "other", buyerUserId: "buyer-2" }, { ...own, id: "finished", status: "completed" }] });
-  const cards = view.all().filter((node) => node.type === "ProcurementTaskCard");
-  assert.deepEqual(cards.map((node) => node.props.task.id), ["mine"]);
-  cards[0].props.onRollback(own);
+  const list = view.find((node) => node.type === "ProcWorkspaceTaskList");
+  assert.deepEqual(list.props.tasks.map((task) => task.id), ["mine"]);
+  const panel = view.find((node) => node.type === "ProcWorkspaceTaskPanel");
+  assert.equal(panel.props.task.id, "mine");
+  panel.props.onOpenDetail(own, "rollback");
   let drawer = view.find((node) => node.type === "TaskDetailDrawer");
   assert.equal(drawer.props.task.id, "mine");
   assert.equal(drawer.props.initialAction, "rollback");
   assert.equal(drawer.key, "mine", "不同任务使用独立抽屉状态");
   drawer.props.onClose();
   assert.equal(view.find((node) => node.type === "TaskDetailDrawer"), undefined);
-  cards[0].props.onViewLogs(own);
+  panel.props.onOpenDetail(own, "logs");
   drawer = view.find((node) => node.type === "TaskDetailDrawer");
   assert.equal(drawer.props.initialAction, "logs");
   drawer.props.onClose();
-  cards[0].props.onOpen(own);
+  panel.props.onOpenDetail(own);
   assert.equal(view.find((node) => node.type === "TaskDetailDrawer").props.initialAction, undefined);
 });
 

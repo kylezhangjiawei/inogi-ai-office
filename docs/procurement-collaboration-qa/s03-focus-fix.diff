@@ -1,0 +1,92 @@
+diff --git a/private/tmp/proc-s03-workspace-before-focus.tsx b/src/app/procurement/components/ProcurementSampleWorkspace.tsx
+index 40cf0d6..d0c1ddf 100644
+--- a/private/tmp/proc-s03-workspace-before-focus.tsx
++++ b/src/app/procurement/components/ProcurementSampleWorkspace.tsx
+@@ -36,6 +36,10 @@ export function ProcurementSampleWorkspace({ tasks, loading, error, selectedId,
+   const [detailId, setDetailId] = useState<string | null>(null);
+   const [initialSelection, setInitialSelection] = useState<string | null>(null);
+   const workspaceRef = useRef<HTMLDivElement>(null);
++  const selectedRegionRef = useRef<HTMLElement>(null);
++  const confirmedSelectionRef = useRef(false);
++  const selectionTriggerRef = useRef<HTMLButtonElement | null>(null);
++  const [selectionFocus, setSelectionFocus] = useState<string | null>(null);
+   const [compactList, setCompactList] = useState(false);
+   const [listExpanded, setListExpanded] = useState(false);
+   useEffect(() => {
+@@ -53,17 +57,31 @@ export function ProcurementSampleWorkspace({ tasks, loading, error, selectedId,
+   }, [initialSelection, samples]);
+   const effectiveSelection = selectedId || initialSelection;
+   const selected = effectiveSelection ? samples.find((task) => task.id === effectiveSelection) : samples[0];
++  useEffect(() => {
++    if (!selectionFocus || selected?.id !== selectionFocus || pendingSelection) return;
++    selectedRegionRef.current?.focus({ preventScroll: true });
++    selectedRegionRef.current?.scrollIntoView({ block: "start" });
++    setSelectionFocus(null);
++  }, [selectionFocus, selected?.id, pendingSelection]);
+   const detailTask = detailId ? tasks.find((task) => task.id === detailId) : null;
+   const updateInteraction = useCallback((next: { dirty: boolean; busy: boolean }) => {
+     setInteraction(next);
+     onInteractionStateChange?.(next);
+   }, [onInteractionStateChange]);
+-  const selectTask = (id: string) => {
+-    if (interaction.busy || id === selected?.id) return;
+-    if (interaction.dirty) { setPendingSelection(id); return; }
++  const commitSelection = (id: string) => {
+     setListExpanded(false);
++    if (compactList) setSelectionFocus(id);
+     onSelect(id);
+   };
++  const selectTask = (id: string, trigger: HTMLButtonElement) => {
++    if (interaction.busy || id === selected?.id) return;
++    if (interaction.dirty) {
++      selectionTriggerRef.current = trigger;
++      setPendingSelection(id);
++      return;
++    }
++    commitSelection(id);
++  };
+   const clearFilters = () => { setFilter("all"); setQuery(""); };
+   const refreshSamples = () => {
+     if (loading || interaction.busy) return;
+@@ -96,7 +114,7 @@ export function ProcurementSampleWorkspace({ tasks, loading, error, selectedId,
+         </div>
+         {selected && !filtered.some((task) => task.id === selected.id) && <p className="border-b border-border px-4 py-3 text-pretty text-xs text-muted-foreground">{t("当前正在查看的样品不在筛选结果中。")}</p>}
+         <div className="proc-sample-list-scroll cockpit-scroll space-y-2 p-3">
+-          {filtered.map((task) => <button key={task.id} type="button" disabled={interaction.busy} aria-pressed={selected?.id === task.id} onClick={() => selectTask(task.id)} className={cn("w-full rounded-xl border p-3 text-left disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40", selected?.id === task.id ? "border-primary/30 bg-accent" : "border-border bg-card hover:bg-muted/40")}>
++          {filtered.map((task) => <button key={task.id} type="button" disabled={interaction.busy} aria-pressed={selected?.id === task.id} onClick={(event) => selectTask(task.id, event.currentTarget)} className={cn("w-full rounded-xl border p-3 text-left disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40", selected?.id === task.id ? "border-primary/30 bg-accent" : "border-border bg-card hover:bg-muted/40")}>
+             <div className="flex items-start justify-between gap-2"><span className="line-clamp-2 break-words text-sm font-semibold">{task.materialName}</span><span className={cn("shrink-0 rounded-md px-1.5 py-0.5 text-[11px]", PROC_STATUS_META[task.status].pill)}>{t(PROC_STATUS_META[task.status].label)}</span></div>
+             <p className="mt-1 truncate text-xs tabular-nums text-muted-foreground">{task.code} · {task.quantity} {task.unit}</p>
+             <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"><PersonAvatar name={task.status === "testing" ? task.sampleTest?.testerName || t("待指定") : task.buyer || t("未指派")} size="xs" /><span className="truncate">{task.status === "testing" ? task.sampleTest?.testerName || t("待指定测试人") : task.buyer || t("采购待指派")}</span></p>
+@@ -107,7 +125,7 @@ export function ProcurementSampleWorkspace({ tasks, loading, error, selectedId,
+         </CollapsibleContent>
+       </aside>
+       </Collapsible>
+-      <section className="proc-sample-selected min-w-0" aria-label={t("当前样品")}>
++      <section ref={selectedRegionRef} tabIndex={-1} className="proc-sample-selected min-w-0 scroll-mt-4 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={selected ? t("当前样品：{name} · {code}", { name: selected.materialName, code: selected.code }) : t("当前样品")}>
+         {selected ? <>
+           <SampleContext key={`context:${selected.id}`} task={selected} blocked={interaction.dirty || interaction.busy || Boolean(error)} onOpenTask={() => setDetailId(selected.id)} />
+           <ProcSampleTestDialog key={selected.id} taskId={selected.id} inline revision={`${selected.updatedAt}:${refreshVersion}`} onClose={() => {}} onConfirmed={() => void refreshProcurement()} onInteractionStateChange={updateInteraction} />
+@@ -138,7 +156,22 @@ export function ProcurementSampleWorkspace({ tasks, loading, error, selectedId,
+     </div>
+     {detailTask && <TaskDetailDrawer key={detailTask.id} task={detailTask} onClose={() => setDetailId(null)} />}
+     <AlertDialog open={Boolean(pendingSelection)} onOpenChange={(open) => { if (!open) setPendingSelection(null); }}>
+-      <AlertDialogContent className="horizon-theme horizon-portal proc-horizon-overlay"><AlertDialogHeader><AlertDialogTitle>{t("切换样品前放弃未提交的结论？")}</AlertDialogTitle><AlertDialogDescription>{t("当前填写的测试结果和结论尚未提交，切换后需要重新填写。")}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t("继续填写")}</AlertDialogCancel><AlertDialogAction onClick={() => { if (pendingSelection) onSelect(pendingSelection); setListExpanded(false); setPendingSelection(null); }}>{t("放弃并切换")}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
++      <AlertDialogContent className="horizon-theme horizon-portal proc-horizon-overlay" onCloseAutoFocus={(event) => {
++        if (confirmedSelectionRef.current) {
++          event.preventDefault();
++          confirmedSelectionRef.current = false;
++        } else if (selectionTriggerRef.current) {
++          event.preventDefault();
++          if (selectionTriggerRef.current.isConnected) selectionTriggerRef.current.focus();
++          else selectedRegionRef.current?.focus();
++        }
++        selectionTriggerRef.current = null;
++      }}><AlertDialogHeader><AlertDialogTitle>{t("切换样品前放弃未提交的结论？")}</AlertDialogTitle><AlertDialogDescription>{t("当前填写的测试结果和结论尚未提交，切换后需要重新填写。")}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t("继续填写")}</AlertDialogCancel><AlertDialogAction onClick={() => {
++        if (!pendingSelection || interaction.busy) return;
++        confirmedSelectionRef.current = compactList;
++        commitSelection(pendingSelection);
++        setPendingSelection(null);
++      }}>{t("放弃并切换")}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+     </AlertDialog>
+   </div>;
+ }

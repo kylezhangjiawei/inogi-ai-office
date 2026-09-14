@@ -125,8 +125,7 @@ test('三个收件人标识全空时不能匹配全部消息', async () => {
   assert.deepEqual(full, {
     OR: [
       { recipientId: 'u1' },
-      { recipientPersonId: { in: ['p1', 'p2'] } },
-      { recipientNameKey: '张三' },
+      { recipientId: null, recipientPersonId: { in: ['p1', 'p2'] } },
     ],
   });
 });
@@ -403,10 +402,42 @@ for (const type of ['procurement_sample_test_request', 'procurement_sample_test_
   });
 }
 
-test('旧普通消息继续支持只有姓名的历史收件人身份', async () => {
+test('旧普通消息只有姓名时不再向可自行改名的账号授予收件人身份', async () => {
   const { service, calls } = makeService([{ id: 'legacy', type: null, recipientId: null, senderId: null,
     recipientName: '历史收件人', body: '历史消息', createdAt: new Date() }]);
   service.listIdentityUsers = async () => [{ id: 'legacy-user', name: '历史收件人' }];
-  await service.patchMessage('legacy', { read: true }, { userId: 'legacy-user' });
-  assert.equal(calls.filter((call) => call.method === 'update').length, 1);
+  await assert.rejects(() => service.patchMessage('legacy', { read: true }, { userId: 'legacy-user' }), /无权修改此消息/);
+  assert.equal(calls.filter((call) => call.method === 'update').length, 0);
+});
+
+test('改名不获得消息列表/未读数/工作台通知范围，管理绑定 person_id 保留合法收件', async () => {
+  const { service } = makeService();
+  service.listIdentityUsers = async () => [{ id: 'attacker', name: '乙', email: 'bob@example.com' }];
+  service.readArray = async () => [
+    { id: 'foreign', name: '乙', user_id: 'bob' },
+    { id: 'unbound', name: '乙', email: 'bob@example.com' },
+    { id: 'managed', name: '原名', user_id: 'attacker' },
+  ];
+  const identity = await service.getMessageRecipientIdentity('attacker');
+  assert.deepEqual([...identity.personIds], ['managed']);
+  const condition = service.messageRecipientWhere(identity);
+  assert.deepEqual(condition, { OR: [{ recipientId: 'attacker' }, { recipientId: null, recipientPersonId: { in: ['managed'] } }] });
+  assert.deepEqual(await service.buildMessageVisibility({ recipient_id: 'attacker' }, { userId: 'attacker' }), [
+    { OR: [{ senderId: 'attacker' }, condition] }, condition,
+  ]);
+});
+
+test('明确绑定的人员收件可标记已读，账号收件 ID 不会被另一个 person_id 或同名覆盖', async () => {
+  for (const recipientId of [null, 'bob']) {
+    const { service, calls } = makeService([{ id: 'managed-message', recipientId, recipientPersonId: 'person-a', senderId: null, recipientName: '乙', createdAt: new Date() }]);
+    service.readArray = async () => [{ id: 'person-a', user_id: 'alice', name: '乙' }];
+    service.listIdentityUsers = async () => [{ id: 'alice', name: '乙' }];
+    if (recipientId) {
+      await assert.rejects(() => service.patchMessage('managed-message', { read: true }, { userId: 'alice' }), /无权修改此消息/);
+      assert.equal(calls.some((call) => call.method === 'update'), false);
+    } else {
+      await service.patchMessage('managed-message', { read: true }, { userId: 'alice' });
+      assert.equal(calls.filter((call) => call.method === 'update').length, 1);
+    }
+  }
 });

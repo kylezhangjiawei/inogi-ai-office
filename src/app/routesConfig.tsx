@@ -57,6 +57,8 @@ export type NavItem = {
   requiredPermission?: string;
   /** 任一权限即可见（部门知识库这类「一个入口聚合多个页面码」的场景）。 */
   requiredPermissionAny?: string[];
+  /** 同时要求的前提权限；不作为入口主路由或导航隐藏码。可与 Any 组合。 */
+  requiredPermissionAll?: string[];
   /**
    * 除 path 外还应算作「当前项」的路径。聚合入口会把用户送到别的地址（知识库入口点进去
    * 可能落在 /rd-knowledge-base），只按 path 判定的话侧栏高亮、分组展开、滚动定位会集体失灵。
@@ -112,6 +114,8 @@ const BASE_NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "供应链任务驾驶舱", path: "/proc-cockpit", icon: ShoppingCart, requiredPermission: "page:proc-cockpit" },
       { label: "个人工作台", path: "/proc-my-workspace", icon: GanttChartSquare, requiredPermission: "page:proc-my-workspace" },
+      { label: "我的仓管与质量任务", path: "/proc-operational-tasks", icon: ClipboardList,
+        requiredPermissionAll: ["page:purchase-order-detail"], requiredPermissionAny: ["proc-purchase-order:receive", "proc-purchase-order:inspect", "page:proc-cockpit"] },
       { label: "物料库", path: "/proc-materials", icon: Warehouse, requiredPermission: "page:proc-materials" },
       { label: "库存齐套中心", path: "/proc-inventory-readiness", icon: PackageCheck, requiredPermission: "page:proc-inventory-readiness" },
       { label: "供应商报价库", path: "/proc-quote-book", icon: Store, requiredPermission: "page:proc-quote-book" },
@@ -209,6 +213,7 @@ const BASE_NAV_GROUPS: NavGroup[] = [
     label: "人事与行政",
     items: [
       { label: "简历筛选", path: "/resume-screening", icon: GraduationCap, requiredPermission: "page:resume-screening" },
+      { label: "应聘登记", path: "/applicant-forms", icon: ClipboardList, requiredPermission: "page:applicant-forms" },
       { label: "员工入职归档", path: "/employee-archive", icon: Users, requiredPermission: "page:employee-archive" },
       { label: "人员考勤", path: "/attendance", icon: CalendarCheck2, requiredPermission: "page:quick-capture" },
       { label: "费用报销统计", path: "/expense-center", icon: Receipt, requiredPermission: "page:expense-center" },

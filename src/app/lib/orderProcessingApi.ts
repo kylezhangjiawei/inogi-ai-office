@@ -208,7 +208,54 @@ export type StockInRecognitionResponse = {
   message: string;
 };
 
+export type PurchaseOrderAvailability = {
+  availableDate: string | null;
+  note: string;
+  confirmedByName: string;
+  confirmedAt: string;
+  version: number;
+  needsReconfirmation: boolean;
+};
+
+export type MaterialPurchaseOrderLine = {
+  id: string;
+  orderNo: string;
+  lineNo: string;
+  inventoryCode: string;
+  inventoryName: string;
+  spec: string;
+  unit: string;
+  orderedQty: number;
+  receivedQty: number;
+  etaDate: string | null;
+  orderDate: string | null;
+  supplierName: string;
+  approvalStatus: string | null;
+  status: string | null;
+  syncedAt: string | null;
+  availability: PurchaseOrderAvailability | null;
+};
+
+export type MaterialPurchaseOrderLinesResponse = {
+  inventoryCode: string;
+  source: "tplus";
+  readOnly: true;
+  lines: PageResult<MaterialPurchaseOrderLine>;
+};
+
+export type ConfirmPurchaseOrderAvailabilityInput = {
+  availableDate: string | null;
+  note: string;
+  expectedVersion: number;
+  expectedSourceUpdatedAt: string;
+};
+
 export type PurchaseOrderLine = {
+  id: string;
+  lineNo: string;
+  etaDate: string | null;
+  sourceUpdatedAt: string;
+  availability: PurchaseOrderAvailability | null;
   sku: string;
   name: string;
   spec: string;
@@ -284,9 +331,16 @@ async function requestJson<T>(path: string, init: RequestInit = {}, fallback = "
   return response.json() as Promise<T>;
 }
 
+export class OrderProcessingRequestError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = "OrderProcessingRequestError";
+  }
+}
+
 async function requestTplusView<T>(path: string, init: RequestInit = {}, fallback = "畅捷通数据请求失败"): Promise<T> {
   const response = await authFetch(`${TPLUS_VIEWS_BASE}${path}`, init);
-  if (!response.ok) throw new Error(await readErrorMessage(response, fallback));
+  if (!response.ok) throw new OrderProcessingRequestError(await readErrorMessage(response, fallback), response.status);
   return response.json() as Promise<T>;
 }
 
@@ -444,6 +498,22 @@ export const orderProcessingApi = {
 
   getPurchaseOrder(id: string) {
     return requestTplusView<{ order: PurchaseOrder }>(`/purchase-orders/${encodeURIComponent(id)}`);
+  },
+
+  getMaterialPurchaseOrderLines(params: { inventoryCode: string; page?: number; pageSize?: number }, signal?: AbortSignal) {
+    return requestTplusView<MaterialPurchaseOrderLinesResponse>(
+      `/purchase-order-lines${buildQuery(params)}`,
+      { signal },
+      "物料采购订单读取失败",
+    );
+  },
+
+  confirmPurchaseOrderAvailability(orderId: string, lineId: string, payload: ConfirmPurchaseOrderAvailabilityInput) {
+    return requestTplusView<{ lineId: string; sourceUpdatedAt: string; availability: PurchaseOrderAvailability }>(
+      `/purchase-orders/${encodeURIComponent(orderId)}/lines/${encodeURIComponent(lineId)}/availability`,
+      { method: "PATCH", body: JSON.stringify(payload) },
+      "预计检验后可用日期保存失败",
+    );
   },
 
   importPurchaseOrders(files: File[] = []) {

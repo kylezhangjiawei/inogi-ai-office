@@ -1,6 +1,7 @@
 // 采购人员管理独立页（对齐研发人员管理形态）：成员名录增删改（岗位备注）+
 // 按负责人聚合任务负载 + 一键交接；非名录但有在制任务的人提示入录。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "../auth";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
@@ -23,6 +24,9 @@ import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
 import { PeopleManageDrawer } from "./components/PeopleManageDrawer";
 import { resolveProcurementOwner, uniqueRosterUserIdsByName } from "./procurementLogic";
+import { uniqueWorkspaceTasks } from "./procurementWorkspaceModel";
+import { PersonTasksDrawer } from "./people/PersonTasksDrawer";
+import { OperationalTasksPanel } from './people/OperationalTasksPanel';
 // 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
 import { routePath } from "../lib/routePaths";
 
@@ -35,6 +39,7 @@ interface PersonRow {
   name: string;
   userId?: string;
   member: BuyerRosterMember | null;
+  tasks: ProcurementTask[];
   active: ProcurementTask[];
   pending: number;
   transit: number;
@@ -43,6 +48,13 @@ interface PersonRow {
 }
 
 export function ProcPeopleManagementPage() {
+  const { user } = useAuth();
+  const scope = JSON.stringify([user?.id, user?.name, user?.roleId, user?.departmentCode, [...(user?.permissions ?? [])].sort()]);
+  // A new account or permission scope starts with no previous roster, selection or personal information.
+  return <ProcPeopleManagementContent key={scope} />;
+}
+
+function ProcPeopleManagementContent() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const { tasks, loading: tasksLoading, error: tasksError } = useProcurementData();
@@ -68,6 +80,8 @@ export function ProcPeopleManagementPage() {
   const [handover, setHandover] = useState<string | null>(null);
   const [target, setTarget] = useState("");
   const [actionError, setActionError] = useState<{ scope: string; message: string } | null>(null);
+  const [personKey, setPersonKey] = useState<string | null>(null);
+  const personTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (busy || !restoreFocusRef.current) return;
@@ -117,10 +131,9 @@ export function ProcPeopleManagementPage() {
     const byBuyer = new Map<string, { name: string; userId?: string; tasks: ProcurementTask[] }>(
       roster.map((member) => [member.id, { name: member.name, userId: member.id, tasks: [] }]),
     );
-    for (const task of tasks) {
-      if (TERMINAL.includes(task.status)) continue;
+    for (const task of uniqueWorkspaceTasks(tasks)) {
       const { userId: ownerId, key } = resolveProcurementOwner(task, uniqueNameIds, UNASSIGNED);
-      // 已移出名录但仍有在办任务的负责人继续展示，避免任务从负载与交接入口中消失。
+      // 已移出名录的负责人仍保留原任务，包括已结束历史；交接只取 active。
       const current = byBuyer.get(key);
       if (current) {
         current.tasks.push(task);
@@ -137,16 +150,18 @@ export function ProcPeopleManagementPage() {
     return Array.from(byBuyer.entries())
       .map(([key, person]) => {
         const member = memberById.get(key) ?? null;
+        const active = person.tasks.filter((task) => !TERMINAL.includes(task.status));
         return ({
         key,
         name: person.name,
         userId: person.userId,
         member,
-        active: person.tasks,
-        pending: person.tasks.filter((x) => x.status === "pending_confirm").length,
-        transit: person.tasks.filter((x) => TRANSIT.includes(x.status)).length,
-        overdue: person.tasks.filter(isProcurementTaskOverdue).length,
-        week: person.tasks.filter((x) => { const d = daysFromToday(x.expectedArrivalDate); return TRANSIT.includes(x.status) && d != null && d >= 0 && d <= 7; }).length,
+        tasks: person.tasks,
+        active,
+        pending: active.filter((x) => x.status === "pending_confirm").length,
+        transit: active.filter((x) => TRANSIT.includes(x.status)).length,
+        overdue: active.filter(isProcurementTaskOverdue).length,
+        week: active.filter((x) => { const d = daysFromToday(x.expectedArrivalDate); return TRANSIT.includes(x.status) && d != null && d >= 0 && d <= 7; }).length,
       });})
       // 未指派置顶，其次名录成员，再按在制任务量降序
       .sort((a, b) =>
@@ -270,13 +285,14 @@ export function ProcPeopleManagementPage() {
   return (
     <div className="proc-horizon proc-people-page mx-auto flex min-h-full min-w-0 w-full max-w-[1600px] flex-col pb-4">
       <section className="proc-horizon-surface material-card mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <p className="min-w-0 flex-1 basis-80 text-pretty text-xs leading-5 text-slate-500">{t("以采购成员名录展示任务负载，并保留仍有在办任务的非名录负责人；任务只能分配给具备采购个人工作台权限的成员。")}</p>
+        <p className="min-w-0 flex-1 basis-80 text-pretty text-xs leading-5 text-slate-500">{t("采购名录保留在办及历史任务；仓管与质量任务按原订单行、收货批次独立分派，处理结果随原业务更新。")}</p>
         <div className="flex flex-wrap items-center gap-2">
           {canManage && <button type="button" disabled={busy} onClick={() => setManageOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm disabled:opacity-60"><UserPlus className="size-4" />{t("成员名录")}</button>}
           <Button type="button" disabled={busy} variant="outline" onClick={() => navigate(routePath("page:proc-cockpit", "/proc-cockpit"))} className="h-9 rounded-lg border-slate-200 px-3 text-sm text-slate-600"><ArrowLeft className="size-4" />{t("返回驾驶舱")}</Button>
         </div>
       </section>
 
+      <OperationalTasksPanel />
       <div className="proc-people-metrics mb-3 grid shrink-0 grid-cols-2 gap-2">
         {[
           { icon: ClipboardList, label: t("团队在办"), value: teamSummary.active, detail: t("所有非终态采购任务") },
@@ -353,6 +369,8 @@ export function ProcPeopleManagementPage() {
         {!dataPending && !tasksError && !rosterError && rows.map((p) => {
           const load = p.key === UNASSIGNED
             ? { label: t("待分配"), Icon: AlertTriangle, tone: "border-amber-200 bg-amber-50 text-amber-700" }
+            : !p.member && p.active.length === 0
+              ? { label: t("历史任务 · {count} 项", { count: p.tasks.length }), Icon: ClipboardList, tone: "border-slate-200 bg-slate-50 text-slate-600" }
             : p.member?.canReceiveTasks === false
               ? { label: t("不可接单"), Icon: AlertTriangle, tone: "border-amber-200 bg-amber-50 text-amber-700" }
               : p.overdue > 0
@@ -371,6 +389,8 @@ export function ProcPeopleManagementPage() {
               <div className="min-w-0 flex-1">
               <span className="block break-words text-sm font-semibold text-slate-800" title={p.name}>{p.name}</span>
               <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+              {p.userId && allRows.some((other) => other.key !== p.key && other.name === p.name) && <span className="break-all text-[10px] text-slate-500">{t("账号")} {p.userId}</span>}
+              {!p.userId && p.key !== UNASSIGNED && <span className="text-[10px] text-amber-700">{t("历史姓名归属待核对")}</span>}
               {p.member ? (
                 <span className={cn("inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]", p.member.canReceiveTasks === false ? "border-amber-200 bg-amber-50 text-amber-700" : "border-[var(--primary-soft-border)] bg-accent text-primary")}>
                   {p.member.canReceiveTasks === false && <AlertTriangle className="size-3 shrink-0" />}
@@ -388,6 +408,7 @@ export function ProcPeopleManagementPage() {
               </div>
               <div className="ml-auto flex min-w-0 flex-wrap items-center gap-1.5">
                 <span className={cn("inline-flex min-w-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium tabular-nums", load.tone)}><load.Icon className="size-3 shrink-0" />{load.label}</span>
+                <Button type="button" variant="outline" disabled={busy} aria-label={`${t("查看 {name} 的全部任务", { name: p.name })}${p.userId ? t("，账号 {id}", { id: p.userId }) : p.key !== UNASSIGNED ? t("，历史姓名归属待核对") : ""}`} onClick={(event) => { personTriggerRef.current = event.currentTarget; setPersonKey(p.key); setEditingNote(null); setHandover(null); }} className="min-h-10 rounded-lg px-3 text-xs">{t("查看全部任务")} · {p.tasks.length}</Button>
                 {canManage && p.member && (
                   <button type="button" disabled={busy} aria-label={t("编辑岗位备注")} aria-expanded={editingNote === p.member.id} onClick={(event) => { noteTriggerRef.current = event.currentTarget; setEditingNote((cur) => (cur === p.member!.id ? null : p.member!.id)); setHandover(null); setActionError(null); setNoteDraft(p.member.note ?? ""); }} className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-60" title={t("编辑岗位备注")}>
                     <Pencil className="h-3.5 w-3.5" />
@@ -460,7 +481,7 @@ export function ProcPeopleManagementPage() {
                   })}
                 </div>
               ) : (
-                <p className="text-pretty text-xs text-slate-500">{t(p.member?.canReceiveTasks === false ? "暂无在办任务；需先开通采购工作台权限。" : "当前没有在办任务，可继续接收分派。")}</p>
+                <p className="text-pretty text-xs text-slate-500">{t(!p.member ? "当前没有在办任务，已保留历史记录。" : p.member.canReceiveTasks === false ? "暂无在办任务；需先开通采购工作台权限。" : "当前没有在办任务，可继续接收分派。")}</p>
               )}
             </div>
 
@@ -494,6 +515,10 @@ export function ProcPeopleManagementPage() {
       </div>
       </div>
       {manageOpen && <PeopleManageDrawer onClose={() => { setManageOpen(false); void loadRoster(); }} />}
+      {personKey && !manageOpen && <PersonTasksDrawer key={personKey} person={allRows.find((person) => person.key === personKey) ?? null}
+        loading={dataPending} error={tasksError || rosterError || null}
+        onClose={() => setPersonKey(null)} onRetry={() => { void loadRoster(); void refreshProcurement(); }}
+        onRestoreFocus={() => { const trigger = personTriggerRef.current; if (trigger?.isConnected) trigger.focus({ preventScroll: true }); else searchRef.current?.focus({ preventScroll: true }); }} />}
     </div>
   );
 }

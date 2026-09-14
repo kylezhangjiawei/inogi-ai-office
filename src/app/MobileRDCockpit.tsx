@@ -11,6 +11,7 @@ import { daysUntilDue } from "./lib/taskDue";
 import { memberIdentityKey } from "./lib/rdMemberIdentity";
 import {
   fetchRdNoteUnreadSummary,
+  currentRdWorkspace,
   fetchRdTaskProgressNoteGroup,
   markRdTaskNotesRead,
   type RdCategory,
@@ -21,7 +22,8 @@ import {
   type RdTaskStatus,
 } from "./lib/rdApi";
 import { RDTaskConversation } from "./RDTaskConversation";
-import { MobileAttachmentPreviewHost, ProgressAttachmentGrid } from "./RDProgressEvidence";
+import { MobileAttachmentPreviewHost, openMobileAttachmentPreview, ProgressAttachmentGrid } from "./RDProgressEvidence";
+import { TechnicalDocumentsPanel } from "./rd/TechnicalDocumentsPanel";
 import { getAuditActionMeta, useAuditLogs } from "./lib/auditLog";
 import { ProcurementActivitySection, useProcurementTaskLink } from "./procurement/components/rdInsertion";
 import {
@@ -1022,6 +1024,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
   onDiscussionActivity?: () => void;
 }) {
   const [notes, setNotes] = useState<RdTaskProgressNote[]>([]);
+  const technicalDocumentsEnabled = currentRdWorkspace() === null;
   const [groupNotes, setGroupNotes] = useState<RdTaskProgressNote[]>([]);
   const [groupTasks, setGroupTasks] = useState<RdTaskProgressGroupTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1145,7 +1148,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
           { key: "progress", label: t("进度留痕"), icon: History },
           { key: "overview", label: t("任务概览"), icon: Info },
           { key: "conversation", label: t("任务讨论"), icon: MessageCircleMore },
-          { key: "attachments", label: t("附件库"), icon: Paperclip },
+          { key: "attachments", label: technicalDocumentsEnabled ? t("资料与附件") : t("附件库"), icon: Paperclip },
           { key: "activity", label: t("操作记录"), icon: Activity },
         ] as const).map((item) => {
           const Icon = item.icon;
@@ -1306,6 +1309,7 @@ const MobileTaskDetail = memo(function MobileTaskDetail({
 
       {detailTab === "attachments" && (
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {technicalDocumentsEnabled && !loading && !loadError && <div className="mb-4"><TechnicalDocumentsPanel key={task.task_id} taskId={task.task_id} notes={notes} onPreview={openMobileAttachmentPreview} onNotesChanged={() => { void loadNotes(false); }} /></div>}
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm font-bold text-slate-900">{t("附件库")}</div>
             <span className="text-xs font-semibold text-slate-400">{attachments.length}</span>

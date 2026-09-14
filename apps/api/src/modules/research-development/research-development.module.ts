@@ -12,12 +12,15 @@ import { RdDailyReportCron } from './rd-daily-report.cron';
 import { RdMonthlyReportCron } from './rd-monthly-report.cron';
 import { ResearchDevelopmentController } from './research-development.controller';
 import { ResearchDevelopmentService } from './research-development.service';
+import { RdTechnicalDocumentsService } from './rd-technical-documents.service';
+import { RdTechnicalDocumentsController, RdTechnicalDocumentFilesController } from './rd-technical-documents.controller';
 
 @Module({
   imports: [AiGatewayModule, OcrModule, RagModule],
-  controllers: [ResearchDevelopmentController, DeptKnowledgeController, RdAiController],
+  controllers: [ResearchDevelopmentController, DeptKnowledgeController, RdAiController, RdTechnicalDocumentsController, RdTechnicalDocumentFilesController],
   providers: [
     ResearchDevelopmentService,
+    RdTechnicalDocumentsService,
     RdAiService,
     RdDailyReportCron,
     RdMonthlyReportCron,
@@ -25,6 +28,6 @@ import { ResearchDevelopmentService } from './research-development.service';
     KbMultipartService,
   ],
   // MateChat 写操作工具复用：立项（createTask）与站内通知（createMessage）
-  exports: [ResearchDevelopmentService],
+  exports: [ResearchDevelopmentService, RdTechnicalDocumentsService],
 })
 export class ResearchDevelopmentModule {}

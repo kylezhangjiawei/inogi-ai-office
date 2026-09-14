@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, NotFoundException, Param, Post, Put, Query, Request, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, NotFoundException, Param, Patch, Post, Put, Query, Request, Res } from '@nestjs/common';
 import type { Response } from 'express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -8,6 +8,7 @@ import { TplusConfigDto, TplusExchangeCodeDto } from './dto/procurement.dto';
 import { TplusPoMatchService } from './tplus-po-match.service';
 import { TplusOperationsService } from './tplus-operations.service';
 import { TplusSyncService } from './tplus-sync.service';
+import { SavePurchaseOrderAvailabilityDto } from './dto/purchase-order-availability.dto';
 
 type AuthedRequest = { user: { id: string; name?: string; username?: string; permissions: string[] } };
 
@@ -49,8 +50,8 @@ export class TplusSyncController {
 
   /**
    * 开放平台「消息接收地址」：平台主动 POST 推送（无登录态，须 Public）。
-   * 处理 APP_TICKET / TEMP_AUTH_CODE / 取消授权等消息；任何输入都应答成功防重试轰炸，
-   * 伪造消息最多污染 appTicket 缓存（下个 10 分钟周期即被真实推送覆盖），无凭据泄露面。
+   * 处理 APP_TICKET / TEMP_AUTH_CODE / 取消授权等消息；服务按平台环境密钥解密并校验应用。
+   * 只有验证通过的消息才能更新集成凭据，验证失败不得伪装接收成功。
    */
   @Public()
   @Post('notify')
@@ -182,10 +183,29 @@ export class TplusSyncController {
     return this.operations.listPurchaseOrders(query);
   }
 
+  @Get('views/purchase-order-lines')
+  @Permissions('page:purchase-orders', 'page:purchase-order-detail')
+  purchaseOrderLinesView(@Query() query: Record<string, unknown>) {
+    return this.operations.listPurchaseOrderLines(query);
+  }
+
   @Get('views/purchase-orders/:id')
   @Permissions('page:purchase-orders', 'page:purchase-order-detail')
   purchaseOrderView(@Param('id') id: string) {
     return this.operations.getPurchaseOrder(id);
+  }
+
+  @Patch('views/purchase-orders/:orderId/lines/:lineId/availability')
+  @Permissions('proc-purchase-order:confirm-availability')
+  savePurchaseOrderAvailability(
+    @Param('orderId') orderId: string,
+    @Param('lineId') lineId: string,
+    @Body() body: SavePurchaseOrderAvailabilityDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.operations.savePurchaseOrderAvailability(orderId, lineId, body, {
+      id: req.user.id, name: req.user.name ?? req.user.username ?? '', permissions: req.user.permissions ?? [],
+    });
   }
 
   /** 跑规则 + AI 匹配（异步：AI 名称匹配单次调用可超网关时限），生成建议。 */

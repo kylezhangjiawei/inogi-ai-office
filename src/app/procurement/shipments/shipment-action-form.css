@@ -1,0 +1,9 @@
+.shipment-action-form [data-slot='select-value'] { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.shipment-action-form [data-slot='select-trigger'] > svg { flex-shrink:0; }
+.shipment-action-form input, .shipment-action-form textarea { max-width:100%; }
+.shipment-action-confirm[data-state], .shipment-action-confirm-overlay[data-state] { animation:none; transition:none; }
+.shipment-action-confirm { max-height:calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y:auto; overflow-wrap:anywhere; }
+.shipment-action-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.shipment-action-fields > * { grid-column:1 / -1; }
+.shipment-action-fields > .shipment-action-field { grid-column:auto; }
+@media (max-width:1100px) { .shipment-action-fields { grid-template-columns:minmax(0,1fr); } }

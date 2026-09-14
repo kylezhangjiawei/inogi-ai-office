@@ -11,6 +11,7 @@ import { Observable, catchError, tap, throwError } from 'rxjs';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { APPLICANT_FORM_LOG_OMITTED, applicantFormLogPath } from '../../common/applicant-form-log-policy';
 
 type AuthenticatedRequest = Request & {
   user?: { id: string };
@@ -54,6 +55,8 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
   }
 
   private resolveRequestId(req: Request) {
+    // Public applicants control headers too; retain a server-generated correlation identifier.
+    if (applicantFormLogPath(req)) return randomUUID();
     const incoming = req.header('x-request-id')?.trim();
     return incoming || randomUUID();
   }
@@ -66,8 +69,11 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
     error?: unknown,
     responseBody?: unknown,
   ) {
-    const errorInfo = this.getErrorInfo(error);
-    const path = req.originalUrl?.replace(/^\/api/, '') || req.path || req.url || '';
+    const applicantPath = applicantFormLogPath(req);
+    const errorInfo = applicantPath
+      ? { name: error ? 'Error' : null, message: error ? APPLICANT_FORM_LOG_OMITTED : null, stack: null }
+      : this.getErrorInfo(error);
+    const path = applicantPath ?? (req.originalUrl?.replace(/^\/api/, '') || req.path || req.url || '');
 
     void this.prisma.apiRequestLog
       .create({
@@ -79,19 +85,22 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
           statusCode,
           durationMs,
           ip: req.ip ?? null,
-          userAgent: req.header('user-agent') ?? null,
+          userAgent: applicantPath ? null : req.header('user-agent') ?? null,
           errorName: errorInfo.name,
           errorMessage: errorInfo.message,
           errorStack: errorInfo.stack,
-          requestMeta: {
+          requestMeta: (applicantPath ? {
+            query: APPLICANT_FORM_LOG_OMITTED,
+            body: APPLICANT_FORM_LOG_OMITTED,
+          } : {
             query: this.sanitize(req.query),
             body: this.sanitize(req.body),
             ...this.buildUploadMeta(req),
-          } as Prisma.InputJsonValue,
+          }) as Prisma.InputJsonValue,
           responseMeta: {
             statusCode,
             durationMs,
-            body: this.sanitizeResponse(responseBody),
+            body: applicantPath ? APPLICANT_FORM_LOG_OMITTED : this.sanitizeResponse(responseBody),
           } as Prisma.InputJsonValue,
         },
       })

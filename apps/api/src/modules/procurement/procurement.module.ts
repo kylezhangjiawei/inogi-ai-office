@@ -17,6 +17,14 @@ import { TplusOperationsService } from './tplus-operations.service';
 import { ProcurementService } from './procurement.service';
 import { TplusSyncController } from './tplus-sync.controller';
 import { TplusSyncService } from './tplus-sync.service';
+import { PurchaseReceiptsController } from './purchase-receipts.controller';
+import { PurchaseReceiptsService } from './purchase-receipts.service';
+import { OperationalTasksController } from './operational-tasks.controller';
+import { OperationalTasksService } from './operational-tasks.service';
+import { PurchaseDeliveryController } from './purchase-delivery.controller';
+import { PurchaseDeliveryService } from './purchase-delivery.service';
+import { PurchaseFulfillmentController } from './purchase-fulfillment.controller';
+import { PurchaseFulfillmentService } from './purchase-fulfillment.service';
 
 /**
  * 采购管理：采购任务全流程 + 物料主数据 + 报价，以及与畅捷通 T+ 的只读同步。
@@ -28,7 +36,7 @@ import { TplusSyncService } from './tplus-sync.service';
   // ResearchDevelopmentModule 仅用于审核驳回时给研发对接人发站内通知（createMessage）
   // OcrModule 仅用于报价库「图片表格 OCR + AI」导入兜底
   imports: [ChatModule, OcrModule, SecurityModule, ResearchDevelopmentModule],
-  controllers: [ProcurementController, ProcurementOperationsController, QuoteBookController, TplusSyncController],
+  controllers: [ProcurementController, ProcurementOperationsController, QuoteBookController, TplusSyncController, PurchaseReceiptsController, OperationalTasksController, PurchaseDeliveryController, PurchaseFulfillmentController],
   providers: [
     ProcurementService,
     ProcurementOperationsService,
@@ -39,6 +47,10 @@ import { TplusSyncService } from './tplus-sync.service';
     MaterialReplenishService,
     TplusPoMatchService,
     TplusOperationsService,
+    PurchaseReceiptsService,
+    OperationalTasksService,
+    PurchaseDeliveryService,
+    PurchaseFulfillmentService,
   ],
   exports: [ProcurementService],
 })

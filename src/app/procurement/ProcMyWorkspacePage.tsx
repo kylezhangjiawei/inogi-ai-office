@@ -1,261 +1,262 @@
-// 采购个人工作台：成员视角，只看「分配给我」的任务（对标研发个人工作台）。
-// 复用驾驶舱的任务卡 / 动作体系 / 详情抽屉，按流程阶段分组，卡片上直接推进下一步。
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Activity,
-  AlertTriangle,
-  ArrowUpRight,
-  Beaker,
-  ClipboardList,
-  PackageCheck,
-  Search,
-  ShoppingCart,
-  Truck,
-  X,
-} from "lucide-react";
-import { useNavigate } from "react-router";
+import { Activity, AlertTriangle, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, PackageCheck, RefreshCw, Search, X } from "lucide-react";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { useAuth } from "../auth";
-import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
+import { Input } from "../components/ui/input";
+import { Pagination, PaginationContent, PaginationItem } from "../components/ui/pagination";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { cn } from "../components/ui/utils";
 import { useI18n } from "../lib/i18n";
 import { routePath } from "../lib/routePaths";
-import { daysFromToday, isProcurementTaskOverdue, refreshProcurement, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
-import { StatCell } from "./components/common";
+import { buildPurchaseOrderLinePath } from "../lib/purchaseOrderLineNavigation";
+import { buildWorkspaceArrivalReturnPath, parseWorkspaceArrivalView } from "../lib/workspaceArrivalNavigation";
+import { workspaceArrivals, type WorkspaceArrival } from "./procurementWorkspaceModel";
+import { daysFromToday, isProcurementTaskOverdue, refreshProcurement, useProcurementData, useProcurementProducts, type ProcStatus, type ProcurementTask } from "./data";
 import { isProcurementTaskAssignedToUser } from "./procurementLogic";
-import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
+import { filterWorkspaceTasks, sortWorkspaceTasks, uniqueWorkspaceTasks, UNDETERMINED_SUPPLIER, workspacePeriod, workspaceSuppliers, type WorkspacePeriod, type WorkspaceSort } from "./procurementWorkspaceModel";
+import { PROC_STATUS_META, StatCell, useProcCan } from "./components/common";
+import { ProcWorkspaceArrivals } from "./components/ProcWorkspaceArrivals";
+import { ProcWorkspaceTaskList } from "./components/ProcWorkspaceTaskList";
+import { ProcWorkspaceTaskPanel } from "./components/ProcWorkspaceTaskPanel";
+import { ProcWorkspaceAggregation, type WorkspacePlanOptions } from "./components/ProcWorkspaceAggregation";
+import type { WorkspaceBusiness } from "./procurementAggregationModel";
 import { TaskDetailDrawer } from "./components/TaskDetailDrawer";
+import { ProcurementDeliverySchedule } from "./delivery/ProcurementDeliverySchedule";
 import { useProcTaskAction } from "./components/taskActions";
+import "./procurementWorkspace.css";
 
-const TERMINAL: ProcStatus[] = ["completed", "cancelled"];
-const TRANSIT: ProcStatus[] = ["in_transit", "partial_arrival"];
+const ACTIVE_STATUSES: ProcStatus[] = ["pending_rd_review", "pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "pending_purchase", "in_transit", "partial_arrival"];
+const PERIODS: Array<[WorkspacePeriod, string]> = [["month", "所选月需求"], ["carryover", "跨月未完成"], ["undated", "日期待确认"], ["all", "全部进行中"]];
+const SORTS: Array<[WorkspaceSort, string]> = [["urgent", "逾期优先"], ["date", "期限由近到远"], ["priority", "优先级由高到低"]];
+const PAGE_SIZE = 20;
+type Focus = "all" | "pending" | "overdue" | "week";
 
-/** 流程阶段分组：非空才渲染，顺序即处理优先级。 */
-const STAGES: Array<{ label: string; statuses: ProcStatus[]; Icon: typeof ClipboardList }> = [
-  { label: "待研发审核", statuses: ["pending_rd_review"], Icon: ClipboardList },
-  { label: "待处理", statuses: ["pending_confirm"], Icon: ClipboardList },
-  { label: "询价阶段", statuses: ["pending_inquiry", "inquiring"], Icon: Search },
-  { label: "打样测试", statuses: ["pending_sample", "testing"], Icon: Beaker },
-  { label: "待下单", statuses: ["priced", "pending_purchase"], Icon: ShoppingCart },
-  { label: "在途到货", statuses: ["in_transit", "partial_arrival"], Icon: Truck },
-];
-
-type StatKey = "active" | "pending" | "overdue" | "week";
-const STAT_LABELS: Record<StatKey, string> = {
-  active: "全部进行中任务",
-  pending: "待处理",
-  overdue: "已逾期",
-  week: "本周到货",
-};
-
-function isProcurementTaskArrivingThisWeek(task: ProcurementTask) {
+function thisMonth() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+function arrivingThisWeek(task: ProcurementTask) {
   const days = daysFromToday(task.expectedArrivalDate);
-  return TRANSIT.includes(task.status) && days != null && days >= 0 && days <= 7;
+  return ["in_transit", "partial_arrival"].includes(task.status) && days != null && days >= 0 && days <= 7;
 }
 
 export function ProcMyWorkspacePage() {
   const { t } = useI18n();
-  const navigate = useNavigate();
   const { user } = useAuth();
+  const can = useProcCan();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [params, setParams] = useSearchParams();
   const { tasks, materials, loading, error } = useProcurementData();
-  const [open, setOpen] = useState<ProcurementTask | null>(null);
-  const [detailAction, setDetailAction] = useState<"rollback" | "logs" | undefined>();
-  const [stat, setStat] = useState<StatKey | null>(null);
-  const [query, setQuery] = useState("");
+  const products = useProcurementProducts();
+  const [defaultMonth] = useState(thisMonth);
   const pageRef = useRef<HTMLDivElement>(null);
-  const openDetail = (task: ProcurementTask, action?: "rollback" | "logs") => {
-    setDetailAction(action);
-    setOpen(task);
-  };
-  const taskAction = useProcTaskAction({ onOpenDetail: (task) => openDetail(task) });
-  const isInitialLoading = loading && tasks.length === 0;
+  const panelFocusRef = useRef<HTMLDivElement>(null);
+  const [panelFocusRequest, setPanelFocusRequest] = useState<{ id: string } | null>(null);
+  const [compact, setCompact] = useState(true);
+  const [panelExpanded, setPanelExpanded] = useState(false);
+  const [detail, setDetail] = useState<{ id: string; action?: "rollback" | "logs" } | null>(null);
+  const [planOptions, setPlanOptions] = useState<WorkspacePlanOptions | null>(null);
+  const openDetail = (task: ProcurementTask, action?: "rollback" | "logs") => setDetail({ id: task.id, action });
+  const taskAction = useProcTaskAction({ onOpenDetail: openDetail });
+  const monthParam = params.get("month") || "";
+  const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(monthParam) ? monthParam : defaultMonth;
+  const period = (PERIODS.some(([value]) => value === params.get("period")) ? params.get("period") : "month") as WorkspacePeriod;
+  const productId = params.get("product") || "all";
+  const supplier = params.get("supplier") || "all";
+  const status: ProcStatus | "all" = ACTIVE_STATUSES.includes(params.get("status") as ProcStatus) ? params.get("status") as ProcStatus : "all";
+  const query = params.get("q") || "";
+  const business = (["sample", "stock", "arrival"].includes(params.get("source") || "") ? params.get("source") : "purchase") as WorkspaceBusiness;
+  const focus = (["pending", "overdue", "week"].includes(params.get("focus") || "") ? params.get("focus") : "all") as Focus;
+  const sort = (SORTS.some(([value]) => value === params.get("sort")) ? params.get("sort") : "urgent") as WorkspaceSort;
+  const selectedId = params.get("task");
+  const requestedPage = Math.max(1, Math.floor(Number(params.get("page")) || 1));
+  const arrivalsOpen = params.get("arrivals") === "open";
+  const requestedArrivalPage = Number(params.get("arrivalPage"));
+  const arrivalPage = Number.isSafeInteger(requestedArrivalPage) && requestedArrivalPage > 0 ? requestedArrivalPage : 1;
+  const arrivalFocus = params.get("arrivalFocus") || undefined;
+  const arrivalSettings = parseWorkspaceArrivalView(params, month);
+  const arrivalScope = JSON.stringify([user?.id, month, period, productId, supplier, status, query, focus, sort, arrivalSettings]);
+  const refreshedReturn = useRef<string | null>(null);
 
-  // 我的任务：优先按 buyerUserId 精确匹配，回退姓名（兼容仅按姓名指派的历史任务）
-  const mine = useMemo(
-    () => tasks.filter((task) => isProcurementTaskAssignedToUser(task, user)),
-    [tasks, user?.id, user?.name],
-  );
-  const active = useMemo(() => mine.filter((task) => !TERMINAL.includes(task.status)), [mine]);
-
-  // 逾期口径与驾驶舱、人员管理一致：Deadline/需求日期/预计到货随阶段切换。
-  const counts = useMemo(() => ({
-    active: active.length,
-    pending: active.filter((task) => task.status === "pending_confirm").length,
-    overdue: active.filter(isProcurementTaskOverdue).length,
-    week: active.filter(isProcurementTaskArrivingThisWeek).length,
-  }), [active]);
-
-  const filtered = useMemo(() => {
-    let scoped = !stat || stat === "active"
-      ? active
-      : stat === "pending"
-        ? active.filter((task) => task.status === "pending_confirm")
-        : stat === "overdue"
-          ? active.filter(isProcurementTaskOverdue)
-          : active.filter(isProcurementTaskArrivingThisWeek);
-    const keyword = query.trim().toLowerCase();
-    if (keyword) {
-      scoped = scoped.filter((task) => [
-        task.code,
-        task.materialName,
-        task.spec,
-        task.buyer,
-        task.rdContact,
-        task.rdTaskTitle,
-        task.consumableNote,
-      ].some((value) => value?.toLowerCase().includes(keyword)));
-    }
-    return scoped;
-  }, [active, query, stat]);
-
-  const stageGroups = useMemo(
-    () => STAGES.flatMap((stage) => {
-      const stageTasks = filtered.filter((task) => stage.statuses.includes(task.status));
-      return stageTasks.length > 0 ? [{ ...stage, tasks: stageTasks }] : [];
-    }),
-    [filtered],
-  );
-
-  // 操作后数据刷新，已打开的抽屉跟着换成最新对象
   useEffect(() => {
-    setOpen((cur) => (cur ? tasks.find((task) => task.id === cur.id) ?? null : cur));
-  }, [tasks]);
+    if (!arrivalFocus || refreshedReturn.current === location.key) return;
+    refreshedReturn.current = location.key;
+    void refreshProcurement();
+  }, [arrivalFocus, location.key]);
 
-  const resetScroll = () => {
-    const scrollRoot = pageRef.current?.closest("main");
-    if (scrollRoot) scrollRoot.scrollTop = 0;
+  useEffect(() => {
+    if (!pageRef.current || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => setCompact(entry.contentRect.width < 896));
+    observer.observe(pageRef.current);
+    return () => observer.disconnect();
+  }, []);
+  const mine = useMemo(() => uniqueWorkspaceTasks(tasks).filter((task) => isProcurementTaskAssignedToUser(task, user)), [tasks, user?.id, user?.name]);
+  const active = useMemo(() => mine.filter((task) => ACTIVE_STATUSES.includes(task.status)), [mine]);
+  const productNames = useMemo(() => new Map(products.map((product) => [product.id, product.name])), [products]);
+  const availablePlanOptions = can("page:proc-cockpit") && planOptions?.userKey === JSON.stringify(user) ? planOptions : null;
+  const productOptions = useMemo(() => [...new Set([...mine.map((task) => task.productId).filter(Boolean), ...(availablePlanOptions?.products ?? [])])].map((id) => ({ value: id, label: productNames.get(id) || id })), [mine, productNames, availablePlanOptions]);
+  const supplierOptions = useMemo(() => [...new Set([...mine.flatMap(workspaceSuppliers), ...(availablePlanOptions?.suppliers ?? [])])].sort((a, b) => a.localeCompare(b, "zh-CN")).map((name) => ({ value: name, label: name })), [mine, availablePlanOptions]);
+  const commonScope = useMemo(() => filterWorkspaceTasks(active, { month, period: "all", productId, supplier, status, query }), [active, month, productId, supplier, status, query]);
+  const exceptionScope = useMemo(() => filterWorkspaceTasks(active, { month, period: "all", productId, supplier, status: "all", query: "" }), [active, month, productId, supplier]);
+  const periodCounts = useMemo(() => ({ month: commonScope.filter((task) => workspacePeriod(task, month) === "month").length, carryover: exceptionScope.filter((task) => workspacePeriod(task, month) === "carryover").length, undated: exceptionScope.filter((task) => workspacePeriod(task, month) === "undated").length, all: commonScope.length }), [commonScope, exceptionScope, month]);
+  const scoped = useMemo(() => filterWorkspaceTasks(commonScope, { month, period, productId: "all", supplier: "all", status: "all", query: "" }), [commonScope, month, period]);
+  const counts = useMemo(() => ({ all: scoped.length, pending: scoped.filter((task) => task.status === "pending_confirm").length, overdue: scoped.filter(isProcurementTaskOverdue).length, week: scoped.filter(arrivingThisWeek).length }), [scoped]);
+  const filtered = useMemo(() => sortWorkspaceTasks(scoped.filter((task) => focus === "all" || (focus === "pending" ? task.status === "pending_confirm" : focus === "overdue" ? isProcurementTaskOverdue(task) : arrivingThisWeek(task))), sort), [scoped, focus, sort]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const page = Math.min(requestedPage, pageCount);
+  const visibleTasks = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const selected = selectedId ? mine.find((task) => task.id === selectedId) ?? null : null;
+  const detailTask = detail ? mine.find((task) => task.id === detail.id) : null;
+  const isInitialLoading = loading && tasks.length === 0;
+  const metricsUnknown = isInitialLoading || Boolean(error && !tasks.length);
+  const blocked = taskAction.busy || loading || Boolean(error);
+  const latestArrivalView = useRef({ scope: arrivalScope, blocked, filtered, open: arrivalsOpen, page: arrivalPage, focusKey: arrivalFocus, canOpenOrder: can("page:purchase-order-detail") });
+  latestArrivalView.current = { scope: arrivalScope, blocked, filtered, open: arrivalsOpen, page: arrivalPage, focusKey: arrivalFocus, canOpenOrder: can("page:purchase-order-detail") };
+  const hasFilters = period !== "all" || productId !== "all" || supplier !== "all" || status !== "all" || Boolean(query.trim()) || focus !== "all";
+  const firstId = filtered[0]?.id;
+  // Persist the initial task in the route; an explicitly missing task never switches silently.
+  useEffect(() => {
+    if (selectedId || !firstId || loading || error) return;
+    setParams((current) => {
+      if (current.get("task")) return current;
+      const next = new URLSearchParams(current);
+      next.set("task", firstId);
+      next.set("month", month);
+      return next;
+    }, { replace: true });
+  }, [selectedId, firstId, loading, error, month, setParams]);
+
+  // Only an explicit view request moves focus, after the selected detail has committed.
+  // Inline workflow actions open their own dialogs and must keep that dialog's focus.
+  useEffect(() => {
+    if (!panelFocusRequest || panelFocusRequest.id !== selectedId || (compact && !panelExpanded)) return;
+    setPanelFocusRequest(null);
+    if (blocked || detail || taskAction.modal) return;
+    panelFocusRef.current?.focus({ preventScroll: true });
+    if (compact) panelFocusRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+  }, [panelFocusRequest, selectedId, compact, panelExpanded, blocked, detail, taskAction.modal]);
+
+  const updateFilters = (patch: Record<string, string | null>) => setParams((current) => {
+    const next = new URLSearchParams(current);
+    next.set("month", month);
+    next.delete("page");
+    if (Object.keys(patch).some((key) => ["month", "period", "product", "supplier", "status", "q", "focus", "sort"].includes(key))) {
+      next.delete("arrivalPage");
+      next.delete("arrivalFocus");
+      next.delete("arrivalDay");
+    }
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null || value === "") next.delete(key);
+      else next.set(key, value);
+    }
+    return next;
+  }, { replace: true });
+  const selectTask = (id: string, options: { focusDetail?: boolean } = {}) => {
+    if (blocked) return;
+    const index = filtered.findIndex((task) => task.id === id);
+    const selectedPage = index >= 0 ? Math.floor(index / PAGE_SIZE) + 1 : page;
+    updateFilters({ task: id, page: String(selectedPage) });
+    setPanelExpanded(true);
+    setPanelFocusRequest(options.focusDetail === false ? null : { id });
   };
-  const toggleStat = (key: StatKey) => {
-    setStat((cur) => (key === "active" || cur === key ? null : key));
-    resetScroll();
+  const clearFilters = () => updateFilters({ product: null, supplier: null, status: null, q: null, focus: null, period: "all" });
+  const setFocus = (next: Focus) => updateFilters({ focus: next === focus || next === "all" ? null : next });
+  const navigateRelated = (path: string) => navigate(path, {
+    state: { procurementWorkspaceReturn: `${routePath("page:proc-my-workspace", "/proc-my-workspace")}?${params.toString()}` },
+  });
+  const updateArrivalView = (patch: Record<string, string | null>) => {
+    if (latestArrivalView.current.scope !== arrivalScope || latestArrivalView.current.blocked) return;
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === null) next.delete(key);
+        else next.set(key, value);
+      }
+      return next;
+    }, { replace: true });
   };
-  const changeQuery = (value: string) => {
-    setQuery(value);
-    resetScroll();
-  };
-  const hasFilters = Boolean(stat || query.trim());
-  const clearFilters = () => {
-    setStat(null);
-    setQuery("");
-    resetScroll();
+  const openArrivalOrder = (row: WorkspaceArrival, target: { orderNo: string; lineId: string }) => {
+    const current = latestArrivalView.current;
+    if (current.scope !== arrivalScope || current.blocked || !current.canOpenOrder || !current.open || current.page !== arrivalPage) return;
+    if (!workspaceArrivals(current.filtered).some((item) => item.key === row.key && item.taskId === row.taskId && item.orderId === row.orderId)) return;
+    const index = current.filtered.findIndex((task) => task.id === row.taskId);
+    if (index < 0) return;
+    const sourceParams = new URLSearchParams(params);
+    sourceParams.set("month", month);
+    sourceParams.set("arrivalView", arrivalSettings.view);
+    sourceParams.set("arrivalMonth", arrivalSettings.month);
+    sourceParams.set("arrivalDay", arrivalSettings.selection);
+    const source = buildWorkspaceArrivalReturnPath(sourceParams, { taskId: row.taskId, rowKey: row.key, taskPage: Math.floor(index / PAGE_SIZE) + 1, arrivalPage });
+    const destination = buildPurchaseOrderLinePath(target.orderNo, target.lineId);
+    if (!source || !destination) return;
+    navigate(source, { replace: true });
+    navigate(destination, { state: { workspaceArrivalReturnTo: source, workspaceArrivalHistoryBack: true } });
   };
 
-  return (
-    <div ref={pageRef} className="proc-horizon proc-workspace-page mx-auto min-w-0 w-full max-w-[1600px] pb-4">
-      <div className="proc-workspace-intro mb-3 flex min-w-0 flex-wrap items-center justify-between gap-3">
-        <p className="min-w-0 text-pretty text-sm text-slate-600">{t("按流程阶段推进分配给你的采购任务。")}</p>
-        {active.length > 0 ? <Button type="button" variant="outline" size="sm" onClick={() => navigate(routePath("page:proc-cockpit", "/proc-cockpit"))} className="shrink-0">
-          {t("查看采购驾驶舱")}<ArrowUpRight aria-hidden="true" className="size-4" />
-        </Button> : null}
+  return <div ref={pageRef} className="proc-horizon proc-workspace-page proc-s01-page mx-auto w-full min-w-0 max-w-[1600px] space-y-4 pb-4">
+    <header className="flex flex-wrap items-start justify-between gap-3">
+      <div><h1 className="text-balance text-xl font-semibold text-foreground">{t("采购工作台")}</h1><p className="mt-1 text-pretty text-sm text-muted-foreground">{t("按需求月份和期限，推进分配给你的采购任务。")}</p></div>
+      <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={loading || taskAction.busy} onClick={() => void refreshProcurement()} className="min-h-10 gap-1.5"><RefreshCw className="size-4" aria-hidden="true" />{t("刷新")}</Button>{can("page:proc-cockpit") && <Button type="button" variant="outline" disabled={taskAction.busy} onClick={() => navigate(routePath("page:proc-cockpit", "/proc-cockpit"))} className="min-h-10 gap-1.5">{t("查看采购驾驶舱")}<ArrowUpRight className="size-4" aria-hidden="true" /></Button>}</div>
+    </header>
+    <section aria-label={t("我的采购任务筛选")} className="rounded-xl border border-border bg-card p-3 sm:p-4">
+      <div className="proc-s01-filters">
+        <label className="min-w-0"><span className="mb-1.5 block text-xs text-muted-foreground">{t("需求月份")}</span><Input type="month" aria-label={t("需求月份")} value={month} disabled={taskAction.busy} onChange={(event) => { if (/^\d{4}-(0[1-9]|1[0-2])$/.test(event.target.value)) updateFilters({ month: event.target.value, period: "month", focus: null }); }} className="min-h-10 w-full text-sm" /></label>
+        <WorkspaceSelect label={t("产品")} value={productId} disabled={taskAction.busy} onChange={(value) => updateFilters({ product: value, focus: null })} options={[{ value: "all", label: t("全部产品") }, ...productOptions]} />
+        <WorkspaceSelect label={t("供应商")} value={supplier} disabled={taskAction.busy} onChange={(value) => updateFilters({ supplier: value, focus: null })} options={[{ value: "all", label: t("全部供应商") }, { value: UNDETERMINED_SUPPLIER, label: t("未确定") }, ...supplierOptions]} />
+        <WorkspaceSelect label={t("状态")} value={status} disabled={taskAction.busy} onChange={(value) => updateFilters({ status: value, focus: null })} options={[{ value: "all", label: t("全部进行中状态") }, ...ACTIVE_STATUSES.map((value) => ({ value, label: t(PROC_STATUS_META[value].label) }))]} />
       </div>
-
-      {/* 我的统计：点击筛选 */}
-      <div role="group" aria-label={t("我的采购任务概览")} className="proc-workspace-stats proc-horizon-kpi-grid proc-horizon-surface mb-3 grid grid-cols-2 gap-0 p-2">
-        <StatCell label={t("进行中")} value={isInitialLoading ? "—" : counts.active} Icon={Activity} active={!stat || stat === "active"} onClick={() => toggleStat("active")} />
-        <StatCell label={t("待处理")} value={isInitialLoading ? "—" : counts.pending} tone={counts.pending > 0 ? "red" : "slate"} badge={counts.pending > 0} Icon={ClipboardList} active={stat === "pending"} onClick={() => toggleStat("pending")} />
-        <StatCell label={t("已逾期")} value={isInitialLoading ? "—" : counts.overdue} tone="red" badge={counts.overdue > 0} Icon={AlertTriangle} active={stat === "overdue"} onClick={() => toggleStat("overdue")} />
-        <StatCell label={t("本周到货")} value={isInitialLoading ? "—" : counts.week} tone="emerald" Icon={PackageCheck} active={stat === "week"} onClick={() => toggleStat("week")} />
-      </div>
-
-      <section aria-label={t("我的采购任务筛选")} className="proc-workspace-filters mb-3 flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
-        <div className="proc-workspace-search relative min-w-0 flex-1">
-          <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-          <Input
-            value={query}
-            onChange={(event) => changeQuery(event.target.value)}
-            aria-label={t("搜索我的采购任务")}
-            placeholder={t("搜索单号、物料、规格或负责人")}
-            className="h-10 pl-9 pr-9 text-sm"
-          />
-          {query ? (
-            <button
-              type="button"
-              onClick={() => changeQuery("")}
-              aria-label={t("清空搜索")}
-              className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            >
-              <X aria-hidden="true" className="size-3.5" />
-            </button>
-          ) : null}
-        </div>
-        <div className="proc-workspace-filter-result flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-xs text-slate-500">
-          <span className="font-medium text-slate-700">{t(STAT_LABELS[stat ?? "active"])}</span>
-          <span aria-live="polite" className="tabular-nums">{isInitialLoading ? t("正在加载我的采购任务") : t("显示 {count} 个任务", { count: filtered.length })}</span>
-          {hasFilters ? (
-            <button type="button" onClick={clearFilters} className="rounded-md px-2 py-1 font-semibold text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
-              {t("清除筛选")}
-            </button>
-          ) : null}
-        </div>
-      </section>
-
-      {error ? (
-        <div role="alert" className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-rose-200 bg-rose-50/40 px-4 py-12 text-center text-sm text-rose-700">
-          <AlertTriangle aria-hidden="true" className="size-7 text-rose-500" />
-          <div className="min-w-0">
-            <p className="text-balance font-semibold">{t("我的采购任务加载失败")}</p>
-            <p className="mt-1 max-w-xl break-words text-pretty text-sm text-rose-600">{error}</p>
-          </div>
-          <button type="button" onClick={() => void refreshProcurement()} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</button>
-        </div>
-      ) : isInitialLoading ? (
-        <div role="status" aria-label={t("正在加载我的采购任务")} className="proc-workspace-task-grid grid grid-cols-1 gap-3">
-          {[0, 1, 2].map((item) => (
-            <div key={item} className="min-h-52 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex gap-2"><span className="h-5 w-16 rounded bg-slate-100" /><span className="h-5 w-20 rounded bg-slate-100" /></div>
-              <div className="mt-4 h-5 w-3/4 rounded bg-slate-100" />
-              <div className="mt-3 h-4 w-full rounded bg-slate-100" />
-              <div className="mt-2 h-4 w-2/3 rounded bg-slate-100" />
-              <div className="mt-8 h-2 w-full rounded bg-slate-100" />
-            </div>
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="proc-workspace-empty flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-white px-4 py-16 text-center">
-          <ClipboardList aria-hidden="true" className="size-7 text-slate-300" />
-          <div className="min-w-0">
-            <p className="text-balance text-sm font-semibold text-slate-700">{t(active.length === 0 ? "当前没有需要推进的采购任务" : "没有符合筛选条件的任务")}</p>
-            <p className="mt-1 text-pretty text-sm text-slate-500">{t(active.length === 0 ? "分配给你的未完成任务会显示在这里。" : "试试其他状态，或修改搜索条件。")}</p>
-          </div>
-          {active.length === 0 ? (
-            <button type="button" onClick={() => navigate(routePath("page:proc-cockpit", "/proc-cockpit"))} className="material-button-secondary px-3 py-2 text-xs">{t("查看采购驾驶舱")}</button>
-          ) : (
-            <button type="button" onClick={clearFilters} className="material-button-secondary px-3 py-2 text-xs">{t("清除筛选")}</button>
-          )}
-        </div>
-      ) : (
-        <div className="proc-horizon-workspace-surface">
-          {stageGroups.map((stage) => {
-            const StageIcon = stage.Icon;
-            return (
-              <section key={stage.label} aria-labelledby={`proc-workspace-stage-${stage.statuses[0]}`} className="proc-horizon-workspace-stage">
-                <h2 id={`proc-workspace-stage-${stage.statuses[0]}`} className="proc-horizon-stage-title mb-3 flex flex-wrap items-center gap-2 text-balance text-sm font-bold text-slate-700">
-                  <StageIcon className="size-4 shrink-0 text-slate-400" aria-hidden="true" />
-                  {t(stage.label)}
-                  <span className="rounded-full bg-slate-100 px-2 text-[11px] font-medium tabular-nums text-slate-500">{stage.tasks.length}</span>
-                </h2>
-                <div className="proc-workspace-task-grid grid grid-cols-1 items-start gap-3">
-                  {stage.tasks.map((task) => (
-                    <ProcurementTaskCard
-                      key={task.id}
-                      task={task}
-                      materials={materials}
-                      onOpen={(task) => openDetail(task)}
-                      onRollback={(task) => openDetail(task, "rollback")}
-                      onViewLogs={(task) => openDetail(task, "logs")}
-                      onNext={(x) => taskAction.runNext(x, "card")}
-                      onReassign={taskAction.reassign}
-                      onRemove={taskAction.remove}
-                    />
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-      )}
-
-      {open && <TaskDetailDrawer key={open.id} task={open} initialAction={detailAction} onClose={() => { setOpen(null); setDetailAction(undefined); }} />}
-      {taskAction.modal}
+      <div className="mt-3 flex flex-wrap items-center gap-3"><div className="relative min-w-0 flex-1 basis-72"><Search className="pointer-events-none absolute left-3 top-3 size-4 text-muted-foreground" aria-hidden="true" /><Input aria-label={t("搜索我的采购任务")} value={query} disabled={taskAction.busy} onChange={(event) => updateFilters({ q: event.target.value })} placeholder={t("搜索任务、物料、规格、供应商或采购单号")} className="min-h-10 pl-9 pr-10" />{query && <Button type="button" variant="ghost" size="icon" disabled={taskAction.busy} aria-label={t("清空搜索")} onClick={() => updateFilters({ q: null })} className="absolute right-1 top-1 size-8"><X className="size-4" aria-hidden="true" /></Button>}</div>{hasFilters && <Button type="button" variant="ghost" disabled={taskAction.busy} onClick={clearFilters} className="min-h-10 text-xs">{t("清除筛选")}</Button>}</div>
+      <Tabs value={period} onValueChange={(value) => updateFilters({ period: value, focus: null, ...(["carryover", "undated"].includes(value) ? { status: null, q: null } : {}) })} className="mt-3"><TabsList aria-label={t("按需求月份查看任务")} className="proc-s01-periods">{PERIODS.map(([value, label]) => <TabsTrigger key={value} value={value} disabled={taskAction.busy} className="min-h-10 gap-1.5 text-xs">{t(label)}<span className="tabular-nums">{isInitialLoading || (error && !tasks.length) ? "—" : periodCounts[value]}</span></TabsTrigger>)}</TabsList></Tabs>
+      <p className="mt-2 text-pretty text-xs text-muted-foreground">{t(period === "carryover" ? "显示需求月份早于所选月、仍未完成的任务。" : period === "undated" ? "这些任务尚未填写有效需求日期，请在任务详情中核对。" : period === "all" ? "显示本人全部进行中任务，包含未来需求与未填写日期的任务。" : "按任务需求日期归月，跨月未完成和未填日期的任务可单独查看。")}</p>
+    </section>
+    <ProcWorkspaceAggregation tasks={mine} month={month} productId={productId} supplier={supplier} loading={loading} error={error} disabled={taskAction.busy} onSelectTask={selectTask} onNavigate={navigateRelated} onPlanOptions={setPlanOptions} selectedBusiness={business} onBusinessChange={(nextBusiness) => setParams((current) => { const next = new URLSearchParams(current); next.set("month", month); if (nextBusiness === "purchase") next.delete("source"); else next.set("source", nextBusiness); return next; }, { replace: true })} />
+    <div role="group" aria-label={t("我的采购任务概览")} className="proc-workspace-stats proc-horizon-kpi-grid proc-horizon-surface rounded-xl border border-border bg-card">
+      <StatCell label={t("当前范围")} value={metricsUnknown ? "—" : counts.all} Icon={Activity} active={focus === "all"} onClick={() => !taskAction.busy && setFocus("all")} />
+      <StatCell label={t("待处理")} value={metricsUnknown ? "—" : counts.pending} Icon={ClipboardList} active={focus === "pending"} onClick={() => !taskAction.busy && setFocus("pending")} />
+      <StatCell label={t("已逾期")} value={metricsUnknown ? "—" : counts.overdue} tone="red" Icon={AlertTriangle} active={focus === "overdue"} onClick={() => !taskAction.busy && setFocus("overdue")} />
+      <StatCell label={t("未来7天到货")} value={metricsUnknown ? "—" : counts.week} tone="emerald" Icon={PackageCheck} active={focus === "week"} onClick={() => !taskAction.busy && setFocus("week")} />
     </div>
-  );
+    {error && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"><div><p className="font-semibold">{t("我的采购任务加载失败")}</p><p className="mt-1 break-words text-pretty">{error}</p></div><Button type="button" variant="outline" disabled={loading || taskAction.busy} onClick={() => void refreshProcurement()}>{t("重新加载")}</Button></div>}
+    <div className="proc-s01-layout">
+      <section className="proc-s01-list min-w-0 space-y-3" aria-label={t("采购任务列表")}>
+        <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-balance text-base font-semibold text-foreground">{t("我的采购任务")}</h2><p className="mt-1 text-xs tabular-nums text-muted-foreground" aria-live="polite">{isInitialLoading ? t("正在加载我的采购任务") : t("显示 {count} 个任务", { count: filtered.length })}</p></div><WorkspaceSelect label={t("排序")} value={sort} disabled={taskAction.busy} onChange={(value) => updateFilters({ sort: value })} options={SORTS.map(([value, label]) => ({ value, label: t(label) }))} compact /></div>
+        {isInitialLoading ? <div role="status" aria-label={t("正在加载我的采购任务")} className="min-h-52 space-y-3 rounded-xl border border-border bg-card p-4">{[0, 1, 2, 3].map((item) => <div key={item} className="flex h-16 items-center gap-3 border-b border-border"><div className="size-10 rounded-lg bg-muted" /><div className="h-4 w-2/3 rounded bg-muted" /></div>)}</div> : filtered.length ? <>
+          <ProcWorkspaceTaskList tasks={visibleTasks} materials={materials} selectedId={selectedId} disabled={blocked} onSelect={selectTask} onNext={(task) => { if (blocked) return; selectTask(task.id, { focusDetail: false }); taskAction.runNext(task, "card"); }} />
+          {pageCount > 1 && <Pagination aria-label={t("采购任务分页")} className="justify-end"><PaginationContent><PaginationItem><Button type="button" variant="outline" size="sm" disabled={page === 1 || taskAction.busy} onClick={() => updateFilters({ page: String(page - 1) })} aria-label={t("上一页")}><ChevronLeft className="size-4" aria-hidden="true" /></Button></PaginationItem><PaginationItem><span className="px-2 text-xs tabular-nums text-muted-foreground">{page} / {pageCount}</span></PaginationItem><PaginationItem><Button type="button" variant="outline" size="sm" disabled={page === pageCount || taskAction.busy} onClick={() => updateFilters({ page: String(page + 1) })} aria-label={t("下一页")}><ChevronRight className="size-4" aria-hidden="true" /></Button></PaginationItem></PaginationContent></Pagination>}
+        </> : !error && <div className="flex min-h-52 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-card p-6 text-center"><ClipboardList className="size-7 text-muted-foreground" aria-hidden="true" /><h3 className="text-balance text-sm font-semibold">{t(active.length ? "没有符合筛选条件的任务" : "当前没有需要推进的采购任务")}</h3><p className="text-pretty text-sm text-muted-foreground">{t(active.length ? "可以查看跨月未完成、日期待确认，或清除筛选。" : "分配给你的未完成任务会显示在这里。")}</p>{active.length ? <Button type="button" variant="outline" onClick={clearFilters}>{t("清除筛选")}</Button> : <Button type="button" variant="outline" disabled={loading} onClick={() => void refreshProcurement()}>{t("重新加载")}</Button>}</div>}
+        {!isInitialLoading && <ProcWorkspaceArrivals tasks={filtered} onSelect={selectTask} disabled={blocked}
+          open={arrivalsOpen} onOpenChange={(open) => updateArrivalView({ arrivals: open ? "open" : null, arrivalFocus: null })}
+          page={arrivalPage} onPageChange={(next) => { if (latestArrivalView.current.page === arrivalPage) updateArrivalView({ arrivalPage: String(next), arrivalFocus: null }); }}
+          onRestorePage={(next) => { if (latestArrivalView.current.focusKey === arrivalFocus) updateArrivalView({ arrivalPage: String(next) }); }}
+          scopeKey={arrivalScope} focusKey={arrivalFocus}
+          view={arrivalSettings.view} calendarMonth={arrivalSettings.month} selection={arrivalSettings.selection}
+          onViewChange={(patch) => updateArrivalView({ arrivalView: patch.view ?? arrivalSettings.view,
+            arrivalMonth: patch.month ?? arrivalSettings.month, arrivalDay: patch.selection ?? arrivalSettings.selection,
+            arrivalPage: "1", arrivalFocus: null })}
+          onRestoreRange={(next) => updateArrivalView({ arrivalDay: "all", arrivalPage: String(next) })}
+          onFocusHandled={(key) => { if (key === arrivalFocus && latestArrivalView.current.focusKey === key) updateArrivalView({ arrivalFocus: null }); }}
+          onOpenOrderLine={openArrivalOrder} />}
+      </section>
+      <Collapsible open={!compact || panelExpanded} onOpenChange={setPanelExpanded} className="proc-s01-panel min-w-0 self-start" id="proc-workspace-current-task">
+        <CollapsibleTrigger asChild><Button type="button" variant="outline" className="proc-s01-panel-toggle min-h-11 h-auto w-full justify-between gap-2 whitespace-normal text-left"><span className="min-w-0"><span className="block text-xs text-muted-foreground">{t("当前任务")}</span><span className="line-clamp-1">{selected?.materialName || t("选择任务查看详情")}</span></span><ChevronDown className={cn("size-4 shrink-0", panelExpanded && "rotate-180")} aria-hidden="true" /></Button></CollapsibleTrigger>
+        <CollapsibleContent>
+          <div ref={panelFocusRef} id="proc-workspace-task-detail" tabIndex={-1} role="region" aria-label={t("任务详情：{name}", { name: selected ? `${selected.materialName} · ${selected.code}` : t("当前任务") })} className="scroll-mt-4 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          {selected && !filtered.some((task) => task.id === selected.id) && <p className="mb-2 rounded-lg border border-border bg-muted p-3 text-pretty text-xs text-muted-foreground">{t("当前查看的任务不在筛选结果中，详情仍保留。")}</p>}
+          {selectedId && !selected && !isInitialLoading ? <div role="status" className="rounded-xl border border-border bg-card p-4"><h3 className="text-balance text-sm font-semibold">{t("此任务暂不可用")}</h3><p className="mt-2 text-pretty text-xs text-muted-foreground">{t("任务可能已转派、删除或不在当前账号范围，请从列表重新选择。")}</p>{firstId && <Button type="button" variant="outline" disabled={blocked} className="mt-3" onClick={() => selectTask(firstId)}>{t("查看列表首项")}</Button>}</div> : <ProcWorkspaceTaskPanel task={selected} blocked={blocked} onOpenDetail={openDetail} onNext={(task) => { if (!blocked) taskAction.runNext(task, "card"); }} onReassign={taskAction.reassign} onRemove={taskAction.remove} onNavigateRelated={navigateRelated} />}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+    <ProcurementDeliverySchedule />
+    {detailTask && <TaskDetailDrawer key={detailTask.id} task={detailTask} initialAction={detail?.action} onClose={() => setDetail(null)} onNavigateRelated={navigateRelated} />}
+    {taskAction.modal}
+  </div>;
+}
+
+function WorkspaceSelect({ label, value, options, onChange, disabled, compact = false }: { label: string; value: string; options: Array<{ value: string; label: string }>; onChange: (value: string) => void; disabled?: boolean; compact?: boolean }) {
+  return <div className={cn("min-w-0", compact && "w-40")}><span className="mb-1.5 block text-xs text-muted-foreground">{label}</span><Select value={value} onValueChange={onChange} disabled={disabled}><SelectTrigger aria-label={label} className="min-h-10 w-full"><SelectValue /></SelectTrigger><SelectContent>{!options.some((option) => option.value === value) && <SelectItem value={value}>{value}</SelectItem>}{options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></div>;
 }

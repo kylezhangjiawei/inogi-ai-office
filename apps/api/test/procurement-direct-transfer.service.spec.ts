@@ -68,6 +68,10 @@ function fixture(status?: string) {
     $transaction: async (operation: ((tx: unknown) => unknown) | Promise<unknown>[]) => typeof operation === 'function' ? operation(prisma) : Promise.all(operation),
   };
   const rdService = {
+    requireTaskReadAccess: async (_taskId: string, requester: { userId?: string }) => {
+      if (!['rd-1', 'admin-1', 'collaborator-1'].includes(requester.userId ?? '')) throw new Error('无任务参与权限');
+      return { task_id: 'RD-001', title: '服务器研发任务' };
+    },
     requireProcurementTransferAccess: async (_taskId: string, requester: { userId?: string }) => {
       if (!['rd-1', 'admin-1', 'collaborator-1'].includes(requester.userId ?? '')) throw new Error('无任务参与权限');
       return { taskId: 'RD-001', title: '服务器研发任务', participantUserIds: ['rd-1'], participantNames: ['研发甲'] };
@@ -218,4 +222,105 @@ test('并发继续存量转采购只分配一次且只发一条采购通知', as
 test('继续流转要求转采购权限，采购确认仍使用原采购权限', () => {
   assert.deepEqual(Reflect.getMetadata(PERMISSIONS_KEY, ProcurementController.prototype.continueRdTransfer), ['proc-task:transfer']);
   assert.deepEqual(Reflect.getMetadata(PERMISSIONS_KEY, ProcurementController.prototype.confirm), ['proc-task:confirm']);
+});
+
+test('转采购冻结本人选择的需求与附件，重试不会改成研发的新文件或新数量', async () => {
+  const { service, writes } = fixture();
+  await service.transferFromRd({ ...input, spec: '规格 A', attachments: [{ ...attachment, fileName: '已选A.pdf' }] }, actor);
+  const snapshot = writes[0].metadata.rdTransferSnapshots[0];
+  assert.equal(snapshot.rdTaskTitle, '服务器研发任务');
+  assert.equal(snapshot.submittedBy, actor.id);
+  assert.deepEqual(snapshot.attachments.map((file: any) => file.fileName), ['已选A.pdf']);
+  assert.equal(snapshot.attachments[0].technicalDocumentVersionId, null, '旧附件没有登记版本时不猜版本');
+  await service.transferFromRd({ ...input, spec: '规格 B', quantity: 99, attachments: [{ ...attachment, fileName: '新版B.pdf' }] }, actor);
+  assert.equal(writes.length, 1);
+  assert.equal(snapshot.requirement.spec, '规格 A');
+  assert.equal(snapshot.requirement.quantity, 2);
+});
+
+test('取消后重提追加交付快照，不删除旧快照或其他样品元数据', async () => {
+  const { service, writes, simulateProcurementUpdate } = fixture('cancelled');
+  const old = { id: 'previous', attachments: [{ fileName: '旧图纸.pdf' }] };
+  const sampleTest = { roundId: 'round-1', result: 'failed_resample', note: '需修改尺寸' };
+  simulateProcurementUpdate({ metadata: { rdTransferSnapshots: [old], sampleTest, retained: true } });
+  await service.transferFromRd({ ...input, quantity: 8 }, actor);
+  assert.deepEqual(writes[0].metadata.rdTransferSnapshots[0], old);
+  assert.equal(writes[0].metadata.rdTransferSnapshots[1].requirement.quantity, 8);
+  assert.deepEqual(writes[0].metadata.sampleTest, sampleTest);
+  assert.equal(writes[0].metadata.retained, true);
+});
+
+test('技术版本附件由服务端解析，客户端文件名路径和版本展示不能覆盖可信快照', async () => {
+  const { service, writes } = fixture();
+  const calls: unknown[][] = [];
+  (service as any).ossService.isKeyUnderBusinessType = (key: string) => key.startsWith('rd/');
+  (service as any).technicalDocuments = { resolveTransferVersions: async (...args: unknown[]) => {
+    calls.push(args);
+    return [{ id: 'ver-1', documentId: 'doc-1', version: 'A.1', category: 'drawing', title: '受控电机图',
+      fileName: '正式图纸.pdf', fileKey: 'rd/original.pdf', fileUrl: '/official.pdf', fileSize: 20, mimeType: 'application/pdf',
+      attachmentId: 'a-1', sourceNoteId: 'n-1', createdAt: new Date('2026-09-09T00:00:00Z') }];
+  } };
+  await service.transferFromRd({ ...input, attachments: [{ ...attachment, fileName: '伪造名称', fileKey: 'secret/other.pdf', technicalDocumentVersionId: 'ver-1' }] }, actor);
+  assert.equal(calls[0][0], 'RD-001');
+  assert.deepEqual(calls[0][1], ['ver-1']);
+  assert.equal((calls[0][2] as any).userId, actor.id);
+  const snapshot = writes[0].metadata.rdTransferSnapshots[0].attachments[0];
+  assert.equal(snapshot.fileName, '正式图纸.pdf');
+  assert.equal(snapshot.fileKey, 'rd/original.pdf');
+  assert.equal(snapshot.version, 'A.1');
+  assert.equal(snapshot.technicalDocumentVersionId, 'ver-1');
+  assert.equal(writes[0].attachments.create[0].fileKey, 'rd/original.pdf');
+});
+
+test('越任务或不存在的技术版本不落采购记录，版本服务未就绪也不能降级成无版本附件', async () => {
+  const { service, writes } = fixture();
+  const versionInput = { ...input, attachments: [{ ...attachment, technicalDocumentVersionId: 'other-task-version' }] };
+  await assert.rejects(() => service.transferFromRd(versionInput, actor), /版本服务暂不可用/);
+  (service as any).technicalDocuments = { resolveTransferVersions: async () => [] };
+  await assert.rejects(() => service.transferFromRd(versionInput, actor), /不存在或不属于/);
+  assert.equal(writes.length, 0);
+});
+
+test('研发关联摘要保留样品事实但不返回报价、订单价格或商业日志原文', async () => {
+  const { service, simulateProcurementUpdate } = fixture('testing');
+  const sample = { testerUserId: 'rd-1', testerName: '研发甲', result: null, note: null };
+  simulateProcurementUpdate({ sampleTest: sample, quotationTotal: 999, paymentNote: '商业信息', purchaseOrders: [{ unitPrice: 99 }],
+    attachmentList: [{ kind: 'quote', fileName: '保密报价.pdf' }, { kind: 'drawing', fileName: '图纸.pdf' }],
+    rdTransferSnapshots: [{ id: 'delivery-1', attachments: [{ kind: 'quote', fileName: '快照报价.pdf' }, { kind: 'drawing', fileName: '交付图纸.pdf' }] }],
+    logs: [{ text: '供应商报价999元', fromStatus: 'inquiring', toStatus: 'pending_sample' }, { text: '折扣99元' }] });
+  const result = await service.listTasks({ rdLink: 'true', rdTaskId: 'RD-001' }, actor);
+  const row = result.items[0];
+  assert.deepEqual(row.sampleTest, sample);
+  assert.equal(row.quotationTotal, undefined);
+  assert.equal(row.paymentNote, undefined);
+  assert.deepEqual(row.purchaseOrders, []);
+  assert.deepEqual(row.attachmentList.map((file) => file.fileName), ['图纸.pdf']);
+  assert.deepEqual(row.rdTransferSnapshots[0].attachments.map((file) => file.fileName), ['交付图纸.pdf']);
+  assert.equal(JSON.stringify(row.logs).includes('999'), false);
+});
+
+test('有研发工作台读取权限不等于可读采购全量列表或执行采购写操作', async () => {
+  const { service } = fixture('testing');
+  const viewer = { ...actor, permissions: ['page:rd-my-workspace'] };
+  assert.equal((await service.listTasks({ rdLink: 'true', rdTaskId: 'RD-001' }, viewer)).total, 1);
+  await assert.rejects(() => service.listTasks({}, viewer), /没有查看采购任务列表/);
+  assert.ok(Reflect.getMetadata(PERMISSIONS_KEY, ProcurementController.prototype.listTasks).includes('page:rd-my-workspace'));
+  assert.deepEqual(Reflect.getMetadata(PERMISSIONS_KEY, ProcurementController.prototype.transfer), ['proc-task:transfer']);
+});
+
+test('已确认的嵌入式技术文件从可信版本保留原内容，不把客户端短效预览地址当原文件', async () => {
+  const { service, writes } = fixture();
+  const embedded = `data:application/pdf;base64,${Buffer.from('%PDF-1.7\n' + 'x'.repeat(2200)).toString('base64')}`;
+  (service as any).technicalDocuments = { resolveTransferVersions: async () => [{
+    id: 'embedded-v1', documentId: 'embedded-doc', version: '1.0', category: 'specification', title: '嵌入式规格',
+    fileName: '规格.pdf', fileKey: null, fileUrl: embedded, fileSize: 2209, mimeType: 'application/pdf',
+    attachmentId: 'embedded-attachment', sourceNoteId: 'note-1', createdAt: new Date('2026-09-09T00:00:00Z'),
+  }] };
+  await service.transferFromRd({ ...input, attachments: [{ ...attachment,
+    fileUrl: '/api/research-development/technical-document-files/embedded-v1?exp=1&sig=expired',
+    technicalDocumentVersionId: 'embedded-v1',
+  }] }, actor);
+  assert.equal(writes[0].attachments.create[0].fileUrl, embedded);
+  assert.equal(writes[0].metadata.rdTransferSnapshots[0].attachments[0].fileUrl, embedded);
+  assert.equal(writes[0].metadata.rdTransferSnapshots[0].attachments[0].technicalDocumentVersionId, 'embedded-v1');
 });

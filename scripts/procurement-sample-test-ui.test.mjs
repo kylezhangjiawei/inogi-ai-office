@@ -10,6 +10,60 @@ const modules = Object.fromEntries(['SampleTestAssignmentDialog', 'ProcSampleTes
     compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
   }).outputText,
 ]));
+const sampleFacts = {};
+new Function('exports', ts.transpileModule(readFileSync(new URL('../src/app/lib/procSampleFacts.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText)(sampleFacts);
+const timingModel = {};
+new Function('exports', 'require', ts.transpileModule(readFileSync(new URL('../src/app/procurement/samples/sampleTimingModel.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(timingModel, () => sampleFacts);
+const recordsModel = {};
+new Function('exports', ts.transpileModule(readFileSync(new URL('../src/app/procurement/samples/sampleRecordsModel.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(recordsModel);
+
+test('分派必须明确登记实际到样；取消、Esc与遮罩统一确认未保存修改', async () => {
+  const f = await ready('SampleTestAssignmentDialog', { task });
+  change(f, 'sample-test-arrival', ''); submit(f); await settle(); assert.match(alerts(f), /实际到样时间/); assert.equal(f.calls.assigned.length, 0);
+  change(f, 'sample-test-arrival', '2026-09-08T02:00:00');
+  let prevented = 0, originalPrevented = 0;
+  find(f.render(), (node) => node.type === 'DialogContent').props.onPointerDownOutside({ preventDefault() { prevented++; }, detail: { originalEvent: { preventDefault() { originalPrevented++; } } } });
+  assert.equal(prevented, 1); assert.equal(originalPrevented, 1); assert.equal(find(f.render(), (node) => node.type === 'AlertDialog').props.open, true);
+  assert.equal(f.calls.closed.length, 0);
+  find(f.render(), (node) => node.type === 'AlertDialog').props.onOpenChange(false);
+  assert.equal(field(f, 'sample-test-arrival').props.value, '2026-09-08T02:00:00');
+  button(f, '取消').props.onClick();
+  find(f.render(), (node) => node.type === 'AlertDialogAction').props.onClick(); assert.equal(f.calls.closed.length, 1);
+});
+
+test('分派期间切任务使旧响应失效，同任务版本变更必须先明确重载', async () => {
+  const pending = deferred(); const f = await ready('SampleTestAssignmentDialog', { task }, { assignProcSampleTest: () => pending.promise });
+  submit(f); f.render(); f.setProps({ task: { ...task, id: 'task-b' } }); await settle(); f.render();
+  pending.resolve({ ...task, status: 'testing' }); await settle(); assert.equal(f.calls.assigned.length, 0);
+  const g = await ready('SampleTestAssignmentDialog', { task });
+  g.setProps({ task: { ...task, updatedAt: '2026-09-08T06:00:00Z' } }); assert.equal(submitButton(g).props.disabled, true);
+  assert.equal(field(g, 'sample-test-arrival').props.value, '2026-09-08T01:00:00');
+  submit(g); await settle(); assert.equal(g.calls.assigned.length, 0);
+  button(g, '放弃修改并载入最新任务').props.onClick(); g.render(); assert.equal(field(g, 'sample-test-arrival').props.value, '');
+});
+
+test('保存实际时间只触发登记回调，不能把手机入口标成结论已确认；脏登记阻止提交结论', async () => {
+  const current = detail(); current.sampleTest.recordsVersion = 1; current.sampleTest.arrivedAt = '2026-09-08T00:00:00Z'; current.sampleTest.startedAt = '2026-09-08T01:00:00Z'; current.sampleTest.finishedAt = null;
+  const saved = [];
+  const f = await ready('ProcSampleTestDialog', { taskId: task.id, onRecordsSaved: () => saved.push(true) }, { getProcSampleTest: async () => current });
+  enterConclusion(f); assert.equal(submitButton(f).props.disabled, true); submit(f); await settle(); assert.equal(f.calls.confirmed.length, 0);
+  const records = () => find(f.render(), (node) => node.type === 'SampleRecordsPanel');
+  const updated = { ...current, task: { ...current.task, updatedAt: '2026-09-08T06:00:00Z' }, sampleTest: { ...current.sampleTest, finishedAt: '2026-09-08T03:00:00Z' } };
+  records().props.onSaved(updated); f.render(); assert.equal(saved.length, 1); assert.equal(f.calls.confirmed.length, 0);
+  records().props.onInteractionStateChange({ dirty: true, busy: false }); f.render(); assert.equal(submitButton(f).props.disabled, true);
+  submit(f); await settle(); assert.equal(f.calls.confirmed.length, 0);
+  records().props.onInteractionStateChange({ dirty: false, busy: false }); f.render(); assert.equal(submitButton(f).props.disabled, false);
+});
+
+test('账号切换后迟到读取不会回填旧采购条件或结论', async () => {
+  const pending = deferred(); let reads = 0;
+  const f = fixture('ProcSampleTestDialog', { taskId: task.id }, { getProcSampleTest: () => ++reads === 1 ? pending.promise : Promise.reject(new Error('新账号无权查看')) });
+  f.render(); f.setUser({ id: 'other-account', permissions: [] }); await settle();
+  pending.resolve(detail()); await settle(); f.render();
+  assert.equal(find(f.render(), (node) => node.type === 'SampleRecordsPanel'), undefined); assert.match(alerts(f), /新账号无权查看/);
+});
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 function deferred() { let resolve; let reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 const translate = (text, params = {}) => text.replace(/\{(\w+)\}/g, (match, key) => params[key] ?? match);
@@ -17,15 +71,15 @@ const task = { id: 'proc-A', code: 'PROC-A', materialName: '测试样品', statu
 const testers = [{ id: 'rd-contact', name: '研发同名人员', department: '研发部' }, { id: 'rd-assigned', name: '研发同名人员', department: '研发部' }];
 function detail(id = task.id, overrides = {}) {
   return {
-    task: { ...task, id, code: `PROC-${id}`, buyer: '采购负责人', spec: '规格一', quantity: 3, unit: '件', attachmentList: [], status: 'testing' },
-    sampleTest: { roundId: `round-${id}`, testerUserId: 'rd-assigned', testerName: '指定研发人员', result: null, note: null, confirmedAt: null, confirmedByName: null },
+    task: { ...task, id, code: `PROC-${id}`, buyer: '采购负责人', spec: '规格一', quantity: 3, unit: '件', attachmentList: [], status: 'testing', needSample: true, logs: [] },
+    sampleTest: { roundId: `round-${id}`, testerUserId: 'rd-assigned', testerName: '指定研发人员', assignedAt: '2026-09-08T02:00:00Z', assignedByName: '采购负责人', result: null, note: null, confirmedAt: null, confirmedByName: null },
     canConfirm: true,
     ...overrides,
   };
 }
 function completed(id = task.id) {
   const current = detail(id);
-  return { ...current, canConfirm: false, sampleTest: { ...current.sampleTest, result: 'passed', note: '测试合格', confirmedByName: '确认研发人员', confirmedAt: '2026-09-08T03:04:05Z' } };
+  return { ...current, task: { ...current.task, status: 'priced' }, canConfirm: false, sampleTest: { ...current.sampleTest, result: 'passed', note: '测试合格', confirmedByName: '确认研发人员', confirmedAt: '2026-09-08T03:04:05Z' } };
 }
 
 // Execute the actual component module. Only its hooks, visual primitives and API boundary are replaced.
@@ -33,6 +87,7 @@ function completed(id = task.id) {
 function fixture(name, props = {}, api = {}) {
   const slots = []; const pendingEffects = []; const calls = { assigned: [], confirmed: [], closed: [] };
   let cursor = 0; let dirty = false; let destroyed = false; let input = props;
+  let authUser = { id: 'rd-assigned', permissions: ['page:rd-my-workspace'] };
   const hooks = {
     useState(initial) {
       const index = cursor++;
@@ -61,6 +116,16 @@ function fixture(name, props = {}, api = {}) {
     react: hooks, 'react/jsx-runtime': jsxRuntime, 'lucide-react': components,
     '../../lib/i18n': { useI18n: () => ({ t: translate }), i18nLocale: () => 'zh-CN' },
     '../../lib/procurementApi': boundary,
+    '../../auth': { useAuth: () => ({ user: authUser }) },
+    '../../lib/procSampleFacts': sampleFacts,
+    './SampleTechnicalFiles': { SampleTechnicalFiles: 'SampleTechnicalFiles' },
+    './RdDeliverySnapshotPanel': { RdDeliverySnapshotPanel: 'RdDeliverySnapshotPanel' },
+    '../sampleWorkspace.css': {},
+    '../samples/SampleTimingSummary': { SampleTimingSummary: 'SampleTimingSummary' },
+    '../samples/SampleRecordsPanel': { SampleRecordsPanel: 'SampleRecordsPanel' },
+    '../samples/SampleRoundHistory': { SampleRoundHistory: 'SampleRoundHistory' },
+    '../samples/sampleRecordsModel': recordsModel,
+    '../samples/sampleTimingModel': timingModel,
   };
   const exports = {};
   new Function('exports', 'require', modules[name])(exports, (id) => {
@@ -82,6 +147,7 @@ function fixture(name, props = {}, api = {}) {
       assert.fail('component failed to settle');
     },
     setProps(next) { input = { ...input, ...next }; return this.render(); },
+    setUser(next) { authUser = next; return this.render(); },
     destroy() { destroyed = true; for (const slot of slots) slot?.cleanup?.(); },
   };
 }
@@ -103,7 +169,7 @@ function submit(f) { const form = find(f.render(), (node) => node.type === 'form
 function button(f, label) { return find(f.render(), (node) => node.type === 'Button' && text(node) === label); }
 function submitButton(f) { return find(f.render(), (node) => node.type === 'Button' && node.props.type === 'submit'); }
 function alerts(f) { return all(f.render(), (node) => node.props.role === 'alert').map(text).join(' '); }
-async function ready(name, props, api) { const f = fixture(name, props, api); f.render(); await settle(); f.render(); return f; }
+async function ready(name, props, api) { const f = fixture(name, props, api); f.render(); await settle(); f.render(); if (name === 'SampleTestAssignmentDialog' && props.task.status === 'pending_sample') change(f, 'sample-test-arrival', '2026-09-08T01:00:00'); return f; }
 function enterConclusion(f, result = 'passed', note = '  测试合格  ') { change(f, 'sample-test-result', result); change(f, 'sample-test-conclusion', note); }
 
 test('分派目录使用真实账号 ID，同名用户不混淆，默认优先已分派人其次研发联系人', async () => {
@@ -114,7 +180,7 @@ test('分派目录使用真实账号 ID，同名用户不混淆，默认优先�
     assert.equal(select.props.value, expected);
     assert.deepEqual(all(select, (node) => node.type === 'option').map((node) => node.props.value), ['', 'rd-contact', 'rd-assigned']);
     submit(f); await settle();
-    assert.deepEqual(writes, [[current.id, { testerUserId: expected, fromStatus: current.status, baseUpdatedAt: current.updatedAt }]]);
+    assert.deepEqual(writes, [[current.id, { testerUserId: expected, fromStatus: current.status, baseUpdatedAt: current.updatedAt, ...(current.status === 'pending_sample' ? { arrivedAt: new Date('2026-09-08T01:00:00').toISOString() } : {}) }]]);
     assert.equal(f.calls.assigned.length, 1);
   }
 });
@@ -310,4 +376,180 @@ test('B 已开始新确认时 A 的迟到响应不能解除 B 的提交锁或覆
   b.resolve(completed('B')); await settle();
   assert.deepEqual(f.calls.confirmed, [true]);
   assert.equal(submitButton(f), undefined);
+});
+
+test('同一任务同一轮 revision 刷新保留原草稿，刷新完成前不得提交', async () => {
+  const refresh = deferred(); const writes = []; let reads = 0;
+  const f = await ready('ProcSampleTestDialog', { taskId: task.id, inline: true, revision: '1' }, {
+    getProcSampleTest: async () => ++reads === 1 ? detail() : refresh.promise,
+    confirmProcSampleTest: async (...args) => { writes.push(args); return completed(); },
+  });
+  enterConclusion(f, 'failed_resample', '  原始草稿\n保留空白  ');
+  f.setProps({ revision: '2' });
+  assert.equal(field(f, 'sample-test-conclusion').props.value, '  原始草稿\n保留空白  ');
+  assert.equal(field(f, 'sample-test-result').props.disabled, true);
+  assert.equal(submitButton(f).props.disabled, true);
+  submit(f); await settle();
+  assert.deepEqual(writes, []);
+  const updated = detail(); updated.task.materialName = '已刷新的物料名称';
+  refresh.resolve(updated); await settle();
+  assert.match(text(f.render()), /已刷新的物料名称/);
+  assert.equal(field(f, 'sample-test-result').props.value, 'failed_resample');
+  assert.equal(field(f, 'sample-test-conclusion').props.value, '  原始草稿\n保留空白  ');
+  assert.equal(submitButton(f).props.disabled, false);
+});
+
+test('revision 刷新得到新 roundId 时清空旧轮草稿，提交只携带新轮编号', async () => {
+  const writes = []; const interaction = []; let reads = 0;
+  const next = detail(); next.sampleTest.roundId = 'next-round';
+  const f = await ready('ProcSampleTestDialog', { taskId: task.id, inline: true, revision: '1', onInteractionStateChange: (state) => interaction.push(state) }, {
+    getProcSampleTest: async () => ++reads === 1 ? detail() : next,
+    confirmProcSampleTest: async (...args) => { writes.push(args); return completed(); },
+  });
+  enterConclusion(f, 'failed_requote', '旧轮草稿');
+  assert.deepEqual(interaction.at(-1), { dirty: true, busy: false });
+  f.setProps({ revision: '2' }); await settle(); f.render();
+  assert.equal(field(f, 'sample-test-result').props.value, '');
+  assert.equal(field(f, 'sample-test-conclusion').props.value, '');
+  assert.deepEqual(interaction.at(-1), { dirty: false, busy: false });
+  assert.equal(submitButton(f).props.disabled, true);
+  enterConclusion(f, 'passed', '新轮测试通过'); submit(f); await settle();
+  assert.deepEqual(writes, [[task.id, { roundId: 'next-round', result: 'passed', note: '新轮测试通过' }]]);
+});
+
+test('同轮刷新变成已确认或失去本人确认权限时旧草稿不能继续提交', async () => {
+  for (const refreshed of [completed(), detail(task.id, { canConfirm: false })]) {
+    const writes = []; const interaction = []; let reads = 0;
+    const f = await ready('ProcSampleTestDialog', { taskId: task.id, inline: true, revision: '1', onInteractionStateChange: (state) => interaction.push(state) }, {
+      getProcSampleTest: async () => ++reads === 1 ? detail() : refreshed,
+      confirmProcSampleTest: async (...args) => writes.push(args),
+    });
+    enterConclusion(f);
+    f.setProps({ revision: '2' }); await settle(); f.render();
+    assert.equal(field(f, 'sample-test-conclusion'), undefined);
+    assert.equal(submitButton(f), undefined);
+    assert.deepEqual(interaction.at(-1), { dirty: false, busy: false });
+    submit(f); await settle();
+    assert.deepEqual(writes, []);
+  }
+});
+
+test('同任务两次后台刷新乱序时旧响应不能覆盖新轮或抹掉新轮草稿', async () => {
+  const stale = deferred(); const requests = [];
+  const next = detail(); next.sampleTest.roundId = 'round-latest'; next.task.materialName = '最新轮物料';
+  const f = await ready('ProcSampleTestDialog', { taskId: task.id, inline: true, revision: '1' }, {
+    getProcSampleTest: (id, signal) => { requests.push({ id, signal }); return requests.length === 1 ? Promise.resolve(detail()) : requests.length === 2 ? stale.promise : Promise.resolve(next); },
+  });
+  enterConclusion(f, 'failed_resample', '旧轮草稿');
+  f.setProps({ revision: '2' });
+  f.setProps({ revision: '3' }); await settle();
+  assert.equal(requests[1].signal.aborted, true);
+  enterConclusion(f, 'passed', '最新轮草稿');
+  stale.resolve(detail()); await settle();
+  assert.match(text(f.render()), /最新轮物料/);
+  assert.equal(field(f, 'sample-test-result').props.value, 'passed');
+  assert.equal(field(f, 'sample-test-conclusion').props.value, '最新轮草稿');
+});
+
+test('inline 复用同一确认表单和提交锁，双击只发一次且不会产生弹窗关闭入口', async () => {
+  const waiting = deferred(); const writes = []; const interaction = [];
+  const f = await ready('ProcSampleTestDialog', { taskId: task.id, inline: true, onInteractionStateChange: (state) => interaction.push(state) }, {
+    confirmProcSampleTest: (...args) => { writes.push(args); return waiting.promise; },
+  });
+  assert.equal(find(f.render(), (node) => node.type === 'Dialog'), undefined);
+  assert.equal(button(f, '关闭'), undefined);
+  assert.equal(all(f.render(), (node) => node.type === 'form').length, 1);
+  enterConclusion(f, 'passed', '  本人确认  ');
+  const handler = find(f.render(), (node) => node.type === 'form').props.onSubmit;
+  handler({ preventDefault() {} }); handler({ preventDefault() {} }); f.render();
+  assert.deepEqual(writes, [[task.id, { roundId: `round-${task.id}`, result: 'passed', note: '本人确认' }]]);
+  assert.equal(field(f, 'sample-test-result').props.disabled, true);
+  assert.equal(field(f, 'sample-test-conclusion').props.disabled, true);
+  assert.equal(submitButton(f).props.disabled, true);
+  assert.deepEqual(interaction.at(-1), { dirty: true, busy: true });
+  waiting.resolve(completed()); await settle(); f.render();
+  assert.deepEqual(f.calls.confirmed, [true]);
+  assert.deepEqual(f.calls.closed, []);
+  assert.deepEqual(interaction.at(-1), { dirty: false, busy: false });
+  assert.equal(submitButton(f), undefined);
+});
+
+test('内容变更回调覆盖编辑、清空、失败保留草稿和卸载释放状态', async () => {
+  const waiting = deferred(); const interaction = [];
+  const f = await ready('ProcSampleTestDialog', { taskId: task.id, inline: true, onInteractionStateChange: (state) => interaction.push(state) }, {
+    confirmProcSampleTest: () => waiting.promise,
+  });
+  assert.deepEqual(interaction.at(-1), { dirty: false, busy: false });
+  change(f, 'sample-test-conclusion', '仅输入结论');
+  assert.deepEqual(interaction.at(-1), { dirty: true, busy: false });
+  change(f, 'sample-test-conclusion', '');
+  assert.deepEqual(interaction.at(-1), { dirty: false, busy: false });
+  enterConclusion(f); submit(f); f.render();
+  assert.deepEqual(interaction.at(-1), { dirty: true, busy: true });
+  waiting.reject(new Error('暂时无法确认')); await settle(); f.render();
+  assert.match(alerts(f), /暂时无法确认/);
+  assert.deepEqual(interaction.at(-1), { dirty: true, busy: false });
+  assert.equal(field(f, 'sample-test-conclusion').props.value, '  测试合格  ');
+  f.destroy();
+  assert.deepEqual(interaction.at(-1), { dirty: false, busy: false });
+});
+
+test('同轮后台读取失败保持草稿且禁止提交，重试成功后恢复原草稿', async () => {
+  const writes = []; let reads = 0;
+  const f = await ready('ProcSampleTestDialog', { taskId: task.id, inline: true, revision: '1' }, {
+    getProcSampleTest: async () => { if (++reads === 2) throw new Error('刷新失败'); return detail(); },
+    confirmProcSampleTest: async (...args) => writes.push(args),
+  });
+  enterConclusion(f, 'failed_resample', '保留刷新前草稿');
+  f.setProps({ revision: '2' }); await settle();
+  assert.match(alerts(f), /刷新失败/);
+  assert.equal(field(f, 'sample-test-conclusion').props.value, '保留刷新前草稿');
+  assert.equal(submitButton(f).props.disabled, true);
+  submit(f); await settle(); assert.deepEqual(writes, []);
+  button(f, '重新加载').props.onClick(); f.render(); await settle();
+  assert.equal(field(f, 'sample-test-result').props.value, 'failed_resample');
+  assert.equal(field(f, 'sample-test-conclusion').props.value, '保留刷新前草稿');
+  assert.equal(submitButton(f).props.disabled, false);
+});
+
+test('样品界面使用真实事实 helper，旧通过结果在待到样阶段只作为历史结果', async () => {
+  const waiting = completed(); waiting.task.status = 'pending_sample';
+  const f = await ready('ProcSampleTestDialog', { taskId: task.id, inline: true }, { getProcSampleTest: async () => waiting });
+  const content = text(f.render());
+  assert.match(content, /待到样/);
+  assert.match(content, /上次已确认结果/);
+  assert.doesNotMatch(content, /已确认到样|已确认测试结论/);
+  assert.equal(submitButton(f), undefined);
+  const current = await ready('ProcSampleTestDialog', { taskId: task.id, inline: true });
+  assert.match(text(current.render()), /已确认到样/);
+  assert.match(text(current.render()), /分派时间不是实际到样日期/);
+});
+
+test('提交成功后迟到的同轮后台刷新不能重新打开确认表单或允许旧草稿重复提交', async () => {
+  const confirmation = deferred(); const refresh = deferred(); const writes = []; let reads = 0;
+  const f = await ready('ProcSampleTestDialog', { taskId: task.id, inline: true, revision: '1' }, {
+    getProcSampleTest: async () => ++reads === 1 ? detail() : refresh.promise,
+    confirmProcSampleTest: (...args) => { writes.push(args); return confirmation.promise; },
+  });
+  enterConclusion(f); submit(f);
+  f.setProps({ revision: '2' });
+  confirmation.resolve(completed()); await settle(); f.render();
+  assert.deepEqual(f.calls.confirmed, [true]);
+  refresh.resolve(detail()); await settle();
+  assert.equal(submitButton(f), undefined);
+  assert.equal(field(f, 'sample-test-conclusion'), undefined);
+  assert.match(text(f.render()), /测试结论已确认/);
+  submit(f); await settle();
+  assert.equal(writes.length, 1);
+});
+
+
+test('时间摘要沿用同一测试详情，读取失败保留草稿但摘要标记不可用', async () => {
+  let fail=false;
+  const f=await ready('ProcSampleTestDialog',{taskId:task.id,inline:true},{getProcSampleTest:async()=>{if(fail)throw new Error('读取失败');return detail();}});
+  enterConclusion(f,'passed','保留测试结论草稿');
+  const summary=()=>find(f.render(),n=>n.type==='SampleTimingSummary');
+  assert.equal(summary().props.detail.task.id,task.id);assert.equal(summary().props.error,false);
+  fail=true;f.setProps({taskId:task.id,inline:true,revision:'new'});await settle();f.render();
+  assert.equal(summary().props.error,true);assert.equal(field(f,'sample-test-conclusion').props.value,'保留测试结论草稿');assert.equal(submitButton(f).props.disabled,true);
 });

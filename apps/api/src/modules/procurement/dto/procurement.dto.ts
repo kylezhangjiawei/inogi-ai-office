@@ -25,6 +25,12 @@ import { PROC_STATUSES } from '../procurement.types';
 import { SAMPLE_TEST_RESULTS, type SampleTestResult } from '../sample-test';
 
 export class ProcAttachmentInputDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  technicalDocumentVersionId?: string;
+
   @IsString()
   @MaxLength(255)
   fileName!: string;
@@ -518,6 +524,10 @@ export class SetProcCoreMaterialsDto {
 }
 
 export class AssignSampleTestDto {
+  @IsOptional()
+  @IsDateString({ strict: true })
+  arrivedAt?: string;
+
   @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
   @IsString()
   @IsNotEmpty()
@@ -545,6 +555,26 @@ export class ConfirmSampleTestDto {
   @MinLength(1)
   @MaxLength(500)
   note!: string;
+}
+
+export class SampleCommercialConditionsDto {
+  @IsString() @MaxLength(80) priceUnit!: string;
+  @IsIn(['inclusive', 'exclusive', 'unspecified']) taxBasis!: 'inclusive' | 'exclusive' | 'unspecified';
+  @IsOptional() @IsNumber({ allowNaN: false, allowInfinity: false }) @Min(0) @Max(100) taxRate!: number | null;
+  @IsString() @MaxLength(500) paymentTerms!: string;
+  @IsString() @MaxLength(500) freightTerms!: string;
+  @IsIn(['order', 'deposit', 'approval', 'agreed_date', 'other', 'unspecified']) leadTimeStart!: 'order' | 'deposit' | 'approval' | 'agreed_date' | 'other' | 'unspecified';
+  @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) leadTimeStartDate!: string | null;
+  @IsString() @MaxLength(500) note!: string;
+}
+
+export class UpdateSampleRecordsDto {
+  @IsString() @IsNotEmpty() @MaxLength(100) roundId!: string;
+  @IsDateString({ strict: true }) baseUpdatedAt!: string;
+  @IsOptional() @IsDateString({ strict: true }) arrivedAt?: string;
+  @IsOptional() @IsDateString({ strict: true }) startedAt?: string;
+  @IsOptional() @IsDateString({ strict: true }) finishedAt?: string;
+  @IsOptional() @ValidateNested() @Type(() => SampleCommercialConditionsDto) commercial?: SampleCommercialConditionsDto;
 }
 
 export class TransitionProcTaskDto {

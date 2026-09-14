@@ -1,5 +1,6 @@
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { AlertTriangle, ChevronDown, Eye, ExternalLink, FolderTree, History, Paperclip, Pencil, RefreshCw, Trash2, Undo2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import {
@@ -31,6 +32,10 @@ import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 import { TaskCriticalMaterials } from "./TaskCriticalMaterials";
 import { SAMPLE_TEST_RESULT_LABELS } from "./ProcSampleTestDialog";
+import { RdDeliverySnapshotPanel } from "./RdDeliverySnapshotPanel";
+import { getProcSampleFacts } from "../../lib/procSampleFacts";
+import { isSampleTask } from "../sampleWorkspaceModel";
+import { routePath } from "../../lib/routePaths";
 
 function previewModel(attachment: ProcurementTask["attachmentList"][number]): PreviewableAttachment {
   return {
@@ -69,8 +74,9 @@ function formatProcLogTime(log: ProcLog): string {
   return log.at || "";
 }
 
-export function TaskDetailDrawer({ task, onClose, initialAction }: { task: ProcurementTask; onClose: () => void; initialAction?: "rollback" | "logs" }) {
+export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelated }: { task: ProcurementTask; onClose: () => void; initialAction?: "rollback" | "logs"; onNavigateRelated?: (path: string) => void }) {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const { materials } = useProcurementData();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
@@ -94,6 +100,8 @@ export function TaskDetailDrawer({ task, onClose, initialAction }: { task: Procu
   const requester = taskRequester(task);
   const buyerLabel = task.buyer?.trim() || t("未指派");
   const awaitingTest = task.status === "testing" && task.sampleTest && !task.sampleTest.result;
+  const sampleFacts = getProcSampleFacts(task);
+  const showSample = isSampleTask(task);
   const meta = PROC_STATUS_META[task.status];
   const flow = task.method === "direct" ? DIRECT_FLOW : INQUIRY_FLOW;
   const curIdx = flow.indexOf(task.status);
@@ -497,6 +505,43 @@ export function TaskDetailDrawer({ task, onClose, initialAction }: { task: Procu
 
           <TaskCriticalMaterials task={task} materials={materials} />
 
+          {(task.source === "rd" || Boolean(task.rdTransferSnapshots?.length)) && (
+            <RdDeliverySnapshotPanel task={task} className="proc-horizon-drawer-section" />
+          )}
+
+          {/* 样品测试区：仅展示已产生的数据 */}
+          {showSample && (
+            <div className="proc-horizon-drawer-section rounded-xl border border-slate-100 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-balance text-sm font-semibold text-slate-700">{t('样品与测试')}</h3>
+                {can("page:proc-cockpit") && <Button type="button" variant="outline" disabled={taskAction.busy || rollbackBusy || resetBusy || rejectBusy} onClick={() => { onClose(); (onNavigateRelated ?? navigate)(`${routePath("page:proc-cockpit", "/proc-cockpit")}?tab=samples&sample=${encodeURIComponent(task.id)}`); }} className="min-h-10 gap-1.5 rounded-lg border-[var(--primary-soft-border)] text-xs font-semibold text-primary hover:bg-accent">
+                  {t('打开样品协同')}<ExternalLink className="size-3.5" aria-hidden="true" />
+                </Button>}
+              </div>
+              {selectedQuotes.length > 0 && (
+                <Info
+                  label="已确认报价"
+                  value={(
+                    <span className="space-y-1">
+                      {selectedQuotes.map((quote) => (
+                        <span key={quote.id} className="block">
+                          {quote.materialName} · {quote.supplierName} · {quote.quantity != null ? `${quote.quantity.toLocaleString()} ${t(task.unit)} · ` : ""}{quote.currency === "CNY" ? fmtMoney(quote.lineTotal ?? quote.unitPrice) : `${quote.currency} ${quote.lineTotal ?? quote.unitPrice}`} · {t("交期 {count} 天", { count: quote.leadTimeDays })}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                />
+              )}
+              <Info label="到样状态" value={t(sampleFacts.label)} />
+              <p className="mb-3 mt-1 text-pretty text-xs leading-5 text-slate-500">{t(sampleFacts.description)}</p>
+              <Info label="测试人员" value={task.sampleTest?.testerName || t("尚未指定")} />
+              <Info label={task.sampleTest?.result && sampleFacts.state !== "confirmed" ? "上次测试结论" : "测试结论"} value={task.sampleTest?.result ? t(SAMPLE_TEST_RESULT_LABELS[task.sampleTest.result]) : t(task.status === "testing" ? "等待研发确认" : "尚无研发确认记录")} />
+              {task.sampleTest?.note && <Info label="结论说明" value={<span className="whitespace-pre-wrap">{task.sampleTest.note}</span>} />}
+              {task.sampleTest?.confirmedByName && <Info label="确认人" value={task.sampleTest.confirmedByName} />}
+              {task.sampleTest?.confirmedAt && <Info label="确认时间" value={new Date(task.sampleTest.confirmedAt).toLocaleString()} />}
+            </div>
+          )}
+
           {/* 研发转采购时携带的图纸/说明：随采购任务展示，读取地址由后端按 OSS key 动态重签。 */}
           {task.attachmentList.length > 0 && (
             <div className="proc-horizon-drawer-section rounded-xl border border-slate-100 p-4">
@@ -624,33 +669,6 @@ export function TaskDetailDrawer({ task, onClose, initialAction }: { task: Procu
             </div>
           )}
 
-          {/* 样品测试区：仅展示已产生的数据 */}
-          {(task.needSample || task.sampleTest) && (
-            <div className="proc-horizon-drawer-section rounded-xl border border-slate-100 p-4">
-              <div className="mb-2 text-balance text-sm font-semibold text-slate-700">{t('样品与测试')}</div>
-              {selectedQuotes.length > 0 && (
-                <Info
-                  label="已确认报价"
-                  value={(
-                    <span className="space-y-1">
-                      {selectedQuotes.map((quote) => (
-                        <span key={quote.id} className="block">
-                          {quote.materialName} · {quote.supplierName} · {quote.quantity != null ? `${quote.quantity.toLocaleString()} ${t(task.unit)} · ` : ""}{quote.currency === "CNY" ? fmtMoney(quote.lineTotal ?? quote.unitPrice) : `${quote.currency} ${quote.lineTotal ?? quote.unitPrice}`} · {t("交期 {count} 天", { count: quote.leadTimeDays })}
-                        </span>
-                      ))}
-                    </span>
-                  )}
-                />
-              )}
-              <Info label="到样时间" value={t(["pending_sample"].includes(task.status) ? "待到样" : "已到样")} />
-              <Info label="测试人员" value={task.sampleTest?.testerName || t("尚未指定")} />
-              <Info label="测试结论" value={task.sampleTest?.result ? t(SAMPLE_TEST_RESULT_LABELS[task.sampleTest.result]) : t(task.status === "testing" ? "等待研发确认" : "尚无研发确认记录")} />
-              {task.sampleTest?.note && <Info label="结论说明" value={<span className="whitespace-pre-wrap">{task.sampleTest.note}</span>} />}
-              {task.sampleTest?.confirmedByName && <Info label="确认人" value={task.sampleTest.confirmedByName} />}
-              {task.sampleTest?.confirmedAt && <Info label="确认时间" value={new Date(task.sampleTest.confirmedAt).toLocaleString()} />}
-            </div>
-          )}
-
           {/* 下单与付款 / 到货记录：仅在任务进入下单阶段后展示，前期阶段无内容不占位 */}
           {orderStage && (
             <div className="proc-horizon-drawer-section rounded-xl border border-slate-100 p-4">
@@ -739,7 +757,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction }: { task: Procu
           </Collapsible>
         </div>
         </ScrollArea>
-        <PriceHistoryModal materialName={task.materialName} open={historyOpen} onClose={() => setHistoryOpen(false)} />
+        <PriceHistoryModal materialId={task.materialId} materialName={task.materialName} open={historyOpen} onClose={() => setHistoryOpen(false)} />
         {taskAction.modal}
         {moveOpen && (
         <MoveTaskDialog

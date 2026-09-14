@@ -517,7 +517,7 @@ export function Dashboard() {
             </span>
           </>
         )}
-        actions={refreshAction}
+        actions={<>{import.meta.env.DEV ? <Link to="/__preview" className="inline-flex min-h-10 items-center rounded-xl border border-border bg-card px-4 text-sm font-semibold text-primary">业务页面预览</Link> : null}{refreshAction}</>}
       />
 
       <HorizonMetricGrid>

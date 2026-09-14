@@ -77,7 +77,7 @@ test('详情不虚构商品明细，未同步时提供明确说明和恢复动�
   assert.match(detail, /hasItemDetails \? \(/);
   assert.match(detail, /商品明细尚未同步/);
   assert.match(detail, /重新加载详情/);
-  assert.match(detail, /hasItemDetails \? `\$\{fulfillment\}%` : '-'/);
+  assert.match(detail, /hasItemDetails \? `\$\{fulfillment\.receivedLines\} \/ \$\{items\.length\}` : '-'/);
 });
 
 test('详情表格和关联任务具备键盘焦点、访问名称与权限保护', () => {

@@ -1,6 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, type ProcPurchaseOrderAvailability } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import type { ProcActor } from './procurement.types';
+import type { SavePurchaseOrderAvailabilityDto } from './dto/purchase-order-availability.dto';
+import { purchaseOrderAvailabilityView, purchaseOrderSourceFingerprint, validatePurchaseOrderAvailability, type PurchaseOrderAvailabilityView } from './purchase-order-availability';
 
 type Query = Record<string, unknown>;
 type InventoryStatus = '正常' | '偏低' | '缺货';
@@ -33,6 +37,11 @@ export interface PurchaseTaskLink {
 }
 
 export interface PurchaseOrderViewLine {
+  id: string;
+  lineNo: string;
+  etaDate: string | null;
+  sourceUpdatedAt: string;
+  availability: PurchaseOrderAvailabilityView | null;
   sku: string;
   name: string;
   spec: string;
@@ -66,11 +75,50 @@ export interface PurchaseOrderView {
   taskLinks: PurchaseTaskLink[];
 }
 
+export interface MaterialPurchaseOrderLineView {
+  id: string;
+  orderNo: string;
+  lineNo: string;
+  inventoryCode: string;
+  inventoryName: string;
+  spec: string;
+  unit: string;
+  orderedQty: number;
+  receivedQty: number;
+  etaDate: string | null;
+  orderDate: string | null;
+  supplierName: string;
+  approvalStatus: string | null;
+  status: string | null;
+  syncedAt: string | null;
+  availability: PurchaseOrderAvailabilityView | null;
+}
+
+function purchaseOrderLinesQuery(query: Query) {
+  const rawCode = query.inventoryCode;
+  if (typeof rawCode !== 'string' || /[\u0000-\u001f\u007f]/.test(rawCode)) {
+    throw new BadRequestException('请提供有效的 ERP 存货编码');
+  }
+  const inventoryCode = rawCode.trim();
+  if (!inventoryCode || inventoryCode.length > 128) throw new BadRequestException('ERP 存货编码须为 1 至 128 个字符');
+  const positiveInteger = (value: unknown, fallback: number, label: string) => {
+    if (value === undefined) return fallback;
+    if ((typeof value !== 'string' && typeof value !== 'number') || !/^[1-9]\d*$/.test(String(value)) || !Number.isSafeInteger(Number(value))) {
+      throw new BadRequestException(`${label}必须是正整数`);
+    }
+    return Number(value);
+  };
+  return {
+    inventoryCode,
+    requestedPage: positiveInteger(query.page, 1, '页码'),
+    pageSize: Math.min(50, positiveInteger(query.pageSize, 10, '每页数量')),
+  };
+}
+
 /**
  * 将畅捷通只读镜像转换为「采购订单 / 库存管理」现有页面的数据协议。
  *
- * 这里不复制数据，也不允许页面回写库存。T+ 仍是采购单与库存的唯一事实源，
- * 页面只负责检索、汇总和展示。
+ * T+ 是采购单与库存事实源；人工预计可用日期独立保存，不回写 ERP 或库存。
  */
 @Injectable()
 export class TplusOperationsService {
@@ -239,6 +287,7 @@ export class TplusOperationsService {
     const [rows, suppliers] = await Promise.all([
       this.prisma.procPurchaseOrderMirror.findMany({
         orderBy: [{ orderDate: 'desc' }, { tpOrderNo: 'desc' }, { tpLineNo: 'asc' }],
+        include: { availability: true },
       }),
       this.prisma.procSupplier.findMany({
         where: { source: 'tplus' },
@@ -299,11 +348,50 @@ export class TplusOperationsService {
     };
   }
 
-  async getPurchaseOrder(idOrOrderNo: string) {
-    const orderNo = decodeURIComponent(idOrOrderNo);
+  /** Exact material-code lookup: preserve every ERP line and its raw status, including history. */
+  async listPurchaseOrderLines(query: Query) {
+    const { inventoryCode, requestedPage, pageSize } = purchaseOrderLinesQuery(query);
+    return this.prisma.$transaction(async (tx) => {
+      const where = { inventoryCode };
+      const total = await tx.procPurchaseOrderMirror.count({ where });
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      const page = Math.min(requestedPage, totalPages);
+      const rows = await tx.procPurchaseOrderMirror.findMany({
+        where,
+        orderBy: [
+          { orderDate: { sort: 'desc', nulls: 'last' } },
+          { tpOrderNo: 'asc' }, { tpLineNo: 'asc' }, { id: 'asc' },
+        ],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true, tpOrderId: true, tpOrderNo: true, tpLineNo: true,
+          inventoryCode: true, inventoryName: true, spec: true, unit: true,
+          orderedQty: true, receivedQty: true, etaDate: true, orderDate: true,
+          supplierName: true, approvalStatus: true, status: true, syncedAt: true,
+          availability: true,
+        },
+      });
+      const items: MaterialPurchaseOrderLineView[] = rows.map((row) => ({
+        id: row.id, orderNo: row.tpOrderNo, lineNo: row.tpLineNo,
+        inventoryCode: row.inventoryCode, inventoryName: row.inventoryName, spec: row.spec, unit: row.unit,
+        orderedQty: Number(row.orderedQty), receivedQty: Number(row.receivedQty),
+        etaDate: row.etaDate?.toISOString().slice(0, 10) ?? null,
+        orderDate: row.orderDate?.toISOString().slice(0, 10) ?? null,
+        supplierName: row.supplierName, approvalStatus: row.approvalStatus, status: row.status,
+        syncedAt: row.syncedAt?.toISOString() ?? null,
+        availability: purchaseOrderAvailabilityView(row.availability, row),
+      }));
+      return { inventoryCode, lines: { items, page, pageSize, total, totalPages }, source: 'tplus' as const, readOnly: true as const };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  async getPurchaseOrder(orderNo: string) {
+    // Nest has already decoded @Param once. Literal "%2F" / "%20" belongs to the ERP identity.
     const rows = await this.prisma.procPurchaseOrderMirror.findMany({
       where: { tpOrderNo: orderNo },
       orderBy: { tpLineNo: 'asc' },
+      include: { availability: true },
     });
     if (rows.length === 0) throw new NotFoundException('畅捷通采购订单不存在，请先执行同步');
     const [supplier, refs] = await Promise.all([
@@ -343,10 +431,72 @@ export class TplusOperationsService {
     return { order: { ...this.purchaseOrder(orderNo, rows, supplier ?? undefined), taskLinks } };
   }
 
+  async savePurchaseOrderAvailability(orderNo: string, lineId: string, input: SavePurchaseOrderAvailabilityDto, actor: ProcActor) {
+    // RolesGuard uses OR for multiple @Permissions entries; this write requires both rights.
+    if (!actor.permissions.includes('*') && !['page:purchase-order-detail', 'proc-purchase-order:confirm-availability']
+      .every((permission) => actor.permissions.includes(permission))) {
+      throw new ForbiddenException('没有确认采购订单行可用日期的权限');
+    }
+    const { availableDate, note } = validatePurchaseOrderAvailability(input);
+    const conflict = () => new ConflictException('订单来源或确认记录已更新，请重新载入订单后确认');
+    return this.prisma.$transaction(async (tx) => {
+      // Lock the existing parent even before the first annotation exists. This also serializes
+      // concurrent ERP updates, and scopes the lookup so a line on another order stays private.
+      await tx.$queryRaw`SELECT id FROM "ProcPurchaseOrderMirror" WHERE id = ${lineId} AND "tpOrderNo" = ${orderNo} FOR UPDATE`;
+      const line = await tx.procPurchaseOrderMirror.findFirst({
+        where: { id: lineId, tpOrderNo: orderNo }, include: { availability: true },
+      });
+      if (!line) throw new NotFoundException('采购订单行不存在，请重新载入订单');
+      const before = line.availability;
+      if (line.updatedAt.toISOString() !== input.expectedSourceUpdatedAt || (before?.version ?? 0) !== input.expectedVersion) throw conflict();
+      if (availableDate && line.etaDate && availableDate.toISOString().slice(0, 10) < line.etaDate.toISOString().slice(0, 10)) {
+        throw new BadRequestException('预计检验后可用日期不能早于 ERP 预计到货日期');
+      }
+      const data = {
+        availableDate, note, confirmedById: actor.id, confirmedByName: actor.name,
+        confirmedAt: new Date(), sourceFingerprint: purchaseOrderSourceFingerprint(line),
+        version: input.expectedVersion + 1,
+      };
+      if (before) {
+        const claimed = await tx.procPurchaseOrderAvailability.updateMany({
+          where: { mirrorId: line.id, version: input.expectedVersion }, data,
+        });
+        if (claimed.count !== 1) throw conflict();
+      } else {
+        await tx.procPurchaseOrderAvailability.create({ data: { mirrorId: line.id, ...data } });
+      }
+      const saved = await tx.procPurchaseOrderAvailability.findUniqueOrThrow({ where: { mirrorId: line.id } });
+      const beforeView = purchaseOrderAvailabilityView(before, line);
+      const afterView = purchaseOrderAvailabilityView(saved, line)!;
+      await tx.auditLog.create({ data: {
+        module: 'procurement', source: 'web', action: 'purchase-order.availability-confirmed',
+        resource: 'proc-purchase-order-availability', resourceId: line.id,
+        resourceName: `${line.tpOrderNo} · ${line.tpLineNo} · ${line.inventoryCode}`,
+        userId: actor.id, actorName: actor.name,
+        summary: `${availableDate ? '确认' : '清空'}采购订单 ${line.tpOrderNo} 第 ${line.tpLineNo} 行预计检验后可用日期`,
+        meta: {
+          orderNo: line.tpOrderNo, lineNo: line.tpLineNo,
+          changes: [
+            { field: 'availableDate', before: beforeView?.availableDate ?? null, after: afterView.availableDate },
+            { field: 'note', before: before?.note ?? null, after: note },
+            { field: 'version', before: before?.version ?? 0, after: saved.version },
+            { field: 'sourceFingerprint', before: before?.sourceFingerprint ?? null, after: saved.sourceFingerprint },
+          ],
+        },
+      } });
+      return { lineId: line.id, sourceUpdatedAt: line.updatedAt.toISOString(), availability: afterView };
+    });
+  }
+
   private purchaseOrder(
     orderNo: string,
     lines: Array<{
+      id: string;
+      tpLineNo: string;
+      updatedAt: Date;
+      availability?: ProcPurchaseOrderAvailability | null;
       tpOrderNo: string;
+      tpOrderId: string | null;
       inventoryCode: string;
       inventoryName: string;
       spec: string;
@@ -364,6 +514,11 @@ export class TplusOperationsService {
     supplier?: { name: string; contact: string | null; phone: string | null; email: string | null },
   ): PurchaseOrderView {
     const items = lines.map((line) => ({
+      id: line.id,
+      lineNo: line.tpLineNo,
+      etaDate: line.etaDate?.toISOString().slice(0, 10) ?? null,
+      sourceUpdatedAt: line.updatedAt?.toISOString() ?? '',
+      availability: purchaseOrderAvailabilityView(line.availability, line),
       sku: line.inventoryCode || '-',
       name: line.inventoryName || line.inventoryCode || '未命名存货',
       spec: line.spec || '',

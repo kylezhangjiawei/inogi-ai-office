@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -20,6 +20,7 @@ import { cn } from "../../components/ui/utils";
 import { usePermission } from "../../hooks/usePermission";
 import { useI18n } from "../../lib/i18n";
 import { routePath } from "../../lib/routePaths";
+import { clearStockPlanViewParams } from "../../lib/stockPlanNavigation";
 import {
   getTplusInventoryDetail,
   type Material,
@@ -61,6 +62,8 @@ export function ProcurementModuleDetail({
   onBack: () => void;
 }) {
   const { t } = useI18n();
+  const [params, setParams] = useSearchParams();
+  const location = useLocation();
   const canCreate = usePermission("proc-task:create");
   const canEdit = usePermission("proc-task:create");
   const canDelete = usePermission("proc-task:delete");
@@ -82,7 +85,15 @@ export function ProcurementModuleDetail({
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [openTask, setOpenTask] = useState<ProcurementTask | null>(null);
   const [editTask, setEditTask] = useState<ProcurementTask | null>(null);
-  const [detailTab, setDetailTab] = useState<"inventory" | "plans" | "operations">("inventory");
+  const detailTab = params.get("moduleTab") === "plans" ? "plans" : params.get("moduleTab") === "operations" ? "operations" : "inventory";
+  const setDetailTab = (value: "inventory" | "plans" | "operations") => {
+    if (value === detailTab) return;
+    setParams((current) => {
+      const next = clearStockPlanViewParams(new URLSearchParams(current));
+      if (value !== "inventory") next.set("moduleTab", value);
+      return next;
+    }, { replace: true, state: location.state });
+  };
   const taskAction = useProcTaskAction({ onOpenDetail: setOpenTask });
   const inventoryCode = material?.tpInventoryCode?.trim() || null;
 
@@ -176,7 +187,7 @@ export function ProcurementModuleDetail({
         </div>
       </header>
       <div className="flex shrink-0 gap-2 border-b border-slate-100 px-4 py-2" role="group" aria-label="子系统数据栏目">{([["inventory", "库存与任务"], ["plans", "备货计划"], ["operations", "生产与质量"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={detailTab === value} onClick={() => setDetailTab(value)} className={cn("rounded-lg px-3 py-2 text-xs font-semibold", detailTab === value ? "bg-accent text-primary" : "text-slate-500 hover:bg-slate-50")}>{t(label)}</button>)}</div>
-      {detailTab === "plans" ? <div className="flex min-h-0 flex-1 flex-col p-4"><StockPlanPanel materials={materials} canCreate={canCreate} productId={node.productId} treeNodeId={node.id} /></div>
+      {detailTab === "plans" ? <div className="flex min-h-0 flex-1 flex-col p-4"><StockPlanPanel key={`${node.productId}:${node.id}`} materials={materials} canCreate={canCreate} productId={node.productId} treeNodeId={node.id} /></div>
         : detailTab === "operations" ? <div className="min-h-0 flex-1 overflow-auto p-4"><SubsystemOperationsPanel productId={node.productId} treeNodeId={node.id} /></div>
         : <div className="proc-horizon-module-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-4 lg:p-5">
         <section className="proc-horizon-module-inventory flex shrink-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">

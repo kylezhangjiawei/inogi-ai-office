@@ -1,5 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { Prisma } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 
@@ -118,12 +119,14 @@ function batch(overrides: Record<string, unknown> = {}) {
 }
 
 function harness(row = fixture(), options: { mirror?: any; materials?: any[]; balances?: any[]; bom?: any[]; settings?: any[] } = {}) {
+  const readMirror = options.mirror ?? row.batches.find((entry: any) => entry.purchaseOrderMirror)?.purchaseOrderMirror;
   const materials = options.materials ?? [{ id: 'material-1', name: '物料 A', spec: '', unit: '件', category: '结构件', productLine: 'Q5', tpInventoryCode: 'A', safeStock: 0 }];
   let mutex = Promise.resolve();
   const locks: string[] = [];
   const createdTasks: any[] = [];
   const createdBatches: any[] = [];
   const base: any = {
+    runtimeState: { findMany: async () => [] },
     procStockPlan: {
       findUnique: async () => row,
       findMany: async () => [row],
@@ -149,7 +152,8 @@ function harness(row = fixture(), options: { mirror?: any; materials?: any[]; ba
     procPurchaseOrderMirror: {
       findUnique: async () => options.mirror ?? null,
       findFirst: async ({ where }: any) => options.mirror?.tpOrderNo === where.tpOrderNo ? options.mirror : null,
-      findMany: async ({ where }: any) => options.mirror && where.tpOrderNo.in.includes(options.mirror.tpOrderNo) ? [options.mirror] : [],
+      findMany: async ({ where }: any) => readMirror && (where.id?.in.includes(readMirror.id) || where.tpOrderNo?.in.includes(readMirror.tpOrderNo))
+        ? [{ ...readMirror, tpOrderId: readMirror.tpOrderId ?? 'erp-order-1', tpLineNo: readMirror.tpLineNo ?? '1', unit: readMirror.unit ?? row.unit, receipts: [], orderedQty: new Prisma.Decimal(readMirror.orderedQty), receivedQty: new Prisma.Decimal(readMirror.receivedQty) }] : [],
     },
     procSupplier: { findUnique: async () => ({ name: '供应商甲' }) },
     procBomNode: { findMany: async () => (options.bom ?? []).map((node) => ({ updatedAt: now, ...node })) },

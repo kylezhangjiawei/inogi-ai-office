@@ -1,0 +1,21 @@
+.receipt-disposition-form input[type='date'] {
+  max-width: 100%;
+}
+
+.receipt-disposition-form [data-slot='select-value'] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.receipt-disposition-confirm[data-state],
+.receipt-disposition-confirm-overlay[data-state] {
+  animation: none;
+  transition: none;
+}
+
+.receipt-disposition-confirm {
+  max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow-y: auto;
+}

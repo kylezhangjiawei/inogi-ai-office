@@ -1,8 +1,10 @@
 import { authFetch, readErrorMessage } from "./authSession";
 import { buildRdTaskAttachmentPayload } from "./rdAttachmentPayload";
 import { compressImageFile } from "./resourceImage";
+import { currentRdWorkspace } from "./rdWorkspace";
 
 export { buildRdTaskAttachmentPayload } from "./rdAttachmentPayload";
+export { currentRdWorkspace } from "./rdWorkspace";
 
 const RD_API_BASE = "/api/research-development";
 
@@ -25,11 +27,12 @@ type RequestJsonOptions = RequestInit & { timeoutMs?: number };
 export type RdApiError = Error & { status?: number };
 
 /**
- * 任务工作区：中美协同路由（/us-collab-*）下所有研发接口自动带 ?workspace=us-collab，
+ * 任务工作区：中美协同页面下所有研发接口自动带 ?workspace=us-collab，
  * 后端据此切换到独立的协同任务池（任务/人员/审批流/AI 策略/留痕与研发池完全隔离）。
+ * 页面身份与 App 共用当前生效的路由配置，自定义地址也保持工作区不变。
  * 研发原路由不带参数 → 默认研发池，行为不变。
  */
-/** 当前是否处于中美协同工作区（/us-collab-* 路由）。协同专属 UI（AI 小结/导出报告/阻塞天数等）据此条件渲染，避免波及其他驾驶舱。 */
+/** 当前是否处于中美协同工作区。协同专属 UI（AI 小结/导出报告/阻塞天数等）据此条件渲染，避免波及其他驾驶舱。 */
 export function isUsCollabWorkspace(): boolean {
   return currentRdWorkspace() === "us-collab";
 }
@@ -47,13 +50,6 @@ export function isProductionWorkspace(): boolean {
  */
 export function workItemsFeatureEnabled(): boolean {
   return isUsCollabWorkspace();
-}
-
-export function currentRdWorkspace(): "us-collab" | "production" | null {
-  if (typeof window === "undefined") return null;
-  if (window.location.pathname.startsWith("/us-collab")) return "us-collab";
-  if (window.location.pathname.startsWith("/production-")) return "production";
-  return null;
 }
 
 function withWorkspace(path: string): string {

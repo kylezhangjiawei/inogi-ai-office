@@ -36,6 +36,7 @@ import { IssueModule } from './modules/issue/issue.module';
 import { ProcurementModule } from './modules/procurement/procurement.module';
 import { I18nModule } from './modules/i18n/i18n.module';
 import { EmployeeArchiveModule } from './modules/employee-archive/employee-archive.module';
+import { ApplicantFormsModule } from './modules/applicant-forms/applicant-forms.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { ExternalDocsModule } from './modules/external-docs/external-docs.module';
 import { AiGatewayModule } from './modules/ai-gateway/ai-gateway.module';
@@ -88,6 +89,7 @@ const envFilePath = [
     ResearchDevelopmentModule,
     IssueModule,
     EmployeeArchiveModule,
+    ApplicantFormsModule,
     AttendanceModule,
     ExternalDocsModule,
     AiGatewayModule,

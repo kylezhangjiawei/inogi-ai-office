@@ -17,6 +17,7 @@ import {
 } from './production-task-sync';
 import { RdAiService } from './rd-ai.service';
 import { buildRdTaskProgressRelationGroup } from './rd-task-progress-group';
+import { canReadRdTask, filterRdTaskCategories, isRdTaskOwner, isTaskParticipant, rdTaskReadViewer, type RdTaskAccessActor, type RdTaskReadViewer } from './rd-task-access';
 import { RD_WORKSPACE_IDS, WORKSPACE_PAGE_CODES, currentRdWorkspace, resolveRdStoreKey, runInRdWorkspace } from './rd-workspace.context';
 
 type JsonRecord = Record<string, unknown>;
@@ -59,13 +60,7 @@ function taskCreatePayloadForHash(payload: JsonRecord): JsonRecord {
   void _batchSize;
   return businessPayload;
 }
-type TaskProgressNoteViewer = {
-  userId?: string;
-  userName?: string;
-  hasFullAccess?: boolean;
-  canReadAll?: boolean;
-  canEditAttachments?: boolean;
-};
+type TaskProgressNoteViewer = RdTaskReadViewer;
 /**
  * 全员日报/月报生成时一次性预读、跨成员复用的共享数据。
  * 避免每位成员各自重读「合并任务库 + 进度留痕表」，把 N×(全表读) 降到 1×。
@@ -187,6 +182,8 @@ type DiscussionViewer = {
   userRole?: string;
   canAccessAny?: boolean;
   canPost?: boolean;
+  canManageTasks?: boolean;
+  enforceTaskScope?: boolean;
 };
 type DiscussionAccess = {
   task: JsonRecord;
@@ -756,33 +753,6 @@ function personNameLookupKey(value: unknown): string {
 
 function cleanUserId(value: unknown): string {
   return cleanText(value);
-}
-
-/**
- * 判定某人是否为任务的「参与者」——主责人或协作人。用于写操作的越权防护：
- * 仅持页面权限（page:rd-my-workspace）的普通成员只能改/记自己负责的任务。
- * 与 moveTasks 的 ownsTask、getWorkspace 的 isPrimary 同口径：每个主责/协作条目
- * 若已绑定 user_id 则按 id 严格匹配，历史上仅按姓名指派、未绑定用户ID的再按姓名归一化兜底。
- */
-function isTaskParticipant(
-  task: JsonRecord,
-  requesterUserId?: string,
-  requesterName?: string,
-): boolean {
-  const uid = cleanUserId(requesterUserId);
-  const nameKey = personNameLookupKey(requesterName);
-  if (!uid && !nameKey) return false;
-  const matches = (idVal: unknown, nameVal: unknown): boolean => {
-    const targetId = cleanUserId(idVal);
-    if (targetId) return Boolean(uid) && targetId === uid;
-    return Boolean(nameKey) && personNameLookupKey(nameVal) === nameKey;
-  };
-  if (matches(task.primary_owner_user_id ?? task.owner_user_id, task.primary_owner ?? task.owner)) {
-    return true;
-  }
-  return asArray(task.collaborators)
-    .filter(isRecord)
-    .some((c) => matches((c as JsonRecord).user_id, (c as JsonRecord).name));
 }
 
 function isUnassignedOwner(value: unknown): boolean {
@@ -1572,33 +1542,8 @@ export class ResearchDevelopmentService {
 
   private findUserForPerson(person: JsonRecord, users: IdentityUser[]): IdentityUser | undefined {
     const explicitUserId = cleanUserId(person.user_id ?? person.auth_user_id);
-    if (explicitUserId) {
-      const user = users.find((item) => item.id === explicitUserId);
-      if (user) return user;
-    }
-
-    const emailKey = identityLookupKey(person.email);
-    if (emailKey) {
-      const user = users.find((item) => identityLookupKey(item.email) === emailKey);
-      if (user) return user;
-    }
-
-    const nameKey = personNameLookupKey(person.name);
-    if (nameKey) {
-      const activeUser = users.find(
-        (item) => item.status === 'ACTIVE' && personNameLookupKey(item.name) === nameKey,
-      );
-      if (activeUser) return activeUser;
-
-      const user = users.find(
-        (item) =>
-          personNameLookupKey(item.name) === nameKey ||
-          identityLookupKey(item.username) === nameKey,
-      );
-      if (user) return user;
-    }
-
-    return undefined;
+    // 只有人员管理员明确绑定的账号 ID 能建立身份；姓名和邮箱可由账号本人修改。
+    return explicitUserId ? users.find((item) => item.id === explicitUserId) : undefined;
   }
 
   private normalizePeopleRecords(rawPeople: unknown[], users: IdentityUser[]): JsonRecord[] {
@@ -1657,12 +1602,10 @@ export class ResearchDevelopmentService {
     if (explicitUserId) {
       const person = people.find((item) => cleanUserId(item.user_id) === explicitUserId);
       const user = users.find((item) => item.id === explicitUserId);
-      if (person || user) {
-        return {
-          name: cleanText(person?.name) || user?.name || cleanText(ownerValue) || '待指派',
-          userId: explicitUserId,
-        };
-      }
+      return {
+        name: cleanText(person?.name) || user?.name || cleanText(ownerValue) || '待指派',
+        userId: explicitUserId,
+      };
     }
 
     const owner = cleanText(ownerValue);
@@ -1678,14 +1621,6 @@ export class ResearchDevelopmentService {
         userId: cleanUserId(person.user_id) || null,
       };
     }
-
-    const user = users.find(
-      (item) =>
-        personNameLookupKey(item.name) === ownerKey ||
-        identityLookupKey(item.username) === ownerKey ||
-        identityLookupKey(item.email) === ownerKey,
-    );
-    if (user) return { name: user.name, userId: user.id };
 
     return { name: owner, userId: null };
   }
@@ -1764,7 +1699,7 @@ export class ResearchDevelopmentService {
     }));
   }
 
-  async snapshot(auditViewer?: { userId?: string; userName?: string; canReadAll: boolean }) {
+  async snapshot(auditViewer?: { userId?: string; userName?: string; canReadAll: boolean; enforceTaskScope?: boolean }, viewer?: TaskProgressNoteViewer) {
     const [
       taskCategories,
       workspace,
@@ -1774,10 +1709,10 @@ export class ResearchDevelopmentService {
       auditLogs,
       aiSettings,
     ] = await Promise.all([
-      this.getTaskCategories(),
-      this.getWorkspace(),
-      this.getDirectorDashboard(),
-      this.getPeople(),
+      this.getTaskCategories({ viewer }),
+      this.getWorkspace(this.scopedTaskViewer(viewer)?.userId, viewer?.userName),
+      this.getDirectorDashboard(viewer),
+      this.getPeople(viewer),
       this.getApprovalFlows(),
       this.getAuditLogs(auditViewer),
       this.getAiSettings(),
@@ -1794,12 +1729,12 @@ export class ResearchDevelopmentService {
     };
   }
 
-  async getTaskCategories(options: { includeCovers?: boolean; skipMirrorRefresh?: boolean } = {}) {
+  async getTaskCategories(options: { includeCovers?: boolean; skipMirrorRefresh?: boolean; viewer?: TaskProgressNoteViewer } = {}) {
     if (!options.skipMirrorRefresh) await this.refreshProductionMirrorsIfNeeded();
     const cacheKey = this.taskResourceCacheKey(
       options.includeCovers ? 'task-categories:covers' : 'task-categories',
       [],
-      { hasFullAccess: true },
+      this.scopedTaskViewer(options.viewer) ?? { hasFullAccess: true },
     );
     const cached = this.readTaskResourceCache<JsonRecord[]>(cacheKey);
     if (cached) return cached;
@@ -1812,7 +1747,7 @@ export class ResearchDevelopmentService {
     return this.writeTaskResourceCache(
       cacheKey,
       decorateTaskCategoriesWithStructureRevision(
-        this.applyProgressAttachmentCounts(categories, noteMap, scoreMap, options),
+        this.applyProgressAttachmentCounts(this.scopeTaskCategories(categories, options.viewer), noteMap, scoreMap, options),
       ),
     );
   }
@@ -1823,12 +1758,12 @@ export class ResearchDevelopmentService {
    * 的人员任务跨产品聚合——「任务是任务，产品是产品」：一个人的任务是其在所有产品库任务的并集，
    * 不被「当前产品库」切分，故概览头像负载与个人工作台口径一致。
    */
-  async getMergedTaskCategories(options: { includeCovers?: boolean } = {}) {
+  async getMergedTaskCategories(options: { includeCovers?: boolean; viewer?: TaskProgressNoteViewer } = {}) {
     await this.refreshProductionMirrorsIfNeeded();
     const cacheKey = this.taskResourceCacheKey(
       options.includeCovers ? 'merged-task-categories:covers' : 'merged-task-categories',
       [],
-      { hasFullAccess: true },
+      this.scopedTaskViewer(options.viewer) ?? { hasFullAccess: true },
     );
     const cached = this.readTaskResourceCache<JsonRecord[]>(cacheKey);
     if (cached) return cached;
@@ -1840,7 +1775,7 @@ export class ResearchDevelopmentService {
     const scoreMap: JsonRecord = isRecord(scoresRaw) ? scoresRaw : {};
     return this.writeTaskResourceCache(
       cacheKey,
-      this.applyProgressAttachmentCounts(categories, noteMap, scoreMap, options),
+      this.applyProgressAttachmentCounts(this.scopeTaskCategories(categories, options.viewer), noteMap, scoreMap, options),
     );
   }
 
@@ -2346,12 +2281,17 @@ export class ResearchDevelopmentService {
 
   // ── Products (产品线) ────────────────────────────────────────────────────────
 
-  async getProducts(): Promise<JsonRecord[]> {
+  async getProducts(viewer?: TaskProgressNoteViewer): Promise<JsonRecord[]> {
     const raw = await this.readValue('rd.products');
-    if (Array.isArray(raw) && raw.length > 0) return (raw as unknown[]).filter(isRecord);
-    const defaults = this.buildDefaultProducts();
-    await this.writeValue('rd.products', defaults);
-    return defaults;
+    const products = Array.isArray(raw) && raw.length > 0 ? raw.filter(isRecord) : this.buildDefaultProducts();
+    if (!Array.isArray(raw) || raw.length === 0) await this.writeValue('rd.products', products);
+    const scope = this.scopedTaskViewer(viewer);
+    if (!scope || scope.hasFullAccess || scope.canReadAll) return products;
+    const [main, store] = await Promise.all([this.readNormalizedTaskCategories(), this.readProductCategoryStore()]);
+    return products.filter((product) => {
+      const categories = cleanText(product.id) === RD_MAIN_PRODUCT_ID ? main : asArray(store[cleanText(product.id)]).filter(isRecord);
+      return this.scopeTaskCategories(categories, scope).length > 0;
+    });
   }
 
   async saveProducts(products: unknown[]): Promise<{ ok: boolean }> {
@@ -2363,9 +2303,9 @@ export class ResearchDevelopmentService {
   // ── Per-product task categories ────────────────────────────────────────────
 
   /** 读取指定产品的独立研发分类树（首次访问自动 seed 空 BOM） */
-  async getProductTaskCategories(productId: string): Promise<JsonRecord[]> {
+  async getProductTaskCategories(productId: string, viewer?: TaskProgressNoteViewer): Promise<JsonRecord[]> {
     const snapshot = await this.readProductTaskCategorySnapshot(productId);
-    if (!snapshot.needsWrite) return decorateTaskCategoriesWithStructureRevision(snapshot.categories);
+    if (!snapshot.needsWrite) return decorateTaskCategoriesWithStructureRevision(this.scopeTaskCategories(snapshot.categories, viewer));
 
     // 快路径保持纯读；只有 seed/迁移需要写回时才获取写锁，并在锁内重读避免覆盖并发任务更新。
     return this.withTaskTreeLock(async () => {
@@ -2373,7 +2313,7 @@ export class ResearchDevelopmentService {
       if (latest.needsWrite) {
         await this.saveProductCategoryStore({ ...latest.store, [productId]: latest.categories });
       }
-      return decorateTaskCategoriesWithStructureRevision(latest.categories);
+      return decorateTaskCategoriesWithStructureRevision(this.scopeTaskCategories(latest.categories, viewer));
     });
   }
 
@@ -2764,21 +2704,9 @@ export class ResearchDevelopmentService {
       throw new BadRequestException(this.describeUnmovableTasks(missing, productTrees, collected));
     }
 
-    // 个人工作台来的移动请求：非管理员只能移动「自己负责的任务」。与 getWorkspace 的 isPrimary 同口径——
-    // 优先按 user_id 匹配，历史上「仅按姓名指派、未绑定用户ID」的任务再按姓名兜底匹配。
-    // 管理员（canMoveAny）跳过此校验。此处尚未写库（仅改了内存工作副本），抛错即安全回滚。
+    // 非管理员只可移动稳定账号 ID 指派给自己的主责任务。
     if (!options?.canMoveAny) {
-      const requesterUserId = cleanUserId(options?.requesterUserId);
-      const requesterNameKey = personNameLookupKey(options?.requesterName);
-      const ownsTask = (task: JsonRecord): boolean => {
-        const ownerUserId = cleanUserId(task.primary_owner_user_id ?? task.owner_user_id);
-        if (ownerUserId) return Boolean(requesterUserId) && ownerUserId === requesterUserId;
-        return (
-          Boolean(requesterNameKey) &&
-          personNameLookupKey(task.primary_owner ?? task.owner) === requesterNameKey
-        );
-      };
-      const hasForeignTask = Array.from(collected.values()).some((task) => !ownsTask(task));
+      const hasForeignTask = Array.from(collected.values()).some((task) => !isRdTaskOwner(task, options?.requesterUserId));
       if (hasForeignTask) {
         throw new ForbiddenException('只能移动自己负责的任务');
       }
@@ -2952,6 +2880,52 @@ export class ResearchDevelopmentService {
       if (found) break;
     }
     return found;
+  }
+
+  private scopedTaskViewer(viewer?: TaskProgressNoteViewer): TaskProgressNoteViewer | undefined {
+    return currentRdWorkspace() === 'rd' && viewer?.enforceTaskScope ? viewer : undefined;
+  }
+
+  private scopeTaskCategories(categories: JsonRecord[], viewer?: TaskProgressNoteViewer): JsonRecord[] {
+    const scope = this.scopedTaskViewer(viewer);
+    return scope ? filterRdTaskCategories(categories, scope) : categories;
+  }
+
+  private assertTaskReadable(task: JsonRecord | null | undefined, viewer?: TaskProgressNoteViewer): void {
+    const scope = this.scopedTaskViewer(viewer);
+    if (scope && (!task || !canReadRdTask(task, scope))) throw new NotFoundException('任务不存在或没有读取权限');
+  }
+
+  /** Technical-document entry points are restricted to the actual research task pool. */
+  async requireTaskReadAccess(taskId: string, actor: RdTaskAccessActor): Promise<JsonRecord> {
+    if (currentRdWorkspace() !== 'rd') throw new ForbiddenException('技术资料仅支持研发任务');
+    if (!cleanUserId(actor.userId)) throw new ForbiddenException('请登录后查看任务资料');
+    const task = await this.findTaskAcrossStores(cleanText(taskId));
+    if (!task || isProductionMirrorTask(task)) throw new NotFoundException('研发任务不存在');
+    this.assertTaskReadable(task, rdTaskReadViewer(actor));
+    return task;
+  }
+
+  async requireTaskDocumentWriteAccess(taskId: string, actor: RdTaskAccessActor): Promise<JsonRecord> {
+    const task = await this.requireTaskReadAccess(taskId, actor);
+    const viewer = rdTaskReadViewer(actor);
+    if (isArchivedTask(task)) throw new ForbiddenException('已归档任务的技术资料只读');
+    if (!viewer.hasFullAccess && !isTaskParticipant(task, actor.userId, actor.userName)) {
+      throw new ForbiddenException('只能维护自己主责或协作任务的技术资料');
+    }
+    return task;
+  }
+
+  async getTaskDocumentSourceNotes(taskId: string, actor: RdTaskAccessActor): Promise<JsonRecord[]> {
+    await this.requireTaskReadAccess(taskId, actor);
+    return this.getTaskProgressNotes(taskId, rdTaskReadViewer(actor));
+  }
+
+  /** Serialize document confirmation with task state changes and source attachment mutations. */
+  withTaskDocumentWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    // Preserve the existing lock order. The callback must not call a task/attachment mutation
+    // that acquires these non-reentrant queues again; authorization, reads and the version transaction are safe.
+    return this.withTaskTreeLock(() => this.withProgressNoteLock(fn));
   }
 
   /** MateChat reads through the task resource policy and only receives safe, bounded fields. */
@@ -5303,14 +5277,10 @@ export class ResearchDevelopmentService {
       if (msg.type === 'procurement_sample_test_request' || msg.type === 'procurement_sample_test_result' || msg.type === 'procurement_transfer_returned') {
         throw new BadRequestException('无权修改此消息');
       }
-      // Name-based fallback: system messages may carry only a recipient name, or a stale linked user_id.
-      if (msg.recipientName && viewer.userId) {
-        const users = await this.listIdentityUsers();
-        const caller = users.find((u) => u.id === viewer.userId);
-        if (!caller || personNameLookupKey(caller.name) !== personNameLookupKey(msg.recipientName)) {
-          throw new BadRequestException('无权修改此消息');
-        }
-      } else {
+      const identity = !msg.recipientId && msg.recipientPersonId
+        ? await this.getMessageRecipientIdentity(viewer.userId)
+        : null;
+      if (!identity?.personIds.has(msg.recipientPersonId ?? '')) {
         throw new BadRequestException('无权修改此消息');
       }
     }
@@ -5851,6 +5821,10 @@ export class ResearchDevelopmentService {
   }
 
   private async recomputeDirectorDashboardUnlocked(): Promise<void> {
+    await this.writeValue('rd.directorDashboard', await this.buildDirectorDashboard());
+  }
+
+  private async buildDirectorDashboard(viewer?: TaskProgressNoteViewer): Promise<JsonRecord> {
     // 仪表盘只读人员快照，不进入 peopleWriteLock。人员写完成后会再排队一次重算，
     // 因此这里即使读到并发写前的快照，后续重算也会以最新值覆盖；同时消除
     // taskTree -> dashboard -> people 与 people -> taskTree 的 ABBA 死锁链。
@@ -5863,10 +5837,10 @@ export class ResearchDevelopmentService {
     const people = this.normalizePeopleRecords(rawPeople, users);
 
     // 汇总主库 + 所有产品库的分类树，让总监看板覆盖全部产品的任务（人员负载/阻塞/待指派/系统进度均跨产品）。
-    const allTrees: JsonRecord[][] = [mainCategories.filter(isRecord)];
+    const allTrees: JsonRecord[][] = [this.scopeTaskCategories(mainCategories.filter(isRecord), viewer)];
     for (const [pid, raw] of Object.entries(productStore)) {
       if (pid === RD_MAIN_PRODUCT_ID) continue;
-      allTrees.push(ensurePocBomTaskCategories(asArray(raw)).filter(isRecord));
+      allTrees.push(this.scopeTaskCategories(ensurePocBomTaskCategories(asArray(raw)).filter(isRecord), viewer));
     }
 
     // Flatten all tasks from every product's category tree
@@ -6022,12 +5996,12 @@ export class ResearchDevelopmentService {
         ai_priority: normalizePriority(t.ai_priority ?? t.final_priority),
       }));
 
-    await this.writeValue('rd.directorDashboard', {
+    return {
       categoryProgress,
       personLoads,
       blockedTasks,
       pendingAssign,
-    });
+    };
   }
 
   // ── Task progress notes (text + attachments) ───────────────────────────
@@ -6206,6 +6180,8 @@ export class ResearchDevelopmentService {
     rawNotes: JsonRecord[],
     viewer?: TaskProgressNoteViewer,
   ): JsonRecord[] {
+    const scope = this.scopedTaskViewer(viewer);
+    if (scope && (!task || !canReadRdTask(task, scope))) return [];
     let visibleNotes = rawNotes;
     if (!viewer?.hasFullAccess && !viewer?.canReadAll) {
       if (!task || !isTaskParticipant(task, viewer?.userId, viewer?.userName)) {
@@ -6233,6 +6209,7 @@ export class ResearchDevelopmentService {
     const notes = map[taskId] ?? [];
     // 任务取一次：既用于参与人可见性判断，也用于附件可编辑标记（锁定/主责人判定）
     const task = await this.findTaskAcrossStores(taskId);
+    this.assertTaskReadable(task, viewer);
     // 附件可编辑标记由服务端统一计算随留痕下发：前端只认此标记渲染管理入口，
     // 与写接口锁内的 canUserMutateNoteAttachments 同一实现，杜绝前后端口径漂移。
     return this.visibleTaskProgressNotes(task, notes, viewer);
@@ -6249,7 +6226,7 @@ export class ResearchDevelopmentService {
       this.getProgressNoteMap(),
       this.readMergedTaskCategories(),
     ]);
-    const relation = buildRdTaskProgressRelationGroup(categories, taskId);
+    const relation = buildRdTaskProgressRelationGroup(this.scopeTaskCategories(categories, viewer), taskId);
     if (!relation) throw new NotFoundException('任务不存在');
 
     const tasks = relation.tasks.map(({ task, taskId: sourceTaskId, title, path, joinedAt }) => {
@@ -6303,7 +6280,7 @@ export class ResearchDevelopmentService {
    */
   async getTaskAttachmentPreviews(
     rawTaskIds: string[],
-    viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string },
+    viewer?: TaskProgressNoteViewer,
   ) {
     await this.refreshProductionMirrorsIfNeeded();
     const taskIds = Array.from(new Set(rawTaskIds.map((id) => cleanText(id)).filter(Boolean))).slice(0, 60);
@@ -6324,6 +6301,8 @@ export class ResearchDevelopmentService {
 
     for (const taskId of taskIds) {
       const task = taskById.get(taskId);
+      const scope = this.scopedTaskViewer(viewer);
+      if (scope && (!task || !canReadRdTask(task, scope))) continue;
       // 卡片附件按子树聚合：主任务自己没传过附件、但子任务有时，最外层也要能看到。
       // 可见性逐个任务单独判定（子任务的参与人可能与父任务不同），不因聚合而放宽。
       const subtreeTasks = task ? this.collectTaskSubtree(task) : [];
@@ -6333,6 +6312,7 @@ export class ResearchDevelopmentService {
       const visibleNotes: JsonRecord[] = [];
       for (const scoped of scopedTasks) {
         if (!scoped.taskId) continue;
+        if (scope && (!scoped.task || !canReadRdTask(scoped.task, scope))) continue;
         const allNotes = noteMap[scoped.taskId] ?? [];
         if (!viewer?.hasFullAccess && !viewer?.canReadAll) {
           if (!scoped.task || !isTaskParticipant(scoped.task, viewer?.userId, viewer?.userName)) {
@@ -6429,7 +6409,7 @@ export class ResearchDevelopmentService {
    */
   async getTaskAttachments(
     taskId: string,
-    viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string },
+    viewer?: TaskProgressNoteViewer,
   ) {
     const cacheKey = this.taskResourceCacheKey('task-attachments-subtree', [taskId], viewer);
     const cached = this.readTaskResourceCache<{ attachment_count: number; attachments: JsonRecord[] }>(cacheKey);
@@ -6445,6 +6425,7 @@ export class ResearchDevelopmentService {
     ]);
     const rootTask = this.collectAllCategoryTasks(categories)
       .find((item) => cleanText(item.task_id) === taskId);
+    this.assertTaskReadable(rootTask, viewer);
     const scopedTasks = rootTask ? this.collectTaskSubtree(rootTask) : [];
     const orderedNotes = (scopedTasks.length > 0
       ? scopedTasks.flatMap((scopedTask) => this.visibleTaskProgressNotes(
@@ -6479,9 +6460,18 @@ export class ResearchDevelopmentService {
     return this.writeTaskResourceCache(cacheKey, { attachment_count: attachments.length, attachments });
   }
 
-  async listAllTaskProgressNotes(viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean }) {
+  async listAllTaskProgressNotes(viewer?: TaskProgressNoteViewer) {
     await this.refreshProductionMirrorsIfNeeded();
     const map = await this.getProgressNoteMap();
+    if (this.scopedTaskViewer(viewer)) {
+      const categories = this.scopeTaskCategories(await this.readMergedTaskCategories(), viewer);
+      const result: Record<string, JsonRecord[]> = {};
+      for (const task of this.collectAllCategoryTasks(categories)) {
+        const id = cleanText(task.task_id);
+        if (map[id]?.length) result[id] = this.visibleTaskProgressNotes(task, map[id], viewer);
+      }
+      return result;
+    }
     // 管理权限或只读跨部门查看权（rd-task:view-all）均可看到全部留痕与附件。
     if (viewer?.hasFullAccess || viewer?.canReadAll) {
       const out: Record<string, JsonRecord[]> = {};
@@ -6569,16 +6559,22 @@ export class ResearchDevelopmentService {
       }
     }
 
-    let deleted = 0;
-    let retained = 0;
-    for (const file of candidates) {
+    const deletable = new Set(candidates.filter((file) => {
       const owned = this.ossService.isKeyUnderBusinessType(file.objectKey, businessType);
       const authorized = this.ossService.verifyCleanupToken(
         file.objectKey,
         Number(file.cleanupExp),
         String(file.cleanupSig ?? ''),
       );
-      if (!owned || !authorized || referenced.has(file.objectKey)) {
+      return owned && authorized && !referenced.has(file.objectKey);
+    }).map((file) => file.objectKey));
+    // A source note may have been removed since upload while a registered document version survives.
+    if (deletable.size) await this.removeKeysReferencedByTechnicalDocuments(deletable);
+
+    let deleted = 0;
+    let retained = 0;
+    for (const file of candidates) {
+      if (!deletable.has(file.objectKey)) {
         retained += 1;
         continue;
       }
@@ -6953,6 +6949,15 @@ export class ResearchDevelopmentService {
     };
   }
 
+  private canPostToTaskDiscussion(access: DiscussionAccess, viewer: DiscussionViewer): boolean {
+    if (access.scope === 'thread_invitee') return true;
+    if (!viewer.canPost) return false;
+    if (currentRdWorkspace() === 'rd' && viewer.enforceTaskScope) {
+      return Boolean(viewer.canManageTasks || isTaskParticipant(access.task, viewer.userId, viewer.userName));
+    }
+    return true;
+  }
+
   async getTaskDiscussion(
     taskId: string,
     query: { anchorType?: string; anchorId?: string; cursor?: string; limit?: string },
@@ -7041,7 +7046,7 @@ export class ResearchDevelopmentService {
     const anchorPreview = await this.getDiscussionAnchorPreview(cleanTaskId, anchorType, anchorId);
 
     return {
-      can_post: Boolean(viewer.canPost || access.scope === 'thread_invitee'),
+      can_post: this.canPostToTaskDiscussion(access, viewer),
       access_scope: access.scope,
       task_title: cleanText(access.task.title) || cleanTaskId,
       invitation: access.invitation
@@ -7087,7 +7092,7 @@ export class ResearchDevelopmentService {
     const threadId = this.discussionThreadId(taskId, anchorType, anchorId);
     const access = await this.requireDiscussionAccess(taskId, payload.viewer, threadId);
     const task = access.task;
-    if (!payload.viewer.canPost && access.scope !== 'thread_invitee') {
+    if (!this.canPostToTaskDiscussion(access, payload.viewer)) {
       throw new ForbiddenException('你没有发送讨论消息的权限');
     }
     await this.assertDiscussionAnchorExists(taskId, anchorType, anchorId);
@@ -7348,7 +7353,7 @@ export class ResearchDevelopmentService {
           AND (r."lastReadAt" IS NULL OR m."createdAt" > r."lastReadAt")
         GROUP BY t."taskId"
       `,
-      this.getMergedTaskCategories(),
+      this.getMergedTaskCategories({ viewer: { ...viewer, canReadAll: viewer.canAccessAny } }),
     ]);
     const taskById = new Map<string, JsonRecord>();
     for (const category of asArray(categories).filter(isRecord)) {
@@ -7431,7 +7436,7 @@ export class ResearchDevelopmentService {
     const [map, readsRaw, categories] = await Promise.all([
       this.getProgressNoteMap(),
       this.readValue('rd.noteReads'),
-      this.getMergedTaskCategories(),
+      this.getMergedTaskCategories({ viewer: { ...viewer, canReadAll: viewer.canAccessAny } }),
     ]);
     const reads = isRecord(readsRaw) && isRecord(readsRaw[userId]) ? (readsRaw[userId] as Record<string, unknown>) : {};
     // 上线基线：用户首次访问且无任何位点时，把「此刻」写为基线——上线前的历史评论一律
@@ -7498,14 +7503,14 @@ export class ResearchDevelopmentService {
   }
 
   /** 标记某任务的评论已读（任何入口打开留痕区都调用；写入当前时刻位点）。 */
-  async markTaskNotesRead(taskId: string, viewer: { userId?: string }): Promise<{ ok: boolean }> {
+  async markTaskNotesRead(taskId: string, viewer: TaskProgressNoteViewer): Promise<{ ok: boolean }> {
     const userId = cleanUserId(viewer.userId);
     const cleanTaskId = taskId.trim();
     if (!userId || !cleanTaskId) return { ok: false };
     // The detail feed is relation-group scoped, so its read receipt must use the
     // same scope. Otherwise a parent can display a child's note while leaving
     // that child permanently unread on every device.
-    const categories = await this.getMergedTaskCategories();
+    const categories = await this.getMergedTaskCategories({ viewer });
     const relation = buildRdTaskProgressRelationGroup(categories, cleanTaskId);
     if (!relation) return { ok: false };
     const readAt = new Date().toISOString();
@@ -7522,13 +7527,13 @@ export class ResearchDevelopmentService {
   }
 
   // ── 驾驶舱「备注回执」：管理员/他人给某任务留的备注，其目标人是否已查看/已跟进 ──
-  // 所有有驾驶舱权限者可见（不按参与人过滤）；带留备注人姓名。三态：
+  // 研发按任务读取范围返回；协同与生产保留原口径。带留备注人姓名。三态：
   //   待查看(unread)：目标人在备注之后还没打开过该任务；
   //   已查看(read)  ：目标人打开过（已读），但还没在该备注之后提交新进展；
   //   （已跟进）    ：目标人在备注之后提交了新进展 → 该备注已闭环，不再返回。
   // 目标人以「备注 @ 的人」为准；未 @ 则取任务主责人。每个任务返回其最新一条未闭环备注。
 
-  async getTaskNoteReceipts(): Promise<Record<string, {
+  async getTaskNoteReceipts(viewer?: TaskProgressNoteViewer): Promise<Record<string, {
     author_name: string;
     target_name: string;
     state: 'unread' | 'read';
@@ -7538,7 +7543,7 @@ export class ResearchDevelopmentService {
     const [map, readsRaw, categories] = await Promise.all([
       this.getProgressNoteMap(),
       this.readValue('rd.noteReads'),
-      this.getMergedTaskCategories(),
+      this.getMergedTaskCategories({ viewer }),
     ]);
     const readsAll = isRecord(readsRaw) ? readsRaw : {};
     /** 某用户对某任务的有效已读线 = max(任务位点, 该用户基线) */
@@ -7629,7 +7634,7 @@ export class ResearchDevelopmentService {
     return !(task.archived === true || status === 'archived' || status === 'completed');
   }
 
-  /** 操作人是否可修改某条留痕的附件：管理员 / 留痕作者本人 / 任务主责人（id 优先、姓名归一化兜底） */
+  /** 操作人是否可修改某条留痕的附件：管理员 / 留痕作者本人 / 任务主责人（稳定账号 ID） */
   private canUserMutateNoteAttachments(
     task: JsonRecord,
     note: JsonRecord,
@@ -7639,10 +7644,7 @@ export class ResearchDevelopmentService {
     const uid = cleanUserId(viewer.userId);
     const actor = isRecord(note.actor) ? note.actor : null;
     if (uid && actor && cleanUserId(actor.id) === uid) return true;
-    const nameKey = personNameLookupKey(viewer.userName);
-    const ownerId = cleanUserId(task.primary_owner_user_id ?? task.owner_user_id);
-    if (ownerId) return Boolean(uid) && ownerId === uid;
-    return Boolean(nameKey) && personNameLookupKey(task.primary_owner ?? task.owner) === nameKey;
+    return isRdTaskOwner(task, viewer.userId);
   }
 
   /** 上传前的快速失败预检（只查任务级状态，不读留痕 map；权限等最终校验在锁内） */
@@ -8127,8 +8129,17 @@ export class ResearchDevelopmentService {
     // 不查这一张表的话，研发这边删掉留痕就会把采购还在用的图纸物理删除，两边都不会察觉。
     await this.removeKeysReferencedByProcurement(keys);
     if (keys.size === 0) return;
+    await this.removeKeysReferencedByTechnicalDocuments(keys);
+    if (keys.size === 0) return;
 
     await Promise.all([...keys].map((key) => this.ossService.deleteObject(key)));
+  }
+
+  private async removeKeysReferencedByTechnicalDocuments(keys: Set<string>) {
+    const rows = await this.prisma.rdTechnicalDocumentVersion.findMany({
+      where: { fileKey: { in: [...keys] } }, select: { fileKey: true },
+    });
+    for (const row of rows) if (row.fileKey) keys.delete(row.fileKey);
   }
 
   /**
@@ -9885,36 +9896,21 @@ export class ResearchDevelopmentService {
     const cleanId = cleanUserId(userId);
     if (!cleanId) return { userId: '', nameKey: '', personIds: new Set<string>() };
 
-    const [users, rawPeople] = await Promise.all([
-      this.listIdentityUsers(),
-      this.readArray('rd.people'),
-    ]);
-    const user = users.find((item) => item.id === cleanId);
-    const nameKey = personNameLookupKey(user?.name);
-    const people = this.normalizePeopleRecords(rawPeople, users);
+    const rawPeople = await this.readArray('rd.people');
     const personIds = new Set(
-      people
-        .filter((person) => {
-          if (cleanUserId(person.user_id) === cleanId) return true;
-          return Boolean(nameKey && personNameLookupKey(person.name) === nameKey);
-        })
+      rawPeople.filter(isRecord)
+        .filter((person) => cleanUserId(person.user_id ?? person.auth_user_id) === cleanId)
         .map((person) => cleanText(person.id))
         .filter(Boolean),
     );
-
-    return { userId: cleanId, nameKey, personIds };
+    return { userId: cleanId, nameKey: '', personIds };
   }
 
-  /**
-   * 「这条消息发给此人」的 SQL 条件：与原先内存里的 messageMatchesRecipient 同口径
-   * （user id / person id / 归一化姓名 三者取并集）。
-   * 三个标识全空时返回一个恒假条件——不能返回 {}，那会退化成「匹配全部消息」。
-   */
+  /** 收件人账号优先；仅未绑定账号的消息可使用管理员明确关联的人员 ID。 */
   private messageRecipientWhere(identity: MessageRecipientIdentity): Prisma.RdMessageWhereInput {
     const or: Prisma.RdMessageWhereInput[] = [];
     if (identity.userId) or.push({ recipientId: identity.userId });
-    if (identity.personIds.size > 0) or.push({ recipientPersonId: { in: [...identity.personIds] } });
-    if (identity.nameKey) or.push({ recipientNameKey: identity.nameKey });
+    if (identity.personIds.size > 0) or.push({ recipientId: null, recipientPersonId: { in: [...identity.personIds] } });
     return or.length > 0 ? { OR: or } : { id: { in: [] } };
   }
 
@@ -10683,8 +10679,7 @@ export class ResearchDevelopmentService {
     const currentPersonIds = new Set(
       people
         .filter((person) => {
-          if (cleanUserId(person.user_id) === currentUserId) return true;
-          return Boolean(currentNameKey && personNameLookupKey(person.name) === currentNameKey);
+          return cleanUserId(person.user_id) === currentUserId;
         })
         .map((person) => cleanText(person.id))
         .filter(Boolean),
@@ -10694,21 +10689,12 @@ export class ResearchDevelopmentService {
       (task) => !isArchivedTask(task),
     );
 
-    const isMineByNameFallback = (task: JsonRecord) => {
-      const taskUserId = cleanUserId(task.primary_owner_user_id ?? task.owner_user_id);
-      if (taskUserId) return false;
-      return Boolean(currentNameKey && personNameLookupKey(task.primary_owner ?? task.owner) === currentNameKey);
-    };
-    const isPrimary = (task: JsonRecord) =>
-      cleanUserId(task.primary_owner_user_id ?? task.owner_user_id) === currentUserId || isMineByNameFallback(task);
+    const isPrimary = (task: JsonRecord) => isRdTaskOwner(task, currentUserId);
 
     const collaboratorRole = (task: JsonRecord): string | undefined => {
       for (const collaborator of asArray(task.collaborators)) {
         if (!isRecord(collaborator)) continue;
         if (cleanUserId(collaborator.user_id) === currentUserId) {
-          return cleanText(collaborator.role) || '协作人';
-        }
-        if (!cleanUserId(collaborator.user_id) && personNameLookupKey(collaborator.name) === currentNameKey) {
           return cleanText(collaborator.role) || '协作人';
         }
       }
@@ -10953,7 +10939,8 @@ export class ResearchDevelopmentService {
     });
   }
 
-  async getDirectorDashboard() {
+  async getDirectorDashboard(viewer?: TaskProgressNoteViewer) {
+    if (this.scopedTaskViewer(viewer) && !viewer?.hasFullAccess && !viewer?.canReadAll) return this.buildDirectorDashboard(viewer);
     const value = await this.readValue('rd.directorDashboard');
     return {
       ...EMPTY_DIRECTOR_DASHBOARD,
@@ -11062,8 +11049,16 @@ export class ResearchDevelopmentService {
     return { people: normalized, users };
   }
 
-  async getPeople() {
-    return this.withPeopleWriteLock(async () => (await this.getPeopleUnlocked()).people);
+  async getPeople(viewer?: TaskProgressNoteViewer): Promise<JsonRecord[]> {
+    const people = await this.withPeopleWriteLock(async () => (await this.getPeopleUnlocked()).people);
+    const scope = this.scopedTaskViewer(viewer);
+    if (!scope || scope.hasFullAccess || scope.canReadAll) return people;
+    const tasks = this.collectAllCategoryTasks(this.scopeTaskCategories(await this.readMergedTaskCategories(), scope));
+    return people.map((person) => {
+      const assigned = tasks.filter((task) => !isArchivedTask(task) && !isCompletedTask(task)
+        && isTaskParticipant(task, cleanUserId(person.user_id), cleanText(person.name)));
+      return { ...person, task_count: assigned.length, task_ids: assigned.map((task) => task.task_id), tasks: assigned.map((task) => task.title) };
+    });
   }
 
   async getPeopleUserOptions() {
@@ -11305,19 +11300,27 @@ export class ResearchDevelopmentService {
    * 混进研发快照会让「任务相关留痕」凭空多出一堆看不懂的 POST 记录。
    */
   async getAuditLogs(
-    viewer?: { userId?: string; userName?: string; canReadAll: boolean },
+    viewer?: { userId?: string; userName?: string; canReadAll: boolean; enforceTaskScope?: boolean },
     filter?: { resourceType?: string; resourceId?: string },
   ) {
     // 按资源过滤必须下推到查询：留痕现在由服务端随每次变更写入，条数远多于从前，
     // 「取最新 1000 条再由前端筛某个任务」会让稍早的任务时间线整段查不到。
     const resourceType = cleanText(filter?.resourceType);
     const resourceId = cleanText(filter?.resourceId);
+    const restricted = this.scopedTaskViewer(viewer) && !viewer?.canReadAll;
+    const allowedTaskIds = restricted
+      ? new Set(this.collectAllCategoryTasks(this.scopeTaskCategories(await this.readMergedTaskCategories(), viewer)).map((task) => cleanText(task.task_id)))
+      : null;
     const rows = await this.prisma.auditLog.findMany({
       where: {
         module: currentRdWorkspace(),
         source: { not: 'api' },
         ...(resourceType ? { resource: resourceType } : {}),
         ...(resourceId ? { resourceId } : {}),
+        ...(allowedTaskIds ? { OR: [
+          { resource: 'task', resourceId: { in: [...allowedTaskIds] } },
+          { resource: { not: 'task' }, userId: cleanUserId(viewer?.userId) || '__no_user__' },
+        ] } : {}),
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       // 上限保留：不带过滤条件时 snapshot() 会把整段留痕塞进响应，不能无界增长
@@ -11334,6 +11337,8 @@ export class ResearchDevelopmentService {
     if (!viewerId && !viewerNameKey) return [];
 
     return logs.filter((log) => {
+      const resource = isRecord(log.resource) ? log.resource : {};
+      if (allowedTaskIds && resource.type === 'task') return allowedTaskIds.has(cleanText(resource.id));
       const actor = isRecord(log.actor) ? log.actor : {};
       const actorId = cleanUserId(actor.id);
       if (actorId) return Boolean(viewerId) && actorId === viewerId;
@@ -11379,7 +11384,7 @@ export class ResearchDevelopmentService {
 
   async getTaskCompletionScore(
     taskId: string,
-    viewer: { userId?: string; hasFullAccess: boolean },
+    viewer: TaskProgressNoteViewer,
   ): Promise<JsonRecord | null> {
     const scores = await this.getTaskCompletionScores([taskId], viewer);
     return scores[taskId] ?? null;
@@ -11387,14 +11392,17 @@ export class ResearchDevelopmentService {
 
   async getTaskCompletionScores(
     rawTaskIds: string[],
-    viewer: { userId?: string; hasFullAccess: boolean },
+    viewer: TaskProgressNoteViewer,
   ): Promise<Record<string, JsonRecord | null>> {
     const taskIds = Array.from(new Set(rawTaskIds.map((id) => cleanText(id)).filter(Boolean))).slice(0, 60);
     if (taskIds.length === 0) return {};
     const allScores = await this.readValue('rd.taskCompletionScores');
     const map = isRecord(allScores) ? allScores : {};
     const allowedTaskIds = new Set<string>();
-    if (viewer.hasFullAccess) {
+    if (this.scopedTaskViewer(viewer)) {
+      const tasks = this.collectAllCategoryTasks(this.scopeTaskCategories(await this.readMergedTaskCategories(), viewer));
+      for (const task of tasks) allowedTaskIds.add(cleanText(task.task_id));
+    } else if (viewer.hasFullAccess) {
       for (const taskId of taskIds) allowedTaskIds.add(taskId);
     } else if (viewer.userId) {
       const requested = new Set(taskIds);
@@ -13474,12 +13482,12 @@ export class ResearchDevelopmentService {
   private taskResourceCacheKey(
     resource: string,
     taskIds: string[],
-    viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string },
+    viewer?: TaskProgressNoteViewer,
   ) {
     const scope = viewer?.hasFullAccess || viewer?.canReadAll
       ? 'all'
       : `user:${cleanText(viewer?.userId)}:${personNameLookupKey(viewer?.userName)}`;
-    return `${currentRdWorkspace()}|g:${this.rdTaskResourceCacheGeneration}|${resource}|${scope}|${taskIds.slice().sort().join(',')}`;
+    return `${currentRdWorkspace()}|g:${this.rdTaskResourceCacheGeneration}|${resource}|${this.scopedTaskViewer(viewer) ? 'strict' : 'legacy'}|${scope}|${taskIds.slice().sort().join(',')}`;
   }
 
   private readTaskResourceCache<T>(key: string): T | undefined {

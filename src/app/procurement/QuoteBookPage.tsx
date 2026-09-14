@@ -2,7 +2,7 @@
 // 商品即物料（复用物料主数据），历史采购价格复用 PriceHistoryModal 跨任务聚合。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../components/ui/input";
-import { AlertTriangle, BadgeCheck, ChevronDown, ChevronRight, CircleDollarSign, Clock, Download, FileSpreadsheet, History, PackageSearch, Pencil, Plus, Search, Trash2, Upload, Users, X } from "lucide-react";
+import { AlertTriangle, BadgeCheck, ChevronDown, ChevronRight, CircleDollarSign, Clock, Download, FileSpreadsheet, History, PackageSearch, Pencil, Plus, RefreshCw, Search, Trash2, Upload, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../components/ui/utils";
 import { useI18n } from "../lib/i18n";
@@ -17,11 +17,13 @@ import { Checkbox } from "../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 import { Button } from "../components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Pagination, PaginationContent, PaginationItem } from "../components/ui/pagination";
 import { ImageLightbox, useConfirmDialog, useProcCan } from "./components/common";
 import { PriceHistoryModal } from "./components/PriceHistoryModal";
 import { QuoteFormDrawer } from "./components/QuoteFormDrawer";
 import { QuoteImportModal } from "./components/QuoteImportModal";
+import { QuoteBookSupplierView } from "./components/QuoteBookSupplierView";
 import { MaterialFormModal } from "./components/modals";
 import { downloadQuoteBookTemplate, exportQuoteBookXlsx } from "./quoteBookXlsx";
 import { AutoTranslatedText } from "../components/TranslatableText";
@@ -97,7 +99,15 @@ function TierChips({ quote, bestPrice, today }: { quote: SupplierQuote; bestPric
 
 export function QuoteBookPage() {
   const { t } = useI18n();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get("view") === "suppliers" ? "suppliers" : "materials";
+  const changeView = (next: string) => {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      params.set("view", next === "suppliers" ? "suppliers" : "materials");
+      return params;
+    }, { replace: true });
+  };
   const focusedMaterialId = searchParams.get("materialId");
   const focusedMaterialName = searchParams.get("materialName");
   const focusedSearch = searchParams.get("search");
@@ -109,6 +119,7 @@ export function QuoteBookPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [comparedMaterialId, setComparedMaterialId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const [category, setCategory] = useState("");
@@ -118,7 +129,7 @@ export function QuoteBookPage() {
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [searchExpansion, setSearchExpansion] = useState<{ keyword: string; collapsed: Set<string> }>({ keyword: "", collapsed: new Set() });
-  const [historyFor, setHistoryFor] = useState<string | null>(null);
+  const [historyFor, setHistoryFor] = useState<Pick<QuoteBookRow, "id" | "name"> | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   // 抽屉：material 必有；quote 有则编辑、无则新增
   const [drawer, setDrawer] = useState<{ material: QuoteBookRow; quote?: SupplierQuote } | null>(null);
@@ -156,26 +167,33 @@ export function QuoteBookPage() {
 
   // 从采购任务“无合适报价”跳转时，直接定位对应物料并打开新增厂家报价抽屉。
   useEffect(() => {
-    if (loading || rows.length === 0 || (!focusedMaterialId && !focusedMaterialName && !focusedSearch)) return;
+    if (loading || error || (!focusedMaterialId && !focusedMaterialName && !focusedSearch)) return;
     const focusKey = `${focusedMaterialId ?? ""}:${focusedMaterialName ?? ""}:${focusedSearch ?? ""}:${focusedAction ?? ""}`;
     if (focusHandledRef.current === focusKey) return;
     if (!focusedMaterialId && !focusedMaterialName && focusedSearch) {
       focusHandledRef.current = focusKey;
+      setComparedMaterialId(null); setCategory(""); setOnlyExpired(false);
       setSearch(focusedSearch);
       setPage(1);
       return;
     }
-    const material = rows.find((row) =>
+    const matches = rows.filter((row) =>
       focusedMaterialId ? row.id === focusedMaterialId : row.name === focusedMaterialName,
     );
     focusHandledRef.current = focusKey;
-    if (!material) return;
+    setCategory(""); setOnlyExpired(false);
     setShowAll(true);
-    setSearch(material.name);
+    setSearch(focusedMaterialId ? "" : focusedMaterialName ?? "");
+    // 同名物料可能有不同规格；只有明确 ID 或唯一命中才可直接新增报价。
+    const material = matches.length === 1 ? matches[0] : undefined;
+    setComparedMaterialId(focusedMaterialId || material?.id || null);
     setPage(1);
+    if (!material) return;
     setExpanded((current) => new Set(current).add(material.id));
-    if (focusedAction === "add" && canWrite) setDrawer({ material });
-  }, [canWrite, focusedAction, focusedMaterialId, focusedMaterialName, focusedSearch, loading, rows]);
+    if (focusedAction === "add" && canWrite) {
+      setDrawer({ material });
+    }
+  }, [canWrite, error, focusedAction, focusedMaterialId, focusedMaterialName, focusedSearch, loading, rows]);
 
   const removeQuote = (quote: SupplierQuote) =>
     confirmAction({
@@ -222,6 +240,7 @@ export function QuoteBookPage() {
   const filtered = useMemo(() => {
     const kw = search.trim().toLowerCase();
     const list = rows.filter((row) => {
+      if (comparedMaterialId && row.id !== comparedMaterialId) return false;
       // 默认视角只看已报价商品；搜索时放开到全库（搜型号通常是为了给它添加报价）
       if (!showAll && !kw && row.quotes.length === 0) return false;
       if (category && row.category !== category) return false;
@@ -230,12 +249,14 @@ export function QuoteBookPage() {
       return (
         row.name.toLowerCase().includes(kw) ||
         row.spec.toLowerCase().includes(kw) ||
+        (row.tpInventoryCode ?? "").toLowerCase().includes(kw) ||
+        (row.erpCode ?? "").toLowerCase().includes(kw) ||
         row.quotes.some((q) => q.supplierName.toLowerCase().includes(kw) || q.supplierModel.toLowerCase().includes(kw))
       );
     });
     // 已有报价的商品排前面：报价库主视角是维护比价，缺报价长尾沉底
     return list.sort((a, b) => Number(b.quotes.length > 0) - Number(a.quotes.length > 0));
-  }, [rows, search, category, showAll, onlyExpired, today]);
+  }, [rows, search, category, showAll, onlyExpired, today, comparedMaterialId]);
 
   // 物料量在千级，树形表按商品行分页；筛选事件就地重置页码，避免额外同步 effect。
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -245,6 +266,7 @@ export function QuoteBookPage() {
     if (tableScrollRef.current) tableScrollRef.current.scrollTop = 0;
   }, [pageSafe, search, category, showAll, onlyExpired]);
   const clearFilters = () => {
+    setComparedMaterialId(null);
     setSearch(""); setCategory(""); setOnlyExpired(false); setPage(1);
     searchRef.current?.focus();
   };
@@ -285,11 +307,17 @@ export function QuoteBookPage() {
     };
   }, [rows, today]);
   const quotedCount = quoteSummary.quoted;
+  const compareMaterial = (material: QuoteBookRow) => {
+    setComparedMaterialId(material.id);
+    setSearch(""); setCategory(""); setOnlyExpired(false); setShowAll(true); setPage(1);
+    setExpanded((current) => new Set(current).add(material.id));
+    changeView("materials");
+  };
 
   return (
     <div className="proc-horizon proc-quote-book mx-auto flex min-h-full w-full max-w-[1600px] flex-col pb-4">
       <section className="proc-horizon-surface proc-quote-command material-card mb-3 grid shrink-0 items-center gap-3 px-4 py-3">
-        <p className="min-w-0 text-pretty text-xs leading-5 text-slate-500">{t("同一商品跨厂家比较阶梯价、交期与有效期；仅有效报价参与最优价计算。")}</p>
+        <p className="min-w-0 text-pretty text-xs leading-5 text-slate-500">{t(view === "suppliers" ? "按供应商核对已报价物料、编码与报价条款；供货资质需另行确认。" : "同一商品跨厂家比较阶梯价、交期与有效期；仅有效报价参与最优价计算。")}</p>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
             {can("proc-task:create") && (
               <button type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
@@ -301,8 +329,9 @@ export function QuoteBookPage() {
                 <Upload className="h-4 w-4" />{t("批量导入")}
               </button>
             )}
-            <button
+            {view === "materials" && <button
               type="button"
+              disabled={loading || Boolean(error)}
               onClick={() => {
                 if (!filtered.some((r) => r.quotes.length > 0)) { toast.warning(t("当前没有厂家报价可导出，请先录入或导入报价")); return; }
                 void exportQuoteBookXlsx(filtered)
@@ -312,12 +341,13 @@ export function QuoteBookPage() {
               className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"
             >
               <Download className="h-4 w-4" />{t("导出")}
-            </button>
+            </button>}
             {canWrite && (
               <button type="button" onClick={() => void downloadQuoteBookTemplate().catch((err: unknown) => toast.error(err instanceof Error ? err.message : t("下载失败")))} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
                 <FileSpreadsheet className="h-4 w-4" />{t("下载模板")}
               </button>
             )}
+            <Button type="button" variant="outline" size="sm" disabled={loading} onClick={reload} aria-label={t("刷新报价库")}><RefreshCw className="size-4" />{t("刷新")}</Button>
         </div>
       </section>
 
@@ -337,12 +367,18 @@ export function QuoteBookPage() {
                 <span className="text-pretty text-xs font-medium leading-5 text-slate-500">{item.label}</span>
                 <strong className="shrink-0 text-lg tabular-nums text-slate-900">{loading || error ? "—" : item.value.toLocaleString()}</strong>
               </div>
-              <p className="text-pretty text-[11px] leading-4 text-slate-500" title={item.detail}>{item.detail}</p>
+              <p className="text-pretty text-[11px] leading-4 text-slate-500">{loading || error ? t("读取后显示") : item.detail}</p>
             </div>
           </div>
         ))}
       </div>
 
+      <Tabs value={view} onValueChange={changeView} className="min-w-0 gap-3">
+      <TabsList aria-label={t("报价库查看方式")}>
+        <TabsTrigger value="materials"><PackageSearch className="size-4" />{t("按物料比价")}</TabsTrigger>
+        <TabsTrigger value="suppliers"><Users className="size-4" />{t("按供应商查看")}</TabsTrigger>
+      </TabsList>
+      <TabsContent forceMount value="materials" className={view === "materials" ? "min-w-0" : "hidden"}>
       {/* 工具条：搜索 + 分类 + 缺报价/过期过滤 */}
       <div className="proc-horizon-surface material-card mb-3 shrink-0 space-y-3 px-4 py-3">
         <div className="proc-quote-search-fields grid min-w-0 gap-3">
@@ -352,11 +388,11 @@ export function QuoteBookPage() {
             ref={searchRef}
             aria-label={t("搜索供应商报价")}
             value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            placeholder={t("搜索型号 / 规格 / 厂家")}
+            onChange={(e) => { setComparedMaterialId(null); setSearch(e.target.value); setPage(1); }}
+            placeholder={t("搜索物料编码 / 型号 / 规格 / 厂家")}
             className="w-full min-w-0 rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-10 text-sm outline-none focus:border-primary/40"
           />
-          {search && <button type="button" aria-label={t("清空搜索")} onClick={() => { setSearch(""); setPage(1); searchRef.current?.focus(); }} className="absolute right-0.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"><X className="size-4" /></button>}
+          {search && <button type="button" aria-label={t("清空搜索")} onClick={() => { setComparedMaterialId(null); setSearch(""); setPage(1); searchRef.current?.focus(); }} className="absolute right-0.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"><X className="size-4" /></button>}
         </div>
         {/* "all" 哨兵：Radix SelectItem 不允许空字符串 value，全站同款约定 */}
         <Select value={category || "all"} onValueChange={(v) => { setCategory(v === "all" ? "" : v); setPage(1); }}>
@@ -381,8 +417,9 @@ export function QuoteBookPage() {
         <span aria-live="polite" className="ml-auto text-pretty text-xs leading-5 tabular-nums text-slate-400">
           {loading ? t("加载中") : t("匹配 {count} 个商品", { count: filtered.length.toLocaleString() })}
         </span>
-        {(search.trim() || category || onlyExpired) && <button type="button" onClick={clearFilters} className="text-xs font-medium text-primary hover:underline">{t("清除筛选")}</button>}
+        {(search.trim() || category || onlyExpired || comparedMaterialId) && <button type="button" onClick={clearFilters} className="text-xs font-medium text-primary hover:underline">{t("清除筛选")}</button>}
         </div>
+        {comparedMaterialId && <p className="text-pretty text-xs text-primary">{t("当前仅比较所选物料的全部厂家报价。清除筛选可查看其他物料。")}</p>}
       </div>
 
       {/* 树形表：商品行（可展开）→ 厂家子行（阶梯 chips） */}
@@ -464,7 +501,7 @@ export function QuoteBookPage() {
                         return { keyword: kw, collapsed };
                       });
                     }}
-                    onHistory={() => setHistoryFor(row.name)}
+                    onHistory={() => setHistoryFor({ id: row.id, name: row.name })}
                     onAddQuote={() => setDrawer({ material: row })}
                     onEditQuote={(quote) => setDrawer({ material: row, quote })}
                     onDeleteQuote={removeQuote}
@@ -488,8 +525,19 @@ export function QuoteBookPage() {
           </div>}
         </div>
       )}
+      </TabsContent>
+      <TabsContent forceMount value="suppliers" className={view === "suppliers" ? "min-w-0" : "hidden"}>
+        {error ? <div role="alert" className="material-card flex flex-col items-center gap-3 p-8 text-center text-sm text-rose-600"><span className="break-words">{error}</span><Button type="button" variant="outline" onClick={reload}>{t("重新加载")}</Button></div>
+          : loading ? <div role="status" className="material-card p-8 text-center text-sm text-slate-500">{t("加载中")}…</div> : null}
+        <div hidden={loading || Boolean(error)}>
+          <QuoteBookSupplierView rows={rows} today={today} canWrite={canWrite}
+            onCompare={compareMaterial} onEdit={(material, quote) => setDrawer({ material, quote })}
+            onShowMaterials={() => { clearFilters(); setShowAll(true); changeView("materials"); }} />
+        </div>
+      </TabsContent>
+      </Tabs>
 
-      <PriceHistoryModal materialName={historyFor ?? ""} open={historyFor != null} onClose={() => setHistoryFor(null)} />
+      <PriceHistoryModal materialId={historyFor?.id} materialName={historyFor?.name ?? ""} open={historyFor != null} onClose={() => setHistoryFor(null)} />
       {drawer && (
         <QuoteFormDrawer
           material={{ id: drawer.material.id, name: drawer.material.name, unit: drawer.material.unit }}
@@ -561,6 +609,8 @@ function QuoteBookMaterialRows({
                 ) : null}
               </div>
               {row.spec && <div className="truncate text-xs text-slate-400" title={row.spec}>{row.spec}</div>}
+              {row.tpInventoryCode && <div className="break-all text-[11px] tabular-nums text-slate-500">{t("T+ 编码")}: {row.tpInventoryCode}</div>}
+              {row.erpCode && row.erpCode !== row.tpInventoryCode && <div className="break-all text-[11px] tabular-nums text-slate-500">{t("ERP 编码")}: {row.erpCode}</div>}
             </div>
           </div>
         </td>

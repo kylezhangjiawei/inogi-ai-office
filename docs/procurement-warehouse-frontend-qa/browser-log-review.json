@@ -1,0 +1,212 @@
+[
+  {
+    "level": "error",
+    "message": "[window.onerror] TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090483843",
+    "timestamp": "2026-09-11T01:35:58.018Z",
+    "url": "http://127.0.0.1:5173/src/app/App.tsx?t=1789090483843"
+  },
+  {
+    "level": "error",
+    "message": "TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090483843",
+    "timestamp": "2026-09-11T01:35:58.018Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-KBP2TVUK.js?v=548e9723"
+  },
+  {
+    "level": "error",
+    "message": "Error handled by React Router default ErrorBoundary: TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090483843",
+    "timestamp": "2026-09-11T01:35:58.018Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "error",
+    "message": "[window.onerror] TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090483843",
+    "timestamp": "2026-09-11T01:35:58.018Z",
+    "url": "http://127.0.0.1:5173/src/app/App.tsx?t=1789090483843"
+  },
+  {
+    "level": "error",
+    "message": "TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090483843",
+    "timestamp": "2026-09-11T01:35:58.018Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-KBP2TVUK.js?v=548e9723"
+  },
+  {
+    "level": "error",
+    "message": "Error handled by React Router default ErrorBoundary: TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090483843",
+    "timestamp": "2026-09-11T01:35:58.018Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "error",
+    "message": "The above error occurred in one of your React components:\n\n    at Lazy\n    at Suspense\n    at RenderedRoute (http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723:6667:26)\n    at RenderErrorBoundary (http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723:6579:5)\n    at DataRoutes2 (http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723:7441:3)\n    at Router (http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723:7541:13)\n    at RouterProvider (http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723:7205:3)\n    at AuthProvider (http://127.0.0.1:5173/src/app/auth.tsx:44:32)\n    at AppErrorBoundary (http://127.0.0.1:5173/src/app/App.tsx?t=1789090483843:1099:1)\n    at DefaultPropsProvider (http://127.0.0.1:5173/node_modules/.vite/deps/chunk-Q7Q2SA54.js?v=548e9723:5220:3)\n    at RtlProvider (http://127.0.0.1:5173/node_modules/.vite/deps/chunk-Q7Q2SA54.js?v=548e9723:5196:3)\n    at ThemeProvider2 (http://127.0.0.1:5173/node_modules/.vite/deps/chunk-Q7Q2SA54.js?v=548e9723:5152:5)\n    at ThemeProvider3 (http://127.0.0.1:5173/node_modules/.vite/deps/chunk-Q7Q2SA54.js?v=548e9723:5372:5)\n    at ThemeProviderNoVars (http://127.0.0.1:5173/node_modules/.vite/deps/chunk-Q7Q2SA54.js?v=548e9723:9073:10)\n    at ThemeProvider4 (http://127.0.0.1:5173/node_modules/.vite/deps/chunk-Q7Q2SA54.js?v=548e9723:9222:3)\n    at App\n\nReact will try to recreate this component tree from scratch using the error boundary you provided, RenderErrorBoundary.",
+    "timestamp": "2026-09-11T01:35:58.018Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-PJ5O5MOZ.js?v=548e9723"
+  },
+  {
+    "level": "error",
+    "message": "React Router caught the following error during render TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090483843",
+    "timestamp": "2026-09-11T01:35:58.018Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "error",
+    "message": "[window.onerror] TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090669579",
+    "timestamp": "2026-09-11T01:37:49.875Z",
+    "url": "http://127.0.0.1:5173/src/app/App.tsx?t=1789090669579"
+  },
+  {
+    "level": "error",
+    "message": "TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090669579",
+    "timestamp": "2026-09-11T01:37:49.876Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-KBP2TVUK.js?v=548e9723"
+  },
+  {
+    "level": "error",
+    "message": "Error handled by React Router default ErrorBoundary: TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090669579",
+    "timestamp": "2026-09-11T01:37:49.876Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "error",
+    "message": "[window.onerror] TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090669579",
+    "timestamp": "2026-09-11T01:37:49.876Z",
+    "url": "http://127.0.0.1:5173/src/app/App.tsx?t=1789090669579"
+  },
+  {
+    "level": "error",
+    "message": "TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090669579",
+    "timestamp": "2026-09-11T01:37:49.876Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-KBP2TVUK.js?v=548e9723"
+  },
+  {
+    "level": "error",
+    "message": "Error handled by React Router default ErrorBoundary: TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090669579",
+    "timestamp": "2026-09-11T01:37:49.877Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "error",
+    "message": "The above error occurred in one of your React components:\n\n    at Lazy\n    at Suspense\n    at RenderedRoute (http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723:6667:26)\n    at RenderErrorBoundary (http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723:6579:5)\n    at DataRoutes2 (http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723:7441:3)\n    at Router (http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723:7541:13)\n    at RouterProvider (http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723:7205:3)\n    at AuthProvider (http://127.0.0.1:5173/src/app/auth.tsx:44:32)\n    at AppErrorBoundary (http://127.0.0.1:5173/src/app/App.tsx?t=1789090669579:1099:1)\n    at DefaultPropsProvider (http://127.0.0.1:5173/node_modules/.vite/deps/chunk-Q7Q2SA54.js?v=548e9723:5220:3)\n    at RtlProvider (http://127.0.0.1:5173/node_modules/.vite/deps/chunk-Q7Q2SA54.js?v=548e9723:5196:3)\n    at ThemeProvider2 (http://127.0.0.1:5173/node_modules/.vite/deps/chunk-Q7Q2SA54.js?v=548e9723:5152:5)\n    at ThemeProvider3 (http://127.0.0.1:5173/node_modules/.vite/deps/chunk-Q7Q2SA54.js?v=548e9723:5372:5)\n    at ThemeProviderNoVars (http://127.0.0.1:5173/node_modules/.vite/deps/chunk-Q7Q2SA54.js?v=548e9723:9073:10)\n    at ThemeProvider4 (http://127.0.0.1:5173/node_modules/.vite/deps/chunk-Q7Q2SA54.js?v=548e9723:9222:3)\n    at App\n\nReact will try to recreate this component tree from scratch using the error boundary you provided, RenderErrorBoundary.",
+    "timestamp": "2026-09-11T01:37:49.877Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/chunk-PJ5O5MOZ.js?v=548e9723"
+  },
+  {
+    "level": "error",
+    "message": "React Router caught the following error during render TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:5173/src/app/procurement/warehouse/WarehousePreviewPage.tsx?t=1789090669579",
+    "timestamp": "2026-09-11T01:37:49.877Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:40:40.925Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:43:54.456Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:44:50.683Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:44:53.712Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:45:36.360Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:46:49.084Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:46:52.120Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:47:23.951Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:47:49.218Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:47:52.255Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:49:23.271Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:49:59.302Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:50:31.086Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:50:34.142Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:51:28.067Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:51:31.102Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:52:00.076Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:52:03.226Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  },
+  {
+    "level": "warn",
+    "message": "A router only supports one blocker at a time",
+    "timestamp": "2026-09-11T01:52:06.351Z",
+    "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+  }
+]

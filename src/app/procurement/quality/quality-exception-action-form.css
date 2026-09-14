@@ -1,0 +1,22 @@
+.quality-exception-action-form input[type='date'] {
+  max-width: 100%;
+}
+
+.quality-exception-action-form [data-slot='select-value'] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quality-action-confirm[data-state],
+.quality-action-confirm-overlay[data-state] {
+  animation: none;
+  transition: none;
+}
+
+.quality-action-confirm {
+  max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}

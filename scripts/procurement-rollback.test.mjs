@@ -20,6 +20,10 @@ const helperSource = namedDeclarations("src/app/procurement/components/common.ts
 ]);
 const helpers = {};
 new Function("exports", transpile(helperSource))(helpers);
+const sampleFacts = {};
+new Function("exports", transpile(source("src/app/lib/procSampleFacts.ts")))(sampleFacts);
+new Function("exports", transpile(namedDeclarations("src/app/procurement/sampleWorkspaceModel.ts", ["isSampleTask"])))(helpers);
+new Function("exports", transpile(namedDeclarations("src/app/procurement/components/ProcSampleTestDialog.tsx", ["SAMPLE_TEST_RESULT_LABELS"])))(helpers);
 
 test("进行中的询价和直购任务可退回任意更早阶段，已完成禁止回退", () => {
   const flows = {
@@ -71,7 +75,7 @@ test("回退客户端保留原状态、规范原因且转义任务路径", async
 });
 
 // 运行真实详情组件的事件处理与 hooks 状态；可视布局、Radix 焦点/键盘交互另由浏览器验收。
-function drawerHarness({ allowed = true, status = "partial_arrival", method = "inquiry", source: taskSource = "self", rdTaskId, rollback, reload, initialAction, logs = [] } = {}) {
+function drawerHarness({ allowed = true, permissions = [], status = "partial_arrival", method = "inquiry", source: taskSource = "self", rdTaskId, rollback, reload, initialAction, logs = [], onNavigateRelated, sampleRoute = "/proc-cockpit", actionBusy = false } = {}) {
   const text = source("src/app/procurement/components/TaskDetailDrawer.tsx");
   const file = ts.createSourceFile("TaskDetailDrawer.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const imports = file.statements.filter(ts.isImportDeclaration).flatMap((node) => {
@@ -95,7 +99,7 @@ function drawerHarness({ allowed = true, status = "partial_arrival", method = "i
   const scrollEvents = [];
   const attachedRefs = new Set();
   const stubs = Object.fromEntries(imports.map((name) => [name, name]));
-  Object.assign(stubs, helpers, {
+  Object.assign(stubs, helpers, sampleFacts, {
     useState(initial) {
       const index = cursor++;
       if (!(index in values)) values[index] = typeof initial === "function" ? initial() : initial;
@@ -108,10 +112,12 @@ function drawerHarness({ allowed = true, status = "partial_arrival", method = "i
     },
     useEffect(effect) { effects.push(effect); },
     useI18n: () => ({ t: (value, replacements = {}) => value.replace(/\{(\w+)\}/g, (_, key) => replacements[key] ?? key) }),
-    useProcCan: () => (permission) => allowed && permission === "proc-task:rollback",
+    useNavigate: () => (url) => events.push(`navigate:${url}`),
+    routePath: (permission, fallback) => permission === "page:proc-cockpit" ? sampleRoute : fallback,
+    useProcCan: () => (permission) => permissions.includes(permission) || (allowed && permission === "proc-task:rollback"),
     useProcurementData: () => ({ materials: [] }),
     useBuyerDirectory: () => ({ deptOf: () => "采购部" }),
-    useProcTaskAction: () => ({ busy: false }),
+    useProcTaskAction: () => ({ busy: actionBusy }),
     nextPermissionOf: () => "proc-task:transition",
     taskRequester: () => ({ name: "申请人", dept: "研发部" }),
     cn: (...items) => items.filter(Boolean).join(" "),
@@ -127,7 +133,7 @@ function drawerHarness({ allowed = true, status = "partial_arrival", method = "i
   const exports = {};
   const React = { createElement: (type, props, ...children) => ({ type, props: { ...props, children } }) };
   new Function("exports", "stubs", "React", `const { ${imports.join(",")} } = stubs;\n${transpile(body)}`)(exports, stubs, React);
-  const render = () => { cursor = 0; effects.length = 0; return exports.TaskDetailDrawer({ task, initialAction, onClose() { events.push("close"); } }); };
+  const render = () => { cursor = 0; effects.length = 0; return exports.TaskDetailDrawer({ task, initialAction, onNavigateRelated, onClose() { events.push("close"); } }); };
   const nodes = (node) => !node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)];
   const content = (node) => node == null || typeof node === "boolean" ? "" : Array.isArray(node) ? node.map(content).join("") : typeof node === "object" ? content(node.props?.children) : String(node);
   const find = (predicate) => nodes(render()).find(predicate);
@@ -159,6 +165,61 @@ function drawerHarness({ allowed = true, status = "partial_arrival", method = "i
   };
   return { render, button, click, reason, alert, find, calls, updates, events, notifications, text: () => content(render()), settle, commitEffects, detachRefs, focusEvents, scrollEvents, changeTask: (patch) => { task = { ...task, ...patch }; } };
 }
+
+test("样品协同入口先关闭采购详情再跳转对应样品，非样品任务不显示入口", () => {
+  const ui = drawerHarness({ allowed: false, permissions: ["page:proc-cockpit"] });
+  assert.equal(ui.button("打开样品协同"), undefined);
+  ui.changeTask({ id: "proc/sample ?", needSample: true });
+  ui.click("打开样品协同");
+  assert.deepEqual(ui.events, ["close", "navigate:/proc-cockpit?tab=samples&sample=proc%2Fsample%20%3F"]);
+  assert.equal(ui.calls.length, 0);
+});
+
+test("工作台详情优先使用来源导航回调，样品链接遵守配置路由，提交期间禁用入口", () => {
+  const related = [];
+  const ui = drawerHarness({ allowed: false, permissions: ["page:proc-cockpit"], sampleRoute: "/supply-proc", onNavigateRelated: (path) => {
+    assert.deepEqual(ui.events, ["close"], "先关闭抽屉，再交由父页保存返回来源并导航");
+    related.push(path);
+  } });
+  ui.changeTask({ id: "sample/A ?", needSample: true });
+  ui.click("打开样品协同");
+  assert.deepEqual(related, ["/supply-proc?tab=samples&sample=sample%2FA%20%3F"]);
+  assert.deepEqual(ui.events, ["close"], "有来源回调时不得额外调用默认 navigate");
+  const busy = drawerHarness({ permissions: ["page:proc-cockpit"], actionBusy: true });
+  busy.changeTask({ needSample: true });
+  assert.equal(busy.button("打开样品协同").props.disabled, true);
+});
+
+test("仅采购个人工作台权限保留交付和样品状态，但不显示驾驶舱样品协同入口", () => {
+  const ui = drawerHarness({ allowed: false, permissions: ["page:proc-my-workspace"], source: "rd", status: "pending_sample" });
+  const snapshots = [{ id: "delivery-v1", attachments: [{ version: "V1" }] }];
+  ui.changeTask({ needSample: true, rdTransferSnapshots: snapshots });
+  assert.equal(ui.find((node) => node.type === "RdDeliverySnapshotPanel").props.task.rdTransferSnapshots, snapshots);
+  assert.equal(ui.find((node) => node.props?.label === "到样状态").props.value, "待到样");
+  assert.match(ui.text(), /样品与测试/);
+  assert.equal(ui.button("打开样品协同"), undefined);
+  assert.deepEqual(ui.events, []);
+});
+
+test("采购详情保留研发交付快照；旧通过结论在回退后标为上次测试且不伪造到样时间", () => {
+  const ui = drawerHarness({ source: "rd", status: "inquiring" });
+  const snapshots = [{ id: "delivery-v1", attachments: [{ version: "V1" }] }];
+  ui.changeTask({ rdTransferSnapshots: snapshots, needSample: true, sampleTest: {
+    roundId: "old-round", testerUserId: "rd-1", testerName: "研发甲", assignedByName: "采购甲", assignedAt: "2026-09-08T01:00:00Z",
+    result: "passed", note: "旧样品通过", confirmedByName: "研发甲", confirmedAt: "2026-09-08T02:00:00Z",
+  } });
+  assert.equal(ui.find((node) => node.type === "RdDeliverySnapshotPanel").props.task.rdTransferSnapshots, snapshots);
+  assert.equal(ui.find((node) => node.props?.label === "到样状态").props.value, "到样状态待确认");
+  assert.ok(ui.find((node) => node.props?.label === "上次测试结论"));
+  assert.equal(ui.find((node) => node.props?.label === "到样时间"), undefined);
+  assert.match(ui.text(), /历史测试记录不能确认当前样品已到/);
+  ui.changeTask({ status: "testing", sampleTest: {
+    roundId: "current-round", testerUserId: "rd-1", testerName: "研发甲", assignedByName: "采购甲", assignedAt: "2026-09-09T01:00:00Z",
+    result: null, note: null, confirmedByName: null, confirmedAt: null,
+  } });
+  assert.equal(ui.find((node) => node.props?.label === "到样状态").props.value, "已确认到样");
+  assert.equal(ui.find((node) => node.props?.label === "上次测试结论"), undefined);
+});
 
 test("个人工作台直达回退只触发一次，刷新状态不会重开已关闭的确认", () => {
   const ui = drawerHarness({ initialAction: "rollback" });

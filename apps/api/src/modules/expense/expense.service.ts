@@ -1738,27 +1738,21 @@ export class ExpenseService {
     query: Record<string, string | undefined>,
     body: unknown,
   ): Record<string, unknown> {
+    let raw: string;
     if (body && typeof body === 'object' && !Buffer.isBuffer(body)) {
       const direct = body as Record<string, unknown>;
-      if (direct.sp_no || direct.SpNo || direct.spNo) return direct;
-      const encrypted = this.getEncryptedXmlValue(String(direct.xml ?? direct.Encrypt ?? ''));
-      if (encrypted) {
-        if (!client.verifySignature(query, encrypted)) {
-          throw new BadRequestException('企业微信回调签名校验失败');
-        }
-        return this.parseWeComCallbackXml(client.decryptCallbackPayload(encrypted));
-      }
+      raw = String(direct.xml ?? direct.Encrypt ?? '');
+    } else {
+      raw = Buffer.isBuffer(body) ? body.toString('utf8') : String(body ?? '');
     }
-
-    const raw = Buffer.isBuffer(body) ? body.toString('utf8') : String(body ?? '');
     const encrypted = this.getEncryptedXmlValue(raw);
-    if (encrypted) {
-      if (!client.verifySignature(query, encrypted)) {
-        throw new BadRequestException('企业微信回调签名校验失败');
-      }
-      return this.parseWeComCallbackXml(client.decryptCallbackPayload(encrypted));
+    if (!encrypted) {
+      throw new BadRequestException('企业微信回调缺少加密消息 Encrypt');
     }
-    return this.parseWeComCallbackXml(raw);
+    if (!client.verifySignature(query, encrypted)) {
+      throw new BadRequestException('企业微信回调签名校验失败');
+    }
+    return this.parseWeComCallbackXml(client.decryptCallbackPayload(encrypted));
   }
 
   private parseWeComCallbackXml(xml: string): Record<string, unknown> {

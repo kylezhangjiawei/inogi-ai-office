@@ -170,9 +170,9 @@ test("报价表单、报价导入和任务移动提供清晰结构、就地错�
 
 test("历史价格对比提供加载恢复、决策摘要和非纯颜色最低价标识", () => {
   const page = files.priceHistory;
-  assert.match(page, /历史最低/);
+  assert.match(page, /已读最低/);
   assert.match(page, /最近报价/);
-  assert.match(page, /历史均价/);
+  assert.match(page, /已读均价/);
   assert.match(page, /供应商覆盖/);
   assert.match(page, /重新加载/);
   assert.match(page, /role="img"/);
@@ -184,7 +184,9 @@ test("历史价格对比提供加载恢复、决策摘要和非纯颜色最低�
   assert.match(page, /不同币种不直接比较/);
   assert.match(page, /onClick=\{\(\) => toggleSort\("date"\)\}/);
   assert.match(page, /onClick=\{\(\) => toggleSort\("price"\)\}/);
-  assert.match(page, /listQuotations\(\{ materialName \}\)/);
+  assert.match(page, /listQuotations\(exactMaterialId \? \{ materialId: exactMaterialId \} : \{ materialName \}\)/);
+  assert.match(page, /同名候选报价/);
+  assert.match(page, /最近最多 200 条/);
   assert.match(page, /const requestIdRef = useRef\(0\)/);
   assert.match(page, /<caption className="sr-only">/);
   assert.match(page, /<thead className="sr-only">/);
@@ -198,7 +200,10 @@ test("共享操作弹层保留危险确认、原子提交和采购业务调用",
   assert.match(files.common, /event\.preventDefault\(\); void execute\(\)/);
   assert.match(files.common, /if \(!open && !busyRef\.current\) setReq\(null\)/);
   assert.match(files.common, /aria-label=\{ariaLabel\}/);
-  assert.match(files.common, /autoFocus, ariaLabel, onEnter/);
+  assert.match(files.common, /autoFocus=\{autoFocus\}/);
+  assert.match(files.common, /required=\{required\}/);
+  assert.match(files.common, /onEnter\?: \(\) => void/);
+  assert.match(files.common, /if \(e\.key === "Enter"\) onEnter\?\.\(\)/);
 
   assert.match(files.actions, /function ConfirmActionDialog/);
   assert.match(files.actions, /<AlertDialog open/);

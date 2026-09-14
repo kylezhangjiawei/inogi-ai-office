@@ -44,37 +44,49 @@ function TrendLine({ rows }: { rows: Quotation[] }) {
   );
 }
 
-export function PriceHistoryModal({ materialName, open, onClose }: { materialName: string; open: boolean; onClose: () => void }) {
+export function PriceHistoryModal({ materialId, materialName, open, onClose }: { materialId?: string | null; materialName: string; open: boolean; onClose: () => void }) {
   const { t } = useI18n();
   const [groupBySupplier, setGroupBySupplier] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [asc, setAsc] = useState(true);
   const [currency, setCurrency] = useState("");
-  // 报价按物料名跨任务聚合，弹窗打开时才拉取
-  const [rows, setRows] = useState<Quotation[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const exactMaterialId = materialId?.trim() ? materialId : null;
+  const scope = JSON.stringify([open, exactMaterialId, materialName]);
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const [result, setResult] = useState<{ scope: string; rows: Quotation[]; error: string } | null>(null);
+  // A new material is unread before its effect runs; never paint the previous material's prices.
+  const rows = result?.scope === scope ? result.rows : [];
+  const loading = open && result?.scope !== scope;
+  const error = result?.scope === scope ? result.error : "";
   const requestIdRef = useRef(0);
   const openerRef = useRef<HTMLElement | null>(null);
   const load = useCallback(async () => {
+    if (!open) return;
     const requestId = ++requestIdRef.current;
-    setLoading(true);
-    setError("");
-    try {
-      const nextRows = await listQuotations({ materialName });
-      if (requestId === requestIdRef.current) setRows(nextRows);
-    } catch (caught) {
-      if (requestId === requestIdRef.current) {
-        setRows([]);
-        setError(caught instanceof Error ? caught.message : t("历史报价加载失败"));
-      }
-    } finally {
-      if (requestId === requestIdRef.current) setLoading(false);
+    const isCurrent = () => requestId === requestIdRef.current && scopeRef.current === scope;
+    setResult(null);
+    if (!exactMaterialId && !materialName.trim()) {
+      setResult({ scope, rows: [], error: t("缺少物料标识，无法读取历史报价。") });
+      return;
     }
-  }, [materialName, t]);
+    try {
+      const nextRows = await listQuotations(exactMaterialId ? { materialId: exactMaterialId } : { materialName });
+      if (!isCurrent()) return;
+      if (exactMaterialId && nextRows.some((row) => row.materialId !== exactMaterialId)) {
+        throw new Error(t("返回报价的物料身份不一致，请重新读取。"));
+      }
+      setResult({ scope, rows: nextRows, error: "" });
+    } catch (caught) {
+      if (isCurrent()) {
+        setResult({ scope, rows: [], error: caught instanceof Error ? caught.message : t("历史报价加载失败") });
+      }
+    }
+  }, [exactMaterialId, materialName, open, scope, t]);
   useEffect(() => {
     if (!open) {
       requestIdRef.current += 1;
+      setResult(null);
       return;
     }
     void load();
@@ -98,7 +110,7 @@ export function PriceHistoryModal({ materialName, open, onClose }: { materialNam
     for (const r of sorted) { if (!m.has(r.supplierName)) m.set(r.supplierName, []); m.get(r.supplierName)!.push(r); }
     return Array.from(m.entries());
   }, [sorted]);
-  const lowest = comparableRows.length ? comparableRows.reduce((a, b) => (a.unitPrice <= b.unitPrice ? a : b)) : null;
+  const lowest = exactMaterialId && comparableRows.length ? comparableRows.reduce((a, b) => (a.unitPrice <= b.unitPrice ? a : b)) : null;
   const latest = comparableRows.length ? comparableRows.reduce((a, b) => ((a.quoteDate ?? "") >= (b.quoteDate ?? "") ? a : b)) : null;
   const average = comparableRows.length ? comparableRows.reduce((sum, row) => sum + row.unitPrice, 0) / comparableRows.length : 0;
   const supplierCount = new Set(comparableRows.map((row) => row.supplierName)).size;
@@ -107,7 +119,7 @@ export function PriceHistoryModal({ materialName, open, onClose }: { materialNam
   const Row = ({ r }: { r: Quotation }) => (
     <tr className="border-b border-slate-100 last:border-0">
       <td className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-2 text-slate-600"><span className="line-clamp-2 break-words" title={r.supplierName}>{r.supplierName}</span>{r.isSelected && <span className="mt-0.5 inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1 text-[10px] text-emerald-700"><BadgeCheck className="size-3" />{t('已选定')}</span>}</td>
-      <td className={cn("break-all px-3 py-2 font-semibold tabular-nums", lowest && r === lowest ? "text-emerald-700" : "text-slate-800")}>{fmtQuotationPrice(r.unitPrice, r.currency)}{lowest && r === lowest && <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-emerald-700"><BadgeCheck className="size-3" />{t('该币种最低')}</span>}</td>
+      <td className={cn("break-all px-3 py-2 font-semibold tabular-nums", lowest && r === lowest ? "text-emerald-700" : "text-slate-800")}>{fmtQuotationPrice(r.unitPrice, r.currency)}{lowest && r === lowest && <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-emerald-700"><BadgeCheck className="size-3" />{t('该币种已读最低')}</span>}</td>
       <td className="break-words px-3 py-2 tabular-nums text-slate-500">{t('{n} 天', { n: r.leadTimeDays })}</td>
       <td className="break-words px-3 py-2 tabular-nums text-slate-500">{r.quoteDate}</td>
     </tr>
@@ -129,7 +141,7 @@ export function PriceHistoryModal({ materialName, open, onClose }: { materialNam
             {t('历史价格对比')}
             <span title={materialName} className="mt-1 block line-clamp-2 break-words text-sm font-medium text-slate-600"><AutoTranslatedText text={materialName} /></span>
           </DialogTitle>
-          <DialogDescription className="mt-0.5 text-pretty text-xs text-slate-400">{t('跨供应商历史报价，支持分组与排序对比')}</DialogDescription>
+          <DialogDescription className="mt-0.5 text-pretty text-xs text-slate-500">{t(exactMaterialId ? '按正式物料查询最近最多 200 条报价，以下统计仅基于已读取范围。' : '同名候选报价：最近最多 200 条；未关联正式物料，可能包含不同规格或单位，请核对后再比较价格。')}</DialogDescription>
         </DialogHeader>
         <div className="proc-price-history-body min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">
           {loading ? (
@@ -141,30 +153,31 @@ export function PriceHistoryModal({ materialName, open, onClose }: { materialNam
           ) : error ? (
             <div role="alert" className="flex flex-col items-center gap-3 py-10 text-center"><AlertTriangle className="size-6 text-rose-600" /><p className="max-w-full break-words text-pretty text-sm text-rose-700">{error}</p><button type="button" onClick={() => void load()} className="material-button-secondary px-3 py-2 text-xs">{t("重新加载")}</button></div>
           ) : rows.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-10 text-center"><History className="size-6 text-slate-300" /><p className="text-pretty text-sm text-slate-400">{t('该物料暂无历史报价，可先在采购任务中录入供应商报价。')}</p><button type="button" onClick={onClose} className="material-button-secondary px-3 py-2 text-xs">{t("关闭并返回")}</button></div>
+            <div className="flex flex-col items-center gap-3 py-10 text-center"><History className="size-6 text-slate-300" /><p className="text-pretty text-sm text-slate-400">{t(exactMaterialId ? '该正式物料暂无已关联的历史报价。' : '未读取到同名候选报价。')}</p><button type="button" onClick={onClose} className="material-button-secondary px-3 py-2 text-xs">{t("关闭并返回")}</button></div>
           ) : (
             <>
+              <p className="mb-3 text-pretty text-xs text-slate-500">{t("已读取 {count} 条报价，不代表全部历史。", { count: rows.length })}</p>
               {currencies.length > 1 && (
                 <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2">
                   <span className="text-xs font-semibold text-amber-900">{t("比较币种")}</span>
                   <ToggleGroup type="single" value={activeCurrency} onValueChange={(value) => { if (value) setCurrency(value); }} aria-label={t("历史报价比较币种")} variant="outline" size="sm" className="flex flex-wrap">
                     {currencies.map((code) => <ToggleGroupItem key={code} value={code} className="h-7 px-2 text-xs tabular-nums data-[state=on]:border-[var(--primary-soft-border)] data-[state=on]:bg-white data-[state=on]:text-primary">{code}</ToggleGroupItem>)}
                   </ToggleGroup>
-                  <span className="text-pretty text-[11px] text-amber-800">{t("缺少汇率时不同币种不直接比较；以下指标、趋势和最低价均只基于所选币种。")}</span>
+                  <span className="text-pretty text-[11px] text-amber-800">{t(exactMaterialId ? "缺少汇率时不同币种不直接比较；以下指标、趋势和最低价均只基于所选币种。" : "不同币种不直接比较；以下仅显示所选币种的候选报价。")}</span>
                 </div>
               )}
-              <div className="proc-price-history-metrics mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {exactMaterialId && <><div className="proc-price-history-metrics mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
-                  { icon: CircleDollarSign, label: t("历史最低"), value: lowest ? fmtQuotationPrice(lowest.unitPrice, activeCurrency) : "—", detail: lowest?.supplierName ?? "—" },
+                  { icon: CircleDollarSign, label: t("已读最低"), value: lowest ? fmtQuotationPrice(lowest.unitPrice, activeCurrency) : "—", detail: lowest?.supplierName ?? "—" },
                   { icon: CalendarDays, label: t("最近报价"), value: latest ? fmtQuotationPrice(latest.unitPrice, activeCurrency) : "—", detail: latest?.quoteDate ?? "—" },
-                  { icon: ArrowDownUp, label: t("历史均价"), value: fmtQuotationPrice(average, activeCurrency), detail: t("基于 {count} 条同币种报价", { count: comparableRows.length }) },
+                  { icon: ArrowDownUp, label: t("已读均价"), value: fmtQuotationPrice(average, activeCurrency), detail: t("基于 {count} 条同币种报价", { count: comparableRows.length }) },
                   { icon: History, label: t("供应商覆盖"), value: t("{count} 家", { count: supplierCount }), detail: t("共 {count} 条同币种记录", { count: comparableRows.length }) },
                 ].map((item) => <div key={item.label} className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/60 p-2.5"><div className="flex items-center gap-1.5 text-[11px] text-slate-500"><item.icon className="size-3.5 shrink-0" />{item.label}</div><strong className="mt-1 block break-all text-sm tabular-nums text-slate-900" title={item.value}>{item.value}</strong><span className="mt-0.5 block truncate text-[10px] text-slate-400" title={item.detail}>{item.detail}</span></div>)}
               </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
                 <div className="mb-1 text-xs font-medium text-slate-500">{t('{currency} 价格趋势（按时间）', { currency: activeCurrency })}</div>
                 {comparableRows.length > 1 ? <TrendLine rows={comparableRows} /> : <p className="py-4 text-pretty text-xs text-slate-500">{t("至少两条报价可显示价格趋势")}</p>}
-              </div>
+              </div></>}
               <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                 <Toggle pressed={groupBySupplier} onPressedChange={setGroupBySupplier} variant="outline" size="sm" className="h-8 rounded-lg border-slate-200 px-3 text-xs data-[state=on]:border-[var(--primary-soft-border)] data-[state=on]:bg-accent data-[state=on]:text-primary">{t('按供应商分组')}</Toggle>
                 <ToggleGroup type="single" value={sortKey} variant="outline" size="sm" aria-label={t("报价排序")}>

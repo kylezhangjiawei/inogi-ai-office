@@ -15,11 +15,13 @@ const OTHER = 'prod/rd/progress-notes/u1/2026/09/03/uuid-无人引用.pdf';
  */
 function harness(opts: {
   notes?: Record<string, unknown[]>;
+  documentKeys?: string[];
   procAttachments?: Array<{ fileKey: string | null; fileUrl: string }>;
 }) {
   const deleted: string[] = [];
   let queriedWhere: unknown = null;
   const prisma = {
+    rdTechnicalDocumentVersion: { findMany: async () => (opts.documentKeys ?? []).map((fileKey) => ({ fileKey })) },
     procTaskAttachment: {
       findMany: async ({ where }: { where: unknown }) => {
         queriedWhere = where;
@@ -30,7 +32,11 @@ function harness(opts: {
   const service = Object.create(ResearchDevelopmentService.prototype) as ResearchDevelopmentService;
   Object.assign(service, {
     prisma,
-    ossService: { deleteObject: async (key: string) => { deleted.push(key); } },
+    ossService: {
+      deleteObject: async (key: string) => { deleted.push(key); },
+      isKeyUnderBusinessType: () => true,
+      verifyCleanupToken: () => true,
+    },
   });
   (service as never as { getProgressNoteMap: () => Promise<unknown> }).getProgressNoteMap =
     async () => opts.notes ?? {};
@@ -40,7 +46,7 @@ function harness(opts: {
       deleteAttachmentObjectsIfUnreferenced: (a: Array<Record<string, unknown>>) => Promise<void>;
     }).deleteAttachmentObjectsIfUnreferenced(keys.map((k) => ({ object_key: k })));
 
-  return { run, deleted, queriedWhere: () => queriedWhere };
+  return { run, service, deleted, queriedWhere: () => queriedWhere };
 }
 
 test('采购任务仍在引用时，研发删留痕不再物理删除该对象', async () => {
@@ -117,4 +123,21 @@ test('URL 还原：查询参数、编码路径、脏输入', () => {
   assert.deepEqual(extractObjectKeysFromUrl('   '), []);
   // 非法百分号转义会让 decodeURIComponent 抛错，不能把整个删除流程带崩
   assert.deepEqual(extractObjectKeysFromUrl('https://x.com/%E4%BD%A0%'), []);
+});
+
+
+test('原留痕已删除但技术资料历史版本仍引用时，保留文件并只清理无引用对象', async () => {
+  const h = harness({ notes: {}, procAttachments: [], documentKeys: [KEY] });
+  await h.run([KEY, OTHER]);
+  assert.deepEqual(h.deleted, [OTHER]);
+});
+
+test('上传失败清理也不能删掉已登记在技术资料历史版本中的对象', async () => {
+  const h = harness({ documentKeys: [KEY] });
+  const result = await h.service.cleanupUnregisteredProgressNoteUploads(
+    [KEY, OTHER].map((objectKey) => ({ objectKey, originalname: '图纸.pdf', mimetype: 'application/pdf', size: 20 })),
+    'u1',
+  );
+  assert.deepEqual(h.deleted, [OTHER]);
+  assert.deepEqual(result, { success: true, deleted: 1, retained: 1 });
 });

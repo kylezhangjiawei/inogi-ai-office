@@ -45,6 +45,7 @@ export type AuditAction =
   | "task.attachment_added"
   | "task.attachment_removed"
   | "task.attachment_replaced"
+  | "task.document_version_confirmed"
   | "task.evidence_uploaded"
   | "task.handoff_requested"
   | "task.abandon_requested"
@@ -261,6 +262,7 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "task.attachment_added": { category: "task", label: "添加附件", verb: "上传了附件", tone: "slate" },
   "task.attachment_removed": { category: "task", label: "删除附件", verb: "删除了附件", tone: "red" },
   "task.attachment_replaced": { category: "task", label: "替换附件", verb: "替换了附件", tone: "amber" },
+  "task.document_version_confirmed": { category: "task", label: "确认资料版本", verb: "确认了技术资料版本", tone: "blue" },
   "task.evidence_uploaded": { category: "task", label: "上传依据", verb: "上传了任务依据", tone: "slate" },
   "task.handoff_requested": { category: "task", label: "提交移交", verb: "提交了任务移交流程", tone: "violet" },
   "task.abandon_requested": { category: "task", label: "申请放弃", verb: "申请放弃了任务", tone: "amber" },

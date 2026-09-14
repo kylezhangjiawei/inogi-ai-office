@@ -7068,6 +7068,7 @@ function PersonTaskCockpit({
   const masonryColumns = useMasonryColumns(taskStreamEl);
   // 协同侧信息密度降一档：卡片内边距与卡片间距放宽（欧美工具风的呼吸感）；研发侧维持紧凑
   const spaciousCards = isUsCollabWorkspace();
+  const researchCards = !spaciousCards && !isProductionWorkspace();
   // 跨用户头像解析（人员 Stories 头像 = 文字 → 真实头像，按姓名兜底匹配）
   const resolveAvatar = useAvatarDirectory();
 
@@ -7734,6 +7735,7 @@ function PersonTaskCockpit({
     const hasLoadedAttachments = Boolean(attachmentPreview && attachmentPreview.attachment_count > 0);
     const isRisk = riskTaskIds.has(task.task_id);
     const productionMirror = isProductionMirrorTask(task);
+    const researchCard = researchCards && task.source_workspace !== "us-collab" && !productionMirror;
     const isCurrentUserParticipant = Boolean(user && (
       matchesCurrentTaskParticipant(
         task.primary_owner_user_id,
@@ -7820,9 +7822,19 @@ function PersonTaskCockpit({
         )}
       >
         <div className={cn("rd-horizon-task-card-body flex min-h-[220px] min-w-0 flex-col", spaciousCards ? "gap-3 px-5 py-4" : "gap-2.5 px-4 py-3.5")}>
-          {/* 参考卡片第一行：分类标签在左，附件数量与操作菜单在右。 */}
+          {/* 研发先识别任务与状态；协同和生产保留原来的标签/附件工具栏。 */}
           <div className="flex items-start gap-3">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-hidden">
+              {researchCard && (
+                <>
+                  <h3 className="mb-0.5 line-clamp-2 min-w-0 basis-full break-words text-balance text-[15px] font-bold leading-snug text-foreground">
+                    <AutoTranslatedText text={visibleTaskTitle} />
+                  </h3>
+                  <span className="inline-flex shrink-0 items-center rounded-md bg-accent px-2 py-1 text-xs font-semibold text-primary">
+                    {t(STATUS_CONFIG[task.status]?.label ?? task.status)}
+                  </span>
+                </>
+              )}
               {hierarchySegments.map((segment) => (
                 <span
                   key={segment}
@@ -7879,7 +7891,7 @@ function PersonTaskCockpit({
             </div>
 
             <div className="flex shrink-0 items-center gap-1.5">
-              {taskAttachmentCount > 0 && (
+              {!researchCard && taskAttachmentCount > 0 && (
                 <button
                   type="button"
                   disabled={attachmentLoadingTaskId === task.task_id}
@@ -7910,6 +7922,15 @@ function PersonTaskCockpit({
                     <ArrowRight className="h-4 w-4" />
                     {t("查看任务")}
                   </DropdownMenuItem>
+                  {researchCard && taskAttachmentCount > 0 && (
+                    <DropdownMenuItem
+                      disabled={attachmentLoadingTaskId === task.task_id}
+                      onSelect={() => { void openCompleteAttachmentCollection(task, taskAttachmentCount); }}
+                    >
+                      <Paperclip className="h-4 w-4" />
+                      {t("查看全部附件")} · {taskAttachmentCount}
+                    </DropdownMenuItem>
+                  )}
                   {!productionMirror && showProductionSyncAction && onToggleProductionSync && (
                     <DropdownMenuItem
                       disabled={syncingProductionTaskId === task.task_id}
@@ -7940,9 +7961,28 @@ function PersonTaskCockpit({
             </div>
           </div>
 
-          <h3 className="line-clamp-2 break-words text-balance text-[15px] font-bold leading-snug text-slate-900">
-            <AutoTranslatedText text={visibleTaskTitle} />
-          </h3>
+          {researchCard ? (
+            <dl className="grid min-w-0 grid-cols-2 gap-3 rounded-lg bg-muted/40 px-3 py-2 text-xs">
+              <div className="min-w-0">
+                <dt className="mb-1 text-[10px] text-muted-foreground">{t("主责人")}</dt>
+                <dd className="flex min-w-0 items-center gap-1.5 font-medium text-foreground">
+                  <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="xs" />
+                  <span className="truncate" title={displayPersonName(task.primary_owner)}>{displayPersonName(task.primary_owner) || t("待指派")}</span>
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="mb-1 text-[10px] text-muted-foreground">{t("截止日期")}</dt>
+                <dd className="flex min-h-5 items-center gap-1 font-medium tabular-nums text-foreground">
+                  <CalendarClock aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+                  {task.due_date || t("未设置")}
+                </dd>
+              </div>
+            </dl>
+          ) : (
+            <h3 className="line-clamp-2 break-words text-balance text-[15px] font-bold leading-snug text-slate-900">
+              <AutoTranslatedText text={visibleTaskTitle} />
+            </h3>
+          )}
 
           {/* ─── 备注回执状态条（管理视角：他人给任务留的备注是否被目标人查看/跟进） ─── */}
           {(() => {
@@ -8024,7 +8064,7 @@ function PersonTaskCockpit({
               <Flame className="h-3 w-3" />
               {t(`${pCfg.label}优先`)}
             </span>
-            {task.due_date && (
+            {!researchCard && task.due_date && (
               <span className="inline-flex items-center gap-1">
                 <CalendarClock className="h-3 w-3 text-slate-400" />
                 {t("截止：")}{task.due_date.slice(5)}
@@ -8074,6 +8114,16 @@ function PersonTaskCockpit({
               </span>
             </span>
           </div>
+          {researchCard && (
+            <button
+              type="button"
+              onClick={(event) => { event.stopPropagation(); onSelectTask(task, activityActor); }}
+              className="inline-flex min-h-9 self-end items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+              aria-label={t("打开任务：{title}", { title: visibleTaskTitle })}
+            >
+              {t("查看任务")}<ArrowRight aria-hidden="true" className="size-3.5" />
+            </button>
+          )}
         </div>
       </motion.div>
     );

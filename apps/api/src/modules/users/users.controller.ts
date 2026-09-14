@@ -49,8 +49,7 @@ export class UsersController {
 
   /**
    * 重置密码。
-   * - 用户可随时修改自己的密码（无需额外权限）。
-   * - 修改他人密码需要 user:reset-password 权限。
+   * 管理重置始终需要专项权限；普通用户通过 /auth/me/password 校验旧密码后改密。
    */
   @Post(':id/reset-password')
   resetPassword(
@@ -63,8 +62,8 @@ export class UsersController {
       req.user.permissions.includes('*') ||
       req.user.permissions.includes('user:reset-password');
 
-    if (!isSelf && !hasAdminPerm) {
-      throw new ForbiddenException('无权限修改其他用户的密码');
+    if (!hasAdminPerm) {
+      throw new ForbiddenException('无密码重置权限，请在个人中心验证当前密码后修改');
     }
 
     return this.usersService.adminResetPassword(id, body.newPassword, isSelf);

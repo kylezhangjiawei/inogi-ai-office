@@ -116,6 +116,7 @@ function renderModuleInventory(warehouses) {
     React, useMemo: (compute) => compute(), useCallback: (callback) => callback, useEffect: () => {},
     useState: (initial) => [stateIndex++ === 0 ? { item: { warehouses, stock: 1000, in: 0 } } : initial, () => {}],
     useI18n: () => ({ t: translate }), usePermission: () => false, useProcTaskAction: () => ({ modal: null }),
+    useSearchParams: () => [new URLSearchParams(), () => {}], useLocation: () => ({ state: null }),
     cn: (...values) => values.filter(Boolean).join(' '), formatQuantity: String,
   };
   for (const name of ['ArrowLeft', 'AutoTranslatedText', 'Boxes', 'ClipboardList', 'RefreshCw', 'InventoryStat', 'PackageCheck', 'Truck', 'Warehouse']) bindings[name] = name;

@@ -16,6 +16,7 @@ export function useVisibleNavigation() {
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
+        if (item.requiredPermissionAll?.some((code) => !hasPermission(permissions, code))) return false;
         if (item.requiredPermissionAny?.length) {
           return item.requiredPermissionAny.some(
             (code) => hasPermission(permissions, code) && !hiddenCodes.has(code),

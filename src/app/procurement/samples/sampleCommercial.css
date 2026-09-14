@@ -1,0 +1,26 @@
+.sample-commercial-summary { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.sample-commercial-heading { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+.sample-commercial-heading > div { flex: 1 1 220px; min-width: 0; }
+.sample-commercial-heading h3 { font-size: 14px; font-weight: 600; color: var(--foreground); }
+.sample-commercial-heading p, .sample-commercial-boundary { margin-top: 6px; font-size: 12px; line-height: 1.7; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.sample-commercial-notice { margin-top: 12px; padding: 10px 12px; background: var(--muted); border-radius: 8px; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.sample-commercial-error { margin-top: 12px; padding: 12px; border: 1px solid #fecaca; border-radius: 8px; color: #991b1b; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.sample-commercial-quotes { display: grid; gap: 12px; margin: 12px 0 0; padding: 0; list-style: none; }
+.sample-commercial-quotes > li { min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 10px; }
+.sample-commercial-quote-heading { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 16px; justify-content: space-between; }
+.sample-commercial-quote-heading h4 { min-width: 0; flex: 1 1 160px; overflow-wrap: anywhere; font-size: 13px; font-weight: 600; }
+.sample-commercial-quote-heading > span { min-width: 0; overflow-wrap: anywhere; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--primary); }
+.sample-commercial-quote-heading small { display: block; margin-top: 3px; font-size: 11px; color: var(--muted-foreground); font-weight: 400; }
+.sample-commercial-material { margin-top: 10px; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.sample-commercial-material span { display: block; font-size: 11px; color: var(--muted-foreground); }
+.sample-commercial-material-warning { margin-top: 8px; font-size: 12px; line-height: 1.7; color: #92400e; overflow-wrap: anywhere; }
+.sample-commercial-quotes dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; font-size: 12px; }
+.sample-commercial-quotes dl > div { min-width: 0; }
+.sample-commercial-quotes dt { color: var(--muted-foreground); }
+.sample-commercial-quotes dd { margin-top: 5px; overflow-wrap: anywhere; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.sample-commercial-note { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; font-size: 12px; }
+.sample-commercial-note summary { cursor: pointer; color: var(--muted-foreground); }
+.sample-commercial-note p { margin-top: 8px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sample-commercial-read-at { margin-top: 12px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
+.sample-commercial-summary footer { margin-top: 4px; }
+@media (max-width: 640px) { .sample-commercial-summary { padding: 14px; } .sample-commercial-quotes dl { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

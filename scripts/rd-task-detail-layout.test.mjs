@@ -127,7 +127,9 @@ test("returning from a member-scoped task restores the selected cockpit member",
   assert.match(managementSource, /activityRestorePendingRef\.current = false/);
   assert.match(managementSource, /setActiveTab\(restoredTab\)/);
   assert.match(managementSource, /initialActivityActor=\{initialActivityActor\}/);
-  assert.match(detailSource, /onClick=\{\(\) => navigate\(cockpitReturnPath\)\}/);
+  assert.match(detailSource, /const procurementReturnPath = researchWorkspace \? procurementWorkspaceReturnPath\(location\.state\) : null/);
+  assert.match(detailSource, /const detailReturnPath = procurementReturnPath \?\? cockpitReturnPath/);
+  assert.match(detailSource, /onClick=\{\(\) => navigate\(detailReturnPath\)\}/);
 });
 
 test("the all-tasks lane is labeled as admin view and keeps the unscoped detail rules", () => {

@@ -1,0 +1,205 @@
+/* R01 reference layout, scoped to the default R&D workspace. */
+.rd-horizon-task-detail.rd-reference-detail {
+  --primary: #083cb9;
+  --primary-hover: #062f93;
+  --primary-rgb: 8, 60, 185;
+  --primary-soft-border: #d3dff9;
+  --accent: #eef3ff;
+  --rd-primary: #083cb9;
+  --rd-primary-hover: #062f93;
+  --rd-ink: #1b2559;
+  --rd-body: #334155;
+  --rd-muted: #64748b;
+  --rd-line: #e2e8f0;
+  --rd-line-strong: #cbd5e1;
+  --rd-soft-blue: #eef3ff;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-context,
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-properties {
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-context > dl {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-radius: 0 0 16px 16px;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-context > dl > div {
+  border-bottom: 0;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-toolbar h2 {
+  font-size: 1.5rem !important;
+  line-height: 1.35 !important;
+  text-wrap: balance;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-main {
+  align-self: start;
+  gap: 1rem !important;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-activity,
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-action-panel,
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-latest {
+  width: 100%;
+  border: 1px solid var(--rd-line) !important;
+  border-radius: 16px !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-document-workspace {
+  min-height: 0 !important;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-tabs {
+  gap: 1rem !important;
+  padding-inline: 1rem !important;
+  overflow-y: hidden;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-tabs [role="tab"] {
+  min-height: 3rem;
+  margin-bottom: 0;
+  padding-inline: 0;
+  font-size: 0.8125rem;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-related-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  padding: 0;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-related-actions > * {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.5rem;
+  margin-block: 0;
+  padding-inline: 0.5rem;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-related-actions > :last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-related-actions:empty {
+  display: none;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-action-panel {
+  grid-area: actions;
+  min-width: 0;
+  align-self: start;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-grid {
+  grid-template-areas: "actions" "workspace" "properties";
+  align-content: start;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-main {
+  grid-area: workspace;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-aside {
+  grid-area: properties;
+  min-width: 0;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-workflow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-workflow button,
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-action-content > button {
+  width: 100%;
+  min-height: 2.5rem;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-assistant button {
+  min-width: 0;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-procurement-status > button {
+  justify-content: center;
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.5rem;
+  border-radius: 0.75rem;
+  font-size: 0.75rem;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-procurement-controls > button:only-child {
+  grid-column: 1 / -1;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-people button {
+  min-height: 2.5rem;
+}
+
+.rd-horizon-task-detail.rd-reference-detail .rd-reference-original-files > summary::marker {
+  color: var(--rd-muted);
+}
+
+@container rd-detail-shell (min-width: 52rem) {
+  .rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-grid {
+    grid-template-columns: minmax(0, 1fr) 17.5rem !important;
+    grid-template-areas: "workspace actions" "workspace properties";
+    grid-template-rows: max-content minmax(0, 1fr);
+  }
+
+  .rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "orientation state" "heading state";
+    column-gap: 1.5rem;
+  }
+
+  .rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-state {
+    max-width: 17.5rem;
+    justify-content: flex-end;
+  }
+}
+
+@container rd-detail-shell (max-width: 36rem) {
+  .rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-context > dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-context > dl > div {
+    display: grid;
+    grid-template-columns: 6rem minmax(0, 1fr);
+    gap: 0.25rem 0.75rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--rd-line);
+  }
+
+  .rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-context > dl > div:last-child {
+    border-bottom: 0;
+  }
+
+  .rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-context > dl dt {
+    grid-row: span 2;
+    align-self: center;
+  }
+
+  .rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-context > dl dd {
+    margin-top: 0;
+  }
+
+  .rd-horizon-task-detail.rd-reference-detail .rd-horizon-detail-toolbar h2 {
+    font-size: 1.25rem !important;
+  }
+}

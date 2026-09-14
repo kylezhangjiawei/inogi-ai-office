@@ -1104,6 +1104,48 @@ model ExternalDocument {
   @@index([category])
 }
 
+/// 研发任务技术资料。任务保存在研发任务树中，此处只管理人工确认的资料版本。
+model RdTechnicalDocument {
+  id               String                       @id @default(cuid())
+  taskId           String
+  title            String
+  category         String
+  currentVersionId String?                      @unique
+  versions         RdTechnicalDocumentVersion[]
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  @@index([taskId, updatedAt])
+}
+
+/// 每次确认新增一版，保存当时的文件引用；不随原留痕替换、删除或采购进度而改写。
+model RdTechnicalDocumentVersion {
+  id                String              @id @default(cuid())
+  documentId        String
+  document          RdTechnicalDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  requestId         String              @unique
+  requestHash       String
+  version           String
+  title             String
+  category          String
+  changeReason      String
+  previousVersionId String?
+  attachmentId      String
+  sourceNoteId      String
+  fileName          String
+  mimeType          String
+  fileSize          Int
+  fileKey           String?
+  fileUrl           String              @db.Text
+  createdById       String
+  createdByName     String
+  createdAt         DateTime            @default(now())
+
+  @@unique([documentId, version])
+  @@index([documentId, createdAt])
+  @@index([fileKey])
+}
+
 /// 资料原始版本。文件存 OSS，解析文本和 OCR 证据单独固化，便于后续重新比对与审计。
 model ExternalDocumentVersion {
   id                 String           @id @default(cuid())
@@ -1932,12 +1974,83 @@ model ProcPurchaseOrderMirror {
   syncedAt        DateTime?
   metadata        Json      @default("{}")
   stockPlanBatch  ProcStockPlanBatch?
+  availability    ProcPurchaseOrderAvailability?
+  receipts        ProcPurchaseReceipt[]
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@unique([tpOrderNo, tpLineNo])
   @@index([matchStatus])
   @@index([materialId])
+}
+
+/// 本地人工确认的订单行预计检验后可用日期；T+ 同步不得覆盖。
+model ProcPurchaseOrderAvailability {
+  id                    String   @id @default(cuid())
+  mirrorId              String   @unique
+  mirror                ProcPurchaseOrderMirror @relation(fields: [mirrorId], references: [id], onDelete: Restrict)
+  availableDate         DateTime? @db.Date
+  note                  String   @default("")
+  confirmedById         String
+  confirmedByName       String
+  confirmedAt           DateTime
+  sourceFingerprint     String
+  version               Int      @default(1)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+/// 本地逐笔实收登记；与 ERP 累计执行数量分别保留，不写入 ERP 或库存。
+model ProcPurchaseReceipt {
+  id                 String @id @default(cuid())
+  lineId             String
+  line               ProcPurchaseOrderMirror @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  requestId          String @unique
+  requestFingerprint String
+  deliveryNo         String
+  receivedDate       DateTime @db.Date
+  receivedQty        Decimal @db.Decimal(14, 3)
+  note               String @default("")
+  sourceOrderId      String
+  sourceOrderNo      String
+  sourceLineNo       String
+  sourceInventoryCode String
+  sourceInventoryName String
+  sourceSpec         String
+  sourceUnit         String
+  sourceSupplierName String
+  sourceOrderedQty   Decimal @db.Decimal(14, 3)
+  sourceUpdatedAt    DateTime
+  /// 最新检验修订号；实收数量和来源快照始终不变。
+  version            Int @default(0)
+  createdById        String
+  createdByName      String
+  createdAt          DateTime @default(now())
+  inspections        ProcPurchaseReceiptInspection[]
+
+  @@unique([lineId, deliveryNo])
+  @@index([lineId, receivedDate, createdAt])
+}
+
+/// 每次检验保存该收货批次的累计判定，历史修订不可覆盖。
+model ProcPurchaseReceiptInspection {
+  id                 String @id @default(cuid())
+  receiptId          String
+  receipt            ProcPurchaseReceipt @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  requestId          String @unique
+  requestFingerprint String
+  version            Int
+  inspectionDate     DateTime @db.Date
+  qualifiedQty       Decimal @db.Decimal(14, 3)
+  defectiveQty       Decimal @db.Decimal(14, 3)
+  pendingJudgmentQty Decimal @db.Decimal(14, 3)
+  basis              String
+  note               String
+  createdById        String
+  createdByName      String
+  createdAt          DateTime @default(now())
+
+  @@unique([receiptId, version])
 }
 
 /// 采购任务留痕：状态流转与人工操作，前端时间线直接读这张表。
@@ -1954,4 +2067,101 @@ model ProcTaskLog {
   createdAt   DateTime @default(now())
 
   @@index([taskId, createdAt])
+}
+
+/// 可编辑草稿；公开端只通过 publishedVersionId 读取已发布快照。
+model ApplicantFormTemplate {
+  id                 String   @id @default(cuid())
+  name               String
+  slug               String   @unique
+  draftSchema        Json
+  revision           Int      @default(1)
+  publishedVersionId String?  @unique
+  publishedVersion   ApplicantFormVersion? @relation("ApplicantCurrentVersion", fields: [publishedVersionId], references: [id], onDelete: Restrict)
+  versions           ApplicantFormVersion[] @relation("ApplicantVersions")
+  sessions           ApplicantFormSession[]
+  submissions        ApplicantFormSubmission[]
+  createdBy          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+/// 仅发布时创建，应用层不提供更新/删除接口。
+model ApplicantFormVersion {
+  id           String   @id @default(cuid())
+  templateId   String
+  template     ApplicantFormTemplate @relation("ApplicantVersions", fields: [templateId], references: [id], onDelete: Restrict)
+  currentFor   ApplicantFormTemplate? @relation("ApplicantCurrentVersion")
+  version      Int
+  schema       Json
+  publishedBy  String?
+  publishedAt  DateTime @default(now())
+  sessions     ApplicantFormSession[]
+  submissions  ApplicantFormSubmission[]
+
+  @@unique([templateId, version])
+}
+
+model ApplicantFormSession {
+  id           String   @id
+  templateId   String
+  template     ApplicantFormTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  versionId    String
+  version      ApplicantFormVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
+  ipHash       String
+  expiresAt    DateTime
+  uploadBytes  Int      @default(0)
+  uploadCount  Int      @default(0)
+  submittedAt  DateTime?
+  createdAt    DateTime @default(now())
+  uploads      ApplicantFormUpload[]
+  submission   ApplicantFormSubmission?
+
+  @@index([ipHash, createdAt])
+  @@index([expiresAt])
+}
+
+model ApplicantFormSubmission {
+  id             String   @id @default(cuid())
+  templateId     String
+  template       ApplicantFormTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  versionId      String
+  version        ApplicantFormVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
+  sessionId      String   @unique
+  session        ApplicantFormSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  idempotencyKey String
+  answers        Json
+  answersHash    String
+  searchText     String   @db.Text
+  status         String   @default("new")
+  note           String   @default("") @db.Text
+  revision       Int      @default(1)
+  submittedAt    DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  uploads        ApplicantFormUpload[]
+
+  @@unique([templateId, idempotencyKey])
+  @@index([templateId, versionId, submittedAt])
+  @@index([templateId, status, submittedAt])
+}
+
+/// 配额在上传前占用；失败的上传也消耗当次配额，避免无限重试外部存储。
+model ApplicantFormUpload {
+  id           String   @id
+  sessionId    String
+  session      ApplicantFormSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  fieldId      String
+  fileName     String
+  mimeType     String
+  size         Int
+  objectKey    String?
+  status       String   @default("pending")
+  submissionId String?
+  submission   ApplicantFormSubmission? @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([sessionId, status])
+  @@index([createdAt])
+  @@index([submissionId])
 }

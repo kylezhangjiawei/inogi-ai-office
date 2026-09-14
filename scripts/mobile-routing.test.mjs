@@ -63,14 +63,16 @@ test("移动任务详情保留任务 ID 和工作区上下文", () => {
   assert.match(mobileSource, /window\.setInterval\(refresh, MOBILE_DATA_REFRESH_INTERVAL_MS\)/);
 });
 
-test("生产移动端保持 production 路由前缀", () => {
+test("生产移动端按与接口相同的路由身份识别工作区", () => {
   assert.match(shellSource, /isProductionWorkspace\(\)/);
   assert.match(shellSource, /isProduction \? "\/production-m" : "\/m"/);
-  assert.match(appSource, /pathname\.startsWith\("\/production-"\)/);
+  assert.match(appSource, /const workspace = rdWorkspaceForPath\(location\.pathname\)/);
+  assert.match(appSource, /workspace === "production" \|\| location\.pathname === "\/rd-director-dashboard"/);
 });
 
 test("移动驾驶舱复用对应桌面端权限边界", () => {
-  assert.match(appSource, /makeLazyProtected\(<MobileRDCockpit \/>, "page:rd-task-management"\)/);
+  assert.equal((appSource.match(/makeLazyProtected\(<MobileRDCockpit \/>, \["page:rd-task-management", "page:rd-my-workspace"\]\)/g) ?? []).length, 2,
+    "研发移动首页和任务详情都允许驾驶舱或个人工作台权限，不能省略页面权限检查");
   assert.match(appSource, /makeLazyProtected\(<MobileRDCockpit \/>, "page:us-collab-cockpit"\)/);
   assert.match(appSource, /makeLazyProtected\(<MobileRDCockpit \/>, "page:rd-director-dashboard"\)/);
   assert.doesNotMatch(

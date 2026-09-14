@@ -126,7 +126,11 @@ test('采购个人工作台有负责人 ID 时不得用同名匹配其他账号'
   }
   visit(ast);
   assert.ok(initializer);
-  const body = ts.transpileModule(`return ${initializer}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const modelSource = readFileSync(new URL('../src/app/procurement/procurementWorkspaceModel.ts', import.meta.url), 'utf8');
+  const modelAst = ts.createSourceFile('model.ts', modelSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const uniqueTasks = modelAst.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === 'uniqueWorkspaceTasks');
+  assert.ok(uniqueTasks, '真实工作台去重函数必须存在');
+  const body = ts.transpileModule(`${uniqueTasks.getText(modelAst).replace(/^export\s+/, '')}\nreturn ${initializer}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   const mine = new Function('tasks', 'user', 'useMemo', 'isProcurementTaskAssignedToUser', body)([
     { id: 'A-task', buyerUserId: 'A', buyer: '李明' },
     { id: 'B-task', buyerUserId: 'B', buyer: '李明' },

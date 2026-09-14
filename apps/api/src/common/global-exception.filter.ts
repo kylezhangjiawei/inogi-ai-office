@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
+import { APPLICANT_FORM_LOG_OMITTED, applicantFormLogPath } from './applicant-form-log-policy';
 
 /**
  * 全局兜底异常过滤器。
@@ -23,15 +24,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const request = ctx.getRequest<{ method?: string; url?: string }>();
+    const request = ctx.getRequest<{ method?: string; url?: string; path?: string; originalUrl?: string; route?: { path?: unknown } }>();
+    const applicantPath = request ? applicantFormLogPath(request) : null;
+    const logPath = applicantPath ?? request?.url ?? '-';
+    const errorDetails = applicantPath
+      ? APPLICANT_FORM_LOG_OMITTED
+      : exception instanceof Error ? exception.stack : String(exception);
 
     // SSE / 流式响应：响应头已经发出（甚至已经 res.write 过正文），此时再调 response.json()
     // 会抛 ERR_HTTP_HEADERS_SENT，异常从过滤器内部逃逸 → 顶层 unhandled rejection。
     // 单实例部署下这会连带掐断所有在途连接。已发头就只记日志并确保连接收尾，不再写响应体。
     if (response.headersSent) {
       this.logger.error(
-        `Exception after headers sent on ${request?.method ?? '-'} ${request?.url ?? '-'}`,
-        exception instanceof Error ? exception.stack : String(exception),
+        `Exception after headers sent on ${request?.method ?? '-'} ${logPath}`,
+        errorDetails,
       );
       if (!response.writableEnded) response.end();
       return;
@@ -45,12 +51,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     // 未预期异常：记录完整信息便于排查，只回最小安全信息给客户端。
     this.logger.error(
-      `Unhandled exception on ${request?.method ?? '-'} ${request?.url ?? '-'}`,
-      exception instanceof Error ? exception.stack : String(exception),
+      `Unhandled exception on ${request?.method ?? '-'} ${logPath}`,
+      errorDetails,
     );
     // 非生产环境附带真实错误信息，免去开发排查时「盲猜 500」；生产仍只回通用文案
     const detail =
-      process.env.NODE_ENV !== 'production' && exception instanceof Error
+      !applicantPath && process.env.NODE_ENV !== 'production' && exception instanceof Error
         ? exception.message
         : undefined;
     response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({

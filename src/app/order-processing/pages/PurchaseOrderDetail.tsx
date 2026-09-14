@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useLocation, useNavigate, useParams } from 'react-router';
+import { toast } from 'sonner';
 import {
   AlertCircle,
   ArrowLeft,
@@ -33,9 +34,14 @@ import {
   statusBadgeClass,
   type PurchaseOrder,
 } from './PurchaseOrders';
-import { orderProcessingApi } from '../../lib/orderProcessingApi';
+import { orderProcessingApi, type PurchaseOrderLine } from '../../lib/orderProcessingApi';
 import { i18nLocale, useI18n } from '../../lib/i18n';
 import { routePath } from '../../lib/routePaths';
+import { inventoryReadinessReturnPath } from '../../lib/inventoryReadinessNavigation';
+import { stockPlanReturnPath } from '../../lib/stockPlanNavigation';
+import { workspaceArrivalReturnPath } from '../../lib/workspaceArrivalNavigation';
+import { purchaseDeliveryReturnPath } from '../../lib/purchaseDeliveryNavigation';
+import { findPurchaseOrderLine, purchaseOrderIdFromPathname, purchaseOrderLineTarget } from '../../lib/purchaseOrderLineNavigation';
 import { usePermission } from '../../hooks/usePermission';
 import {
   OrderEmptyState,
@@ -43,14 +49,19 @@ import {
   OrderMetricGrid,
   OrderPageHeader,
 } from '../components/HorizonPage';
+import { PurchaseOrderAvailabilityDialog, availabilityConfirmedAt } from '../components/PurchaseOrderAvailabilityDialog';
+import { PurchaseReceiptDrawer } from '../components/PurchaseReceiptDrawer';
+import { PurchaseOrderHistoryDrawer } from '../components/PurchaseOrderHistoryDrawer';
+import { buildPurchaseOrderFulfillment } from '../purchaseOrderFulfillment';
+import { PurchaseOrderQuantitySummary } from '../components/PurchaseOrderQuantitySummary';
+import { PurchaseFulfillmentDrawer } from '../components/PurchaseFulfillmentDrawer';
+import { PurchaseOrderDeliveryDrawer } from '../../procurement/delivery/PurchaseOrderDeliveryDrawer';
 
-function safeDecode(value: string) {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
+type LineView = 'all' | 'outstanding' | 'over_received' | 'unverified';
+const quantityIssueLabels = {
+  invalid_ordered_qty: '订购数量缺失或无效', zero_ordered_qty: '订购数量为零，需核对样品或来源记录',
+  invalid_received_qty: '已到数量缺失或无效', missing_unit: '未记录计量单位',
+};
 
 function InfoItem({ label, value }: { label: string; value?: React.ReactNode }) {
   const displayedValue = value === null || value === undefined || value === '' ? '-' : value;
@@ -79,17 +90,44 @@ function TimelineItem({ active, title, desc }: { active: boolean; title: string;
 
 export function PurchaseOrderDetail() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useI18n();
   const { id = '' } = useParams();
-  const decodedId = safeDecode(id);
+  const decodedId = purchaseOrderIdFromPathname(location.pathname) ?? id;
   const purchaseOrdersPath = routePath('page:purchase-orders', '/purchase-orders');
   const procurementCockpitPath = routePath('page:proc-cockpit', '/proc-cockpit');
   const canOpenProcurementCockpit = usePermission('page:proc-cockpit');
+  const canViewOrder = usePermission('page:purchase-order-detail');
+  const canConfirmAvailability = usePermission('proc-purchase-order:confirm-availability') && canViewOrder;
+  const canOpenInventoryReadiness = usePermission('page:proc-inventory-readiness');
+  const readinessReturn = canOpenInventoryReadiness ? inventoryReadinessReturnPath(location.state) : null;
+  const stockPlanReturn = canOpenProcurementCockpit ? stockPlanReturnPath(location.state) : null;
+  const canOpenWorkspace = usePermission('page:proc-my-workspace');
+  const workspaceReturn = canOpenWorkspace ? workspaceArrivalReturnPath(location.state) : null;
+  const deliveryReturn = canOpenWorkspace ? purchaseDeliveryReturnPath(location.state) : null;
+  const requestedLine = useMemo(() => purchaseOrderLineTarget(location.search), [location.search]);
+  const lineRegion = useRef<HTMLDivElement>(null);
+  const focusedLineNavigation = useRef<string | null>(null);
+  const focusedLineElement = useRef<HTMLTableRowElement | null>(null);
+  const [availabilityLine, setAvailabilityLine] = useState<PurchaseOrderLine | null>(null);
+  const [receiptLine, setReceiptLine] = useState<{ orderId: string; lineId: string } | null>(null);
+  const [fulfillmentLine, setFulfillmentLine] = useState<{ orderId: string; lineId: string } | null>(null);
+  const fulfillmentTrigger = useRef<HTMLButtonElement | null>(null);
+  const [deliveryLine, setDeliveryLine] = useState<{ orderId: string; lineId: string } | null>(null);
+  const deliveryTrigger = useRef<HTMLButtonElement | null>(null);
+  const [historyLine, setHistoryLine] = useState<{ orderId: string; lineId: string } | null>(null);
+  const historyTrigger = useRef<HTMLButtonElement | null>(null);
+  const historyLocateTarget = useRef<{ orderId: string; lineId: string } | null>(null);
+  const receiptTrigger = useRef<HTMLButtonElement | null>(null);
+  const availabilityActions = useRef(new Map<string, HTMLButtonElement>());
+  const availabilityTrigger = useRef<{ orderId: string; lineId: string; element: HTMLButtonElement } | null>(null);
+  const [availabilityFocusTarget, setAvailabilityFocusTarget] = useState<{ orderId: string; lineId: string } | null>(null);
   const [order, setOrder] = useState<PurchaseOrder | null>(null);
   const [resolvedId, setResolvedId] = useState('');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [notFound, setNotFound] = useState(false);
+  const [lineViewSelection, setLineViewSelection] = useState<{ key: string; value: LineView }>({ key: '', value: 'all' });
   const loadRequestRef = useRef(0);
 
   const loadOrder = useCallback(async () => {
@@ -99,6 +137,11 @@ export function PurchaseOrderDetail() {
     setResolvedId('');
     setErrorMessage('');
     setNotFound(false);
+    setAvailabilityLine(null);
+    setReceiptLine(null);
+    setFulfillmentLine(null);
+    setDeliveryLine(null);
+    setHistoryLine(null);
     try {
       const data = await orderProcessingApi.getPurchaseOrder(decodedId);
       if (requestId !== loadRequestRef.current) return;
@@ -122,20 +165,77 @@ export function PurchaseOrderDetail() {
     };
   }, [loadOrder]);
 
+  useEffect(function restoreAvailabilityFocus() {
+    if (!availabilityFocusTarget) return;
+    if (decodedId !== availabilityFocusTarget.orderId) {
+      setAvailabilityFocusTarget(null);
+      return;
+    }
+    if (loading || resolvedId !== decodedId) return;
+    const button = availabilityActions.current.get(availabilityFocusTarget.lineId);
+    const active = document.activeElement;
+    // A successful save replaces the table. Resolve the new button by line ID, and
+    // leave focus alone if the user has already moved to another control meanwhile.
+    if (button?.isConnected && (active === document.body || active === document.documentElement || !active?.isConnected || active === button)) {
+      button.focus({ preventScroll: true });
+    }
+    setAvailabilityFocusTarget(null);
+  }, [availabilityFocusTarget, decodedId, loading, resolvedId, order]);
+
   const items = order?.items ?? [];
-  const itemSummary = useMemo(() => items.reduce(
-    (summary, item) => ({
-      amount: summary.amount + item.qty * item.unitPrice,
-      received: summary.received + item.receivedQty,
-      ordered: summary.ordered + item.qty,
-    }),
-    { amount: 0, received: 0, ordered: 0 },
-  ), [items]);
+  const fulfillment = useMemo(() => buildPurchaseOrderFulfillment(items), [items]);
+  // A new navigation may request an exact line outside the previous local filter.
+  const lineViewKey = JSON.stringify([location.key, decodedId]);
+  if (lineViewSelection.key !== lineViewKey) {
+    // Advance the stored scope as well: POP must not resurrect a filter from an old history entry.
+    setLineViewSelection({ key: lineViewKey, value: 'all' });
+  }
+  const lineView = lineViewSelection.key === lineViewKey ? lineViewSelection.value : 'all';
+  const visibleLines = fulfillment.lines.filter((line) => lineView === 'all'
+    || (lineView === 'outstanding' ? line.state === 'not_received' || line.state === 'partial' : line.state === lineView));
+  const targetLine = findPurchaseOrderLine(items, requestedLine.lineId);
+  useEffect(function focusRequestedOrderLine() {
+    const navigationKey = JSON.stringify([location.key, decodedId, requestedLine.lineId]);
+    if (focusedLineNavigation.current === navigationKey || !targetLine || loading || resolvedId !== decodedId) return;
+    if (availabilityLine || availabilityFocusTarget || receiptLine || historyLine) return;
+    // TableRow is a presentational component. Read its committed DOM through the
+    // native region rather than relying on a component ref or a SKU selector.
+    const row = Array.from(lineRegion.current?.querySelectorAll<HTMLTableRowElement>('tr[data-purchase-order-line-id]') ?? [])
+      .find((element) => element.dataset.purchaseOrderLineId === targetLine.id);
+    if (!row?.isConnected) return;
+    focusedLineNavigation.current = navigationKey;
+    row.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+    const active = document.activeElement;
+    if (active === document.body || active === document.documentElement || !active?.isConnected || active === row || active === focusedLineElement.current) {
+      row.focus({ preventScroll: true });
+      focusedLineElement.current = row;
+    }
+  }, [location.key, decodedId, requestedLine.lineId, targetLine, loading, resolvedId, availabilityLine, availabilityFocusTarget, receiptLine, historyLine]);
+
+  const returnToReadiness = () => {
+    if (!readinessReturn) return;
+    if (location.state?.inventoryReadinessHistoryBack === true) navigate(-1);
+    else navigate(readinessReturn, { replace: true });
+  };
+  const returnToStockPlan = () => {
+    if (!stockPlanReturn) return;
+    if (location.state?.stockPlanHistoryBack === true) navigate(-1);
+    else navigate(stockPlanReturn, { replace: true });
+  };
+  const returnToWorkspace = () => {
+    if (!workspaceReturn) return;
+    if (location.state?.workspaceArrivalHistoryBack === true) navigate(-1);
+    else navigate(workspaceReturn, { replace: true });
+  };
+  const returnToDelivery = () => {
+    if (!deliveryReturn) return;
+    if (location.state?.purchaseDeliveryHistoryBack === true) navigate(-1);
+    else navigate(deliveryReturn, { replace: true });
+  };
   const hasItemDetails = items.length > 0;
-  const itemAmount = itemSummary.amount;
-  const receivedTotal = itemSummary.received;
-  const orderedTotal = itemSummary.ordered;
-  const fulfillment = orderedTotal > 0 ? Math.min(100, Math.round((receivedTotal / orderedTotal) * 100)) : 0;
+  const itemAmount = items.every((item) => Number.isFinite(item.qty) && item.qty >= 0 && Number.isFinite(item.unitPrice) && item.unitPrice >= 0)
+    ? items.reduce((amount, item) => amount + item.qty * item.unitPrice, 0) : null;
+  const outstandingLines = fulfillment.checkableLines - fulfillment.receivedLines;
   const taskLinks = order?.taskLinks ?? [];
 
   if (loading || resolvedId !== decodedId) {
@@ -164,6 +264,16 @@ export function PurchaseOrderDetail() {
               : errorMessage || t('暂时无法读取采购订单，请稍后重试。')}
             action={(
               <div className="flex flex-wrap items-center justify-center gap-2">
+                {deliveryReturn ? <Button type="button" variant="outline" onClick={returnToDelivery}><ArrowLeft className="size-4" />{t('返回到货排期')}</Button> : null}
+                {workspaceReturn ? <Button type="button" variant="outline" className="order-horizon-secondary-action" onClick={returnToWorkspace}>
+                  <ArrowLeft className="size-4" />{t('返回采购工作台')}
+                </Button> : null}
+                {stockPlanReturn ? <Button type="button" variant="outline" className="order-horizon-secondary-action" onClick={returnToStockPlan}>
+                  <ArrowLeft className="size-4" />{t('返回备货计划')}
+                </Button> : null}
+                {readinessReturn ? <Button type="button" variant="outline" className="order-horizon-secondary-action" onClick={returnToReadiness}>
+                  <ArrowLeft className="size-4" />{t('返回齐套中心')}
+                </Button> : null}
                 {!notFound ? (
                   <Button type="button" className="order-horizon-primary-action bg-blue-700 text-white" onClick={() => void loadOrder()}>
                     <RefreshCw className="size-4" />
@@ -182,15 +292,12 @@ export function PurchaseOrderDetail() {
     );
   }
 
-  const isCompleted = order.status === '已完成';
-  const isPartial = order.status === '部分到货';
-  const warehouseKnown = Boolean(order.warehouse && order.warehouse !== '-');
-  const etaKnown = Boolean(order.etaDate && order.etaDate !== '-');
   const timeline = [
     {
       key: 'created',
+      active: Boolean(order.orderDate && order.orderDate !== '-'),
       title: t('创建采购单'),
-      desc: t('{date} 由 {buyer} 创建，所属 {owner}', {
+      desc: t('{date} 下单，采购员 {buyer}，所属 {owner}', {
         date: order.orderDate,
         buyer: order.buyer,
         owner: order.owner,
@@ -198,59 +305,26 @@ export function PurchaseOrderDetail() {
     },
     {
       key: 'approved',
-      title: t('审批确认'),
-      desc: order.approvalStatus
-        ? t(order.approvalStatus)
-        : isCompleted
-          ? t('订单已完成，畅捷通未返回独立审批状态')
-          : t('畅捷通未返回独立审批状态'),
+      active: Boolean(order.approvalStatus),
+      title: t('审批记录'),
+      desc: order.approvalStatus ? t(order.approvalStatus) : t('畅捷通未返回独立审批状态'),
     },
     {
       key: 'ordered',
-      title: t('供应商履约'),
-      desc: order.deliveryTerm
-        ? t(order.deliveryTerm)
-        : isCompleted
-          ? t('供应商已完成本单履约')
-          : isPartial
-            ? hasItemDetails
-              ? t('供应商持续履约，已到货 {received}/{ordered}', { received: receivedTotal, ordered: orderedTotal })
-              : t('供应商持续履约，商品明细数量尚未同步')
-            : t('采购单已下达，畅捷通未返回交付方式'),
+      active: Boolean(order.deliveryTerm),
+      title: t('供应商交付方式'),
+      desc: order.deliveryTerm ? t(order.deliveryTerm) : t('畅捷通未返回交付方式'),
     },
     {
       key: 'inbound',
-      title: t('到货入库'),
-      desc: isCompleted
-        ? hasItemDetails
-          ? t('已全部到货 {received}/{ordered}{warehouse}', {
-            received: receivedTotal,
-            ordered: orderedTotal,
-            warehouse: warehouseKnown ? t('，入库仓库：{name}', { name: order.warehouse }) : '',
-          })
-          : t('采购单已完成，商品明细数量尚未同步{warehouse}', {
-            warehouse: warehouseKnown ? t('，入库仓库：{name}', { name: order.warehouse }) : '',
-          })
-        : isPartial
-          ? hasItemDetails
-            ? t('已到货 {received}/{ordered}{eta}', {
-              received: receivedTotal,
-              ordered: orderedTotal,
-              eta: etaKnown ? t('，预计 {date} 完成', { date: order.etaDate }) : '',
-            })
-            : t('采购单处于部分到货状态，商品明细数量尚未同步{eta}', {
-              eta: etaKnown ? t('，预计 {date} 完成', { date: order.etaDate }) : '',
-            })
-          : warehouseKnown || etaKnown
-            ? t('目标仓库：{warehouse}，预计到货：{date}', {
-              warehouse: warehouseKnown ? t(order.warehouse) : t('暂未提供'),
-              date: etaKnown ? order.etaDate : t('暂未提供'),
-            })
-            : t('等待畅捷通同步仓库及预计到货信息'),
+      active: hasItemDetails,
+      title: t('ERP 到货记录'),
+      desc: hasItemDetails
+        ? t('已读 {total} 行，{received} 行数量已收齐，{outstanding} 行未收齐，{unverified} 行待核对。到货数量不代表质检通过或入库。', {
+          total: fulfillment.totalLines, received: fulfillment.receivedLines, outstanding: outstandingLines, unverified: fulfillment.unverifiedLines,
+        }) : t('商品明细尚未同步，不能判断逐行到货情况。'),
     },
   ];
-  const activeTimelineCount =
-    order.status === '已完成' ? 4 : order.status === '部分到货' ? 3 : order.status === '已下单' ? 2 : order.status === '异常' ? 2 : 1;
 
   return (
     <div className="order-horizon flex min-h-0 flex-1 flex-col overflow-auto px-4 py-4 sm:px-5">
@@ -261,6 +335,10 @@ export function PurchaseOrderDetail() {
         description={<AutoTranslatedText text={`${order.supplier} · ${order.owner}`} />}
         meta={(
           <>
+          {stockPlanReturn ? <Button type="button" variant="outline" size="sm" onClick={returnToStockPlan}
+            className="order-horizon-secondary-action h-10 border-slate-200 bg-white px-3 text-slate-600 hover:bg-slate-50">
+            <ArrowLeft className="h-4 w-4" />{t('返回备货计划')}
+          </Button> : null}
             <span>{t('下单日期')}：{order.orderDate}</span>
             <span>· {t('预计到货')}：{order.etaDate || '-'}</span>
             <span>· {t('数据来源')}：<AutoTranslatedText text={order.sourceFile || t('畅捷通 T+')} /></span>
@@ -268,6 +346,15 @@ export function PurchaseOrderDetail() {
         )}
         actions={(
           <>
+          {deliveryReturn ? <Button type="button" variant="outline" size="sm" onClick={returnToDelivery}><ArrowLeft className="size-4" />{t('返回到货排期')}</Button> : null}
+          {workspaceReturn ? <Button type="button" variant="outline" size="sm" onClick={returnToWorkspace}
+            className="order-horizon-secondary-action h-10 border-slate-200 bg-white px-3 text-slate-600 hover:bg-slate-50">
+            <ArrowLeft className="size-4" />{t('返回采购工作台')}
+          </Button> : null}
+          {readinessReturn ? <Button type="button" variant="outline" size="sm" onClick={returnToReadiness}
+            className="order-horizon-secondary-action h-10 border-slate-200 bg-white px-3 text-slate-600 hover:bg-slate-50">
+            <ArrowLeft className="h-4 w-4" />{t('返回齐套中心')}
+          </Button> : null}
           <Button
             type="button"
             variant="outline"
@@ -287,32 +374,38 @@ export function PurchaseOrderDetail() {
 
       <OrderMetricGrid>
         <OrderMetric Icon={FileText} label={t('订单金额')} value={formatCurrency(order.amount, order.currency)} tone="primary" />
-        <OrderMetric Icon={PackageCheck} label={t('SKU / 数量')} value={`${order.itemCount || items.length} / ${hasItemDetails ? orderedTotal : '-'}`} tone="primary" />
-        <OrderMetric Icon={CheckCircle2} label={t('已到货数量')} value={hasItemDetails ? receivedTotal : '-'} tone="success" />
-        <OrderMetric Icon={CalendarDays} label={t('预计到货')} value={order.etaDate || '-'} tone="warning" />
-        <OrderMetric
-          Icon={Truck}
-          label={t('到货进度')}
-          value={hasItemDetails ? `${fulfillment}%` : '-'}
-          note={hasItemDetails ? `${receivedTotal}/${orderedTotal}` : t('明细尚未同步')}
-          tone={hasItemDetails && fulfillment === 100 ? 'success' : 'primary'}
-        />
+        <OrderMetric Icon={PackageCheck} label={t('已读取订单行')} value={hasItemDetails ? t('{count} 行', { count: items.length }) : '-'} note={t('来源汇总 {count} 项', { count: order.itemCount })} tone="primary" />
+        <OrderMetric Icon={CheckCircle2} label={t('数量已收齐行')} value={hasItemDetails ? `${fulfillment.receivedLines} / ${items.length}` : '-'} note={hasItemDetails ? fulfillment.overReceivedLines ? t('其中 {count} 行超收，需核对', { count: fulfillment.overReceivedLines }) : t('按已读取明细逐行核对') : t('明细尚未同步')} tone={fulfillment.overReceivedLines ? 'warning' : 'primary'} />
+        <OrderMetric Icon={Truck} label={t('数量未收齐行')} value={hasItemDetails ? outstandingLines : '-'} note={hasItemDetails ? t('另有 {count} 行数据待核对', { count: fulfillment.unverifiedLines }) : t('明细尚未同步')} tone={outstandingLines || fulfillment.unverifiedLines ? 'warning' : 'neutral'} />
+        <OrderMetric Icon={CalendarDays} label={t('预计到货')} value={<span className="whitespace-nowrap text-base sm:text-lg">{order.etaDate || '-'}</span>} tone="warning" />
       </OrderMetricGrid>
 
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="min-h-0 space-y-4">
-          <div className="order-horizon-detail-surface overflow-hidden border bg-white">
+      {hasItemDetails ? <PurchaseOrderQuantitySummary summary={fulfillment} /> : null}
+
+          <div className="order-horizon-detail-surface min-w-0 shrink-0 overflow-hidden border bg-white">
             <div className="border-b border-slate-100 px-4 py-3">
               <h2 id="purchase-order-lines-title" className="text-balance text-base font-semibold text-slate-900">{t('商品明细')}</h2>
+              <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">{t('预计到货来自采购订单；预计检验后可用日期由经办人逐行确认。确认日期不代表当前库存已可用。')}</p>
+              {hasItemDetails ? <p className="mt-1 text-xs leading-5 text-slate-400">{t('横向滚动查看更多字段')}</p> : null}
+              {hasItemDetails ? <div role="group" aria-label={t('按到货数量筛选订单行')} className="mt-3 flex flex-wrap gap-2">
+                {([
+                  ['all', '全部明细', fulfillment.totalLines], ['outstanding', '未收齐', outstandingLines],
+                  ['over_received', '超收', fulfillment.overReceivedLines], ['unverified', '待核对', fulfillment.unverifiedLines],
+                ] as const).map(([value, label, count]) => <Button key={value} type="button" variant={lineView === value ? 'default' : 'outline'} size="sm" aria-pressed={lineView === value}
+                  onClick={() => setLineViewSelection({ key: lineViewKey, value })}>{t(label)} {count}</Button>)}
+                <span role="status" className="self-center text-xs text-slate-500">{t('显示 {visible} / {total} 行', { visible: visibleLines.length, total: items.length })}</span>
+              </div> : null}
+              {requestedLine.requested && !targetLine ? <p role="status" className="mt-2 text-sm leading-5 text-amber-700">{t('目标订单行不存在或已变更，请核对当前订单明细。')}</p> : null}
             </div>
             {hasItemDetails ? (
               <>
                 <div
+                  ref={lineRegion}
                   role="region"
                   aria-labelledby="purchase-order-lines-title"
                   tabIndex={0}
-                  className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]">
-                  <Table containerClassName="order-horizon-table overflow-auto" className="min-w-[820px]" aria-label={t('采购订单商品明细')}>
+                  className="overflow-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#002fa7]">
+                  <Table containerClassName="order-horizon-table overflow-visible" className="min-w-[1280px]" aria-label={t('采购订单商品明细，可横向滚动查看更多字段')}>
                     <TableHeader className="bg-slate-50">
                       <TableRow>
                         <TableHead className="px-4">SKU</TableHead>
@@ -320,34 +413,96 @@ export function PurchaseOrderDetail() {
                         <TableHead>{t('规格')}</TableHead>
                         <TableHead className="text-right">{t('采购数量')}</TableHead>
                         <TableHead className="text-right">{t('已到货')}</TableHead>
-                        <TableHead className="text-right">{t('进度')}</TableHead>
+                        <TableHead className="text-right">{t('到货数量核对')}</TableHead>
                         <TableHead className="text-right">{t('单价')}</TableHead>
                         <TableHead className="text-right">{t('小计')}</TableHead>
+                        <TableHead className="min-w-32">{t('预计到货')}</TableHead>
+                        <TableHead className="min-w-52">{t('预计检验后可用')}</TableHead>
+                        {canViewOrder ? <TableHead className="order-horizon-sticky-action sticky right-0 min-w-32 bg-slate-50 text-right">{t('操作')}</TableHead> : null}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {items.map((item) => (
-                        <TableRow key={`${item.sku}-${item.name}`}>
-                          <TableCell className="px-4 font-mono text-slate-800 tabular-nums">{item.sku}</TableCell>
+                      {visibleLines.map((line) => { const index = line.index; const item = items[index]; return (
+                        <TableRow key={`${item.id || item.sku}:${index}`}
+                          data-purchase-order-line-id={item.id || undefined}
+                          aria-current={item === targetLine ? 'true' : undefined}
+                          tabIndex={item === targetLine ? -1 : undefined}
+                          className={item === targetLine ? 'bg-blue-50 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-700' : undefined}>
+                          <TableCell className="px-4 text-slate-800"><span className="font-mono tabular-nums">{item.sku}</span><p className="mt-1 text-xs text-slate-400 tabular-nums">{t('行号')} {item.lineNo || '—'}</p>{item === targetLine ? <p className="mt-1 text-xs font-semibold text-blue-700">{t('当前核对行')}</p> : null}</TableCell>
                           <TableCell className="max-w-[220px] font-medium text-slate-900"><div className="truncate" title={item.name}><AutoTranslatedText text={item.name} /></div></TableCell>
                           <TableCell className="max-w-[240px] text-slate-600"><div className="truncate" title={item.spec}><AutoTranslatedText text={item.spec || '-'} /></div></TableCell>
-                          <TableCell className="text-right text-slate-700 tabular-nums">{item.qty} {t(item.unit)}</TableCell>
-                          <TableCell className="text-right text-slate-700 tabular-nums">{item.receivedQty} {t(item.unit)}</TableCell>
+                          <TableCell className="text-right text-slate-700 tabular-nums">{Number.isFinite(item.qty) ? item.qty : t('待核对')} {line.unit ? t(line.unit) : t('单位待核对')}</TableCell>
+                          <TableCell className="text-right text-slate-700 tabular-nums">{Number.isFinite(item.receivedQty) ? item.receivedQty : t('待核对')} {line.unit ? t(line.unit) : t('单位待核对')}</TableCell>
                           <TableCell className="text-right">
-                            <span className="tabular-nums text-slate-600">
-                              {item.qty > 0 ? Math.min(100, Math.round((item.receivedQty / item.qty) * 100)) : 0}%
-                            </span>
+                            <span className={`whitespace-nowrap text-xs font-medium ${line.state === 'unverified' || line.state === 'over_received' ? 'text-amber-700' : 'text-slate-700'}`}>{t({ not_received: '未收货', partial: '部分到货', received: '数量已收齐', over_received: '超收待核对', unverified: '数据待核对' }[line.state])}</span>
+                            {line.remainingQty !== null && line.remainingQty > 0 ? <p className="mt-1 whitespace-nowrap text-xs tabular-nums text-slate-500">{t('未收差额 {count} {unit}', { count: line.remainingQty.toLocaleString(i18nLocale(), { maximumFractionDigits: 8 }), unit: line.unit })}</p> : null}
+                            {line.overReceivedQty !== null && line.overReceivedQty > 0 ? <p className="mt-1 whitespace-nowrap text-xs tabular-nums text-amber-700">{t('超收 {count} {unit}', { count: line.overReceivedQty.toLocaleString(i18nLocale(), { maximumFractionDigits: 8 }), unit: line.unit })}</p> : null}
+                            {line.state === 'unverified' ? <p className="mt-1 min-w-28 max-w-44 whitespace-normal text-xs leading-5 text-amber-700">{line.issues.map((issue) => t(quantityIssueLabels[issue])).join('；')}</p> : null}
                           </TableCell>
-                          <TableCell className="text-right text-slate-700 tabular-nums">{formatCurrency(item.unitPrice, order.currency)}</TableCell>
-                          <TableCell className="text-right font-semibold text-slate-900 tabular-nums">{formatCurrency(item.qty * item.unitPrice, order.currency)}</TableCell>
+                          <TableCell className="text-right text-slate-700 tabular-nums">{Number.isFinite(item.unitPrice) && item.unitPrice >= 0 ? formatCurrency(item.unitPrice, order.currency) : t('待核对')}</TableCell>
+                          <TableCell className="text-right font-semibold text-slate-900 tabular-nums">{Number.isFinite(item.qty) && Number.isFinite(item.unitPrice) && Number.isFinite(item.qty * item.unitPrice) && item.qty >= 0 && item.unitPrice >= 0 ? formatCurrency(item.qty * item.unitPrice, order.currency) : t('待核对')}</TableCell>
+                          <TableCell className="align-top text-slate-700 tabular-nums">{item.etaDate || t('待确认')}</TableCell>
+                          <TableCell className="align-top">
+                            <p className="font-medium text-slate-900 tabular-nums">{item.availability?.availableDate || t(item.availability ? '已撤销日期确认' : '未确认')}</p>
+                            {item.availability ? <>
+                              {item.availability.needsReconfirmation ? <p className="mt-1 text-xs font-medium text-amber-700">{t('订单来源已变化，需重确认')}</p> : null}
+                              <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-slate-500">{item.availability.confirmedByName || t('未记录确认人')}<br /><span className="tabular-nums">{availabilityConfirmedAt(item.availability.confirmedAt)}</span></p>
+                              {item.availability.note ? <p className="mt-1 max-w-60 whitespace-pre-wrap break-words text-pretty text-xs leading-5 text-slate-500">{item.availability.note}</p> : null}
+                            </> : null}
+                          </TableCell>
+                          {canViewOrder ? <TableCell className={`order-horizon-sticky-action sticky right-0 text-right align-top ${item === targetLine ? 'bg-blue-50' : 'bg-white'}`}>
+                            <div className="flex flex-col items-end gap-2">
+                            <Button type="button" variant="outline" size="sm" disabled={!item.id}
+                              aria-label={t('查看订单行 {line} 的供应商承诺与交期历史：{name}', { line: item.lineNo || String(index + 1), name: item.name })}
+                              onClick={(event) => { deliveryTrigger.current = event.currentTarget; setDeliveryLine({ orderId: decodedId, lineId: item.id }); }}>
+                              {t('供应商承诺与交期历史')}
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" disabled={!item.id}
+                              aria-label={t('查看订单行 {line} 的履约调整：{name}', { line: item.lineNo || String(index + 1), name: item.name })}
+                              onClick={(event) => { fulfillmentTrigger.current = event.currentTarget; setFulfillmentLine({ orderId: decodedId, lineId: item.id }); }}>
+                              {t('履约调整与可用量')}
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" disabled={!item.id}
+                              aria-label={t('查看订单行 {line} 的日期确认记录：{name}', { line: item.lineNo || String(index + 1), name: item.name })}
+                              onClick={(event) => {
+                                historyTrigger.current = event.currentTarget;
+                                historyLocateTarget.current = null;
+                                setHistoryLine({ orderId: decodedId, lineId: item.id });
+                              }}>
+                              {t('日期确认记录')}
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" disabled={!item.id}
+                              aria-label={t('查看订单行 {line} 的收货与检验：{name}', { line: item.lineNo || String(index + 1), name: item.name })}
+                              onClick={(event) => {
+                                receiptTrigger.current = event.currentTarget;
+                                setReceiptLine({ orderId: decodedId, lineId: item.id });
+                              }}>
+                              {t('收货与检验')}
+                            </Button>
+                            {canConfirmAvailability ? <Button type="button" variant="outline" size="sm" disabled={!item.id || !item.sourceUpdatedAt}
+                              ref={(element) => {
+                                if (!item.id) return;
+                                if (element) availabilityActions.current.set(item.id, element);
+                                else availabilityActions.current.delete(item.id);
+                              }}
+                              aria-label={t('确认订单行 {line} 的预计检验后可用日期：{name}', { line: item.lineNo || String(index + 1), name: item.name })}
+                              onClick={(event) => {
+                                availabilityTrigger.current = { orderId: decodedId, lineId: item.id, element: event.currentTarget };
+                                setAvailabilityLine(item);
+                              }}>
+                              {t(item.availability?.needsReconfirmation ? '重新确认' : item.availability ? '修改确认' : '确认可用日期')}
+                            </Button> : null}
+                            </div>
+                          </TableCell> : null}
                         </TableRow>
-                      ))}
+                      ); })}
+                      {!visibleLines.length ? <TableRow><TableCell colSpan={canViewOrder ? 11 : 10} className="py-10 text-center text-sm text-slate-500">{t('当前筛选没有匹配的订单行，可切换全部明细。')}</TableCell></TableRow> : null}
                     </TableBody>
                   </Table>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-4 py-3 text-sm">
-                  <span className="text-slate-500">{t('明细合计')}</span>
-                  <span className="font-semibold text-slate-900 tabular-nums">{formatCurrency(itemAmount, order.currency)}</span>
+                  <span className="text-slate-500">{t('全部已读明细金额（不随筛选变化）')}</span>
+                  <span className="font-semibold text-slate-900 tabular-nums">{itemAmount !== null && Number.isFinite(itemAmount) ? formatCurrency(itemAmount, order.currency) : t('待核对')}</span>
                 </div>
               </>
             ) : (
@@ -365,8 +520,10 @@ export function PurchaseOrderDetail() {
             )}
           </div>
 
-          <div className="order-horizon-detail-surface grid overflow-hidden border bg-white lg:grid-cols-2">
-            <section aria-labelledby="purchase-supplier-title" className="p-4 lg:border-r lg:border-slate-100">
+      <div className="mt-4 grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-h-0 min-w-0 space-y-4">
+          <div className="order-horizon-detail-surface grid overflow-hidden border bg-white 2xl:grid-cols-2">
+            <section aria-labelledby="purchase-supplier-title" className="p-4 2xl:border-r 2xl:border-slate-100">
               <h2 id="purchase-supplier-title" className="mb-2 flex items-center gap-2 text-balance text-base font-semibold text-slate-900">
                 <UserRound className="h-4 w-4 text-blue-500" />
                 {t('采购与供应商')}
@@ -385,9 +542,10 @@ export function PurchaseOrderDetail() {
               ) : '-'} />
               <InfoItem label={t('采购员')} value={order.buyer} />
               <InfoItem label={t('采购组')} value={<AutoTranslatedText text={order.owner} />} />
+              <InfoItem label={t('订单登记仓库')} value={<AutoTranslatedText text={order.warehouse || t('未提供')} />} />
             </section>
 
-            <section aria-labelledby="purchase-settlement-title" className="border-t border-slate-100 p-4 lg:border-t-0">
+            <section aria-labelledby="purchase-settlement-title" className="border-t border-slate-100 p-4 2xl:border-t-0">
               <h2 id="purchase-settlement-title" className="mb-2 flex items-center gap-2 text-balance text-base font-semibold text-slate-900">
                 <ClipboardCheck className="h-4 w-4 text-blue-500" />
                 {t('合同与结算')}
@@ -455,11 +613,11 @@ export function PurchaseOrderDetail() {
           <section aria-labelledby="purchase-fulfillment-title" className="order-horizon-detail-surface border bg-white p-4">
             <h2 id="purchase-fulfillment-title" className="mb-4 flex items-center gap-2 text-balance text-base font-semibold text-slate-900">
               <Truck className="h-4 w-4 text-blue-500" />
-              {t('履约进度')}
+              {t('订单记录')}
             </h2>
             <div>
-              {timeline.map((item, index) => (
-                <TimelineItem key={item.key} active={index < activeTimelineCount} title={item.title} desc={item.desc} />
+              {timeline.map((item) => (
+                <TimelineItem key={item.key} active={item.active} title={item.title} desc={item.desc} />
               ))}
             </div>
           </section>
@@ -472,6 +630,71 @@ export function PurchaseOrderDetail() {
           </section>
         </aside>
       </div>
+      {historyLine && canViewOrder && historyLine.orderId === decodedId && findPurchaseOrderLine(items, historyLine.lineId) ? <PurchaseOrderHistoryDrawer
+        key={`${decodedId}:${historyLine.lineId}`} orderId={decodedId} orderNo={order.poNo}
+        line={findPurchaseOrderLine(items, historyLine.lineId)!}
+        onClose={() => setHistoryLine(null)}
+        onLocateLine={() => {
+          const params = new URLSearchParams(location.search);
+          params.set('lineId', historyLine.lineId);
+          historyLocateTarget.current = historyLine;
+          historyTrigger.current = null;
+          focusedLineNavigation.current = null;
+          setHistoryLine(null);
+          navigate({ pathname: location.pathname, search: params.toString() }, { replace: true, state: location.state });
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const target = historyLocateTarget.current;
+          historyLocateTarget.current = null;
+          if (target?.orderId === decodedId) {
+            const row = Array.from(lineRegion.current?.querySelectorAll<HTMLTableRowElement>('tr[data-purchase-order-line-id]') ?? [])
+              .find((element) => element.dataset.purchaseOrderLineId === target.lineId);
+            if (row?.isConnected) {
+              row.focus({ preventScroll: true });
+              focusedLineElement.current = row;
+              return;
+            }
+          }
+          const trigger = historyTrigger.current;
+          historyTrigger.current = null;
+          if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+        }} /> : null}
+      {fulfillmentLine && canViewOrder && fulfillmentLine.orderId === decodedId && items.some((item) => item.id === fulfillmentLine.lineId) ? <PurchaseFulfillmentDrawer
+        key={`fulfillment:${decodedId}:${fulfillmentLine.lineId}`} lineId={fulfillmentLine.lineId}
+        onClose={() => setFulfillmentLine(null)}
+        onCloseAutoFocus={(event) => { event.preventDefault(); if (fulfillmentTrigger.current?.isConnected) fulfillmentTrigger.current.focus({ preventScroll: true }); }} /> : null}
+      {deliveryLine && canViewOrder && deliveryLine.orderId === decodedId && items.some((item) => item.id === deliveryLine.lineId) ? <PurchaseOrderDeliveryDrawer
+        key={`delivery:${decodedId}:${deliveryLine.lineId}`} lineId={deliveryLine.lineId} orderNo={order.poNo}
+        onClose={() => setDeliveryLine(null)}
+        onCloseAutoFocus={(event) => { event.preventDefault(); if (deliveryTrigger.current?.isConnected) deliveryTrigger.current.focus({ preventScroll: true }); }} /> : null}
+      {receiptLine && canViewOrder && receiptLine.orderId === decodedId && items.some((item) => item.id === receiptLine.lineId) ? <PurchaseReceiptDrawer
+        key={`${decodedId}:${receiptLine.lineId}`} lineId={receiptLine.lineId} orderNo={order.poNo}
+        onClose={() => setReceiptLine(null)}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const trigger = receiptTrigger.current;
+          receiptTrigger.current = null;
+          if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+        }} /> : null}
+      {availabilityLine && canConfirmAvailability ? <PurchaseOrderAvailabilityDialog key={`${order.id}:${availabilityLine.id}`}
+        orderId={order.id} orderNo={order.poNo} line={availabilityLine}
+        onClose={() => setAvailabilityLine(null)}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const trigger = availabilityTrigger.current;
+          availabilityTrigger.current = null;
+          if (!trigger) return;
+          const active = document.activeElement;
+          if (active === document.body || active === document.documentElement || !active?.isConnected || active === trigger.element) {
+            setAvailabilityFocusTarget({ orderId: trigger.orderId, lineId: trigger.lineId });
+          }
+        }}
+        onSaved={() => {
+          setAvailabilityLine(null);
+          toast.success(t('预计检验后可用日期已保存'));
+          void loadOrder();
+        }} /> : null}
     </div>
   );
 }

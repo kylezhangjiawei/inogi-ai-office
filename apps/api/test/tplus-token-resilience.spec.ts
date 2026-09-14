@@ -16,6 +16,7 @@ function harness(opts: {
   meta?: Record<string, unknown>;
   refreshBehavior?: () => Promise<Record<string, unknown>>;
   mintBehavior?: () => Promise<string>;
+  beforeClear?: (metadata: Record<string, unknown>) => void;
 }) {
   const meta: Record<string, unknown> = {
     appKey: 'k', baseUrl: 'https://openapi.chanjet.com',
@@ -27,11 +28,18 @@ function harness(opts: {
   const updates: Array<Record<string, unknown>> = [];
   const prisma = {
     integrationConfig: {
-      findFirst: async () => row,
+      findFirst: async () => structuredClone(row),
       update: async ({ data }: { data: Record<string, unknown> }) => {
         updates.push(data.metadata as Record<string, unknown>);
         Object.assign(row.metadata, data.metadata);
         return row;
+      },
+      updateMany: async ({ where, data }: { where: { metadata: { equals: unknown } }; data: Record<string, unknown> }) => {
+        opts.beforeClear?.(row.metadata);
+        if (JSON.stringify(where.metadata.equals) !== JSON.stringify(row.metadata)) return { count: 0 };
+        updates.push(data.metadata as Record<string, unknown>);
+        Object.assign(row.metadata, data.metadata);
+        return { count: 1 };
       },
     },
   };
@@ -41,8 +49,69 @@ function harness(opts: {
   internal.mintTokenByPermanentCode = opts.mintBehavior
     ?? (async () => { throw new Error('缺少永久授权码'); });
   const ensure = () => (internal.ensureOpenToken as () => Promise<string>).call(service);
-  return { service, ensure, meta: row.metadata, updates };
+  const anotherEnsure = (refreshBehavior: () => Promise<Record<string, unknown>>) => {
+    const other = new TplusSyncService(prisma as never, {} as never, {} as never, {} as never) as any;
+    other.authRequest = refreshBehavior;
+    other.mintTokenByPermanentCode = internal.mintTokenByPermanentCode;
+    return () => other.ensureOpenToken() as Promise<string>;
+  };
+  return { service, ensure, anotherEnsure, meta: row.metadata, updates };
 }
+
+test('并发续期只刷新一次，所有等待者使用同一组新令牌', async () => {
+  let calls = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const h = harness({ refreshBehavior: async () => {
+    calls += 1;
+    await gate;
+    return { access_token: 'fresh-token', refresh_token: 'refresh-next', expires_in: 518400 };
+  } });
+  const first = h.ensure();
+  const second = h.ensure();
+  release();
+  assert.deepEqual(await Promise.all([first, second]), ['fresh-token', 'fresh-token']);
+  assert.equal(calls, 1);
+  assert.equal(h.meta.refreshToken, 'refresh-next');
+});
+
+test('A 换新后 B 的旧刷新令牌被拒绝，B 不得清空 A 已保存的凭据', async () => {
+  let rejectOld!: () => void;
+  let started!: () => void;
+  const oldStarted = new Promise<void>((resolve) => { started = resolve; });
+  const staleRequest = new Promise<Record<string, unknown>>((_resolve, reject) => {
+    rejectOld = () => reject(new TplusAuthError('invalid refresh token', false));
+  });
+  const h = harness({ refreshBehavior: async () => ({ access_token: 'fresh-token', refresh_token: 'refresh-next', expires_in: 518400 }) });
+  const staleEnsure = h.anotherEnsure(() => { started(); return staleRequest; });
+  const stale = staleEnsure();
+  await oldStarted;
+  assert.equal(await h.ensure(), 'fresh-token');
+  rejectOld();
+  await stale.catch(() => undefined);
+  assert.equal(h.meta.openToken, 'fresh-token');
+  assert.equal(h.meta.refreshToken, 'refresh-next');
+  assert.equal(h.meta.authBrokenSince, null);
+});
+
+test('清理前最终读写间隙发生换新，原子条件必须阻止旧请求覆盖', async () => {
+  const h = harness({
+    refreshBehavior: async () => { throw new TplusAuthError('invalid refresh token', false); },
+    beforeClear: (metadata) => Object.assign(metadata, { openToken: 'newer-token', refreshToken: 'newer-refresh' }),
+  });
+  await assert.rejects(h.ensure(), /invalid refresh token/);
+  assert.equal(h.meta.openToken, 'newer-token');
+  assert.equal(h.meta.refreshToken, 'newer-refresh');
+  assert.equal(h.meta.authBrokenSince, undefined);
+});
+
+test('续期结束后释放合并请求，后续失效仍能再次刷新', async () => {
+  let calls = 0;
+  const h = harness({ refreshBehavior: async () => ({ access_token: `fresh-${++calls}`, refresh_token: `next-${calls}`, expires_in: 518400 }) });
+  assert.equal(await h.ensure(), 'fresh-1');
+  h.meta.openTokenExpireAt = 0;
+  assert.equal(await h.ensure(), 'fresh-2');
+});
 
 test('网络抖动不再清空凭证——这正是线上那次断链的成因', async () => {
   let calls = 0;

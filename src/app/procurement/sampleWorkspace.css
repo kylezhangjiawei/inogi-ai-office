@@ -1,0 +1,19 @@
+.proc-sample-workspace { container: proc-sample-workspace / inline-size; min-width: 0; padding: 1rem; }
+.proc-sample-workspace-grid { display: grid; grid-template-areas: "list" "selected"; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+.proc-sample-selected { grid-area: selected; }
+.proc-sample-list { grid-area: list; }
+.proc-sample-list-scroll { max-height: 18rem; overflow-y: auto; }
+.proc-sample-review { container: proc-sample-review / inline-size; }
+.proc-sample-review-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+.proc-sample-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.5rem; }
+.proc-sample-dialog { width: calc(100vw - 2rem); }
+@container proc-sample-workspace (min-width: 54rem) {
+  .proc-sample-workspace-grid { grid-template-areas: "selected list"; grid-template-columns: minmax(0, 1fr) 18rem; }
+  .proc-sample-list-scroll { max-height: 44rem; }
+}
+@container proc-sample-review (min-width: 46rem) {
+  .proc-sample-review-layout { grid-template-columns: minmax(0, 1fr) 19rem; }
+}
+@container proc-sample-workspace (max-width: 32rem) {
+  .proc-sample-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 0.75rem; }
+}

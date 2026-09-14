@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchRdCockpitTaskCategories,
+  fetchMergedTaskCategories,
+  currentRdWorkspace,
   fetchRdPeople,
   type RdCategory,
   type RdPersonLoad,
@@ -69,7 +71,8 @@ export function useRDCockpitData(): RDCockpitData {
     const controller = new AbortController();
     if (!hasTaskSnapshotRef.current) setLoading(true);
     setError(null);
-    fetchRdCockpitTaskCategories({ includeCovers: true, signal: controller.signal })
+    const fetchCategories = currentRdWorkspace() === null ? fetchMergedTaskCategories : fetchRdCockpitTaskCategories;
+    fetchCategories({ includeCovers: true, signal: controller.signal })
       .then((mergedCategories) => {
         if (!controller.signal.aborted) {
           setCategories(mergedCategories);

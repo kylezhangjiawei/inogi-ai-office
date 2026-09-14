@@ -96,6 +96,13 @@ type MobileAttachmentPreviewDetail =
   | { kind: "image-gallery"; images: GalleryImage[]; index: number }
   | { kind: "attachment"; attachment: RdTaskProgressAttachment };
 
+/** Route version-file previews through the existing page-level mobile viewer and back stack. */
+export function openMobileAttachmentPreview(attachment: RdTaskProgressAttachment) {
+  window.dispatchEvent(new CustomEvent<MobileAttachmentPreviewDetail>(MOBILE_ATTACHMENT_PREVIEW_EVENT, {
+    detail: { kind: "attachment", attachment }, cancelable: true,
+  }));
+}
+
 const TaskImageGalleryContext = createContext<GalleryImage[] | null>(null);
 
 function collectTaskGalleryImages(notes: RdTaskProgressNote[]): GalleryImage[] {

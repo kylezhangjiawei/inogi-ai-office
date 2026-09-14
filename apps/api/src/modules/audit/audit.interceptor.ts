@@ -11,6 +11,7 @@ import { Observable, catchError, tap, throwError } from 'rxjs';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { APPLICANT_FORM_LOG_OMITTED, applicantFormLogPath } from '../../common/applicant-form-log-policy';
 import { RD_DEFAULT_WORKSPACE, RD_WORKSPACE_IDS } from '../research-development/rd-workspace.context';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -87,7 +88,10 @@ export class AuditInterceptor implements NestInterceptor {
 
     const userId = req.user?.id ?? null;
     const actorName = req.user?.name ?? null;
-    const [resource, resourceId] = this.parseUrl(req.path);
+    const applicantPath = applicantFormLogPath(req);
+    const [resource, resourceId] = applicantPath
+      ? ['applicant-forms', null] as const
+      : this.parseUrl(req.path);
     const module = this.resolveModule(resource, req);
     const ip = req.ip ?? null;
 
@@ -140,7 +144,10 @@ export class AuditInterceptor implements NestInterceptor {
       statusCode?: number;
     },
   ): void {
-    const meta = this.sanitizeMeta(req.body, ctx.resource) as Record<string, unknown>;
+    const applicantPath = applicantFormLogPath(req);
+    const meta = applicantPath
+      ? { payload: APPLICANT_FORM_LOG_OMITTED, route: applicantPath }
+      : this.sanitizeMeta(req.body, ctx.resource) as Record<string, unknown>;
     void this.prisma.auditLog.create({
       data: {
         userId: ctx.userId,
@@ -156,8 +163,8 @@ export class AuditInterceptor implements NestInterceptor {
       },
     }).catch((error: unknown) => {
       this.logger.error(
-        `审计日志写入失败: ${req.method} ${req.path}`,
-        error instanceof Error ? error.stack : String(error),
+        `审计日志写入失败: ${req.method} ${applicantPath ?? req.path}`,
+        applicantPath ? APPLICANT_FORM_LOG_OMITTED : error instanceof Error ? error.stack : String(error),
       );
     });
   }

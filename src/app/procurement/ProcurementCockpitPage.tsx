@@ -12,8 +12,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
-import { useNavigate, useSearchParams } from "react-router";
-import { Activity, AlertTriangle, ClipboardList, Download, FolderTree, Layers3, MoreHorizontal, PackageCheck, PackagePlus, PackageSearch, Plus, Search, Truck, UserCog, Users, X } from "lucide-react";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { Activity, AlertTriangle, ArrowLeft, ClipboardList, Download, FolderTree, Layers3, MoreHorizontal, PackageCheck, PackagePlus, PackageSearch, Plus, Search, Truck, UserCog, Users, X } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
@@ -27,15 +27,21 @@ import { useProcTaskAction } from "./components/taskActions";
 import { TaskDetailDrawer } from "./components/TaskDetailDrawer";
 import { MoveTaskDialog } from "./components/MoveTaskDialog";
 import { StockPlanPanel } from "./components/StockPlanPanel";
+import { ProcurementSampleWorkspace } from "./components/ProcurementSampleWorkspace";
+import { ProcSampleNavigationGuard } from "./components/ProcSampleNavigationGuard";
 import { BatchReassignModal, NewRequirementModal, PoMatchModal } from "./components/modals";
 import { usePermission } from "../hooks/usePermission";
 import { exportProcTasksXlsx } from "./exportTasks";
 import { getProcCoreMaterialConfig, setProcCoreMaterialConfig, type ProcCoreMaterialConfig, type ProcTaskTreeNode } from "../lib/procurementApi";
+import { procurementWorkspaceReturnPath } from "../lib/procurementWorkspaceNavigation";
+import { routePath } from "../lib/routePaths";
+import { clearStockPlanViewParams } from "../lib/stockPlanNavigation";
 
 const ACTIVE_STATUSES: ProcStatus[] = ["pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "pending_purchase", "in_transit", "partial_arrival"];
 const TRANSIT_STATUSES: ProcStatus[] = ["in_transit", "partial_arrival"];
 /** 任务分批渲染，滚动到底自动追加。 */
 const WATERFALL_PAGE_SIZE = 9;
+type CockpitTab = "tasks" | "samples" | "stock-plans";
 
 // 与研发驾驶舱一致：按既有排序轮转分列，各列独立堆叠；追加不重排已展示的任务。
 function distributeIntoColumns<T>(items: T[], columnCount: number): T[][] {
@@ -103,10 +109,15 @@ export function ProcurementCockpitPage() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchMoveOpen, setBatchMoveOpen] = useState(false);
   const [poMatchOpen, setPoMatchOpen] = useState(false);
+  const [sampleInteraction, setSampleInteraction] = useState({ dirty: false, busy: false });
+  const approvedSampleNavigationRef = useRef<string | null>(null);
   const [coreMaterialConfig, setCoreMaterialConfig] = useState<ProcCoreMaterialConfig>({ maxItems: 30, products: {} });
   const [coreConfigLoading, setCoreConfigLoading] = useState(true);
   const [coreConfigError, setCoreConfigError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const workspaceReturn = procurementWorkspaceReturnPath(location.state);
+  const canOpenWorkspace = usePermission("page:proc-my-workspace");
   const [kw, setKw] = useState("");
   // 写操作按钮按系统管理配置的操作码显隐；物料审核在工作台物料详情里做（带完整上下文）
   const canCreate = usePermission("proc-task:create");
@@ -118,13 +129,15 @@ export function ProcurementCockpitPage() {
   const taskAction = useProcTaskAction({ onOpenDetail: setOpen });
 
   // 页面级 Tab 与业务线筛选是两层信息架构：?tab= 切换栏目，?line= 只筛选采购任务。
-  const cockpitTab: "tasks" | "stock-plans" = params.get("tab") === "stock-plans" ? "stock-plans" : "tasks";
+  const cockpitTab: CockpitTab = params.get("tab") === "stock-plans" ? "stock-plans" : params.get("tab") === "samples" ? "samples" : "tasks";
   const lineParam = params.get("line");
   const line: "all" | "rd" | "production" = lineParam === "rd" || lineParam === "production" ? lineParam : "all";
-  const setCockpitTab = (nextTab: "tasks" | "stock-plans") => setParams((p) => {
+  const setCockpitTab = (nextTab: "tasks" | "samples" | "stock-plans") => setParams((p) => {
     const next = new URLSearchParams(p);
-    if (nextTab === "stock-plans") {
-      next.set("tab", "stock-plans");
+    if (nextTab !== cockpitTab) clearStockPlanViewParams(next);
+    next.delete("sample");
+    if (nextTab !== "tasks") {
+      next.set("tab", nextTab);
       next.delete("view");
       next.delete("module");
       next.delete("product");
@@ -140,7 +153,7 @@ export function ProcurementCockpitPage() {
     // 生产任务不经过询价阶段；切换时同步清掉已选中的询价筛选，避免出现隐藏筛选。
     if (nextLine === "production" && stat === "inquiring") setStat(null);
     setParams((p) => {
-      const next = new URLSearchParams(p);
+      const next = clearStockPlanViewParams(new URLSearchParams(p));
       next.delete("tab");
       if (nextLine === "all") next.delete("line");
       else next.set("line", nextLine);
@@ -151,6 +164,7 @@ export function ProcurementCockpitPage() {
   const view: "tasks" | "systems" = params.get("view") === "systems" ? "systems" : "tasks";
   const setView = (nextView: "tasks" | "systems") => setParams((p) => {
     const next = new URLSearchParams(p);
+    if (nextView !== view) clearStockPlanViewParams(next);
     if (nextView === "tasks") {
       next.delete("view");
       next.delete("module");
@@ -168,7 +182,7 @@ export function ProcurementCockpitPage() {
   const openSystemModule = useCallback((node: ProcTaskTreeNode, productId: string) => {
     setTreeNode(node);
     setParams((current) => {
-      const next = new URLSearchParams(current);
+      const next = clearStockPlanViewParams(new URLSearchParams(current));
       next.set("view", "systems");
       next.set("product", productId);
       next.set("module", node.id);
@@ -178,7 +192,7 @@ export function ProcurementCockpitPage() {
   }, [setParams]);
   const closeSystemModule = useCallback(() => {
     setParams((current) => {
-      const next = new URLSearchParams(current);
+      const next = clearStockPlanViewParams(new URLSearchParams(current));
       next.delete("module");
       next.set("view", "systems");
       return next;
@@ -186,7 +200,7 @@ export function ProcurementCockpitPage() {
   }, [setParams]);
   const setSystemProduct = useCallback((productId: string) => {
     setParams((current) => {
-      const next = new URLSearchParams(current);
+      const next = clearStockPlanViewParams(new URLSearchParams(current));
       next.set("view", "systems");
       next.set("product", productId);
       next.delete("module");
@@ -195,7 +209,7 @@ export function ProcurementCockpitPage() {
   }, [setParams]);
   const setCoreMode = useCallback((active: boolean) => {
     setParams((current) => {
-      const next = new URLSearchParams(current);
+      const next = clearStockPlanViewParams(new URLSearchParams(current));
       next.set("view", "systems");
       next.delete("module");
       if (active) next.set("core", "1");
@@ -394,12 +408,19 @@ export function ProcurementCockpitPage() {
     }, { replace: true });
   };
 
-  const cockpitTabs = (
-    <Tabs value={cockpitTab} className="proc-horizon-page-tabs" onValueChange={(value) => setCockpitTab(value as typeof cockpitTab)}>
+  const cockpitTabs = <>
+    <Tabs value={cockpitTab} className="proc-horizon-page-tabs" onValueChange={(value) => {
+      if (value === cockpitTab) return;
+      setCockpitTab(value as CockpitTab);
+    }}>
       <TabsList aria-label={t("供应链驾驶舱栏目")}>
         <TabsTrigger value="tasks">
           <ClipboardList aria-hidden="true" className="size-4" />
           {t("采购任务")}
+        </TabsTrigger>
+        <TabsTrigger value="samples">
+          <PackageCheck aria-hidden="true" className="size-4" />
+          {t("样品协同")}
         </TabsTrigger>
         <TabsTrigger value="stock-plans">
           <PackagePlus aria-hidden="true" className="size-4" />
@@ -407,7 +428,7 @@ export function ProcurementCockpitPage() {
         </TabsTrigger>
       </TabsList>
     </Tabs>
-  );
+  </>;
 
   const businessLineFilter = (
     <div className="proc-horizon-line-filter">
@@ -429,10 +450,30 @@ export function ProcurementCockpitPage() {
     </div>
   );
 
+  if (cockpitTab === "samples") {
+    return <div className="proc-horizon proc-horizon-cockpit-shell min-h-full min-w-0 w-full">
+      <div className="proc-horizon-layout flex min-h-full min-w-0 flex-col">
+        {canOpenWorkspace && <div><Button type="button" variant="ghost" disabled={sampleInteraction.busy} onClick={() => navigate(workspaceReturn ?? routePath("page:proc-my-workspace", "/proc-my-workspace"))} className="min-h-10 gap-1.5"><ArrowLeft className="size-4" aria-hidden="true" />{t("返回采购工作台")}</Button></div>}
+        <div className="hidden md:block">{cockpitTabs}</div>
+        <ProcSampleNavigationGuard dirty={sampleInteraction.dirty} busy={sampleInteraction.busy} approvedSampleNavigationRef={approvedSampleNavigationRef} />
+        <ProcurementSampleWorkspace tasks={tasks} loading={loading} error={error} selectedId={params.get("sample")} onInteractionStateChange={setSampleInteraction} onSelect={(id) => {
+          approvedSampleNavigationRef.current = id;
+          setParams((current) => {
+            const next = new URLSearchParams(current);
+            next.set("tab", "samples");
+            next.set("sample", id);
+            return next;
+          }, { replace: true, state: location.state });
+        }} />
+      </div>
+    </div>;
+  }
+
   if (cockpitTab === "stock-plans") {
     return (
       <div className="proc-horizon proc-horizon-cockpit-shell h-full min-w-0 w-full">
         <div className="proc-horizon-layout flex h-full min-h-0 flex-col">
+          {canOpenWorkspace && workspaceReturn && <div><Button type="button" variant="ghost" onClick={() => navigate(workspaceReturn)} className="min-h-10 gap-1.5"><ArrowLeft className="size-4" aria-hidden="true" />{t("返回采购工作台")}</Button></div>}
           {cockpitTabs}
           <StockPlanPanel materials={materials} canCreate={canCreate} />
         </div>

@@ -137,7 +137,7 @@ export class AuthService implements OnModuleInit {
       await this.ossService.deleteObject(objectKey);
       throw error;
     }
-    if (user.avatarObjectKey && user.avatarObjectKey !== objectKey) {
+    if (this.isOwnedAvatar(userId, user.avatarObjectKey) && user.avatarObjectKey !== objectKey) {
       await this.ossService.deleteObject(user.avatarObjectKey);
     }
 
@@ -157,8 +157,13 @@ export class AuthService implements OnModuleInit {
       where: { id: userId },
       data: { avatarObjectKey: null },
     });
-    if (user.avatarObjectKey) await this.ossService.deleteObject(user.avatarObjectKey);
+    if (this.isOwnedAvatar(userId, user.avatarObjectKey)) await this.ossService.deleteObject(user.avatarObjectKey);
     return { ok: true };
+  }
+
+  /** 共享预置头像与他人对象不属于当前用户，个人替换或重置不能删除它们。 */
+  private isOwnedAvatar(userId: string, key: string | null): key is string {
+    return Boolean(key && key.startsWith(this.ossService.resolveKeyPrefix(`avatars/${userId}/`)));
   }
 
   /**
@@ -313,17 +318,15 @@ export class AuthService implements OnModuleInit {
     }
 
     await this.refreshPresetAvatarKeysIfStale();
-    return this.issueTokens(await this.toAuthUserProfile(user));
+    return this.issueTokens(await this.toAuthUserProfile(user), { passwordHash: user.passwordHash });
   }
 
   async refresh(rawToken: string) {
     const stored = await this.prisma.refreshToken.findUnique({ where: { token: rawToken } });
     if (!stored || stored.expiresAt < new Date()) {
-      if (stored) await this.prisma.refreshToken.delete({ where: { id: stored.id } });
+      if (stored) await this.prisma.refreshToken.deleteMany({ where: { id: stored.id } });
       throw new UnauthorizedException('Refresh token 无效或已过期');
     }
-
-    await this.prisma.refreshToken.delete({ where: { id: stored.id } });
 
     const user = await this.prisma.user.findUnique({
       where: { id: stored.userId },
@@ -334,7 +337,7 @@ export class AuthService implements OnModuleInit {
     }
 
     await this.refreshPresetAvatarKeysIfStale();
-    return this.issueTokens(await this.toAuthUserProfile(user));
+    return this.issueTokens(await this.toAuthUserProfile(user), { refreshToken: rawToken });
   }
 
   async getCurrentUser(userId: string) {
@@ -412,10 +415,10 @@ export class AuthService implements OnModuleInit {
     if (this.isSuperAdminRole(user.role?.permissions)) {
       throw new ForbiddenException('超级管理员密码不允许在个人中心修改');
     }
-    if (!oldPassword || !oldPassword.trim()) {
+    if (typeof oldPassword !== 'string' || !oldPassword.trim()) {
       throw new BadRequestException('请输入当前密码');
     }
-    if (!newPassword || newPassword.length < 8) {
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
       throw new BadRequestException('新密码至少需要 8 位');
     }
     if (!user.passwordHash) {
@@ -426,7 +429,14 @@ export class AuthService implements OnModuleInit {
       throw new BadRequestException('当前密码不正确');
     }
     const hash = await argon2.hash(newPassword, { type: argon2.argon2id });
-    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } });
+    await this.prisma.$transaction(async (tx) => {
+      // Argon2 校验后可能有其他改密提交；数据库原子条件禁止旧凭据覆盖新密码。
+      const changed = await tx.user.updateMany({
+        where: { id: userId, passwordHash: user.passwordHash }, data: { passwordHash: hash },
+      });
+      if (changed.count !== 1) throw new UnauthorizedException('账号或密码已变更，请重新登录');
+      await tx.refreshToken.deleteMany({ where: { userId } });
+    });
     return { ok: true };
   }
 
@@ -434,7 +444,7 @@ export class AuthService implements OnModuleInit {
     return Array.isArray(permissions) && (permissions as string[]).includes('*');
   }
 
-  private async issueTokens(user: AuthUserProfile) {
+  private async issueTokens(user: AuthUserProfile, proof: { passwordHash: string } | { refreshToken: string }) {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -452,8 +462,24 @@ export class AuthService implements OnModuleInit {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_TTL_DAYS);
 
-    await this.prisma.refreshToken.create({
-      data: { token: rawRefresh, userId: user.id, expiresAt },
+    await this.prisma.$transaction(async (tx) => {
+      // 与两条改密路径的 User 更新共用数据库行锁，跨实例也不能在撤销后补发令牌。
+      // 头像和个人资料准备在事务外；锁内只重验身份、轮换与保存令牌。
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${user.id} FOR UPDATE`;
+      const current = await tx.user.findUnique({ where: { id: user.id }, select: { status: true, passwordHash: true } });
+      if (!current || current.status === 'DISABLED') throw new UnauthorizedException();
+      if ('passwordHash' in proof) {
+        if (current.passwordHash !== proof.passwordHash) {
+          throw new UnauthorizedException('账号或密码已变更，请重新登录');
+        }
+      } else {
+        const stored = await tx.refreshToken.findUnique({ where: { token: proof.refreshToken } });
+        if (!stored || stored.userId !== user.id || stored.expiresAt <= new Date()) {
+          throw new UnauthorizedException('Refresh token 无效或已过期');
+        }
+        await tx.refreshToken.delete({ where: { id: stored.id } });
+      }
+      await tx.refreshToken.create({ data: { token: rawRefresh, userId: user.id, expiresAt } });
     });
 
     return {

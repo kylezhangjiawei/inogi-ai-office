@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import {
   Eye,
   EyeOff,
@@ -294,9 +295,9 @@ function PasswordCell({
   canResetOtherUsers: boolean;
   onChangePwd: (user: User, trigger: HTMLButtonElement) => void;
 }) {
+  const navigate = useNavigate();
   const isSelf = user.id === currentUserId;
-  // 与后端契约一致：本人始终可修改（包括超管本人）；重置他人需要专项权限，
-  // 且超级管理员账号不允许被其他人重置密码。
+  // 普通本人在个人中心校验旧密码；管理员使用专项重置入口。
   const canChange = isSelf || (!isSuperAdmin(user) && canResetOtherUsers);
 
   return (
@@ -307,7 +308,10 @@ function PasswordCell({
           type="button"
           variant="ghost"
           size="icon"
-          onClick={(event) => onChangePwd(user, event.currentTarget)}
+          onClick={(event) => {
+            if (isSelf && !canResetOtherUsers) navigate('/profile');
+            else onChangePwd(user, event.currentTarget);
+          }}
           title={isSelf ? translate("修改我的密码") : translate("重置密码")}
           aria-label={isSelf ? translate("修改我的密码") : translate("重置 {name} 的密码", { name: user.name })}
         >

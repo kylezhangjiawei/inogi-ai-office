@@ -72,3 +72,18 @@ test('personal workspace returns separate primary and assist task sets without d
   };
   assert.deepEqual(collaboration.collabTasks.map((item) => item.task_id), ['task-collab']);
 });
+
+test('changing to a legacy owner or collaborator name does not add their tasks to the personal workspace', async () => {
+  const categories = [{ id: 'category', children: [{ id: 'subproject', tasks: [
+    task({ task_id: 'owned', primary_owner: 'Old account display name' }),
+    task({ task_id: 'legacy-owner', primary_owner_user_id: null }),
+    task({ task_id: 'legacy-collaborator', primary_owner_user_id: 'user-other', collaborators: [{ name: 'Current member' }] }),
+    task({ task_id: 'bound-collaborator', primary_owner_user_id: 'user-other', collaborators: [{ user_id: 'user-current', name: 'Old account display name' }] }),
+  ] }] }];
+  const service = createWorkspaceService(categories);
+  for (const workspace of ['rd', 'us-collab']) {
+    const result: any = await runInRdWorkspace(workspace, () => service.getWorkspace('user-current', 'Current member'));
+    assert.deepEqual(result.myTasks.map((item: any) => item.task_id), ['owned']);
+    assert.deepEqual(result.collabTasks.map((item: any) => item.task_id), ['bound-collaborator']);
+  }
+});

@@ -36,7 +36,9 @@ export function Q5PackagingInventory({ data }: { data: Q5PackagingInventoryData 
         </div>
         <p className="min-w-0 break-all text-[11px] text-slate-500">{t("来源")}：{data.sourceFile} · {data.sourceSheet}</p>
       </div>
-        <Table aria-label={t("Q5 包材与随箱配件清单")} className="min-w-[900px]" containerClassName="max-h-[520px] overflow-auto">
+        <p className="proc-readiness-scroll-hint px-4 py-2 text-xs text-slate-500">{t("左右滑动查看包材库存与状态")}</p>
+        <div role="region" aria-label={t("包材库存明细，可横向滚动查看更多列")} tabIndex={0} className="max-h-[520px] overflow-auto focus-visible:outline-2 focus-visible:outline-primary">
+        <Table aria-label={t("Q5 包材与随箱配件清单")} className="min-w-[900px]" containerClassName="overflow-visible">
           <TableHeader className="sticky top-0 z-10 bg-slate-50">
             <TableRow>
               <TableHead className="w-14 pl-4 text-xs">{t("序号")}</TableHead>
@@ -75,6 +77,7 @@ export function Q5PackagingInventory({ data }: { data: Q5PackagingInventoryData 
             {items.length === 0 && <TableRow><TableCell colSpan={7} className="h-28 text-center text-sm text-slate-500">{t("没有匹配的包材或随箱配件")}</TableCell></TableRow>}
           </TableBody>
         </Table>
+        </div>
     </section>
   );
 }

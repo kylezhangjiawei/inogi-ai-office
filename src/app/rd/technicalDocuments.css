@@ -1,0 +1,14 @@
+.rd-technical-documents {
+  container: rd-technical-documents / inline-size;
+}
+
+@container rd-technical-documents (min-width: 36rem) {
+  .rd-technical-document-layout {
+    grid-template-columns: minmax(0, 1fr) 14rem;
+  }
+
+  .rd-technical-document-preview-surface {
+    border-bottom-width: 0;
+    border-right-width: 1px;
+  }
+}

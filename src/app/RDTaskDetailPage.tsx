@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "./components/ui/utils";
 import { Button } from "./components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./components/ui/dialog";
 import { Progress } from "./components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
@@ -39,6 +40,7 @@ import { Textarea } from "./components/ui/textarea";
 import { openMateChat } from "./components/matechat/openMateChat";
 import { createRdTaskPageContext } from "./components/matechat/pageContext";
 import { PERMISSIONS } from "./lib/permissions";
+import { procurementWorkspaceReturnPath } from "./lib/procurementWorkspaceNavigation";
 import { t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { AuditTimeline } from "./RDAuditTimeline";
@@ -78,6 +80,8 @@ import {
   type PersonProfile,
 } from "./RDTaskManagementPage";
 import { ProcurementActivitySection, ProcurementLinkChip, TransferToProcurementModal, useProcurementTaskLink } from "./procurement/components/rdInsertion";
+import { TechnicalDocumentsPanel } from "./rd/TechnicalDocumentsPanel";
+import "./rd/rdTaskDetail.css";
 import { createHttpIssueService } from "./lib/issue/issueHttpService";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
 import { isTaskOverdue } from "./lib/taskDue";
@@ -325,10 +329,16 @@ export default function RDTaskDetailPage() {
     return id || name ? { id: id || null, name: name || null } : null;
   }, [location.search]);
   const productionWorkspace = isProductionWorkspace();
+  const researchWorkspace = currentRdWorkspace() === null;
+  const canOpenRdCockpit = usePermission(PERMISSIONS.PAGE_RD_TASK_MANAGEMENT);
   const cockpitPath = productionWorkspace
     ? "/production-dashboard"
-    : routePath("page:rd-task-management", "/rd-task-management");
+    : canOpenRdCockpit ? routePath("page:rd-task-management", "/rd-task-management") : routePath("page:rd-my-workspace", "/rd-my-workspace");
   const cockpitReturnPath = `${cockpitPath}${location.search}`;
+  const procurementReturnPath = researchWorkspace ? procurementWorkspaceReturnPath(location.state) : null;
+  const detailReturnPath = procurementReturnPath ?? cockpitReturnPath;
+  const procurementReturnState = useMemo(() => procurementReturnPath
+    ? { procurementWorkspaceReturn: procurementReturnPath } : undefined, [procurementReturnPath]);
   const taskDetailPath = useCallback(
     (id: string) => `${productionWorkspace ? "/production-task" : "/rd-task"}/${encodeURIComponent(id)}${location.search}`,
     [location.search, productionWorkspace],
@@ -350,8 +360,12 @@ export default function RDTaskDetailPage() {
   const toggleActivityActor = useCallback((actor: AuditActorIdentity) => {
     if (!canSelectActivityActor) return;
     setSelectedActivityActor((current) => detailActivityActorMatches(actor, current) ? null : actor);
+    setTab((current) => current === "audit" ? "audit" : "notes");
   }, [canSelectActivityActor]);
-  const canView = useAnyPermission(PERMISSIONS.PAGE_RD_TASK_MANAGEMENT, PERMISSIONS.PAGE_RD_DIRECTOR_DASHBOARD);
+  const canViewRd = useAnyPermission(PERMISSIONS.PAGE_RD_TASK_MANAGEMENT, PERMISSIONS.PAGE_RD_MY_WORKSPACE);
+  const canViewProduction = usePermission(PERMISSIONS.PAGE_RD_DIRECTOR_DASHBOARD);
+  const canReadAllRdTasks = usePermission('rd-task:view-all');
+  const canView = productionWorkspace ? canViewProduction : canViewRd;
   // 管理动作口径与驾驶舱抽屉的 canManageTaskFlow 一致
   const canManagePermission = useAnyPermission(
     PERMISSIONS.RD_PROJECT_DIRECT,
@@ -385,7 +399,7 @@ export default function RDTaskDetailPage() {
   const [auditTaskFilter, setAuditTaskFilter] = useState("all");
   const [notesLoading, setNotesLoading] = useState(true);
   const [notesError, setNotesError] = useState("");
-  const [tab, setTab] = useState<DetailTab>("notes");
+  const [tab, setTab] = useState<DetailTab>(() => researchWorkspace && !activityActor ? "attachments" : "notes");
   const [discussionUnread, setDiscussionUnread] = useState(0);
   const [progressThreadOpen, setProgressThreadOpen] = useState(false);
   const [people, setPeople] = useState<PersonProfile[]>([]);
@@ -726,6 +740,9 @@ export default function RDTaskDetailPage() {
       attachmentCount,
     };
   }, [activityGroupNotes, task?.work_items]);
+  const latestProgressNote = useMemo(() => activityNotes.reduce<RdTaskProgressNote | null>(
+    (latest, note) => !latest || note.created_at > latest.created_at ? note : latest, null,
+  ), [activityNotes]);
 
   // 导出报告用：audit 记录 + 无对应 audit 的留痕合成条目（保证报告时间线完整）
   // 合成条目的 resource.id/name 取该留痕自身所属任务，主线视图下才能正确标出来源。
@@ -1209,9 +1226,9 @@ export default function RDTaskDetailPage() {
   );
   const openRelationTask = useCallback((target: RdTask) => {
     if (target.task_id !== taskId) {
-      navigate(taskDetailPath(target.task_id), { state: { task: target } });
+      navigate(taskDetailPath(target.task_id), { state: { ...procurementReturnState, task: target } });
     }
-  }, [navigate, taskDetailPath, taskId]);
+  }, [navigate, taskDetailPath, taskId, procurementReturnState]);
   /**
    * 可并入为子任务的候选：顶层任务、非自身、未归档。
    * 候选可以自带完整子任务树；挂载后原层级永久保留。
@@ -1325,9 +1342,9 @@ export default function RDTaskDetailPage() {
     (offset: number) => {
       if (taskNavigationLocked || document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
       const target = taskSeq[seqIndex + offset];
-      if (target) navigate(taskDetailPath(target.task_id), { state: { task: target } });
+      if (target) navigate(taskDetailPath(target.task_id), { state: { ...procurementReturnState, task: target } });
     },
-    [navigate, seqIndex, taskDetailPath, taskNavigationLocked, taskSeq],
+    [navigate, seqIndex, taskDetailPath, taskNavigationLocked, taskSeq, procurementReturnState],
   );
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1349,7 +1366,7 @@ export default function RDTaskDetailPage() {
           <Lock className="size-5" aria-hidden="true" />
         </span>
         <h2 className="text-balance text-base font-semibold text-slate-800">{t("无法查看任务详情")}</h2>
-        <p className="max-w-sm text-pretty text-sm leading-6">{t("当前账号没有研发任务管理或研发主管看板的访问权限。")}</p>
+        <p className="max-w-sm text-pretty text-sm leading-6">{t("当前账号没有此工作区的任务访问权限。")}</p>
       </div>
     );
   }
@@ -1388,8 +1405,8 @@ export default function RDTaskDetailPage() {
             <RefreshCw className="size-3.5" aria-hidden="true" />
             {t("重新加载")}
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)}>
-            {t("返回驾驶舱")}
+          <Button type="button" variant="outline" size="sm" onClick={() => navigate(detailReturnPath)}>
+            {t(procurementReturnPath ? "返回采购工作台" : "返回驾驶舱")}
           </Button>
         </div>
       </div>
@@ -1418,6 +1435,217 @@ export default function RDTaskDetailPage() {
   const notesFilteredEmpty = hasNoteFilter && !progressThreadOpen && !notesLoading && !notesError && filteredGroupNotes.length === 0;
   const reviewMeta = task.status === "pending_review" ? getReviewTypeMeta(task.pending_review_type) : null;
 
+
+  const taskPeopleSection = (
+    <div className="rd-reference-people px-4 py-3.5">
+            {researchWorkspace && <h3 className="mb-4 text-sm font-semibold text-slate-800">{t("任务协作")}</h3>}
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500">{t("主责人")}</span>
+              {canManage && !task.archived && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddCollab(true)}
+                  className="min-h-9 cursor-pointer rounded px-1.5 text-xs font-semibold text-[#002fa7] hover:bg-[#eef3ff]"
+                >
+                  + {t("添加协作人")}
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              aria-pressed={canSelectActivityActor ? activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner }) : undefined}
+              onClick={() => {
+                const actor = { id: task.primary_owner_user_id, name: task.primary_owner };
+                if (canSelectActivityActor) toggleActivityActor(actor);
+                else setPersonTasksFor(task.primary_owner);
+              }}
+              className={cn(
+                "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
+                canSelectActivityActor && activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner })
+                  ? "bg-[#eef3ff] ring-1 ring-inset ring-[#002fa7]/20"
+                  : "hover:bg-slate-50",
+              )}
+              title={canSelectActivityActor
+                ? t(activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner }) ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")
+                : `查看 ${task.primary_owner} 名下的任务`}
+            >
+              <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="sm" />
+              <span className="text-sm font-medium text-slate-800">{displayPersonName(task.primary_owner)}</span>
+              {canSelectActivityActor && activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner }) ? (
+                <span className="ml-auto rounded-full bg-[#dce6ff] px-2 py-0.5 text-[10px] font-semibold text-[#002fa7]">{t("筛选中")}</span>
+              ) : null}
+            </button>
+            {(task.collaborators ?? []).length > 0 && (
+              <>
+                <div className="mb-2 mt-3 text-xs font-semibold text-slate-500">{t("协作人")}</div>
+                <div className="space-y-1">
+                  {(task.collaborators ?? []).map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      aria-pressed={canSelectActivityActor ? activityActorIsSelected({ id: c.user_id, name: c.name }) : undefined}
+                      onClick={() => {
+                        const actor = { id: c.user_id, name: c.name };
+                        if (canSelectActivityActor) toggleActivityActor(actor);
+                        else setPersonTasksFor(c.name);
+                      }}
+                      className={cn(
+                        "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
+                        canSelectActivityActor && activityActorIsSelected({ id: c.user_id, name: c.name })
+                          ? "bg-[#eef3ff] ring-1 ring-inset ring-[#002fa7]/20"
+                          : "hover:bg-slate-50",
+                      )}
+                      title={canSelectActivityActor
+                        ? t(activityActorIsSelected({ id: c.user_id, name: c.name }) ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")
+                        : `查看 ${c.name} 名下的任务`}
+                    >
+                      <OwnerAvatar name={c.name} userId={c.user_id} size="xs" />
+                      <span className="text-sm text-slate-700">{c.name}</span>
+                      <span className="text-[11px] text-slate-400">{t(c.role)}</span>
+                      {canSelectActivityActor && activityActorIsSelected({ id: c.user_id, name: c.name }) ? (
+                        <span className="ml-auto rounded-full bg-[#dce6ff] px-2 py-0.5 text-[10px] font-semibold text-[#002fa7]">{t("筛选中")}</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+  );
+  const taskWorkflowActions = (canSubmitForReview || (canManage && task.status === "pending_review" && reviewMeta) || (canManage && !task.archived && task.status === "in_progress")) ? (
+    <div className="rd-horizon-detail-workflow flex flex-wrap items-center gap-2" role="group" aria-label={t("任务处理")}>
+      {canSubmitForReview && (
+        <Button type="button" size="sm" onClick={() => setShowSubmitConfirm(true)} className="min-h-10 gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
+          <Send className="size-3.5" aria-hidden="true" />
+          {t("提交审核")}
+        </Button>
+      )}
+      {canManage && task.status === "pending_review" && reviewMeta ? (
+        <>
+          <span className="text-xs text-muted-foreground">{t("待审核")}：{t(reviewMeta.label)}</span>
+          <Button type="button" size="sm" onClick={() => setShowApproval("approve")} className="min-h-10 gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
+            <CheckCircle2 className="size-3.5" aria-hidden="true" />
+            {t("审核通过")}
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => setShowApproval("reject")} className="min-h-10 gap-1.5 border-destructive/25 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive">
+            <X className="size-3.5" aria-hidden="true" />
+            {t("驳回")}
+          </Button>
+        </>
+      ) : null}
+      {canManage && !task.archived && task.status === "in_progress" && (
+        <Button type="button" size="sm" onClick={() => setShowComplete(true)} className="min-h-10 gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
+          <CheckCircle2 className="size-3.5" aria-hidden="true" />
+          {t("标记完成")}
+        </Button>
+      )}
+    </div>
+  ) : null;
+  const taskSyncAction = !productionWorkspace && canSyncProduction && (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      disabled={productionSyncing}
+      onClick={() => void toggleProductionSync()}
+      className={cn(
+        "h-8 gap-1.5 text-xs",
+        productionSync?.active
+          ? "border-amber-200 text-amber-700 hover:bg-amber-50"
+          : "border-sky-200 text-sky-700 hover:bg-sky-50",
+      )}
+    >
+      {productionSyncing
+        ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+        : productionSync?.active
+          ? <Undo2 className="h-3.5 w-3.5" />
+          : <RefreshCw className="h-3.5 w-3.5" />}
+      {productionSync?.active ? t("撤销同步") : t("同步到生产驾驶舱")}
+    </Button>
+  );
+  const taskAssistantActions = currentRdWorkspace() === null ? (
+    <div className="rd-reference-assistant grid grid-cols-2 gap-2" aria-label={t("MateChat 任务助手")}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => openMateChat({ pageContext: createRdTaskPageContext(task.task_id) })}
+        className="min-h-10 gap-1.5 px-2 text-xs"
+      >
+        <MessageCircleMore className="size-3.5" aria-hidden="true" />
+        {t("问 MateChat")}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => openMateChat({
+          pageContext: createRdTaskPageContext(task.task_id),
+          intent: "delivery_check",
+        })}
+        className="min-h-10 gap-1.5 px-2 text-xs"
+      >
+        <FileText className="size-3.5" aria-hidden="true" />
+        {t("检查结项资料")}
+      </Button>
+    </div>
+  ) : null;
+
+  const taskRelatedActions = (
+    <div className={cn("space-y-1.5 px-4 py-3.5", researchWorkspace && "rd-reference-related-actions")}>
+            {/* 移交仍仅向进行中任务开放；任务动作在研发右侧、生产原侧栏各渲染一次。 */}
+            {canManage && !task.archived && task.status === "in_progress" && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowHandover(true)} className="h-8 w-full gap-1.5 text-xs">
+                <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
+                {t("移交任务")}
+              </Button>
+            )}
+            {productionWorkspace && !task.archived && canCreateStockPlan && canOpenProcurement && (
+              <Button type="button" variant="outline" size="sm" disabled={stockPlanLinkLoading} onClick={() => void openProductionStockPlan()} className="h-8 w-full gap-1.5 border-[#002fa7]/20 text-xs text-[#002fa7]">
+                {stockPlanLinkLoading ? <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" /> : <ShoppingCart aria-hidden="true" className="h-3.5 w-3.5" />}
+                {t(stockPlanLinkLoading ? '正在读取任务归属…' : '建立备货计划')}
+              </Button>
+            )}
+            {/* 研发侧特有：转采购 / 生成问题（非归档任务始终可用，与抽屉口径一致）。
+                在途的采购关联显示跳转芯片而非再次转出；已取消的（含存量「审核驳回」数据）
+                不占位——后端 transferFromRd 支持复用该记录重走审核，芯片与重提入口并存。 */}
+            {!task.archived && !taskReadOnly && (
+              <>
+                {!researchWorkspace && procTask ? (
+                  <ProcurementLinkChip
+                    task={procTask}
+                    onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)}
+                  />
+                ) : null}
+                {procTaskBlocksTransfer ? null : canTransferProc && (canManage || isParticipant) ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setTransferOpen(true)}
+                    title={t("把本任务转为采购任务（需携带图纸附件）")}
+                    className="h-8 w-full gap-1.5 text-xs"
+                  >
+                    <ShoppingCart className="h-3.5 w-3.5" />
+                    {procTask ? t("重新转采购") : t("转采购")}
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleGenerateIssue()}
+                  disabled={generatingIssue}
+                  className={cn("h-8 w-full gap-1.5 text-xs", !researchWorkspace && "border-amber-200 text-amber-700 hover:bg-amber-50 hover:text-amber-800")}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {generatingIssue ? t("生成中…") : t("生成问题")}
+                </Button>
+              </>
+            )}
+          </div>
+  );
+
   // 双栏大屏至少占满可用视口；内容过多时允许页面自然增长，不能裁掉留痕列表。
   return (
     <TaskImageGalleryScope notes={groupNotes}>
@@ -1426,6 +1654,7 @@ export default function RDTaskDetailPage() {
       style={viewportHeight ? { minHeight: viewportHeight } : undefined}
       className={cn(
         RD_TASK_DETAIL_HORIZON_SCOPE,
+        researchWorkspace && "rd-reference-detail",
         "mx-auto flex max-w-[1440px] flex-col gap-4 px-2 pt-4 sm:px-4",
       )}
     >
@@ -1446,10 +1675,10 @@ export default function RDTaskDetailPage() {
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="rd-horizon-detail-toolbar flex shrink-0 flex-wrap items-center gap-3">
         <div className="rd-horizon-detail-orientation">
-        {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
-        <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)} className="rd-horizon-detail-nav-control gap-1">
+        {/* 采购关联保留工作台来源；其他入口直接回驾驶舱，不逐条回退任务序列。 */}
+        <Button type="button" variant="outline" size="sm" onClick={() => navigate(detailReturnPath)} className="rd-horizon-detail-nav-control gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
-          {t("返回")}
+          {t(procurementReturnPath ? "返回采购工作台" : "返回")}
         </Button>
         {/* 序列导航：按驾驶舱同口径顺序穿行任务（j/k 快捷键同效） */}
         {seqIndex >= 0 && taskSeq.length > 1 && (
@@ -1506,59 +1735,11 @@ export default function RDTaskDetailPage() {
           )}
         </div>
         <div className="rd-horizon-detail-state">
-        {currentRdWorkspace() === null ? (
-          <div className="flex flex-wrap items-center gap-2" aria-label={t("MateChat 任务助手")}>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => openMateChat({ pageContext: createRdTaskPageContext(task.task_id) })}
-              className="min-h-9 gap-1.5 border-[#bfd0fa] text-[#002fa7] hover:bg-[#eef3ff]"
-            >
-              <MessageCircleMore className="size-3.5" aria-hidden="true" />
-              {t("问 MateChat")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => openMateChat({
-                pageContext: createRdTaskPageContext(task.task_id),
-                intent: "delivery_check",
-              })}
-              className="min-h-9 gap-1.5 border-[#bfd0fa] bg-[#eef3ff] text-[#002fa7] hover:bg-[#dce6ff]"
-            >
-              <FileText className="size-3.5" aria-hidden="true" />
-              {t("检查结项资料")}
-            </Button>
-          </div>
-        ) : null}
         <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>
           <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
           {t(sCfg.label)}
         </span>
-        {!productionWorkspace && canSyncProduction && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={productionSyncing}
-            onClick={() => void toggleProductionSync()}
-            className={cn(
-              "h-8 gap-1.5 text-xs",
-              productionSync?.active
-                ? "border-amber-200 text-amber-700 hover:bg-amber-50"
-                : "border-sky-200 text-sky-700 hover:bg-sky-50",
-            )}
-          >
-            {productionSyncing
-              ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              : productionSync?.active
-                ? <Undo2 className="h-3.5 w-3.5" />
-                : <RefreshCw className="h-3.5 w-3.5" />}
-            {productionSync?.active ? t("撤销同步") : t("同步到生产驾驶舱")}
-          </Button>
-        )}
+        {!researchWorkspace && taskSyncAction}
         {canManage && !task.archived && task.status !== "completed" ? (
           <Select value={task.final_priority} disabled={savingPriority} onValueChange={(value) => void savePriority(value as RdPriority)}>
             <SelectTrigger
@@ -1584,35 +1765,7 @@ export default function RDTaskDetailPage() {
             {t(`${pCfg.label}优先`)}
           </span>
         )}
-        {(canSubmitForReview || (canManage && task.status === "pending_review" && reviewMeta) || (canManage && !task.archived && task.status === "in_progress")) ? (
-          <div className="rd-horizon-detail-workflow flex flex-wrap items-center gap-2" role="group" aria-label={t("任务处理")}>
-            {canSubmitForReview && (
-              <Button type="button" size="sm" onClick={() => setShowSubmitConfirm(true)} className="min-h-10 gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
-                <Send className="size-3.5" aria-hidden="true" />
-                {t("提交审核")}
-              </Button>
-            )}
-            {canManage && task.status === "pending_review" && reviewMeta ? (
-              <>
-                <span className="text-xs text-muted-foreground">{t("待审核")}：{t(reviewMeta.label)}</span>
-                <Button type="button" size="sm" onClick={() => setShowApproval("approve")} className="min-h-10 gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
-                  <CheckCircle2 className="size-3.5" aria-hidden="true" />
-                  {t("审核通过")}
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => setShowApproval("reject")} className="min-h-10 gap-1.5 border-destructive/25 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive">
-                  <X className="size-3.5" aria-hidden="true" />
-                  {t("驳回")}
-                </Button>
-              </>
-            ) : null}
-            {canManage && !task.archived && task.status === "in_progress" && (
-              <Button type="button" size="sm" onClick={() => setShowComplete(true)} className="min-h-10 gap-1.5 bg-primary text-xs text-primary-foreground hover:bg-primary/90">
-                <CheckCircle2 className="size-3.5" aria-hidden="true" />
-                {t("标记完成")}
-              </Button>
-            )}
-          </div>
-        ) : null}
+        {!researchWorkspace && taskWorkflowActions}
         </div>
       </div>
 
@@ -1734,13 +1887,13 @@ export default function RDTaskDetailPage() {
       >
         {[
           { label: t("完成进度"), value: `${task.progress}%`, detail: t(sCfg.label) },
-          { label: t("主责人"), value: displayPersonName(task.primary_owner), detail: t("当前责任范围") },
+          ...(!researchWorkspace ? [{ label: t("主责人"), value: displayPersonName(task.primary_owner), detail: t("当前责任范围") }] : []),
           { label: t("截止与风险"), value: task.due_date || t("未设置"), detail: riskLabel },
-          {
+          ...(productionWorkspace ? [{
             label: t("工作项"),
             value: `${detailFacts.completedWorkItemCount}/${detailFacts.workItemCount}`,
             detail: t("已完成 / 全部"),
-          },
+          }] : []),
           {
             label: t("事实留痕"),
             value: t("{notes} 条 · {files} 个附件", { notes: detailFacts.noteCount, files: detailFacts.attachmentCount }),
@@ -1756,12 +1909,48 @@ export default function RDTaskDetailPage() {
       </dl>
       </div>
 
-      {/* 美式 content-first 布局：主内容（描述/工作项/时间线）居左，Properties 侧栏居右（GitHub issue / Linear 范式） */}
+      {/* 研发：左侧资料与留痕，右侧任务操作及属性；窄屏按操作、资料、属性阅读。 */}
       <div className="rd-horizon-detail-grid grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        {researchWorkspace && (
+          <Collapsible defaultOpen className="rd-reference-action-panel" asChild>
+            <section aria-label={t("任务操作")}>
+              <h3>
+                <CollapsibleTrigger className="group flex min-h-12 w-full items-center justify-between gap-2 rounded-xl px-4 py-3 text-left text-sm font-semibold text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+                  {t("任务操作")}
+                  <ChevronDown className="size-4 text-slate-400 group-data-[state=closed]:-rotate-90" aria-hidden="true" />
+                </CollapsibleTrigger>
+              </h3>
+              <CollapsibleContent className="rd-reference-action-content space-y-3 px-4 pb-4">
+                {taskWorkflowActions}
+                {taskRelatedActions}
+                {procTask && (
+                  <div className="rd-reference-procurement-link space-y-2 border-t border-slate-100 pt-3">
+                    <p className="text-xs font-medium tabular-nums text-slate-500">{procTask.code}</p>
+                    <div className="rd-reference-procurement-controls grid grid-cols-2 gap-2">
+                      {!task.archived && !taskReadOnly && (
+                        <div className="rd-reference-procurement-status flex min-w-0 items-center">
+                          <ProcurementLinkChip
+                            task={procTask}
+                            onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)}
+                          />
+                        </div>
+                      )}
+                      <Button type="button" variant="outline" size="sm" onClick={() => setTab("procurement")} className="min-h-10 gap-1 px-2 text-xs">
+                        {t("采购与样品")}<ChevronRight className="size-3.5" aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {taskSyncAction}
+              </CollapsibleContent>
+            </section>
+          </Collapsible>
+        )}
         <DetailGridOrder productionWorkspace={productionWorkspace}>
         {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔；随页面自然滚动）══ */}
         <div key="properties" className="rd-horizon-detail-aside cockpit-scroll min-h-0 xl:order-2 xl:overflow-y-auto">
         <div className="rd-horizon-detail-properties material-card divide-y divide-slate-100">
+          {researchWorkspace && taskPeopleSection}
           {/* 字段节 */}
           <div className="space-y-2.5 px-4 py-3.5">
             <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-600">
@@ -1786,7 +1975,7 @@ export default function RDTaskDetailPage() {
                   {riskLabel}
                 </span>
               ) },
-              { label: t("优先级"), value: <span className={cn("font-semibold", pCfg.text)}>{t(`${pCfg.label}优先`)}</span> },
+              { label: t("优先级"), value: <span className={cn("font-semibold", task.final_priority === "high" ? "text-red-600" : pCfg.text)}>{t(`${pCfg.label}优先`)}</span> },
               { label: t("任务状态"), value: (
                 <span className={cn("inline-flex items-center justify-end gap-1.5 font-semibold", sCfg.text)}>
                   <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
@@ -1802,7 +1991,7 @@ export default function RDTaskDetailPage() {
                 </span>
               ) },
               { label: t("组件"), value: componentLabel },
-            ].map((row) => (
+            ].filter((row) => !researchWorkspace || ![t("完成进度"), t("风险状态"), t("任务编号"), t("截止日期"), t("组件")].includes(row.label)).map((row) => (
               <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
                 <span className="shrink-0 text-xs text-slate-400">{row.label}</span>
                 <span className="min-w-0 flex-1 truncate text-right font-medium tabular-nums text-slate-700">{row.value}</span>
@@ -1874,7 +2063,7 @@ export default function RDTaskDetailPage() {
               </div>
               <button
                 type="button"
-                onClick={() => navigate(taskDetailPath(parentTask.task_id))}
+                onClick={() => navigate(taskDetailPath(parentTask.task_id), { state: procurementReturnState })}
                 className="rd-horizon-detail-parent-task__link flex w-full cursor-pointer items-center gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2 text-left transition hover:border-sky-300 hover:bg-sky-50/60"
               >
                 <ChevronLeft className="h-3.5 w-3.5 shrink-0 text-sky-500" />
@@ -1968,7 +2157,7 @@ export default function RDTaskDetailPage() {
                         <button
                           key={sub.task_id}
                           type="button"
-                          onClick={() => navigate(taskDetailPath(sub.task_id))}
+                          onClick={() => navigate(taskDetailPath(sub.task_id), { state: procurementReturnState })}
                           className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-2.5 py-1.5 text-left transition-colors hover:border-[#002fa7]/20 hover:bg-[#eef3ff]"
                         >
                           <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", subCfg.dot)} />
@@ -1990,134 +2179,14 @@ export default function RDTaskDetailPage() {
               )}
           </div>
 
-          {/* 管理员总览可直接点人员筛选留痕；固定成员入口仍保留原有人员任务弹层。 */}
-          <div className="px-4 py-3.5">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500">{t("主责人")}</span>
-              {canManage && !task.archived && (
-                <button
-                  type="button"
-                  onClick={() => setShowAddCollab(true)}
-                  className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-semibold text-[#002fa7] hover:bg-[#eef3ff]"
-                >
-                  + {t("添加协作人")}
-                </button>
-              )}
+          {!researchWorkspace && taskPeopleSection}
+          {!researchWorkspace && taskRelatedActions}
+          {researchWorkspace && (
+            <div className="px-4 py-3.5">
+              <h3 className="mb-3 text-sm font-semibold text-slate-800">{t("MateChat 任务助手")}</h3>
+              {taskAssistantActions}
             </div>
-            <button
-              type="button"
-              aria-pressed={canSelectActivityActor ? activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner }) : undefined}
-              onClick={() => {
-                const actor = { id: task.primary_owner_user_id, name: task.primary_owner };
-                if (canSelectActivityActor) toggleActivityActor(actor);
-                else setPersonTasksFor(task.primary_owner);
-              }}
-              className={cn(
-                "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
-                canSelectActivityActor && activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner })
-                  ? "bg-[#eef3ff] ring-1 ring-inset ring-[#002fa7]/20"
-                  : "hover:bg-slate-50",
-              )}
-              title={canSelectActivityActor
-                ? t(activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner }) ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")
-                : `查看 ${task.primary_owner} 名下的任务`}
-            >
-              <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="sm" />
-              <span className="text-sm font-medium text-slate-800">{displayPersonName(task.primary_owner)}</span>
-              {canSelectActivityActor && activityActorIsSelected({ id: task.primary_owner_user_id, name: task.primary_owner }) ? (
-                <span className="ml-auto rounded-full bg-[#dce6ff] px-2 py-0.5 text-[10px] font-semibold text-[#002fa7]">{t("筛选中")}</span>
-              ) : null}
-            </button>
-            {(task.collaborators ?? []).length > 0 && (
-              <>
-                <div className="mb-2 mt-3 text-xs font-semibold text-slate-500">{t("协作人")}</div>
-                <div className="space-y-1">
-                  {(task.collaborators ?? []).map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      aria-pressed={canSelectActivityActor ? activityActorIsSelected({ id: c.user_id, name: c.name }) : undefined}
-                      onClick={() => {
-                        const actor = { id: c.user_id, name: c.name };
-                        if (canSelectActivityActor) toggleActivityActor(actor);
-                        else setPersonTasksFor(c.name);
-                      }}
-                      className={cn(
-                        "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#002fa7]/30",
-                        canSelectActivityActor && activityActorIsSelected({ id: c.user_id, name: c.name })
-                          ? "bg-[#eef3ff] ring-1 ring-inset ring-[#002fa7]/20"
-                          : "hover:bg-slate-50",
-                      )}
-                      title={canSelectActivityActor
-                        ? t(activityActorIsSelected({ id: c.user_id, name: c.name }) ? "再次点击恢复全部人员" : "只看此人的留痕与操作记录")
-                        : `查看 ${c.name} 名下的任务`}
-                    >
-                      <OwnerAvatar name={c.name} userId={c.user_id} size="xs" />
-                      <span className="text-sm text-slate-700">{c.name}</span>
-                      <span className="text-[11px] text-slate-400">{t(c.role)}</span>
-                      {canSelectActivityActor && activityActorIsSelected({ id: c.user_id, name: c.name }) ? (
-                        <span className="ml-auto rounded-full bg-[#dce6ff] px-2 py-0.5 text-[10px] font-semibold text-[#002fa7]">{t("筛选中")}</span>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* 操作节（紧凑列表式，Linear 风）——研发侧不含协同专属的 AI 小结/导出报告 */}
-          <div className="space-y-1.5 px-4 py-3.5">
-            {/* 提交、审批与完成动作位于顶部；移交仍仅向进行中任务开放。 */}
-            {canManage && !task.archived && task.status === "in_progress" && (
-              <Button type="button" variant="outline" size="sm" onClick={() => setShowHandover(true)} className="h-8 w-full gap-1.5 text-xs">
-                <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
-                {t("移交任务")}
-              </Button>
-            )}
-            {productionWorkspace && !task.archived && canCreateStockPlan && canOpenProcurement && (
-              <Button type="button" variant="outline" size="sm" disabled={stockPlanLinkLoading} onClick={() => void openProductionStockPlan()} className="h-8 w-full gap-1.5 border-[#002fa7]/20 text-xs text-[#002fa7]">
-                {stockPlanLinkLoading ? <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" /> : <ShoppingCart aria-hidden="true" className="h-3.5 w-3.5" />}
-                {t(stockPlanLinkLoading ? '正在读取任务归属…' : '建立备货计划')}
-              </Button>
-            )}
-            {/* 研发侧特有：转采购 / 生成问题（非归档任务始终可用，与抽屉口径一致）。
-                在途的采购关联显示跳转芯片而非再次转出；已取消的（含存量「审核驳回」数据）
-                不占位——后端 transferFromRd 支持复用该记录重走审核，芯片与重提入口并存。 */}
-            {!task.archived && !taskReadOnly && (
-              <>
-                {procTask ? (
-                  <ProcurementLinkChip
-                    task={procTask}
-                    onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)}
-                  />
-                ) : null}
-                {procTaskBlocksTransfer ? null : canTransferProc && (canManage || isParticipant) ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setTransferOpen(true)}
-                    title={t("把本任务转为采购任务（需携带图纸附件）")}
-                    className="h-8 w-full gap-1.5 text-xs"
-                  >
-                    <ShoppingCart className="h-3.5 w-3.5" />
-                    {procTask ? t("重新转采购") : t("转采购")}
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void handleGenerateIssue()}
-                  disabled={generatingIssue}
-                  className="h-8 w-full gap-1.5 border-amber-200 text-xs text-amber-700 hover:bg-amber-50 hover:text-amber-800"
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {generatingIssue ? t("生成中…") : t("生成问题")}
-                </Button>
-              </>
-            )}
-          </div>
+          )}
         </div>
         </div>
 
@@ -2163,7 +2232,7 @@ export default function RDTaskDetailPage() {
                     task={task}
                     notes={notes}
                     loading={notesLoading}
-                    canView={canManage || isParticipant}
+                    canView={canManage || isParticipant || (!productionWorkspace && canReadAllRdTasks)}
                   />
                 </div>
               )}
@@ -2171,16 +2240,17 @@ export default function RDTaskDetailPage() {
           )}
 
           {/* Tab：筛选条、留痕列表和卡片内留言共存时仍为列表保留可视区域；内容区各自内滚。 */}
-          <div className="rd-horizon-detail-activity material-card flex min-h-0 flex-1 flex-col overflow-hidden p-0 lg:min-h-[440px]">
+          <div className={cn("rd-horizon-detail-activity material-card flex min-h-0 flex-1 flex-col overflow-hidden p-0 lg:min-h-[440px]", researchWorkspace && tab === "attachments" && "rd-reference-document-workspace")}>
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col gap-0">
               <TabsList className="rd-horizon-detail-tabs cockpit-scroll h-auto w-full shrink-0 justify-start gap-3 overflow-x-auto rounded-none border-b border-slate-200/80 bg-transparent p-0 px-3 sm:gap-5 sm:px-4">
                 {([
+                  ...(researchWorkspace ? [{ key: "attachments" as const, label: t("技术资料"), count: null }] : []),
                   { key: "notes", label: t("进展留痕"), count: activityGroupNotes.length },
-                  { key: "conversation", label: t("任务讨论"), count: discussionUnread },
+                  { key: "conversation", label: t(researchWorkspace ? "讨论" : "任务讨论"), count: discussionUnread },
                   { key: "audit", label: t("操作记录"), count: timelineLogs.length },
-                  { key: "attachments", label: t("附件库"), count: null },
+                  ...(!researchWorkspace ? [{ key: "attachments" as const, label: t("附件库"), count: null }] : []),
                   { key: "relations", label: t("合并关系"), count: Math.max(0, relationNodeCount - 1) },
-                  ...(procTask ? [{ key: "procurement" as const, label: t("采购动态"), count: procTask.logs.length }] : []),
+                  ...(procTask ? [{ key: "procurement" as const, label: productionWorkspace ? t("采购动态") : t("采购与样品"), count: researchWorkspace ? null : procTask.logs.length }] : []),
                 ] as const).map((tabItem) => (
                   <TabsTrigger
                     key={tabItem.key}
@@ -2246,7 +2316,7 @@ export default function RDTaskDetailPage() {
                     ) : noteTaskFilter !== "all" ? (
                       <Button type="button" variant="outline" size="sm" onClick={() => changeNoteTaskFilter("all")} className="rd-horizon-detail-filter-clear mt-2 min-h-10 text-primary">{t("查看全部任务留痕")}</Button>
                     ) : (
-                      <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitReturnPath)} className="mt-2 min-h-10">{t("返回驾驶舱")}</Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => navigate(detailReturnPath)} className="mt-2 min-h-10">{t(procurementReturnPath ? "返回采购工作台" : "返回驾驶舱")}</Button>
                     )}
                   </div>
                 ) : null}
@@ -2265,7 +2335,7 @@ export default function RDTaskDetailPage() {
                   progressPresentation="timeline"
                   onUnreadChange={setDiscussionUnread}
                   onOpenSourceTask={(sourceTaskId) => {
-                    if (sourceTaskId !== taskId) navigate(taskDetailPath(sourceTaskId));
+                    if (sourceTaskId !== taskId) navigate(taskDetailPath(sourceTaskId), { state: procurementReturnState });
                   }}
                   selectedActor={canSelectActivityActor ? selectedActivityActor : null}
                   onActorClick={canSelectActivityActor ? toggleActivityActor : undefined}
@@ -2308,6 +2378,10 @@ export default function RDTaskDetailPage() {
                 </div>
               ) : (
               <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="space-y-3">
+                {researchWorkspace && !taskReadOnly && <TechnicalDocumentsPanel key={taskId} taskId={taskId} notes={notes} onPreview={setPreviewAttachment} onNotesChanged={() => { void loadProgressGroup(); }} />}
+                {(!researchWorkspace || groupNotes.some((note) => note.attachments.length > 0)) && <details className={researchWorkspace ? "rd-reference-original-files rounded-lg border border-slate-200 p-3" : undefined} open={!researchWorkspace || undefined}>
+                  <summary className={researchWorkspace ? "cursor-pointer text-sm font-medium text-slate-600" : "hidden"}>{t("原始与合并任务附件")}</summary>
+                  <div className={researchWorkspace ? "mt-3 space-y-3" : "space-y-3"}>
                 <TaskImageGallery notes={groupNotes} />
                 <div>
                   <div className="mb-2 text-xs font-semibold text-slate-500">{t("文档附件（{n}）", { n: docAttachments.length })}</div>
@@ -2345,7 +2419,7 @@ export default function RDTaskDetailPage() {
                                 {sourceTaskId && sourceTaskId !== taskId ? (
                                   <button
                                     type="button"
-                                    onClick={() => navigate(taskDetailPath(sourceTaskId))}
+                                    onClick={() => navigate(taskDetailPath(sourceTaskId), { state: procurementReturnState })}
                                     title={sourceTaskTitle || sourceTaskId}
                                     className="min-w-0 max-w-full cursor-pointer truncate text-xs font-medium text-[#002fa7] hover:text-[#002581]"
                                   >
@@ -2377,6 +2451,8 @@ export default function RDTaskDetailPage() {
                     </div>
                   )}
                 </div>
+                  </div>
+                </details>}
               </motion.div>
               )}
               </TabsContent>
@@ -2446,8 +2522,18 @@ export default function RDTaskDetailPage() {
               </div>
               </TabsContent>
             </Tabs>
-
           </div>
+          {researchWorkspace && latestProgressNote && !notesError && (
+            <section className="rd-reference-latest shrink-0 rounded-xl border border-border bg-card px-4 py-3" aria-label={t("最新进展依据")}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold text-muted-foreground">{t("最新进展依据")}</h3>
+                <button type="button" onClick={() => setTab("notes")} className="min-h-9 text-xs font-medium text-primary hover:underline">{t("查看进展留痕")}</button>
+              </div>
+              <p className="line-clamp-2 break-words text-sm leading-6 text-foreground">{notesError ? t("进展暂不可用，请重新加载") : latestProgressNote?.text || (notesLoading ? t("正在加载进展…") : t("暂无进展记录"))}</p>
+              {!notesError && latestProgressNote && <p className="mt-1 text-xs text-muted-foreground">{latestProgressNote.actor.name} · {formatTraceDateTime(latestProgressNote.created_at)} · {t("{n} 个附件", { n: latestProgressNote.attachments.length })}</p>}
+            </section>
+          )}
+
         </div>
         </DetailGridOrder>
       </div>
@@ -2520,6 +2606,7 @@ export default function RDTaskDetailPage() {
           dueDate={task.due_date}
           attachments={transferAttachments}
           resubmitFrom={procTaskBlocksTransfer ? null : procTask}
+          blockingTask={procTaskBlocksTransfer ? procTask : null}
           onTransferred={(nextProcTask) => {
             if (activeTaskIdRef.current !== task.task_id) return;
             setProcTask(nextProcTask);
@@ -2589,7 +2676,7 @@ export default function RDTaskDetailPage() {
                     type="button"
                     onClick={() => {
                       setPersonTasksFor(null);
-                      if (t.task_id !== taskId) navigate(taskDetailPath(t.task_id));
+                      if (t.task_id !== taskId) navigate(taskDetailPath(t.task_id), { state: procurementReturnState });
                     }}
                     className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition-colors hover:border-[#002fa7]/20 hover:bg-[#eef3ff]"
                   >

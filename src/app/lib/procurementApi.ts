@@ -1,6 +1,7 @@
 // 采购管理接口客户端。类型与后端 procurement.service 的序列化出口对齐。
 import { authFetch, readErrorMessage } from "./authSession";
 import { uploadResourceFile } from "./resourceUpload";
+import type { PurchaseOrderAvailability } from "./orderProcessingApi";
 
 export type ProcMethod = "inquiry" | "direct";
 export type PaymentStatus = "unpaid" | "partial" | "paid";
@@ -46,6 +47,7 @@ export interface ProcTaskAttachment {
 export interface ProcTaskPurchaseOrder {
   id: string;
   tpOrderNo: string;
+  tpOrderId?: string;
   tpLineNo?: string;
   supplierName: string;
   orderedQty: number;
@@ -113,6 +115,8 @@ export interface ProcurementTask {
   /** 当前测试状态是否来自旧版“询价直接跳测试”，供人工核对历史样品。 */
   sampleStatusNeedsReview?: boolean;
   sampleTest?: ProcSampleTestAssignment | null;
+  /** 每次本人确认交付时保存的需求与附件版本，后续研发换版不回写。 */
+  rdTransferSnapshots?: RdProcurementTransferSnapshot[];
   logs: ProcLog[];
   createdAt: string;
   updatedAt: string;
@@ -120,7 +124,34 @@ export interface ProcurementTask {
   alreadyTransferred?: boolean;
 }
 
+export interface RdProcurementTransferSnapshot {
+  id: string;
+  submittedAt: string;
+  submittedBy: string;
+  submittedByName: string;
+  rdTaskId: string;
+  rdTaskTitle: string;
+  requirement: { productId: string; materialName: string; spec: string; unit: string; quantity: number; purchaseLink: string | null; needDate: string | null; deadline: string | null; note: string | null };
+  attachments: Array<{ fileName: string; fileUrl: string; fileKey: string | null; fileSize: number; mimeType: string | null; kind: string; technicalDocumentVersionId: string | null; documentId: string | null; version: string | null; category: string | null; title: string | null; attachmentId: string | null; sourceNoteId: string | null; versionCreatedAt: string | null }>;
+}
+
 export type ProcSampleTestResult = "passed" | "failed_resample" | "failed_requote";
+
+export interface ProcSampleCommercialConditions {
+  priceUnit: string;
+  taxBasis: "inclusive" | "exclusive" | "unspecified";
+  taxRate: number | null;
+  paymentTerms: string;
+  freightTerms: string;
+  leadTimeStart: "order" | "deposit" | "approval" | "agreed_date" | "other" | "unspecified";
+  leadTimeStartDate: string | null;
+  note: string;
+}
+export interface ProcSampleRecordRevision {
+  recordedAt: string; recordedById: string; recordedByName: string;
+  arrivedAt: string | null; startedAt: string | null; finishedAt: string | null;
+  commercial?: ProcSampleCommercialConditions | null;
+}
 
 export interface ProcSampleTestAssignment {
   roundId: string;
@@ -132,12 +163,25 @@ export interface ProcSampleTestAssignment {
   note: string | null;
   confirmedAt: string | null;
   confirmedByName: string | null;
+  recordsVersion?: 1;
+  arrivedAt?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  commercial?: ProcSampleCommercialConditions | null;
+  revisions?: ProcSampleRecordRevision[];
+  archivedAt?: string;
+  archiveReason?: "reassigned" | "new_sample" | "workflow_ended";
 }
 
 export interface ProcSampleTestDetail {
-  task: Pick<ProcurementTask, "id" | "code" | "materialName" | "spec" | "quantity" | "unit" | "status" | "buyer" | "rdTaskId" | "rdTaskTitle" | "attachmentList">;
+  task: Pick<ProcurementTask, "id" | "code" | "materialName" | "spec" | "quantity" | "unit" | "status" | "buyer" | "rdTaskId" | "rdTaskTitle" | "attachmentList" | "rdTransferSnapshots" | "needSample" | "sampleStatusNeedsReview" | "updatedAt" | "expectedArrivalDate" | "logs">;
   sampleTest: ProcSampleTestAssignment | null;
   canConfirm: boolean;
+  history?: ProcSampleTestAssignment[];
+  historyIncomplete?: boolean;
+  canRecordArrival?: boolean;
+  canRecordTesting?: boolean;
+  canReadCommercial?: boolean;
 }
 
 export interface ProcSampleTester { id: string; name: string; department: string | null }
@@ -377,6 +421,7 @@ export interface ProcStockPlanBatch {
 }
 
 export interface ProcStockPlan {
+  fulfillmentSummary?: import('./purchaseFulfillmentApi').StockPlanFulfillmentSummary;
   id: string;
   code: string;
   planType: ProcStockPlanType;
@@ -411,6 +456,70 @@ export interface ProcStockPlan {
   batches: ProcStockPlanBatch[];
   createdAt: string;
   updatedAt: string;
+}
+
+export type ProcStockPlanOrderDateStatus = "on_or_before_target" | "after_target" | "target_missing" | "unconfirmed" | "cleared" | "needs_reconfirmation";
+
+export interface ProcStockPlanOrderDateSource {
+  kind: "batch" | "task";
+  id: string;
+  label: string;
+}
+
+export type ProcStockPlanOrderDateRow = {
+  kind: "line";
+  key: string;
+  lineId: string;
+  orderNo: string;
+  lineNo: string;
+  inventoryCode: string;
+  inventoryName: string;
+  unit: string;
+  supplierName: string;
+  etaDate: string | null;
+  syncedAt: string | null;
+  orderStatus: string | null;
+  approvalStatus: string | null;
+  availability: PurchaseOrderAvailability | null;
+  dateCheck: ProcStockPlanOrderDateStatus;
+  sources: ProcStockPlanOrderDateSource[];
+} | {
+  kind: "unresolved";
+  key: string;
+  orderNo: string | null;
+  lineNo: string | null;
+  reason: string;
+  sources: ProcStockPlanOrderDateSource[];
+};
+
+export interface ProcStockPlanOrderDateCheckResponse {
+  readOnly: true;
+  plan: { id: string; code: string; targetDate: string | null; updatedAt: string };
+  rows: { items: ProcStockPlanOrderDateRow[]; page: number; pageSize: number; total: number; totalPages: number };
+}
+
+export type ProcWorkspaceArrivalDate = {
+  refId: string;
+  kind: "line";
+  taskId: string;
+  lineId: string;
+  tpOrderId: string;
+  orderNo: string;
+  lineNo: string;
+  inventoryCode: string;
+  inventoryName: string;
+  unit: string;
+  supplierName: string;
+  etaDate: string | null;
+  syncedAt: string | null;
+  orderStatus: string | null;
+  approvalStatus: string | null;
+  availability: PurchaseOrderAvailability | null;
+} | { refId: string; kind: "unresolved"; reason: string };
+
+export interface ProcWorkspaceArrivalDatesResponse {
+  readOnly: true;
+  items: ProcWorkspaceArrivalDate[];
 }
 
 export interface ProcStockPlanInput {
@@ -502,6 +611,19 @@ export async function listProcStockPlans(signal?: AbortSignal, filter: {productI
 
 export function getProcStockPlanReadiness(id: string, signal?: AbortSignal, month?: string): Promise<InventoryReadinessResponse & {scopePlanCount?: number; scopeTargetQty?: number}> {
   return request(`/stock-plans/${encodeURIComponent(id)}/readiness${month ? `?month=${encodeURIComponent(month)}` : ""}`, {signal});
+}
+
+export function getProcStockPlanOrderDateCheck(id: string, params: {page?: number; pageSize?: number} = {}, signal?: AbortSignal): Promise<ProcStockPlanOrderDateCheckResponse> {
+  const query = new URLSearchParams();
+  if (params.page !== undefined) query.set("page", String(params.page));
+  if (params.pageSize !== undefined) query.set("pageSize", String(params.pageSize));
+  return request(`/stock-plans/${encodeURIComponent(id)}/order-date-check${query.size ? `?${query}` : ""}`, {signal});
+}
+
+export function getProcWorkspaceArrivalDates(refIds: readonly string[], signal?: AbortSignal): Promise<ProcWorkspaceArrivalDatesResponse> {
+  const query = new URLSearchParams();
+  for (const id of new Set(refIds)) query.append("refId", id);
+  return request(`/workspace-arrival-dates?${query}`, { signal });
 }
 
 export function generateProcStockPlanTasks(id: string): Promise<{plan: ProcStockPlan; createdCount: number; existingCount: number}> {
@@ -680,7 +802,7 @@ export interface CreateProcTaskInput {
   buyerUserId?: string;
   requesterDept?: string;
   consumableNote?: string;
-  attachments?: { fileName: string; fileUrl: string; fileKey?: string; fileSize?: number; mimeType?: string; kind?: "drawing" | "quote" | "other" }[];
+  attachments?: { fileName: string; fileUrl: string; fileKey?: string; fileSize?: number; mimeType?: string; kind?: "drawing" | "quote" | "other"; technicalDocumentVersionId?: string }[];
 }
 
 export async function createProcTask(input: CreateProcTaskInput): Promise<ProcurementTask> {
@@ -772,13 +894,22 @@ export function listProcSampleTesters(signal?: AbortSignal): Promise<ProcSampleT
 
 export function assignProcSampleTest(
   id: string,
-  input: { testerUserId: string; fromStatus: "pending_sample" | "testing"; baseUpdatedAt: string },
+  input: { testerUserId: string; fromStatus: "pending_sample" | "testing"; baseUpdatedAt: string; arrivedAt?: string },
 ): Promise<ProcurementTask> {
   return request(`/tasks/${encodeURIComponent(id)}/sample-test/assign`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export function getProcSampleTest(id: string, signal?: AbortSignal): Promise<ProcSampleTestDetail> {
   return request(`/tasks/${encodeURIComponent(id)}/sample-test`, { signal });
+}
+
+export interface UpdateProcSampleRecordsInput {
+  roundId: string; baseUpdatedAt: string;
+  arrivedAt?: string; startedAt?: string; finishedAt?: string;
+  commercial?: ProcSampleCommercialConditions;
+}
+export function updateProcSampleRecords(id: string, input: UpdateProcSampleRecordsInput): Promise<ProcSampleTestDetail> {
+  return request(`/tasks/${encodeURIComponent(id)}/sample-test/records`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
 export function confirmProcSampleTest(
@@ -1484,6 +1615,8 @@ export interface SupplierQuote {
   id: string;
   materialId: string;
   supplierId?: string;
+  /** 当前真实供应商关联；与报价上的厂家名称快照分开，停用关联也返回。 */
+  supplier?: { id: string; name: string; source: string; enabled: boolean };
   supplierName: string;
   supplierModel: string;
   currency: string;
@@ -1506,6 +1639,10 @@ export interface QuoteBookRow {
   unit: string;
   category: string;
   productLine: string;
+  /** 原始主数据字段；缺失时不按名称推测编码或审核状态。 */
+  tpInventoryCode?: string;
+  erpCode?: string;
+  reviewStatus?: string;
   imageUrl?: string;
   latestPrice: number | null;
   latestSupplier?: string;

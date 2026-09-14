@@ -2,22 +2,42 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import React from "react";
+import { matchPath } from "react-router";
 import * as jsxRuntime from "react/jsx-runtime";
 import ts from "typescript";
 import { hasAnyPermission, hasPermission } from "../src/app/lib/permissions.ts";
+import { subRoutePath } from "../src/app/lib/routePaths.ts";
 
 const appSource = readFileSync(new URL("../src/app/App.tsx", import.meta.url), "utf8");
 const appAst = ts.createSourceFile("App.tsx", appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const routeFunctions = ["ProtectedLayout", "PermissionRoute", "makeProtected", "makeLazyProtected", "PageLoadingFallback"]
   .map((name) => appAst.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name).getText(appAst)).join("\n");
 const routeCode = ts.transpileModule(routeFunctions, { compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } }).outputText;
+const workspaceCode = ts.transpileModule(readFileSync(new URL("../src/app/lib/rdWorkspace.ts", import.meta.url), "utf8"), {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+}).outputText;
+const workspaceNavigation = {};
+const navigationCode = ts.transpileModule(readFileSync(new URL("../src/app/lib/procurementWorkspaceNavigation.ts", import.meta.url), "utf8"), {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+}).outputText;
+new Function("exports", "require", navigationCode)(workspaceNavigation, (name) => {
+  assert.equal(name, "./routePaths");
+  return { routePath: (_permission, fallback) => fallback };
+});
 
 function route({ mobile = true, user = { id: "tester", permissions: ["page:rd-my-workspace"] }, hydrated = true,
   pathname = "/rd-my-workspace", search = "?sampleTest=proc%2Fself&tab=mine", hash = "#detail", configuredPath } = {}) {
   const location = { pathname, search, hash };
-  const bindings = { React, Suspense: React.Suspense, Navigate: "Navigate", Root: "Root", MobileProcSampleTestPage: "MobileSamplePage",
+  const routePath = (permission, fallback) => permission === "page:rd-my-workspace" ? configuredPath || fallback : fallback;
+  const workspace = {};
+  new Function("exports", "require", workspaceCode)(workspace, (name) => {
+    if (name === "react-router") return { matchPath };
+    assert.equal(name, "./routePaths");
+    return { routePath };
+  });
+  const bindings = { React, ...workspaceNavigation, Suspense: React.Suspense, Navigate: "Navigate", Root: "Root", MobileProcSampleTestPage: "MobileSamplePage",
     URLSearchParams, hasAnyPermission, hasPermission, useAuth: () => ({ user, hydrated }), useLocation: () => location,
-    useIsMobileViewport: () => mobile, routePath: (_permission, fallback) => configuredPath || fallback };
+    useIsMobileViewport: () => mobile, matchPath, subRoutePath, rdWorkspaceForPath: workspace.rdWorkspaceForPath, routePath };
   const render = new Function(...Object.keys(bindings), `${routeCode}\nreturn ProtectedLayout;`)(...Object.values(bindings));
   return { tree: render(), location };
 }
@@ -71,6 +91,7 @@ test("空样品参数、普通手机页面和桌面页面维持原路由行为",
 
 test("样品入口跟随配置工作台路径，任务或账号变化时重挂轻量页", () => {
   assert.ok(elements(route({ pathname: "/my-rd", configuredPath: "/my-rd" }).tree).some((item) => item.type === "MobileSamplePage"));
+  assert.equal(route({ pathname: "/applicant-forms", configuredPath: "/my-rd" }).tree.type, "Root", "研发工作台的路径配置不应覆盖其他页面");
   const key = (options) => elements(route(options).tree).find((item) => item.type === "MobileSamplePage").key;
   assert.notEqual(key({}), key({ search: "?sampleTest=proc-new" }));
   assert.notEqual(key({}), key({ user: { id: "tester-2", permissions: ["page:rd-my-workspace"] } }));

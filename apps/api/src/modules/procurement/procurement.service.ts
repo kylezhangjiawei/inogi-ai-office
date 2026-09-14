@@ -1,16 +1,19 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { recalculateStockPlanFulfillment } from './purchase-fulfillment.service';
 import { ChatService } from '../chat/chat.service';
 import { ResearchDevelopmentService } from '../research-development/research-development.service';
+import { RdTechnicalDocumentsService } from '../research-development/rd-technical-documents.service';
 import { OSS_BUSINESS_TYPES, SIGNED_URL_TTL_SECONDS } from '../oss/oss.constants';
 import { OssService } from '../oss/oss.service';
 import {
   AiParseTaskDto,
   AssignSampleTestDto,
   ConfirmSampleTestDto,
+  UpdateSampleRecordsDto,
   ApplyQuoteBookQuotesDto,
   BatchReassignDto,
   MoveProcTasksDto,
@@ -70,7 +73,10 @@ import {
 } from './inventory-readiness';
 import { buildQ5PackagingReference, Q5_PACKAGING_REFERENCE_SOURCE } from './q5-packaging-reference';
 import { buildInventoryMatchDiagnostics } from './inventory-match-diagnostic';
-import { sampleTestOf, SAMPLE_TEST_RESULTS, SAMPLE_TEST_RESULT_LABELS, type ProcurementSampleTest } from './sample-test';
+import { sampleTestOf, sampleTestHistoryOf, archiveSampleTest, sampleTestWithoutCommercial, sampleTimestamp, sampleTimingError, SAMPLE_TEST_RESULTS, SAMPLE_TEST_RESULT_LABELS, type ProcurementSampleTest } from './sample-test';
+import { appendRdTransferSnapshot, rdTransferSnapshotsOf, type RdTransferSnapshotAttachment } from './rd-transfer-snapshot';
+import { readStockPlanOrderDateCheck } from './stock-plan-order-date-check';
+import { readWorkspaceArrivalDates } from './workspace-arrival-dates';
 
 const DEFAULT_PROC_PRODUCT_ID = 'prod-portable-o2';
 
@@ -277,6 +283,7 @@ export class ProcurementService {
     private readonly ossService: OssService,
     private readonly chatService: ChatService,
     private readonly rdService: ResearchDevelopmentService,
+    @Optional() private readonly technicalDocuments?: RdTechnicalDocumentsService,
   ) {}
 
   /**
@@ -314,6 +321,10 @@ export class ProcurementService {
 
   // ── 备货计划 ────────────────────────────────────────────────────────────────
 
+  getStockPlanOrderDateCheck(id: string, query: Record<string, unknown>, actor: ProcActor) {
+    return readStockPlanOrderDateCheck(this.prisma, id, query, actor);
+  }
+
   async listStockPlans(query: ListProcStockPlansQueryDto = {}) {
     const where: Prisma.ProcStockPlanWhereInput = {};
     if (query.type) {
@@ -331,7 +342,7 @@ export class ProcurementService {
       include: PROC_STOCK_PLAN_VIEW_INCLUDE,
     });
     const unresolvedOrders = await this.unresolvedStockPlanOrders(rows);
-    return { items: rows.map((row) => this.serializeStockPlan(row, unresolvedOrders)) };
+    return { items: await Promise.all(rows.map(async (row) => ({ ...this.serializeStockPlan(row, unresolvedOrders), fulfillmentSummary: await recalculateStockPlanFulfillment(this.prisma, row) }))) };
   }
 
   async createStockPlan(dto: CreateProcStockPlanDto, actor: ProcActor) {
@@ -433,7 +444,7 @@ export class ProcurementService {
 
   async getStockPlanView(id: string, client: Prisma.TransactionClient = this.prisma) {
     const row = await this.requireStockPlan(id, client);
-    return this.serializeStockPlan(row, await this.unresolvedStockPlanOrders([row], client));
+    return { ...this.serializeStockPlan(row, await this.unresolvedStockPlanOrders([row], client)), fulfillmentSummary: await recalculateStockPlanFulfillment(client, row) };
   }
 
   /** 订单号只能证明可能重叠，不能确定行号或物料；保留历史行并要求用户明确关联。 */
@@ -597,14 +608,16 @@ export class ProcurementService {
   private async stockPlanReadiness(plan: ProcStockPlanView) {
     const unresolvedOrders = await this.unresolvedStockPlanOrders([plan]);
     const view = this.serializeStockPlan(plan, unresolvedOrders);
+    const fulfillmentSummary = await recalculateStockPlanFulfillment(this.prisma, plan);
     const orderIssues = view.batches.filter((batch) => batch.orderDataIssue).map((batch) => ({ batchId: batch.id, code: batch.orderIssueCode!, message: batch.orderIssue! }));
     if (plan.planType === 'machine') {
-      const purchasedQty = view.purchasedQty;
+      const purchasedQty = fulfillmentSummary.orderedQty;
+      if (purchasedQty === null) throw new BadRequestException('订单履约数量尚未核对，请先处理取消、退货或冲销的 ERP 覆盖后再核算整机计划');
       if (!plan.productLine || !Number.isInteger(num(plan.targetQty)) || num(plan.targetQty) > 1_000_000 || !Number.isInteger(purchasedQty)) throw new BadRequestException('整机计划缺少有效的 BOM 型号或整数目标、采购套数');
       const targetSets = Math.max(0, num(plan.targetQty) - purchasedQty);
       const result = await this.getInventoryReadiness({ productLine: plan.productLine, targetSets });
       if (result.productLine !== plan.productLine || result.items.length === 0) throw new BadRequestException('所选型号没有有效 BOM');
-      return { ...result, orderIssues, dataQuality: { ...result.dataQuality, provisional: result.dataQuality.provisional || unresolvedOrders.size > 0 } };
+      return { ...result, orderIssues, fulfillmentSummary, dataQuality: { ...result.dataQuality, provisional: result.dataQuality.provisional || unresolvedOrders.size > 0 || fulfillmentSummary.hasAdjustments } };
     }
     const material = plan.materialId ? await this.prisma.procMaterial.findUnique({ where: { id: plan.materialId } }) : null;
     if (!material?.tpInventoryCode?.trim()) throw new BadRequestException('请先将备货物料关联到有效的 ERP 存货编码');
@@ -645,8 +658,8 @@ export class ProcurementService {
       source: 'tplus' as const, readOnly: true, productLine: plan.productLine || material.productLine,
       models: [{ id: plan.productLine || material.id, label: material.name, bomLines: 1 }],
       warehouse: { keyword: '量产', label: '量产仓库', matchedNames: [...new Set(rows.map((row) => row.warehouse))] },
-      syncedAt: latest, ...calculation, orderIssues,
-      dataQuality: { ...calculation.dataQuality, provisional: calculation.dataQuality.provisional || unresolvedOrders.size > 0 },
+      syncedAt: latest, ...calculation, orderIssues, fulfillmentSummary,
+      dataQuality: { ...calculation.dataQuality, provisional: calculation.dataQuality.provisional || unresolvedOrders.size > 0 || fulfillmentSummary.hasAdjustments || fulfillmentSummary.orderedQty === null },
     };
   }
 
@@ -724,7 +737,7 @@ export class ProcurementService {
       // 指定任务的关联读取与继续转采购共用参与权限；无任务 ID 时仍限制原有列表范围。
       if (rdTaskId) {
         if (!actor) throw new ForbiddenException('请登录后查看研发任务的采购关联');
-        await this.rdService.requireProcurementTransferAccess(rdTaskId, {
+        await this.rdService.requireTaskReadAccess(rdTaskId, {
           userId: actor.id,
           userName: actor.name,
           permissions: actor.permissions,
@@ -797,14 +810,35 @@ export class ProcurementService {
       total,
       page,
       pageSize,
-      items: rows.map((row) =>
-        this.serializeTask(
+      items: rows.map((row) => {
+        const task = this.serializeTask(
           row,
           row.requesterUserId && requesterDepartments.has(row.requesterUserId)
             ? requesterDepartments.get(row.requesterUserId)
             : undefined,
-        ),
-      ),
+        );
+        return query.rdLink === 'true' ? this.rdLinkedTaskView(task) : task;
+      }),
+    };
+  }
+
+  getWorkspaceArrivalDates(refId: unknown, actor: ProcActor) {
+    return readWorkspaceArrivalDates(this.prisma, refId, actor);
+  }
+
+  /** 研发关联只暴露交付状态，避免采购日志和订单行带出报价/结算细节。 */
+  private rdLinkedTaskView(task: ReturnType<ProcurementService['serializeTask']>) {
+    return {
+      ...task,
+      paymentDate: undefined, paymentStatus: undefined, paymentNote: undefined,
+      selectedQuotationId: undefined, quotationSubtotal: undefined, quotationDiscount: undefined,
+      quotationTotal: undefined, quotationCurrency: undefined, purchaseOrders: [],
+      attachmentList: (task.attachmentList ?? []).filter((attachment) => attachment.kind !== 'quote'),
+      rdTransferSnapshots: (task.rdTransferSnapshots ?? []).map((snapshot) => ({
+        ...snapshot, attachments: snapshot.attachments.filter((attachment) => attachment.kind !== 'quote'),
+      })),
+      logs: (Array.isArray(task.logs) ? task.logs : []).filter((log) => log.fromStatus && log.toStatus && log.fromStatus !== log.toStatus)
+        .map((log) => ({ ...log, text: `${PROC_STATUS_LABELS[log.fromStatus as ProcStatus] ?? log.fromStatus} → ${PROC_STATUS_LABELS[log.toStatus as ProcStatus] ?? log.toStatus}` })),
     };
   }
 
@@ -982,8 +1016,14 @@ export class ProcurementService {
       return this.continueRdTransfer(existing.id, actor);
     }
     if (existing && existing.status !== 'cancelled') {
-      return { ...this.serializeTask(existing), alreadyTransferred: true };
+      return { ...this.rdLinkedTaskView(this.serializeTask(existing)), alreadyTransferred: true };
     }
+    if (!dto.attachments?.length) throw new BadRequestException('转采购需至少选择 1 个本次交付附件');
+    const prepared = await this.prepareRdTransferAttachments(dto, actor);
+    dto = { ...dto, productId: normalizeProcProductId(dto.productId ?? existing?.productId), attachments: prepared.inputs };
+    const metadata = appendRdTransferSnapshot(existing?.metadata, dto, actor, rdTask.title, prepared.snapshots, {
+      id: randomUUID(), submittedAt: new Date().toISOString(),
+    });
     if (existing) {
       // 取消后的重新提交：更新需求内容、回到采购待处理，保留历史日志与旧附件。
       // 弹窗默认带入研发任务全部附件，与旧附件指向同一批 OSS 对象，不去重的话每重提一次就多出
@@ -1013,7 +1053,7 @@ export class ProcurementService {
       const buyer = await this.requireAutomaticRdBuyer();
       const updated = await this.prisma.procTask.update({
         // 同一次条件更新写入状态、附件与日志，阻止并发重提覆盖已进入采购处理的任务。
-        where: { id: existing.id, status: 'cancelled' },
+        where: { id: existing.id, status: 'cancelled', updatedAt: existing.updatedAt },
         data: {
           productId: normalizeProcProductId(dto.productId ?? existing.productId),
           materialName: dto.materialName,
@@ -1037,6 +1077,7 @@ export class ProcurementService {
           buyer: buyer.name,
           buyerUserId: buyer.id,
           cancelReason: null,
+          metadata,
           ...(newAttachments.length
             ? { attachments: { create: newAttachments.map((a) => this.attachmentData(a, actor)) } }
             : {}),
@@ -1061,7 +1102,7 @@ export class ProcurementService {
       await this.notifyBuyerOfRdTransferAssignment(updated, buyer, actor).catch((error) =>
         new Logger(ProcurementService.name).warn(`转采购分配通知失败（${updated.code}）: ${(error as Error).message}`),
       );
-      return { ...this.serializeTask(updated), alreadyTransferred: false };
+      return { ...this.rdLinkedTaskView(this.serializeTask(updated)), alreadyTransferred: false };
     }
     if (!dto.attachments?.length) {
       // 研发侧不强制校验业务字段，但必须带附件（图纸/说明），否则采购无从下手
@@ -1075,8 +1116,9 @@ export class ProcurementService {
         rdTaskTitle: rdTask.title,
         rdContact: rdContactName,
         rdContactUserId,
+        metadata,
       });
-      return created;
+      return this.rdLinkedTaskView(created);
     } catch (error) {
       // 数据库唯一约束兜住并发双击/网络重试；若另一请求已成功，返回同一采购任务。
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -1085,11 +1127,48 @@ export class ProcurementService {
           include: PROC_TASK_VIEW_INCLUDE,
         });
         if (transferred) {
-          return { ...this.serializeTask(transferred), alreadyTransferred: true };
+          return { ...this.rdLinkedTaskView(this.serializeTask(transferred)), alreadyTransferred: true };
         }
       }
       throw error;
     }
+  }
+
+  private async prepareRdTransferAttachments(dto: TransferFromRdDto, actor: ProcActor) {
+    const versionIds = [...new Set((dto.attachments ?? []).flatMap((attachment) =>
+      attachment.technicalDocumentVersionId ? [attachment.technicalDocumentVersionId.trim()] : []))];
+    if (versionIds.some((id) => !id)) throw new BadRequestException('技术资料版本编号不能为空');
+    if (versionIds.length && !this.technicalDocuments) throw new BadRequestException('技术资料版本服务暂不可用，请稍后重试');
+    const versions = versionIds.length ? await this.technicalDocuments!.resolveTransferVersions(dto.rdTaskId.trim(), versionIds, {
+      userId: actor.id, userName: actor.name, permissions: actor.permissions,
+    }) : [];
+    const byVersion = new Map(versions.map((version) => [version.id, version]));
+    const snapshots: RdTransferSnapshotAttachment[] = [];
+    const inputs = (dto.attachments ?? []).map((input): ProcAttachmentInputDto => {
+      const versionId = input.technicalDocumentVersionId?.trim();
+      const version = versionId ? byVersion.get(versionId) : undefined;
+      if (versionId && !version) throw new BadRequestException('所选技术资料版本不存在或不属于该研发任务');
+      // A version ID is a reference only: file identity and display fields come from the server.
+      const attachment: ProcAttachmentInputDto = version ? {
+        technicalDocumentVersionId: version.id, fileName: version.fileName,
+        fileUrl: version.fileUrl, fileKey: version.fileKey ?? undefined,
+        fileSize: version.fileSize, mimeType: version.mimeType ?? undefined, kind: 'drawing',
+      } : input;
+      if (attachment.fileKey && !this.isAllowedAttachmentFileKey(attachment.fileKey)) {
+        throw new BadRequestException(`附件「${attachment.fileName}」的存储路径不合法`);
+      }
+      const stored = this.attachmentData(attachment, actor);
+      snapshots.push({
+        fileName: stored.fileName, fileUrl: stored.fileUrl, fileKey: stored.fileKey ?? null,
+        fileSize: stored.fileSize ?? 0, mimeType: stored.mimeType ?? null, kind: stored.kind ?? 'drawing',
+        technicalDocumentVersionId: version?.id ?? null, documentId: version?.documentId ?? null,
+        version: version ? String(version.version) : null, category: version?.category ?? null,
+        title: version?.title ?? null, attachmentId: version?.attachmentId ?? null,
+        sourceNoteId: version?.sourceNoteId ?? null, versionCreatedAt: version?.createdAt.toISOString() ?? null,
+      });
+      return attachment;
+    });
+    return { inputs, snapshots };
   }
 
   /**
@@ -1218,6 +1297,7 @@ export class ProcurementService {
       rdTaskTitle?: string;
       rdContact?: string;
       rdContactUserId?: string;
+      metadata?: Prisma.InputJsonObject;
     },
   ) {
     for (const attachment of dto.attachments ?? []) {
@@ -1270,6 +1350,7 @@ export class ProcurementService {
         requesterDept,
         consumableNote: dto.consumableNote ?? null,
         createdBy: actor.id,
+        ...(extra.metadata ? { metadata: extra.metadata } : {}),
         attachments: { create: (dto.attachments ?? []).map((a) => this.attachmentData(a, actor)) },
         logs: {
           create: {
@@ -1494,9 +1575,9 @@ export class ProcurementService {
     });
     if (task.status !== 'pending_rd_review') {
       if (task.status === 'cancelled') throw new BadRequestException('已取消的采购任务请修改后重新提交');
-      return { ...this.serializeTask(task), alreadyTransferred: true };
+      return { ...this.rdLinkedTaskView(this.serializeTask(task)), alreadyTransferred: true };
     }
-    return this.activateLegacyRdTransfer(task, actor, false);
+    return this.rdLinkedTaskView(await this.activateLegacyRdTransfer(task, actor, false));
   }
 
   /** 兼容旧版审核入口；新增流转均直接进入采购待处理。 */
@@ -1923,15 +2004,29 @@ export class ProcurementService {
     return route ? { ...buyer, route } : null;
   }
 
-  private sampleTestResponse(task: ProcTaskView, actor: ProcActor) {
+  private sampleTestResponse(task: ProcTaskView, actor: ProcActor, canReadProcurement: boolean) {
     const serialized = this.serializeTask(task);
+    const visible = canReadProcurement ? serialized : this.rdLinkedTaskView(serialized);
     const sampleTest = sampleTestOf(task.metadata);
+    const history = sampleTestHistoryOf(task.metadata);
+    const rawHistory = task.metadata && typeof task.metadata === 'object' && !Array.isArray(task.metadata) ? task.metadata.sampleTestHistory : undefined;
     return {
       task: { id: task.id, code: task.code, materialName: task.materialName, spec: task.spec,
         quantity: num(task.quantity), unit: task.unit, status: task.status, buyer: task.buyer,
         rdTaskId: task.rdTaskId ?? undefined, rdTaskTitle: task.rdTaskTitle ?? undefined,
-        attachmentList: serialized.attachmentList },
-      sampleTest,
+        attachmentList: visible.attachmentList, rdTransferSnapshots: visible.rdTransferSnapshots,
+        needSample: serialized.needSample, sampleStatusNeedsReview: serialized.sampleStatusNeedsReview,
+        updatedAt: serialized.updatedAt, expectedArrivalDate: serialized.expectedArrivalDate,
+        logs: serialized.logs.filter((log) => log.fromStatus && log.toStatus && log.fromStatus !== log.toStatus)
+          .map((log) => ({ id: log.id, createdAt: log.createdAt, at: log.at, fromStatus: log.fromStatus,
+            toStatus: log.toStatus, actor: log.actor, text: '状态变更' })) },
+      sampleTest: canReadProcurement ? sampleTest : sampleTestWithoutCommercial(sampleTest),
+      history: history.map((round) => canReadProcurement ? round : sampleTestWithoutCommercial(round)!),
+      historyIncomplete: Array.isArray(rawHistory) && rawHistory.length !== history.length,
+      canRecordArrival: task.status === 'testing' && sampleTest?.result === null && canReadProcurement
+        && actor.permissions.some((permission) => permission === '*' || permission === 'proc-task:inquiry'),
+      canRecordTesting: task.status === 'testing' && sampleTest?.testerUserId === actor.id && sampleTest.result === null,
+      canReadCommercial: canReadProcurement,
       canConfirm: task.status === 'testing' && sampleTest?.testerUserId === actor.id && sampleTest.result === null,
     };
   }
@@ -1942,11 +2037,11 @@ export class ProcurementService {
     const assigned = sampleTestOf(task.metadata)?.testerUserId === actor.id;
     const readAll = actor.permissions.some((permission) => ['*', 'page:proc-cockpit', 'page:proc-materials'].includes(permission));
     let readOwn = false;
-    if (!assigned && !readAll && actor.permissions.includes('page:proc-my-workspace')) {
+    if (!readAll && actor.permissions.includes('page:proc-my-workspace')) {
       readOwn = this.sampleTestBuyer(task, await this.sampleTestUsers())?.id === actor.id;
     }
     if (!assigned && !readAll && !readOwn) throw new NotFoundException('样品测试任务不存在');
-    return this.sampleTestResponse(task, actor);
+    return this.sampleTestResponse(task, actor, readAll || readOwn);
   }
 
   private async handleSampleTestRequests(tx: Prisma.TransactionClient, taskId: string) {
@@ -1963,7 +2058,7 @@ export class ProcurementService {
     const current = sampleTestOf(task.metadata);
     if (current?.result === null) {
       await tx.procTask.updateMany({ where: { id: taskId }, data: {
-        metadata: { ...(task.metadata as Prisma.JsonObject), sampleTest: null } as Prisma.InputJsonObject,
+        metadata: { ...archiveSampleTest(task.metadata, 'workflow_ended'), sampleTest: null } as Prisma.InputJsonObject,
       } });
       return current;
     }
@@ -1979,7 +2074,11 @@ export class ProcurementService {
       const task = await tx.procTask.findUnique({ where: { id } });
       if (!task) throw new NotFoundException('采购任务不存在');
       if (task.status !== dto.fromStatus || task.updatedAt.getTime() !== base.getTime()) throw new ConflictException('任务已更新，请刷新后重新指定测试人员');
-      const tester = (await this.sampleTestUsers(tx)).find((user) => user.id === dto.testerUserId?.trim()
+      const users = await this.sampleTestUsers(tx);
+      const readAll = actor.permissions.some((permission) => ['*', 'page:proc-cockpit', 'page:proc-materials'].includes(permission));
+      const readOwn = actor.permissions.includes('page:proc-my-workspace') && this.sampleTestBuyer(task, users)?.id === actor.id;
+      if (!readAll && !readOwn) throw new ForbiddenException('没有本任务的样品分派与到样登记权限');
+      const tester = users.find((user) => user.id === dto.testerUserId?.trim()
         && user.status === 'ACTIVE' && user.name.trim()
         && (user.permissions.includes('*') || user.permissions.includes('page:rd-my-workspace')));
       if (!tester) throw new BadRequestException('请选择启用且有研发个人工作台权限的测试人员');
@@ -1989,8 +2088,16 @@ export class ProcurementService {
         roundId: randomUUID(), testerUserId: tester.id, testerName: tester.name,
         assignedAt: new Date().toISOString(), assignedByName: actor.name,
         result: null, note: null, confirmedAt: null, confirmedByName: null,
+        recordsVersion: 1,
+        arrivedAt: dto.arrivedAt !== undefined ? sampleTimestamp(dto.arrivedAt) : task.status === 'testing' && current?.result === null ? current.arrivedAt ?? null : null,
+        startedAt: null, finishedAt: null, commercial: null, revisions: [],
       };
-      const metadata = task.metadata && typeof task.metadata === 'object' && !Array.isArray(task.metadata) ? task.metadata : {};
+      if (dto.arrivedAt !== undefined && !sampleTimestamp(dto.arrivedAt)) throw new BadRequestException('实际到样时间无效');
+      const timingError = sampleTimingError(sampleTest);
+      if (timingError) throw new BadRequestException(timingError);
+      if (sampleTest.arrivedAt) sampleTest.revisions!.push({ recordedAt: sampleTest.assignedAt, recordedById: actor.id, recordedByName: actor.name,
+        arrivedAt: sampleTest.arrivedAt, startedAt: null, finishedAt: null });
+      const metadata = archiveSampleTest(task.metadata, task.status === 'testing' && current?.result === null ? 'reassigned' : 'new_sample');
       const claimed = await tx.procTask.updateMany({ where: { id, status: dto.fromStatus, updatedAt: base }, data: {
         status: 'testing', needSample: true, updatedAt: new Date(Math.max(Date.now(), base.getTime() + 1)),
         metadata: { ...metadata, sampleTest } as unknown as Prisma.InputJsonObject,
@@ -1998,7 +2105,7 @@ export class ProcurementService {
       if (claimed.count !== 1) throw new ConflictException('任务已更新，请刷新后重试');
       await this.handleSampleTestRequests(tx, id);
       await tx.procTaskLog.create({ data: { taskId: id, kind: 'action',
-        text: `${task.status === 'pending_sample' ? '确认样品已到' : '指定样品测试'}，由 ${tester.name} 测试并确认结论`,
+        text: `${sampleTest.arrivedAt ? '登记样品到样并指定测试' : '指定样品测试（实际到样待登记）'}，由 ${tester.name} 测试并确认结论`,
         fromStatus: task.status, toStatus: 'testing', actor: actor.name, actorUserId: actor.id } });
       await this.rdService.createMessage({ source: 'procurement', sender: { id: actor.id, name: actor.name, role: '采购人员' },
         recipient_id: tester.id, recipient_name: tester.name, subject: `待测试样品 · ${task.materialName}`,
@@ -2013,6 +2120,63 @@ export class ProcurementService {
     return this.serializeTask(updated);
   }
 
+  async updateSampleRecords(id: string, dto: UpdateSampleRecordsDto, actor: ProcActor) {
+    const base = sampleTimestamp(dto.baseUpdatedAt);
+    if (!base || !dto.roundId?.trim()) throw new BadRequestException('请刷新样品记录后重试');
+    const hasArrival = Object.prototype.hasOwnProperty.call(dto, 'arrivedAt');
+    const hasTesting = ['startedAt', 'finishedAt'].some((key) => Object.prototype.hasOwnProperty.call(dto, key));
+    const hasCommercial = Object.prototype.hasOwnProperty.call(dto, 'commercial');
+    if (!hasArrival && !hasTesting && !hasCommercial) throw new BadRequestException('请填写需要登记的时间或采购条件');
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "ProcTask" WHERE id = ${id} FOR UPDATE`;
+      const task = await tx.procTask.findUnique({ where: { id } });
+      if (!task) throw new NotFoundException('样品测试任务不存在');
+      const current = sampleTestOf(task.metadata);
+      const buyer = this.sampleTestBuyer(task, await this.sampleTestUsers(tx));
+      const readAll = actor.permissions.some((permission) => ['*', 'page:proc-cockpit', 'page:proc-materials'].includes(permission));
+      const canReadProcurement = readAll || (actor.permissions.includes('page:proc-my-workspace') && buyer?.id === actor.id);
+      const canWriteProcurement = canReadProcurement && actor.permissions.some((permission) => permission === '*' || permission === 'proc-task:inquiry');
+      if ((hasArrival || hasCommercial) && !canWriteProcurement) throw new ForbiddenException('仅有询价权限且可读取本任务的采购人员可以登记到样和采购条件');
+      if (hasTesting && current?.testerUserId !== actor.id) throw new ForbiddenException('仅当前指定测试人员本人可以登记开测和结束时间');
+      if (!current || current.roundId !== dto.roundId || current.result !== null || task.status !== 'testing') throw new ConflictException('该轮测试已结束或已改派，请刷新任务');
+      if (task.updatedAt.getTime() !== Date.parse(base)) throw new ConflictException('样品记录已更新，请刷新后核对再保存');
+      const next: ProcurementSampleTest = { ...current, recordsVersion: 1 };
+      for (const key of ['arrivedAt', 'startedAt', 'finishedAt'] as const) {
+        if (Object.prototype.hasOwnProperty.call(dto, key)) {
+          const value = sampleTimestamp(dto[key]);
+          if (!value) throw new BadRequestException('实际时间无效，不能清除已登记时间');
+          next[key] = value;
+        }
+      }
+      const timingError = sampleTimingError(next);
+      if (timingError) throw new BadRequestException(timingError);
+      if (hasCommercial) {
+        const conditions = dto.commercial;
+        if (!conditions || !['priceUnit', 'paymentTerms', 'freightTerms', 'note'].every((key) => typeof conditions[key as keyof typeof conditions] === 'string')
+          || !['inclusive', 'exclusive', 'unspecified'].includes(conditions.taxBasis)
+          || !['order', 'deposit', 'approval', 'agreed_date', 'other', 'unspecified'].includes(conditions.leadTimeStart)
+          || (conditions.taxRate != null && (!Number.isFinite(conditions.taxRate) || conditions.taxRate < 0 || conditions.taxRate > 100))) throw new BadRequestException('采购条件格式无效');
+        if (conditions.priceUnit.length > 80 || [conditions.paymentTerms, conditions.freightTerms, conditions.note].some((value) => value.length > 500)) throw new BadRequestException('采购条件超出允许长度');
+        if (conditions.leadTimeStart === 'agreed_date') {
+          if (typeof conditions.leadTimeStartDate !== 'string' || !sampleTimestamp(`${conditions.leadTimeStartDate}T00:00:00Z`)) throw new BadRequestException('请填写有效的约定起算日期');
+        } else if (conditions.leadTimeStartDate != null) throw new BadRequestException('仅约定日期起算方式可填写起算日期');
+        next.commercial = { priceUnit: conditions.priceUnit.trim(), taxBasis: conditions.taxBasis, taxRate: conditions.taxRate ?? null,
+          paymentTerms: conditions.paymentTerms.trim(), freightTerms: conditions.freightTerms.trim(), leadTimeStart: conditions.leadTimeStart,
+          leadTimeStartDate: conditions.leadTimeStartDate ?? null, note: conditions.note.trim() };
+      }
+      next.revisions = [...(current.revisions ?? []), { recordedAt: new Date().toISOString(), recordedById: actor.id, recordedByName: actor.name,
+        arrivedAt: next.arrivedAt ?? null, startedAt: next.startedAt ?? null, finishedAt: next.finishedAt ?? null, commercial: next.commercial ?? null }];
+      const metadata = task.metadata && typeof task.metadata === 'object' && !Array.isArray(task.metadata) ? task.metadata : {};
+      const claimed = await tx.procTask.updateMany({ where: { id, status: 'testing', updatedAt: new Date(base), metadata: { path: ['sampleTest', 'roundId'], equals: dto.roundId } }, data: {
+        updatedAt: new Date(Math.max(Date.now(), Date.parse(base) + 1)), metadata: { ...metadata, sampleTest: next } as unknown as Prisma.InputJsonObject,
+      } });
+      if (claimed.count !== 1) throw new ConflictException('样品记录已更新，请刷新后重试');
+      await tx.procTaskLog.create({ data: { taskId: id, kind: 'action', text: hasCommercial ? '登记本轮样品采购条件及时间记录' : '登记本轮样品实际时间', actor: actor.name, actorUserId: actor.id } });
+      return { task: await tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE }), canReadProcurement };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+    return this.sampleTestResponse(updated.task, actor, updated.canReadProcurement);
+  }
+
   async confirmSampleTest(id: string, dto: ConfirmSampleTestDto, actor: ProcActor) {
     const note = typeof dto.note === 'string' ? dto.note.trim() : '';
     if (!note || note.length > 500 || !SAMPLE_TEST_RESULTS.includes(dto.result)) throw new BadRequestException('请选择测试结果并填写 1–500 字测试结论');
@@ -2023,6 +2187,9 @@ export class ProcurementService {
       const current = sampleTestOf(task.metadata);
       if (!current || current.testerUserId !== actor.id) throw new ForbiddenException('仅当前指定的测试人员本人可以确认测试结论');
       if (task.status !== 'testing' || current.roundId !== dto.roundId || current.result !== null) throw new ConflictException('该轮测试已结束或已改派，请刷新任务');
+      if (current.recordsVersion === 1 && (!current.arrivedAt || !current.startedAt || !current.finishedAt || sampleTimingError(current))) {
+        throw new BadRequestException('请先登记有效的实际到样、开测和结束时间，再确认测试结论');
+      }
       const buyer = this.sampleTestBuyer(task, await this.sampleTestUsers(tx));
       if (!buyer) throw new BadRequestException('采购负责人未指派、已停用、同名不唯一或无采购工作台权限，请先明确指派有效负责人');
       const confirmedAt = new Date().toISOString();
@@ -2048,9 +2215,13 @@ export class ProcurementService {
           route: `${buyer.route}?task=${encodeURIComponent(id)}`, action_label: '查看测试结论并继续采购',
           next_action: dto.result === 'passed' ? '继续采购流程' : dto.result === 'failed_resample' ? '安排重新送样' : '重新询价' }),
       }, tx);
-      return tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE });
+      return {
+        task: await tx.procTask.findUniqueOrThrow({ where: { id }, include: PROC_TASK_VIEW_INCLUDE }),
+        canReadProcurement: actor.permissions.some((permission) => ['*', 'page:proc-cockpit', 'page:proc-materials'].includes(permission))
+          || (actor.permissions.includes('page:proc-my-workspace') && buyer.id === actor.id),
+      };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
-    return this.sampleTestResponse(updated, actor);
+    return this.sampleTestResponse(updated.task, actor, updated.canReadProcurement);
   }
 
   /** 通用状态流转：受 PROC_STATUS_TRANSITIONS 约束。 */
@@ -4813,6 +4984,23 @@ export class ProcurementService {
     const lastTransition = task.status === 'testing'
       ? [...task.logs].reverse().find((log) => log.fromStatus !== log.toStatus)
       : undefined;
+    const transferSnapshots = rdTransferSnapshotsOf(task.metadata);
+    // Embedded legacy files have no OSS key. Only a server-verified transfer snapshot may
+    // grant a fresh version-file capability; never infer it from a client-provided URL.
+    const embeddedPreviewByFile = new Map<string, string>();
+    const snapshotViews = transferSnapshots.map((snapshot) => ({
+      ...snapshot,
+      attachments: snapshot.attachments.map((attachment) => {
+        const objectKey = this.resolveAttachmentFileKey(attachment.fileKey, attachment.fileUrl);
+        let fileUrl = (objectKey ? this.ossService.buildInlinePreviewUrl(objectKey) : null) ?? attachment.fileUrl;
+        if (!objectKey && attachment.fileUrl.startsWith('data:') && attachment.technicalDocumentVersionId && attachment.documentId) {
+          const { exp, sig } = this.ossService.signPreviewToken(`rd-tech-doc:${attachment.technicalDocumentVersionId}`, 600);
+          fileUrl = `/api/research-development/technical-document-files/${encodeURIComponent(attachment.technicalDocumentVersionId)}?${new URLSearchParams({ exp: String(exp), sig })}`;
+          embeddedPreviewByFile.set(JSON.stringify([attachment.fileName, attachment.fileUrl]), fileUrl);
+        }
+        return { ...attachment, fileUrl };
+      }),
+    }));
     return {
       id: task.id,
       code: task.code,
@@ -4831,7 +5019,8 @@ export class ProcurementService {
       status: task.status,
       sampleStatusNeedsReview: task.status === 'testing'
         && lastTransition?.fromStatus === 'inquiring' && lastTransition.toStatus === 'testing',
-      sampleTest: sampleTestOf(task.metadata),
+      sampleTest: sampleTestWithoutCommercial(sampleTestOf(task.metadata)),
+      rdTransferSnapshots: snapshotViews,
       priority: task.priority,
       needSample: task.needSample,
       needDate: day(task.needDate),
@@ -4878,7 +5067,8 @@ export class ProcurementService {
         return {
           id: a.id,
           fileName: a.fileName,
-          fileUrl: (objectKey ? this.ossService.buildInlinePreviewUrl(objectKey) : null) ?? a.fileUrl,
+          fileUrl: (objectKey ? this.ossService.buildInlinePreviewUrl(objectKey) : null)
+            ?? embeddedPreviewByFile.get(JSON.stringify([a.fileName, a.fileUrl])) ?? a.fileUrl,
           ...(thumbUrl ? { thumbUrl } : {}),
           fileSize: a.fileSize,
           mimeType: a.mimeType ?? undefined,
@@ -4888,6 +5078,7 @@ export class ProcurementService {
       purchaseOrders: task.purchaseOrderRefs.map((r) => ({
         id: r.id,
         tpOrderNo: r.tpOrderNo,
+        tpOrderId: r.tpOrderId ?? undefined,
         tpLineNo: r.tpLineNo ?? undefined,
         supplierName: r.supplierName,
         orderedQty: num(r.orderedQty),

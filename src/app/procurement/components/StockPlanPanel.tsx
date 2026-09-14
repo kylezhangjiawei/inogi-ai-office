@@ -15,11 +15,14 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { refreshProcurement, useProcurementProducts } from "../data";
 
 import { useI18n } from "../../lib/i18n";
+import { usePermission } from "../../hooks/usePermission";
+import { buildPurchaseOrderLinePath } from "../../lib/purchaseOrderLineNavigation";
+import { buildStockPlanReturnPath, parseStockPlanViewState, writeStockPlanViewParams, type StockPlanViewState } from "../../lib/stockPlanNavigation";
 import {
   createProcStockPlan,
   createProcStockPlanBatch,
@@ -72,6 +75,7 @@ import { ToggleGroup, ToggleGroupItem } from "../../components/ui/toggle-group";
 import { cn } from "../../components/ui/utils";
 import { ComboInput } from "./common";
 import { StockPlanSelect, StockPlanDateInput, StockPlanMonthInput } from "./StockPlanControls";
+import { StockPlanOrderDateCheck } from "./StockPlanOrderDateCheck";
 
 type StatusFilter = "all" | ProcStockPlanStatus;
 
@@ -613,15 +617,35 @@ function MonthlyPlanOverview({plans, month}: {plans: ProcStockPlan[]; month: str
 
 export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: { materials: Material[]; canCreate: boolean; productId?: string; treeNodeId?: string }) {
   const { t } = useI18n();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const canOpenOrder = usePermission("page:purchase-order-detail");
+  const canOpenCockpit = usePermission("page:proc-cockpit");
   const [params, setParams] = useSearchParams();
-  const [planType, setPlanType] = useState<"all" | ProcStockPlanType>("all");
-  const [month, setMonth] = useState("");
-  const [plans, setPlans] = useState<ProcStockPlan[]>([]);
-  const [loading, setLoading] = useState(true);
+  const view = useMemo(() => parseStockPlanViewState(params), [params]);
+  const { planType, month, keyword, status, focusId } = view;
+  const expanded = useMemo(() => new Set(view.expanded), [view.expanded]);
+  const updateView = (update: Partial<StockPlanViewState> | ((current: StockPlanViewState) => StockPlanViewState)) => {
+    setParams((current) => {
+      const previous = parseStockPlanViewState(current);
+      return writeStockPlanViewParams(new URLSearchParams(current), typeof update === "function" ? update(previous) : { ...previous, ...update });
+    }, { replace: true, state: location.state });
+  };
+  const setPlanType = (value: StockPlanViewState["planType"]) => updateView({ planType: value, focusId: undefined });
+  const setMonth = (value: string) => updateView({ month: value, focusId: undefined });
+  const setExpanded = (update: (current: Set<string>) => Set<string>) => updateView((current) => {
+    const next = update(new Set(current.expanded));
+    return { ...current, expanded: [...next], focusId: current.focusId && next.has(current.focusId) ? current.focusId : undefined };
+  });
+  const scopeKey = JSON.stringify([productId ?? null, treeNodeId ?? null]);
+  const [loadedPlans, setPlans] = useState<ProcStockPlan[]>([]);
+  const [planRevisions, setPlanRevisions] = useState<Record<string, number>>({});
+  const [resolvedScope, setResolvedScope] = useState("");
+  const [requestLoading, setLoading] = useState(true);
+  const loading = requestLoading || resolvedScope !== scopeKey;
+  const plans = resolvedScope === scopeKey ? loadedPlans : [];
+  const loadRequestRef = useRef(0);
   const [error, setError] = useState<string | null>(null);
-  const [keyword, setKeyword] = useState("");
-  const [status, setStatus] = useState<StatusFilter>("all");
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [editingPlan, setEditingPlan] = useState<ProcStockPlan | "new" | null>(null);
   const [editingBatch, setEditingBatch] = useState<{ plan: ProcStockPlan; batch?: ProcStockPlanBatch } | null>(null);
   const [deletingBatch, setDeletingBatch] = useState<{ plan: ProcStockPlan; batch: ProcStockPlanBatch } | null>(null);
@@ -643,37 +667,39 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
   const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const deleteOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const focusedPlanNavigation = useRef<string | null>(null);
 
   const changeKeyword = (value: string) => {
-    setKeyword(value);
+    updateView({ keyword: value, focusId: undefined });
     if (listRef.current) listRef.current.scrollTop = 0;
   };
   const changeStatus = (value: StatusFilter) => {
-    setStatus(value);
+    updateView({ status: value, focusId: undefined });
     if (listRef.current) listRef.current.scrollTop = 0;
   };
   const clearFilters = () => {
-    changeKeyword("");
-    changeStatus("all");
+    updateView({ keyword: "", status: "all", focusId: undefined });
+    if (listRef.current) listRef.current.scrollTop = 0;
   };
 
   const load = useCallback(async (signal?: AbortSignal) => {
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
     setError(null);
     try {
       const next = await listProcStockPlans(signal, {productId, treeNodeId});
-      if (!signal?.aborted) setPlans(next);
+      if (!signal?.aborted && requestId === loadRequestRef.current) { setPlans(next); setResolvedScope(scopeKey); }
     } catch (cause) {
-      if (!signal?.aborted) setError(cause instanceof Error ? cause.message : t("备货计划加载失败"));
+      if (!signal?.aborted && requestId === loadRequestRef.current) { setError(cause instanceof Error ? cause.message : t("备货计划加载失败")); setResolvedScope(scopeKey); }
     } finally {
-      if (!signal?.aborted) setLoading(false);
+      if (!signal?.aborted && requestId === loadRequestRef.current) setLoading(false);
     }
-  }, [t, productId, treeNodeId]);
+  }, [t, productId, treeNodeId, scopeKey]);
 
   useEffect(() => {
     const controller = new AbortController();
     void load(controller.signal);
-    return () => controller.abort();
+    return () => { controller.abort(); loadRequestRef.current += 1; };
   }, [load]);
 
   const replacePlan = (saved: ProcStockPlan) => {
@@ -681,6 +707,9 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
       const exists = current.some((plan) => plan.id === saved.id);
       return exists ? current.map((plan) => plan.id === saved.id ? saved : plan) : [saved, ...current];
     });
+    // Batch changes do not always touch the parent updatedAt. Every confirmed
+    // save must refresh this plan's order/date associations independently.
+    setPlanRevisions((current) => ({ ...current, [saved.id]: (current[saved.id] ?? 0) + 1 }));
     if (saved.batches.length > 0) {
       setExpanded((current) => new Set(current).add(saved.id));
     }
@@ -710,6 +739,33 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
       return haystack.includes(query);
     });
   }, [keyword, scopedPlans, status]);
+
+  const navigationSnapshot = useRef({ scopeKey, loading, error, filtered, expanded, view, canOpenOrder, canOpenCockpit, productId, treeNodeId });
+  navigationSnapshot.current = { scopeKey, loading, error, filtered, expanded, view, canOpenOrder, canOpenCockpit, productId, treeNodeId };
+  const openPlanOrderLine = (planId: string, expectedScope: string, orderNo: string, lineId: string) => {
+    const current = navigationSnapshot.current;
+    if (current.scopeKey !== expectedScope || current.loading || current.error || !current.canOpenOrder || !current.canOpenCockpit
+      || !current.expanded.has(planId) || !current.filtered.some((plan) => plan.id === planId)) return;
+    const destination = buildPurchaseOrderLinePath(orderNo, lineId);
+    const returnPath = buildStockPlanReturnPath({ ...current.view, focusId: planId }, { productId: current.productId, treeNodeId: current.treeNodeId });
+    if (!destination || !returnPath) return;
+    navigate(returnPath, { replace: true });
+    navigate(destination, { state: { stockPlanReturnTo: returnPath, stockPlanHistoryBack: true } });
+  };
+  const focusedPlan = focusId ? plans.find((plan) => plan.id === focusId) : null;
+  const focusOutsideFilters = Boolean(focusedPlan && !filtered.some((plan) => plan.id === focusedPlan.id));
+  useEffect(function restoreStockPlanFocus() {
+    if (!focusId || loading || error || !focusedPlan || focusOutsideFilters || !expanded.has(focusId)) return;
+    const key = JSON.stringify([location.key, scopeKey, focusId]);
+    if (focusedPlanNavigation.current === key) return;
+    const article = Array.from(panelRef.current?.querySelectorAll<HTMLElement>('[data-stock-plan-id]') ?? [])
+      .find((element) => element.dataset.stockPlanId === focusId);
+    if (!article?.isConnected) return;
+    focusedPlanNavigation.current = key;
+    article.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+    const active = document.activeElement;
+    if (active === document.body || active === document.documentElement || !active?.isConnected) article.focus({ preventScroll: true });
+  }, [location.key, scopeKey, focusId, loading, error, focusedPlan, focusOutsideFilters, expanded]);
 
   const removeBatch = async () => {
     if (!deletingBatch) return;
@@ -804,6 +860,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
         {month && <Button size="sm" variant="ghost" onClick={() => setMonth("")}>全部月份</Button>}
       </div>
       {!loading && !error && month && <MonthlyPlanOverview month={month} plans={scopedPlans} />}
+      {!loading && !error && focusId && (!focusedPlan || focusOutsideFilters) ? <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{t(focusedPlan ? "原备货计划已不在当前筛选范围内，请调整筛选后核对。" : "原备货计划不存在或已不在当前产品、模块范围内。")}</p> : null}
       <section className="proc-horizon-task-feed flex min-h-[280px] flex-1 flex-col">
         <div className="proc-horizon-filter-bar">
           <span className="font-semibold text-slate-600">
@@ -853,7 +910,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                 const overQty = Math.max(plan.purchasedQty - plan.targetQty, 0);
                 const supplierCount = new Set(plan.batches.map((batch) => batch.supplierName)).size;
                 return (
-                  <article key={plan.id} aria-label={`${plan.code} · ${plan.materialName}`} className="proc-stock-plan-item border-b border-slate-100 last:border-b-0">
+                  <article key={plan.id} data-stock-plan-id={plan.id} tabIndex={plan.id === focusId ? -1 : undefined} aria-current={plan.id === focusId ? 'true' : undefined} aria-label={`${plan.code} · ${plan.materialName}`} className="proc-stock-plan-item border-b border-slate-100 last:border-b-0 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary">
                     <div className="proc-stock-plan-row grid min-w-0 items-center gap-3 px-3 py-3">
                       <Button
                         type="button"
@@ -875,7 +932,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                       <div className="proc-stock-plan-material min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                           <strong title={plan.materialName} className="min-w-0 break-words text-balance text-sm text-foreground">{plan.materialName}</strong>
-                          <PlanStatus status={plan.status} />
+                          {plan.fulfillmentSummary ? <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-800">{plan.fulfillmentSummary.orderedQty === null ? t('履约待核对') : plan.fulfillmentSummary.remainingToPurchaseQty === 0 ? t('净订购已覆盖') : t('净订购未覆盖')}</span> : <PlanStatus status={plan.status} />}
                           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">{PLAN_TYPE_LABELS[plan.planType]}</span>
                         </div>
                         <p title={`${plan.code}${plan.spec ? ` · ${plan.spec}` : ""}`} className="mt-1 break-words text-xs text-slate-500"><span className="font-medium tabular-nums">{plan.code}</span>{plan.spec ? ` · ${plan.spec}` : ""}</p>
@@ -888,7 +945,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                       </div>
 
                       <div className="proc-stock-plan-progress min-w-0">
-                        <span className="proc-stock-plan-field-label mb-1 block text-xs font-medium text-slate-500">{t("采购进度")}</span>
+                        <span className="proc-stock-plan-field-label mb-1 block text-xs font-medium text-slate-500">{t(plan.fulfillmentSummary ? "ERP / 历史采购原值" : "采购进度")}</span>
                         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
                           <span className="font-semibold tabular-nums text-foreground">{quantity(plan.purchasedQty)} / {quantity(plan.targetQty)}</span>
                           <span className="tabular-nums text-slate-500">{Math.round(plan.progress)}%</span>
@@ -899,7 +956,13 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                         <p className="mt-1 text-[10px] text-slate-500">
                           {overQty > 0 ? `${t("超出目标")} ${quantity(overQty)}` : `${t("剩余")} ${quantity(plan.remainingQty)}`}
                         </p>
-                        <p className="mt-1 text-[11px] text-slate-600">到货 {quantity(plan.receivedQty)} · 合格 {quantity(plan.qualifiedQty)} {plan.unit}</p>
+                        <p className="mt-1 text-[11px] text-slate-600">{plan.fulfillmentSummary ? t('原记录：') : ''}到货 {quantity(plan.receivedQty)} · 合格 {quantity(plan.qualifiedQty)} {plan.unit}</p>
+                        {plan.fulfillmentSummary ? <div className="mt-2 rounded border border-blue-100 bg-blue-50 p-2 text-[11px] text-slate-700">
+                          <p className="font-semibold">{t('履约台账重算')}</p>
+                          <p>{t('仍需采购')} {plan.fulfillmentSummary.remainingToPurchaseQty === null ? t('待核对') : quantity(plan.fulfillmentSummary.remainingToPurchaseQty)} · {t('仍需到货')} {plan.fulfillmentSummary.remainingToReceiveQty === null ? t('待核对') : quantity(plan.fulfillmentSummary.remainingToReceiveQty)}</p>
+                          <p>{t('检验可用')} {plan.fulfillmentSummary.qualifiedQty === null ? t('待核对') : quantity(plan.fulfillmentSummary.qualifiedQty)} {plan.unit}</p>
+                          {plan.fulfillmentSummary.issues.map((issue) => <p className="mt-1 text-amber-800" key={issue}>{t(issue)}</p>)}
+                        </div> : null}
                         <p className={cn("mt-1 text-[10px]", plan.readinessStatus === "qualified" ? "text-emerald-700" : "text-amber-700")}>{{not_received: "尚未到货", partial_received: "部分到货", pending_inspection: "到货达标，待检验", qualified: "已登记合格达标"}[plan.readinessStatus]}</p>
                         {plan.qualityDataIssue && <p className="text-[10px] text-rose-600">ERP 到货量变更，请复核合格量</p>}
                         {plan.orderDataIssue && <p className="text-[10px] text-rose-600">采购订单异常，请展开复核</p>}
@@ -970,6 +1033,7 @@ export function StockPlanPanel({ materials, canCreate, productId, treeNodeId }: 
                             ))}
                           </div>
                         )}
+                        <StockPlanOrderDateCheck key={`${scopeKey}:${plan.id}:${plan.updatedAt}:${planRevisions[plan.id] ?? 0}`} planId={plan.id} onOpenOrderLine={(orderNo, lineId) => openPlanOrderLine(plan.id, scopeKey, orderNo, lineId)} />
                         {plan.productId && plan.treeNodeId && <div className="mt-4"><SubsystemOperationsPanel productId={plan.productId} treeNodeId={plan.treeNodeId} stockPlanId={plan.id} /></div>}
                       </div>
                     ) : null}

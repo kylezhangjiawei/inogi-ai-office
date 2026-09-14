@@ -5,6 +5,7 @@ import {
   AiParseTaskDto,
   AssignSampleTestDto,
   ConfirmSampleTestDto,
+  UpdateSampleRecordsDto,
   ApplyQuoteBookQuotesDto,
   BatchLinkPurchaseOrdersDto,
   BatchReassignDto,
@@ -76,9 +77,15 @@ export class ProcurementController {
   // ── 任务 ────────────────────────────────────────────────────────────────────
 
   @Get('tasks')
-  @Permissions('page:proc-cockpit', 'page:proc-my-workspace', 'page:proc-materials', 'proc-task:transfer', 'rd-procurement:review')
+  @Permissions('page:proc-cockpit', 'page:proc-my-workspace', 'page:proc-materials', 'proc-task:transfer', 'rd-procurement:review', 'page:rd-my-workspace')
   listTasks(@Query() query: ProcTaskListQuery, @Request() req: AuthedRequest) {
     return this.service.listTasks(query, this.actor(req));
+  }
+
+  @Get('workspace-arrival-dates')
+  @Permissions('page:proc-my-workspace')
+  getWorkspaceArrivalDates(@Query('refId') refId: unknown, @Request() req: AuthedRequest) {
+    return this.service.getWorkspaceArrivalDates(refId, this.actor(req));
   }
 
   @Get('summary')
@@ -140,6 +147,12 @@ export class ProcurementController {
   @Permissions('page:proc-cockpit')
   getStockPlan(@Param('id') id: string) {
     return this.service.getStockPlanView(id);
+  }
+
+  @Get('stock-plans/:id/order-date-check')
+  @Permissions('page:proc-cockpit')
+  getStockPlanOrderDateCheck(@Param('id') id: string, @Query() query: Record<string, unknown>, @Request() req: AuthedRequest) {
+    return this.service.getStockPlanOrderDateCheck(id, query, this.actor(req));
   }
 
   @Get('stock-plans/:id/readiness')
@@ -306,6 +319,11 @@ export class ProcurementController {
   @Post('tasks/:id/sample-test/confirm')
   confirmSampleTest(@Param('id') id: string, @Body() dto: ConfirmSampleTestDto, @Request() req: AuthedRequest) {
     return this.service.confirmSampleTest(id, dto, this.actor(req));
+  }
+
+  @Patch('tasks/:id/sample-test/records')
+  updateSampleRecords(@Param('id') id: string, @Body() dto: UpdateSampleRecordsDto, @Request() req: AuthedRequest) {
+    return this.service.updateSampleRecords(id, dto, this.actor(req));
   }
 
   @Post('tasks/:id/cancel')

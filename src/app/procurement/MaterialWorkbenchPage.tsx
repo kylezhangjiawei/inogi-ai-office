@@ -1,8 +1,9 @@
 // 物料库（资产视角）：统计条 + 树形物料表（大类→分类→物料，过滤时切扁平分页）+ 物料详情抽屉。
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
-import { AlertCircle, Boxes, ChevronDown, ClipboardCheck, FolderTree, PackageCheck, PackageOpen, Plus, RefreshCw, Sparkles, Truck, Upload } from "lucide-react";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { AlertCircle, ArrowLeft, Boxes, ChevronDown, ClipboardCheck, FolderTree, PackageCheck, PackageOpen, Plus, RefreshCw, Sparkles, Truck, Upload } from "lucide-react";
 import { useI18n } from "../lib/i18n";
+import { inventoryReadinessReturnPath } from "../lib/inventoryReadinessNavigation";
 import { daysFromToday, refreshProcurement, useProcurementData, type Material, type ProcStatus } from "./data";
 import { Skeleton } from "../components/ui/skeleton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../components/ui/dropdown-menu";
@@ -34,6 +35,7 @@ function MaterialWorkbenchSkeleton({ label }: { label: string }) {
 export function MaterialWorkbenchPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const { tasks, materials, loading, error } = useProcurementData();
   const [detail, setDetail] = useState<Material | null>(null);
@@ -50,6 +52,8 @@ export function MaterialWorkbenchPage() {
   const pendingManagementActionRef = useRef<(() => void) | null>(null);
   // 写操作按钮按系统管理配置的操作码显隐
   const can = useProcCan();
+  const inventoryReturnPath = can("page:proc-inventory-readiness") ? inventoryReadinessReturnPath(location.state) : null;
+  const inventoryHistoryBack = Boolean(inventoryReturnPath && location.state?.inventoryReadinessHistoryBack === true);
 
   // 编辑落库刷新后，已打开的详情抽屉要换成最新对象（否则停留在改前数据）
   useEffect(() => {
@@ -82,6 +86,7 @@ export function MaterialWorkbenchPage() {
   return (
     <div className="proc-horizon proc-horizon-material-workbench flex h-full min-h-0 min-w-0 w-full flex-col pb-4">
       <div className="proc-horizon-material-toolbar mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
+        {inventoryReturnPath && <button type="button" onClick={() => inventoryHistoryBack ? navigate(-1) : navigate(inventoryReturnPath, { replace: true })} className="material-button-secondary inline-flex min-h-10 shrink-0 items-center gap-1.5 px-3 py-2 text-sm"><ArrowLeft aria-hidden="true" className="size-4" />{t("返回齐套中心")}</button>}
         <p className="min-w-0 flex-1 basis-64 text-pretty text-sm leading-6 text-slate-500">{t("按分类查找物料，跟踪库存与供应风险。")}</p>
           <div className="proc-horizon-material-actions flex flex-wrap items-center gap-2">
             {can("proc-task:create") && <button type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Plus aria-hidden="true" className="size-4" />{t("新增物料")}</button>}
