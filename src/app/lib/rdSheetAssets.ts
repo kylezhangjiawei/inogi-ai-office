@@ -107,7 +107,9 @@ export function startSheetAssetRenewal(options: {
   renew: (sources: string[], signal: AbortSignal) => Promise<RdSheetAssetRenewal[]>;
   onFailure: () => void;
 }, env: RenewalEnvironment = {
-  now: Date.now, hidden: () => document.hidden, setTimer: setTimeout, clearTimer: clearTimeout,
+  now: Date.now, hidden: () => document.hidden,
+  setTimer: (callback, delay) => setTimeout(callback, delay),
+  clearTimer: (timer) => clearTimeout(timer),
   onVisible: (callback) => { document.addEventListener("visibilitychange", callback); return () => document.removeEventListener("visibilitychange", callback); },
 }): () => void {
   let stopped = false;

@@ -75,6 +75,45 @@ test("active cell editing defers maintenance without committing or overwriting i
   assert.equal(applyUniverImageSources(api, {}, new Map([["old", "new"]])), false);
 });
 
+test("default browser environment schedules and clears renewal without an illegal timer receiver", () => {
+  const timers = new Map();
+  const listeners = new Set();
+  const assertTimerReceiver = (receiver) => {
+    // Browser timers accept a bare global call, but not an unrelated environment object.
+    if (receiver != null && receiver !== globalThis) throw new TypeError("Illegal invocation");
+  };
+  const browserSetTimeout = function (callback, delay) {
+    assertTimerReceiver(this);
+    const id = timers.size + 1;
+    timers.set(id, { callback, delay });
+    return id;
+  };
+  const browserClearTimeout = function (id) {
+    assertTimerReceiver(this);
+    assert.ok(timers.has(id), "cleanup clears the scheduled timer");
+    timers.delete(id);
+  };
+  const document = {
+    hidden: false,
+    addEventListener: (event, callback) => { assert.equal(event, "visibilitychange"); listeners.add(callback); },
+    removeEventListener: (event, callback) => { assert.equal(event, "visibilitychange"); assert.ok(listeners.delete(callback)); },
+  };
+  const browserExports = {};
+  new Function("exports", "require", "document", "setTimeout", "clearTimeout", code)(
+    browserExports, (name) => { assert.equal(name, "./rdApi"); return {}; }, document, browserSetTimeout, browserClearTimeout,
+  );
+  const stop = browserExports.startSheetAssetRenewal({
+    getEditor: () => null, renew: async () => [], onFailure: () => assert.fail("unexpected renewal failure"),
+  });
+  assert.equal(timers.size, 1);
+  assert.equal(timers.get(1).delay, 0, "mount schedules the initial renewal immediately");
+  assert.equal(typeof timers.get(1).callback, "function");
+  assert.equal(listeners.size, 1);
+  stop();
+  assert.equal(timers.size, 0);
+  assert.equal(listeners.size, 0);
+});
+
 test("timed renewal takes TTL from backend, deduplicates in-flight work, and resumes after hidden-page expiry", async () => {
   const time = clock();
   let current = "old";
