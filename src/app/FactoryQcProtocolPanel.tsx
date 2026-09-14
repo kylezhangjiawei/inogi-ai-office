@@ -34,12 +34,13 @@ const keyOf = (profileId: string, commandId: string) => `${profileId}/${commandI
 const errorText = (error: unknown) => error instanceof Error ? error.message : "操作未完成，请稍后重试。";
 const isConflict = (error: unknown) => error instanceof FactoryQcApiError && error.status === 409;
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
-const CURRENT_PROFILE_ID = "v4-20260908";
+const CURRENT_PROFILE_ID = "v4-20260910";
+const HISTORICAL_PROFILE_ID = "v4-20260908";
 const PRODUCTION_DOWNLOADS = {
   serial: "https://www.weoxymedical.com/api/factory-qc/serial",
   protocol: "https://www.weoxymedical.com/api/factory-qc/protocol",
 } as const;
-const CURRENT_PROTOCOL_NOTES: Record<string, R5ProtocolNote> = {
+const HISTORICAL_PROTOCOL_NOTES: Record<string, R5ProtocolNote> = {
   firmware: {
     confirmed: ["沿用 9 字节应答：8 字节 ASCII 主版本及 1 字节子版本。当前默认配置匹配 V4.0UA81。"],
     pending: ["当前配置停用 78；启用前仍需修正固件的完整 72、78 回包及适用范围。主版本相同而子版本不同的固件，不能仅靠现有前缀判断已修正。"],
@@ -216,11 +217,11 @@ function CommandEditor({ form, onChange, disabled }: { form: CommandForm; onChan
 }
 
 function ProtocolReviewNotes({ commandId }: { commandId: string }) {
-  const notes = CURRENT_PROTOCOL_NOTES[commandId];
+  const notes = HISTORICAL_PROTOCOL_NOTES[commandId];
   if (!notes) return null;
   const historical = R5_PROTOCOL_NOTES[commandId];
-  return <div className="fqc-review-notes" aria-label="v0.5.0 默认配置说明">
-    <p className="fqc-help">以下说明对应 v0.5.0 默认配置。请与本项实际字段核对；载入建议后仍需保存、发布才会更新后台下载内容。</p>
+  return <div className="fqc-review-notes" aria-label="0908 历史配置说明">
+    <p className="fqc-help">以下说明对应 0908 历史配置，仅供追溯。0910 默认配置使用独立固件配置，请与本项实际字段核对。</p>
     <div className="fqc-review-columns">
       {!!notes.confirmed.length && <div><strong><Check size={14} />当前配置与已确认行为</strong><ul>{notes.confirmed.map(note => <li key={note}>{note}</li>)}</ul></div>}
       {!!notes.pending.length && <div><strong><AlertCircle size={14} />仍待核实</strong><ul>{notes.pending.map(note => <li key={note}>{note}</li>)}</ul></div>}
@@ -293,7 +294,7 @@ export function FactoryQcProtocolPanel({ api = factoryQcApi, onDirtyChange }: { 
   const epoch = useRef(0);
   const mutationBusy = useRef(false);
   const catalog = state?.protocol.active ?? state?.protocol.draft ?? FACTORY_PROTOCOL_DEFAULT;
-  const selectedProfile = catalog.profiles.find(profile => profile.id === profileId) ?? catalog.profiles.find(profile => profile.id === CURRENT_PROFILE_ID) ?? catalog.profiles[0];
+  const selectedProfile = catalog.profiles.find(profile => profile.id === profileId) ?? catalog.profiles.find(profile => profile.id === CURRENT_PROFILE_ID) ?? catalog.profiles.find(profile => profile.id === HISTORICAL_PROFILE_ID) ?? catalog.profiles[0];
   const commandStates = useMemo(() => new Map(state?.protocol.commands.map(command => [keyOf(command.profileId, command.commandId), command]) ?? []), [state]);
   const dirtyKeys = useMemo(() => Object.keys(edits).filter(key => !equals(edits[key].form, edits[key].base)), [edits]);
   const importDirty = json !== jsonBaseline;
@@ -336,7 +337,7 @@ export function FactoryQcProtocolPanel({ api = factoryQcApi, onDirtyChange }: { 
   function publish(command: FactoryCommand) {
     const key = keyOf(selectedProfile.id, command.id), saved = commandStates.get(key);
     if (!saved?.draft || !state?.protocol.active) return;
-    setConfirm({ title: `发布「${command.name}」读取配置？`, description: `只发布本项已保存草稿，其他读取项保留原生效配置。完整目录会生成新版本；解析校验不证明固件已适配，也不代表设备质检通过。${selectedProfile.id === CURRENT_PROFILE_ID && command.id === "pressure-check" && saved.draft.enabled !== false ? "78 的修正固件与旧前缀区分仍待实机证据确认；沿用主版本前缀不能证明设备已修正。" : ""}`, action: async () => {
+    setConfirm({ title: `发布「${command.name}」读取配置？`, description: `只发布本项已保存草稿，其他读取项保留原生效配置。完整目录会生成新版本；解析校验不证明固件已适配，也不代表设备质检通过。${selectedProfile.id === HISTORICAL_PROFILE_ID && command.id === "pressure-check" && saved.draft.enabled !== false ? "78 的修正固件与旧前缀区分仍待实机证据确认；沿用主版本前缀不能证明设备已修正。" : ""}`, action: async () => {
       try { setState(await api.publishCommand(selectedProfile.id, command.id, saved.revision)); setRowErrors(previous => ({ ...previous, [key]: "" })); toast.success("本项读取配置已发布"); }
       catch (error) { setRowErrors(previous => ({ ...previous, [key]: errorText(error) })); setConflicts(previous => ({ ...previous, [key]: isConflict(error) })); }
     } });
@@ -357,7 +358,7 @@ export function FactoryQcProtocolPanel({ api = factoryQcApi, onDirtyChange }: { 
       setJson(pretty(kind === "current" ? FACTORY_PROTOCOL_DEFAULT : FACTORY_PROTOCOL_EXAMPLE));
       setValidated(null); setImportError(""); setImportOpen(true);
     };
-    if (importDirty) setConfirm({ title: "替换未保存的目录输入？", description: `将目录编辑器中的未保存内容替换为${kind === "current" ? "v0.5.0 默认配置" : "历史 v2 格式参考"}。只填入本地编辑器，已保存草稿和当前生效目录保持不变。`, action: apply });
+    if (importDirty) setConfirm({ title: "替换未保存的目录输入？", description: `将目录编辑器中的未保存内容替换为${kind === "current" ? "0910 默认配置" : "历史 v2 格式参考"}。只填入本地编辑器，已保存草稿和当前生效目录保持不变。`, action: apply });
     else void apply();
   }
   function loadCommandSuggestion(command: FactoryCommand) {
@@ -365,7 +366,7 @@ export function FactoryQcProtocolPanel({ api = factoryQcApi, onDirtyChange }: { 
     const suggestion = FACTORY_PROTOCOL_DEFAULT.profiles.find(profile => profile.id === CURRENT_PROFILE_ID)?.commands.find(item => item.id === command.id);
     if (!suggestion) return;
     const key = keyOf(selectedProfile.id, command.id);
-    setConfirm({ title: `载入「${command.name}」的 v0.5.0 默认配置？`, description: `将替换本项本地输入，包括字段、样本与自定义枚举${dirtyKeys.includes(key) ? "；本项尚未保存的修改将被放弃" : ""}。载入后仍需检查、保存并发布。${command.id === "pressure-check" ? "此建议停用 78，等待修正固件与回包验证。" : "配置中的待核实事项仍然保留，不会自动成为质检放行依据。"}`, action: async () => {
+    setConfirm({ title: `载入「${command.name}」的 0910 默认配置？`, description: `将替换本项本地输入，包括字段、样本与自定义枚举${dirtyKeys.includes(key) ? "；本项尚未保存的修改将被放弃" : ""}。载入后仍需检查、保存并发布。此配置适用于已确认使用 0910 协议的新版固件，仍需核对设备与样本。`, action: async () => {
       setEdits(previous => ({ ...previous, [key]: { base: previous[key]?.base ?? toForm(currentCommand(command)), revision: previous[key]?.revision ?? commandStates.get(key)?.revision ?? 0, form: toForm(suggestion) } }));
       setRowErrors(previous => ({ ...previous, [key]: "" }));
     } });
@@ -382,14 +383,14 @@ export function FactoryQcProtocolPanel({ api = factoryQcApi, onDirtyChange }: { 
   }
   function publishImport() {
     if (!state?.protocol.draft || publicationIssues.length) return;
-    setConfirm({ title: state.protocol.active ? "发布完整读取目录？" : "发布首个读取目录？", description: `将明确发布 ${state.protocol.draft.profiles.length} 个固件配置及其所有读取项。${state.protocol.active ? "这将更新整个目录；请先确认各固件与样本。" : "审核模板不会自动生效，请确认完整帧样本、字段解释和适用固件均已审核。"}解析校验不证明实机固件已修正，尤其不能凭旧主版本前缀认定 78 已适配。发布后客户端可下载此版本。`, action: async () => { try { const next = await api.publishCatalog(state.protocol.revision); setState(next); setJson(""); setJsonBaseline(""); setValidated(null); setImportRevision(next.protocol.revision); setImportError(""); toast.success("完整读取目录已发布"); } catch (error) { setImportError(errorText(error)); } } });
+    setConfirm({ title: state.protocol.active ? "发布完整读取目录？" : "发布首个读取目录？", description: `将明确发布 ${state.protocol.draft.profiles.length} 个固件配置及其所有读取项。${state.protocol.active ? "这将更新整个目录；请先确认各固件与样本。" : "审核模板不会自动生效，请确认完整帧样本、字段解释和适用固件均已审核。"}解析校验不证明实机适配；请确认目标工位使用对应协议和固件，主版本前缀相同不能替代核对。发布后客户端可下载此版本。`, action: async () => { try { const next = await api.publishCatalog(state.protocol.revision); setState(next); setJson(""); setJsonBaseline(""); setValidated(null); setImportRevision(next.protocol.revision); setImportError(""); toast.success("完整读取目录已发布"); } catch (error) { setImportError(errorText(error)); } } });
   }
   const shown = selectedProfile?.commands.filter(command => `${command.id} ${command.name} ${command.queryCode}`.toLowerCase().includes(search.trim().toLowerCase())) ?? [];
   if (!state) return <section className="factory-qc-panel"><LoadState error={loadError} onRetry={() => void load()} /></section>;
   return <section className="factory-qc-panel" aria-label="读取协议配置">
-    <div className="fqc-notice"><Info size={18} /><div><strong>{state.protocol.active ? `已发布目录 ${state.protocol.active.version}` : state.protocol.draft ? `首版草稿 ${state.protocol.draft.version} · 尚未发布` : "v0.5.0 默认参考 · 尚未初始化"}</strong><p>v0.5.0 默认目录（{FACTORY_PROTOCOL_DEFAULT.version}）已同步当前客户端：73、78 停用；79 支持负温度；83 保留原始抹平字节。载入默认配置只修改本地输入，发布后才更新下载内容。</p>{catalog.version === R5_SOURCE.publishedExampleVersion && <p>当前显示的是历史 v2 配置。可载入 v0.5.0 默认配置核对后发布；现有自定义内容不会自动覆盖。</p>}<p>质检放行标准在「检测规则」维护，硬件写入动作在「返工指令」维护。配置解析通过不代表传感器有效或整机合格。</p></div></div>
+    <div className="fqc-notice"><Info size={18} /><div><strong>{state.protocol.active ? `已发布目录 ${state.protocol.active.version}` : state.protocol.draft ? `首版草稿 ${state.protocol.draft.version} · 尚未发布` : "0910 默认参考 · 尚未初始化"}</strong><p>0910 默认目录（{FACTORY_PROTOCOL_DEFAULT.version}）已同步当前客户端：新版协议 23 项读取全部启用，73 读取八组参数，78、79 包含有效状态；保留旧版三字节协议。载入默认配置只修改本地输入，发布后才更新下载内容。</p>{catalog.version === R5_SOURCE.publishedExampleVersion && <p>当前显示的是历史 v2 配置。可载入 0910 默认配置核对后发布；现有自定义内容不会自动覆盖。</p>}<p>质检放行标准在「检测规则」维护，硬件写入动作在「返工指令」维护。配置解析通过不代表传感器有效或整机合格。</p></div></div>
     <DownloadAddress kind="protocol" version={state.protocol.active?.version} />
-    <div className="fqc-panel-actions"><span className="fqc-help">协议下载最低客户端版本 {catalog.minAppVersion} · 建议使用 v0.5.0 或更新版本完成断电比对</span><div className="fqc-template-actions"><Button variant="outline" size="sm" disabled={busy} onClick={() => loadImportTemplate("current")}><FileJson size={15} />载入 v0.5.0 默认配置</Button><Button variant="outline" size="sm" onClick={startImport}>完整目录导入{state.protocol.draft && <span className="fqc-dot" />}</Button></div></div>
+    <div className="fqc-panel-actions"><span className="fqc-help">协议下载最低客户端版本 {catalog.minAppVersion} · 新电脑建议使用 v0.6.14 或更新版本自动识别串口并使用 0910 默认协议</span><div className="fqc-template-actions"><Button variant="outline" size="sm" disabled={busy} onClick={() => loadImportTemplate("current")}><FileJson size={15} />载入 0910 默认配置</Button><Button variant="outline" size="sm" onClick={startImport}>完整目录导入{state.protocol.draft && <span className="fqc-dot" />}</Button></div></div>
     {importOpen && <div className="fqc-import"><div className="fqc-subheading"><strong>完整目录导入与首版发布</strong><Button variant="ghost" size="sm" disabled={busy} onClick={() => loadImportTemplate("historical")}>载入历史 v2 格式参考</Button></div><p className="fqc-help">先验证完整 JSON 并保存草稿，再逐项审核字段和样本；首版完成审核后发布完整目录。已有单项未保存内容请先处理。</p>
       <p className="fqc-help">当前默认目录为 {FACTORY_PROTOCOL_DEFAULT.version}。历史 v2（{R5_SOURCE.publishedExampleVersion}）、r4 候选（{R5_SOURCE.historicalCandidateVersion}）及 r5 审核说明均仅用于追溯，不能替代当前默认配置。</p>
       <FormField label="完整目录 JSON"><textarea className="fqc-code fqc-import-json" rows={10} spellCheck={false} value={json} onChange={event => { setJson(event.target.value); setValidated(null); setImportError(""); }} /></FormField>
@@ -404,8 +405,8 @@ export function FactoryQcProtocolPanel({ api = factoryQcApi, onDirtyChange }: { 
       <div className="fqc-column-head"><span>读取项</span><span>查询 → 返回</span><span>解析与样本</span><span>状态</span><span>操作</span></div>
       {shown.map(command => { const key = keyOf(selectedProfile.id, command.id), saved = commandStates.get(key), form = edits[key]?.form ?? toForm(currentCommand(command)), itemDirty = dirtyKeys.includes(key), open = openId === command.id; const status = itemDirty ? "未保存" : saved?.draft ? "草稿待发布" : saved?.active ? (saved.active.enabled === false ? "已发布 · 停用" : "已发布") : "默认参考 · 未发布";
         return <article className={`fqc-command${open ? " fqc-command--open" : ""}`} key={key}><div className="fqc-command-row"><button className="fqc-command-name" onClick={() => setOpenId(open ? null : command.id)} aria-expanded={open}><strong>{form.name}</strong><small>{command.id}</small></button><span className="fqc-code">{form.queryCode} → {form.responseCode}</span><span>{form.fields.length} 字段 · {form.samples.length} 样本</span><span className={`fqc-badge${saved?.active && !saved.draft && !itemDirty ? " fqc-badge--published" : ""}`}>{status}</span><button className="fqc-configure" onClick={() => setOpenId(open ? null : command.id)} aria-label={`${open ? "收起" : "配置"}${command.name}`}>{open ? "收起" : "配置"}{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button></div>
-          {open && <div className="fqc-inline">{selectedProfile.id === CURRENT_PROFILE_ID && <ProtocolReviewNotes commandId={command.id} />}
-            {state.protocol.active && selectedProfile.id === CURRENT_PROFILE_ID && FACTORY_PROTOCOL_DEFAULT.profiles.find(profile => profile.id === CURRENT_PROFILE_ID)?.commands.some(item => item.id === command.id) && <div className="fqc-suggestion-action"><span>默认配置会替换本项字段与样本；请核对已有自定义配置。</span><Button variant="outline" size="sm" disabled={busy} onClick={() => loadCommandSuggestion(command)}>载入 v0.5.0 本项默认</Button></div>}
+          {open && <div className="fqc-inline">{selectedProfile.id === HISTORICAL_PROFILE_ID && <ProtocolReviewNotes commandId={command.id} />}
+            {state.protocol.active && selectedProfile.id === CURRENT_PROFILE_ID && FACTORY_PROTOCOL_DEFAULT.profiles.find(profile => profile.id === CURRENT_PROFILE_ID)?.commands.some(item => item.id === command.id) && <div className="fqc-suggestion-action"><span>默认配置会替换本项字段与样本；请核对已有自定义配置。</span><Button variant="outline" size="sm" disabled={busy} onClick={() => loadCommandSuggestion(command)}>载入 0910 本项默认</Button></div>}
             <CommandEditor form={form} onChange={value => edit(command, value)} disabled={busy || (!state.protocol.active && !state.protocol.draft)} />
             {rowErrors[key] && <div className="fqc-error" role="alert">{rowErrors[key]}{conflicts[key] && <Button variant="ghost" size="sm" onClick={() => reloadItem(key)}>重新加载本项</Button>}</div>}
             <div className="fqc-editor-actions"><span>{!state.protocol.active ? state.protocol.draft ? "本项单独保存到首版草稿；审核完成后统一发布完整目录。" : "只读审核：先载入并保存目录草稿，即可逐项编辑。" : saved?.active ? "保存草稿不会改变当前生效版本。" : "该项尚无已发布配置。"}</span><Button variant="outline" size="sm" disabled={busy} onClick={() => { if (itemDirty) setConfirm({ title: "放弃本项未保存修改？", description: "本项输入将恢复到已保存内容，其他读取项保持不变。", action: async () => { setEdits(previous => { const next = { ...previous }; delete next[key]; return next; }); setOpenId(null); } }); else setOpenId(null); }}>取消</Button><Button variant="outline" size="sm" disabled={busy || (!state.protocol.active && !state.protocol.draft)} onClick={() => void save(command)}>保存本项草稿</Button><Button size="sm" disabled={busy || itemDirty || !saved?.draft || !state.protocol.active} onClick={() => publish(command)}>发布本项</Button></div>

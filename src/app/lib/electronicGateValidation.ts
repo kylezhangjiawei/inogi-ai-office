@@ -33,30 +33,32 @@ function parameterProfilesError(text: string, plan = '', performanceClass = '', 
   return null;
 }
 
-function gearUpperBoundsError(text: string, model = ''): string | null {
+function gearPressureBoundsError(text: string, model = '', range = false): string | null {
+  const label = range ? '档位压力范围' : '档位压力上限';
   let rows: unknown;
-  try { rows = JSON.parse(text); } catch { return '档位压力上限必须为有效 JSON 数组'; }
+  try { rows = JSON.parse(text); } catch { return `${label}必须为有效 JSON 数组`; }
   const object = (value: unknown): value is Record<string, any> => value !== null && typeof value === 'object' && !Array.isArray(value);
-  if (!Array.isArray(rows) || !rows.length) return '档位压力上限至少需要一条配置';
+  if (!Array.isArray(rows) || !rows.length) return `${label}至少需要一条配置`;
   const prior: Array<{gear: number; models?: string[]}> = [];
   for (const row of rows) {
-    if (!object(row) || Object.keys(row).some(key => !['gear', 'maximum', 'models'].includes(key))
+    if (!object(row) || Object.keys(row).some(key => !['gear', 'maximum', 'models', ...(range ? ['minimum'] : [])].includes(key))
       || !Number.isInteger(row.gear) || row.gear < 0 || row.gear > 7 || typeof row.maximum !== 'number' || !Number.isFinite(row.maximum) || row.maximum < 0 || row.maximum > 65535
+      || (range && (typeof row.minimum !== 'number' || !Number.isFinite(row.minimum) || row.minimum < 0 || row.minimum > row.maximum))
       || (row.models !== undefined && (!Array.isArray(row.models) || !row.models.length
         || row.models.some((name: unknown) => typeof name !== 'string' || !name || name.trim() !== name || name.length > 200)
-        || new Set(row.models).size !== row.models.length))) return '档位压力上限须为STEP 0～7、0～65535有限上限及可选唯一模型名数组，禁止未知字段';
+        || new Set(row.models).size !== row.models.length))) return `${label}须为STEP 0～7、0～65535有效压力范围及可选唯一模型名数组，禁止未知字段`;
     if (prior.some(previous => previous.gear === row.gear && (!previous.models || !row.models || previous.models.some(name => row.models.includes(name)))))
       return '同档位压力范围不能对同一机型重复或重叠配置';
     prior.push(row as {gear: number; models?: string[]});
   }
-  if (model && !prior.some(row => !row.models || row.models.includes(model))) return '适用机型没有匹配的档位压力上限';
+  if (model && !prior.some(row => !row.models || row.models.includes(model))) return `适用机型没有匹配的${label}`;
   return null;
 }
 
 export function validateGateConfig(item: GateItem, config: GateConfig, publishing = false): GateValidationErrors {
   const errors: GateValidationErrors = {};
   if (!config.displayName.trim()) errors.displayName = "请填写显示名称";
-  const universalScope = (item.id === "built-in-parameters" && config.values.operator === "profile-slots") || (item.id === "sensor-pressure" && config.values.operator === "gear-upper");
+  const universalScope = (item.id === "built-in-parameters" && config.values.operator === "profile-slots") || (item.id === "sensor-pressure" && ["gear-upper", "gear-range"].includes(config.values.operator));
   if (publishing && item.category !== "connection" && !universalScope && !config.model.trim()) errors.model = "发布前请填写适用机型";
   if (publishing && item.category !== "connection" && !universalScope && !config.market.trim()) errors.market = "发布前请填写发货市场";
   if (Object.keys(config.values).some(key => !item.fields.some(field => field.key === key))) errors.values = "包含当前配置项不支持的字段";
@@ -85,12 +87,20 @@ export function validateGateConfig(item: GateItem, config: GateConfig, publishin
     if (error) errors.parameterProfiles = error;
   }
   if (values.gearUpperBounds?.trim()) {
-    const error = gearUpperBoundsError(values.gearUpperBounds, config.model.trim());
+    const error = gearPressureBoundsError(values.gearUpperBounds, config.model.trim());
     if (error) errors.gearUpperBounds = error;
+  }
+  if (values.gearRanges?.trim()) {
+    const error = gearPressureBoundsError(values.gearRanges, config.model.trim(), true);
+    if (error) errors.gearRanges = error;
   }
   if (publishing) {
     const requireFields = (keys: string[]) => { for (const key of keys) if (!values[key]?.trim()) errors[key] = "发布前请填写本模式所需字段"; };
     const rejectFields = (keys: string[]) => { for (const key of keys) if (values[key]?.trim()) errors[key] ??= "请清空与当前模式冲突的兼容字段"; };
+    if (item.id === "fpga-version") {
+      if (values.operator === "equals") { requireFields(["expected"]); rejectFields(["allowedValues"]); }
+      else { requireFields(["allowedValues"]); rejectFields(["expected"]); }
+    }
     if (item.id === "built-in-parameters") {
       const legacy = ["time310", "time310Unit", "time210", "time210Unit", "compressorRpm"], profiles = ["parameterProfiles", "parameterPlan", "performanceClass"];
       if (values.operator === "profile-slots") { requireFields(profiles); rejectFields([...legacy, "parameterSlots"]); }
@@ -98,8 +108,14 @@ export function validateGateConfig(item: GateItem, config: GateConfig, publishin
       else { requireFields(legacy); rejectFields(["parameterSlots", ...profiles]); }
     }
     if (item.id === "sensor-pressure") {
-      if (values.operator === "gear-upper") { requireFields(["gearUpperBounds", "boundary"]); rejectFields(["gear", "minimum", "maximum"]); }
-      else { requireFields(["gear", "minimum", "maximum", "boundary"]); rejectFields(["gearUpperBounds"]); if (values.boundary === "unconfirmed") errors.boundary = "旧固定范围须明确边界包含方式"; }
+      if (values.operator === "gear-range") {
+        requireFields(["gearRanges", "boundary"]); rejectFields(["gear", "minimum", "maximum", "gearUpperBounds"]);
+        if (values.boundary === "unconfirmed") errors.boundary = "档位压力范围须明确上下限包含方式";
+        if (values.boundary === "exclusive" && values.gearRanges?.trim() && !errors.gearRanges
+          && JSON.parse(values.gearRanges).some((row: {minimum: number; maximum: number}) => row.minimum === row.maximum)) errors.gearRanges = "档位压力开区间必须有有效范围";
+      }
+      else if (values.operator === "gear-upper") { requireFields(["gearUpperBounds", "boundary"]); rejectFields(["gear", "minimum", "maximum", "gearRanges"]); }
+      else { requireFields(["gear", "minimum", "maximum", "boundary"]); rejectFields(["gearUpperBounds", "gearRanges"]); if (values.boundary === "unconfirmed") errors.boundary = "旧固定范围须明确边界包含方式"; }
     }
   }
   const { minimum, maximum } = config.values;

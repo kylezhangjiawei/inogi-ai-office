@@ -1,10 +1,10 @@
 import type { FactoryProtocolCatalog, FactorySerialConfig } from './factory-qc.contract';
 
-/** Confirmed desktop v0.5.2 defaults; changing these never overwrites an existing database domain. */
+/** Confirmed 0910 desktop defaults; existing database drafts and published snapshots are preserved. */
 export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
   "schemaVersion": 1,
-  "minAppVersion": "0.4.0",
-  "version": "builtin-20260909-v3",
+  "minAppVersion": "0.5.8",
+  "version": "builtin-20260910-v3",
   "profiles": [
     {
       "id": "legacy-v1",
@@ -244,13 +244,13 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
       ]
     },
     {
-      "id": "v4-20260908",
-      "name": "2026-09-08 协议（V4.0UA81）",
+      "id": "v4-20260910",
+      "name": "2026-09-10 整理版协议（须手动选择并确认新版固件）",
       "firmwarePrefix": "V4.0UA81",
       "commands": [
         {
           "id": "firmware",
-          "name": "固件版本",
+          "name": "固件完整版本（BCD 子版本）",
           "operation": "read",
           "enabled": true,
           "queryCode": "72",
@@ -272,20 +272,23 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
             },
             {
               "id": "sub",
-              "name": "子版本",
+              "name": "BCD 子版本",
               "offset": 8,
               "length": 1,
-              "type": "hex",
+              "type": "enum",
               "endian": "big",
               "scale": 1,
               "divisor": 1,
               "bias": 0,
-              "prefix": ""
+              "prefix": "",
+              "enumValues": {
+                "16": "10"
+              }
             }
           ],
           "samples": [
             {
-              "frameHex": "F5 0D F2 72 56 34 2E 30 55 41 38 31 10",
+              "frameHex": "F5 0D F2 72 56342E3055413831 10",
               "expected": {
                 "main": "V4.0UA81",
                 "sub": "10"
@@ -319,10 +322,7 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
                 "1": "Q5",
                 "2": "Q6",
                 "3": "Q7",
-                "4": "R2-LITE",
-                "5": "R2",
-                "6": "R1",
-                "7": "R1(GY)"
+                "255": "无法识别"
               }
             }
           ],
@@ -357,15 +357,18 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
               "bias": 0,
               "prefix": "",
               "enumValues": {
-                "85": "美国",
-                "72": "智利",
-                "67": "中国"
+                "0": "美国",
+                "1": "中国",
+                "2": "智利",
+                "3": "乌拉圭",
+                "4": "台湾",
+                "255": "无法识别"
               }
             }
           ],
           "samples": [
             {
-              "frameHex": "F5 05 FA 71 55",
+              "frameHex": "F5 05 FA 71 00",
               "expected": {
                 "value": "美国"
               }
@@ -374,29 +377,17 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
         },
         {
           "id": "parameters",
-          "name": "机型参数组",
-          "operation": "read",
-          "enabled": false,
-          "disabledReason": "当前固件预留、未开发，无有效查询回包。",
-          "queryCode": "73",
-          "responseCode": "73",
-          "payloadLength": 1,
-          "fields": [],
-          "samples": []
-        },
-        {
-          "id": "valve",
-          "name": "阀类型",
+          "name": "当前实际生效参数（八组）",
           "operation": "read",
           "enabled": true,
-          "queryCode": "74",
-          "responseCode": "74",
-          "payloadLength": 1,
+          "queryCode": "73",
+          "responseCode": "73",
+          "payloadLength": 40,
           "timeoutMs": 1500,
           "fields": [
             {
-              "id": "value",
-              "name": "值",
+              "id": "slot0Gear",
+              "name": "参数组 1 档位",
               "offset": 0,
               "length": 1,
               "type": "enum",
@@ -406,16 +397,490 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
               "bias": 0,
               "prefix": "",
               "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot0Speed",
+              "name": "参数组 1 设定转速",
+              "offset": 1,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot0Duration",
+              "name": "参数组 1 R210A 时长",
+              "offset": 3,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot1Gear",
+              "name": "参数组 2 档位",
+              "offset": 5,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot1Speed",
+              "name": "参数组 2 设定转速",
+              "offset": 6,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot1Duration",
+              "name": "参数组 2 R210A 时长",
+              "offset": 8,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot2Gear",
+              "name": "参数组 3 档位",
+              "offset": 10,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot2Speed",
+              "name": "参数组 3 设定转速",
+              "offset": 11,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot2Duration",
+              "name": "参数组 3 R210A 时长",
+              "offset": 13,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot3Gear",
+              "name": "参数组 4 档位",
+              "offset": 15,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot3Speed",
+              "name": "参数组 4 设定转速",
+              "offset": 16,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot3Duration",
+              "name": "参数组 4 R210A 时长",
+              "offset": 18,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot4Gear",
+              "name": "参数组 5 档位",
+              "offset": 20,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot4Speed",
+              "name": "参数组 5 设定转速",
+              "offset": 21,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot4Duration",
+              "name": "参数组 5 R210A 时长",
+              "offset": 23,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot5Gear",
+              "name": "参数组 6 档位",
+              "offset": 25,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot5Speed",
+              "name": "参数组 6 设定转速",
+              "offset": 26,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot5Duration",
+              "name": "参数组 6 R210A 时长",
+              "offset": 28,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot6Gear",
+              "name": "参数组 7 档位",
+              "offset": 30,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot6Speed",
+              "name": "参数组 7 设定转速",
+              "offset": 31,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot6Duration",
+              "name": "参数组 7 R210A 时长",
+              "offset": 33,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            },
+            {
+              "id": "slot7Gear",
+              "name": "参数组 8 档位",
+              "offset": 35,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "A",
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "S"
+              }
+            },
+            {
+              "id": "slot7Speed",
+              "name": "参数组 8 设定转速",
+              "offset": 36,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "rpm",
+              "prefix": ""
+            },
+            {
+              "id": "slot7Duration",
+              "name": "参数组 8 R210A 时长",
+              "offset": 38,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "ms",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 2C D3 73 0003E800C801044C00D20204B000DC03051400E604057800F00505DC00FA06064001040706A4010E",
+              "expected": {
+                "slot0Gear": "A",
+                "slot0Speed": "1000",
+                "slot0Duration": "200",
+                "slot1Gear": "1",
+                "slot1Speed": "1100",
+                "slot1Duration": "210",
+                "slot2Gear": "2",
+                "slot2Speed": "1200",
+                "slot2Duration": "220",
+                "slot3Gear": "3",
+                "slot3Speed": "1300",
+                "slot3Duration": "230",
+                "slot4Gear": "4",
+                "slot4Speed": "1400",
+                "slot4Duration": "240",
+                "slot5Gear": "5",
+                "slot5Speed": "1500",
+                "slot5Duration": "250",
+                "slot6Gear": "6",
+                "slot6Speed": "1600",
+                "slot6Duration": "260",
+                "slot7Gear": "S",
+                "slot7Speed": "1700",
+                "slot7Duration": "270"
+              }
+            }
+          ]
+        },
+        {
+          "id": "valve",
+          "name": "阀类型（含配置状态）",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "74",
+          "responseCode": "74",
+          "payloadLength": 2,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "status",
+              "name": "阀类型配置状态",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "阀类型配置有效",
+                "1": "未配置阀类型，无法读取/判断",
+                "2": "阀类型配置冲突"
+              }
+            },
+            {
+              "id": "value",
+              "name": "阀类型",
+              "offset": 1,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
                 "0": "MAC 阀",
-                "1": "方阀"
+                "1": "方阀",
+                "255": "无有效阀类型"
               }
             }
           ],
           "samples": [
             {
-              "frameHex": "F5 05 FA 74 01",
+              "frameHex": "F5 06 F9 74 00 00",
               "expected": {
+                "status": "阀类型配置有效",
+                "value": "MAC 阀"
+              }
+            },
+            {
+              "frameHex": "F5 06 F9 74 00 01",
+              "expected": {
+                "status": "阀类型配置有效",
                 "value": "方阀"
+              }
+            },
+            {
+              "frameHex": "F5 06 F9 74 01 FF",
+              "expected": {
+                "status": "未配置阀类型，无法读取/判断",
+                "value": "无有效阀类型"
+              }
+            },
+            {
+              "frameHex": "F5 06 F9 74 02 FF",
+              "expected": {
+                "status": "阀类型配置冲突",
+                "value": "无有效阀类型"
+              }
+            },
+            {
+              "frameHex": "F5 06 F9 74 00 FF",
+              "expected": {
+                "status": "阀类型配置有效",
+                "value": "无有效阀类型"
               }
             }
           ]
@@ -825,30 +1290,100 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
         },
         {
           "id": "pressure-check",
-          "name": "压力查询（待修正固件）",
+          "name": "压力传感器数值（含有效状态）",
           "operation": "read",
-          "enabled": false,
-          "disabledReason": "当前固件只返回低 8 位且误用返回码 85；修正固件版本与实机回包确认后，由后台配置启用。",
+          "enabled": true,
           "queryCode": "78",
           "responseCode": "78",
-          "payloadLength": 1,
-          "fields": [],
-          "samples": []
+          "payloadLength": 3,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "status",
+              "name": "数据状态",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "数据有效",
+                "1": "测量未完成",
+                "2": "传感器无数据/异常"
+              }
+            },
+            {
+              "id": "value",
+              "name": "值",
+              "offset": 1,
+              "length": 2,
+              "type": "uint",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "unit": "kPa",
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 07 F8 78 00 00 AD",
+              "expected": {
+                "status": "数据有效",
+                "value": "173"
+              }
+            },
+            {
+              "frameHex": "F5 07 F8 78 01 00 00",
+              "expected": {
+                "status": "测量未完成",
+                "value": "0"
+              }
+            },
+            {
+              "frameHex": "F5 07 F8 78 02 00 00",
+              "expected": {
+                "status": "传感器无数据/异常",
+                "value": "0"
+              }
+            }
+          ]
         },
         {
           "id": "temperature-check",
-          "name": "内部温度（数据有效性待确认）",
+          "name": "内部温度（含有效状态）",
           "operation": "read",
           "enabled": true,
           "queryCode": "79",
           "responseCode": "79",
-          "payloadLength": 2,
+          "payloadLength": 3,
           "timeoutMs": 1500,
           "fields": [
             {
+              "id": "status",
+              "name": "数据状态",
+              "offset": 0,
+              "length": 1,
+              "type": "enum",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": "",
+              "enumValues": {
+                "0": "数据有效",
+                "1": "测量未完成",
+                "2": "传感器无数据/异常"
+              }
+            },
+            {
               "id": "value",
               "name": "值",
-              "offset": 0,
+              "offset": 1,
               "length": 2,
               "type": "int",
               "endian": "big",
@@ -861,15 +1396,24 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
           ],
           "samples": [
             {
-              "frameHex": "F5 06 F9 79 00 23",
+              "frameHex": "F5 07 F8 79 00 FF FB",
               "expected": {
-                "value": "35"
+                "status": "数据有效",
+                "value": "-5"
               }
             },
             {
-              "frameHex": "F5 06 F9 79 FF FB",
+              "frameHex": "F5 07 F8 79 01 00 00",
               "expected": {
-                "value": "-5"
+                "status": "测量未完成",
+                "value": "0"
+              }
+            },
+            {
+              "frameHex": "F5 07 F8 79 02 00 00",
+              "expected": {
+                "status": "传感器无数据/异常",
+                "value": "0"
               }
             }
           ]
@@ -988,7 +1532,7 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
         },
         {
           "id": "valve-pressure",
-          "name": "V 压力（字节序/单位待核对）",
+          "name": "微压/V 压差值平均值（无单位）",
           "operation": "read",
           "enabled": true,
           "queryCode": "7D",
@@ -998,7 +1542,7 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
           "fields": [
             {
               "id": "value",
-              "name": "有符号值（暂按大端）",
+              "name": "有符号原始值",
               "offset": 0,
               "length": 2,
               "type": "int",
@@ -1175,13 +1719,13 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
               "bias": 0,
               "prefix": "",
               "enumValues": {
-                "0": "未完成/基线不可用",
+                "0": "未完成",
                 "1": "已完成"
               }
             },
             {
               "id": "value",
-              "name": "230 抹平值原始字节",
+              "name": "230 抹平值原始字节（符号与解释待确认）",
               "offset": 1,
               "length": 2,
               "type": "hex",
@@ -1303,6 +1847,51 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
               }
             }
           ]
+        },
+        {
+          "id": "uid",
+          "name": "STM32 UID（CRC-32/ISO-HDLC）",
+          "operation": "read",
+          "enabled": true,
+          "queryCode": "87",
+          "responseCode": "87",
+          "payloadLength": 16,
+          "timeoutMs": 1500,
+          "fields": [
+            {
+              "id": "uid",
+              "name": "完整 96 位 UID",
+              "offset": 0,
+              "length": 12,
+              "type": "hex",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": ""
+            },
+            {
+              "id": "shortUid",
+              "name": "短 UID（CRC32）",
+              "offset": 12,
+              "length": 4,
+              "type": "hex",
+              "endian": "big",
+              "scale": 1,
+              "divisor": 1,
+              "bias": 0,
+              "prefix": ""
+            }
+          ],
+          "samples": [
+            {
+              "frameHex": "F5 14 EB 87 6D 00 4E 00 34 51 33 30 34 36 30 36 A5 E2 BB 25",
+              "expected": {
+                "uid": "6D004E003451333034363036",
+                "shortUid": "A5E2BB25"
+              }
+            }
+          ]
         }
       ]
     }
@@ -1311,9 +1900,9 @@ export const FACTORY_PROTOCOL_DEFAULT: FactoryProtocolCatalog = {
 
 export const FACTORY_SERIAL_DEFAULT: FactorySerialConfig = {
   "schemaVersion": 1,
-  "version": "serial-config-002",
+  "version": "serial-config-003",
   "autoConnect": true,
-  "portName": "COM3",
+  "portName": "auto",
   "baudRate": 9600,
   "dataBits": 8,
   "parity": "None",

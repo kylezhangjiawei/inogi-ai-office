@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { createHash } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GATE_DEFINITIONS, GATE_SETTING_CATEGORY, GATE_SETTING_PREFIX, type GateConfig, type GateDefinition, type GateItem } from './electronic-gate.catalog';
 import { FactoryQcService } from './factory-qc.service';
@@ -14,6 +15,7 @@ type StoredGate = {
 };
 type SettingRow = { key: string; value: unknown; updatedAt: Date };
 type Actor = { id?: string; name?: string };
+export type FactoryQcRulesResponse = { schemaVersion: 1; version: string; items: Array<GateConfig & { id: string }> };
 const CONFIG_KEYS = new Set(['enabled', 'model', 'market', 'displayName', 'helpText', 'values', 'failureAction']);
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -69,23 +71,25 @@ function parameterProfilesError(text: string, plan = '', performanceClass = '', 
   return null;
 }
 
-function gearUpperBoundsError(text: string, model = ''): string | null {
+function gearPressureBoundsError(text: string, model = '', range = false): string | null {
+  const label = range ? '档位压力范围' : '档位压力上限';
   let rows: unknown;
-  try { rows = JSON.parse(text); } catch { return '档位压力上限必须为有效 JSON 数组'; }
+  try { rows = JSON.parse(text); } catch { return `${label}必须为有效 JSON 数组`; }
   const object = (value: unknown): value is Record<string, any> => value !== null && typeof value === 'object' && !Array.isArray(value);
-  if (!Array.isArray(rows) || !rows.length) return '档位压力上限至少需要一条配置';
+  if (!Array.isArray(rows) || !rows.length) return `${label}至少需要一条配置`;
   const prior: Array<{gear: number; models?: string[]}> = [];
   for (const row of rows) {
-    if (!object(row) || Object.keys(row).some(key => !['gear', 'maximum', 'models'].includes(key))
+    if (!object(row) || Object.keys(row).some(key => !['gear', 'maximum', 'models', ...(range ? ['minimum'] : [])].includes(key))
       || !Number.isInteger(row.gear) || row.gear < 0 || row.gear > 7 || typeof row.maximum !== 'number' || !Number.isFinite(row.maximum) || row.maximum < 0 || row.maximum > 65535
+      || (range && (typeof row.minimum !== 'number' || !Number.isFinite(row.minimum) || row.minimum < 0 || row.minimum > row.maximum))
       || (row.models !== undefined && (!Array.isArray(row.models) || !row.models.length
         || row.models.some((name: unknown) => typeof name !== 'string' || !name || name.trim() !== name || name.length > 200)
-        || new Set(row.models).size !== row.models.length))) return '档位压力上限须为STEP 0～7、0～65535有限上限及可选唯一模型名数组，禁止未知字段';
+        || new Set(row.models).size !== row.models.length))) return `${label}须为STEP 0～7、0～65535有效压力范围及可选唯一模型名数组，禁止未知字段`;
     if (prior.some(previous => previous.gear === row.gear && (!previous.models || !row.models || previous.models.some(name => row.models.includes(name)))))
       return '同档位压力范围不能对同一机型重复或重叠配置';
     prior.push(row as {gear: number; models?: string[]});
   }
-  if (model && !prior.some(row => !row.models || row.models.includes(model))) return '适用机型没有匹配的档位压力上限';
+  if (model && !prior.some(row => !row.models || row.models.includes(model))) return `适用机型没有匹配的${label}`;
   return null;
 }
 
@@ -98,6 +102,33 @@ export class ElectronicGateService {
     const rows = await this.prisma.systemSetting.findMany({ where: { category: GATE_SETTING_CATEGORY, key: { startsWith: GATE_SETTING_PREFIX } } });
     const byKey = new Map(rows.map((row) => [row.key, row]));
     return { items: GATE_DEFINITIONS.map((definition) => this.item(definition, byKey.get(this.key(definition.id)))) };
+  }
+
+  /** Only explicitly published check values enter the client download; no defaults are published here. */
+  async downloadRules(): Promise<FactoryQcRulesResponse> {
+    const definitions = GATE_DEFINITIONS.filter(item => item.category === 'critical' || item.category === 'routine');
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { category: GATE_SETTING_CATEGORY, key: { in: definitions.map(item => this.key(item.id)) } },
+      select: { key: true, value: true },
+    });
+    const byKey = new Map(rows.map(row => [row.key, row]));
+    const items: FactoryQcRulesResponse['items'] = [];
+    for (const definition of definitions) {
+      const row = byKey.get(this.key(definition.id));
+      const active = row ? this.readStored(definition, row.value, false).active : null;
+      if (active === null) continue;
+      items.push({
+        id: definition.id, enabled: active.enabled, model: active.model, market: active.market,
+        displayName: active.displayName, helpText: active.helpText,
+        values: Object.fromEntries(Object.keys(active.values).sort().map(key => [key, active.values[key]])),
+        failureAction: active.failureAction,
+      });
+    }
+    items.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+    const payload = { schemaVersion: 1 as const, items };
+    // JSONB key order, draft edits and publication metadata cannot change the public content version.
+    const version = `rules-${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`;
+    return { schemaVersion: 1, version, items };
   }
 
   async saveDraft(id: string, payload: unknown, actor: Actor): Promise<GateItem> {
@@ -188,7 +219,7 @@ export class ElectronicGateService {
       strings[key] = (value[key] as string).trim();
     }
     const universalScope = (definition.id === 'built-in-parameters' && value.values.operator === 'profile-slots')
-      || (definition.id === 'sensor-pressure' && value.values.operator === 'gear-upper');
+      || (definition.id === 'sensor-pressure' && ['gear-upper', 'gear-range'].includes(value.values.operator as string));
     if (publishing && (!strings.displayName || (definition.category !== 'connection' && !universalScope && (!strings.model || !strings.market)))) {
       throw new BadRequestException('发布前请填写适用机型、发货市场和显示名称');
     }
@@ -234,7 +265,11 @@ export class ElectronicGateService {
       if (error) throw new BadRequestException(error);
     }
     if (values.gearUpperBounds) {
-      const error = gearUpperBoundsError(values.gearUpperBounds, strings.model);
+      const error = gearPressureBoundsError(values.gearUpperBounds, strings.model);
+      if (error) throw new BadRequestException(error);
+    }
+    if (values.gearRanges) {
+      const error = gearPressureBoundsError(values.gearRanges, strings.model, true);
       if (error) throw new BadRequestException(error);
     }
     if (publishing) {
@@ -245,6 +280,10 @@ export class ElectronicGateService {
         if (keys.some(key => values[key])) throw new BadRequestException('新判定方式请清空旧版兼容字段，避免同一规则混用两种含义');
       };
       if (['device-model', 'shipping-market', 'firmware-version'].includes(definition.id) && values.operator === 'allowlist') requireFields(['allowedValues']);
+      if (definition.id === 'fpga-version') {
+        if (values.operator === 'equals') { requireFields(['expected']); rejectLegacyFields(['allowedValues']); }
+        else { requireFields(['allowedValues']); rejectLegacyFields(['expected']); }
+      }
       if (definition.id === 'built-in-parameters') {
         const legacy = ['time310', 'time310Unit', 'time210', 'time210Unit', 'compressorRpm'];
         const profileFields = ['parameterProfiles', 'parameterPlan', 'performanceClass'];
@@ -253,9 +292,15 @@ export class ElectronicGateService {
         else { requireFields(legacy); rejectLegacyFields(['parameterSlots', ...profileFields]); }
       }
       if (definition.id === 'sensor-pressure') {
-        if (values.operator === 'gear-upper') { requireFields(['gearUpperBounds', 'boundary']); rejectLegacyFields(['gear', 'minimum', 'maximum']); }
+        if (values.operator === 'gear-range') {
+          requireFields(['gearRanges', 'boundary']); rejectLegacyFields(['gear', 'minimum', 'maximum', 'gearUpperBounds']);
+          if (values.boundary === 'unconfirmed') throw new BadRequestException('档位压力范围须明确上下限包含方式');
+          if (values.boundary === 'exclusive' && JSON.parse(values.gearRanges).some((row: {minimum: number; maximum: number}) => row.minimum === row.maximum))
+            throw new BadRequestException('档位压力开区间必须有有效范围');
+        }
+        else if (values.operator === 'gear-upper') { requireFields(['gearUpperBounds', 'boundary']); rejectLegacyFields(['gear', 'minimum', 'maximum', 'gearRanges']); }
         else {
-          requireFields(['gear', 'minimum', 'maximum', 'boundary']); rejectLegacyFields(['gearUpperBounds']);
+          requireFields(['gear', 'minimum', 'maximum', 'boundary']); rejectLegacyFields(['gearUpperBounds', 'gearRanges']);
           if (values.boundary === 'unconfirmed') throw new BadRequestException('旧固定压力范围须明确边界包含方式');
         }
       }
@@ -294,7 +339,7 @@ export class ElectronicGateService {
     };
   }
 
-  private readStored(definition: GateDefinition, value: unknown): StoredGate {
+  private readStored(definition: GateDefinition, value: unknown, includeDraft = true): StoredGate {
     if (!record(value) || value.schemaVersion !== 1 || !revision(value.revision) || value.revision < 1 ||
       !(value.updatedBy === null || typeof value.updatedBy === 'string') ||
       !(value.publishedAt === null || (typeof value.publishedAt === 'string' && Number.isFinite(Date.parse(value.publishedAt)))) ||
@@ -306,7 +351,7 @@ export class ElectronicGateService {
       return {
         schemaVersion: 1, revision: value.revision, updatedBy: value.updatedBy,
         publishedAt: value.publishedAt,
-        draft: value.draft === null ? null : this.validateConfig(definition, value.draft, false, true),
+        draft: !includeDraft || value.draft === null ? null : this.validateConfig(definition, value.draft, false, true),
         active: value.active === null ? null : this.validateConfig(definition, value.active, true, true),
       };
     } catch {

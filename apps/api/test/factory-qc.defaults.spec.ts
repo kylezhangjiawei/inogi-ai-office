@@ -64,24 +64,29 @@ function fixture() {
     put: (key: string, value: unknown, category = 'factory-qc') => rows.set(key, { key, category, value, updatedAt: new Date() }) };
 }
 
-test('current defaults retain safe disabled commands and the historical v2 source stays unchanged', () => {
+test('current defaults match the confirmed 0910 devices and historical examples stay unchanged', () => {
   assert.deepEqual(validateProtocolCatalog(FACTORY_PROTOCOL_DEFAULT), FACTORY_PROTOCOL_DEFAULT);
   assert.deepEqual(validateSerialConfig(FACTORY_SERIAL_DEFAULT), FACTORY_SERIAL_DEFAULT);
-  assert.equal(FACTORY_SERIAL_DEFAULT.version, 'serial-config-002');
-  assert.equal(FACTORY_SERIAL_DEFAULT.portName, 'COM3');
+  assert.equal(FACTORY_SERIAL_DEFAULT.version, 'serial-config-003');
+  assert.equal(FACTORY_SERIAL_DEFAULT.portName, 'auto');
   assert.equal(FACTORY_SERIAL_DEFAULT.baudRate, 9600);
   assert.equal(FACTORY_SERIAL_DEFAULT.autoConnect, true);
-  assert.deepEqual(GATE_DEFINITIONS.find(item => item.id === 'serial-port')!.defaults.values, { mode: 'fixed', port: 'COM3', evidence: '' });
+  assert.deepEqual(GATE_DEFINITIONS.find(item => item.id === 'serial-port')!.defaults.values, { mode: 'auto', port: '', evidence: '' });
   assert.equal(GATE_DEFINITIONS.find(item => item.id === 'baud-rate')!.defaults.values.baudRate, '9600');
-  assert.equal(FACTORY_PROTOCOL_DEFAULT.version, 'builtin-20260909-v3');
+  assert.equal(FACTORY_PROTOCOL_DEFAULT.version, 'builtin-20260910-v3');
+  assert.equal(FACTORY_PROTOCOL_DEFAULT.minAppVersion, '0.5.8');
   assert.equal(FACTORY_PROTOCOL_EXAMPLE.version, 'builtin-20260909-v2');
-  const current = FACTORY_PROTOCOL_DEFAULT.profiles.find(profile => profile.id === 'v4-20260908')!;
-  assert.equal(current.commands.filter(command => command.enabled !== false).length, 20);
-  assert.deepEqual(current.commands.filter(command => command.enabled === false).map(command => command.queryCode).sort(), ['73', '78']);
+  const current = FACTORY_PROTOCOL_DEFAULT.profiles.find(profile => profile.id === 'v4-20260910')!;
+  assert.equal(current.commands.filter(command => command.enabled !== false).length, 23);
+  for (const [code, payloadLength] of [['73', 40], ['74', 2], ['78', 3], ['79', 3], ['87', 16]] as const) {
+    const command = current.commands.find(item => item.queryCode === code)!;
+    assert.equal(command.enabled, true);
+    assert.equal(command.payloadLength, payloadLength);
+  }
   const temperature = current.commands.find(command => command.queryCode === '79')!;
-  assert.equal(temperature.fields[0].type, 'int'); assert.equal(temperature.fields[0].length, 2);
-  assert.equal(current.commands.find(command => command.queryCode === '86')!.responseCode, '86');
-  assert.equal(FACTORY_PROTOCOL_DEFAULT.profiles.flatMap(profile => profile.commands.flatMap(command => command.fields)).some(field => field.rule != null), false);
+  assert.equal(temperature.fields[1].type, 'int');
+  assert.equal(temperature.fields[1].length, 2);
+  assert.equal(FACTORY_PROTOCOL_DEFAULT.profiles.find(profile => profile.id === 'legacy-v1')!.commands.length, 7);
 });
 
 test('application bootstrap publishes exact full defaults and immutable history while all QC rules stay unconfigured', async () => {
@@ -215,4 +220,18 @@ test('example and public reads return isolated values and do not silently initia
   const catalog = await f.service.downloadProtocol(); catalog.profiles[0].name = 'caller-mutated';
   assert.deepEqual(await f.service.downloadProtocol(), FACTORY_PROTOCOL_DEFAULT);
   assert.equal(FACTORY_SERIAL_ITEM_IDS.length, 12);
+});
+
+
+test('rule templates use the current desktop pressure and identity standards', () => {
+  const values = (id: string) => GATE_DEFINITIONS.find(item => item.id === id)!.defaults.values;
+  assert.equal(values('sensor-pressure').operator, 'gear-range');
+  assert.equal(values('sensor-pressure').boundary, 'inclusive');
+  assert.deepEqual(JSON.parse(values('sensor-pressure').gearRanges), [{"gear":0,"minimum":200,"maximum":300},{"gear":1,"minimum":120,"maximum":175},{"gear":2,"minimum":135,"maximum":205},{"gear":3,"minimum":140,"maximum":240},{"gear":4,"minimum":160,"maximum":270},{"gear":5,"minimum":180,"maximum":285},{"gear":6,"minimum":200,"maximum":300},{"gear":7,"minimum":210,"maximum":305}]);
+  for (const id of ['device-model', 'shipping-market', 'firmware-version']) {
+    assert.equal(values(id).operator, 'present');
+    assert.equal(values(id).approval, 'confirmed');
+  }
+  assert.equal(values('fpga-version').operator, 'equals');
+  assert.equal(values('fpga-version').expected, '37');
 });

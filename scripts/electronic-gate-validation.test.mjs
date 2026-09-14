@@ -41,16 +41,17 @@ function profiledFixture() {
   ]), readbackSource: "新版73/74" });
 }
 function pressureFixture() {
-  return fixture("sensor-pressure", { operator: "gear-upper", gear: "", minimum: "", maximum: "", boundary: "unconfirmed", readbackSource: "新版78",
+  return fixture("sensor-pressure", { operator: "gear-upper", gear: "", minimum: "", maximum: "", gearRanges: "", boundary: "unconfirmed", readbackSource: "新版78",
     gearUpperBounds: JSON.stringify([{gear:0,maximum:120,models:["Q5"]},{gear:0,maximum:130,models:["Q6","Q7"]},{gear:3,maximum:160}]) });
 }
 test("profile and pressure modes allow universal scope but preserve restricted scope for legacy modes", () => {
   const defaults = fixture("sensor-pressure").item.defaults;
-  assert.equal(defaults.values.boundary, "exclusive");
+  assert.equal(defaults.values.boundary, "inclusive");
+  assert.equal(defaults.values.operator, "gear-range");
   assert.equal(defaults.model, ""); assert.equal(defaults.market, "");
-  assert.deepEqual(JSON.parse(defaults.values.gearUpperBounds), [
-    {gear:0,maximum:315},{gear:1,maximum:200},{gear:2,maximum:235},{gear:3,maximum:275},
-    {gear:4,maximum:300},{gear:5,maximum:300},{gear:6,maximum:315},{gear:7,maximum:320}
+  assert.deepEqual(JSON.parse(defaults.values.gearRanges), [
+    {gear:0,minimum:200,maximum:300},{gear:1,minimum:120,maximum:175},{gear:2,minimum:135,maximum:205},{gear:3,minimum:140,maximum:240},
+    {gear:4,minimum:160,maximum:270},{gear:5,minimum:180,maximum:285},{gear:6,minimum:200,maximum:300},{gear:7,minimum:210,maximum:305}
   ]);
   assert.equal(fixture("built-in-parameters").item.defaults.values.approval, "confirmed");
   assert.equal(fixture("debug-status").item.defaults.values.approval, "confirmed");
@@ -271,7 +272,7 @@ test("all 12 serial parameters are independent and do not require business scope
 test("display mode is available only to identity items and allowlist publication remains conditional", () => {
   for (const id of ["device-model", "shipping-market", "firmware-version"]) {
     const { item, config } = fixture(id, { operator: "display", allowedValues: "", readbackSource: "TEST-READBACK" });
-    assert.equal(item.defaults.values.operator, "display");
+    assert.equal(item.defaults.values.operator, "present");
     assert.deepEqual(validateGateConfig(item, config, true), {});
     config.values.operator = "allowlist";
     assert.ok(validateGateConfig(item, config, true).allowedValues);
@@ -291,4 +292,81 @@ test("display mode does not remove scope or evidence requirements", () => {
   const { item, config } = fixture("device-model", { operator: "display", allowedValues: "", readbackSource: "" });
   config.model = ""; config.market = ""; config.values.evidence = "";
   assert.deepEqual(Object.keys(validateGateConfig(item, config, true)).sort(), ["evidence", "market", "model", "readbackSource"]);
+});
+
+test("current pressure ranges permit universal scope and validate bounds, models and publication boundaries", () => {
+  const { item, config } = fixture("sensor-pressure");
+  config.model = ""; config.market = "";
+  assert.deepEqual(validateGateConfig(item, config), {});
+  assert.deepEqual(validateGateConfig(item, config, true), {});
+  const rows = [{ gear: 1, minimum: 120, maximum: 175, models: ["Q5"] }, { gear: 1, minimum: 130, maximum: 180, models: ["Q6"] }];
+  config.values.gearRanges = JSON.stringify(rows);
+  assert.deepEqual(validateGateConfig(item, config, true), {});
+  for (const change of [
+    list => list[0].minimum = 176, list => list[0].minimum = -1,
+    list => list[0].minimum = "120", list => list[0].maximum = 65536,
+    list => list[0].gear = 8, list => list[0].models = [],
+    list => list[0].models = ["Q6"], list => delete list[0].models,
+    list => list[0].extra = 1,
+  ]) {
+    const badRows = structuredClone(rows); change(badRows);
+    config.values.gearRanges = JSON.stringify(badRows);
+    assert.ok(validateGateConfig(item, config).gearRanges, JSON.stringify(badRows));
+  }
+  for (const invalid of ["{", "[]", "{}"]) {
+    config.values.gearRanges = invalid;
+    assert.ok(validateGateConfig(item, config, true).gearRanges);
+  }
+  config.values.gearRanges = JSON.stringify(rows); config.model = "Q7";
+  assert.ok(validateGateConfig(item, config).gearRanges);
+  config.model = "Q5"; assert.deepEqual(validateGateConfig(item, config, true), {});
+  config.model = ""; config.values.boundary = "unconfirmed";
+  assert.ok(validateGateConfig(item, config, true).boundary);
+  config.values.gearRanges = JSON.stringify([{ gear: 1, minimum: 120, maximum: 120 }]);
+  config.values.boundary = "exclusive";
+  assert.deepEqual(validateGateConfig(item, config), {});
+  assert.ok(validateGateConfig(item, config, true).gearRanges);
+  config.values.boundary = "inclusive";
+  assert.deepEqual(validateGateConfig(item, config, true), {});
+});
+
+test("pressure modes reject missing range inputs and mixed legacy fields while preserving old valid modes", () => {
+  for (const required of ["gearRanges", "boundary"]) {
+    const { item, config } = fixture("sensor-pressure", { [required]: "" });
+    assert.ok(validateGateConfig(item, config, true)[required]);
+  }
+  for (const key of ["gear", "minimum", "maximum", "gearUpperBounds"]) {
+    const { item, config } = fixture("sensor-pressure", { [key]: key === "gearUpperBounds" ? '[{"gear":1,"maximum":175}]' : "1" });
+    assert.ok(validateGateConfig(item, config, true)[key]);
+  }
+  const upper = pressureFixture();
+  assert.deepEqual(validateGateConfig(upper.item, upper.config, true), {});
+  upper.config.values.gearRanges = '[{"gear":1,"minimum":120,"maximum":175}]';
+  assert.ok(validateGateConfig(upper.item, upper.config, true).gearRanges);
+  const legacy = fixture("sensor-pressure", { operator: "range", gear: "1", minimum: "120", maximum: "175", boundary: "inclusive", gearRanges: "" });
+  assert.deepEqual(validateGateConfig(legacy.item, legacy.config, true), {});
+  legacy.config.values.gearRanges = '[{"gear":1,"minimum":120,"maximum":175}]';
+  assert.ok(validateGateConfig(legacy.item, legacy.config, true).gearRanges);
+});
+
+test("FPGA equals and allowlist require their own publication fields and identity present keeps scope checks", () => {
+  const { item, config } = fixture("fpga-version");
+  assert.equal(config.values.operator, "equals"); assert.equal(config.values.expected, "37");
+  assert.deepEqual(validateGateConfig(item, config, true), {});
+  config.values.expected = ""; assert.ok(validateGateConfig(item, config, true).expected);
+  assert.deepEqual(validateGateConfig(item, config), {});
+  config.values.expected = "37"; config.values.allowedValues = "37";
+  assert.ok(validateGateConfig(item, config, true).allowedValues);
+  config.values.operator = "allowlist";
+  assert.ok(validateGateConfig(item, config, true).expected);
+  config.values.expected = ""; assert.deepEqual(validateGateConfig(item, config, true), {});
+  config.values.allowedValues = ""; assert.ok(validateGateConfig(item, config, true).allowedValues);
+  for (const id of ["device-model", "shipping-market", "firmware-version"]) {
+    const current = fixture(id);
+    assert.equal(current.config.values.operator, "present");
+    assert.deepEqual(validateGateConfig(current.item, current.config, true), {});
+    current.config.model = ""; current.config.market = "";
+    const errors = validateGateConfig(current.item, current.config, true);
+    assert.ok(errors.model); assert.ok(errors.market);
+  }
 });

@@ -48,14 +48,31 @@ async function start() {
       void (async()=>{
         const service=app.get(FactoryQcService), gate=app.get(ElectronicGateService), actor={name:'Local integration fixture'};
         const state=await service.getState(), catalog=structuredClone(state.protocol.active);
-        catalog.version='integration-20260909-next';
+        catalog.version='integration-20260914-next';
         const draft=await service.saveCatalogDraft({expectedRevision:state.protocol.revision,catalog});
         await service.publishCatalog({expectedRevision:draft.protocol.revision},actor);
         const item=(await gate.list()).items.find(item=>item.id==='baud-rate'), serialDraft=structuredClone(item.active);
         serialDraft.values.baudRate='57600';
         const saved=await gate.saveDraft(item.id,{expectedRevision:item.revision,draft:serialDraft},actor);
         await gate.publish(item.id,{expectedRevision:saved.revision},actor);
-        res.json({protocolVersion:catalog.version,baudRate:57600});
+        const rule=(await gate.list()).items.find(item=>item.id==='current-pressure');
+        const ruleDraft=structuredClone(rule.defaults);
+        ruleDraft.model='Q5';ruleDraft.market='CN';
+        ruleDraft.values.readbackSource='Isolated fixture: 0910 current pressure';
+        ruleDraft.values.evidence='Local integration fixture only, no production publication';
+        const savedRule=await gate.saveDraft(rule.id,{expectedRevision:rule.revision,draft:ruleDraft},actor);
+        await gate.publish(rule.id,{expectedRevision:savedRule.revision},actor);
+        res.json({protocolVersion:catalog.version,baudRate:57600,ruleId:rule.id});
+      })().catch(error=>res.status(error.getStatus?.()||500).json({message:error.message}));
+      return;
+    }
+    if (req.path==='/__fixture/draft-rule' && req.method==='POST') {
+      void (async()=>{
+        const gate=app.get(ElectronicGateService), actor={name:'Local integration fixture'};
+        const rule=(await gate.list()).items.find(item=>item.id==='current-pressure'), draft=structuredClone(rule.active);
+        draft.values.maximum='106';
+        const saved=await gate.saveDraft(rule.id,{expectedRevision:rule.revision,draft},actor);
+        res.json({ruleId:rule.id,draftMaximum:saved.draft.values.maximum});
       })().catch(error=>res.status(error.getStatus?.()||500).json({message:error.message}));
       return;
     }

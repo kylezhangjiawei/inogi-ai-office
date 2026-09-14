@@ -16,7 +16,8 @@ function fixture() {
   const rows = new Map<string, Row>();
   const model = {
     async findMany({ where }: any) {
-      return structuredClone([...rows.values()].filter((row) => row.category === where.category && row.key.startsWith(where.key.startsWith)));
+      return structuredClone([...rows.values()].filter((row) => row.category === where.category
+        && (where.key.in ? where.key.in.includes(row.key) : row.key.startsWith(where.key.startsWith))));
     },
     async findUnique({ where }: any) { return structuredClone(rows.get(where.key) ?? null); },
     async create({ data }: any) {
@@ -59,7 +60,8 @@ function config(id: string, complete = false): GateConfig {
     result.values.parameterSlots = JSON.stringify(Array.from({ length: 8 }, (_, gear) => ({ gear, speed: 1000 + gear, duration: 100 + gear })));
     for (const key of ['time310', 'time310Unit', 'time210', 'time210Unit', 'compressorRpm']) result.values[key] = '';
   }
-  if (id === 'sensor-pressure') result.values.gearUpperBounds = '';
+  if (id === 'sensor-pressure') { result.values.gearUpperBounds = ''; result.values.gearRanges = ''; }
+  if (id === 'fpga-version') result.values[result.values.operator === 'equals' ? 'allowedValues' : 'expected'] = '';
   if (id === 'fan-status') result.values.expected = '';
   if (id === 'compressor-recovery') for (const key of ['stoppedValue', 'recoveredValue', 'observationMs']) result.values[key] = '';
   if (id === 'compressor-speed') for (const key of ['gear', 'minimum', 'maximum', 'boundary']) result.values[key] = '';
@@ -173,11 +175,11 @@ test('新版目录按主表区分已确认和暂定条件，不隐式发布；�
   assert.equal(get('built-in-parameters').defaults.values.approval, 'confirmed');
   assert.equal(JSON.parse(get('built-in-parameters').defaults.values.parameterProfiles).length, 6);
   assert.equal(JSON.parse(get('built-in-parameters').defaults.values.parameterProfiles).reduce((sum: number, profile: any) => sum + profile.slots.length, 0), 42);
-  assert.equal(get('sensor-pressure').defaults.values.operator, 'gear-upper');
-  assert.equal(get('sensor-pressure').defaults.values.boundary, 'exclusive');
-  assert.deepEqual(JSON.parse(get('sensor-pressure').defaults.values.gearUpperBounds), [
-    {gear:0,maximum:315},{gear:1,maximum:200},{gear:2,maximum:235},{gear:3,maximum:275},
-    {gear:4,maximum:300},{gear:5,maximum:300},{gear:6,maximum:315},{gear:7,maximum:320}
+  assert.equal(get('sensor-pressure').defaults.values.operator, 'gear-range');
+  assert.equal(get('sensor-pressure').defaults.values.boundary, 'inclusive');
+  assert.deepEqual(JSON.parse(get('sensor-pressure').defaults.values.gearRanges), [
+    {gear:0,minimum:200,maximum:300},{gear:1,minimum:120,maximum:175},{gear:2,minimum:135,maximum:205},{gear:3,minimum:140,maximum:240},
+    {gear:4,minimum:160,maximum:270},{gear:5,minimum:180,maximum:285},{gear:6,minimum:200,maximum:300},{gear:7,minimum:210,maximum:305}
   ]);
   assert.equal(get('built-in-parameters').defaults.values.parameterSlots, '');
   assert.equal(get('compressor-speed').defaults.values.tolerancePercent, '15');
@@ -192,7 +194,8 @@ test('新版目录按主表区分已确认和暂定条件，不隐式发布；�
   assert.equal(get('total-usage').defaults.values.maximum, '20.5');
   assert.equal(get('total-usage').defaults.values.operator, 'lte');
   assert.equal(get('valve-type').defaults.values.allowedValues, 'MAC 阀\n方阀');
-  assert.equal(get('fpga-version').defaults.values.allowedValues, '37');
+  assert.equal(get('fpga-version').defaults.values.operator, 'equals');
+  assert.equal(get('fpga-version').defaults.values.expected, '37');
   assert.equal(get('compressor-speed').defaults.values.approval, 'confirmed');
   assert.equal(get('alarm-status').defaults.values.expected, '0');
   assert.equal(get('calibration-230').defaults.values.expected, '1');
@@ -580,10 +583,10 @@ test('累计使用时长支持严格小于，已有小于或等于规则保持�
   }
 });
 
-test('前三项默认仅显示，无需清单可发布；清单方式仍要求完整清单且不改变其他项', async () => {
+test('前三项默认判断有效读取，兼容旧显示规则；清单方式仍要求完整清单且不改变其他项', async () => {
   for (const id of ['device-model', 'shipping-market', 'firmware-version']) {
     const f = fixture(); const draft = config(id, true);
-    assert.equal(GATE_DEFINITIONS.find(item => item.id === id)!.defaults.values.operator, 'display');
+    assert.equal(GATE_DEFINITIONS.find(item => item.id === id)!.defaults.values.operator, 'present');
     draft.values.operator = 'display'; draft.values.allowedValues = '';
     await f.service.saveDraft(id, { expectedRevision: 0, draft }, actor);
     const published = await f.service.publish(id, { expectedRevision: 1 }, actor);
@@ -629,7 +632,92 @@ test('仅显示仍要求发布范围和依据，旧清单active和草稿不被�
     const item = listed.items.find(item => item.id === id)!;
     assert.deepEqual(item.active, before.get(GATE_SETTING_PREFIX + id)!.value.active);
     assert.deepEqual(item.draft, before.get(GATE_SETTING_PREFIX + id)!.value.draft);
-    assert.equal(item.defaults.values.operator, 'display');
+    assert.equal(item.defaults.values.operator, 'present');
   }
   assert.deepEqual(f.rows, before);
+});
+
+function pressureRangeConfig(): GateConfig {
+  const draft = pressureConfig();
+  draft.values.operator = 'gear-range'; draft.values.boundary = 'inclusive';
+  delete draft.values.gearUpperBounds;
+  draft.values.gearRanges = JSON.stringify([
+    { gear: 0, minimum: 200, maximum: 300, models: ['Q5'] },
+    { gear: 0, minimum: 210, maximum: 305, models: ['Q6', 'Q7'] },
+    { gear: 3, minimum: 140, maximum: 240 },
+  ]);
+  return draft;
+}
+
+test('当前分档压力范围可发布通用或机型范围，下载保留原始上下限和边界', async () => {
+  for (const boundary of ['inclusive', 'exclusive']) {
+    const f = fixture(), draft = pressureRangeConfig(); draft.values.boundary = boundary;
+    await f.service.saveDraft('sensor-pressure', { expectedRevision: 0, draft }, actor);
+    await f.service.publish('sensor-pressure', { expectedRevision: 1 }, actor);
+    assert.deepEqual((await f.service.downloadRules()).items[0].values, draft.values);
+    const stored = (await f.service.list()).items.find(item => item.id === 'sensor-pressure')!;
+    assert.equal(stored.active?.model, ''); assert.equal(stored.active?.market, '');
+  }
+});
+
+test('当前分档压力范围拒绝非法上下限、重叠机型、越界档位及未知字段且不写入', async () => {
+  const base = JSON.parse(pressureRangeConfig().values.gearRanges);
+  const mutate = (change: (rows: any[]) => void) => { const rows = structuredClone(base); change(rows); return JSON.stringify(rows); };
+  for (const text of ['[]', '{}', 'not JSON', mutate(rows => { delete rows[0].minimum; }),
+    mutate(rows => { rows[0].minimum = '200'; }), mutate(rows => { rows[0].minimum = -1; }),
+    mutate(rows => { rows[0].minimum = 301; }), mutate(rows => { rows[0].maximum = 65536; }),
+    mutate(rows => { rows[0].minimum = Infinity; }), mutate(rows => { rows[0].gear = 8; }),
+    mutate(rows => { rows[0].models = ['Q6']; }), mutate(rows => { delete rows[0].models; }),
+    mutate(rows => { rows[0].models = []; }), mutate(rows => { rows[0].models = ['Q5', 'Q5']; }),
+    mutate(rows => { rows[0].unknown = 1; })]) {
+    const f = fixture(), draft = pressureRangeConfig(); draft.values.gearRanges = text;
+    await assert.rejects(f.service.saveDraft('sensor-pressure', { expectedRevision: 0, draft }, actor), hasStatus(400));
+    assert.equal(f.rows.size, 0);
+  }
+  const f = fixture(), unmatched = pressureRangeConfig(); unmatched.model = 'Q8';
+  unmatched.values.gearRanges = JSON.stringify(base.slice(0, 2));
+  await assert.rejects(f.service.saveDraft('sensor-pressure', { expectedRevision: 0, draft: unmatched }, actor), hasStatus(400));
+});
+
+test('当前分档压力发布要求完整范围与明确边界，并拒绝混用旧上下限配置', async () => {
+  for (const change of [
+    (draft: GateConfig) => { draft.values.gearRanges = ''; },
+    (draft: GateConfig) => { draft.values.boundary = ''; },
+    (draft: GateConfig) => { draft.values.boundary = 'unconfirmed'; },
+    (draft: GateConfig) => { draft.values.gearUpperBounds = pressureConfig().values.gearUpperBounds; },
+    (draft: GateConfig) => { draft.values.minimum = '1'; },
+    (draft: GateConfig) => { draft.values.boundary = 'exclusive'; draft.values.gearRanges = '[{"gear":0,"minimum":200,"maximum":200}]'; },
+  ]) {
+    const f = fixture(), draft = pressureRangeConfig(); change(draft);
+    await f.service.saveDraft('sensor-pressure', { expectedRevision: 0, draft }, actor);
+    await assert.rejects(f.service.publish('sensor-pressure', { expectedRevision: 1 }, actor), hasStatus(400));
+    assert.equal((await f.service.downloadRules()).items.length, 0);
+  }
+  const f = fixture(), legacy = pressureConfig(); legacy.values.gearRanges = pressureRangeConfig().values.gearRanges;
+  await f.service.saveDraft('sensor-pressure', { expectedRevision: 0, draft: legacy }, actor);
+  await assert.rejects(f.service.publish('sensor-pressure', { expectedRevision: 1 }, actor), hasStatus(400));
+});
+
+test('身份有效读取与FPGA等值规则可发布下载，FPGA旧清单继续兼容并拒绝混用', async () => {
+  for (const id of ['device-model', 'shipping-market', 'firmware-version', 'fpga-version']) {
+    const f = fixture(), draft = config(id, true);
+    draft.values.allowedValues = '';
+    draft.values.operator = id === 'fpga-version' ? 'equals' : 'present';
+    if (id === 'fpga-version') draft.values.expected = '37';
+    await f.service.saveDraft(id, { expectedRevision: 0, draft }, actor);
+    await f.service.publish(id, { expectedRevision: 1 }, actor);
+    assert.deepEqual((await f.service.downloadRules()).items[0].values, draft.values);
+  }
+  for (const [operator, expected, allowedValues] of [['equals', '', ''], ['equals', '37', '37'], ['allowlist', '', ''], ['allowlist', '37', '37']]) {
+    const f = fixture(), draft = config('fpga-version', true);
+    Object.assign(draft.values, { operator, expected, allowedValues });
+    await f.service.saveDraft('fpga-version', { expectedRevision: 0, draft }, actor);
+    await assert.rejects(f.service.publish('fpga-version', { expectedRevision: 1 }, actor), hasStatus(400));
+  }
+  const f = fixture(), legacy = config('fpga-version', true);
+  Object.assign(legacy.values, { operator: 'allowlist', allowedValues: '37\n38' }); delete legacy.values.expected;
+  await f.service.saveDraft('fpga-version', { expectedRevision: 0, draft: legacy }, actor);
+  await f.service.publish('fpga-version', { expectedRevision: 1 }, actor);
+  const item = (await f.service.downloadRules()).items[0];
+  assert.equal(item.values.operator, 'allowlist'); assert.equal(item.values.allowedValues, '37\n38');
 });

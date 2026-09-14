@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { FactoryQcService } from './factory-qc.service';
+import { ElectronicGateService } from './electronic-gate.service';
 import type { FactoryQcActor } from './factory-qc.management';
 type ActorRequest = Request & { user?: FactoryQcActor };
 
@@ -25,7 +26,9 @@ export function sendFactoryJson(response: Response, value: unknown): void {
 @Public()
 @Controller('factory-qc')
 export class FactoryQcPublicController {
-  constructor(private readonly service: FactoryQcService) {}
+  constructor(private readonly service: FactoryQcService, private readonly gate: ElectronicGateService) {}
+  @Get('rules')
+  async rules(@Res() response: Response) { prepareFactoryJson(response); sendFactoryJson(response, await this.gate.downloadRules()); }
   @Get('serial')
   async serial(@Res() response: Response) { prepareFactoryJson(response); sendFactoryJson(response, await this.service.downloadSerial()); }
   @Get('protocol')

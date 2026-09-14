@@ -322,7 +322,7 @@ test('snapshot write failure rolls back serial active rows and download state to
 test('public endpoints allow anonymous reads, management endpoints require their own page permission', () => {
   const reflector = new Reflector(), guard = new RolesGuard(reflector);
   const context = (controller: any, method: string) => ({ getHandler: () => controller.prototype[method], getClass: () => controller, switchToHttp: () => ({ getRequest: () => ({}) }) } as any);
-  for (const method of ['serial', 'protocol']) {
+  for (const method of ['serial', 'protocol', 'rules']) {
     assert.equal(reflector.getAllAndOverride(IS_PUBLIC_KEY, [FactoryQcPublicController.prototype[method as 'serial'], FactoryQcPublicController]), true);
     assert.equal(guard.canActivate(context(FactoryQcPublicController, method)), true);
   }
@@ -332,7 +332,7 @@ test('public endpoints allow anonymous reads, management endpoints require their
 
 test('conditional requests still receive unwrapped 200 JSON with no caching or ETag', async () => {
   const f = fixture(); await firstProtocol(f.service);
-  const controller = new FactoryQcPublicController(f.service);
+  const controller = new FactoryQcPublicController(f.service, {} as any);
   const app = express();
   app.get('/protocol', (_request, response, next) => { void controller.protocol(response).catch(next); });
   const server = createServer(app);
