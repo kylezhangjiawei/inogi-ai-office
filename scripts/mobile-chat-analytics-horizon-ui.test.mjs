@@ -11,14 +11,15 @@ const app = source("src/app/App.tsx");
 const shell = source("src/app/MobileShell.tsx");
 
 test("移动端使用分析保持真实路由、Shell 入口和权限守卫", () => {
-  assert.match(app, /pathname\.startsWith\("\/m\/chat-analytics"\)/);
+  assert.match(app, /pathname\.startsWith\(`\/m\$\{routePath\("page:chat-analytics", "\/chat-analytics"\)\}`\)/);
   assert.match(
     app,
     /page:chat-analytics[\s\S]{0,180}<MobileChatAnalyticsPage \/>[\s\S]{0,120}page:chat-analytics/,
   );
-  assert.match(shell, /location\.pathname\.startsWith\("\/m\/chat-analytics"\)/);
+  assert.match(shell, /const chatAnalyticsPath = `\/m\$\{routePath\("page:chat-analytics", "\/chat-analytics"\)\}`/);
+  assert.match(shell, /location\.pathname\.startsWith\(chatAnalyticsPath\)/);
   assert.match(shell, /hasPermission\(user\.permissions, "page:chat-analytics"\)/);
-  assert.match(shell, /\/m\/chat-analytics\?from=us-collab/);
+  assert.match(shell, /returnsToUsCollab \? `\$\{chatAnalyticsPath\}\?from=us-collab` : chatAnalyticsPath/);
 });
 
 test("页面使用 Horizon 蓝灰层级并清除旧视觉模式", () => {

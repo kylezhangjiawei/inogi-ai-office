@@ -265,7 +265,7 @@ function desktopTargetFromMobileLocation(
   if (discussionMatch) {
     return `/rd-discussion/${encodeURIComponent(discussionMatch[2])}${suffix}`;
   }
-  if (pathname.startsWith("/m/chat-analytics")) {
+  if (pathname.startsWith(`/m${routePath("page:chat-analytics", "/chat-analytics")}`)) {
     return `${routePath("page:chat-analytics", "/chat-analytics")}${suffix}`;
   }
   if (pathname.startsWith("/us-collab-m")) {
@@ -339,8 +339,8 @@ function ProtectedLayout() {
       ? `${taskMobileBase}/task/${encodeURIComponent(taskMatch[2])}${suffix}`
       : discussionMatch
         ? `${discussionMatch[1] ? "/us-collab-m" : "/m"}/discussion/${encodeURIComponent(discussionMatch[2])}${suffix}`
-        : location.pathname === "/chat-analytics"
-          ? `/m/chat-analytics${suffix}`
+        : location.pathname === routePath("page:chat-analytics", "/chat-analytics")
+          ? `/m${routePath("page:chat-analytics", "/chat-analytics")}${suffix}`
           : `${workspaceMobileBase}${suffix}`;
     return <Navigate to={target} replace />;
   }
