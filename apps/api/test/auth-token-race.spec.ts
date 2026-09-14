@@ -75,6 +75,7 @@ async function harness() {
   const newAuth = () => {
     const auth = Object.create(AuthService.prototype) as any;
     auth.prisma = prisma;
+    auth.jwtSecret = 'synthetic-auth-race-secret-not-for-deployment';
     auth.jwtService = { sign: () => 'access-token' };
     auth.refreshPresetAvatarKeysIfStale = async () => {};
     auth.toAuthUserProfile = async (value: any) => ({ ...value, permissions: [] });

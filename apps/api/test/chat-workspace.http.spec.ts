@@ -16,6 +16,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { JwtAuthGuard } from '../src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../src/modules/auth/guards/roles.guard';
 import { JwtStrategy } from '../src/modules/auth/strategies/jwt.strategy';
+import { createAccessCredentialVersion } from '../src/modules/auth/access-credential-version';
 import { ChatModule } from '../src/modules/chat/chat.module';
 import { ChatService } from '../src/modules/chat/chat.service';
 import { ChatArchiveService } from '../src/modules/chat/chat-archive.service';
@@ -27,6 +28,8 @@ import { OssService } from '../src/modules/oss/oss.service';
 import { PermissionCatalogModule } from '../src/modules/permission-catalog/permission-catalog.module';
 import { PermissionCatalogService } from '../src/modules/permission-catalog/permission-catalog.service';
 import { ResearchDevelopmentService } from '../src/modules/research-development/research-development.service';
+
+const fixturePasswordHash = 'synthetic-password-hash-not-for-deployment';
 
 // Only the transport is in memory: requests still traverse Express body parsing,
 // Passport JWT verification, Nest guards/pipes, real controllers and real services.
@@ -89,6 +92,7 @@ function fixtures() {
   let sequence = 0;
   let permissions = ['*'];
   let active = true;
+  let passwordHash = fixturePasswordHash;
   let taskTitle = '合成交付项目';
   let taskReads = 0;
   let catalogReads = 0;
@@ -128,7 +132,7 @@ function fixtures() {
     chatConversation: { findFirst: async ({ where }: any) => where.id === 'conversation_1' && where.userId === 'user_1' ? { id: where.id } : null },
     user: { findUnique: async ({ where }: any) => ['user_1', 'user_2'].includes(where.id) ? {
       id: where.id, name: '合成用户', email: `${where.id}@example.invalid`, roleId: 'synthetic_role', department: null,
-      status: active ? 'ACTIVE' : 'DISABLED', role: { name: '合成角色', permissions },
+      status: active ? 'ACTIVE' : 'DISABLED', passwordHash, role: { name: '合成角色', permissions },
     } : null },
     systemSetting: { findUnique: async () => null },
     $executeRaw: async () => 1,
@@ -151,6 +155,7 @@ function fixtures() {
   } };
   return { prisma, catalog, rd, oss, checks, jobs, source,
     reads: () => ({ taskReads, catalogReads }), setPermissions: (value: string[]) => { permissions = value; },
+    setPasswordHash: (value: string) => { passwordHash = value; },
     setActive: (value: boolean) => { active = value; }, setTitle: (value: string) => { taskTitle = value; } };
 }
 
@@ -184,8 +189,10 @@ test('MateChat workspace HTTP runtime: real module, JWT, validation and delivery
       assert.ok(app.get(provider) instanceof provider, `${provider.name} must be the real Nest provider`);
     }
     const jwt = module.get(JwtService);
-    const token = jwt.sign({ sub: 'user_1', permissions: ['*'] });
-    const otherToken = jwt.sign({ sub: 'user_2', permissions: ['*'] });
+    const token = jwt.sign({ sub: 'user_1', permissions: ['*'],
+      credentialVersion: createAccessCredentialVersion(jwtSecret, 'user_1', fixturePasswordHash) });
+    const otherToken = jwt.sign({ sub: 'user_2', permissions: ['*'],
+      credentialVersion: createAccessCredentialVersion(jwtSecret, 'user_2', fixturePasswordHash) });
     const send = (method: string, path: string, body?: unknown, bearer: string | undefined = token) => request(app.getHttpServer(), method, path, body, bearer);
     const pageContext = { schemaVersion: 1, pageKey: 'rd_task_detail', scope: 'entity',
       refs: [{ entityType: 'rd_task', entityId: 'root_task', workspace: 'rd' }], capturedAt: '2026-09-08T08:00:00Z' };
@@ -199,10 +206,18 @@ test('MateChat workspace HTTP runtime: real module, JWT, validation and delivery
         assert.equal((await request(app.getHttpServer(), method, path, method === 'GET' ? undefined : {})).status, 401);
       }
       for (const bearer of ['invalid.jwt', jwt.sign({ sub: 'user_1' }, { expiresIn: -1 }),
+        jwt.sign({ sub: 'user_1' }), jwt.sign({ sub: 'user_1', credentialVersion: '0'.repeat(64) }),
         new JwtService({ secret: 'wrong-synthetic-key' }).sign({ sub: 'user_1' })]) {
         assert.equal((await send('POST', '/chat/page-context/resolve', { pageContext }, bearer)).status, 401);
       }
       assert.deepEqual(h.reads(), { taskReads: 0, catalogReads: 0 });
+    });
+
+    await t.test('a password change rejects the previously valid JWT before controller data reads', async () => {
+      h.setPasswordHash('changed-synthetic-password-hash');
+      assert.equal((await send('POST', '/chat/page-context/resolve', { pageContext })).status, 401);
+      assert.deepEqual(h.reads(), { taskReads: 0, catalogReads: 0 });
+      h.setPasswordHash(fixturePasswordHash);
     });
 
     await t.test('global nested DTO validation rejects client-supplied context content', async () => {

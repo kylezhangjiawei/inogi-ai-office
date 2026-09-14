@@ -145,12 +145,12 @@ json_escape() {
 
 init_deploy_metrics() {
   [ "$DEPLOY_METRICS_ENABLED" = "1" ] || {
-    log "发布基线采集已禁用（DEPLOY_METRICS_ENABLED=$DEPLOY_METRICS_ENABLED）。"
+    log "发布基线采集已禁用（DEPLOY_METRICS_ENABLED=${DEPLOY_METRICS_ENABLED}）。"
     return 0
   }
 
   if ! mkdir -p "$DEPLOY_METRICS_DIR" 2>/dev/null; then
-    log "⚠️  发布基线目录不可创建：$DEPLOY_METRICS_DIR；本次仅输出文本阶段耗时。"
+    log "⚠️  发布基线目录不可创建：${DEPLOY_METRICS_DIR}；本次仅输出文本阶段耗时。"
     return 0
   fi
 
@@ -158,7 +158,7 @@ init_deploy_metrics() {
   DEPLOY_METRICS_RESOURCE_FILE="$(mktemp "$DEPLOY_METRICS_DIR/.resources.XXXXXX" 2>/dev/null || true)"
   DEPLOY_METRICS_STOP_FILE="${DEPLOY_METRICS_RESOURCE_FILE}.stop"
   if [ -z "$DEPLOY_METRICS_STAGE_FILE" ] || [ -z "$DEPLOY_METRICS_RESOURCE_FILE" ]; then
-    log "⚠️  发布基线目录不可写：$DEPLOY_METRICS_DIR；本次仅输出文本阶段耗时。"
+    log "⚠️  发布基线目录不可写：${DEPLOY_METRICS_DIR}；本次仅输出文本阶段耗时。"
     rm -f "$DEPLOY_METRICS_STAGE_FILE" "$DEPLOY_METRICS_RESOURCE_FILE" 2>/dev/null || true
     DEPLOY_METRICS_STAGE_FILE=""
     DEPLOY_METRICS_RESOURCE_FILE=""
@@ -266,7 +266,7 @@ record_missing_stages() {
 start_stage() {
   local stage_name="$1"
   if [ -n "$DEPLOY_CURRENT_STAGE" ]; then
-    log "⚠️  阶段 $DEPLOY_CURRENT_STAGE 未正常收口，按成功结束后继续记录 $stage_name。"
+    log "⚠️  阶段 $DEPLOY_CURRENT_STAGE 未正常收口，按成功结束后继续记录 ${stage_name}。"
     finish_stage success
   fi
   DEPLOY_CURRENT_STAGE="$stage_name"
@@ -438,7 +438,7 @@ retry() {
 init_change_plan() {
   local planner_output key value
   [ "$DEPLOY_CHANGE_PLAN" = "1" ] || {
-    log "变更感知已禁用（DEPLOY_CHANGE_PLAN=$DEPLOY_CHANGE_PLAN），执行全量发布。"
+    log "变更感知已禁用（DEPLOY_CHANGE_PLAN=${DEPLOY_CHANGE_PLAN}），执行全量发布。"
     return 0
   }
 
@@ -550,7 +550,7 @@ backup_database() {
     docker exec -i "$container" pg_dump "${dump_args[@]}" "$clean" | compress_backup_stream > "$partial" \
       || { rm -f "$partial"; die "docker pg_dump 备份失败；已中止，不执行迁移。"; }
   else
-    die "数据库备份失败：宿主机没有 pg_dump，也没有运行中的 postgres 容器（$container）。请安装 postgresql-client，或设 DEPLOY_DB_BACKUP=0 跳过（不推荐）。"
+    die "数据库备份失败：宿主机没有 pg_dump，也没有运行中的 postgres 容器（${container}）。请安装 postgresql-client，或设 DEPLOY_DB_BACKUP=0 跳过（不推荐）。"
   fi
 
   [ -s "$partial" ] || { rm -f "$partial"; die "数据库备份文件为空；已中止。"; }
@@ -585,7 +585,7 @@ start_background_backup() {
     backup_database
   ) > "$DEPLOY_BACKUP_LOG" 2>&1 &
   DEPLOY_BACKUP_PID=$!
-  log "数据库备份已后台启动（PID $DEPLOY_BACKUP_PID），与构建、测试并行。"
+  log "数据库备份已后台启动（PID ${DEPLOY_BACKUP_PID}），与构建、测试并行。"
 }
 
 wait_background_backup() {
@@ -597,14 +597,14 @@ wait_background_backup() {
   cat "$DEPLOY_BACKUP_LOG" 2>/dev/null || true
   rm -f -- "$DEPLOY_BACKUP_LOG" 2>/dev/null || true
   DEPLOY_BACKUP_LOG=""
-  [ "$status" -eq 0 ] || die "数据库备份失败（后台任务退出码 $status）；已中止，不执行迁移。"
+  [ "$status" -eq 0 ] || die "数据库备份失败（后台任务退出码 ${status}）；已中止，不执行迁移。"
   log "后台备份合计耗时 ${background_ms}ms，其中绝大部分与构建、测试并行。"
 }
 
 # 发布在收口之前就失败时调用：正在跑的 dump 直接终止，半截的 .partial 一并清掉。
 cleanup_background_backup() {
   if [ -n "$DEPLOY_BACKUP_PID" ]; then
-    log "发布已中止，终止后台数据库备份（PID $DEPLOY_BACKUP_PID）。"
+    log "发布已中止，终止后台数据库备份（PID ${DEPLOY_BACKUP_PID}）。"
     kill "$DEPLOY_BACKUP_PID" 2>/dev/null || true
     wait "$DEPLOY_BACKUP_PID" 2>/dev/null || true
     DEPLOY_BACKUP_PID=""
@@ -976,7 +976,7 @@ elif [ -d "$WEB_ROOT" ]; then
   fi
   finish_stage success || true
 else
-  die "前端发布目录不存在：$WEB_ROOT（请确认 nginx root 或设置 WEB_ROOT）"
+  die "前端发布目录不存在：${WEB_ROOT}（请确认 nginx root 或设置 WEB_ROOT）"
 fi
 
 # ---------------------------- 10. nginx ----------------------------

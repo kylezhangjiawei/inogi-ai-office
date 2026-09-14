@@ -2,9 +2,11 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { timingSafeEqual } from 'crypto';
 
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PermissionCatalogService } from '../../permission-catalog/permission-catalog.service';
+import { createAccessCredentialVersion } from '../access-credential-version';
 
 export interface JwtPayload {
   sub: string;
@@ -15,20 +17,26 @@ export interface JwtPayload {
   department?: string | null;
   /** 部门稳定标识（签发时解析）。数据隔离以此为准。 */
   departmentCode?: string | null;
+  /** 密码凭据版本；旧版缺失时返回 401，由有效 refresh token 换取新版。 */
+  credentialVersion?: string;
 }
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
+  private readonly jwtSecret: string;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly permissionCatalog: PermissionCatalogService,
     configService: ConfigService,
   ) {
+    const jwtSecret = configService.getOrThrow<string>('JWT_SECRET');
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.getOrThrow<string>('JWT_SECRET'),
+      secretOrKey: jwtSecret,
     });
+    this.jwtSecret = jwtSecret;
   }
 
   async validate(payload: JwtPayload) {
@@ -38,6 +46,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
     if (!user || user.status === 'DISABLED') {
       throw new UnauthorizedException();
+    }
+    const version = payload.credentialVersion;
+    if (typeof version !== 'string' || !/^[a-f0-9]{64}$/.test(version)
+      || !timingSafeEqual(Buffer.from(version, 'hex'), Buffer.from(
+        createAccessCredentialVersion(this.jwtSecret, user.id, user.passwordHash), 'hex',
+      ))) {
+      throw new UnauthorizedException('登录凭据已变更，请重新登录');
     }
     const department = user.department?.trim() || null;
     const currentDepartment = department

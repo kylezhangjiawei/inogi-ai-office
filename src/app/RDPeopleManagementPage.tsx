@@ -554,13 +554,16 @@ function PersonFormModal({
               }}
               className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-colors focus:border-[#8fa9e8] focus:ring-2 focus:ring-[#dce5fa]"
             >
-              <option value="">{t("未绑定，按姓名兼容匹配")}</option>
+              <option value="">{t("未绑定登录用户")}</option>
               {users.map((user) => (
                 <option key={user.id} value={user.id}>
                   {user.name} · {user.email}
                 </option>
               ))}
             </NativeSelect>
+            {!form.user_id && (
+              <p className="mt-1 text-xs text-slate-500">{t("未绑定时不会自动关联同名账号。")}</p>
+            )}
             {selectedUser && (
               <div className="mt-1 text-[11px] text-slate-400">
                 {t("系统账号：{account} · 状态 {status}", {

@@ -16,6 +16,7 @@ import { SecureConfigService } from '../security/secure-config.service';
 import { OssService } from '../oss/oss.service';
 import { PermissionCatalogService } from '../permission-catalog/permission-catalog.service';
 import { JwtPayload } from './strategies/jwt.strategy';
+import { createAccessCredentialVersion } from './access-credential-version';
 
 const REFRESH_TOKEN_TTL_DAYS = 30;
 const ACCESS_TOKEN_TTL = '15m';
@@ -445,24 +446,11 @@ export class AuthService implements OnModuleInit {
   }
 
   private async issueTokens(user: AuthUserProfile, proof: { passwordHash: string } | { refreshToken: string }) {
-    const payload: JwtPayload = {
-      sub: user.id,
-      email: user.email,
-      roleId: user.roleId,
-      permissions: user.permissions,
-      department: user.department,
-      departmentCode: user.departmentCode,
-    };
-    const accessToken = this.jwtService.sign(payload, {
-      secret: this.jwtSecret,
-      expiresIn: ACCESS_TOKEN_TTL,
-    });
-
     const rawRefresh = randomBytes(48).toString('hex');
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_TTL_DAYS);
 
-    await this.prisma.$transaction(async (tx) => {
+    const accessToken = await this.prisma.$transaction(async (tx) => {
       // 与两条改密路径的 User 更新共用数据库行锁，跨实例也不能在撤销后补发令牌。
       // 头像和个人资料准备在事务外；锁内只重验身份、轮换与保存令牌。
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${user.id} FOR UPDATE`;
@@ -480,6 +468,20 @@ export class AuthService implements OnModuleInit {
         await tx.refreshToken.delete({ where: { id: stored.id } });
       }
       await tx.refreshToken.create({ data: { token: rawRefresh, userId: user.id, expiresAt } });
+      const payload: JwtPayload = {
+        sub: user.id,
+        email: user.email,
+        roleId: user.roleId,
+        permissions: user.permissions,
+        department: user.department,
+        departmentCode: user.departmentCode,
+        // 锁内取当前凭据：改密提交后，之前签发的 access JWT 在下一次鉴权即失效。
+        credentialVersion: createAccessCredentialVersion(this.jwtSecret, user.id, current.passwordHash),
+      };
+      return this.jwtService.sign(payload, {
+        secret: this.jwtSecret,
+        expiresIn: ACCESS_TOKEN_TTL,
+      });
     });
 
     return {

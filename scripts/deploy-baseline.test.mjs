@@ -51,6 +51,19 @@ async function availableBash() {
   return null;
 }
 
+function availableUtf8Locale(bash) {
+  if (!bash) return null;
+  for (const locale of ["C.UTF-8", "C.utf8", "en_US.UTF-8", "en_US.utf8"]) {
+    const result = spawnSync(bash, ["-c", "locale charmap"], {
+      env: { ...process.env, LC_ALL: locale, LANG: locale },
+      encoding: "utf8",
+      timeout: 5_000,
+    });
+    if (result.status === 0 && /^UTF-?8$/i.test(result.stdout.trim())) return locale;
+  }
+  return null;
+}
+
 function bashPath(path) {
   if (process.platform !== "win32") return path;
   return path
@@ -148,6 +161,7 @@ function runFakeDeployment(bash, fixture, overrides = {}) {
 }
 
 const bash = await availableBash();
+const utf8Locale = availableUtf8Locale(bash);
 
 test("deployment baseline declares the complete stage order", () => {
   const stages = configuredStages();
@@ -255,6 +269,48 @@ test("fake deployment writes one parseable, secret-free baseline without real in
     assert.doesNotMatch(text, /secret-user|secret-password|secret-host|secret-db/);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("UTF-8 deployment messages preserve variable boundaries and intended results", {
+  skip: !bash ? "Bash unavailable" : !utf8Locale ? "UTF-8 locale unavailable" : false,
+}, async (t) => {
+  // Explicitly exercise UTF-8 even when the parent test process uses LC_ALL=C.
+  // Bash 3.2 can otherwise absorb bytes of adjacent Chinese punctuation into a bare variable name.
+  for (const scenario of ["metrics disabled", "metrics unwritable", "frontend missing"]) {
+    await t.test(scenario, async () => {
+      const fixture = await createFakeDeployment();
+      try {
+        const overrides = { LC_ALL: utf8Locale, LANG: utf8Locale };
+        if (scenario === "metrics unwritable") {
+          const blockedPath = join(fixture.root, "metrics-is-a-file");
+          await writeFile(blockedPath, "not a directory", "utf8");
+          overrides.DEPLOY_METRICS_DIR = bashPath(blockedPath);
+        } else {
+          overrides.DEPLOY_METRICS_ENABLED = "0";
+        }
+        if (scenario === "frontend missing") {
+          overrides.WEB_ROOT = bashPath(join(fixture.root, "missing-web-root"));
+        }
+
+        const result = runFakeDeployment(bash, fixture, overrides);
+        const output = `${result.stdout}\n${result.stderr}`;
+        assert.equal(result.error, undefined, result.error?.message);
+        assert.equal(result.status, scenario === "frontend missing" ? 1 : 0, output);
+        assert.doesNotMatch(output, /unbound variable|�/);
+        assert.match(output, /变更感知已禁用（DEPLOY_CHANGE_PLAN=0），执行全量发布。/);
+        if (scenario === "metrics unwritable") {
+          assert.ok(output.includes(`发布基线目录不可创建：${overrides.DEPLOY_METRICS_DIR}；`), output);
+        } else {
+          assert.match(output, /发布基线采集已禁用（DEPLOY_METRICS_ENABLED=0）。/);
+        }
+        if (scenario === "frontend missing") {
+          assert.ok(output.includes(`前端发布目录不存在：${overrides.WEB_ROOT}（`), output);
+        }
+      } finally {
+        await rm(fixture.root, { recursive: true, force: true });
+      }
+    });
   }
 });
 
