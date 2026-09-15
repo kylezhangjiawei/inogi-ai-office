@@ -42,20 +42,21 @@ const { MobileZoomableImage } = loadBindings("../src/app/components/MobileZoomab
   ...hooks, useMobileZoomEnabled: () => false, TASK_IMAGE_MIN_SCALE: 1,
 });
 const Container = ({ children }) => React.createElement(React.Fragment, null, children);
+const commonDependencies = {
+  ...hooks, Input, Button, MobileZoomableImage,
+  Popover: Container, PopoverAnchor: Container, PopoverTrigger: Container,
+  PopoverContent: () => null,
+  Command: Container, CommandList: Container, CommandItem: Container,
+  Dialog: Container, DialogContent: Container,
+  DialogTitle: ({ children, ...props }) => React.createElement("h2", props, children),
+  Calendar: () => null, CalendarDays: () => null,
+  translate: (value) => value, i18nLocale: () => "zh-CN",
+  useBuyerDirectory: () => ({ suggestions: ["采购甲"], deptOf: () => "采购部" }),
+};
 const { ComboInput, BuyerComboInput, DateInput, ImageLightbox, PlaceholderImage } = loadBindings(
   "../src/app/procurement/components/common.tsx",
   ["ComboInput", "fmtDay", "DateInput", "BuyerComboInput", "ImageLightbox", "PlaceholderImage"],
-  {
-    ...hooks, Input, Button, MobileZoomableImage,
-    Popover: Container, PopoverAnchor: Container, PopoverTrigger: Container,
-    PopoverContent: () => null,
-    Command: Container, CommandList: Container, CommandItem: Container,
-    Dialog: Container, DialogContent: Container,
-    DialogTitle: ({ children, ...props }) => React.createElement("h2", props, children),
-    Calendar: () => null, CalendarDays: () => null,
-    translate: (value) => value, i18nLocale: () => "zh-CN",
-    useBuyerDirectory: () => ({ suggestions: ["采购甲"], deptOf: () => "采购部" }),
-  },
+  commonDependencies,
 );
 const render = (component, props) => renderToStaticMarkup(React.createElement(component, props));
 
@@ -79,6 +80,55 @@ test("物料联想输入将字段 ID 与必填约束传到真实输入框", () =
   const html = render(ComboInput, { id: "stock-plan-material", value: "", onChange() {}, options: [], required: true });
   assert.match(html, /<input\b[^>]*id="stock-plan-material"/);
   assert.match(html, /<input\b[^>]*required=""/);
+});
+
+test("采购联想输入只在要求时把自动聚焦传到真实输入框", () => {
+  const props = { value: "", onChange() {}, options: [] };
+  assert.match(render(ComboInput, { ...props, autoFocus: true }), /<input\b[^>]*autofocus=""/);
+  assert.doesNotMatch(render(ComboInput, { ...props, autoFocus: false }), /\bautofocus=/);
+  assert.doesNotMatch(render(ComboInput, props), /\bautofocus=/);
+});
+
+test("采购联想输入的回车和退出键各调用对应回调，并与 Tab 一起收起候选", () => {
+  const openUpdates = [];
+  const callbacks = [];
+  let inputProps;
+  const { ComboInput: InteractiveComboInput } = loadBindings(
+    "../src/app/procurement/components/common.tsx",
+    ["ComboInput"],
+    {
+      ...commonDependencies,
+      // Start with an open candidate list and observe the real handler's state updates.
+      useState: () => [true, (next) => openUpdates.push(next)],
+      Input: (props) => {
+        inputProps = props;
+        return React.createElement(Input, props);
+      },
+    },
+  );
+  const props = { value: "", onChange() {}, options: ["采购甲"] };
+  render(InteractiveComboInput, {
+    ...props,
+    onEnter: () => callbacks.push("enter"),
+    onEscape: () => callbacks.push("escape"),
+  });
+
+  inputProps.onKeyDown({ key: "Enter" });
+  assert.deepEqual(callbacks, ["enter"]);
+  inputProps.onKeyDown({ key: "Escape" });
+  assert.deepEqual(callbacks, ["enter", "escape"]);
+  inputProps.onKeyDown({ key: "Tab" });
+  assert.deepEqual(openUpdates, [false, false, false]);
+  for (const key of ["ArrowDown", "a"]) inputProps.onKeyDown({ key });
+  assert.deepEqual(callbacks, ["enter", "escape"]);
+  assert.deepEqual(openUpdates, [false, false, false]);
+
+  // Existing callers may omit both optional callbacks; keyboard dismissal still works.
+  render(InteractiveComboInput, props);
+  inputProps.onKeyDown({ key: "Enter" });
+  inputProps.onKeyDown({ key: "Escape" });
+  assert.deepEqual(callbacks, ["enter", "escape"]);
+  assert.deepEqual(openUpdates, [false, false, false, false, false]);
 });
 
 test("日期字段标签落到可操作按钮，已有日期仍可见", () => {

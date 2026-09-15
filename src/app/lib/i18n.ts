@@ -30,6 +30,7 @@ let currentLang: I18nLang = (() => {
  * 字典 seed 尚未同步或请求暂时失败时回退成中文，保证中美协同核心导航和操作可用。
  */
 const BUILTIN_EN_FALLBACKS: Record<string, string> = {
+  "设备检测记录": "Device inspection records",
   // MateChat 文件检索与后台资料打包。
   ...{
     "资料包": "File archives", "查找并打包": "Find and package files", "大小待核验": "Size not yet verified",

@@ -1,0 +1,14 @@
+{
+  "planType": "packaging",
+  "productId": "qa-product-q5",
+  "treeNodeId": "",
+  "productLine": "",
+  "productionTaskId": "",
+  "materialId": "preview-material-1",
+  "materialName": "Q5 外包装箱",
+  "spec": "530×320×480mm / 加厚瓦楞纸箱",
+  "unit": "个",
+  "targetQty": 120,
+  "targetDate": "2026-09-20",
+  "note": ""
+}

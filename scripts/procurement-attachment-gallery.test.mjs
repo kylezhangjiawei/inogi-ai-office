@@ -24,7 +24,18 @@ function fixture(attachmentCount = 8) {
   let taskOpens = 0;
   let stopped = 0;
   const stubs = Object.fromEntries(imports.map((name) => [name, name]));
+  const access = {};
+  const accessCode = ts.transpileModule(readFileSync(new URL("../src/app/lib/attachmentAccess.ts", import.meta.url), "utf8"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  new Function("exports", "require", accessCode)(access, (name) => {
+    if (name === "./procurementApi") return { getProcTask: async () => task };
+    if (name === "./resourceAccess") return { requestResourceRefresh: (_key, load) => load() };
+    return {};
+  });
   Object.assign(stubs, {
+    procurementAttachmentPreview: access.procurementAttachmentPreview,
+    RenewableImage: "img",
     useState(initial) {
       const index = cursor++;
       if (!slots[index]) {

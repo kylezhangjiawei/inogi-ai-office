@@ -12,6 +12,8 @@ import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { SystemSettingsModule } from './modules/system-settings/system-settings.module';
+import { ElectronicGateModule } from './modules/electronic-gate/electronic-gate.module';
+import { DeviceInspectionRecordsModule } from './modules/device-inspection-records/device-inspection-records.module';
 import { ResumeScreeningModule } from './modules/resume-screening/resume-screening.module';
 import { SecurityModule } from './modules/security/security.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -66,6 +68,8 @@ const envFilePath = [
     UsersModule,
     RolesModule,
     SystemSettingsModule,
+    ElectronicGateModule,
+    DeviceInspectionRecordsModule,
     SecurityModule,
     AuthModule,
     ResumeScreeningModule,

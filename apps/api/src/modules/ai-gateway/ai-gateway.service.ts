@@ -82,6 +82,7 @@ export class AiGatewayService {
     let lastError: unknown;
 
     for (const target of targets) {
+      request.signal?.throwIfAborted();
       const targetKey = this.targetKey(target);
       const circuitKey = this.circuitKey(scene, targetKey);
       const circuit = this.circuits.get(circuitKey);
@@ -102,6 +103,7 @@ export class AiGatewayService {
       // 会在几秒内把所有连接依次打成失败。其余错误仍然立即降级，不在坏连接上耗时间。
       let targetError: unknown;
       for (let retry = 0; ; retry += 1) {
+        request.signal?.throwIfAborted();
         const attemptStartedAt = Date.now();
         try {
           const adapterRequest = {
@@ -111,11 +113,13 @@ export class AiGatewayService {
             temperature: request.temperature,
             maxTokens: request.maxTokens,
             timeoutMs: request.timeoutMs,
+            signal: request.signal,
           };
           let result: AiGatewayAdapterResult;
           try {
             result = await this.adapter.complete(target, adapterRequest);
           } catch (error) {
+            if (request.signal?.aborted) throw error;
             if (!request.retryWithoutResponseFormat || !request.responseFormat || !this.shouldRetryWithoutJsonMode(error)) {
               throw error;
             }
@@ -150,6 +154,7 @@ export class AiGatewayService {
           await this.recordResult(gatewayResult, request.routeMeta);
           return gatewayResult;
         } catch (error) {
+          if (request.signal?.aborted) throw error;
           targetError = error;
           lastError = error;
           attempts.push({
@@ -719,7 +724,7 @@ export class AiGatewayService {
     const record = error && typeof error === 'object' ? error as Record<string, unknown> : {};
     const status = Number(record.status ?? record.statusCode);
     const message = this.errorMessage(error).toLowerCase();
-    return status === 400 && /response[_ -]?format|json[_ -]?mode|json_object/.test(message);
+    return status === 400 && /response[_ -]?format|json[_ -]?mode|json_object|json_schema/.test(message);
   }
 
   private errorCode(error: unknown): string {

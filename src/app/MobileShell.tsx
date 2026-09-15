@@ -5,6 +5,7 @@ import { useAuth } from "./auth";
 import { isProductionWorkspace, isUsCollabWorkspace } from "./lib/rdApi";
 import { initI18n, t, useI18n } from "./lib/i18n";
 import { hasPermission } from "./lib/permissions";
+import { routePath } from "./lib/routePaths";
 import { cn } from "./components/ui/utils";
 import { Toaster } from "./components/ui/sonner";
 import {
@@ -80,7 +81,8 @@ export function MobileLayout() {
   };
 
   const initial = (user.name?.trim()?.[0] ?? "研").toUpperCase();
-  const isChatAnalytics = location.pathname.startsWith("/m/chat-analytics");
+  const chatAnalyticsPath = `/m${routePath("page:chat-analytics", "/chat-analytics")}`;
+  const isChatAnalytics = location.pathname.startsWith(chatAnalyticsPath);
   const isProduction = isProductionWorkspace();
   const returnsToUsCollab = location.pathname.startsWith("/us-collab-m")
     || new URLSearchParams(location.search).get("from") === "us-collab";
@@ -203,7 +205,7 @@ export function MobileLayout() {
               {hasPermission(user.permissions, "page:chat-analytics") && (
                 <button
                   type="button"
-                  onClick={() => goTo(returnsToUsCollab ? "/m/chat-analytics?from=us-collab" : "/m/chat-analytics")}
+                  onClick={() => goTo(returnsToUsCollab ? `${chatAnalyticsPath}?from=us-collab` : chatAnalyticsPath)}
                   aria-current={isChatAnalytics ? "page" : undefined}
                   className={cn(
                     "mt-1 flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-semibold",

@@ -1,0 +1,4 @@
+import{materials as baseMaterials}from'../../scripts/ui-preview/fixtures';
+export const demoMaterials=baseMaterials.slice(0,8).map((m,i)=>({...m,name:i===0?'Q5 外包装箱':i===1?'Q5 缓冲内托':'Q5 备货验收组件 '+(i+1),spec:i===0?'530×320×480mm / 加厚瓦楞纸箱':i===1?'防震泡棉':'Q5 / TEST-'+(i+1),unit:i<2?'个':'件',erpCode:'QA-MAT-'+(i+1),tpInventoryCode:'QA-MAT-'+(i+1)}));
+export const models=[{id:'Q5',label:'Q5 整机装配 BOM',bomLines:136},{id:'Q7',label:'Q7 整机装配 BOM',bomLines:98}];
+export const readiness={source:'tplus',readOnly:true,productLine:'Q5',models,warehouse:{keyword:'量产',label:'量产仓',matchedNames:['本地量产仓']},syncedAt:'2026-09-08T07:00:00Z',summary:{currentBuildableSets:20,withTransitBuildableSets:30,inTransitGainSets:10,targetSets:120,targetGapAfterTransit:90,warningMaterials:0,bottleneckMaterials:0,inTransitMaterials:0},dataQuality:{totalBomLines:1,usableBomLines:1,invalidBomLines:0,inventoryMatchedLines:1,bomCompleteness:100,inventoryMatchRate:100,provisional:false},items:[]};

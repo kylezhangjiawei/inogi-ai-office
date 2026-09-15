@@ -18,9 +18,9 @@ export class OssService implements OnModuleInit {
   /** Alibaba Cloud CDN Type A primary/secondary key. Never expose this value to the browser. */
   private cdnAuthKey: string = '';
   /** Must match the URL-signing TTL configured for the accelerated domain in the CDN console. */
-  private cdnAuthTtlSeconds = 7 * 24 * 3600;
+  private cdnAuthTtlSeconds = 1800;
   /** Stable URLs let the browser reuse its disk cache across renders and route changes. */
-  private cdnStableWindowSeconds = 24 * 3600;
+  private cdnStableWindowSeconds = 300;
   /** Reuse identical signed URLs briefly so browser/CDN caches are not fragmented by a new expiry each render. */
   private readonly signedUrlCache = new Map<string, { url: string; freshUntil: number }>();
   private readonly cdnUrlCache = new Map<string, { url: string; freshUntil: number }>();
@@ -38,15 +38,15 @@ export class OssService implements OnModuleInit {
     const cdnAuthType = (this.config.get<string>('OSS_CDN_AUTH_TYPE') ?? 'A').trim().toUpperCase();
     this.cdnAuthTtlSeconds = this.readPositiveInt(
       this.config.get<string>('OSS_CDN_AUTH_TTL_SECONDS'),
-      7 * 24 * 3600,
+      1800,
       60,
       365 * 24 * 3600,
     );
     this.cdnStableWindowSeconds = this.readPositiveInt(
       this.config.get<string>('OSS_CDN_URL_STABLE_SECONDS'),
-      24 * 3600,
-      60,
-      Math.max(60, Math.floor(this.cdnAuthTtlSeconds / 2)),
+      300,
+      1,
+      Math.max(1, Math.floor(this.cdnAuthTtlSeconds / 2)),
     );
     this.bucket = this.config.get<string>('OSS_BUCKET') ?? '';
     this.basePrefix = this.config.get<string>('OSS_BASE_PREFIX') ?? 'prod';
@@ -218,6 +218,79 @@ export class OssService implements OnModuleInit {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Response-only read URL. Callers must authorize the file before signing it and keep
+   * its object key in storage. Model inputs and stored long-lived URLs use getSignedUrl.
+   * Historical URLs from our bucket/CDN are rebuilt; unrelated remote URLs are not signed.
+   */
+  getReadUrl(
+    source: string,
+    fallbackExpiresSeconds = 600,
+    process?: string,
+  ): { url: string; expiresIn: number } | null {
+    const target = this.resolveManagedReadSource(source, process);
+    if (!target) return null;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const cdnUrl = this.getCdnReadUrl(target.objectKey, target.process);
+    if (cdnUrl) {
+      const timestamp = Number(new URL(cdnUrl).searchParams.get('auth_key')?.split('-')[0]);
+      return { url: cdnUrl, expiresIn: Math.max(0, timestamp + this.cdnAuthTtlSeconds - nowSeconds) };
+    }
+    const url = this.getSignedUrl(target.objectKey, fallbackExpiresSeconds, target.process);
+    if (!url) return null;
+    const expires = Number(new URL(url).searchParams.get('Expires'));
+    return { url, expiresIn: expires > 0 ? Math.max(0, expires - nowSeconds) : fallbackExpiresSeconds };
+  }
+
+  /** Resolve a stored reference, not an authorization check. Business callers still enforce access. */
+  resolveManagedReadSource(source: string, process?: string): { objectKey: string; process?: string } | null {
+    const raw = source?.trim();
+    if (!raw) return null;
+    let objectKey = raw;
+    let sourceProcess: string | undefined;
+    try {
+      if (/^https?:\/\//i.test(raw)) {
+        const url = new URL(raw);
+        if (url.username || url.password) return null;
+        const applicationOrigins = (this.config.get<string>('CORS_ORIGIN') ?? '').split(',').map((origin) => origin.trim());
+        if (applicationOrigins.includes(url.origin) && this.isReadProxyPath(url.pathname)) {
+          objectKey = url.searchParams.get('key') ?? '';
+          sourceProcess = url.searchParams.get('process') ?? url.searchParams.get('x-oss-process') ?? undefined;
+        } else {
+          const allowedHosts = new Set<string>();
+          const configuredCdn = this.normalizeCdnDomain(this.config.get<string>('OSS_CDN_DOMAIN'));
+          if (configuredCdn) allowedHosts.add(new URL(configuredCdn).hostname);
+          for (const endpoint of [
+            this.config.get<string>('OSS_PUBLIC_ENDPOINT'),
+            this.config.get<string>('OSS_ENDPOINT'),
+            `${this.config.get<string>('OSS_REGION') ?? ''}.aliyuncs.com`,
+          ]) {
+            if (!endpoint || !this.bucket) continue;
+            const host = new URL(/^https?:\/\//i.test(endpoint) ? endpoint : `https://${endpoint}`).hostname;
+            allowedHosts.add(host.startsWith(`${this.bucket}.`) ? host : `${this.bucket}.${host}`);
+          }
+          if (!allowedHosts.has(url.hostname)) return null;
+          objectKey = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+          sourceProcess = url.searchParams.get('x-oss-process') ?? undefined;
+        }
+      } else if (raw.startsWith('/api/') && this.isReadProxyPath(new URL(raw, 'https://preview.invalid').pathname)) {
+        const params = new URL(raw, 'https://preview.invalid').searchParams;
+        objectKey = params.get('key') ?? '';
+        sourceProcess = params.get('process') ?? params.get('x-oss-process') ?? undefined;
+      } else if (raw.startsWith('/') || /^[a-z][a-z\d+.-]*:/i.test(raw)) {
+        return null;
+      }
+      if (!objectKey || objectKey.split('/').some((segment) => segment === '.' || segment === '..')) return null;
+      return { objectKey, process: process ?? sourceProcess };
+    } catch {
+      return null;
+    }
+  }
+
+  private isReadProxyPath(path: string): boolean {
+    return path === '/api/research-development/oss-preview' || path === '/api/research-development/sheet-workbook/assets';
   }
 
   /** 业务相对前缀 → 完整 OSS 前缀（带 basePrefix）。用于列目录 / 前缀白名单校验。 */
@@ -525,7 +598,9 @@ export class OssService implements OnModuleInit {
   ): string | null {
     if (!this.cdnDomain || !this.cdnAuthKey || !objectKey) return null;
     try {
-      const encodedPath = `/${objectKey
+      const normalizedKey = objectKey.replace(/^\/+/, '');
+      if (!normalizedKey || normalizedKey.split('/').some((segment) => segment === '.' || segment === '..')) return null;
+      const encodedPath = `/${normalizedKey
         .split('/')
         .map((segment) => encodeURIComponent(segment))
         .join('/')}`;
@@ -796,7 +871,6 @@ export class OssService implements OnModuleInit {
     max: number,
   ): number {
     const parsed = Number.parseInt(value ?? '', 10);
-    if (!Number.isFinite(parsed)) return fallback;
-    return Math.max(min, Math.min(max, parsed));
+    return Math.max(min, Math.min(max, Number.isFinite(parsed) ? parsed : fallback));
   }
 }

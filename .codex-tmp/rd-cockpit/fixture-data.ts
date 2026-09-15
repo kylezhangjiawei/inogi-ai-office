@@ -1,0 +1,8 @@
+export const names=['张测试','李设计','王电子','赵软件','陈结构','刘验收'];
+const stamp='2026-09-08T06:00:00.000Z';
+export const people=names.map((name,index)=>({id:`qa-person-${index}`,user_id:`qa-user-${index}`,name,position:'研发工程师',task_count:12,max_tasks:8,status:'active',tasks:[]}));
+const pictures=['wide','tall','hidden','last'];
+export const attachments=Array.from({length:12},(_,i)=>({id:`qa-img-${i}`,name:`附件-${i+1}.svg`,mime:'image/svg+xml',size:12800,oss_url:`/.codex-tmp/attachment-gallery/${pictures[i%4]}.svg`,thumb_url:`/.codex-tmp/attachment-gallery/${pictures[i%4]}.svg`}));
+export const taskList=Array.from({length:72},(_,i)=>({task_id:`QA-RD-${i+1}`,title:`${i%3===0?'电池安全测试':'组件结构设计'} ${i+1}`,description:'本地虚构任务，检查搜索、人员筛选、沉浸大屏和移动端。',primary_owner:names[i%6],primary_owner_user_id:`qa-user-${i%6}`,collaborators:[],status:i%9===0?'completed':'in_progress',progress:i%9===0?100:40,ai_priority:'medium',final_priority:'medium',category_path:'电源系统 / 电池组件 / 测试验证',archived:false,attachments:12,start_date:'2026-09-01',due_date:'2026-09-30',updated_at:stamp,last_activity_at:stamp,cover_images:attachments.slice(0,4).map(x=>x.oss_url),cover_image_thumbnails:attachments.slice(0,4).map(x=>x.oss_url),latest_progress_summary:{text:'电池测试阶段已完成初检，等待下一轮验证。',progress:40,actor_name:names[i%6],created_at:stamp,attachments_count:12}}));
+export const categories=[{id:'qa-cat-power',label:'电源系统',children:[{id:'qa-sub-battery',label:'电池组件',tasks:taskList}]}];
+export const notes=(id:string)=>[{id:`note-${id}`,task_id:id,text:'本地验收进展：电池安全测试通过初检。',progress:40,attachments,actor:{id:'qa-user-0',name:'张测试',role:'研发成员'},created_at:stamp}];

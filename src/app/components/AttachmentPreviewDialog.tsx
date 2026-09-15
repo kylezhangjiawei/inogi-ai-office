@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, FileText, ImageOff, Loader2, Table2, X } from "lucide-react";
 
 import { useI18n } from "../lib/i18n";
+import { downloadResource } from "../lib/resourceAccess";
+import { useRenewableResource } from "../lib/useRenewableResource";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "../lib/xlsxPreview";
 import { MobileZoomableImage } from "./MobileZoomableImage";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
@@ -16,6 +18,8 @@ export type PreviewableAttachment = {
   previewUrl?: string;
   thumbUrl?: string;
   downloadUrl?: string;
+  /** Re-read through the containing business record's authorized endpoint. */
+  refresh?: () => Promise<PreviewableAttachment>;
 };
 
 const MIME_BY_EXTENSION: Record<string, string> = {
@@ -90,6 +94,8 @@ export function AttachmentPreviewDialog({
   const activeKey = attachmentKey(activeAttachment);
   const mime = attachmentMime(activeAttachment);
   const downloadUrl = activeAttachment.downloadUrl || activeAttachment.url;
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState(false);
   const openerRef = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const selectedThumbnailRef = useRef<HTMLButtonElement>(null);
   const hasGallery = items.length > 1;
@@ -100,6 +106,7 @@ export function AttachmentPreviewDialog({
 
   useEffect(() => {
     selectedThumbnailRef.current?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+    setDownloadError(false);
   }, [activeKey]);
 
   return (
@@ -135,11 +142,23 @@ export function AttachmentPreviewDialog({
               download={activeAttachment.name}
               target="_blank"
               rel="noopener noreferrer"
+              aria-disabled={downloading}
+              onClick={(event) => {
+                event.preventDefault();
+                if (downloading) return;
+                setDownloading(true);
+                setDownloadError(false);
+                void downloadResource(downloadUrl, activeAttachment.name, activeAttachment.refresh ? async () => {
+                  const latest = await activeAttachment.refresh!();
+                  return latest.downloadUrl || latest.url;
+                } : undefined).catch(() => setDownloadError(true)).finally(() => setDownloading(false));
+              }}
               className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-[var(--primary-soft-border)] bg-white px-3 text-xs font-semibold text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
             >
               <Download className="size-4" aria-hidden="true" />
-              {t("下载")}
+              {t(downloading ? "正在下载…" : "下载")}
             </a>
+            {downloadError ? <span role="alert" className="text-xs text-red-600">{t("下载失败，请重试")}</span> : null}
             <DialogClose asChild>
               <button
                 type="button"
@@ -198,20 +217,32 @@ function attachmentKey(attachment: PreviewableAttachment): string {
 }
 
 function AttachmentThumbnail({ attachment }: { attachment: PreviewableAttachment }) {
-  const [failed, setFailed] = useState(false);
+  const image = useRenewableResource({
+    src: attachment.thumbUrl || attachment.previewUrl || attachment.url,
+    resourceKey: `attachment-thumb:${attachmentKey(attachment)}`,
+    refresh: attachment.refresh ? async () => { const latest = await attachment.refresh!(); return latest.thumbUrl || latest.previewUrl || latest.url; } : undefined,
+  });
   const isImage = attachmentMime(attachment).startsWith("image/");
   return (
     <div className="flex h-14 items-center justify-center overflow-hidden rounded bg-white text-slate-400">
-      {isImage && !failed ? <img src={attachment.thumbUrl || attachment.previewUrl || attachment.url} alt="" loading="lazy" decoding="async" className="h-full w-full object-contain" onError={() => setFailed(true)} /> : <FileText className="size-6" aria-hidden="true" />}
+      {isImage && !image.failed ? <img src={image.src || undefined} alt="" loading="lazy" decoding="async" className="h-full w-full object-contain" onLoad={image.onLoad} onError={image.onError} /> : <FileText className="size-6" aria-hidden="true" />}
     </div>
   );
 }
 
 function AttachmentContent({ attachment, mime }: { attachment: PreviewableAttachment; mime: string }) {
   const { t } = useI18n();
-  const previewUrl = attachment.previewUrl || attachment.url;
-  const [imageFailed, setImageFailed] = useState(false);
+  const resource = useRenewableResource({
+    src: attachment.previewUrl || attachment.url,
+    resourceKey: `attachment-preview:${attachmentKey(attachment)}`,
+    refresh: attachment.refresh ? async () => { const latest = await attachment.refresh!(); return latest.previewUrl || latest.url; } : undefined,
+    refreshOnMount: true,
+  });
+  const previewUrl = resource.src;
+  const imageFailed = resource.failed;
   const [imageLoading, setImageLoading] = useState(true);
+  if (resource.refreshing) return <div role="status" className="flex flex-1 items-center justify-center text-sm text-slate-500">{t("正在加载附件…")}</div>;
+  if (resource.failed && !mime.startsWith("image/")) return <div role="alert" className="p-6 text-sm text-slate-500">{t("附件加载失败，请重新打开或下载查看。")}</div>;
   if (mime.startsWith("image/")) {
     return (
       <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden rounded-lg bg-white" data-attachment-local-keys>
@@ -224,14 +255,14 @@ function AttachmentContent({ attachment, mime }: { attachment: PreviewableAttach
         ) : (
           <>
             {imageLoading ? <div role="status" aria-label={t("正在加载图片")} className="pointer-events-none absolute inset-4 rounded-lg bg-slate-50" /> : null}
-            <MobileZoomableImage src={previewUrl} alt={attachment.name} loading="eager" decoding="async" enabled controlsPlacement="below" stopPropagation={false} onLoad={() => setImageLoading(false)} onError={() => setImageFailed(true)} className="h-full w-full" imageClassName="h-full w-full object-contain" />
+            <MobileZoomableImage src={previewUrl} alt={attachment.name} loading="eager" decoding="async" enabled controlsPlacement="below" stopPropagation={false} onLoad={() => { resource.onLoad(); setImageLoading(false); }} onError={resource.onError} className="h-full w-full" imageClassName="h-full w-full object-contain" />
           </>
         )}
       </div>
     );
   }
-  if (mime.startsWith("video/")) return <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center"><video src={previewUrl} controls autoPlay playsInline className="h-full max-h-full w-full rounded-lg bg-slate-950 object-contain">{t("当前浏览器暂不支持视频播放")}</video></div>;
-  if (mime.startsWith("audio/")) return <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center"><audio src={previewUrl} controls autoPlay className="w-full max-w-xl" /></div>;
+  if (mime.startsWith("video/")) return <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center"><video src={previewUrl} onError={resource.onError} onLoadedData={resource.onLoad} controls autoPlay playsInline className="h-full max-h-full w-full rounded-lg bg-slate-950 object-contain">{t("当前浏览器暂不支持视频播放")}</video></div>;
+  if (mime.startsWith("audio/")) return <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center"><audio src={previewUrl} onError={resource.onError} onLoadedData={resource.onLoad} controls autoPlay className="w-full max-w-xl" /></div>;
   if (isSpreadsheetAttachment(attachment, mime)) return <div className="min-h-0 min-w-0 flex-1 overflow-auto"><XlsxTablePreview url={previewUrl} /></div>;
   if (mime === "application/pdf" || mime === "text/plain" || mime === "application/json") {
     return (

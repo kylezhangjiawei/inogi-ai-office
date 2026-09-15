@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Param, Post, Query, Req, Res, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 
 import { Public } from '../auth/decorators/public.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -136,9 +137,49 @@ export class ResumeScreeningController {
   }
 
   @Post('candidate-filter-sessions/iterate')
+  @HttpCode(202)
   @Permissions('resume:screen')
-  iterateCandidateFilter(@Body() payload: IterateCandidateFilterDto) {
-    return this.resumeScreeningService.iterateCandidateFilter(payload);
+  iterateCandidateFilter(@Body() payload: IterateCandidateFilterDto, @Req() req: { user?: { id?: string; sub?: string } }) {
+    return this.resumeScreeningService.createCandidateFilterTask(req.user?.id ?? req.user?.sub ?? '', payload);
+  }
+
+  @Post('candidate-filter-sessions/iterate/async')
+  @HttpCode(202)
+  @Permissions('resume:screen')
+  createCandidateFilterTask(
+    @Req() req: { user?: { id?: string; sub?: string } },
+    @Body() payload: IterateCandidateFilterDto,
+  ) {
+    return this.resumeScreeningService.createCandidateFilterTask(req.user?.id ?? req.user?.sub ?? '', payload);
+  }
+
+  @Get('candidate-filter-tasks/current')
+  @Header('Cache-Control', 'no-store')
+  @Permissions('resume:screen')
+  async getCurrentCandidateFilterTask(
+    @Req() req: { user?: { id?: string; sub?: string } },
+    @Res() response: Response,
+  ) {
+    const task = await this.resumeScreeningService.getCurrentCandidateFilterTask(req.user?.id ?? req.user?.sub ?? '');
+    // Nest's Express adapter sends an empty body for null; this endpoint promises JSON task | null.
+    response.json(task);
+  }
+
+  @Post('candidate-filter-tasks/:taskId/retry')
+  @HttpCode(202)
+  @Permissions('resume:screen')
+  retryCandidateFilterTask(@Req() req: { user?: { id?: string; sub?: string } }, @Param('taskId') taskId: string) {
+    return this.resumeScreeningService.retryCandidateFilterTask(req.user?.id ?? req.user?.sub ?? '', taskId);
+  }
+
+  @Get('candidate-filter-tasks/:taskId')
+  @Header('Cache-Control', 'no-store')
+  @Permissions('resume:screen')
+  getCandidateFilterTask(
+    @Req() req: { user?: { id?: string; sub?: string } },
+    @Param('taskId') taskId: string,
+  ) {
+    return this.resumeScreeningService.getCandidateFilterTask(req.user?.id ?? req.user?.sub ?? '', taskId);
   }
 
   @Delete('candidates')

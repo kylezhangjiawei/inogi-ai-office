@@ -1,17 +1,22 @@
-﻿import {
+import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
+  Logger,
   NotFoundException,
   OnModuleInit,
+  OnModuleDestroy,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
+import { PermissionCatalogService } from '../permission-catalog/permission-catalog.service';
 import { ApplyCandidateAiUpdateDto } from './dto/apply-candidate-ai-update.dto';
 import { CreateJobRuleDto } from './dto/create-job-rule.dto';
 import { ListCandidatesQueryDto } from './dto/list-candidates-query.dto';
@@ -24,7 +29,8 @@ import { SaveOpenAiConfigDto } from './dto/save-openai-config.dto';
 import { UploadResumeFilesDto } from './dto/upload-resume-files.dto';
 import { OssService } from '../oss/oss.service';
 import { MailIngestionService } from './mail-ingestion.service';
-import { OpenAiScreeningService } from './openai-screening.service';
+import { OpenAiScreeningService, CandidateFilterExecution, CandidateFilterCompletion } from './openai-screening.service';
+import { CandidateFilterTaskStore, CandidateFilterTaskRecord, CandidateFilterLeaseLostError, CANDIDATE_FILTER_HEARTBEAT_MS } from './candidate-filter-task.store';
 import { ResumeDocumentService } from './resume-document.service';
 import { ResumeParserService } from './resume-parser.service';
 import { PROMPT_VERSION } from './resume-screening.constants';
@@ -98,9 +104,17 @@ type ScheduleMetadata = {
 
 const SCHEDULE_CONFIG_NAME = 'mail-sync-schedule';
 const ITERATIVE_FILTER_PROMPT_PREFIX = 'iterative-filter:';
+const CANDIDATE_FILTER_MAX_CANDIDATES = 5000;
+
+type CandidateFilterResponse = {
+  action: 'filter' | 'clarify'; answer: string; clarification_question?: string; filter_summary: string; criteria: string[];
+  total_count: number; recommend_count: number; hold_count: number; reject_count: number;
+  model_name: string; duration_ms: number; version_id?: string; prompt_version?: string;
+};
 
 @Injectable()
-export class ResumeScreeningService implements OnModuleInit {
+export class ResumeScreeningService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ResumeScreeningService.name);
   private scheduleRunning = false;
   private screeningQueue: ScreeningTaskPayload[] = [];
   private screeningActiveCount = 0;
@@ -108,6 +122,10 @@ export class ResumeScreeningService implements OnModuleInit {
   private fileScreeningQueue: FileScreeningTaskPayload[] = [];
   private fileScreeningActiveCount = 0;
   private aiFailureCache = new Map<string, { message: string; expiresAt: number }>();
+  private readonly filterStore: CandidateFilterTaskStore;
+  private filterTickRunning = false;
+  private filterStopping = false;
+  private readonly filterWorkers = new Map<string, AbortController>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -117,7 +135,9 @@ export class ResumeScreeningService implements OnModuleInit {
     private readonly resumeParserService: ResumeParserService,
     private readonly openAiScreeningService: OpenAiScreeningService,
     private readonly ossService: OssService,
+    private readonly permissionCatalog: PermissionCatalogService,
   ) {
+    this.filterStore = new CandidateFilterTaskStore(prisma);
     const configuredConcurrency = Number(process.env.AI_SCREENING_CONCURRENCY ?? 2);
     this.screeningConcurrency = Number.isFinite(configuredConcurrency)
       ? Math.min(10, Math.max(1, configuredConcurrency))
@@ -126,6 +146,12 @@ export class ResumeScreeningService implements OnModuleInit {
 
   onModuleInit() {
     void this.checkAndRunScheduledSync({ allowCatchUp: true });
+    void this.tickCandidateFilters();
+  }
+
+  onModuleDestroy() {
+    this.filterStopping = true;
+    for (const controller of this.filterWorkers.values()) controller.abort(new CandidateFilterLeaseLostError());
   }
 
   // Health
@@ -1209,82 +1235,174 @@ export class ResumeScreeningService implements OnModuleInit {
 
   async listCandidateFilterSessions(jobRuleId?: string) {
     const normalizedJobRuleId = jobRuleId?.trim();
-    const screenings = await this.prisma.candidateScreening.findMany({
-      where: {
-        promptVersion: { startsWith: ITERATIVE_FILTER_PROMPT_PREFIX },
-        ...(normalizedJobRuleId ? { jobRuleId: normalizedJobRuleId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 1000,
-      select: {
-        promptVersion: true,
-        decision: true,
-        createdAt: true,
-        requestPayload: true,
-        responsePayload: true,
-      },
+    // 先在数据库里统计完整版本，再只读取每版最新一行的必要元数据。
+    // 排名阶段不读取 request/response JSON，避免候选人数增长后反复传输整批简历。
+    const versions = await this.prisma.$queryRaw<Array<{
+      promptVersion: string; createdAt: Date; totalCount: number;
+      recommendCount: number; holdCount: number; rejectCount: number;
+      filterInstruction: unknown; requestInstruction: unknown; answer: unknown;
+      filterSummary: unknown; requestSummary: unknown; criteria: unknown;
+    }>>(Prisma.sql`
+      WITH ranked AS (
+        SELECT s."promptVersion", s."id", s."createdAt", s."decision",
+          ROW_NUMBER() OVER (PARTITION BY s."promptVersion" ORDER BY s."createdAt" DESC, s."id" DESC) AS position
+        FROM "CandidateScreening" s
+        WHERE s."promptVersion" LIKE ${`${ITERATIVE_FILTER_PROMPT_PREFIX}%`}
+          AND length(btrim(substring(s."promptVersion" FROM ${ITERATIVE_FILTER_PROMPT_PREFIX.length + 1}::integer))) > 0
+          ${normalizedJobRuleId ? Prisma.sql`AND s."jobRuleId" = ${normalizedJobRuleId}` : Prisma.empty}
+      ), recent_versions AS (
+        SELECT "promptVersion", MAX("createdAt") AS "createdAt",
+          COUNT(*)::integer AS "totalCount",
+          COUNT(*) FILTER (WHERE "decision" = 'RECOMMEND')::integer AS "recommendCount",
+          COUNT(*) FILTER (WHERE "decision" = 'HOLD')::integer AS "holdCount",
+          COUNT(*) FILTER (WHERE "decision" = 'REJECT')::integer AS "rejectCount",
+          MAX("id") FILTER (WHERE position = 1) AS "metadataId"
+        FROM ranked
+        GROUP BY "promptVersion"
+        ORDER BY MAX("createdAt") DESC, "promptVersion" DESC
+        LIMIT 50
+      )
+      SELECT v."promptVersion", v."createdAt", v."totalCount", v."recommendCount", v."holdCount", v."rejectCount",
+        s."responsePayload" #> '{filter_session,instruction}' AS "filterInstruction",
+        s."requestPayload" -> 'instruction' AS "requestInstruction",
+        s."responsePayload" #> '{filter_session,answer}' AS "answer",
+        s."responsePayload" #> '{filter_session,filter_summary}' AS "filterSummary",
+        s."requestPayload" -> 'filter_summary' AS "requestSummary",
+        s."responsePayload" #> '{filter_session,criteria}' AS "criteria"
+      FROM recent_versions v
+      JOIN "CandidateScreening" s ON s."id" = v."metadataId"
+      ORDER BY v."createdAt" DESC, v."promptVersion" DESC
+    `);
+
+    return versions.map((version) => {
+      const versionId = this.extractIterativeFilterVersionId(version.promptVersion);
+      const instruction = this.toTrimmedString(version.filterInstruction) || this.toTrimmedString(version.requestInstruction);
+      return {
+        version_id: versionId,
+        label: instruction ? `筛选版本：${instruction.slice(0, 24)}` : `筛选版本 ${versionId.slice(-6)}`,
+        instruction,
+        answer: this.toTrimmedString(version.answer),
+        filter_summary: this.toTrimmedString(version.filterSummary) || this.toTrimmedString(version.requestSummary) || this.toTrimmedString(version.requestInstruction),
+        criteria: this.normalizeStringArray(version.criteria),
+        created_at: version.createdAt.toISOString(),
+        total_count: version.totalCount,
+        recommend_count: version.recommendCount,
+        hold_count: version.holdCount,
+        reject_count: version.rejectCount,
+      };
     });
-
-    const grouped = new Map<
-      string,
-      {
-        version_id: string;
-        label: string;
-        instruction: string;
-        answer: string;
-        filter_summary: string;
-        criteria: string[];
-        created_at: string;
-        total_count: number;
-        recommend_count: number;
-        hold_count: number;
-        reject_count: number;
-      }
-    >();
-
-    for (const screening of screenings) {
-      const versionId = this.extractIterativeFilterVersionId(screening.promptVersion);
-      if (!versionId) continue;
-
-      const requestPayload = this.asRecord(screening.requestPayload);
-      const responsePayload = this.asRecord(screening.responsePayload);
-      const filterSession = this.asRecord(responsePayload.filter_session);
-      const instruction = this.toTrimmedString(filterSession.instruction) || this.toTrimmedString(requestPayload.instruction);
-      const answer = this.toTrimmedString(filterSession.answer);
-      const filterSummary =
-        this.toTrimmedString(filterSession.filter_summary) ||
-        this.toTrimmedString(requestPayload.filter_summary) ||
-        this.toTrimmedString(requestPayload.instruction);
-
-      let item = grouped.get(versionId);
-      if (!item) {
-        item = {
-          version_id: versionId,
-          label: instruction ? `筛选版本：${instruction.slice(0, 24)}` : `筛选版本 ${versionId.slice(-6)}`,
-          instruction,
-          answer,
-          filter_summary: filterSummary,
-          criteria: this.normalizeStringArray(filterSession.criteria),
-          created_at: screening.createdAt.toISOString(),
-          total_count: 0,
-          recommend_count: 0,
-          hold_count: 0,
-          reject_count: 0,
-        };
-        grouped.set(versionId, item);
-      }
-
-      item.total_count += 1;
-      const decision = screening.decision?.toLowerCase();
-      if (decision === 'recommend') item.recommend_count += 1;
-      if (decision === 'hold') item.hold_count += 1;
-      if (decision === 'reject') item.reject_count += 1;
+  }
+  async createCandidateFilterTask(userId: string, payload: IterateCandidateFilterDto) {
+    if (!userId) throw new UnauthorizedException();
+    if (!payload.instruction?.trim()) {
+      throw new BadRequestException('请输入本轮希望 AI 重新筛选的条件。');
     }
-
-    return Array.from(grouped.values()).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    const fingerprint = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+    const active = await this.filterStore.getCurrent(userId);
+    if (active) {
+      if (active.fingerprint === fingerprint) return this.toCandidateFilterTaskResponse(active);
+      throw new ConflictException('上一轮 AI 筛选仍在处理中，请等待完成后再提交。');
+    }
+    // Freeze membership, JD and the chosen base scores before any model call starts.
+    const snapshot = await this.prepareCandidateFilter(payload);
+    const task = await this.filterStore.create(userId, fingerprint, payload, { snapshot, totalCount: snapshot.candidates.length });
+    void this.tickCandidateFilters();
+    return this.toCandidateFilterTaskResponse(task);
   }
 
-  async iterateCandidateFilter(payload: IterateCandidateFilterDto) {
+  async getCandidateFilterTask(userId: string, taskId: string) {
+    if (!userId) throw new UnauthorizedException();
+    return this.toCandidateFilterTaskResponse(await this.filterStore.getOwned(taskId, userId));
+  }
+
+  async getCurrentCandidateFilterTask(userId: string) {
+    if (!userId) throw new UnauthorizedException();
+    const task = await this.filterStore.getCurrent(userId) ?? await this.filterStore.latest(userId);
+    return task ? this.toCandidateFilterTaskResponse(task) : null;
+  }
+
+  async retryCandidateFilterTask(userId: string, taskId: string) {
+    if (!userId) throw new UnauthorizedException();
+    const task = await this.filterStore.retry(taskId, userId);
+    void this.tickCandidateFilters();
+    return this.toCandidateFilterTaskResponse(task);
+  }
+
+  private toCandidateFilterTaskResponse(task: CandidateFilterTaskRecord) {
+    const payload = task.payloadJson as unknown as IterateCandidateFilterDto;
+    return {
+      task_id: task.id, status: task.status, phase: task.phase,
+      processed_count: task.processedCount, total_count: task.totalCount,
+      instruction: payload.instruction, job_rule_id: payload.job_rule_id || null, base_version: payload.base_version || null,
+      created_at: task.createdAt.toISOString(), updated_at: task.updatedAt.toISOString(), retryable: task.status === 'failed',
+      result: task.status === 'completed' ? task.resultJson as unknown as Awaited<ReturnType<ResumeScreeningService['iterateCandidateFilter']>> : undefined,
+      error: task.status === 'failed' ? task.error : undefined,
+    };
+  }
+
+  @Interval(3000)
+  async tickCandidateFilters() {
+    if (this.filterStopping || this.filterTickRunning || this.filterWorkers.size >= 2) return;
+    this.filterTickRunning = true;
+    try {
+      const task = await this.filterStore.claim();
+      if (task) void this.runCandidateFilterTask(task).catch((error) => this.logger.error(`筛选任务后台异常：${this.getCandidateFilterErrorMessage(error)}`));
+    } catch (error) { this.logger.warn(`筛选队列暂不可用：${this.getCandidateFilterErrorMessage(error)}`); }
+    finally { this.filterTickRunning = false; }
+  }
+
+  private async runCandidateFilterTask(task: CandidateFilterTaskRecord) {
+    const claim = { id: task.id, claimToken: task.claimToken! };
+    const controller = new AbortController();
+    this.filterWorkers.set(task.id, controller);
+    const heartbeat = async () => {
+      try {
+        if (!await this.filterStore.heartbeat(claim)) controller.abort(new CandidateFilterLeaseLostError());
+      } catch { controller.abort(new CandidateFilterLeaseLostError()); }
+    };
+    const timer = setInterval(() => { void heartbeat(); }, CANDIDATE_FILTER_HEARTBEAT_MS);
+    timer.unref();
+    try {
+      const payload = task.payloadJson as unknown as IterateCandidateFilterDto;
+      const prepared = task.snapshotJson
+        ? task.snapshotJson as unknown as Awaited<ReturnType<ResumeScreeningService['prepareCandidateFilter']>>
+        : await this.prepareCandidateFilter(payload);
+      if (!task.snapshotJson) await this.filterStore.saveSnapshot(claim, prepared, prepared.candidates.length);
+      const beforeCall = async () => {
+        await heartbeat();
+        controller.signal.throwIfAborted();
+        const user = await this.prisma.user.findUnique({ where: { id: task.userId }, include: { role: true } });
+        const permissions = await this.permissionCatalog.filterDisabled(
+          Array.isArray(user?.role?.permissions) ? user.role.permissions as string[] : [],
+        );
+        if (user?.status !== 'ACTIVE' || (!permissions.includes('*') && !permissions.includes('resume:screen'))) {
+          throw new ForbiddenException('账号状态或筛选权限已变更，本轮任务已暂停。');
+        }
+      };
+      await beforeCall();
+      await this.executeCandidateFilter(prepared, {
+        analysis: task.analysisJson ? task.analysisJson as unknown as CandidateFilterCompletion : undefined,
+        batches: Object.fromEntries(task.batches.map((batch) => [batch.batchIndex, batch.completionJson as unknown as CandidateFilterCompletion])),
+        signal: controller.signal, beforeCall,
+        onAnalysis: async (completion) => { await this.filterStore.saveAnalysis(claim, completion); },
+        onBatch: async (index, completion, count) => { await this.filterStore.saveBatch(claim, index, completion, count); },
+      }, async (publish) => {
+        await beforeCall();
+        await this.filterStore.setPhase(claim, 'saving');
+        return this.filterStore.finalize(claim, publish);
+      }, `filter-${task.id}`);
+    } catch (error) {
+      if (!controller.signal.aborted && !(error instanceof CandidateFilterLeaseLostError)) {
+        await this.filterStore.fail(claim, this.getCandidateFilterErrorMessage(error));
+      }
+    } finally {
+      clearInterval(timer);
+      this.filterWorkers.delete(task.id);
+      if (!this.filterStopping) void this.tickCandidateFilters();
+    }
+  }
+
+  private async prepareCandidateFilter(payload: IterateCandidateFilterDto) {
     const instruction = payload.instruction?.trim();
     if (!instruction) {
       throw new BadRequestException('请输入本轮希望 AI 重新筛选的条件。');
@@ -1302,7 +1420,11 @@ export class ResumeScreeningService implements OnModuleInit {
     const candidateIds = (payload.candidate_ids ?? [])
       .map((item) => item?.trim())
       .filter((item): item is string => Boolean(item));
-    const limit = this.clampNumber(payload.limit, 50, 1, 80);
+    if (payload.limit !== undefined && (!Number.isInteger(payload.limit) || payload.limit < 1 || payload.limit > CANDIDATE_FILTER_MAX_CANDIDATES)) {
+      throw new BadRequestException(`单轮最多处理 ${CANDIDATE_FILTER_MAX_CANDIDATES} 人，请缩小岗位范围。`);
+    }
+    if (candidateIds.length > CANDIDATE_FILTER_MAX_CANDIDATES) throw new BadRequestException(`单轮最多处理 ${CANDIDATE_FILTER_MAX_CANDIDATES} 人，请缩小岗位范围。`);
+    const limit = payload.limit ?? CANDIDATE_FILTER_MAX_CANDIDATES;
     const baseVersion = payload.base_version?.trim() ?? '';
 
     const candidates = await this.prisma.candidate.findMany({
@@ -1312,11 +1434,29 @@ export class ResumeScreeningService implements OnModuleInit {
       },
       include: {
         jobRule: true,
-        screenings: { orderBy: { createdAt: 'desc' }, take: 80 },
+        screenings: {
+          where: { status: 'COMPLETED', ...(baseVersion ? { promptVersion: this.buildIterativeFilterPromptVersion(baseVersion) } : {}) },
+          orderBy: { createdAt: 'desc' }, take: 1,
+        },
       },
-      orderBy: { receivedAt: 'desc' },
-      take: limit,
+      orderBy: [{ receivedAt: 'desc' }, { id: 'asc' }],
+      take: payload.limit === undefined ? limit + 1 : limit,
     });
+
+    if (candidates.length > CANDIDATE_FILTER_MAX_CANDIDATES) throw new BadRequestException(`当前范围超过 ${CANDIDATE_FILTER_MAX_CANDIDATES} 人，请选择岗位缩小范围；没有截断或启动筛选。`);
+    if (candidateIds.length && candidates.length !== new Set(candidateIds).size && payload.limit === undefined) {
+      throw new BadRequestException('部分候选人已删除或不在当前岗位范围，请刷新列表后重新提交。');
+    }
+    if (baseVersion) {
+      const missing = candidates.filter((candidate) => !candidate.screenings.length).map((candidate) => candidate.id);
+      if (missing.length) {
+        const fallback = await this.prisma.candidate.findMany({ where: { id: { in: missing } }, select: {
+          id: true, screenings: { where: { status: 'COMPLETED' }, orderBy: { createdAt: 'desc' }, take: 1 },
+        } });
+        const screeningsById = new Map(fallback.map((candidate) => [candidate.id, candidate.screenings]));
+        for (const candidate of candidates) if (!candidate.screenings.length) candidate.screenings = screeningsById.get(candidate.id) ?? [];
+      }
+    }
 
     if (!candidates.length) {
       throw new BadRequestException('当前岗位下没有可筛选的候选人。');
@@ -1354,10 +1494,10 @@ export class ResumeScreeningService implements OnModuleInit {
         recent_title: profile.recent_title || candidate.recentTitle,
         current_score: activeScreening?.score ?? null,
         current_decision: activeScreening?.decision?.toLowerCase() ?? null,
-        current_summary: activeScreening?.summary ?? null,
-        current_tags: this.normalizeStringArray(activeScreeningResponse?.tags),
-        current_matched_points: this.normalizeStringArray(activeScreeningResponse?.matched_points),
-        current_risks: this.normalizeStringArray(activeScreeningResponse?.risks),
+        current_summary: activeScreening?.summary?.slice(0, 2000) ?? null,
+        current_tags: this.normalizeStringArray(activeScreeningResponse?.tags).map((item) => item.slice(0, 200)),
+        current_matched_points: this.normalizeStringArray(activeScreeningResponse?.matched_points).map((item) => item.slice(0, 300)),
+        current_risks: this.normalizeStringArray(activeScreeningResponse?.risks).map((item) => item.slice(0, 300)),
         resume_excerpt: this.pickBetterString(profile.work_summary, profile.raw_text, candidate.rawEmailText).slice(0, 1400),
       };
     });
@@ -1380,6 +1520,37 @@ export class ResumeScreeningService implements OnModuleInit {
       ),
     };
 
+    return {
+      instruction, jobRuleId, baseVersion, history, candidateSnapshots, jobContext, openAiConfigId: openAiCreds?.id ?? null,
+      candidates: candidates.map((candidate) => {
+        const active = candidate.screenings[0] ?? null;
+        const current = active ? this.toCandidateScreeningResponse(active) : null;
+        return {
+          id: candidate.id, jobRuleId: candidate.jobRuleId, previousScreeningId: active?.id ?? null,
+          previousStructured: this.asRecord(active?.responsePayload && this.asRecord(active.responsePayload).structured_output),
+          previous: current ? {
+            ai_job: current.ai_job, score: current.score, decision: current.decision, tags: current.tags,
+            dimensions: current.dimensions, matched_points: this.normalizeStringArray(current.matched_points),
+            risks: this.normalizeStringArray(current.risks), summary: current.summary, next_step: current.next_step,
+          } : null,
+        };
+      }),
+    };
+  }
+
+  async iterateCandidateFilter(payload: IterateCandidateFilterDto): Promise<CandidateFilterResponse> {
+    return this.executeCandidateFilter(await this.prepareCandidateFilter(payload));
+  }
+
+  private async executeCandidateFilter(
+    prepared: Awaited<ReturnType<ResumeScreeningService['prepareCandidateFilter']>>,
+    execution: CandidateFilterExecution = {},
+    publish: (run: (tx: Prisma.TransactionClient) => Promise<CandidateFilterResponse>) => Promise<CandidateFilterResponse> =
+      (run) => this.prisma.$transaction(run, { timeout: 30000 }),
+    versionId = this.createIterativeFilterVersionId(),
+  ): Promise<CandidateFilterResponse> {
+    const { instruction, jobRuleId, baseVersion, history, candidates, candidateSnapshots, jobContext } = prepared;
+    const openAiCreds = await this.resolveOpenAiCredentials(prepared.openAiConfigId);
     let result: Awaited<ReturnType<OpenAiScreeningService['iterateCandidateFilter']>>;
     try {
       result = await this.openAiScreeningService.iterateCandidateFilter(
@@ -1391,6 +1562,7 @@ export class ResumeScreeningService implements OnModuleInit {
         openAiCreds?.model ?? undefined,
         openAiCreds?.baseUrl ?? undefined,
         openAiCreds?.provider ?? undefined,
+        execution,
       );
 
       await this.updateOpenAiModelRuntime(openAiCreds?.id, {
@@ -1400,17 +1572,22 @@ export class ResumeScreeningService implements OnModuleInit {
         totalTokens: result.usage.totalTokens,
       });
     } catch (error) {
-      const message = this.getSourceErrorMessage(error);
+      // Worker handoff is not an upstream model failure.
+      if (execution.signal?.aborted || error instanceof CandidateFilterLeaseLostError) throw error;
+      const message = `AI 迭代筛选失败：${error instanceof Error ? error.message : '未知处理错误'}`;
+      const failure = error instanceof HttpException
+        ? new HttpException({ message, ...this.getCandidateFilterErrorMetadata(error) }, error.getStatus())
+        : new BadRequestException(message);
       await this.updateOpenAiModelRuntime(openAiCreds?.id, {
         success: false,
         baseUrl: openAiCreds?.baseUrl,
-        errorMessage: message,
+        errorMessage: this.getCandidateFilterErrorMessage(failure),
       });
-      throw new BadRequestException(`AI 迭代筛选失败：${message}`);
+      throw failure;
     }
 
     if (result.result.action !== 'filter') {
-      return {
+      return publish(async () => ({
         action: 'clarify' as const,
         answer: result.result.answer,
         clarification_question: result.result.clarification_question,
@@ -1422,18 +1599,18 @@ export class ResumeScreeningService implements OnModuleInit {
         reject_count: 0,
         model_name: result.modelName,
         duration_ms: result.durationMs,
-      };
+      }));
     }
 
-    const versionId = this.createIterativeFilterVersionId();
     const promptVersion = this.buildIterativeFilterPromptVersion(versionId);
     const updatesByCandidateId = new Map(
       result.result.candidate_updates
         .map((item) => [this.toTrimmedString(item.candidate_id), item] as const)
         .filter(([candidateId]) => Boolean(candidateId)),
     );
-    const rawOutputExcerpt =
-      typeof result.responsePayload.raw_output === 'string' ? result.responsePayload.raw_output.slice(0, 12000) : '';
+    if (updatesByCandidateId.size !== candidates.length || result.result.candidate_updates.length !== candidates.length || candidates.some((candidate) => !updatesByCandidateId.has(candidate.id))) {
+      throw new BadRequestException('AI 未完整返回本轮所有候选人的评分，本轮结果未保存。');
+    }
     const sessionMetadata = {
       source: 'candidate_iterative_filter',
       action: 'filter',
@@ -1448,36 +1625,24 @@ export class ResumeScreeningService implements OnModuleInit {
       created_at: new Date().toISOString(),
     };
 
-    const created = await this.prisma.$transaction(
-      candidates.map((candidate) => {
-        const activeScreening = baseVersion
-          ? this.pickScreeningForVersion(candidate.screenings, baseVersion) ?? this.pickPreferredScreening(candidate.screenings)
-          : this.pickPreferredScreening(candidate.screenings);
-        const activeScreeningResponse = activeScreening ? this.toCandidateScreeningResponse(activeScreening) : null;
+    const snapshotsById = new Map(candidateSnapshots.map((candidate) => [candidate.candidate_id, candidate]));
+    const rows: Prisma.CandidateScreeningCreateManyInput[] = candidates.map((candidate) => {
         const rawUpdate = updatesByCandidateId.get(candidate.id) ?? {};
         const patch = this.buildIterativeFilterPatch(
           rawUpdate,
-          activeScreeningResponse
-            ? {
-                ...activeScreeningResponse,
-                tags: this.normalizeStringArray(activeScreeningResponse.tags),
-                matched_points: this.normalizeStringArray(activeScreeningResponse.matched_points),
-                risks: this.normalizeStringArray(activeScreeningResponse.risks),
-              }
-            : null,
+          candidate.previous,
         );
         const responsePayload = {
-          raw_output: rawOutputExcerpt,
+          raw_output: JSON.stringify(rawUpdate).slice(0, 12000),
           structured_output: {
-            ...this.asRecord(activeScreening?.responsePayload && this.asRecord(activeScreening.responsePayload).structured_output),
+            ...candidate.previousStructured,
             ...patch,
           },
           filter_session: sessionMetadata,
           change_reason: this.toTrimmedString(rawUpdate.change_reason),
         };
 
-        return this.prisma.candidateScreening.create({
-          data: {
+        return {
             candidateId: candidate.id,
             jobRuleId: candidate.jobRuleId || jobRuleId || null,
             promptVersion,
@@ -1490,8 +1655,8 @@ export class ResumeScreeningService implements OnModuleInit {
               job_rule_id: jobRuleId || null,
               instruction,
               history,
-              candidate_snapshot: candidateSnapshots.find((item) => item.candidate_id === candidate.id) ?? null,
-              previous_screening_id: activeScreening?.id ?? null,
+              candidate_snapshot: snapshotsById.get(candidate.id) ?? null,
+              previous_screening_id: candidate.previousScreeningId,
               filter_summary: result.result.filter_summary,
             } as any,
             responsePayload: responsePayload as any,
@@ -1504,12 +1669,10 @@ export class ResumeScreeningService implements OnModuleInit {
             durationMs: result.durationMs,
             status: 'COMPLETED',
             errorMessage: null,
-          },
-        });
-      }),
-    );
+        };
+    });
 
-    const counts = created.reduce(
+    const counts = rows.reduce(
       (acc, item) => {
         const decision = item.decision?.toLowerCase();
         if (decision === 'recommend') acc.recommend_count += 1;
@@ -1520,18 +1683,23 @@ export class ResumeScreeningService implements OnModuleInit {
       { recommend_count: 0, hold_count: 0, reject_count: 0 },
     );
 
-    return {
+    const response: CandidateFilterResponse = {
       action: 'filter' as const,
       version_id: versionId,
       prompt_version: promptVersion,
       answer: result.result.answer,
       filter_summary: result.result.filter_summary,
       criteria: result.result.criteria,
-      total_count: created.length,
+      total_count: rows.length,
       ...counts,
       model_name: result.modelName,
       duration_ms: result.durationMs,
     };
+    return publish(async (tx) => {
+      // Chunk SQL writes while keeping all batches and task completion in one transaction.
+      for (let offset = 0; offset < rows.length; offset += 100) await tx.candidateScreening.createMany({ data: rows.slice(offset, offset + 100) });
+      return response;
+    });
   }
 
   private clampNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -2880,6 +3048,26 @@ export class ResumeScreeningService implements OnModuleInit {
       created_at: jobRule.createdAt.toISOString(),
       updated_at: jobRule.updatedAt.toISOString(),
     };
+  }
+
+  private getCandidateFilterErrorMetadata(error: HttpException) {
+    const response = this.asRecord(error.getResponse());
+    const metadata: Partial<Record<'request_id' | 'error_code' | 'scene', string>> = {};
+    for (const key of ['request_id', 'error_code', 'scene'] as const) {
+      const value = response[key];
+      // Gateway identifiers only; never copy upstream payloads, attempts, URLs or credentials.
+      if (typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,160}$/.test(value)) metadata[key] = value;
+    }
+    return metadata;
+  }
+
+  private getCandidateFilterErrorMessage(error: unknown) {
+    if (!(error instanceof HttpException)) return this.getSourceErrorMessage(error);
+    const metadata = [
+      `status=${error.getStatus()}`,
+      ...Object.entries(this.getCandidateFilterErrorMetadata(error)).map(([key, value]) => `${key}=${value}`),
+    ];
+    return `${error.message} (${metadata.join(', ')})`;
   }
 
   private getSourceErrorMessage(error: unknown) {

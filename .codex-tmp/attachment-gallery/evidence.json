@@ -1,0 +1,34 @@
+{
+  "url": "http://127.0.0.1:5190/.codex-tmp/attachment-gallery/frame.html",
+  "data": "Synthetic local attachments only. Vite middleware rejects writes and CSP restricts network to local origin.",
+  "desktop": {
+    "viewport": [1440, 940],
+    "dialog": {"x": 80, "y": 47, "width": 1280, "height": 846},
+    "cardVisibleAttachmentCount": 3,
+    "cardHiddenAttachmentCount": 5,
+    "galleryAttachmentCount": 8,
+    "checks": [
+      "Card attachment 2 opens gallery at 2/8.",
+      "Next click selects 3/8 transparent PNG.",
+      "ArrowRight selects hidden attachment 4/8.",
+      "Broken image 5/8 displays friendly failure and keeps navigation.",
+      "Thumbnail click accesses 8/8; next is disabled at last item.",
+      "Zoom to 150%, change attachment and return resets to 100%.",
+      "Escape closes gallery and restores focus to original card thumbnail.",
+      "Drawer attachment 4 opens 4/8; Escape closes gallery only and restores same drawer attachment focus.",
+      "Single attachment compatibility shows no gallery navigation."
+    ]
+  },
+  "mobile": {
+    "viewport": [390, 844],
+    "dialog": {"x": 16, "y": 42.2, "width": 358, "height": 759.6},
+    "thumbnailStrip": {"width": 332.67, "scrollWidth": 824, "scrollLeftAtLast": 491.33},
+    "checks": [
+      "Card shows 3 readable contained thumbnails with view all 5 hidden entry.",
+      "View all opens complete 8-item list.",
+      "Clicking last hidden thumbnail scrolls strip and shows 8/8.",
+      "Image and dialog remain within viewport without horizontal overflow."
+    ]
+  },
+  "followup": "Final recheck passed at desktop 1440x940 and mobile 390x844: zoom toolbar occupies a separate row below image viewport; TOP and BOTTOM VISIBLE source text both fully visible with no overlap. Temporary browser closed and viewport reset."
+}

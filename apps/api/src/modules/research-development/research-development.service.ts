@@ -6111,9 +6111,6 @@ export class ResearchDevelopmentService {
       ?? this.buildAttachmentPreviewUrl(attachmentOrUrl);
   }
 
-  /** 缩略图签名 URL 记忆化（24h 复用同一 URL，保证浏览器缓存可命中；签名 TTL 48h 留余量）。 */
-  private readonly attachmentThumbCache = new Map<string, { url: string; freshUntil: number }>();
-
   /** Generate a size-appropriate WebP thumbnail instead of loading the original on list cards. */
   private buildAttachmentThumbUrl(
     attachmentOrUrl: JsonRecord | string,
@@ -6124,18 +6121,10 @@ export class ResearchDevelopmentService {
     const objectKey = this.attachmentObjectKey(attachmentOrUrl);
     if (!objectKey) return null;
     const safeWidth = Math.max(120, Math.min(1280, Math.round(width)));
-    const cacheKey = `${objectKey}|${safeWidth}`;
-    const cached = this.attachmentThumbCache.get(cacheKey);
-    const now = Date.now();
-    if (cached && cached.freshUntil > now) return cached.url;
     const process = `image/resize,m_lfit,w_${safeWidth}/format,webp/quality,q_72`;
-    const url = this.ossService.getCdnReadUrl(objectKey, process, 'inline')
+    // OssService 按真实签名有效期复用 URL；这里额外缓存 24h 会遮住已过期的 CDN 地址。
+    return this.ossService.getCdnReadUrl(objectKey, process, 'inline')
       ?? this.ossService.getSignedUrl(objectKey, 48 * 3600, process);
-    if (!url) return null;
-    // 上限防泄漏：长期运行进程只保留活跃工作集，超限整体清空（重建成本仅为一次签名）
-    if (this.attachmentThumbCache.size >= 5000) this.attachmentThumbCache.clear();
-    this.attachmentThumbCache.set(cacheKey, { url, freshUntil: now + 24 * 3600 * 1000 });
-    return url;
   }
 
   private decorateAttachmentForDisplay(
@@ -6152,6 +6141,7 @@ export class ResearchDevelopmentService {
     const thumbUrl = this.buildAttachmentThumbUrl(att, att.mime, thumbnailWidth);
     return {
       ...att,
+      ...(owner?.taskId ? { task_id: owner.taskId } : {}),
       ...(previewUrl ? { preview_url: previewUrl } : {}),
       ...(downloadUrl ? { download_url: downloadUrl } : {}),
       ...(thumbUrl ? { thumb_url: thumbUrl } : {}),
@@ -6159,13 +6149,14 @@ export class ResearchDevelopmentService {
   }
 
   /** Decorate progress-note attachments with `preview_url` (same-origin inline proxy) so the client can iframe-preview OSS files. */
-  private decorateNotesWithPreview(notes: JsonRecord[]): JsonRecord[] {
+  private decorateNotesWithPreview(notes: JsonRecord[], sourceTaskId?: string): JsonRecord[] {
     if (!Array.isArray(notes)) return notes;
     return notes.map((note) => {
       const attachments = isRecord(note) ? note.attachments : null;
       if (!Array.isArray(attachments)) return note;
-      const owner = isRecord(note) && cleanText(note.task_id) && cleanText(note.id)
-        ? { taskId: cleanText(note.task_id), noteId: cleanText(note.id) }
+      const taskId = sourceTaskId || cleanText(note.task_id);
+      const owner = taskId
+        ? { taskId, noteId: cleanText(note.id) }
         : undefined;
       const decorated = attachments.map((att) => {
         if (!isRecord(att)) return att;
@@ -6179,6 +6170,7 @@ export class ResearchDevelopmentService {
     task: JsonRecord | null | undefined,
     rawNotes: JsonRecord[],
     viewer?: TaskProgressNoteViewer,
+    sourceTaskId?: string,
   ): JsonRecord[] {
     const scope = this.scopedTaskViewer(viewer);
     if (scope && (!task || !canReadRdTask(task, scope))) return [];
@@ -6191,7 +6183,7 @@ export class ResearchDevelopmentService {
       }
     }
 
-    const decorated = this.decorateNotesWithPreview(visibleNotes);
+    const decorated = this.decorateNotesWithPreview(visibleNotes, sourceTaskId || cleanText(task?.task_id));
     if (!task || !this.taskAttachmentsMutable(task)) return decorated;
     return decorated.map((decoratedNote, index) => ({
       ...decoratedNote,
@@ -6212,7 +6204,7 @@ export class ResearchDevelopmentService {
     this.assertTaskReadable(task, viewer);
     // 附件可编辑标记由服务端统一计算随留痕下发：前端只认此标记渲染管理入口，
     // 与写接口锁内的 canUserMutateNoteAttachments 同一实现，杜绝前后端口径漂移。
-    return this.visibleTaskProgressNotes(task, notes, viewer);
+    return this.visibleTaskProgressNotes(task, notes, viewer, taskId);
   }
 
   /**
@@ -6230,7 +6222,7 @@ export class ResearchDevelopmentService {
     if (!relation) throw new NotFoundException('任务不存在');
 
     const tasks = relation.tasks.map(({ task, taskId: sourceTaskId, title, path, joinedAt }) => {
-      const visibleNotes = this.visibleTaskProgressNotes(task, noteMap[sourceTaskId] ?? [], viewer);
+      const visibleNotes = this.visibleTaskProgressNotes(task, noteMap[sourceTaskId] ?? [], viewer, sourceTaskId);
       const canPost = this.taskAttachmentsMutable(task) && Boolean(
         viewer?.canEditAttachments || isTaskParticipant(task, viewer?.userId, viewer?.userName),
       );
@@ -6313,7 +6305,7 @@ export class ResearchDevelopmentService {
       for (const scoped of scopedTasks) {
         if (!scoped.taskId) continue;
         if (scope && (!scoped.task || !canReadRdTask(scoped.task, scope))) continue;
-        const allNotes = noteMap[scoped.taskId] ?? [];
+        const allNotes = (noteMap[scoped.taskId] ?? []).map((note): JsonRecord => ({ ...note, task_id: scoped.taskId }));
         if (!viewer?.hasFullAccess && !viewer?.canReadAll) {
           if (!scoped.task || !isTaskParticipant(scoped.task, viewer?.userId, viewer?.userName)) {
             visibleNotes.push(
@@ -6355,6 +6347,7 @@ export class ResearchDevelopmentService {
         );
         return {
           id: String(decorated.id ?? ''),
+          task_id: ownerTaskId,
           name: String(decorated.name ?? ''),
           mime: String(decorated.mime ?? 'application/octet-stream'),
           size: typeof decorated.size === 'number' ? decorated.size : 0,
@@ -6432,9 +6425,10 @@ export class ResearchDevelopmentService {
           scopedTask,
           noteMap[cleanText(scopedTask.task_id)] ?? [],
           viewer,
+          cleanText(scopedTask.task_id),
         ))
       // 任务不在任务池（历史/镜像数据）时退回单任务，与改动前行为一致
-      : this.visibleTaskProgressNotes(null, noteMap[taskId] ?? [], viewer)
+      : this.visibleTaskProgressNotes(null, noteMap[taskId] ?? [], viewer, taskId)
     ).sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)));
     // 附件已在 visibleTaskProgressNotes → decorateNotesWithPreview 里按所属留痕装饰过
     // （含内嵌附件的同源内联地址），这里直接取用，不重复装饰。
@@ -6443,6 +6437,7 @@ export class ResearchDevelopmentService {
     );
     const attachments = allAttachments.map((attachment) => ({
       id: String(attachment.id ?? ''),
+      ...(cleanText(attachment.task_id) ? { task_id: cleanText(attachment.task_id) } : {}),
       name: String(attachment.name ?? ''),
       mime: String(attachment.mime ?? 'application/octet-stream'),
       size: typeof attachment.size === 'number' ? attachment.size : 0,
@@ -6475,7 +6470,7 @@ export class ResearchDevelopmentService {
     // 管理权限或只读跨部门查看权（rd-task:view-all）均可看到全部留痕与附件。
     if (viewer?.hasFullAccess || viewer?.canReadAll) {
       const out: Record<string, JsonRecord[]> = {};
-      for (const [taskId, notes] of Object.entries(map)) out[taskId] = this.decorateNotesWithPreview(notes);
+      for (const [taskId, notes] of Object.entries(map)) out[taskId] = this.decorateNotesWithPreview(notes, taskId);
       return out;
     }
     const userId = viewer?.userId;
@@ -6486,7 +6481,7 @@ export class ResearchDevelopmentService {
         const actor = isRecord(note.actor) ? note.actor : null;
         return Boolean(actor && actor.id === userId);
       });
-      if (own.length > 0) filtered[taskId] = this.decorateNotesWithPreview(own);
+      if (own.length > 0) filtered[taskId] = this.decorateNotesWithPreview(own, taskId);
     }
     return filtered;
   }
@@ -13135,14 +13130,14 @@ export class ResearchDevelopmentService {
 
   /**
    * 读取研发数据表工作簿快照（page:rd-sheet 只读 / rd-sheet:edit 可编辑，均拿全量；已无行级密级）。
-   * 新格式直接返回；旧扁平格式按值迁移成快照（不落库，下次保存才以新格式写回）。
+   * 新格式只在响应副本中续签图片；旧扁平格式按值迁移成快照（不落库，下次保存才写回）。
    */
   async getSheetWorkbook(): Promise<{ snapshot: JsonRecord; updated_at: string; updated_by: string | null }> {
     const raw = await this.readValue('rd.sheets');
     if (isRecord(raw) && isRecord((raw as JsonRecord).snapshot)) {
       const rec = raw as JsonRecord;
       return {
-        snapshot: rec.snapshot as JsonRecord,
+        snapshot: this.resolveSheetWorkbookImageSources(rec.snapshot as JsonRecord, 'read'),
         updated_at: cleanText(rec.updated_at) || new Date().toISOString(),
         updated_by: cleanText(rec.updated_by) || null,
       };
@@ -13184,7 +13179,8 @@ export class ResearchDevelopmentService {
     const updated_at = new Date().toISOString();
     const updated_by = cleanText(editor?.id) || null;
     const updated_by_name = cleanText(editor?.name) || null;
-    await this.writeValue('rd.sheets', { snapshot, updated_at, updated_by, updated_by_name });
+    const storedSnapshot = this.resolveSheetWorkbookImageSources(snapshot, 'store');
+    await this.writeValue('rd.sheets', { snapshot: storedSnapshot, updated_at, updated_by, updated_by_name });
 
     // 历史留档尽力而为：失败绝不能反过来阻塞保存本身
     if (prev) {
@@ -13209,14 +13205,17 @@ export class ResearchDevelopmentService {
   }
 
   private async pushSheetWorkbookHistory(prev: JsonRecord): Promise<void> {
-    const serialized = JSON.stringify(prev);
+    const stored = isRecord(prev.snapshot)
+      ? { ...prev, snapshot: this.resolveSheetWorkbookImageSources(prev.snapshot, 'store') }
+      : prev;
+    const serialized = JSON.stringify(stored);
     if (serialized.length > ResearchDevelopmentService.RD_SHEET_HISTORY_MAX_BYTES) {
       this.logger.warn(`研发数据表历史留档跳过：快照 ${Math.round(serialized.length / 1024 / 1024)}MB 超过上限（请先执行图片出仓）`);
       return;
     }
     const at = cleanText(prev.updated_at) || new Date().toISOString();
     const key = this.sheetHistoryPrefix() + at;
-    const value = { ...prev, size_bytes: serialized.length };
+    const value = { ...stored, size_bytes: serialized.length };
     await this.prisma.systemSetting.upsert({
       where: { key },
       create: { category: CATEGORY, key, value: value as any, description: 'R&D sheet workbook history' },
@@ -13289,13 +13288,17 @@ export class ResearchDevelopmentService {
   // ─── 研发数据表：图片资产出仓（base64 → OSS，快照瘦身核心）──────────────────────
 
   private static readonly RD_SHEET_ASSET_BUSINESS = 'rd-sheet-assets';
-  /** 资产内容不可变、快照长期引用 → 能力 URL 签 10 年（signPreviewToken 按天对齐保持稳定）。 */
+  /** 未配置 CDN 时保留原有同源能力 URL 有效期；持久化快照只存对象引用。 */
   private static readonly RD_SHEET_ASSET_EXPIRES_SECONDS = 10 * 365 * 24 * 3600;
 
-  /** 数据表资产的同源能力 URL（HMAC 防伪，<img> 可直接加载，无需 Authorization 头）。 */
-  buildSheetAssetUrl(objectKey: string): string {
-    const cdnUrl = this.ossService.getCdnReadUrl(objectKey, undefined, 'inline');
+  /** 数据表图片响应 URL：优先现签 CDN，未配置时保留同源 HMAC 预览。 */
+  buildSheetAssetUrl(objectKey: string, process?: string): string {
+    const cdnUrl = this.ossService.getCdnReadUrl(objectKey, process, 'inline');
     if (cdnUrl) return cdnUrl;
+    if (process) {
+      const previewUrl = this.ossService.buildInlinePreviewUrl(objectKey, process);
+      if (previewUrl) return previewUrl;
+    }
     const { exp, sig } = this.ossService.signPreviewToken(
       objectKey,
       ResearchDevelopmentService.RD_SHEET_ASSET_EXPIRES_SECONDS,
@@ -13303,9 +13306,103 @@ export class ResearchDevelopmentService {
     return `/api/research-development/sheet-workbook/assets?key=${encodeURIComponent(objectKey)}&exp=${exp}&sig=${sig}`;
   }
 
+  /**
+   * 仅转换 Univer 图源：存储稳定对象引用，读取时续签，避免把短效 CDN URL 永久写进快照。
+   * 普通单元格字符串、外部图片、其他业务资产及无法解析的资源保持原样；读取不写库。
+   */
+  private resolveSheetWorkbookImageSources(snapshot: JsonRecord, mode: 'read' | 'store'): JsonRecord {
+    const result = this.cloneCachedValue(snapshot);
+    const visit = (node: unknown): boolean => {
+      if (!node || typeof node !== 'object') return false;
+      let changed = false;
+      if (Array.isArray(node)) {
+        for (const value of node) changed = visit(value) || changed;
+        return changed;
+      }
+      const record = node as JsonRecord;
+      if (typeof record.source === 'string' && typeof record.imageSourceType === 'string') {
+        const target = this.ossService.resolveManagedReadSource(record.source);
+        if (target && this.isSheetAssetKey(target.objectKey)) {
+          const nextSource = mode === 'read'
+            ? this.buildSheetAssetUrl(target.objectKey, target.process)
+            : target.process
+              ? `/api/research-development/sheet-workbook/assets?${new URLSearchParams({ key: target.objectKey, process: target.process }).toString()}`
+              : target.objectKey;
+          if (record.source !== nextSource) {
+            record.source = nextSource;
+            changed = true;
+          }
+        }
+      }
+      for (const value of Object.values(record)) changed = visit(value) || changed;
+      return changed;
+    };
+
+    visit(result);
+    // Univer 浮动图保存在 resources[].data 的 JSON 字符串内；无变化时保留原始字符串。
+    for (const resource of asArray(result.resources)) {
+      if (!isRecord(resource) || typeof resource.data !== 'string' || !resource.data.includes('imageSourceType')) continue;
+      try {
+        const parsed: unknown = JSON.parse(resource.data);
+        if (visit(parsed)) resource.data = JSON.stringify(parsed);
+      } catch {
+        // 无法解析的第三方资源不能阻止整个工作簿读写。
+      }
+    }
+    return result;
+  }
+
   /** 校验资产 key 落在数据表资产前缀下（防止能力 URL 被用于读取桶内其他对象）。 */
   isSheetAssetKey(objectKey: string): boolean {
     return this.ossService.isKeyUnderBusinessType(objectKey, ResearchDevelopmentService.RD_SHEET_ASSET_BUSINESS);
+  }
+
+  /** 已鉴权的数据表查看者只可续签当前快照引用的图片，或仍持有有效同源资产能力的图片。 */
+  async renewSheetAssetUrls(sources: unknown): Promise<Array<{ source: string; url: string; expires_in: number }>> {
+    if (!Array.isArray(sources) || sources.length > 100 || sources.some((source) => typeof source !== 'string' || source.length > 4096)) {
+      throw new BadRequestException('每次最多续签 100 张数据表图片');
+    }
+    const referenced = new Set<string>();
+    const collect = (node: unknown): void => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) { node.forEach(collect); return; }
+      const record = node as JsonRecord;
+      if (typeof record.source === 'string' && typeof record.imageSourceType === 'string') {
+        const target = this.ossService.resolveManagedReadSource(record.source);
+        if (target && this.isSheetAssetKey(target.objectKey)) referenced.add(target.objectKey);
+      }
+      for (const value of Object.values(record)) collect(value);
+    };
+    const stored = await this.readValue('rd.sheets');
+    const snapshot = isRecord(stored) && isRecord(stored.snapshot) ? stored.snapshot : null;
+    if (snapshot) {
+      collect(snapshot);
+      for (const resource of asArray(snapshot.resources)) {
+        if (!isRecord(resource) || typeof resource.data !== 'string' || !resource.data.includes('imageSourceType')) continue;
+        try { collect(JSON.parse(resource.data)); } catch { /* 保留其他插件的不透明资源。 */ }
+      }
+    }
+    const result: Array<{ source: string; url: string; expires_in: number }> = [];
+    for (const source of new Set(sources as string[])) {
+      const target = this.ossService.resolveManagedReadSource(source);
+      if (!target || !this.isSheetAssetKey(target.objectKey)) continue;
+      let authorized = referenced.has(target.objectKey);
+      if (!authorized && source.startsWith('/api/research-development/')) {
+        const original = new URL(source, 'https://sheet.invalid');
+        const subject = original.pathname.endsWith('/oss-preview') && target.process
+          ? `${target.objectKey}|process:${target.process}` : target.objectKey;
+        authorized = this.ossService.verifyPreviewToken(subject, Number(original.searchParams.get('exp')), original.searchParams.get('sig') ?? '');
+      }
+      if (!authorized) continue;
+      const url = this.buildSheetAssetUrl(target.objectKey, target.process);
+      const params = new URL(url, 'https://sheet.invalid').searchParams;
+      const read = this.ossService.getReadUrl(source, 600, target.process);
+      const proxyExpiry = Number(params.get('exp'));
+      const expiresIn = proxyExpiry > 0 ? proxyExpiry - Math.floor(Date.now() / 1000) : read?.expiresIn;
+      if (expiresIn === undefined || expiresIn <= 0) continue;
+      result.push({ source, url, expires_in: expiresIn });
+    }
+    return result;
   }
 
   /** 资产 MIME 白名单：排除 SVG 等可执行内容——资产 GET 是同源公开端点，SVG 内嵌脚本会构成存储型 XSS。 */
@@ -13364,7 +13461,7 @@ export class ResearchDevelopmentService {
 
   /**
    * 存量快照图片出仓（管理员一次性操作）：把当前已存储快照里的 base64 图片上传 OSS、
-   * 替换为资产 URL 后重新落库。上线后调用一次，旧数据立即瘦身，不必等编辑者重新保存。
+   * 替换为资产引用后重新落库。上线后调用一次，旧数据立即瘦身，不必等编辑者重新保存。
    * 单张失败保留 base64（不影响功能），可重复调用直至 failed=0。
    */
   async extractSheetWorkbookAssets(

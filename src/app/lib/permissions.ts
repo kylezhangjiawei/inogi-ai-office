@@ -30,6 +30,7 @@ export const PERMISSIONS = {
   PAGE_INSPECTION_RELEASE: 'page:inspection-release',
   PAGE_BUG_LOG: 'page:bug-log',
   PAGE_CONTRACT_REVIEW: 'page:contract-review',
+  PAGE_ELECTRONIC_GATE: 'page:electronic-gate',
   PAGE_MAILBOX_MANAGEMENT: 'page:mailbox-management',
   PAGE_AI_MODEL_MANAGEMENT: 'page:ai-model-management',
   PAGE_CHAT_ANALYTICS: 'page:chat-analytics',

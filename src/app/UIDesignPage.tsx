@@ -55,6 +55,7 @@ import {
   getTodayBounds,
   ImageEditModal,
   ImagePreviewModal,
+  RenewableGeneratedImage,
   MAX_PROMPT_LENGTH,
   MAX_REFERENCE_IMAGES,
   MAX_UPSTREAM_REFERENCE_IMAGE_BYTES,
@@ -132,8 +133,8 @@ function ChatTurn({
             onClick={() => onPreview(item)}
             className="group relative block w-full cursor-zoom-in overflow-hidden bg-slate-100"
           >
-            <img
-              src={item.thumbnailUrl || item.imageUrl || item.imageData}
+            <RenewableGeneratedImage
+              item={item}
               loading="lazy"
               decoding="async"
               alt={item.prompt}
@@ -790,8 +791,8 @@ export function UIDesignPage() {
               </div>
               {composerMode === "edit" && latestImage ? (
                 <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border bg-surface-container-low py-0.5 pl-0.5 pr-2.5 text-[11px] font-semibold text-slate-500">
-                  <img
-                    src={latestImage.imageUrl || latestImage.imageData}
+                  <RenewableGeneratedImage
+                    item={latestImage}
                     alt="上一张作品"
                     className="h-5 w-5 shrink-0 rounded-full object-cover"
                   />

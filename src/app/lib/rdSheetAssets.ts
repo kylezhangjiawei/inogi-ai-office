@@ -9,9 +9,170 @@
  * OSS 未配置时服务端返回 oss_disabled，本次直接整体跳过，不再逐张浪费上传。
  */
 import { uploadRdSheetAsset } from "./rdApi";
+import type { RdSheetAssetRenewal } from "./rdApi";
 
 /** Univer 图片对象的最小形状：同时具备 source(dataURL) 与 imageSourceType 才视为图源持有者。 */
 type ImageHolder = { source: string; imageSourceType: string };
+
+/** Only image-holder fields are visited; ordinary cell strings and external resource payloads are opaque. */
+export function replaceSheetImageSources(node: unknown, replacements: ReadonlyMap<string, string>): number {
+  if (!node || typeof node !== "object") return 0;
+  if (Array.isArray(node)) return node.reduce((count, value) => count + replaceSheetImageSources(value, replacements), 0);
+  const record = node as Record<string, unknown>;
+  let changed = 0;
+  if (typeof record.source === "string" && typeof record.imageSourceType === "string") {
+    const replacement = replacements.get(record.source);
+    if (replacement && replacement !== record.source) { record.source = replacement; changed += 1; }
+  }
+  for (const value of Object.values(record)) changed += replaceSheetImageSources(value, replacements);
+  return changed;
+}
+
+export function collectSheetImageSources(snapshot: unknown): string[] {
+  const sources = new Set<string>();
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) { node.forEach(visit); return; }
+    const record = node as Record<string, unknown>;
+    if (typeof record.source === "string" && typeof record.imageSourceType === "string" &&
+      !/^(data:|blob:)/i.test(record.source) && record.source.length <= 4096) sources.add(record.source);
+    for (const value of Object.values(record)) visit(value);
+  };
+  visit(snapshot);
+  const resources = (snapshot as { resources?: unknown[] } | null)?.resources;
+  for (const resource of Array.isArray(resources) ? resources : []) {
+    const data = (resource as { data?: unknown } | null)?.data;
+    if (typeof data === "string" && data.includes("imageSourceType")) {
+      try { visit(JSON.parse(data)); } catch { /* Unrelated plugin payload. */ }
+    }
+  }
+  return [...sources];
+}
+
+export type SheetAssetEditor = {
+  getImageSources: () => string[];
+  applyImageSources: (replacements: ReadonlyMap<string, string>) => boolean;
+};
+
+/** Univer 0.25: use local mutations, so URL maintenance neither creates undo entries nor resets selections. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function applyUniverImageSources(api: any, drawingService: any, replacements: ReadonlyMap<string, string>): boolean {
+  const workbook = api?.getActiveWorkbook?.();
+  if (!workbook || workbook.isCellEditing?.()) return false;
+  const unitId = workbook.getId();
+  const snapshot = workbook.save();
+  let success = true;
+  for (const [subUnitId, sheet] of Object.entries(snapshot.sheets ?? {})) {
+    const cellValue: Record<string, Record<string, unknown>> = {};
+    // Only the current cell's document is patched; values, formulas, styles, row heights and current edits survive.
+    for (const [row, cells] of Object.entries((sheet as { cellData?: Record<string, Record<string, unknown>> }).cellData ?? {})) {
+      for (const [column, cell] of Object.entries(cells)) {
+        const document = (cell as { p?: unknown } | null)?.p;
+        if (!document) continue;
+        const copied = JSON.parse(JSON.stringify(document));
+        if (replaceSheetImageSources(copied, replacements)) (cellValue[row] ??= {})[column] = { p: copied };
+      }
+    }
+    if (Object.keys(cellValue).length) success = api.syncExecuteCommand("sheet.mutation.set-range-values", {
+      unitId, subUnitId, cellValue, trigger: "rd-sheet-assets.renew",
+    }, { onlyLocal: true }) !== false && success;
+  }
+  const drawings = drawingService?.getDrawingDataForUnit(unitId) ?? {};
+  for (const entry of Object.values(drawings)) {
+    const changed = [];
+    for (const drawing of Object.values((entry as { data?: Record<string, unknown> }).data ?? {})) {
+      const copied = JSON.parse(JSON.stringify(drawing));
+      if (replaceSheetImageSources(copied, replacements)) changed.push(copied);
+    }
+    if (!changed.length) continue;
+    const operation = drawingService.getBatchUpdateOp(changed);
+    success = api.syncExecuteCommand("sheet.mutation.set-drawing-apply", {
+      unitId: operation.unitId, subUnitId: operation.subUnitId, op: operation.redo, objects: operation.objects, type: 2,
+    }, { onlyLocal: true }) !== false && success;
+  }
+  return success;
+}
+
+type RenewalEnvironment = {
+  now: () => number;
+  hidden: () => boolean;
+  setTimer: (callback: () => void, delay: number) => ReturnType<typeof setTimeout>;
+  clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
+  onVisible: (callback: () => void) => () => void;
+};
+
+/** One bounded renewal loop per mounted editor. It only patches current sources, never reloads workbook data. */
+export function startSheetAssetRenewal(options: {
+  getEditor: () => SheetAssetEditor | null;
+  renew: (sources: string[], signal: AbortSignal) => Promise<RdSheetAssetRenewal[]>;
+  onFailure: () => void;
+}, env: RenewalEnvironment = {
+  now: Date.now, hidden: () => document.hidden,
+  setTimer: (callback, delay) => setTimeout(callback, delay),
+  clearTimer: (timer) => clearTimeout(timer),
+  onVisible: (callback) => { document.addEventListener("visibilitychange", callback); return () => document.removeEventListener("visibilitychange", callback); },
+}): () => void {
+  let stopped = false;
+  let running = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let controller: AbortController | undefined;
+  const dueAt = new Map<string, number>();
+  const pending = new Map<string, string>();
+  const schedule = (delay = 60_000) => {
+    if (timer !== undefined) env.clearTimer(timer);
+    timer = undefined;
+    if (!stopped && !env.hidden()) timer = env.setTimer(() => { void run(); }, delay);
+  };
+  const run = async () => {
+    if (stopped || running || env.hidden()) return;
+    const editor = options.getEditor();
+    if (!editor) { schedule(1000); return; }
+    running = true;
+    controller = new AbortController();
+    try {
+      const sources = editor.getImageSources();
+      const current = new Set(sources);
+      for (const source of dueAt.keys()) if (!current.has(source)) dueAt.delete(source);
+      for (const source of pending.keys()) if (!current.has(source)) pending.delete(source);
+      if (pending.size && editor.applyImageSources(pending)) pending.clear();
+      const due = sources.filter((source) => !pending.has(source) && (dueAt.get(source) ?? 0) <= env.now()).slice(0, 1000);
+      for (let offset = 0; offset < due.length; offset += 100) {
+        if (stopped || env.hidden()) break;
+        const batch = due.slice(offset, offset + 100);
+        const results = await options.renew(batch, controller.signal);
+        if (stopped || options.getEditor() !== editor) return;
+        // Rejected/unmanaged references are left alone and retried only after a bounded cooldown.
+        for (const source of batch) dueAt.set(source, env.now() + 10 * 60_000);
+        for (const item of results) {
+          if (!batch.includes(item.source) || !item.url || !Number.isFinite(item.expires_in) || item.expires_in <= 0) continue;
+          const nextDue = env.now() + Math.max(30_000, item.expires_in * 1000 - 120_000);
+          dueAt.set(item.source, nextDue);
+          dueAt.set(item.url, nextDue);
+          pending.set(item.source, item.url);
+        }
+        if (pending.size && !env.hidden() && editor.applyImageSources(pending)) pending.clear();
+      }
+    } catch {
+      if (!stopped && !controller.signal.aborted) options.onFailure();
+    } finally {
+      running = false;
+      controller = undefined;
+      schedule();
+    }
+  };
+  const removeVisibility = env.onVisible(() => {
+    if (env.hidden()) { if (timer !== undefined) env.clearTimer(timer); timer = undefined; }
+    else if (!running) schedule(0);
+  });
+  schedule(0);
+  return () => {
+    stopped = true;
+    controller?.abort();
+    if (timer !== undefined) env.clearTimer(timer);
+    removeVisibility();
+    dueAt.clear(); pending.clear();
+  };
+}
 
 export type RdSheetAssetStats = {
   /** 快照中发现的 base64 图片总数（按去重后的唯一图源计） */

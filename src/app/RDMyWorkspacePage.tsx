@@ -53,6 +53,8 @@ import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 import { MateChatStreakCardConnected } from "./components/matechat/MateChatStreakCardConnected";
 import { RdCategoryTaskTable } from "./components/RdCategoryTaskTable";
+import { RenewableImage } from "./components/RenewableImage";
+import { refreshRdAttachment } from "./lib/attachmentAccess";
 import { usePermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
@@ -4023,7 +4025,9 @@ function WorkspaceTaskCard({
                   className="h-12 w-[68px] shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
                   title={attachment.name}
                 >
-                  <img
+                  <RenewableImage
+                    resourceKey={`rd-thumb:${attachment.task_id}:${attachment.id}`}
+                    refresh={attachment.task_id ? async () => getAttachmentThumbUrl(await refreshRdAttachment(attachment)) : undefined}
                     src={getAttachmentThumbUrl(attachment)}
                     alt={attachment.name}
                     className="h-full w-full object-cover"

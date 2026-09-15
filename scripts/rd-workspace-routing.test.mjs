@@ -20,6 +20,7 @@ function fixture(overrides = {}, pathname = '/rd-task-management') {
     'src/app/lib/authSession.ts': {
       authFetch: async (path, init) => { requests.push({ path, init }); return Response.json(response); },
       readErrorMessage: async () => 'request failed',
+      addAuthClearedListener: () => () => {},
     },
     'src/app/lib/resourceImage.ts': {},
   };

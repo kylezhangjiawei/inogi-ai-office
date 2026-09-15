@@ -19,13 +19,14 @@ import {
 import type { IColorPickerProps } from "@univerjs/preset-sheets-core";
 import sheetsCoreZhCN from "@univerjs/preset-sheets-core/locales/zh-CN";
 import sheetsCoreEnUS from "@univerjs/preset-sheets-core/locales/en-US";
-import { UniverSheetsDrawingPreset } from "@univerjs/preset-sheets-drawing";
+import { ISheetDrawingService, UniverSheetsDrawingPreset } from "@univerjs/preset-sheets-drawing";
 import sheetsDrawingZhCN from "@univerjs/preset-sheets-drawing/locales/zh-CN";
 import sheetsDrawingEnUS from "@univerjs/preset-sheets-drawing/locales/en-US";
 import "@univerjs/preset-sheets-core/lib/index.css";
 import "@univerjs/preset-sheets-drawing/lib/index.css";
 import type { IWorkbookData, Univer, FUniver } from "@univerjs/presets";
 import { RDSheetRecentColorPicker } from "./RDSheetRecentColorPicker";
+import { applyUniverImageSources, collectSheetImageSources } from "./lib/rdSheetAssets";
 
 /**
  * 研发数据表 · Univer Sheets 编辑器（B2：直接装载/保存 IWorkbookData 快照，无行级密级）。
@@ -38,6 +39,8 @@ import { RDSheetRecentColorPicker } from "./RDSheetRecentColorPicker";
 export type RDSheetUniverHandle = {
   /** 取当前工作簿快照（保存用）。 */
   getSnapshot: () => IWorkbookData | null;
+  getImageSources: () => string[];
+  applyImageSources: (replacements: ReadonlyMap<string, string>) => boolean;
   /** 提交飞行中编辑（保存前调用，避免正在输入的内容被丢弃）。 */
   commitPendingEdit: () => Promise<void>;
   /**
@@ -79,10 +82,23 @@ export const RDSheetUniver = forwardRef<RDSheetUniverHandle, Props>(function RDS
   // Univer 暂无无损热切换语言入口；固定本次装载语言，避免切换全站语言时重建编辑器并丢失未保存修改。
   const initialLangRef = useRef(lang);
   const loadedRef = useRef(false);
+  const renewingImagesRef = useRef(false);
 
   useImperativeHandle(
     ref,
     () => ({
+      getImageSources: () => collectSheetImageSources(apiRef.current?.getActiveWorkbook()?.save()),
+      applyImageSources: (replacements) => {
+        if (!apiRef.current || !loadedRef.current) return false;
+        renewingImagesRef.current = true;
+        try {
+          // The drawing preset exports its service identifier; use the editor's existing injector instance.
+          const api = apiRef.current as FUniver & { _injector: { get: (id: unknown) => unknown } };
+          return applyUniverImageSources(api, api._injector.get(ISheetDrawingService), replacements);
+        } finally {
+          renewingImagesRef.current = false;
+        }
+      },
       getSnapshot: () => {
         try {
           const wb = apiRef.current?.getActiveWorkbook();
@@ -320,7 +336,7 @@ export const RDSheetUniver = forwardRef<RDSheetUniverHandle, Props>(function RDS
     let disposable: { dispose?: () => void } | null = null;
     try {
       disposable = univerAPI.addEvent(univerAPI.Event.SheetValueChanged, () => {
-        if (loadedRef.current) onDirtyRef.current?.();
+        if (loadedRef.current && !renewingImagesRef.current) onDirtyRef.current?.();
       });
     } catch {
       disposable = null;

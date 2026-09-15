@@ -2,7 +2,9 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 
@@ -15,6 +17,7 @@ import {
   SIGNED_URL_TTL_SECONDS,
 } from '../oss/oss.constants';
 import { AbortFileUploadDto, PresignFileUploadDto, RegisterFileUploadDto } from './dto/direct-file-upload.dto';
+import { FileAccessFailureDto } from './dto/file-access-failure.dto';
 
 type UploadedFile = {
   originalname: string;
@@ -39,11 +42,38 @@ type FileAssetResult = {
 @Injectable()
 export class FilesService {
   private static readonly DIRECT_UPLOAD_CACHE_CONTROL = 'private, max-age=31536000, immutable';
+  private static readonly ACCESS_FAILURE_WINDOW_MS = 60_000;
+  private static readonly ACCESS_FAILURE_MAX_WINDOWS = 10_000;
+  private readonly logger = new Logger(FilesService.name);
+  private readonly accessFailureWindows = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly ossService: OssService,
   ) {}
+
+  reportAccessFailure(userId: string, dto: FileAccessFailureDto): void {
+    if (!userId) throw new UnauthorizedException();
+    const now = Date.now();
+    const key = JSON.stringify([userId, dto.stage]);
+    const windowEnd = this.accessFailureWindows.get(key);
+    if (windowEnd !== undefined && windowEnd > now) return;
+
+    if (this.accessFailureWindows.size >= FilesService.ACCESS_FAILURE_MAX_WINDOWS) {
+      for (const [existingKey, expiresAt] of this.accessFailureWindows) {
+        if (expiresAt <= now) this.accessFailureWindows.delete(existingKey);
+      }
+      // Keep active limits when full; evicting them would let an image storm reset its quota.
+      if (this.accessFailureWindows.size >= FilesService.ACCESS_FAILURE_MAX_WINDOWS) return;
+    }
+    this.accessFailureWindows.set(key, now + FilesService.ACCESS_FAILURE_WINDOW_MS);
+    // Never pass the request, resource URL, or a client-supplied error message to the logger.
+    this.logger.warn({
+      event: 'file_access_failure',
+      stage: dto.stage,
+      ...(dto.status === undefined ? {} : { status: dto.status }),
+    });
+  }
 
   async uploadFile(
     userId: string,
@@ -179,15 +209,15 @@ export class FilesService {
     const asset = await this.findActiveAsset(fileId);
     this.checkOwnership(asset.uploadedBy, userId);
 
-    const signedUrl = this.ossService.getSignedUrl(asset.objectKey, SIGNED_URL_TTL_SECONDS.DEFAULT);
-    if (!signedUrl) {
+    const readUrl = this.ossService.getReadUrl(asset.objectKey, SIGNED_URL_TTL_SECONDS.DEFAULT);
+    if (!readUrl) {
       throw new BadRequestException('OSS 未配置，无法生成访问链接');
     }
 
     return {
       fileId: asset.id,
-      signedUrl,
-      expiresIn: SIGNED_URL_TTL_SECONDS.DEFAULT,
+      signedUrl: readUrl.url,
+      expiresIn: readUrl.expiresIn,
     };
   }
 
@@ -204,14 +234,15 @@ export class FilesService {
   }
 
   private buildUploadResult(asset: FileAssetResult) {
+    const readUrl = this.ossService.getReadUrl(asset.objectKey, SIGNED_URL_TTL_SECONDS.DEFAULT);
     return {
       fileId: asset.id,
       objectKey: asset.objectKey,
       fileName: asset.fileName,
       mimeType: asset.mimeType,
       fileSize: asset.fileSize,
-      signedUrl: this.ossService.getSignedUrl(asset.objectKey, SIGNED_URL_TTL_SECONDS.DEFAULT),
-      expiresIn: SIGNED_URL_TTL_SECONDS.DEFAULT,
+      signedUrl: readUrl?.url ?? null,
+      expiresIn: readUrl?.expiresIn ?? 0,
     };
   }
 

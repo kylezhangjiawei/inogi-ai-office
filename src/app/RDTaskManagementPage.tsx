@@ -61,6 +61,9 @@ import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 import { inferAttachmentMime } from "./components/AttachmentPreviewDialog";
 import { MobileZoomableImage } from "./components/MobileZoomableImage";
+import { RenewableImage } from "./components/RenewableImage";
+import { refreshRdAttachment } from "./lib/attachmentAccess";
+import { useRenewableResource } from "./lib/useRenewableResource";
 import { formatTraceDateTime } from "./RDProgressEvidence";
 import { CollapseTransition } from "./components/CollapseTransition";
 import { useAuth } from "./auth";
@@ -6666,6 +6669,13 @@ function ImageGallery({
   const [idx, setIdx] = useState(startIndex);
   const thumbnailStripRef = useRef<HTMLDivElement>(null);
   const shouldReduceMotion = useReducedMotion();
+  const current = images[idx];
+  const resource = useRenewableResource({
+    src: getAttachmentUrl(current),
+    resourceKey: `rd-original:${current.task_id}:${current.id}`,
+    refresh: current.task_id ? async () => getAttachmentUrl(await refreshRdAttachment(current)) : undefined,
+    refreshOnMount: true,
+  });
 
   const prev = useCallback(() => setIdx((i) => (i - 1 + images.length) % images.length), [images.length]);
   const next = useCallback(() => setIdx((i) => (i + 1) % images.length), [images.length]);
@@ -6743,14 +6753,20 @@ function ImageGallery({
           className="h-[78vh] w-[82vw] max-w-full"
           onClick={(e) => e.stopPropagation()}
         >
-          <MobileZoomableImage
-            src={getAttachmentUrl(images[idx])}
-            alt={images[idx].name}
+          {resource.failed ? (
+            <div role="alert" className="flex h-full items-center justify-center text-sm text-white/80">{t("图片加载失败")}</div>
+          ) : resource.src ? <MobileZoomableImage
+            src={resource.src}
+            alt={current.name}
             className="h-full w-full"
             imageClassName="rounded-2xl shadow-2xl"
             controlsClassName={images.length > 1 ? "!bottom-20" : undefined}
             stopPropagation={false}
-          />
+            onLoad={resource.onLoad}
+            onError={resource.onError}
+          /> : (
+            <div role="status" aria-label={t("正在加载图片")} className="flex h-full items-center justify-center text-white/80"><Loader2 className="h-6 w-6 animate-spin" /></div>
+          )}
         </motion.div>
       </AnimatePresence>
 
@@ -6797,7 +6813,11 @@ function ImageGallery({
                 i === idx ? "border-white" : "border-white/20 opacity-60 hover:opacity-100",
               )}
             >
-              <img src={getAttachmentThumbUrl(img)} alt="" className="h-full w-full object-contain" loading="lazy" decoding="async" />
+              <RenewableImage
+                resourceKey={`rd-thumb:${img.task_id}:${img.id}`}
+                refresh={img.task_id ? async () => getAttachmentThumbUrl(await refreshRdAttachment(img)) : undefined}
+                src={getAttachmentThumbUrl(img)} alt="" className="h-full w-full object-contain" loading="lazy" decoding="async"
+              />
               <span className="absolute bottom-0 right-0 rounded-tl bg-black/70 px-1 text-[10px] leading-4 tabular-nums text-white">{i + 1}</span>
             </button>
           ))}
@@ -6841,7 +6861,9 @@ function TaskAttachmentStrip({
             onClick={(e) => { e.stopPropagation(); onOpenGallery(imageIndex); }}
             title={img.name}
           >
-            <img
+            <RenewableImage
+              resourceKey={`rd-thumb:${img.task_id}:${img.id}`}
+              refresh={img.task_id ? async () => getAttachmentThumbUrl(await refreshRdAttachment(img)) : undefined}
               src={getAttachmentThumbUrl(img)}
               alt={img.name}
               className="h-full w-full object-cover transition-transform duration-300 group-hover/att:scale-[1.04]"

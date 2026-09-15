@@ -7,6 +7,7 @@
 import * as React from "react";
 import {
   Archive,
+  AlertCircle,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -86,8 +87,8 @@ function InitialAvatar({ name, src, className }: { name: string; src?: string | 
 // ────────────────────────────────────────────────────────────────────────────
 // 概览统计带
 // ────────────────────────────────────────────────────────────────────────────
-function StatsBand({ stats }: { stats: IssueStats | null }) {
-  const loadingNote = t("正在读取统计数据");
+function StatsBand({ stats, error }: { stats: IssueStats | null; error: string | null }) {
+  const loadingNote = error ? t("统计数据暂不可用") : t("正在读取统计数据");
   const reusePct = stats ? Math.round(stats.reuseRate * 100) : null;
   const avg = stats?.avgLocateHours;
   const avgStr = avg == null ? null : Number.isInteger(avg) ? String(avg) : avg.toFixed(1);
@@ -366,6 +367,7 @@ export function ListView({
   const pageHeadingRef = React.useRef<HTMLSpanElement | null>(null);
   const restoredIssueIdRef = React.useRef<string | null>(null);
   const [stats, setStats] = React.useState<IssueStats | null>(null);
+  const [statsError, setStatsError] = React.useState<string | null>(null);
 
   const [query, setQuery] = React.useState<IssueQuery>({
     statusGroup: "all",
@@ -374,6 +376,7 @@ export function ListView({
   });
   const [paged, setPaged] = React.useState<Paged<Issue> | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [searchText, setSearchText] = React.useState("");
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const drawerOpenerRef = React.useRef<HTMLButtonElement | null>(null);
@@ -390,7 +393,10 @@ export function ListView({
 
   // 概览统计：初次加载 + 抽屉关闭后（可能新建）刷新。
   const loadAux = React.useCallback(() => {
-    void service.stats().then(setStats);
+    setStatsError(null);
+    void service.stats().then(setStats).catch((error: unknown) => {
+      setStatsError(error instanceof Error ? error.message : t("统计数据加载失败"));
+    });
   }, [service]);
 
   React.useEffect(() => {
@@ -401,11 +407,13 @@ export function ListView({
   React.useEffect(() => {
     let alive = true;
     setLoading(true);
+    setLoadError(null);
     void service.list(query).then((res) => {
-      if (alive) {
-        setPaged(res);
-        setLoading(false);
-      }
+      if (alive) setPaged(res);
+    }).catch((error: unknown) => {
+      if (alive) setLoadError(error instanceof Error ? error.message : t("问题记录加载失败"));
+    }).finally(() => {
+      if (alive) setLoading(false);
     });
     return () => {
       alive = false;
@@ -492,8 +500,16 @@ export function ListView({
       />
 
       {/* 1) 概览统计带 */}
-      <div className="shrink-0" aria-busy={!stats}>
-        <StatsBand stats={stats} />
+      <div className="shrink-0" aria-busy={!stats && !statsError}>
+        <StatsBand stats={stats} error={statsError} />
+        {statsError && (
+          <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-red-600">
+            <span>{t("统计数据加载失败：")}{statsError}</span>
+            <Button type="button" size="sm" variant="outline" onClick={loadAux}>
+              {t("重新加载统计")}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* 2) 工具栏 / 筛选 */}
@@ -575,7 +591,20 @@ export function ListView({
         data-view={isReusableView ? "reusable" : "issues"}
         aria-busy={loading}
       >
-        {loading && !paged ? (
+        {loadError ? (
+          <div className={cn(cardClass, "rd-horizon-issue-list-state")} role="alert">
+            <HorizonEmptyState
+              Icon={AlertCircle}
+              title={t("问题记录加载失败")}
+              description={loadError}
+              action={(
+                <Button type="button" size="sm" variant="outline" onClick={reloadList}>
+                  {t("重新加载列表")}
+                </Button>
+              )}
+            />
+          </div>
+        ) : loading && !paged ? (
           <div className={cn(cardClass, "rd-horizon-issue-list-state")} role="status" aria-live="polite">
             <HorizonEmptyState
               Icon={Database}

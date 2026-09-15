@@ -4,6 +4,7 @@ import { gzip } from 'node:zlib';
 
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { inspectionUploadBody } from './modules/device-inspection-records/device-inspection-upload-body';
 import { json, text, urlencoded, type NextFunction, type Request, type Response } from 'express';
 
 import { AppModule } from './app.module';
@@ -86,12 +87,15 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
   // The bundled Nginx forwards from loopback. Trust only configured proxy peers; direct clients cannot choose req.ip through XFF.
   app.getHttpAdapter().getInstance().set('trust proxy', trustedProxy);
+  // Stop background workers on deployment; durable leases let another instance resume.
+  app.enableShutdownHooks(['SIGINT', 'SIGTERM']);
   app.use(text({ type: ['text/*', 'application/xml', 'text/xml'], limit: '5mb' }));
   // 研发数据表会把高保真工作簿（含 base64 图片）作为 JSON 保存；当前线上快照
   // 已超过通用 25 MB 上限。仅对此路由放宽，避免扩大其他 JSON 接口的攻击面。
   app.use('/api/research-development/sheet-workbook', json({ limit: '50mb' }));
   // 大快照读取的下行提速（图片出仓后快照为纯文本，压缩率 5~10x）
   app.use('/api/research-development/sheet-workbook', gzipJsonResponses);
+  app.use('/api/factory-qc/records', inspectionUploadBody);
   app.use(json({ limit: '25mb' }));
   app.use(urlencoded({ extended: true, limit: '25mb' }));
   app.setGlobalPrefix('api');

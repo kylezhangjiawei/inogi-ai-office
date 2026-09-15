@@ -1,0 +1,38 @@
+{
+  "task": "AuditLogPage layout regression",
+  "date": "2026-09-08",
+  "fixture": "Real AuditLogPage and Header with Root-equivalent responsive shell; synthetic sidebar 224px; 60 local audit records; local filters, pagination, facets and stats",
+  "safety": "CSP blocks external resources. All non-GET/HEAD requests return 405. Unknown /api routes return local 404. No production calls or writes.",
+  "browser": "Chrome through CUA; simulated viewports",
+  "passed": [
+    "Default detail drawer closed, no automatic selection",
+    "1440x900: command 44px, metrics 72px, first row top 418.5px, ordinary rows 66.26px; seven complete rows visible",
+    "1920x900: seven complete rows visible; full width table 1640.67px; document width equals viewport",
+    "No nested vertical table short viewport: main scrollTop 1812.67 after pagination control interaction while table scrollTop remains zero",
+    "Chinese keyword filter changes total 60 to 30; reset returns 60",
+    "Advanced filters expand and collapse; desktop and mobile",
+    "Server pagination 1-25 -> 26-50 with first record QA-TASK-26",
+    "Drawer opens from summary and shows full actor name, 2026/09/08 16:34:56, comment, before/after changes and long metadata",
+    "Desktop drawer width 672px with no content horizontal overflow",
+    "Close restores focus to originating summary button",
+    "768x900: document width 768px, toolbar wraps within bounds; 928px table scrolls horizontally inside 720.67px container",
+    "390x900: document width 390px, table becomes record cards; keyword and advanced filters within bounds",
+    "390x900: advanced filter open state and 12 category/entity controls verified; width 318.67px",
+    "390x900: drawer width 390px, inner clientWidth and scrollWidth both 389px; close remains visible",
+    "Final mobile long-record regression: extreme first card 312.08px, ordinary card 298.58px; document width remains 390px",
+    "Final mobile drawer verified complete actor, full long identifier, complete before/after values, long metadata, and seconds timestamp; content overflow zero",
+    "Final mobile drawer Close restores focus to originating summary button"
+  ],
+  "observations": [
+    "Initial density issue was reported and fixed: before final CSS only 1-4 rows were visible; final version shows 7 on both desktop sizes",
+    "Screenshots were inspected directly through browser tool; no screenshot file was returned by the tool",
+    "Mobile list truncates extreme ID, actor, summary and comment while complete values remain available in detail; final 312px card height accepted by task owner"
+  ],
+  "notTested": [
+    "Physical mobile device and touch gestures",
+    "Every combination of module, date and advanced filters",
+    "Live server or production data"
+  ],
+  "cleanup": "Temporary local server stopped and dedicated tab closed; fixture retained"
+}
+

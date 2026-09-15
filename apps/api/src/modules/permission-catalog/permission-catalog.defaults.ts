@@ -184,6 +184,8 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:roles', label: '角色权限', description: '查看角色权限页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/roles', sortOrder: 950 },
   { code: 'page:route-management', label: '页面路由管理', description: '维护页面与按钮权限目录', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/route-management', sortOrder: 960 },
   { code: 'page:settings', label: '字典配置', description: '查看系统字典页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/settings', sortOrder: 970 },
+  { code: 'page:electronic-gate', label: '电子闸门', description: '独立维护出厂质检规则、人工确认、设备连接与返工指令配置，保存草稿并单项发布', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/electronic-gate', sortOrder: 975 },
+  { code: 'page:device-inspection-records', label: '设备检测记录', description: '查询Windows上传的不可变检测快照、异常证据及同设备历次检测', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/device-inspection-records', sortOrder: 976 },
   // ⚠️ 码名沿用 i18n:manage（而非 page: 前缀）：它已被 4 个后端接口的 @Permissions 和既有角色数据引用，
   // 改名会同时打断鉴权与存量授权。类型登记为 page —— 它守卫的就是 /i18n-management 这一整个页面。
   { code: 'i18n:manage', label: '翻译管理', description: '维护英文词条字典、导入导出翻译', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/i18n-management', sortOrder: 980 },

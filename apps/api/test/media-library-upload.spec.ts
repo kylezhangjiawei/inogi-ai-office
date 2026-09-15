@@ -16,6 +16,12 @@ function ossStub(overrides: Stub = {}): Stub {
     isKeyUnderBusinessType: (key: string, businessType: string) =>
       key.startsWith(`${OSS_PREFIX}/${businessType}/`),
     getSignedUrl: (key: string) => `https://oss.example.com/${key}?sig=x`,
+    getReadUrl: (key: string, expiresIn = 600, process?: string) => {
+      const url = new URL(`https://oss.example.com/${key}`);
+      url.searchParams.set('sig', 'x');
+      if (process) url.searchParams.set('x-oss-process', process);
+      return { url: url.toString(), expiresIn };
+    },
     deleteObject: async () => undefined,
     ...overrides,
   };

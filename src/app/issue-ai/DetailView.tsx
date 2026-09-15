@@ -35,7 +35,9 @@ import {
 import { cn } from "../components/ui/utils";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
-import { MobileImagePreviewLink } from "../components/MobileZoomableImage";
+import { AttachmentPreviewDialog, type PreviewableAttachment } from "../components/AttachmentPreviewDialog";
+import { useRenewableResource } from "../lib/useRenewableResource";
+import { refreshDraftIssueAttachment, refreshIssueAttachment } from "../lib/issue/attachmentAccess";
 import {
   DimensionChip,
   LikelihoodIndicator,
@@ -67,6 +69,17 @@ const muted = "text-slate-500";
 const INITIAL_CHAT_MESSAGES = 12;
 const CHAT_PAGE_SIZE = 12;
 const currentChatUser = { id: "current-user", name: "当前用户" };
+const IssueAttachmentAccess = React.createContext<{ issueId: string; read: (attachmentId: string) => Promise<Attachment> } | null>(null);
+
+function attachmentPreview(att: Attachment, refresh?: () => Promise<Attachment>): PreviewableAttachment {
+  return {
+    id: att.id,
+    name: att.fileName,
+    mime: att.fileType,
+    url: att.fileUrl,
+    refresh: refresh ? async () => attachmentPreview(await refresh(), refresh) : undefined,
+  };
+}
 
 function fmtTime(iso: string): string {
   if (!iso) return "—";
@@ -105,6 +118,7 @@ function MetaCell({ label, children }: { label: string; children: React.ReactNod
 
 function AttachmentRow({ att }: { att: Issue["attachments"][number] }) {
   const [open, setOpen] = React.useState(false);
+  const access = React.useContext(IssueAttachmentAccess);
   const hasText = Boolean(att.extractedText && att.extractedText.trim());
   const copyLink = async () => {
     if (!att.fileUrl) {
@@ -112,7 +126,8 @@ function AttachmentRow({ att }: { att: Issue["attachments"][number] }) {
       return;
     }
     try {
-      await navigator.clipboard.writeText(att.fileUrl);
+      const current = access ? await access.read(att.id) : att;
+      await navigator.clipboard.writeText(current.fileUrl);
       toast.success(t("已复制文件链接"));
     } catch {
       toast.error(t("复制失败，请手动复制"));
@@ -160,11 +175,25 @@ function ChatAttachment({
   att,
   onRemove,
   tone = "neutral",
+  draft = false,
 }: {
   att: Attachment;
   onRemove?: () => void;
   tone?: "neutral" | "user";
+  draft?: boolean;
 }) {
+  const access = React.useContext(IssueAttachmentAccess);
+  const refresh = draft
+    ? () => refreshDraftIssueAttachment(att)
+    : access ? () => access.read(att.id) : undefined;
+  const resourceKey = `${draft ? "draft-file" : `issue:${access?.issueId ?? ""}`}:${att.id}`;
+  const image = useRenewableResource({
+    src: att.fileUrl,
+    resourceKey,
+    refresh: refresh ? async () => (await refresh()).fileUrl : undefined,
+  });
+  const [previewOpen, setPreviewOpen] = React.useState(false);
+  React.useEffect(() => { setPreviewOpen(false); }, [resourceKey]);
   const isImage = att.fileType.startsWith("image/") || att.fileUrl.startsWith("data:image/");
   return (
     <div
@@ -176,9 +205,11 @@ function ChatAttachment({
       )}
     >
       {isImage && (
-        <MobileImagePreviewLink src={att.fileUrl} alt={att.fileName} title={att.fileName} className="mb-2 block overflow-hidden rounded-md">
-          <img src={att.fileUrl} alt={att.fileName} className="max-h-40 w-full object-cover" />
-        </MobileImagePreviewLink>
+        <button type="button" onClick={() => setPreviewOpen(true)} title={att.fileName} aria-label={t("预览 {file}", { file: att.fileName })} className="mb-2 block w-full cursor-pointer overflow-hidden rounded-md">
+          <img src={image.src || undefined} alt={att.fileName} onLoad={image.onLoad} onError={image.onError} className="max-h-40 w-full object-cover" />
+          {image.refreshing && <span className="block px-2 py-1" role="status">{t("正在刷新图片…")}</span>}
+          {image.failed && <span className="block px-2 py-1" role="status">{t("图片加载失败，点击重试")}</span>}
+        </button>
       )}
       <div className="flex min-w-0 items-center gap-2">
         {isImage ? <ImageIcon className="size-3.5 shrink-0" /> : <Paperclip className="size-3.5 shrink-0" />}
@@ -204,6 +235,9 @@ function ChatAttachment({
         <p className={cn("mt-1 line-clamp-2 text-pretty text-[11px]", tone === "user" ? "text-white/70" : muted)}>
           {att.extractedText}
         </p>
+      )}
+      {previewOpen && (
+        <AttachmentPreviewDialog attachment={attachmentPreview(att, refresh)} onClose={() => setPreviewOpen(false)} />
       )}
     </div>
   );
@@ -475,7 +509,7 @@ function ChatPanel({
         {pendingAttachments.length > 0 && (
           <div className="mb-2 grid gap-1.5">
             {pendingAttachments.map((att) => (
-              <ChatAttachment key={att.id} att={att} onRemove={() => onRemoveAttachment(att.id)} />
+              <ChatAttachment key={att.id} att={att} draft onRemove={() => onRemoveAttachment(att.id)} />
             ))}
           </div>
         )}
@@ -577,6 +611,10 @@ export function DetailView({
     setIssue(next);
     return next;
   }, [service, issueId]);
+  const readAttachment = React.useCallback(
+    (attachmentId: string) => refreshIssueAttachment(service, issueId, attachmentId),
+    [service, issueId],
+  );
 
   React.useEffect(() => {
     let alive = true;
@@ -894,6 +932,7 @@ export function DetailView({
     : sortedMessages;
 
   return (
+    <IssueAttachmentAccess.Provider value={{ issueId, read: readAttachment }}>
     <div
       className="rd-horizon-issue-detail flex min-h-0 w-full flex-1 flex-col"
       data-issue-status={issue.status}
@@ -1261,5 +1300,6 @@ export function DetailView({
         </aside>
       </div>
     </div>
+    </IssueAttachmentAccess.Provider>
   );
 }

@@ -1,3 +1,4 @@
+import { procurementAttachmentPreview } from "../../lib/attachmentAccess";
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -37,16 +38,6 @@ import { getProcSampleFacts } from "../../lib/procSampleFacts";
 import { isSampleTask } from "../sampleWorkspaceModel";
 import { routePath } from "../../lib/routePaths";
 
-function previewModel(attachment: ProcurementTask["attachmentList"][number]): PreviewableAttachment {
-  return {
-    id: attachment.id,
-    name: attachment.fileName,
-    mime: attachment.mimeType,
-    size: attachment.fileSize,
-    url: attachment.fileUrl,
-    thumbUrl: attachment.thumbUrl,
-  };
-}
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {
   const { t } = useI18n();
@@ -555,7 +546,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
                         type="button"
                         className={cn(className, "w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40")}
                         aria-label={t("预览附件：{name}", { name: attachment.fileName })}
-                        onClick={() => setPreviewAttachment(previewModel(attachment))}
+                        onClick={() => setPreviewAttachment(procurementAttachmentPreview(task.id, attachment))}
                       >
                         <Paperclip className="h-3.5 w-3.5 shrink-0" />
                         <span className="min-w-0 flex-1 truncate">{attachment.fileName}</span>
@@ -871,7 +862,7 @@ export function TaskDetailDrawer({ task, onClose, initialAction, onNavigateRelat
       </AlertDialog>
       {editOpen && <EditTaskModal task={task} onClose={() => setEditOpen(false)} />}
       {previewAttachment ? (
-        <AttachmentPreviewDialog attachment={previewAttachment} attachments={task.attachmentList.map(previewModel)} onClose={() => setPreviewAttachment(null)} />
+        <AttachmentPreviewDialog attachment={previewAttachment} attachments={task.attachmentList.map((attachment) => procurementAttachmentPreview(task.id, attachment))} onClose={() => setPreviewAttachment(null)} />
       ) : null}
       </SheetContent>
     </Sheet>

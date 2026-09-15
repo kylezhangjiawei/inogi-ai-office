@@ -1,0 +1,16 @@
+{
+  "tested": "Real ProcMyWorkspacePage, ProcurementTaskCard and TaskDetailDrawer in Chrome, local Vite 5190 only",
+  "syntheticWrites": "Only POST /api/procurement/tasks/workspace-qa-[12]/rollback mutates local in-memory fixture; other mutations blocked, no proxy, no production credentials",
+  "checks": [
+    "Card rollback opens existing target/reason confirmation directly.",
+    "Confirm remains disabled after selecting target when reason is empty.",
+    "Synthetic QA-WORK-1 rollback priced -> pending_inquiry succeeds, confirmation closes.",
+    "Real workspace moves card from pending-order group into inquiry group, updates status, next action and latest log.",
+    "Card operation-record action expands and scrolls to log section.",
+    "Rendered log shows actor, timestamp to seconds, old/new states and reason: 采购验收员 / 2026/09/08 16:05:42 / 已定价→待询价 / 供应商规格变更，需要重新询价。",
+    "No-permission workspace displays zero rollback buttons while retaining operation records.",
+    "Completed card with wildcard permission displays zero rollback buttons.",
+    "Mobile viewport 390x844 has document scrollWidth 390 and card bounds x32.67..357.33; no horizontal overflow."
+  ],
+  "cleanup": "Temporary browser tab closed, viewport reset, Vite service stopped. Fixtures retained."
+}

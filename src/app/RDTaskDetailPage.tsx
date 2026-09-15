@@ -56,6 +56,8 @@ import {
   useAuditLogs,
 } from "./lib/auditLog";
 import { inferAttachmentMime } from "./components/AttachmentPreviewDialog";
+import { ResourceDownloadLink } from "./components/ResourceDownloadLink";
+import { refreshRdAttachment } from "./lib/attachmentAccess";
 import { AttachmentPreviewModal, ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
 import { RDTaskConversation } from "./RDTaskConversation";
 import { getProductionStockPlanSource } from './lib/procurementOperationsApi';
@@ -2433,7 +2435,8 @@ export default function RDTaskDetailPage() {
                               <TableCell className="whitespace-nowrap text-xs text-slate-500">{formatTraceDateTime(createdAt)}</TableCell>
                               <TableCell className="whitespace-nowrap text-xs text-slate-500">{actor || "—"}</TableCell>
                               <TableCell className="whitespace-nowrap">
-                                <a
+                                <ResourceDownloadLink
+                                  refresh={att.task_id ? async () => getAttachmentDownloadUrl(await refreshRdAttachment(att)) : undefined}
                                   href={getAttachmentDownloadUrl(att)}
                                   download={att.name}
                                   target="_blank"
@@ -2442,7 +2445,7 @@ export default function RDTaskDetailPage() {
                                 >
                                   <Download className="h-3 w-3" />
                                   {t("下载")}
-                                </a>
+                                </ResourceDownloadLink>
                               </TableCell>
                             </TableRow>
                           ))}

@@ -9,6 +9,7 @@ async function source(relativePath) {
 const zoomableImageSource = await source("src/app/components/MobileZoomableImage.tsx").catch(() => "");
 const progressEvidenceSource = await source("src/app/RDProgressEvidence.tsx");
 const attachmentPreviewSource = await source("src/app/components/AttachmentPreviewDialog.tsx");
+const issueDetailSource = await source("src/app/issue-ai/DetailView.tsx");
 const procurementCardSource = await source("src/app/procurement/components/ProcurementTaskCard.tsx");
 const procurementDetailSource = await source("src/app/procurement/components/TaskDetailDrawer.tsx");
 const procurementServiceSource = await source("apps/api/src/modules/procurement/procurement.service.ts");
@@ -25,7 +26,6 @@ const embeddedPreviewFiles = [
 
 const linkedPreviewFiles = [
   "src/app/components/MateChatBubble.tsx",
-  "src/app/issue-ai/DetailView.tsx",
   "src/app/ManualPage.tsx",
   "src/app/DownloadTutorialPage.tsx",
   // 采购卡片与详情抽屉改用共享的 AttachmentPreviewDialog（见下方 "shared full attachment
@@ -77,6 +77,14 @@ for (const file of linkedPreviewFiles) {
     assert.match(fileSource, /MobileImagePreviewLink/);
   });
 }
+
+test("issue attachments use the shared dialog with mobile image zoom and renewable access", () => {
+  assert.match(issueDetailSource, /<AttachmentPreviewDialog\b/);
+  assert.match(issueDetailSource, /attachment=\{attachmentPreview\(att, refresh\)\}/);
+  assert.match(issueDetailSource, /useRenewableResource/);
+  assert.match(attachmentPreviewSource, /<MobileZoomableImage\b/);
+  assert.match(attachmentPreviewSource, /onError=\{resource\.onError\}/);
+});
 
 test("procurement cards and details use the shared full attachment preview", () => {
   // 存量附件只存了会过期的短效地址，读取时必须按 object key 重建

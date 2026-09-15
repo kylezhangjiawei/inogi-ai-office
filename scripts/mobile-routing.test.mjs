@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import React from "react";
+import { matchPath, matchRoutes } from "react-router";
+import ts from "typescript";
 
 const appSource = readFileSync(
   new URL("../src/app/App.tsx", import.meta.url),
   "utf8",
 );
+const routePathsSource = readFileSync(new URL("../src/app/lib/routePaths.ts", import.meta.url), "utf8");
+const rdWorkspaceSource = readFileSync(new URL("../src/app/lib/rdWorkspace.ts", import.meta.url), "utf8");
 const mobileSource = readFileSync(
   new URL("../src/app/MobileRDCockpit.tsx", import.meta.url),
   "utf8",
@@ -30,6 +35,62 @@ const recordFooterSource = readFileSync(
 const publicSecurityRecordIcon = readFileSync(
   new URL("../public/gongan.png", import.meta.url),
 );
+
+function sourceFunction(source, name, scope) {
+  const ast = ts.createSourceFile("routing.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const declaration = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
+  assert.ok(declaration, `missing ${name}`);
+  const javascript = ts.transpileModule(`${declaration.getText(ast).replace(/^export\s+/, "")}\nreturn ${name};`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
+  }).outputText;
+  return new Function(...Object.keys(scope), javascript)(...Object.values(scope));
+}
+
+function descendants(element) {
+  if (!React.isValidElement(element)) return [];
+  return [element, ...React.Children.toArray(element.props.children).flatMap(descendants)];
+}
+
+test("聊天分析自定义路径后，手机入口与宽屏返回仍匹配同一页面", () => {
+  for (const desktopPath of ["/chat-analytics", "/chat-feedback", "/reports/chat-feedback"]) {
+    const routePath = (code, fallback) => code === "page:chat-analytics" ? desktopPath : fallback;
+    const mobilePath = `/m${desktopPath}`;
+    const location = { pathname: desktopPath, search: "?from=us-collab", hash: "#quality" };
+    const protectedLayout = sourceFunction(appSource, "ProtectedLayout", {
+      React, Navigate: "Navigate", useAuth: () => ({ user: { id: "test" }, hydrated: true }),
+      useLocation: () => location, useIsMobileViewport: () => true, routePath, matchPath,
+      subRoutePath: sourceFunction(routePathsSource, "subRoutePath", { routePath }),
+      rdWorkspaceForPath: sourceFunction(rdWorkspaceSource, "rdWorkspaceForPath", { routePath, matchPath }),
+    });
+    assert.equal(protectedLayout().props.to, `${mobilePath}?from=us-collab#quality`);
+
+    const desktopTarget = sourceFunction(appSource, "desktopTargetFromMobileLocation", { routePath });
+    assert.equal(desktopTarget(mobilePath, location.search, location.hash), `${desktopPath}?from=us-collab#quality`);
+
+    for (const fromCollaboration of [false, true]) {
+      let navigated;
+      const components = Object.fromEntries([...shellSource.matchAll(/<([A-Z]\w*)\b/g)].map((match) => [match[1], match[1]]));
+      const mobileLayout = sourceFunction(shellSource, "MobileLayout", {
+        ...components, React, routePath, MENU_OVERLAY: "mobile-shell-menu",
+        useI18n() {}, useEffect() {}, useState: () => [false, () => {}], useMobileOverlayBack() {},
+        useAuth: () => ({ user: { name: "Test", permissions: ["page:chat-analytics"] }, hydrated: true }),
+        useLocation: () => ({ pathname: mobilePath, search: fromCollaboration ? "?from=us-collab" : "" }),
+        useNavigate: () => (path) => { navigated = path; }, hasPermission: () => true,
+        isProductionWorkspace: () => false, isUsCollabWorkspace: () => false,
+        t: (key) => key, cn: () => "", isCurrentMobileOverlay: () => false,
+        window: { requestAnimationFrame() {} },
+      });
+      const menu = descendants(mobileLayout()).find((element) => element.type === "button"
+        && React.Children.toArray(element.props.children).includes("AI 使用与反馈"));
+      assert.ok(menu, "应存在聊天分析菜单入口");
+      assert.equal(menu.props["aria-current"], "page");
+      menu.props.onClick();
+      assert.equal(navigated, `${mobilePath}${fromCollaboration ? "?from=us-collab" : ""}`);
+      const match = matchRoutes([{ path: "/m", children: [{ path: desktopPath.slice(1) }, { path: "*" }] }], navigated);
+      assert.equal(match.at(-1).route.path, desktopPath.slice(1), "菜单必须命中聊天分析，不能落入驾驶舱兜底");
+    }
+  }
+});
 
 
 test("移动端路由只在窗口尺寸稳定后切换", () => {
