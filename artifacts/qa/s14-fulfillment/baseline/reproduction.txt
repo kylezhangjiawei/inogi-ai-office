@@ -1,0 +1,39 @@
+S14 采购订单详情：修改前数量语义复现
+记录时间：2026-09-14T05:27:26.570Z
+来源：src/app/order-processing/pages/PurchaseOrderDetail.tsx
+验证方式：读取本地实际页面源码，抽取并执行itemSummary与fulfillment表达式。未调用接口、未改产品或测试。
+
+原itemSummary表达式：
+items.reduce(
+    (summary, item) => ({
+      amount: summary.amount + item.qty * item.unitPrice,
+      received: summary.received + item.receivedQty,
+      ordered: summary.ordered + item.qty,
+    }),
+    { amount: 0, received: 0, ordered: 0 },
+  )
+
+原fulfillment表达式：
+orderedTotal > 0 ? Math.min(100, Math.round((receivedTotal / orderedTotal) * 100)) : 0
+
+同单位超收抵消另一行缺收
+输入：[{"id":"line-a","qty":10,"receivedQty":20,"unit":"件","unitPrice":1},{"id":"line-b","qty":10,"receivedQty":0,"unit":"件","unitPrice":1}]
+实际汇总：{"amount":20,"received":20,"ordered":20}
+实际到货进度：100%
+当前计算显示100%，但line-b仍为0/10，line-a为20/10超收。不能将超收作为其他物料已到数量。
+
+不同单位累加为整单比例
+输入：[{"id":"line-kit","qty":1,"receivedQty":1,"unit":"套","unitPrice":1},{"id":"line-meter","qty":100,"receivedQty":0,"unit":"米","unitPrice":1}]
+实际汇总：{"amount":101,"received":1,"ordered":101}
+实际到货进度：1%
+当前计算将1套与100米合为101，并显示1/101、1%。API已有行单位，不能将不同单位数值作为同一数量汇总。
+
+显示位置（记录时源码行号）：
+- PurchaseOrderDetail.tsx:201–213：汇总计算。
+- PurchaseOrderDetail.tsx:386–394：顶部SKU/数量、已到货数量、到货进度。
+- PurchaseOrderDetail.tsx:301、310–323：供应商履约与到货入库时间链复用同一汇总。
+- PurchaseOrderDetail.tsx:443：逐行百分比也将超收钳制到100%。
+- orderProcessingApi.ts:253–265：PurchaseOrderLine已有unit、qty、receivedQty。
+
+现有测试检查：order-purchase-refinement.test.mjs:74–80仅静态检查无明细时显示“-”；已查阅的行定位与可用日期测试未覆盖本次两个数量场景。此处未运行测试套件。
+业务边界：receivedQty是ERP镜像已到货字段，不据此推定合格验收、可用库存、取消数量或订单真实剩余义务。

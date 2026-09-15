@@ -1,0 +1,807 @@
+P10 ECN final verification
+2026-09-11T04:23:59.378080+00:00
+
+$ node --test scripts/ecn-model.test.mjs scripts/ecn-form.test.mjs scripts/ecn-page.test.mjs scripts/batch-archive-model.test.mjs scripts/batch-archive-form.test.mjs scripts/batch-archive-page.test.mjs
+✔ 新增与修订均经确认提交真实模型，范围与历史保留且原状态不变 (25.861916ms)
+✔ 新增不预填操作人，必填错误关联控件并聚焦第一项 (2.8095ms)
+✔ 拒绝零数、小数、指数、非数、负数及超安全整数 (8.2855ms)
+✔ 数量上限扣除其他范围，编辑不会重复扣除本范围 (2.960917ms)
+✔ 部分核心版本可以保存并继续标记待确认，不会自动填最新版本 (1.978041ms)
+✔ 全部版本空白时不可保存，有实际 SOP 依据也允许单独补充 (1.627625ms)
+✔ 版本和操作说明长度校验，隐藏的版本错误自动展开并聚焦 (2.990041ms)
+✔ 关联 SN 仅接受本批已知清单，错误自动展开并聚焦 (1.769084ms)
+✔ 拒绝大小写重复 SN、跨范围占用和超范围数量 (2.733375ms)
+✔ 已有 SN 不强制补满，编辑时自己的 SN 可保留 (0.985125ms)
+✔ 多份依据可添加和移除，编辑保留原有依据，拒绝没有依据 (2.284542ms)
+✔ 确认展示版本修改前后、数量、操作人及原因 (0.860375ms)
+✔ 没有修改实际范围资料时不产生仅变更原因的空修订 (0.854875ms)
+✔ 只读禁用输入与保存，取消保持可用 (0.474584ms)
+✔ 确认期间变为只读会阻止保存并保留输入 (1.5865ms)
+✔ 确认前或确认期间档案版本变化均拒绝过期操作 (3.495834ms)
+✔ 批次或范围切换而未重挂载时拒绝旧表单，保留原因 (1.911209ms)
+✔ 同版本号但编辑范围被改变，也拒绝覆盖旧记录 (1.895208ms)
+✔ 丢失批次或范围显示恢复说明，不允许提交 (1.2185ms)
+✔ 保存失败保留全部字段和脏状态，重试成功才清除 (4.142458ms)
+✔ 保存中同步防重复、禁用字段及关闭弹窗，成功不可再次提交 (2.271208ms)
+✔ 卸载后的异步完成不回写父页面脏状态 (2.158791ms)
+✔ 取消确认保留填写和保存按钮焦点，填写还原时脏状态清除 (1.569083ms)
+✔ 默认档案分别统计完工、累计检验合格、授权放行、实际出货和完整度 (2.116667ms)
+✔ 已补齐档案与历史缺失档案均保留真实完整度差异 (1.8945ms)
+✔ 创建状态不共享数组、原始事实或修订快照 (0.472375ms)
+✔ 材料 SN 与整机 SN 相互独立，材料批次及 SN 均由关联领料凭据佐证 (3.840125ms)
+✔ SN 按忽略大小写的唯一非空编号计数且最多覆盖完工数量 (0.23075ms)
+✔ 实际出货只统计明确已出库状态，草稿、冲销及未知状态不计入 (0.137458ms)
+✔ 待补齐项由数据生成并区分部分范围缺版本与未分配范围 (2.161584ms)
+✔ 补充剩余 16 台版本只提升版本完整度，不改其他业务事实 (10.167125ms)
+✔ 部分版本可保存且不会虚增版本已确认数量 (0.370375ms)
+✔ 修订既有范围保留完整修改前后快照及原始 ECN / 检验事实 (0.5495ms)
+✔ 无变化修订即使只换数组顺序、大小写或原因也被拒绝 (0.162917ms)
+✔ 清理首尾空白，关联 SN 采用已有来源的规范拼写 (0.24125ms)
+✔ 陈旧版本、重复提交、无效时间与不存在的批次不会修改状态 (0.401708ms)
+✔ 拒绝非正安全整数适用数量 0 (0.06175ms)
+✔ 拒绝非正安全整数适用数量 -1 (0.050459ms)
+✔ 拒绝非正安全整数适用数量 1.5 (0.361917ms)
+✔ 拒绝非正安全整数适用数量 Infinity (0.312583ms)
+✔ 拒绝非正安全整数适用数量 NaN (0.188ms)
+✔ 拒绝非正安全整数适用数量 16 (0.128167ms)
+✔ 拒绝非正安全整数适用数量 9007199254740992 (0.115917ms)
+✔ 新增与编辑均校验范围数量总和；缩减后才能重分配剩余数量 (1.084041ms)
+✔ 重复范围名、无效范围及完全空版本均拒绝 (0.340917ms)
+✔ 必填修订人、原因、范围及来源凭据均拒绝缺失和超长文本 (0.566167ms)
+✔ 关联 SN 必须来自本批且不能重复、跨范围复用或超过范围数量 (0.437584ms)
+✔ 解除旧范围 SN 关联后可重新分配，同时保留原修订快照 (0.946792ms)
+✔ 重复可能的范围和修订编号时生成新的唯一编号 (1.851375ms)
+✔ CSV 包含全档案章节、所有来源单据、物料、SN 与完整修订前后值 (1.638542ms)
+✔ CSV 正确保留逗号、引号、换行、中文和零值，缺失值明确待补齐 (0.829ms)
+✔ CSV 所有单元格阻止公式及前导空白 / 控制字符绕过 (10.048667ms)
+✔ 导出不泄露其他批次修订，纯读取不会更改现有状态 (0.780583ms)
+✔ 历史档案第一次补充版本的修订导出明确保留空的修改前范围 (0.559917ms)
+✔ 默认批次包含七标签、真实范围缺口与四个独立数量 (19.725875ms)
+✔ 整机 SN、材料 SN 和物料批次检索选中关联批次，未知标识没有静态假结果 (5.70975ms)
+✔ 批次切换保留标签，未知批次链接可恢复且未知标签安全回到版本 (3.081417ms)
+✔ 各标签呈现对应原单，初检复验放行分区且无伪造空记录 (8.334958ms)
+✔ 修订正确范围保留旧版本快照且不改变生产质量出货事实 (4.254625ms)
+✔ 新增剩余范围保留已有两段，关联原单且留档 (1.55875ms)
+✔ 保存失败不丢表单，重试一次只生成一条修订 (2.637541ms)
+✔ 旧保存回调及范围串单被拒绝，不覆盖其他修订 (1.834208ms)
+✔ 切换批次、标签、筛选与预览状态均先保护未保存表单 (7.21325ms)
+✔ 路由离开和刷新有草稿保护，取消保留，放弃继续原目标 (1.302208ms)
+✔ 页面内两个区域跳转仅滚动，不产生路由导航或触发未保存保护 (1.948708ms)
+✔ 原单摘要按当前批次打开，可继续沿原检验关联查看 (1.110708ms)
+✔ 本批 ECN 原单准确链接至对应变更预览，其他原单无错链，草稿离开仍受保护 (2.70625ms)
+✔ 修订抽屉显示当前批次前后历史，其他批次不串档 (2.11ms)
+✔ 本地导出包含本批已保存事实、范围、缺口和修订，不混入其他批次 (2.090833ms)
+✔ 未保存填写不进入导出，导出失败保留草稿并可重试 (2.082084ms)
+✔ 只读允许查看原单、历史、导出，同时禁止修订入口 (3.084708ms)
+✔ 空态和读取失败恢复已保存档案，不重新创建初始记录 (2.342875ms)
+✔ 重置须确认；取消保留修订，确认恢复原范围和记录 (3.633917ms)
+✔ 未关联的材料 SN 不计入整机已知 SN，原单按钮均指向本批 (6.283958ms)
+✔ 生产模式既不注册 P09 预览路由也不创建预览懒加载 (8.074958ms)
+✔ 六种动作均先确认后提交真实模型，只提交当前动作字段且保留原状态 (25.887416ms)
+✔ 已阅勾选和范围均必填，错误关联首个控件并聚焦 (0.769459ms)
+✔ 已阅范围包含保留旧版批次，说明已阅不代替执行验证 (0.535875ms)
+✔ 已阅重复覆盖由真实模型阻止，补充新范围可保存 (0.623292ms)
+✔ 未指定处置对象时可以选择，切换对象清空旧选项并仅提供适用方式 (0.702709ms)
+✔ 不允许通过旧选项越过对象处置范围，原因必填 (0.543834ms)
+✔ 处置确认显示具体对象、决定与原因，并说明需要业务单据 (0.4785ms)
+✔ 反馈必须指定有效负责人、日期和问题说明 (0.864542ms)
+✔ 反馈拒绝无效日期和过去日期，错误保留原填写 (2.460667ms)
+✔ 反馈可针对保留旧版范围，实际生成本地待办且不外发 (1.849083ms)
+✔ 待办处理预填目标，处理结果必填，完成不代替验证 (0.467958ms)
+✔ 已完成待办不能再次关闭，其他普通岗位不能代替负责人处理 (0.593458ms)
+✔ 验证仅列执行新版批次，证据限已发布且覆盖该批次的验证单 (0.243083ms)
+✔ 选择批次时清空之前的证据，不能保存草稿、其他范围或图纸作验证 (1.384458ms)
+✔ 从具体对象打开的处置、待办和适用范围固定带入，直接触发事件也无法串改对象 (1.896959ms)
+✔ 验证结果必须明确选择，未通过记录可保存并显示实际结论 (1.24725ms)
+✔ 当前批次存在未完成待办时不能登记验证通过，可如实记录未通过 (1.321833ms)
+✔ 归档显示所有未满足条件并禁用保存，满足条件才允许确认 (1.17725ms)
+✔ 操作人只能来自父页面有效身份，岗位限制和未发布归档状态均阻止操作 (1.880583ms)
+✔ 只读禁用字段、勾选和保存，取消保持可用 (0.299666ms)
+✔ 确认期间只读或身份变化会拒绝旧操作并保留输入 (2.434083ms)
+✔ 确认前和确认期间数据版本变化均保留表单并阻止覆盖 (1.901125ms)
+✔ 保存失败保留填写和脏状态，重试成功才清除 (2.460458ms)
+✔ 忙碌同步防重复并锁定关闭，成功后不可重复提交 (1.803333ms)
+✔ 卸载后保存完成不回写父页面，取消确认保留填写和焦点 (1.050292ms)
+✔ 长说明就地校验，反馈 2000 字和普通说明 1000 字限制一致 (2.06325ms)
+✔ 三类演示状态独立，已阅、旧版处置、协同问题与执行验证分别计数 (3.788958ms)
+✔ 创建状态不共享来源、数组和历史记录，全部来源 ID 均有效 (1.319042ms)
+✔ 完整执行后仅归档 ECN，不改变生产批次、物料、订单或受控来源事实 (3.573709ms)
+✔ 岗位确认支持分次覆盖范围；非必需岗位已阅不会代替必需岗位 (2.194ms)
+✔ 岗位已阅要求阅读确认及非空、唯一、已有适用范围，拒绝重复覆盖 (0.669ms)
+✔ 旧版处置严格依岗位与对象种类，决定不会自动改库存、在制品或采购订单 (1.929958ms)
+✔ 处置修改追加历史与操作前后快照；暂缓仍阻止归档 (0.416875ms)
+✔ 执行反馈创建实际本地待办，责任岗位、日期和问题描述均被保留 (0.416334ms)
+✔ 待办必须归属已知范围与责任岗位，日期按本次操作的上海自然日校验 (2.984125ms)
+✔ 待办仅责任岗位或工艺 / 质量可处理，保留原问题与处理历史 (0.945791ms)
+✔ 执行验证只允许质量与适用新版批次，凭据须已发布且覆盖本批 (1.779ms)
+✔ 未结执行问题阻止验证合格，但允许登记不合格保留结果 (0.237875ms)
+✔ 失败验证不被历史合格掩盖，后续再次合格才解除该条件 (0.831167ms)
+✔ 后续同批次问题使之前验证失效，处理完成后仍需重新验证（包含同时间戳） (1.776ms)
+✔ 旧版保留范围的问题仍阻止归档，但不抹去其他新版批次的验证 (0.688958ms)
+✔ 归档严格要求质量岗位与全部确认、处置、待办和有效验证 (3.226ms)
+✔ 所有动作均拒绝草稿与已归档记录，不能隐式发布或重新开启 (4.668958ms)
+✔ 陈旧版本、重复提交、无效岗位和操作时间被拒绝且原状态不变 (0.348083ms)
+✔ 修订事件与其他状态均深度独立，保留操作前后对象而非共享引用 (0.241375ms)
+✔ 生成的实体与事件编号不会碰撞已有编号 (0.186167ms)
+✔ 导出包含来源版本、适用范围、处置历史、岗位确认、问题与验证、完整操作记录 (2.900875ms)
+✔ 导出保留中文、逗号、引号与换行并防止公式及前导空白绕过 (4.41775ms)
+✔ 导出仅包含所选变更，纯读取不会更改状态 (0.337833ms)
+✔ 默认已发布 ECN 有五标签、真实差异摘要及独立已阅和验证进度 (14.34075ms)
+✔ 编号、物料、影响批次和旧订单可检索，未匹配不会保留旧操作 (4.99775ms)
+✔ 未知 ECN 链接显示恢复入口，未知标签默认变更对比 (1.184416ms)
+✔ 本人确认全部范围只更新已阅，不改验证、版本、批次及库存处置 (2.175167ms)
+✔ 只确认新批保留旧批未读时显示部分确认，补齐旧范围才完成岗位已阅 (3.53ms)
+✔ 旧版处置按工艺或质量角色开放，决定留档而不改变原对象 (4.4945ms)
+✔ 反馈实际生成可查看待办与责任人，处理后仍不自动通过验证 (2.730167ms)
+✔ 未处理协同阻止验证通过，补处理后质量可独立登记有效依据 (2.592667ms)
+✔ 验证通过后的新执行问题撤销有效验证提示，处理问题不能代替再次验证 (2.964416ms)
+✔ 归档条件未满足保持禁用，补齐后归档仅锁定当前演示变更并保留历史 (4.780583ms)
+✔ 草稿、归档和只读视图均无写操作，资料查看和导出仍可用 (3.985709ms)
+✔ 资料摘要显示准确原版本，缺文件不提供伪造图纸预览 (0.87075ms)
+✔ 保存失败保留表单与草稿，重试只追加一次动作 (0.840167ms)
+✔ 切换操作人、ECN、筛选、标签和预览状态保护未保存填写 (5.504125ms)
+✔ 操作人切换与重复旧回调均拒绝旧提交，保留当前状态 (0.881375ms)
+✔ 已固定旧版对象的表单拒绝向另一对象串写 (0.551417ms)
+✔ 取消后重开相同动作拒绝前一次回调，当前表单仍可保存 (0.861458ms)
+✔ 固定的待办与批次范围拒绝更换提交对象，普通反馈仍允许选择批次 (0.987375ms)
+✔ 操作历史以中文字段和业务对象显示前后内容，保留处置原因与人员 (2.638583ms)
+✔ 页内滚动不写路由或触发草稿保护，外部档案跳转仍保护草稿 (1.442791ms)
+✔ 导出为当前已保存 ECN 内容与真实文件名，不混入其他变更或未保存填写 (2.238458ms)
+✔ 空态及读取失败恢复已保存记录，重置取消与确认各自正确 (1.227292ms)
+✔ 生产环境不注册 ECN 预览路由或懒加载 (7.828291ms)
+ℹ tests 147
+ℹ suites 0
+ℹ pass 147
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 427.439708
+
+Exit code: 0
+
+$ npm run typecheck
+
+> @figma/my-make-file@0.1.0 typecheck
+> tsc --noEmit
+
+
+Exit code: 0
+
+$ npm run build
+
+> @figma/my-make-file@0.1.0 build
+> node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 7860 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                       2.00 kB │ gzip:   0.71 kB
+dist/assets/logo-B2riS-IC.png                                        37.86 kB
+dist/assets/badge-intern-MyqVtJ2Z.jpeg                               69.97 kB
+dist/assets/badge-official-D9cJ7_8F.jpeg                             75.78 kB
+dist/assets/badge-labor-C3eICefY.jpeg                                76.63 kB
+dist/assets/TechnicalDocumentsPanel-D_l0wFu2.css                      0.28 kB │ gzip:   0.18 kB
+dist/assets/ProcSampleTestDialog-CGWFRv-M.css                         1.12 kB │ gzip:   0.37 kB
+dist/assets/RDSheetUniver-BB4PuZXr.css                                1.19 kB │ gzip:   0.51 kB
+dist/assets/univer-preset-sheets-drawing-C07ajVRR.css                 4.90 kB │ gzip:   1.17 kB
+dist/assets/RDTaskDetailPage-BIFt8NX_.css                             5.11 kB │ gzip:   1.11 kB
+dist/assets/ApplicantFormRenderer-DI5hH7Ct.css                        6.48 kB │ gzip:   1.89 kB
+dist/assets/index-BxyR3RJ6.css                                       11.27 kB │ gzip:   2.51 kB
+dist/assets/ApplicantFormsPage-B09RLUDm.css                          17.43 kB │ gzip:   3.84 kB
+dist/assets/index-CpSyomsw.css                                       42.52 kB │ gzip:   6.79 kB
+dist/assets/univer-preset-sheets-core-Bu2RJCoy.css                   84.19 kB │ gzip:  12.92 kB
+dist/assets/index-GtVhlUKV.css                                      559.67 kB │ gzip:  74.74 kB
+dist/assets/mergeWith-DTwtpBog.js                                     0.10 kB │ gzip:   0.11 kB
+dist/assets/univer-telemetry-DbM5gsP3.js                              0.12 kB │ gzip:   0.13 kB
+dist/assets/usePermission-8_9qEF6k.js                                 0.20 kB │ gzip:   0.15 kB
+dist/assets/extends-CF3RwP-h.js                                       0.23 kB │ gzip:   0.19 kB
+dist/assets/skeleton-zdxS6j_V.js                                      0.24 kB │ gzip:   0.20 kB
+dist/assets/_commonjs-dynamic-modules-TDtrdbi3.js                     0.24 kB │ gzip:   0.19 kB
+dist/assets/PermissionGuard-39_r7_Kj.js                               0.29 kB │ gzip:   0.23 kB
+dist/assets/useResetPageScroll-Cm5qRhMo.js                            0.33 kB │ gzip:   0.24 kB
+dist/assets/clsx-B-dksMZM.js                                          0.37 kB │ gzip:   0.24 kB
+dist/assets/mediaCategory-DKFj8C3T.js                                 0.40 kB │ gzip:   0.28 kB
+dist/assets/set-DpakJKWQ.js                                           0.40 kB │ gzip:   0.29 kB
+dist/assets/label-DKAoALZW.js                                         0.45 kB │ gzip:   0.29 kB
+dist/assets/progress-B6nAr5rH.js                                      0.48 kB │ gzip:   0.33 kB
+dist/assets/jszip.min-CQXLVllq.js                                     0.52 kB │ gzip:   0.37 kB
+dist/assets/univer-hyphenation-pa-C54UG8eN-EW_8hrTF.js                0.53 kB │ gzip:   0.23 kB
+dist/assets/univer-preset-sheets-drawing-CI_XhCO2.js                  0.56 kB │ gzip:   0.33 kB
+dist/assets/univer-hyphenation-or-50rxpoq4-B_XNinj_.js                0.57 kB │ gzip:   0.24 kB
+dist/assets/univer-hyphenation-gu-Bjl0l-cf-Bb_OSiMJ.js                0.58 kB │ gzip:   0.24 kB
+dist/assets/univer-hyphenation-hi-DsAaTPCC-lc1bUHMk.js                0.61 kB │ gzip:   0.25 kB
+dist/assets/univer-hyphenation-mr-CjWJPVmH-BKMRnoAc.js                0.61 kB │ gzip:   0.25 kB
+dist/assets/univer-hyphenation-as-BPtSu6VN-CYxxmKqh.js                0.63 kB │ gzip:   0.26 kB
+dist/assets/univer-hyphenation-bn-NCLZcWHi-CsgykzQM.js                0.63 kB │ gzip:   0.26 kB
+dist/assets/univer-hyphenation-te-B5Spl2Jk-DYnT8Dmf.js                0.63 kB │ gzip:   0.25 kB
+dist/assets/univer-hyphenation-kn-C6Lov-DP-D7dHjlY1.js                0.63 kB │ gzip:   0.26 kB
+dist/assets/textarea-ChAHhtlL.js                                      0.70 kB │ gzip:   0.42 kB
+dist/assets/univer-hyphenation-ta-BcghgTbD-D3SGVeDl.js                0.71 kB │ gzip:   0.25 kB
+dist/assets/index-BRgj98BX.js                                         0.72 kB │ gzip:   0.46 kB
+dist/assets/_commonjsHelpers-D6-XlEtG.js                              0.73 kB │ gzip:   0.39 kB
+dist/assets/chatAnalyticsApi-BkeXBk0j.js                              0.77 kB │ gzip:   0.47 kB
+dist/assets/index-Dp3B9jqt.js                                         0.80 kB │ gzip:   0.44 kB
+dist/assets/univer-hyphenation-ml-2xLVYkVY-CBhOFsDv.js                0.81 kB │ gzip:   0.30 kB
+dist/assets/univer-hyphenation-pi-B9cgjyG1-v-IB86gp.js                0.86 kB │ gzip:   0.35 kB
+dist/assets/input-CCNNfioy.js                                         0.86 kB │ gzip:   0.47 kB
+dist/assets/univer-presets-eGpIErIh.js                                0.91 kB │ gzip:   0.53 kB
+dist/assets/switch-DGvMtoev.js                                        0.94 kB │ gzip:   0.48 kB
+dist/assets/checkbox-c0h5FSJg.js                                      0.98 kB │ gzip:   0.49 kB
+dist/assets/toggle-group-CaLLIrII.js                                  1.03 kB │ gzip:   0.51 kB
+dist/assets/dictionaryApi-9h54tJxU.js                                 1.04 kB │ gzip:   0.52 kB
+dist/assets/reviewTypes-hF-RBswM.js                                   1.08 kB │ gzip:   0.41 kB
+dist/assets/preload-helper-ckwbz45p.js                                1.14 kB │ gzip:   0.66 kB
+dist/assets/toggle-DxT5aWIZ.js                                        1.18 kB │ gzip:   0.61 kB
+dist/assets/tooltip-wXbqnjJ-.js                                       1.18 kB │ gzip:   0.57 kB
+dist/assets/taskDue-B4Xpszm-.js                                       1.21 kB │ gzip:   0.50 kB
+dist/assets/univer-hyphenation-zh-latn-pinyin-BdYb-Ey_-BpSBSv6m.js    1.28 kB │ gzip:   0.22 kB
+dist/assets/badge-D9ss-ktH.js                                         1.33 kB │ gzip:   0.61 kB
+dist/assets/native-select-DRJhfOTE.js                                 1.36 kB │ gzip:   0.69 kB
+dist/assets/tabs-Dd0TOUsh.js                                          1.41 kB │ gzip:   0.59 kB
+dist/assets/debounce-9EaecKl4.js                                      1.50 kB │ gzip:   0.81 kB
+dist/assets/univer-hyphenation-eu-Ctv_kq9Z-DMhU9kwg.js                1.52 kB │ gzip:   0.22 kB
+dist/assets/slider-DUocWzMZ.js                                        1.53 kB │ gzip:   0.68 kB
+dist/assets/table-D3M30jzi.js                                         1.69 kB │ gzip:   0.59 kB
+dist/assets/univer-themes-C4v2qJ_2.js                                 1.86 kB │ gzip:   0.78 kB
+dist/assets/MobileProcSampleTestPage-BMw6IyUT.js                      1.93 kB │ gzip:   1.09 kB
+dist/assets/HorizonPage-BJe_tFZQ.js                                   2.20 kB │ gzip:   0.68 kB
+dist/assets/univer-hyphenation-pt-Cum2_NUC-D8aZaPM_.js                2.29 kB │ gzip:   0.31 kB
+dist/assets/approvalFlowConfig-H6v0h5c4.js                            2.37 kB │ gzip:   1.27 kB
+dist/assets/univer-preset-sheets-core-pytQAc2S.js                     2.44 kB │ gzip:   0.97 kB
+dist/assets/univer-protocol-rGJhBGMI.js                               2.46 kB │ gzip:   0.84 kB
+dist/assets/univer-hyphenation-id-DifDyWg9-1QUBE4o0.js                2.52 kB │ gzip:   0.64 kB
+dist/assets/univer-hyphenation-oc-P_i3-xLA-Cg0Gj-PC.js                2.56 kB │ gzip:   0.68 kB
+dist/assets/univer-hyphenation-kmr-Cfwhwuff-DNWs8Gbk.js               2.73 kB │ gzip:   0.80 kB
+dist/assets/TechnicalDocumentPreview-oUqgRhpb.js                      2.76 kB │ gzip:   1.47 kB
+dist/assets/univer-hyphenation-fi-RW5VB8Yp-C_52fTOR.js                3.19 kB │ gzip:   0.78 kB
+dist/assets/univer-hyphenation-la-DuvHjUWw-BcBNkSEh.js                3.19 kB │ gzip:   0.63 kB
+dist/assets/univer-docs-drawing-RViypCka.js                           3.33 kB │ gzip:   1.49 kB
+dist/assets/orderProcessingApi-DTFbiqXL.js                            3.37 kB │ gzip:   1.33 kB
+dist/assets/univer-hyphenation-pms-BRGfm5gS-DtZRgBhp.js               3.38 kB │ gzip:   0.91 kB
+dist/assets/rdCockpitMetrics-D9_Ikx-n.js                              3.42 kB │ gzip:   1.61 kB
+dist/assets/issueHttpService-BrqEI7vs.js                              3.44 kB │ gzip:   1.44 kB
+dist/assets/KnowledgeBaseEntryPage-Dr8jIx-Z.js                        3.58 kB │ gzip:   1.84 kB
+dist/assets/univer-hyphenation-it-Bt_Meacx-BwawXXgW.js                3.63 kB │ gzip:   0.88 kB
+dist/assets/univer-hyphenation-rm-C0MIK9N4-DeBfDBrx.js                3.67 kB │ gzip:   0.95 kB
+dist/assets/PublicApplicantFormPage-DfZUdRZ_.js                       3.68 kB │ gzip:   1.88 kB
+dist/assets/univer-hyphenation-mul-ethi-D_CMSMEq-2TGBnG-Z.js          3.69 kB │ gzip:   0.92 kB
+dist/assets/data-DjcobgXB.js                                          3.73 kB │ gzip:   1.90 kB
+dist/assets/univer-hyphenation-fur-AC12wySk-Ulg0Fy5V.js               3.90 kB │ gzip:   1.02 kB
+dist/assets/univer-hyphenation-tr-CIHIuzqc-ZkOY1dVp.js                3.97 kB │ gzip:   0.34 kB
+dist/assets/select-bBzmJ0mI.js                                        4.32 kB │ gzip:   1.44 kB
+dist/assets/tslib.es6-Byhrq50X.js                                     4.62 kB │ gzip:   1.84 kB
+dist/assets/univer-hyphenation-mn-cyrl-x-lmc-3aetruI8-mEBV16An.js     4.83 kB │ gzip:   1.21 kB
+dist/assets/univer-hyphenation-el-monoton-D3aKqTz2-DpMW17GV.js        4.87 kB │ gzip:   0.89 kB
+dist/assets/integrationManagementApi-BZ_hLj_Q.js                      5.21 kB │ gzip:   1.85 kB
+dist/assets/RDPerformanceScoreDialog-DL1FN6ol.js                      6.11 kB │ gzip:   2.41 kB
+dist/assets/univer-hyphenation-ia-Cr4TJH0c-BcFKNbxH.js                6.49 kB │ gzip:   1.83 kB
+dist/assets/univer-hyphenation-cop-C3sk0IUo-Cj8cOj0I.js               6.89 kB │ gzip:   0.71 kB
+dist/assets/RDDiscussionInvitePage-BKvi3Xex.js                        6.96 kB │ gzip:   2.87 kB
+dist/assets/CustomsDocs-Ck7A0z8n.js                                   7.08 kB │ gzip:   3.02 kB
+dist/assets/univer-hyphenation-ro-0fmdH0HA-1lLksn9e.js                7.27 kB │ gzip:   2.14 kB
+dist/assets/expenseService-CaYVbfHk.js                                7.80 kB │ gzip:   2.70 kB
+dist/assets/univer-hyphenation-ca-SUf6Y2Om-Dp4lcbPL.js                7.86 kB │ gzip:   1.13 kB
+dist/assets/ProcTransferReturnedMessageCard-B1X30J2W.js               8.77 kB │ gzip:   2.69 kB
+dist/assets/univer-hyphenation-la-x-classic-yTyAOQEt-DuDJBVty.js      8.93 kB │ gzip:   2.31 kB
+dist/assets/OcrConfigManagementPage-jP7dWSE6.js                       8.97 kB │ gzip:   3.61 kB
+dist/assets/RDSheetUniver-DudNmVLa.js                                 9.15 kB │ gzip:   3.80 kB
+dist/assets/purchaseOrderLineNavigation-BVXpZfo3.js                   9.24 kB │ gzip:   3.32 kB
+dist/assets/univer-hyphenation-sa-CKY9c_Vq-DzgpFnfw.js                9.71 kB │ gzip:   1.66 kB
+dist/assets/index-CAEsVC0x.js                                         9.93 kB │ gzip:   3.78 kB
+dist/assets/univer-rpc-DUyj9Xuk.js                                   11.31 kB │ gzip:   3.69 kB
+dist/assets/univer-hyphenation-hr-DT1SBBes-CkK3TemH.js               11.36 kB │ gzip:   0.95 kB
+dist/assets/univer-docs-BAbiRpiq.js                                  11.48 kB │ gzip:   3.81 kB
+dist/assets/procurementApi-_DHpIbks.js                               11.63 kB │ gzip:   2.79 kB
+dist/assets/univer-hyphenation-hy-e995ysyO-Cf-NYmW5.js               11.93 kB │ gzip:   0.31 kB
+dist/assets/index-k-2c48W7.js                                        12.13 kB │ gzip:   4.67 kB
+dist/assets/univer-hyphenation-mn-cyrl-lHM4n0oC-QhYuXAWB.js          12.15 kB │ gzip:   2.15 kB
+dist/assets/RDAuditTimeline-kYyK55N7.js                              12.56 kB │ gzip:   4.95 kB
+dist/assets/univer-hyphenation-sl-DpiklF-D-_46w5B9b.js               12.60 kB │ gzip:   3.40 kB
+dist/assets/QATraceability-B6Cjc3YG.js                               12.65 kB │ gzip:   4.25 kB
+dist/assets/univer-hyphenation-da-CCDXfXtG-C3O8h2wc.js               12.72 kB │ gzip:   3.45 kB
+dist/assets/univer-network-DOkyux2V.js                               12.79 kB │ gzip:   4.38 kB
+dist/assets/ApplicantFormRenderer-PzF2aNJ6.js                        12.83 kB │ gzip:   5.35 kB
+dist/assets/common-DLgmHxVD.js                                       12.98 kB │ gzip:   4.93 kB
+dist/assets/univer-sheets-numfmt-DYRq8Emu.js                         13.59 kB │ gzip:   4.96 kB
+dist/assets/auditLog-BXy-nar9.js                                     13.78 kB │ gzip:   4.50 kB
+dist/assets/ReportCompressionPage-DDD4CBlu.js                        13.79 kB │ gzip:   4.91 kB
+dist/assets/univer-hyphenation-hsb-DC_ITc1e-C4pa9vvS.js              14.01 kB │ gzip:   1.94 kB
+dist/assets/I18nManagementPage-D4RVjBdQ.js                           14.52 kB │ gzip:   5.13 kB
+dist/assets/AttachmentPreviewDialog-ulfcFGz0.js                      14.75 kB │ gzip:   5.42 kB
+dist/assets/univer-hyphenation-lt-BBe8DlDF-CObMPDIF.js               14.77 kB │ gzip:   3.60 kB
+dist/assets/MailboxManagementPage-G_Y-KzWj.js                        14.95 kB │ gzip:   5.27 kB
+dist/assets/BugLogPage-DLKCbLuc.js                                   15.29 kB │ gzip:   5.39 kB
+dist/assets/RegistrationProjects-DoAmui6N.js                         15.45 kB │ gzip:   4.81 kB
+dist/assets/BOMArchive-u6G5caBn.js                                   15.79 kB │ gzip:   4.66 kB
+dist/assets/AfterSalesForm-CMchovKR.js                               15.99 kB │ gzip:   5.72 kB
+dist/assets/AfterSalesList-dmntpPu6.js                               16.05 kB │ gzip:   5.28 kB
+dist/assets/CustomsAI-BCSjo9rf.js                                    16.10 kB │ gzip:   4.81 kB
+dist/assets/EmailAIPage-Dz5FiBF7.js                                  16.28 kB │ gzip:   6.43 kB
+dist/assets/InspectionReleasePage-YqzZ552j.js                        16.55 kB │ gzip:   5.33 kB
+dist/assets/imageStudioShared-CWGMF-rY.js                            16.64 kB │ gzip:   5.88 kB
+dist/assets/DesignChangesPage-CirYQYLM.js                            16.89 kB │ gzip:   5.44 kB
+dist/assets/univer-hyphenation-tk-BMbKB10q-cqtw6prh.js               16.96 kB │ gzip:   0.99 kB
+dist/assets/RAKnowledgePage-UE51TDsU.js                              17.08 kB │ gzip:   6.32 kB
+dist/assets/EBPRPage-zryj6ery.js                                     17.30 kB │ gzip:   5.56 kB
+dist/assets/univer-hyphenation-el-polyton-ogVWcTzh-BOWLBXgh.js       17.63 kB │ gzip:   2.87 kB
+dist/assets/QualityDMSPage-BRPKPLCq.js                               17.96 kB │ gzip:   6.03 kB
+dist/assets/univer-drawing-Cu970C4Q.js                               18.15 kB │ gzip:   4.92 kB
+dist/assets/ContractReviewPage-CK-cUhOn.js                           19.25 kB │ gzip:   6.10 kB
+dist/assets/RDIssues-CmG18PwO.js                                     19.38 kB │ gzip:   6.36 kB
+dist/assets/DepartmentManagement-DRJFrP1W.js                         19.79 kB │ gzip:   6.34 kB
+dist/assets/MeetingMinutes-rxCD58vJ.js                               20.10 kB │ gzip:   6.22 kB
+dist/assets/AfterSalesDetails-BdEuow7E.js                            20.36 kB │ gzip:   6.61 kB
+dist/assets/MediaUploadDialog-Caq_OsuZ.js                            21.91 kB │ gzip:   7.25 kB
+dist/assets/univer-sheets-drawing-BXTWUGDi.js                        22.25 kB │ gzip:   5.44 kB
+dist/assets/floating-ui-vendor-CK7HBikR.js                           22.51 kB │ gzip:   8.72 kB
+dist/assets/InquiryPage-VGGTEmWi.js                                  22.76 kB │ gzip:   8.49 kB
+dist/assets/univer-hyphenation-la-x-liturgic-CXeQb4FY-DNU_Uk5t.js    22.82 kB │ gzip:   5.72 kB
+dist/assets/SubsystemOperationsPanel-BIrOLcXd.js                     23.43 kB │ gzip:   7.02 kB
+dist/assets/RDAiSettingsPage-BrmsdEw5.js                             23.60 kB │ gzip:   7.28 kB
+dist/assets/univer-hyphenation-fr-BC2onEz9-BGmqATrI.js               24.14 kB │ gzip:   4.29 kB
+dist/assets/PersonalCenterPage-CpSE7z3M.js                           24.74 kB │ gzip:   7.24 kB
+dist/assets/DictionaryList-RIDBC-RB.js                               24.80 kB │ gzip:   7.12 kB
+dist/assets/DownloadTutorialPage-DLmjgN_b.js                         24.89 kB │ gzip:   8.46 kB
+dist/assets/rdInsertion-Cav5JBDm.js                                  25.40 kB │ gzip:   8.76 kB
+dist/assets/UIDesignPage-DzQM2Sjr.js                                 25.43 kB │ gzip:   7.95 kB
+dist/assets/TechnicalDocumentsPanel-C5tH02uG.js                      25.63 kB │ gzip:   7.27 kB
+dist/assets/univer-hyphenation-ka-jyoLzyDE-CZftRBZr.js               26.19 kB │ gzip:   4.51 kB
+dist/assets/ContentSlotsPage-DfA2dTV5.js                             26.46 kB │ gzip:   7.94 kB
+dist/assets/ProcSampleTestDialog-BuXFL2B6.js                         26.75 kB │ gzip:   8.21 kB
+dist/assets/AuditLogPage-CObzgwfq.js                                 27.10 kB │ gzip:   7.88 kB
+dist/assets/univer-hyphenation-be-CrQ0smca-B2EeXxUh.js               27.83 kB │ gzip:   2.23 kB
+dist/assets/AiUsageDashboardPage-BLJYqBBr.js                         28.21 kB │ gzip:   7.53 kB
+dist/assets/UserManagement-Bf9unFG9.js                               29.11 kB │ gzip:   8.55 kB
+dist/assets/RouteManagementPage-wFaH4MvE.js                          29.19 kB │ gzip:   9.06 kB
+dist/assets/univer-hyphenation-sh-latn-sRy4Tuaj-DcyoDtEt.js          29.78 kB │ gzip:   5.29 kB
+dist/assets/rxjs-vendor-dvG5LF4B.js                                  29.96 kB │ gzip:   8.91 kB
+dist/assets/ImageLibraryPage-DSJZavKP.js                             30.38 kB │ gzip:   9.06 kB
+dist/assets/univer-sheets-numfmt-ui-Bv99FFnK.js                      30.64 kB │ gzip:  10.27 kB
+dist/assets/localforage-B38R1arz.js                                  31.21 kB │ gzip:  10.33 kB
+dist/assets/univer-hyphenation-sr-cyrl-Dpzrbd0W-DKfS_grW.js          31.60 kB │ gzip:   5.56 kB
+dist/assets/univer-hyphenation-sk-_iOeDNrQ-BXQc18Za.js               31.69 kB │ gzip:   6.79 kB
+dist/assets/RDApprovalFlowPage-Bfo1mWqD.js                           31.70 kB │ gzip:   9.84 kB
+dist/assets/univer-hyphenation-sh-cyrl-BpCRFOmq-Cv4-R-p6.js          32.50 kB │ gzip:   5.45 kB
+dist/assets/RoleManagement-BJYmzATy.js                               32.72 kB │ gzip:  10.55 kB
+dist/assets/univer-hyphenation-gl-DZGc-K_G-DLl5jmsP.js               33.64 kB │ gzip:   4.26 kB
+dist/assets/Dashboard-BXqkZW2G.js                                    33.76 kB │ gzip:   9.97 kB
+dist/assets/VideoLibraryPage-C2Vw_E8s.js                             34.03 kB │ gzip:  11.27 kB
+dist/assets/RDSheetPage-CB1W4Rft.js                                  34.30 kB │ gzip:  13.05 kB
+dist/assets/UsCollabTaskDetailPage-CDvoaFM6.js                       34.97 kB │ gzip:  11.56 kB
+dist/assets/MobileChatAnalyticsPage-DemjvFd_.js                      35.63 kB │ gzip:   8.86 kB
+dist/assets/RDProgressEvidence-8hyAvN1b.js                           36.47 kB │ gzip:  11.46 kB
+dist/assets/motion-vendor-DZ9cZm8d.js                                39.02 kB │ gzip:  13.89 kB
+dist/assets/univer-hyphenation-cs-CmAteokq-TjIVgNl6.js               39.76 kB │ gzip:   9.95 kB
+dist/assets/ApplicantFormsPage-BBxbkvNT.js                           40.27 kB │ gzip:  13.05 kB
+dist/assets/decimal-As3MKtgq.js                                      40.65 kB │ gzip:  15.08 kB
+dist/assets/RDPeopleManagementPage-DiM3lYyQ.js                       40.66 kB │ gzip:  10.77 kB
+dist/assets/MobileRDCockpit-Hkmgljt0.js                              41.03 kB │ gzip:  11.80 kB
+dist/assets/univer-hyphenation-es-DcaaHPU_-sYKznHcq.js               44.13 kB │ gzip:   6.27 kB
+dist/assets/MessageCenterPage-C4myL4sH.js                            45.22 kB │ gzip:  11.51 kB
+dist/assets/univer-hyphenation-pl-9fg-ESVt-DpPW5ISU.js               46.09 kB │ gzip:   7.70 kB
+dist/assets/univer-hyphenation-et-B_spaleu-BaO20FM2.js               47.21 kB │ gzip:  11.42 kB
+dist/assets/univer-hyphenation-is-BT8UVRze-BXloJ18M.js               48.41 kB │ gzip:  12.72 kB
+dist/assets/ManualPage-D1lqKT4l.js                                   49.85 kB │ gzip:  19.07 kB
+dist/assets/ChatAnalyticsPage-CSa6OQgM.js                            53.21 kB │ gzip:  13.51 kB
+dist/assets/calendar-wmJPGZjz.js                                     55.52 kB │ gzip:  16.36 kB
+dist/assets/univer-hyphenation-sv-CFm5y56M-I8ncZ9Nb.js               56.81 kB │ gzip:  14.42 kB
+dist/assets/univer-hyphenation-bg-CrQqGwni-Pt9yPLke.js               56.93 kB │ gzip:   4.83 kB
+dist/assets/univer-drawing-ui-V_BHXwpz.js                            58.61 kB │ gzip:  16.20 kB
+dist/assets/ExternalDocsPage-QQILVuyM.js                             60.27 kB │ gzip:  16.13 kB
+dist/assets/IssueAiModule-CMOV1toD.js                                60.97 kB │ gzip:  17.03 kB
+dist/assets/index-DsBKctck.js                                        61.15 kB │ gzip:  18.37 kB
+dist/assets/RDTaskConversation-CVCg7PpU.js                           61.96 kB │ gzip:  17.30 kB
+dist/assets/OpsCenterPage-CvVMx-_i.js                                63.52 kB │ gzip:  17.34 kB
+dist/assets/univer-hyphenation-uk-Dir3oxLs-BVEQM3Jf.js               63.99 kB │ gzip:   8.64 kB
+dist/assets/univer-hyphenation-th-DWX5iPSo-BI_G36o8.js               68.62 kB │ gzip:  13.26 kB
+dist/assets/univer-hyphenation-grc-DOlGgO8T-C7K_Bcib.js              71.61 kB │ gzip:   8.92 kB
+dist/assets/univer-design-D5Ma6Ghz.js                                72.53 kB │ gzip:  19.64 kB
+dist/assets/mui-vendor-BtyRZ4fg.js                                   76.64 kB │ gzip:  27.06 kB
+dist/assets/docx-preview-BLRMdODq.js                                 77.18 kB │ gzip:  21.23 kB
+dist/assets/univer-hyphenation-cy-BBPa6z2x-BONU7bVJ.js               80.20 kB │ gzip:  19.05 kB
+dist/assets/univer-hyphenation-ga-Cn6LkudM-WsF4_z3Y.js               82.15 kB │ gzip:  20.04 kB
+dist/assets/univer-hyphenation-ru-v4l-ayaq-BZkHNr9F.js               85.31 kB │ gzip:  16.94 kB
+dist/assets/RDTaskDetailPage-Di_oh6fV.js                             87.88 kB │ gzip:  22.82 kB
+dist/assets/RDKnowledgeBasePage-DgVpVejU.js                          89.04 kB │ gzip:  24.24 kB
+dist/assets/index-BI4aTl3S.js                                        89.08 kB │ gzip:  30.42 kB
+dist/assets/univer-sheets-formula-ui-DdkPJEYc.js                     89.26 kB │ gzip:  28.89 kB
+dist/assets/jszip.min-B9uOPqAe.js                                    96.96 kB │ gzip:  30.01 kB
+dist/assets/HTMLProjectionNode-sLlZKbC7.js                           98.65 kB │ gzip:  32.53 kB
+dist/assets/univer-hyphenation-en-gb-B7Al27b_-BFFr9zKP.js           105.38 kB │ gzip:  26.11 kB
+dist/assets/ResumeScreeningPage-ClUv7dbh.js                         108.68 kB │ gzip:  28.06 kB
+dist/assets/univer-language-detection-B4Uu2EIS.js                   108.75 kB │ gzip:  51.08 kB
+dist/assets/EmployeeArchivePage-KbJcL9D8.js                         109.54 kB │ gzip:  30.21 kB
+dist/assets/AiModelManagementPage-BP9l7gbT.js                       112.19 kB │ gzip:  27.37 kB
+dist/assets/univer-hyphenation-lv-Q2BBHnzp-DRPSUjhQ.js              112.68 kB │ gzip:  16.09 kB
+dist/assets/lucide-vendor-BwhmFAU0.js                               118.41 kB │ gzip:  22.53 kB
+dist/assets/univer-sheets-drawing-ui-Ea4HQpDP.js                    120.13 kB │ gzip:  31.55 kB
+dist/assets/ExpenseCenterPage-DGxHPhmd.js                           129.81 kB │ gzip:  31.20 kB
+dist/assets/RDMyWorkspacePage-B08et6EG.js                           132.54 kB │ gzip:  37.35 kB
+dist/assets/univer-hyphenation-nl-BHQJ6Gvn-BMWl-SdQ.js              138.51 kB │ gzip:  36.10 kB
+dist/assets/AttendancePage-BDRsBDHg.js                              140.52 kB │ gzip:  70.87 kB
+dist/assets/index-J1cdtkbH.js                                       140.94 kB │ gzip:  53.59 kB
+dist/assets/index-B3uGajqJ.js                                       157.69 kB │ gzip:  38.36 kB
+dist/assets/univer-ui-7srTP6UE.js                                   158.83 kB │ gzip:  46.12 kB
+dist/assets/univer-hyphenation-cu-CBUlrW6Y-BrxB2kb-.js              168.80 kB │ gzip:  26.17 kB
+dist/assets/radix-vendor-BJisYKx7.js                                172.59 kB │ gzip:  49.88 kB
+dist/assets/univer-hyphenation-af-DK_CjRn6-C81U6qP1.js              179.89 kB │ gzip:  38.97 kB
+dist/assets/react-vendor-Drl4whS-.js                                237.22 kB │ gzip:  77.67 kB
+dist/assets/univer-font-parser-BY5NS6oL.js                          243.06 kB │ gzip:  68.14 kB
+dist/assets/univer-icons-c9NQbmEm.js                                252.37 kB │ gzip:  69.22 kB
+dist/assets/univer-core-C64o3hD-.js                                 257.43 kB │ gzip:  74.34 kB
+dist/assets/univer-hyphenation-de-ch-1901-hVThVHVb-CC5Yf8hX.js      264.34 kB │ gzip:  70.50 kB
+dist/assets/univer-hyphenation-de-1996-BL6awyxG-BSuIomZy.js         266.94 kB │ gzip:  71.07 kB
+dist/assets/univer-hyphenation-de-1901-CWoAOigE-yOXirf_M.js         270.04 kB │ gzip:  71.86 kB
+dist/assets/univer-hyphenation-no-B8ItS0F3-BlrHaK3Z.js              341.90 kB │ gzip:  87.84 kB
+dist/assets/univer-hyphenation-nb-DI8u59ch-S2a9vUN_.js              341.92 kB │ gzip:  87.85 kB
+dist/assets/univer-hyphenation-nn-ntZvarUK-cMBifkqM.js              341.92 kB │ gzip:  87.85 kB
+dist/assets/recharts-vendor-DTrHJjF7.js                             342.67 kB │ gzip:  85.00 kB
+dist/assets/univer-unicode-text-BGzpuup-.js                         349.19 kB │ gzip:  99.30 kB
+dist/assets/index-C0BHzjzA.js                                       404.88 kB │ gzip: 101.92 kB
+dist/assets/univer-sheets-CO4AjTGs.js                               412.82 kB │ gzip:  93.78 kB
+dist/assets/RDTaskManagementPage-DNdu6NqI.js                        431.14 kB │ gzip: 113.31 kB
+dist/assets/univer-docs-ui-DgfLMjpt.js                              457.44 kB │ gzip: 161.65 kB
+dist/assets/univer-engine-render-ByW_6AFS.js                        486.61 kB │ gzip: 141.61 kB
+dist/assets/xlsx-BGhuli8m.js                                        500.06 kB │ gzip: 163.12 kB
+dist/assets/index-BsZdfxh8.js                                       573.11 kB │ gzip: 180.11 kB
+dist/assets/index-BmS4Il8Q.js                                       664.47 kB │ gzip: 172.29 kB
+dist/assets/univer-engine-formula-ByLfZeTN.js                       701.04 kB │ gzip: 145.79 kB
+dist/assets/univer-hyphenation-hu-DVk7Y_ka-CCTZJfqn.js              765.41 kB │ gzip: 172.84 kB
+dist/assets/univer-sheets-ui-D2X3MB7l.js                            904.16 kB │ gzip: 345.73 kB
+dist/assets/exceljs.min-ItwBIMhg.js                                 940.04 kB │ gzip: 271.24 kB
+dist/assets/univer-sheets-formula-C8TC6wUa.js                       993.53 kB │ gzip: 152.02 kB
+✓ built in 11.06s
+
+Exit code: 0
+
+Production isolation scan: 294 files, 14 P10/P09 route/component/seed markers, 0 matches.
+Markers: /__preview/ecn, EcnPreviewPage, EcnSections, EcnActionForm, ecn-preview, ecs-comparison-grid, ECN-202609-003, ECN-202609-004, ECN-202608-011, 智能控制组件通信稳定性及端口防呆变更, verification-new, ECN-TASK-001, /__preview/batch-archives, BatchArchivePreviewPage
+
+Suite breakdown: ECN model 23 + form 26 + page 23 = 72; P09 model 31 (including 7 parameterized quantity cases) + form 23 + page 21 = 75; total 147/147 passed.
+P09 page additions: react-router Link test shim; ECN-202609-003 source links exactly to /__preview/ecn?ecn=ecn-01; unrelated sources have no ECN link; read-only access remains allowed; leaving via linked route preserves dirty-form protection. Both DEV-only route/lazy-load branches checked by page tests.
+
+P09 sidebar ECN reachability follow-up: 2026-09-11T04:29:34.090898+00:00
+Replaced prior direct ECN callback in the existing link regression with actual rendered sidebar ECN code button clicks, in normal and read-only views. Also opens a rendered non-ECN source button and verifies absence of a wrong ECN link.
+
+$ node --test scripts/ecn-model.test.mjs scripts/ecn-form.test.mjs scripts/ecn-page.test.mjs scripts/batch-archive-model.test.mjs scripts/batch-archive-form.test.mjs scripts/batch-archive-page.test.mjs
+✔ 新增与修订均经确认提交真实模型，范围与历史保留且原状态不变 (37.196291ms)
+✔ 新增不预填操作人，必填错误关联控件并聚焦第一项 (1.248667ms)
+✔ 拒绝零数、小数、指数、非数、负数及超安全整数 (9.100291ms)
+✔ 数量上限扣除其他范围，编辑不会重复扣除本范围 (2.42325ms)
+✔ 部分核心版本可以保存并继续标记待确认，不会自动填最新版本 (1.407042ms)
+✔ 全部版本空白时不可保存，有实际 SOP 依据也允许单独补充 (2.758916ms)
+✔ 版本和操作说明长度校验，隐藏的版本错误自动展开并聚焦 (5.970166ms)
+✔ 关联 SN 仅接受本批已知清单，错误自动展开并聚焦 (3.283583ms)
+✔ 拒绝大小写重复 SN、跨范围占用和超范围数量 (2.7015ms)
+✔ 已有 SN 不强制补满，编辑时自己的 SN 可保留 (0.887583ms)
+✔ 多份依据可添加和移除，编辑保留原有依据，拒绝没有依据 (3.045125ms)
+✔ 确认展示版本修改前后、数量、操作人及原因 (0.93625ms)
+✔ 没有修改实际范围资料时不产生仅变更原因的空修订 (0.726917ms)
+✔ 只读禁用输入与保存，取消保持可用 (0.690166ms)
+✔ 确认期间变为只读会阻止保存并保留输入 (1.368042ms)
+✔ 确认前或确认期间档案版本变化均拒绝过期操作 (3.1165ms)
+✔ 批次或范围切换而未重挂载时拒绝旧表单，保留原因 (1.870541ms)
+✔ 同版本号但编辑范围被改变，也拒绝覆盖旧记录 (1.794042ms)
+✔ 丢失批次或范围显示恢复说明，不允许提交 (0.850583ms)
+✔ 保存失败保留全部字段和脏状态，重试成功才清除 (5.7305ms)
+✔ 保存中同步防重复、禁用字段及关闭弹窗，成功不可再次提交 (2.223125ms)
+✔ 卸载后的异步完成不回写父页面脏状态 (1.533625ms)
+✔ 取消确认保留填写和保存按钮焦点，填写还原时脏状态清除 (1.466ms)
+✔ 默认档案分别统计完工、累计检验合格、授权放行、实际出货和完整度 (2.603ms)
+✔ 已补齐档案与历史缺失档案均保留真实完整度差异 (0.665667ms)
+✔ 创建状态不共享数组、原始事实或修订快照 (1.528666ms)
+✔ 材料 SN 与整机 SN 相互独立，材料批次及 SN 均由关联领料凭据佐证 (3.951791ms)
+✔ SN 按忽略大小写的唯一非空编号计数且最多覆盖完工数量 (0.2165ms)
+✔ 实际出货只统计明确已出库状态，草稿、冲销及未知状态不计入 (0.146958ms)
+✔ 待补齐项由数据生成并区分部分范围缺版本与未分配范围 (0.222584ms)
+✔ 补充剩余 16 台版本只提升版本完整度，不改其他业务事实 (1.67825ms)
+✔ 部分版本可保存且不会虚增版本已确认数量 (0.3615ms)
+✔ 修订既有范围保留完整修改前后快照及原始 ECN / 检验事实 (1.01725ms)
+✔ 无变化修订即使只换数组顺序、大小写或原因也被拒绝 (0.665958ms)
+✔ 清理首尾空白，关联 SN 采用已有来源的规范拼写 (0.757584ms)
+✔ 陈旧版本、重复提交、无效时间与不存在的批次不会修改状态 (1.104125ms)
+✔ 拒绝非正安全整数适用数量 0 (0.187542ms)
+✔ 拒绝非正安全整数适用数量 -1 (0.118084ms)
+✔ 拒绝非正安全整数适用数量 1.5 (0.124875ms)
+✔ 拒绝非正安全整数适用数量 Infinity (0.12325ms)
+✔ 拒绝非正安全整数适用数量 NaN (0.127792ms)
+✔ 拒绝非正安全整数适用数量 16 (0.140708ms)
+✔ 拒绝非正安全整数适用数量 9007199254740992 (0.115375ms)
+✔ 新增与编辑均校验范围数量总和；缩减后才能重分配剩余数量 (1.058334ms)
+✔ 重复范围名、无效范围及完全空版本均拒绝 (0.354125ms)
+✔ 必填修订人、原因、范围及来源凭据均拒绝缺失和超长文本 (0.518792ms)
+✔ 关联 SN 必须来自本批且不能重复、跨范围复用或超过范围数量 (0.445333ms)
+✔ 解除旧范围 SN 关联后可重新分配，同时保留原修订快照 (1.067083ms)
+✔ 重复可能的范围和修订编号时生成新的唯一编号 (1.257125ms)
+✔ CSV 包含全档案章节、所有来源单据、物料、SN 与完整修订前后值 (2.921666ms)
+✔ CSV 正确保留逗号、引号、换行、中文和零值，缺失值明确待补齐 (0.931958ms)
+✔ CSV 所有单元格阻止公式及前导空白 / 控制字符绕过 (6.533375ms)
+✔ 导出不泄露其他批次修订，纯读取不会更改现有状态 (0.804666ms)
+✔ 历史档案第一次补充版本的修订导出明确保留空的修改前范围 (0.3745ms)
+✔ 默认批次包含七标签、真实范围缺口与四个独立数量 (20.4415ms)
+✔ 整机 SN、材料 SN 和物料批次检索选中关联批次，未知标识没有静态假结果 (4.704291ms)
+✔ 批次切换保留标签，未知批次链接可恢复且未知标签安全回到版本 (2.010625ms)
+✔ 各标签呈现对应原单，初检复验放行分区且无伪造空记录 (8.190791ms)
+✔ 修订正确范围保留旧版本快照且不改变生产质量出货事实 (3.987542ms)
+✔ 新增剩余范围保留已有两段，关联原单且留档 (1.572958ms)
+✔ 保存失败不丢表单，重试一次只生成一条修订 (2.11425ms)
+✔ 旧保存回调及范围串单被拒绝，不覆盖其他修订 (2.830958ms)
+✔ 切换批次、标签、筛选与预览状态均先保护未保存表单 (7.037708ms)
+✔ 路由离开和刷新有草稿保护，取消保留，放弃继续原目标 (1.473041ms)
+✔ 页面内两个区域跳转仅滚动，不产生路由导航或触发未保存保护 (2.122625ms)
+✔ 原单摘要按当前批次打开，可继续沿原检验关联查看 (1.196167ms)
+✔ 从相关 ECN 侧栏按钮打开原单并准确进入变更预览，其他原单无错链且离开保护草稿 (4.752833ms)
+✔ 修订抽屉显示当前批次前后历史，其他批次不串档 (2.776167ms)
+✔ 本地导出包含本批已保存事实、范围、缺口和修订，不混入其他批次 (2.043708ms)
+✔ 未保存填写不进入导出，导出失败保留草稿并可重试 (2.446791ms)
+✔ 只读允许查看原单、历史、导出，同时禁止修订入口 (2.773958ms)
+✔ 空态和读取失败恢复已保存档案，不重新创建初始记录 (2.772333ms)
+✔ 重置须确认；取消保留修订，确认恢复原范围和记录 (3.716125ms)
+✔ 未关联的材料 SN 不计入整机已知 SN，原单按钮均指向本批 (8.302541ms)
+✔ 生产模式既不注册 P09 预览路由也不创建预览懒加载 (9.833167ms)
+✔ 六种动作均先确认后提交真实模型，只提交当前动作字段且保留原状态 (19.737042ms)
+✔ 已阅勾选和范围均必填，错误关联首个控件并聚焦 (0.650125ms)
+✔ 已阅范围包含保留旧版批次，说明已阅不代替执行验证 (0.489625ms)
+✔ 已阅重复覆盖由真实模型阻止，补充新范围可保存 (0.597666ms)
+✔ 未指定处置对象时可以选择，切换对象清空旧选项并仅提供适用方式 (1.751542ms)
+✔ 不允许通过旧选项越过对象处置范围，原因必填 (1.380542ms)
+✔ 处置确认显示具体对象、决定与原因，并说明需要业务单据 (0.961167ms)
+✔ 反馈必须指定有效负责人、日期和问题说明 (0.814417ms)
+✔ 反馈拒绝无效日期和过去日期，错误保留原填写 (1.33075ms)
+✔ 反馈可针对保留旧版范围，实际生成本地待办且不外发 (1.77775ms)
+✔ 待办处理预填目标，处理结果必填，完成不代替验证 (0.595583ms)
+✔ 已完成待办不能再次关闭，其他普通岗位不能代替负责人处理 (0.616167ms)
+✔ 验证仅列执行新版批次，证据限已发布且覆盖该批次的验证单 (0.237333ms)
+✔ 选择批次时清空之前的证据，不能保存草稿、其他范围或图纸作验证 (1.067958ms)
+✔ 从具体对象打开的处置、待办和适用范围固定带入，直接触发事件也无法串改对象 (2.411042ms)
+✔ 验证结果必须明确选择，未通过记录可保存并显示实际结论 (1.342583ms)
+✔ 当前批次存在未完成待办时不能登记验证通过，可如实记录未通过 (0.618917ms)
+✔ 归档显示所有未满足条件并禁用保存，满足条件才允许确认 (0.565417ms)
+✔ 操作人只能来自父页面有效身份，岗位限制和未发布归档状态均阻止操作 (1.962ms)
+✔ 只读禁用字段、勾选和保存，取消保持可用 (0.2675ms)
+✔ 确认期间只读或身份变化会拒绝旧操作并保留输入 (2.777042ms)
+✔ 确认前和确认期间数据版本变化均保留表单并阻止覆盖 (1.212625ms)
+✔ 保存失败保留填写和脏状态，重试成功才清除 (1.623167ms)
+✔ 忙碌同步防重复并锁定关闭，成功后不可重复提交 (1.25875ms)
+✔ 卸载后保存完成不回写父页面，取消确认保留填写和焦点 (1.045417ms)
+✔ 长说明就地校验，反馈 2000 字和普通说明 1000 字限制一致 (2.561083ms)
+✔ 三类演示状态独立，已阅、旧版处置、协同问题与执行验证分别计数 (1.292458ms)
+✔ 创建状态不共享来源、数组和历史记录，全部来源 ID 均有效 (1.7735ms)
+✔ 完整执行后仅归档 ECN，不改变生产批次、物料、订单或受控来源事实 (8.51175ms)
+✔ 岗位确认支持分次覆盖范围；非必需岗位已阅不会代替必需岗位 (0.644417ms)
+✔ 岗位已阅要求阅读确认及非空、唯一、已有适用范围，拒绝重复覆盖 (0.642875ms)
+✔ 旧版处置严格依岗位与对象种类，决定不会自动改库存、在制品或采购订单 (0.462917ms)
+✔ 处置修改追加历史与操作前后快照；暂缓仍阻止归档 (0.371333ms)
+✔ 执行反馈创建实际本地待办，责任岗位、日期和问题描述均被保留 (0.448208ms)
+✔ 待办必须归属已知范围与责任岗位，日期按本次操作的上海自然日校验 (0.75425ms)
+✔ 待办仅责任岗位或工艺 / 质量可处理，保留原问题与处理历史 (1.386208ms)
+✔ 执行验证只允许质量与适用新版批次，凭据须已发布且覆盖本批 (1.372084ms)
+✔ 未结执行问题阻止验证合格，但允许登记不合格保留结果 (0.760042ms)
+✔ 失败验证不被历史合格掩盖，后续再次合格才解除该条件 (2.307792ms)
+✔ 后续同批次问题使之前验证失效，处理完成后仍需重新验证（包含同时间戳） (4.041834ms)
+✔ 旧版保留范围的问题仍阻止归档，但不抹去其他新版批次的验证 (0.759875ms)
+✔ 归档严格要求质量岗位与全部确认、处置、待办和有效验证 (7.043458ms)
+✔ 所有动作均拒绝草稿与已归档记录，不能隐式发布或重新开启 (2.085833ms)
+✔ 陈旧版本、重复提交、无效岗位和操作时间被拒绝且原状态不变 (2.379708ms)
+✔ 修订事件与其他状态均深度独立，保留操作前后对象而非共享引用 (0.665459ms)
+✔ 生成的实体与事件编号不会碰撞已有编号 (0.475375ms)
+✔ 导出包含来源版本、适用范围、处置历史、岗位确认、问题与验证、完整操作记录 (7.145417ms)
+✔ 导出保留中文、逗号、引号与换行并防止公式及前导空白绕过 (6.952875ms)
+✔ 导出仅包含所选变更，纯读取不会更改状态 (0.723042ms)
+✔ 默认已发布 ECN 有五标签、真实差异摘要及独立已阅和验证进度 (17.562ms)
+✔ 编号、物料、影响批次和旧订单可检索，未匹配不会保留旧操作 (3.078917ms)
+✔ 未知 ECN 链接显示恢复入口，未知标签默认变更对比 (1.099042ms)
+✔ 本人确认全部范围只更新已阅，不改验证、版本、批次及库存处置 (2.367292ms)
+✔ 只确认新批保留旧批未读时显示部分确认，补齐旧范围才完成岗位已阅 (4.647625ms)
+✔ 旧版处置按工艺或质量角色开放，决定留档而不改变原对象 (4.578542ms)
+✔ 反馈实际生成可查看待办与责任人，处理后仍不自动通过验证 (2.523125ms)
+✔ 未处理协同阻止验证通过，补处理后质量可独立登记有效依据 (2.046292ms)
+✔ 验证通过后的新执行问题撤销有效验证提示，处理问题不能代替再次验证 (2.865542ms)
+✔ 归档条件未满足保持禁用，补齐后归档仅锁定当前演示变更并保留历史 (5.20325ms)
+✔ 草稿、归档和只读视图均无写操作，资料查看和导出仍可用 (4.201583ms)
+✔ 资料摘要显示准确原版本，缺文件不提供伪造图纸预览 (1.415292ms)
+✔ 保存失败保留表单与草稿，重试只追加一次动作 (1.053084ms)
+✔ 切换操作人、ECN、筛选、标签和预览状态保护未保存填写 (5.022ms)
+✔ 操作人切换与重复旧回调均拒绝旧提交，保留当前状态 (1.018583ms)
+✔ 已固定旧版对象的表单拒绝向另一对象串写 (1.3875ms)
+✔ 取消后重开相同动作拒绝前一次回调，当前表单仍可保存 (0.991ms)
+✔ 固定的待办与批次范围拒绝更换提交对象，普通反馈仍允许选择批次 (1.061667ms)
+✔ 操作历史以中文字段和业务对象显示前后内容，保留处置原因与人员 (2.020541ms)
+✔ 页内滚动不写路由或触发草稿保护，外部档案跳转仍保护草稿 (1.888375ms)
+✔ 导出为当前已保存 ECN 内容与真实文件名，不混入其他变更或未保存填写 (2.700625ms)
+✔ 空态及读取失败恢复已保存记录，重置取消与确认各自正确 (1.427334ms)
+✔ 生产环境不注册 ECN 预览路由或懒加载 (9.719834ms)
+ℹ tests 147
+ℹ suites 0
+ℹ pass 147
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 433.165458
+
+Exit code: 0
+
+$ npm run typecheck
+
+> @figma/my-make-file@0.1.0 typecheck
+> tsc --noEmit
+
+
+Exit code: 0
+Follow-up: 147/147 tests and typecheck passed. Production build was not repeated for this DEV-only sidebar reachability/test change; preceding build and isolation result are recorded above.
+
+FINAL after ECN cross-seed source metadata alignment: 2026-09-11T04:30:26.068660+00:00
+P09 ECN-202609-003 source aligned with P10 publication date 2026-09-09 and published status; actual historical batch versions/quantities remain unchanged. Model regression now includes a cross-seed consistency case.
+
+$ node --test scripts/ecn-model.test.mjs scripts/ecn-form.test.mjs scripts/ecn-page.test.mjs scripts/batch-archive-model.test.mjs scripts/batch-archive-form.test.mjs scripts/batch-archive-page.test.mjs
+✔ 新增与修订均经确认提交真实模型，范围与历史保留且原状态不变 (41.446209ms)
+✔ 新增不预填操作人，必填错误关联控件并聚焦第一项 (2.63625ms)
+✔ 拒绝零数、小数、指数、非数、负数及超安全整数 (6.751958ms)
+✔ 数量上限扣除其他范围，编辑不会重复扣除本范围 (4.296917ms)
+✔ 部分核心版本可以保存并继续标记待确认，不会自动填最新版本 (1.504833ms)
+✔ 全部版本空白时不可保存，有实际 SOP 依据也允许单独补充 (1.529458ms)
+✔ 版本和操作说明长度校验，隐藏的版本错误自动展开并聚焦 (1.89325ms)
+✔ 关联 SN 仅接受本批已知清单，错误自动展开并聚焦 (2.152667ms)
+✔ 拒绝大小写重复 SN、跨范围占用和超范围数量 (2.171291ms)
+✔ 已有 SN 不强制补满，编辑时自己的 SN 可保留 (0.872125ms)
+✔ 多份依据可添加和移除，编辑保留原有依据，拒绝没有依据 (2.230584ms)
+✔ 确认展示版本修改前后、数量、操作人及原因 (0.8985ms)
+✔ 没有修改实际范围资料时不产生仅变更原因的空修订 (0.716584ms)
+✔ 只读禁用输入与保存，取消保持可用 (0.755834ms)
+✔ 确认期间变为只读会阻止保存并保留输入 (2.729875ms)
+✔ 确认前或确认期间档案版本变化均拒绝过期操作 (2.719958ms)
+✔ 批次或范围切换而未重挂载时拒绝旧表单，保留原因 (1.985333ms)
+✔ 同版本号但编辑范围被改变，也拒绝覆盖旧记录 (1.801459ms)
+✔ 丢失批次或范围显示恢复说明，不允许提交 (1.317166ms)
+✔ 保存失败保留全部字段和脏状态，重试成功才清除 (4.362291ms)
+✔ 保存中同步防重复、禁用字段及关闭弹窗，成功不可再次提交 (3.091333ms)
+✔ 卸载后的异步完成不回写父页面脏状态 (2.331291ms)
+✔ 取消确认保留填写和保存按钮焦点，填写还原时脏状态清除 (1.647625ms)
+✔ 默认档案分别统计完工、累计检验合格、授权放行、实际出货和完整度 (1.1715ms)
+✔ 已补齐档案与历史缺失档案均保留真实完整度差异 (0.29575ms)
+✔ 关联 ECN 的发布状态与日期与 P10 来源一致，不替换本批历史实际版本 (41.189875ms)
+✔ 创建状态不共享数组、原始事实或修订快照 (3.642209ms)
+✔ 材料 SN 与整机 SN 相互独立，材料批次及 SN 均由关联领料凭据佐证 (2.08525ms)
+✔ SN 按忽略大小写的唯一非空编号计数且最多覆盖完工数量 (0.153584ms)
+✔ 实际出货只统计明确已出库状态，草稿、冲销及未知状态不计入 (0.135625ms)
+✔ 待补齐项由数据生成并区分部分范围缺版本与未分配范围 (0.176917ms)
+✔ 补充剩余 16 台版本只提升版本完整度，不改其他业务事实 (1.376ms)
+✔ 部分版本可保存且不会虚增版本已确认数量 (0.380375ms)
+✔ 修订既有范围保留完整修改前后快照及原始 ECN / 检验事实 (0.618667ms)
+✔ 无变化修订即使只换数组顺序、大小写或原因也被拒绝 (0.198458ms)
+✔ 清理首尾空白，关联 SN 采用已有来源的规范拼写 (0.248625ms)
+✔ 陈旧版本、重复提交、无效时间与不存在的批次不会修改状态 (0.46475ms)
+✔ 拒绝非正安全整数适用数量 0 (0.073625ms)
+✔ 拒绝非正安全整数适用数量 -1 (0.079208ms)
+✔ 拒绝非正安全整数适用数量 1.5 (0.066084ms)
+✔ 拒绝非正安全整数适用数量 Infinity (0.059042ms)
+✔ 拒绝非正安全整数适用数量 NaN (0.04725ms)
+✔ 拒绝非正安全整数适用数量 16 (0.045666ms)
+✔ 拒绝非正安全整数适用数量 9007199254740992 (0.043833ms)
+✔ 新增与编辑均校验范围数量总和；缩减后才能重分配剩余数量 (0.464334ms)
+✔ 重复范围名、无效范围及完全空版本均拒绝 (0.159916ms)
+✔ 必填修订人、原因、范围及来源凭据均拒绝缺失和超长文本 (0.235917ms)
+✔ 关联 SN 必须来自本批且不能重复、跨范围复用或超过范围数量 (0.245666ms)
+✔ 解除旧范围 SN 关联后可重新分配，同时保留原修订快照 (0.46975ms)
+✔ 重复可能的范围和修订编号时生成新的唯一编号 (2.340458ms)
+✔ CSV 包含全档案章节、所有来源单据、物料、SN 与完整修订前后值 (1.32625ms)
+✔ CSV 正确保留逗号、引号、换行、中文和零值，缺失值明确待补齐 (0.776ms)
+✔ CSV 所有单元格阻止公式及前导空白 / 控制字符绕过 (16.982375ms)
+✔ 导出不泄露其他批次修订，纯读取不会更改现有状态 (1.924875ms)
+✔ 历史档案第一次补充版本的修订导出明确保留空的修改前范围 (0.871042ms)
+✔ 默认批次包含七标签、真实范围缺口与四个独立数量 (20.505083ms)
+✔ 整机 SN、材料 SN 和物料批次检索选中关联批次，未知标识没有静态假结果 (5.415834ms)
+✔ 批次切换保留标签，未知批次链接可恢复且未知标签安全回到版本 (1.788583ms)
+✔ 各标签呈现对应原单，初检复验放行分区且无伪造空记录 (8.77375ms)
+✔ 修订正确范围保留旧版本快照且不改变生产质量出货事实 (4.518416ms)
+✔ 新增剩余范围保留已有两段，关联原单且留档 (1.871541ms)
+✔ 保存失败不丢表单，重试一次只生成一条修订 (2.418708ms)
+✔ 旧保存回调及范围串单被拒绝，不覆盖其他修订 (1.333209ms)
+✔ 切换批次、标签、筛选与预览状态均先保护未保存表单 (6.871458ms)
+✔ 路由离开和刷新有草稿保护，取消保留，放弃继续原目标 (1.781959ms)
+✔ 页面内两个区域跳转仅滚动，不产生路由导航或触发未保存保护 (1.655917ms)
+✔ 原单摘要按当前批次打开，可继续沿原检验关联查看 (1.458875ms)
+✔ 从相关 ECN 侧栏按钮打开原单并准确进入变更预览，其他原单无错链且离开保护草稿 (3.794667ms)
+✔ 修订抽屉显示当前批次前后历史，其他批次不串档 (3.305167ms)
+✔ 本地导出包含本批已保存事实、范围、缺口和修订，不混入其他批次 (2.092084ms)
+✔ 未保存填写不进入导出，导出失败保留草稿并可重试 (1.643625ms)
+✔ 只读允许查看原单、历史、导出，同时禁止修订入口 (3.004458ms)
+✔ 空态和读取失败恢复已保存档案，不重新创建初始记录 (2.95425ms)
+✔ 重置须确认；取消保留修订，确认恢复原范围和记录 (2.7695ms)
+✔ 未关联的材料 SN 不计入整机已知 SN，原单按钮均指向本批 (7.730291ms)
+✔ 生产模式既不注册 P09 预览路由也不创建预览懒加载 (7.409708ms)
+✔ 六种动作均先确认后提交真实模型，只提交当前动作字段且保留原状态 (23.9625ms)
+✔ 已阅勾选和范围均必填，错误关联首个控件并聚焦 (0.64425ms)
+✔ 已阅范围包含保留旧版批次，说明已阅不代替执行验证 (0.547375ms)
+✔ 已阅重复覆盖由真实模型阻止，补充新范围可保存 (1.377042ms)
+✔ 未指定处置对象时可以选择，切换对象清空旧选项并仅提供适用方式 (1.560042ms)
+✔ 不允许通过旧选项越过对象处置范围，原因必填 (1.824ms)
+✔ 处置确认显示具体对象、决定与原因，并说明需要业务单据 (1.36325ms)
+✔ 反馈必须指定有效负责人、日期和问题说明 (1.628542ms)
+✔ 反馈拒绝无效日期和过去日期，错误保留原填写 (1.792042ms)
+✔ 反馈可针对保留旧版范围，实际生成本地待办且不外发 (3.815834ms)
+✔ 待办处理预填目标，处理结果必填，完成不代替验证 (1.262958ms)
+✔ 已完成待办不能再次关闭，其他普通岗位不能代替负责人处理 (1.797208ms)
+✔ 验证仅列执行新版批次，证据限已发布且覆盖该批次的验证单 (0.694334ms)
+✔ 选择批次时清空之前的证据，不能保存草稿、其他范围或图纸作验证 (2.042083ms)
+✔ 从具体对象打开的处置、待办和适用范围固定带入，直接触发事件也无法串改对象 (4.198583ms)
+✔ 验证结果必须明确选择，未通过记录可保存并显示实际结论 (2.567458ms)
+✔ 当前批次存在未完成待办时不能登记验证通过，可如实记录未通过 (1.826375ms)
+✔ 归档显示所有未满足条件并禁用保存，满足条件才允许确认 (0.8255ms)
+✔ 操作人只能来自父页面有效身份，岗位限制和未发布归档状态均阻止操作 (2.074875ms)
+✔ 只读禁用字段、勾选和保存，取消保持可用 (0.290583ms)
+✔ 确认期间只读或身份变化会拒绝旧操作并保留输入 (2.206833ms)
+✔ 确认前和确认期间数据版本变化均保留表单并阻止覆盖 (1.087083ms)
+✔ 保存失败保留填写和脏状态，重试成功才清除 (2.313958ms)
+✔ 忙碌同步防重复并锁定关闭，成功后不可重复提交 (1.306792ms)
+✔ 卸载后保存完成不回写父页面，取消确认保留填写和焦点 (1.066208ms)
+✔ 长说明就地校验，反馈 2000 字和普通说明 1000 字限制一致 (1.823083ms)
+✔ 三类演示状态独立，已阅、旧版处置、协同问题与执行验证分别计数 (1.293292ms)
+✔ 创建状态不共享来源、数组和历史记录，全部来源 ID 均有效 (0.324083ms)
+✔ 完整执行后仅归档 ECN，不改变生产批次、物料、订单或受控来源事实 (5.829583ms)
+✔ 岗位确认支持分次覆盖范围；非必需岗位已阅不会代替必需岗位 (1.25225ms)
+✔ 岗位已阅要求阅读确认及非空、唯一、已有适用范围，拒绝重复覆盖 (1.361541ms)
+✔ 旧版处置严格依岗位与对象种类，决定不会自动改库存、在制品或采购订单 (1.141417ms)
+✔ 处置修改追加历史与操作前后快照；暂缓仍阻止归档 (0.860042ms)
+✔ 执行反馈创建实际本地待办，责任岗位、日期和问题描述均被保留 (0.927875ms)
+✔ 待办必须归属已知范围与责任岗位，日期按本次操作的上海自然日校验 (1.853208ms)
+✔ 待办仅责任岗位或工艺 / 质量可处理，保留原问题与处理历史 (2.8685ms)
+✔ 执行验证只允许质量与适用新版批次，凭据须已发布且覆盖本批 (1.168833ms)
+✔ 未结执行问题阻止验证合格，但允许登记不合格保留结果 (4.255625ms)
+✔ 失败验证不被历史合格掩盖，后续再次合格才解除该条件 (4.611375ms)
+✔ 后续同批次问题使之前验证失效，处理完成后仍需重新验证（包含同时间戳） (3.152208ms)
+✔ 旧版保留范围的问题仍阻止归档，但不抹去其他新版批次的验证 (1.694875ms)
+✔ 归档严格要求质量岗位与全部确认、处置、待办和有效验证 (3.112833ms)
+✔ 所有动作均拒绝草稿与已归档记录，不能隐式发布或重新开启 (0.989625ms)
+✔ 陈旧版本、重复提交、无效岗位和操作时间被拒绝且原状态不变 (0.665917ms)
+✔ 修订事件与其他状态均深度独立，保留操作前后对象而非共享引用 (0.678041ms)
+✔ 生成的实体与事件编号不会碰撞已有编号 (0.51225ms)
+✔ 导出包含来源版本、适用范围、处置历史、岗位确认、问题与验证、完整操作记录 (3.998417ms)
+✔ 导出保留中文、逗号、引号与换行并防止公式及前导空白绕过 (10.074125ms)
+✔ 导出仅包含所选变更，纯读取不会更改状态 (0.726416ms)
+✔ 默认已发布 ECN 有五标签、真实差异摘要及独立已阅和验证进度 (18.286458ms)
+✔ 编号、物料、影响批次和旧订单可检索，未匹配不会保留旧操作 (3.804333ms)
+✔ 未知 ECN 链接显示恢复入口，未知标签默认变更对比 (2.125875ms)
+✔ 本人确认全部范围只更新已阅，不改验证、版本、批次及库存处置 (2.555625ms)
+✔ 只确认新批保留旧批未读时显示部分确认，补齐旧范围才完成岗位已阅 (5.909167ms)
+✔ 旧版处置按工艺或质量角色开放，决定留档而不改变原对象 (5.227625ms)
+✔ 反馈实际生成可查看待办与责任人，处理后仍不自动通过验证 (3.7845ms)
+✔ 未处理协同阻止验证通过，补处理后质量可独立登记有效依据 (2.387292ms)
+✔ 验证通过后的新执行问题撤销有效验证提示，处理问题不能代替再次验证 (3.945042ms)
+✔ 归档条件未满足保持禁用，补齐后归档仅锁定当前演示变更并保留历史 (4.635083ms)
+✔ 草稿、归档和只读视图均无写操作，资料查看和导出仍可用 (4.907167ms)
+✔ 资料摘要显示准确原版本，缺文件不提供伪造图纸预览 (0.9555ms)
+✔ 保存失败保留表单与草稿，重试只追加一次动作 (0.953ms)
+✔ 切换操作人、ECN、筛选、标签和预览状态保护未保存填写 (5.013792ms)
+✔ 操作人切换与重复旧回调均拒绝旧提交，保留当前状态 (0.973416ms)
+✔ 已固定旧版对象的表单拒绝向另一对象串写 (0.594792ms)
+✔ 取消后重开相同动作拒绝前一次回调，当前表单仍可保存 (0.928709ms)
+✔ 固定的待办与批次范围拒绝更换提交对象，普通反馈仍允许选择批次 (1.008333ms)
+✔ 操作历史以中文字段和业务对象显示前后内容，保留处置原因与人员 (1.989ms)
+✔ 页内滚动不写路由或触发草稿保护，外部档案跳转仍保护草稿 (2.0755ms)
+✔ 导出为当前已保存 ECN 内容与真实文件名，不混入其他变更或未保存填写 (1.841042ms)
+✔ 空态及读取失败恢复已保存记录，重置取消与确认各自正确 (1.244458ms)
+✔ 生产环境不注册 ECN 预览路由或懒加载 (8.025125ms)
+ℹ tests 148
+ℹ suites 0
+ℹ pass 148
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 468.281917
+
+Exit code: 0
+
+$ npm run typecheck
+
+> @figma/my-make-file@0.1.0 typecheck
+> tsc --noEmit
+
+
+Exit code: 0
+FINAL: ECN 23+26+23=72; P09 32+23+21=76; total 148/148 passed. Typecheck passed. Last production build and 294-file isolation scan above predate these isolated DEV-only sidebar/seed/test adjustments; build was not repeated for this follow-up.

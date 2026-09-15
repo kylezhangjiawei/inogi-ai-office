@@ -1,0 +1,28 @@
+✖ 后退回旧历史位置不会复活遮住精确目标的旧筛选 (105.420875ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 239.761042
+
+✖ failing tests:
+
+test at scripts/purchase-order-line-navigation.test.mjs:185:1
+✖ 后退回旧历史位置不会复活遮住精确目标的旧筛选 (105.420875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///Users/alex/coding/inogi-ai-office/scripts/purchase-order-line-navigation.test.mjs:192:10)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

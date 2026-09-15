@@ -1,0 +1,52 @@
+{
+  "capturedAt": "2026-09-14T06:06:58.506Z",
+  "reason": "Enable exact production workspace layer virtual module; previous exec session 89631",
+  "state": {
+    "ok": true,
+    "fixture": "S02",
+    "apiMode": "memory-only",
+    "config": {
+      "transferMode": "success",
+      "uploadMode": "success",
+      "documentsMode": "success"
+    },
+    "counts": {
+      "submit": 0,
+      "upload": 0,
+      "put": 0,
+      "register": 0,
+      "abort": 0,
+      "documents": 2,
+      "products": 2
+    },
+    "activeRequests": 0,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/research-development/products",
+        "at": "2026-09-14T06:04:50.976Z",
+        "authorization": false
+      },
+      {
+        "method": "GET",
+        "path": "/api/research-development/tasks/qa-s02-rd-new/technical-documents",
+        "at": "2026-09-14T06:04:50.977Z",
+        "authorization": false
+      },
+      {
+        "method": "GET",
+        "path": "/api/research-development/products",
+        "at": "2026-09-14T06:05:03.995Z",
+        "authorization": false
+      },
+      {
+        "method": "GET",
+        "path": "/api/research-development/tasks/qa-s02-rd-new/technical-documents",
+        "at": "2026-09-14T06:05:03.996Z",
+        "authorization": false
+      }
+    ],
+    "submissions": [],
+    "uploaded": []
+  }
+}

@@ -1,0 +1,4 @@
+
+> @figma/my-make-file@0.1.0 typecheck
+> tsc --noEmit
+

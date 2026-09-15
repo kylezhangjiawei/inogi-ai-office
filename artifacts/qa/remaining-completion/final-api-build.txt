@@ -1,0 +1,8 @@
+
+> @figma/my-make-file@0.1.0 build:api
+> npm --prefix apps/api run build
+
+
+> @inogi/api@0.1.0 build
+> nest build
+

@@ -1,0 +1,140 @@
+{
+  "reviewedAt": "2026-09-11T05:55:18.133Z",
+  "coldReloadCutoff": "2026-09-11T05:47:34Z",
+  "historicalLogs": [
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:39:53.273Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:40:40.457Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:40:44.073Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:40:44.704Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:40:44.711Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:42:28.718Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:42:28.726Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:43:54.691Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:43:57.873Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:43:57.883Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:44:01.200Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:45:18.792Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:45:21.977Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:45:26.314Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:45:29.583Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:45:32.982Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:45:33.244Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:45:36.652Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:46:50.722Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:46:54.182Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:46:57.359Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T05:47:02.679Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    }
+  ],
+  "newLogs": [],
+  "reviewedFlows": "冷重新加载后跨月未完、P01/P07切换、三个视口、资料抽屉及键盘标签检查；先前热更新阶段22条单拦截器警告单独保留。"
+}

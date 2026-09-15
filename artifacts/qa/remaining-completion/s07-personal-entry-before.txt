@@ -1,0 +1,243 @@
+✖ 仓管和质量普通人员具有可见独立入口，详情主路径改名不覆盖岗位入口 (22.358667ms)
+✔ 缺任一权限前提时菜单隐藏，既有知识库任一权限规则保留 (52.170125ms)
+✖ 直接打开独立页仍组合校验权限，仅渲染本人任务；不挂团队页 (0.22475ms)
+✖ App 独立岗位路由保留详情外门，团队管理仍只归驾驶舱权限 (0.765167ms)
+✖ 手机访问岗位任务保留原入口，未登录仍进登录页 (4.378208ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 1
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 243.085417
+
+✖ failing tests:
+
+test at scripts/operational-tasks-entry.test.mjs:28:1
+✖ 仓管和质量普通人员具有可见独立入口，详情主路径改名不覆盖岗位入口 (22.358667ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(navigation(user).some(item => item.path === path))
+  
+      at TestContext.<anonymous> (file:///Users/alex/coding/inogi-ai-office/scripts/operational-tasks-entry.test.mjs:29:71)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.start (node:internal/test_runner/test:1096:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at scripts/operational-tasks-entry.test.mjs:36:1
+✖ 直接打开独立页仍组合校验权限，仅渲染本人任务；不挂团队页 (0.22475ms)
+  Error: ENOENT: no such file or directory, open '/Users/alex/coding/inogi-ai-office/src/app/procurement/people/OperationalTasksPage.tsx'
+      at readFileSync (node:fs:441:20)
+      at read (file:///Users/alex/coding/inogi-ai-office/scripts/operational-tasks-entry.test.mjs:9:24)
+      at load (file:///Users/alex/coding/inogi-ai-office/scripts/operational-tasks-entry.test.mjs:11:93)
+      at page (file:///Users/alex/coding/inogi-ai-office/scripts/operational-tasks-entry.test.mjs:23:36)
+      at TestContext.<anonymous> (file:///Users/alex/coding/inogi-ai-office/scripts/operational-tasks-entry.test.mjs:37:82)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12) {
+    errno: -2,
+    code: 'ENOENT',
+    syscall: 'open',
+    path: '/Users/alex/coding/inogi-ai-office/src/app/procurement/people/OperationalTasksPage.tsx'
+  }
+
+test at scripts/operational-tasks-entry.test.mjs:40:1
+✖ App 独立岗位路由保留详情外门，团队管理仍只归驾驶舱权限 (0.765167ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /path:\s*"proc-operational-tasks",\s*element:\s*makeLazyProtected\(<OperationalTasksPage\s*\/>,\s*"page:purchase-order-detail"\)/. Input:
+  
+  'import React, { Suspense, useEffect, useState } from "react";\n' +
+    'import { CssBaseline, ThemeProvider } from "@mui/material";\n' +
+    'import { createBrowserRouter, matchPath, Navigate, RouterProvider, useLocation, useParams } from "react-router";\n' +
+    'import { toast } from "sonner";\n' +
+    'import { materialTheme } from "../styles/materialTheme";\n' +
+    'import { AuthProvider, useAuth } from "./auth";\n' +
+    'import { hasAnyPermission, hasPermission } from "./lib/permissions";\n' +
+    'import { isMobileViewport } from "./lib/mobileRouting";\n' +
+    'import { procurementWorkspaceReturnPath } from "./lib/procurementWorkspaceNavigation";\n' +
+    'import { DEPT_KBS, routePermissionMap } from "./routesConfig";\n' +
+    '// 路径解析：页面挂载路径以「页面路由管理」的配置为准，目录不可用时回退内置默认值\n' +
+    'import { asChildPath, routePath, subRoutePath } from "./lib/routePaths";\n' +
+    '\n' +
+    '// 首屏即需，保持同步加载：登录页、桌面外壳、移动外壳。\n' +
+    'import { LoginPage } from "./LoginPage";\n' +
+    'import { Root } from "./Root";\n' +
+    'import { MobileLayout } from "./MobileShell";\n' +
+    '\n' +
+    '/**\n' +
+    ' * 路由级懒加载工具：把命名导出的页面组件包成 React.lazy 的 default 形态。\n' +
+    ' * 每个页面拆成独立 chunk 按需加载，首屏主包不再吞下全部页面（含 1 万行的研发驾驶舱等）。\n' +
+    ' */\n' +
+    'function lazyNamed<M extends Record<string, unknown>, K extends keyof M>(\n' +
+    '  loader: () => Promise<M>,\n' +
+    '  name: K,\n' +
+    ') {\n' +
+    '  return React.lazy(async () => {\n' +
+    '    const mod = await loader();\n' +
+    '    return { default: mod[name] as unknown as React.ComponentType<Record<string, unknown>> };\n' +
+    '  });\n' +
+    '}\n' +
+    '\n' +
+    'const AfterSalesDetails = lazyNamed(() => import("./AfterSalesDetails"), "AfterSalesDetails");\n' +
+    'const Dashboard = lazyNamed(() => import("./Dashboard"), "Dashboard");\n' +
+    'const AfterSalesForm = lazyNamed(() => import("./AfterSalesForm"), "AfterSalesForm");\n' +
+    'const AfterSalesList = lazyNamed(() => import("./AfterSalesList"), "AfterSalesList");\n' +
+    'const AiModelManagementPage = lazyNamed(() => import("./AiModelManagementPage"), "AiModelManagementPage");\n' +
+    'const AiUsageDashboardPage = lazyNamed(() => import("./AiUsageDashboardPage"), "AiUsageDashboardPage");\n' +
+    'const ContentSlotsPage = lazyNamed(() => import("./ContentSlotsPage"), "ContentSlotsPage");\n' +
+    'const ChatAnalyticsPage = lazyNamed(() => import("./ChatAnalyticsPage"), "ChatAnalyticsPage");\n' +
+    'const MobileChatAnalyticsPage = lazyNamed(() => import("./MobileChatAnalyticsPage"), "MobileChatAnalyticsPage");\n' +
+    'const MobileRDCockpit = lazyNamed(() => import("./MobileRDCockpit"), "MobileRDCockpit");\n' +
+    'const MobileProcSampleTestPage = lazyNamed(() => import("./MobileProcSampleTestPage"), "MobileProcSampleTestPage");\n' +
+    'const I18nManagementPage = lazyNamed(() => import("./I18nManagementPage"), "I18nManagementPage");\n' +
+    'const BOMArchive = lazyNamed(() => import("./BOMArchive"), "BOMArchive");\n' +
+    'const BugLogPage = lazyNamed(() => import("./BugLogPage"), "BugLogPage");\n' +
+    'const CustomsAI = lazyNamed(() => import("./CustomsAI"), "CustomsAI");\n' +
+    'const CustomsDocs = lazyNamed(() => import("./CustomsDocs"), "CustomsDocs");\n' +
+    'const DepartmentManagement = lazyNamed(() => import("./DepartmentManagement"), "DepartmentManagement");\n' +
+    'const DesignChangesPage = lazyNamed(() => import("./DesignChangesPage"), "DesignChangesPage");\n' +
+    'const DownloadTutorialPage = lazyNamed(() => import("./DownloadTutorialPage"), "DownloadTutorialPage");\n' +
+    'const PlatformTutorialPage = lazyNamed(() => import("./DownloadTutorialPage"), "PlatformTutorialPage");\n' +
+    'const ManualPage = lazyNamed(() => import("./ManualPage"), "ManualPage");\n' +
+    'const ManualTopicPage = lazyNamed(() => import("./ManualPage"), "ManualTopicPage");\n' +
+    'const EBPRPage = lazyNamed(() => import("./EBPRPage"), "EBPRPage");\n' +
+    'const EmailAIPage = lazyNamed(() => import("./EmailAIPage"), "EmailAIPage");\n' +
+    'const EmployeeArchivePage = lazyNamed(() => import("./EmployeeArchivePage"), "EmployeeArchivePage");\n' +
+    'const ApplicantFormsPage = lazyNamed(() => import("./ApplicantFormsPage"), "ApplicantFormsPage");\n' +
+    'const PublicApplicantFormPage = lazyNamed(() => import("./applicant-forms/PublicApplicantFormPage"), "PublicApplicantFormPage");\n' +
+    'const ExpenseCenterPage = lazyNamed(() => import("./ExpenseCenterPage"), "ExpenseCenterPage");\n' +
+    'const ExternalDocsPage = lazyNamed(() => import("./ExternalDocsPage"), "ExternalDocsPage");\n' +
+    'const InspectionReleasePage = lazyNamed(() => import("./InspectionReleasePage"), "InspectionReleasePage");\n' +
+    'const InquiryPage = lazyNamed(() => import("./InquiryPage"), "InquiryPage");\n' +
+    'const MailboxManagementPage = lazyNamed(() => import("./MailboxManagementPage"), "MailboxManagementPage");\n' +
+    'const MeetingMinutes = lazyNamed(() => import("./MeetingMinutes"), "MeetingMinutes");\n' +
+    'const OcrConfigManagementPage = lazyNamed(() => import("./OcrConfigManagementPage"), "OcrConfigManagementPage");\n' +
+    'const MessageCenterPage = lazyNamed(() => import("./MessageCenterPage"), "MessageCenterPage");\n' +
+    'const OpsCenterPage = lazyNamed(() => import("./OpsCenterPage"), "OpsCenterPage");\n' +
+    'const InventoryManagementPage = lazyNamed(() => import("./order-processing"), "InventoryManagementPage");\n' +
+    'const OrderWorkbenchPage = lazyNamed(() => import("./order-processing"), "OrderWorkbenchPage");\n' +
+    'const PurchaseOrderDetailPage = lazyNamed(() => import("./order-processing"), "PurchaseOrderDetailPage");\n' +
+    'const PurchaseOrdersPage = lazyNamed(() => import("./order-processing"), "PurchaseOrdersPage");\n' +
+    '// The unfinished warehouse workflow is available for frontend review only.\n' +
+    '// It carries its own in-memory demonstration data and is excluded from production routes.\n' +
+    'const ReceiptDispositionPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./procurement/ReceiptDispositionPreviewPage"), "ReceiptDispositionPreviewPage")\n' +
+    '  : null;\n' +
+    'const QualityExceptionsPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./procurement/quality/QualityExceptionsPreviewPage"), "QualityExceptionsPreviewPage")\n' +
+    '  : null;\n' +
+    'const WarehousePreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./procurement/warehouse/WarehousePreviewPage"), "WarehousePreviewPage")\n' +
+    '  : null;\n' +
+    'const ShipmentPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./procurement/shipments/ShipmentPreviewPage"), "ShipmentPreviewPage")\n' +
+    '  : null;\n' +
+    'const BatchArchivePreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./production/batch-archives/BatchArchivePreviewPage"), "BatchArchivePreviewPage")\n' +
+    '  : null;\n' +
+    'const EcnPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./production/ecn/EcnPreviewPage"), "EcnPreviewPage")\n' +
+    '  : null;\n' +
+    'const PlanningPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./production/planning/PlanningPreviewPage"), "PlanningPreviewPage")\n' +
+    '  : null;\n' +
+    'const DefectPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./production/defects/DefectPreviewPage"), "DefectPreviewPage")\n' +
+    '  : null;\n' +
+    'const ProductionRdPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./production/rd-collaboration/ProductionRdPreviewPage"), "ProductionRdPreviewPage")\n' +
+    '  : null;\n' +
+    'const TransferPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./production/transfer/TransferPreviewPage"), "TransferPreviewPage")\n' +
+    '  : null;\n' +
+    'const ProductionOverviewPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./production/overview/ProductionOverviewPreviewPage"), "ProductionOverviewPreviewPage")\n' +
+    '  : null;\n' +
+    'const ProductionTasksPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./production/overview/ProductionTasksPreviewPage"), "ProductionTasksPreviewPage")\n' +
+    '  : null;\n' +
+    'const InspectionPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./production/inspections/InspectionPreviewPage"), "InspectionPreviewPage")\n' +
+    '  : null;\n' +
+    'const FieldPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./production/field-tasks/FieldPreviewPage"), "FieldPreviewPage")\n' +
+    '  : null;\n' +
+    'const PreviewIndexPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./preview/PreviewIndexPage"), "PreviewIndexPage")\n' +
+    '  : null;\n' +
+    'const MonthlyReadinessPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./procurement/monthly-readiness/MonthlyReadinessPreviewPage"), "MonthlyReadinessPreviewPage")\n' +
+    '  : null;\n' +
+    'const KeyMaterialsPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./procurement/key-materials/KeyMaterialsPreviewPage"), "KeyMaterialsPreviewPage")\n' +
+    '  : null;\n' +
+    'const CompanyOverviewPreviewPage = import.meta.env.DEV\n' +
+    '  ? lazyNamed(() => import("./company-overview/CompanyOverviewPreviewPage"), "CompanyOverviewPreviewPage")\n' +
+    '  : null;\n' +
+    '// 采购管理（静态流程页面）\n' +
+    'const ProcurementCockpitPage = lazyNamed(() => import("./procurement"), "ProcurementCockpitPage");\n' +
+    'const ProcMyWorkspacePage = lazyNamed(() => import("./procurement"), "ProcMyWorkspacePage");\n' +
+    'const MaterialWorkbenchPage = lazyNamed(() => import("./procurement"), "MaterialWorkbenchPage");\n' +
+    'const InventoryReadinessPage = lazyNamed(() => import("./procurement"), "InventoryReadinessPage");\n' +
+    'const QuoteBookPage = lazyNamed(() => import("./procurement"), "QuoteBookPage");\n' +
+    'const ProcPeopleManagementPage = lazyNamed(() => import("./procurement"), "ProcPeopleManagementPage");\n' +
+    'const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");\n' +
+    'const ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");\n' +
+    'const QualityDMSPage = lazyNamed(() => import("./QualityDMSPage"), "QualityDMSPage");\n' +
+    'const QATraceability = lazyNamed(() => import("./QATraceability"), "QATraceability");\n' +
+    'const AttendancePage = lazyNamed(() => import("./AttendancePage"), "AttendancePage");\n' +
+    'const RAKnowledgePage = lazyNamed(() => import("./RAKnowledgePage"), "RAKnowledgePage");\n' +
+    'const RDIssues = lazyNamed(() => import("./RDIssues"), "RDIssues");\n' +
+    'const IssueAiModule = lazyNamed(() => import("./IssueAiModule"), "IssueAiModule");\n' +
+    'const RegistrationProjects = lazyNamed(() => import("./RegistrationProjects"), "RegistrationProjects");\n' +
+    'const ReportCompressionPage = lazyNamed(() => import("./ReportCompressionPage"), "ReportCompressionPage");\n' +
+    'const ResumeScreeningPage = lazyNamed(() => import("./ResumeScreeningPage"), "ResumeScreeningPage");\n' +
+    'const RoleManagement = lazyNamed(() => import("./RoleManagement"), "RoleManagement");\n' +
+    'const RDTaskManagementPage = lazyNamed(() => import("./RDTaskManagementPage"), "RDTaskManagementPage");\n' +
+    'const RDMyWorkspacePage = lazyNamed(() => import("./R'... 34056 more characters
+  
+      at TestContext.<anonymous> (file:///Users/alex/coding/inogi-ai-office/scripts/operational-tasks-entry.test.mjs:42:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'import React, { Suspense, useEffect, useState } from "react";\nimport { CssBaseline, ThemeProvider } from "@mui/material";\nimport { createBrowserRouter, matchPath, Navigate, RouterProvider, useLocation, useParams } from "react-router";\nimport { toast } from "sonner";\nimport { materialTheme } from "../styles/materialTheme";\nimport { AuthProvider, useAuth } from "./auth";\nimport { hasAnyPermission, hasPermission } from "./lib/permissions";\nimport { isMobileViewport } from "./lib/mobileRouting";\nimport { procurementWorkspaceReturnPath } from "./lib/procurementWorkspaceNavigation";\nimport { DEPT_KBS, routePermissionMap } from "./routesConfig";\n// 路径解析：页面挂载路径以「页面路由管理」的配置为准，目录不可用时回退内置默认值\nimport { asChildPath, routePath, subRoutePath } from "./lib/routePaths";\n\n// 首屏即需，保持同步加载：登录页、桌面外壳、移动外壳。\nimport { LoginPage } from "./LoginPage";\nimport { Root } from "./Root";\nimport { MobileLayout } from "./MobileShell";\n\n/**\n * 路由级懒加载工具：把命名导出的页面组件包成 React.lazy 的 default 形态。\n * 每个页面拆成独立 chunk 按需加载，首屏主包不再吞下全部页面（含 1 万行的研发驾驶舱等）。\n */\nfunction lazyNamed<M extends Record<string, unknown>, K extends keyof M>(\n  loader: () => Promise<M>,\n  name: K,\n) {\n  return React.lazy(async () => {\n    const mod = await loader();\n    return { default: mod[name] as unknown as React.ComponentType<Record<string, unknown>> };\n  });\n}\n\nconst AfterSalesDetails = lazyNamed(() => import("./AfterSalesDetails"), "AfterSalesDetails");\nconst Dashboard = lazyNamed(() => import("./Dashboard"), "Dashboard");\nconst AfterSalesForm = lazyNamed(() => import("./AfterSalesForm"), "AfterSalesForm");\nconst AfterSalesList = lazyNamed(() => import("./AfterSalesList"), "AfterSalesList");\nconst AiModelManagementPage = lazyNamed(() => import("./AiModelManagementPage"), "AiModelManagementPage");\nconst AiUsageDashboardPage = lazyNamed(() => import("./AiUsageDashboardPage"), "AiUsageDashboardPage");\nconst ContentSlotsPage = lazyNamed(() => import("./ContentSlotsPage"), "ContentSlotsPage");\nconst ChatAnalyticsPage = lazyNamed(() => import("./ChatAnalyticsPage"), "ChatAnalyticsPage");\nconst MobileChatAnalyticsPage = lazyNamed(() => import("./MobileChatAnalyticsPage"), "MobileChatAnalyticsPage");\nconst MobileRDCockpit = lazyNamed(() => import("./MobileRDCockpit"), "MobileRDCockpit");\nconst MobileProcSampleTestPage = lazyNamed(() => import("./MobileProcSampleTestPage"), "MobileProcSampleTestPage");\nconst I18nManagementPage = lazyNamed(() => import("./I18nManagementPage"), "I18nManagementPage");\nconst BOMArchive = lazyNamed(() => import("./BOMArchive"), "BOMArchive");\nconst BugLogPage = lazyNamed(() => import("./BugLogPage"), "BugLogPage");\nconst CustomsAI = lazyNamed(() => import("./CustomsAI"), "CustomsAI");\nconst CustomsDocs = lazyNamed(() => import("./CustomsDocs"), "CustomsDocs");\nconst DepartmentManagement = lazyNamed(() => import("./DepartmentManagement"), "DepartmentManagement");\nconst DesignChangesPage = lazyNamed(() => import("./DesignChangesPage"), "DesignChangesPage");\nconst DownloadTutorialPage = lazyNamed(() => import("./DownloadTutorialPage"), "DownloadTutorialPage");\nconst PlatformTutorialPage = lazyNamed(() => import("./DownloadTutorialPage"), "PlatformTutorialPage");\nconst ManualPage = lazyNamed(() => import("./ManualPage"), "ManualPage");\nconst ManualTopicPage = lazyNamed(() => import("./ManualPage"), "ManualTopicPage");\nconst EBPRPage = lazyNamed(() => import("./EBPRPage"), "EBPRPage");\nconst EmailAIPage = lazyNamed(() => import("./EmailAIPage"), "EmailAIPage");\nconst EmployeeArchivePage = lazyNamed(() => import("./EmployeeArchivePage"), "EmployeeArchivePage");\nconst ApplicantFormsPage = lazyNamed(() => import("./ApplicantFormsPage"), "ApplicantFormsPage");\nconst PublicApplicantFormPage = lazyNamed(() => import("./applicant-forms/PublicApplicantFormPage"), "PublicApplicantFormPage");\nconst ExpenseCenterPage = lazyNamed(() => import("./ExpenseCenterPage"), "ExpenseCenterPage");\nconst ExternalDocsPage = lazyNamed(() => import("./ExternalDocsPage"), "ExternalDocsPage");\nconst InspectionReleasePage = lazyNamed(() => import("./InspectionReleasePage"), "InspectionReleasePage");\nconst InquiryPage = lazyNamed(() => import("./InquiryPage"), "InquiryPage");\nconst MailboxManagementPage = lazyNamed(() => import("./MailboxManagementPage"), "MailboxManagementPage");\nconst MeetingMinutes = lazyNamed(() => import("./MeetingMinutes"), "MeetingMinutes");\nconst OcrConfigManagementPage = lazyNamed(() => import("./OcrConfigManagementPage"), "OcrConfigManagementPage");\nconst MessageCenterPage = lazyNamed(() => import("./MessageCenterPage"), "MessageCenterPage");\nconst OpsCenterPage = lazyNamed(() => import("./OpsCenterPage"), "OpsCenterPage");\nconst InventoryManagementPage = lazyNamed(() => import("./order-processing"), "InventoryManagementPage");\nconst OrderWorkbenchPage = lazyNamed(() => import("./order-processing"), "OrderWorkbenchPage");\nconst PurchaseOrderDetailPage = lazyNamed(() => import("./order-processing"), "PurchaseOrderDetailPage");\nconst PurchaseOrdersPage = lazyNamed(() => import("./order-processing"), "PurchaseOrdersPage");\n// The unfinished warehouse workflow is available for frontend review only.\n// It carries its own in-memory demonstration data and is excluded from production routes.\nconst ReceiptDispositionPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./procurement/ReceiptDispositionPreviewPage"), "ReceiptDispositionPreviewPage")\n  : null;\nconst QualityExceptionsPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./procurement/quality/QualityExceptionsPreviewPage"), "QualityExceptionsPreviewPage")\n  : null;\nconst WarehousePreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./procurement/warehouse/WarehousePreviewPage"), "WarehousePreviewPage")\n  : null;\nconst ShipmentPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./procurement/shipments/ShipmentPreviewPage"), "ShipmentPreviewPage")\n  : null;\nconst BatchArchivePreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./production/batch-archives/BatchArchivePreviewPage"), "BatchArchivePreviewPage")\n  : null;\nconst EcnPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./production/ecn/EcnPreviewPage"), "EcnPreviewPage")\n  : null;\nconst PlanningPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./production/planning/PlanningPreviewPage"), "PlanningPreviewPage")\n  : null;\nconst DefectPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./production/defects/DefectPreviewPage"), "DefectPreviewPage")\n  : null;\nconst ProductionRdPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./production/rd-collaboration/ProductionRdPreviewPage"), "ProductionRdPreviewPage")\n  : null;\nconst TransferPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./production/transfer/TransferPreviewPage"), "TransferPreviewPage")\n  : null;\nconst ProductionOverviewPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./production/overview/ProductionOverviewPreviewPage"), "ProductionOverviewPreviewPage")\n  : null;\nconst ProductionTasksPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./production/overview/ProductionTasksPreviewPage"), "ProductionTasksPreviewPage")\n  : null;\nconst InspectionPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./production/inspections/InspectionPreviewPage"), "InspectionPreviewPage")\n  : null;\nconst FieldPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./production/field-tasks/FieldPreviewPage"), "FieldPreviewPage")\n  : null;\nconst PreviewIndexPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./preview/PreviewIndexPage"), "PreviewIndexPage")\n  : null;\nconst MonthlyReadinessPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./procurement/monthly-readiness/MonthlyReadinessPreviewPage"), "MonthlyReadinessPreviewPage")\n  : null;\nconst KeyMaterialsPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./procurement/key-materials/KeyMaterialsPreviewPage"), "KeyMaterialsPreviewPage")\n  : null;\nconst CompanyOverviewPreviewPage = import.meta.env.DEV\n  ? lazyNamed(() => import("./company-overview/CompanyOverviewPreviewPage"), "CompanyOverviewPreviewPage")\n  : null;\n// 采购管理（静态流程页面）\nconst ProcurementCockpitPage = lazyNamed(() => import("./procurement"), "ProcurementCockpitPage");\nconst ProcMyWorkspacePage = lazyNamed(() => import("./procurement"), "ProcMyWorkspacePage");\nconst MaterialWorkbenchPage = lazyNamed(() => import("./procurement"), "MaterialWorkbenchPage");\nconst InventoryReadinessPage = lazyNamed(() => import("./procurement"), "InventoryReadinessPage");\nconst QuoteBookPage = lazyNamed(() => import("./procurement"), "QuoteBookPage");\nconst ProcPeopleManagementPage = lazyNamed(() => import("./procurement"), "ProcPeopleManagementPage");\nconst PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");\nconst ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");\nconst QualityDMSPage = lazyNamed(() => import("./QualityDMSPage"), "QualityDMSPage");\nconst QATraceability = lazyNamed(() => import("./QATraceability"), "QATraceability");\nconst AttendancePage = lazyNamed(() => import("./AttendancePage"), "AttendancePage");\nconst RAKnowledgePage = lazyNamed(() => import("./RAKnowledgePage"), "RAKnowledgePage");\nconst RDIssues = lazyNamed(() => import("./RDIssues"), "RDIssues");\nconst IssueAiModule = lazyNamed(() => import("./IssueAiModule"), "IssueAiModule");\nconst RegistrationProjects = lazyNamed(() => import("./RegistrationProjects"), "RegistrationProjects");\nconst ReportCompressionPage = lazyNamed(() => import("./ReportCompressionPage"), "ReportCompressionPage");\nconst ResumeScreeningPage = lazyNamed(() => import("./ResumeScreeningPage"), "ResumeScreeningPage");\nconst RoleManagement = lazyNamed(() => import("./RoleManagement"), "RoleManagement");\nconst RDTaskManagementPage = lazyNamed(() => import("./RDTaskManagementPage"), "RDTaskManagementPage");\nconst RDMyWorkspacePage = lazyNamed(() => import("./R'... 34056 more characters,
+    expected: /path:\s*"proc-operational-tasks",\s*element:\s*makeLazyProtected\(<OperationalTasksPage\s*\/>,\s*"page:purchase-order-detail"\)/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at scripts/operational-tasks-entry.test.mjs:45:1
+✖ 手机访问岗位任务保留原入口，未登录仍进登录页 (4.378208ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  'Navigate' !== 'Root'
+  
+      at TestContext.<anonymous> (file:///Users/alex/coding/inogi-ai-office/scripts/operational-tasks-entry.test.mjs:52:48)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Navigate',
+    expected: 'Root',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

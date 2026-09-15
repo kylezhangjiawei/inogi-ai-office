@@ -1,0 +1,15 @@
+✔ read shows ERP, local and net quantities separately; coverage unknown remains explicit (49.9955ms)
+✔ read-only permission hides proposal and approval controls (14.5615ms)
+✔ proposal uses current version, reason and one request ID; immediate duplicate click and close are locked (13.46ms)
+✔ failed exact submission can retry with the same identity and retains entered content (11.273667ms)
+✔ approval is a distinct explicit action with its own required reason (12.039834ms)
+✔ late save after unmount cannot refresh the new page (8.0925ms)
+✔ API rejects incomplete or mismatched successful response and safely encodes line identity (6.604334ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 237.898

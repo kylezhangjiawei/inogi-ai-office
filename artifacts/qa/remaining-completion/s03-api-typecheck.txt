@@ -1,0 +1,2 @@
+test/purchase-delivery.spec.ts(36,271): error TS2345: Argument of type 'Row | undefined' is not assignable to parameter of type 'Row'.
+  Type 'undefined' is not assignable to type 'Row'.

@@ -1,0 +1,307 @@
+Same 20 behavior tests; rdInsertion.tsx and RDMyWorkspacePage.tsx are read from artifacts/qa/s02-transfer-guard/baseline. No product or test files are replaced. Pointer fixture supplies cancelable CustomEvent with a real cancelable Event in detail.originalEvent.
+✔ 未编辑初始内容时，取消与根 Dialog 关闭均直接退出，不弹草稿确认 (87.502583ms)
+✖ 每个表单字段变更都需要确认，继续填写保留原输入，放弃后才退出 (15.720584ms)
+✖ 根 Dialog 关闭保护覆盖 Esc/遮罩，关闭确认本身不放弃原草稿 (14.235334ms)
+✖ 脏草稿点击遮罩阻止自定义与原生 pointer 默认动作，并打开确认而不关闭原表单 (13.07375ms)
+✖ 真实转采购和放弃确认 Content 显式向 Radix 传递 aria-modal，不依赖 mock 默认值 (18.335167ms)
+✔ 字段与产品恢复初始值后不再警告，重提以其实际回填内容为初值 (13.382708ms)
+✖ 研发附件选中与移除保护草稿，恢复初始空选择后可以直接关闭 (20.024292ms)
+✔ 勾选后再取消恢复初始选择，不把资料读取完成当作用户编辑 (10.166042ms)
+✖ 手选文件只留在内存，添加需保护，移除恢复初值；提交前不上传 (10.355167ms)
+✖ 提交即时锁阻止渲染前双击，上传与请求等待时拒绝关闭及旧处理器修改 (14.207875ms)
+✖ 提交失败保留字段与附件并解锁，可继续填写或重新提交，成功不弹放弃确认 (9.821667ms)
+✖ 上传失败也保留手选文件并解锁，不生成采购任务，可明确放弃 (15.647959ms)
+✖ 上传等待中卸载后即使上传完成，也不继续生成采购任务或通知父页面 (11.423ms)
+✖ 采购请求已发出后卸载，成功或失败响应都不再关闭、回调或显示通知 (9.704084ms)
+✖ 已有有效采购关联时显示准确单号，生成被禁用且旧处理器不能提交，草稿仍需明确放弃 (9.460208ms)
+✖ 上传期间异步发现有效采购关联，上传完成后不再发出 transfer，填写内容保留 (9.854375ms)
+✖ 上传期间切换任务、账号或工作区，旧上传返回不在新范围继续生成采购 (10.255167ms)
+✖ 采购请求发出后切换任务、账号或工作区，旧结果不能回调、关闭或通知新范围 (10.686625ms)
+✖ 工作台底层弹层不抢嵌套 alertdialog 的 Escape/Tab，正常返回底层后仍可关闭 (22.732125ms)
+✖ 工作台弹层卸载时保留外部 alertdialog 焦点，外部模态已关闭才还原原入口 (19.068834ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 3
+ℹ fail 17
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 349.152875
+
+✖ failing tests:
+
+✖ 每个表单字段变更都需要确认，继续填写保留原输入，放弃后才退出 (15.720584ms)
+  AssertionError [ERR_ASSERTION]: 物料名称
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:218:26)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+✖ 根 Dialog 关闭保护覆盖 Esc/遮罩，关闭确认本身不放弃原草稿 (14.235334ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    ok(f.alert())
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:241:22)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+✖ 脏草稿点击遮罩阻止自定义与原生 pointer 默认动作，并打开确认而不关闭原表单 (13.07375ms)
+  TypeError: this.find(...).props.onPointerDownOutside is not a function
+      at Object.pointerOutside (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:145:70)
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:257:21)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)
+
+✖ 真实转采购和放弃确认 Content 显式向 Radix 传递 aria-modal，不依赖 mock 默认值 (18.335167ms)
+  AssertionError [ERR_ASSERTION]: DialogContent
+  + actual - expected
+  
+  + undefined
+  - 'true'
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:284:26)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 'true',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+✖ 研发附件选中与移除保护草稿，恢复初始空选择后可以直接关闭 (20.024292ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    ok(f.alert())
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:309:22)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+✖ 手选文件只留在内存，添加需保护，移除恢复初值；提交前不上传 (10.355167ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    ok(f.alert())
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:345:22)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+✖ 提交即时锁阻止渲染前双击，上传与请求等待时拒绝关闭及旧处理器修改 (14.207875ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  2 !== 1
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:381:22)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+✖ 提交失败保留字段与附件并解锁，可继续填写或重新提交，成功不弹放弃确认 (9.821667ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + undefined
+  - false
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:431:22)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+✖ 上传失败也保留手选文件并解锁，不生成采购任务，可明确放弃 (15.647959ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + undefined
+  - false
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:456:22)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+✖ 上传等待中卸载后即使上传完成，也不继续生成采购任务或通知父页面 (11.423ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 0
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:472:22)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+✖ 采购请求已发出后卸载，成功或失败响应都不再关闭、回调或显示通知 (9.704084ms)
+  AssertionError [ERR_ASSERTION]: success
+  
+  1 !== 0
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:494:26)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+✖ 已有有效采购关联时显示准确单号，生成被禁用且旧处理器不能提交，草稿仍需明确放弃 (9.460208ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /PR-EXISTING-42/. Input:
+  
+  '转采购 · 生成采购任务 核对采购物料、数量和图纸附件，提交后直接进入采购待处理并分配采购负责人。 1 核对物料 2 确认图纸附件 3 生成采购任务  请勾选本次交付给采购的资料。提交后保存需求与附件版本，并自动分配采购负责人。 归属产品系统  产品一 产品二 物料名称      规格      数量      数量单位      需求日期      Deadline      购买链接（选填）  填写后自动转为电商直购    研发对接人      图纸附件（1） 请明确勾选本次交付资料  新增附件    可交付的研发资料  A图纸.pdf 未登记版本，按本次原文件交付 100 B  B图纸.pdf 未登记版本，按本次原文件交付 200 B  A图纸.pdf 100 B 任务附件   低值易耗品备注   取消  确认生成采购任务'
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:508:22)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '转采购 · 生成采购任务 核对采购物料、数量和图纸附件，提交后直接进入采购待处理并分配采购负责人。 1 核对物料 2 确认图纸附件 3 生成采购任务  请勾选本次交付给采购的资料。提交后保存需求与附件版本，并自动分配采购负责人。 归属产品系统  产品一 产品二 物料名称      规格      数量      数量单位      需求日期      Deadline      购买链接（选填）  填写后自动转为电商直购    研发对接人      图纸附件（1） 请明确勾选本次交付资料  新增附件    可交付的研发资料  A图纸.pdf 未登记版本，按本次原文件交付 100 B  B图纸.pdf 未登记版本，按本次原文件交付 200 B  A图纸.pdf 100 B 任务附件   低值易耗品备注   取消  确认生成采购任务',
+    expected: /PR-EXISTING-42/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+✖ 上传期间异步发现有效采购关联，上传完成后不再发出 transfer，填写内容保留 (9.854375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 0
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:538:22)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+✖ 上传期间切换任务、账号或工作区，旧上传返回不在新范围继续生成采购 (10.255167ms)
+  AssertionError [ERR_ASSERTION]: 研发任务/success
+  
+  1 !== 0
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:573:30)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+✖ 采购请求发出后切换任务、账号或工作区，旧结果不能回调、关闭或通知新范围 (10.686625ms)
+  AssertionError [ERR_ASSERTION]: 研发任务/success
+  
+  1 !== 0
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:603:30)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+✖ 工作台底层弹层不抢嵌套 alertdialog 的 Escape/Tab，正常返回底层后仍可关闭 (22.732125ms)
+  AssertionError [ERR_ASSERTION]: alertdialog/Escape
+  
+  true !== false
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:676:30)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+✖ 工作台弹层卸载时保留外部 alertdialog 焦点，外部模态已关闭才还原原入口 (19.068834ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'opener'
+  - 'workspace-input'
+  
+      at TestContext.eval (eval at <anonymous> (file:///Users/alex/coding/inogi-ai-office/[eval1]:13:1), <anonymous>:695:26)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:831:18)
+      at Test.postRun (node:internal/test_runner/test:1330:19)
+      at Test.run (node:internal/test_runner/test:1258:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'opener',
+    expected: 'workspace-input',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

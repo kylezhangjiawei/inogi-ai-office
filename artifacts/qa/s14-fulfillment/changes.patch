@@ -1,0 +1,709 @@
+--- a/src/app/order-processing/pages/PurchaseOrderDetail.tsx
++++ b/src/app/order-processing/pages/PurchaseOrderDetail.tsx
+@@ -51,6 +51,14 @@
+ import { PurchaseOrderAvailabilityDialog, availabilityConfirmedAt } from '../components/PurchaseOrderAvailabilityDialog';
+ import { PurchaseReceiptDrawer } from '../components/PurchaseReceiptDrawer';
+ import { PurchaseOrderHistoryDrawer } from '../components/PurchaseOrderHistoryDrawer';
++import { buildPurchaseOrderFulfillment } from '../purchaseOrderFulfillment';
++import { PurchaseOrderQuantitySummary } from '../components/PurchaseOrderQuantitySummary';
++
++type LineView = 'all' | 'outstanding' | 'over_received' | 'unverified';
++const quantityIssueLabels = {
++  invalid_ordered_qty: '订购数量缺失或无效', zero_ordered_qty: '订购数量为零，需核对样品或来源记录',
++  invalid_received_qty: '已到数量缺失或无效', missing_unit: '未记录计量单位',
++};
+ 
+ function InfoItem({ label, value }: { label: string; value?: React.ReactNode }) {
+   const displayedValue = value === null || value === undefined || value === '' ? '-' : value;
+@@ -111,6 +119,7 @@
+   const [loading, setLoading] = useState(true);
+   const [errorMessage, setErrorMessage] = useState('');
+   const [notFound, setNotFound] = useState(false);
++  const [lineViewSelection, setLineViewSelection] = useState<{ key: string; value: LineView }>({ key: '', value: 'all' });
+   const loadRequestRef = useRef(0);
+ 
+   const loadOrder = useCallback(async () => {
+@@ -164,6 +173,16 @@
+   }, [availabilityFocusTarget, decodedId, loading, resolvedId, order]);
+ 
+   const items = order?.items ?? [];
++  const fulfillment = useMemo(() => buildPurchaseOrderFulfillment(items), [items]);
++  // A new navigation may request an exact line outside the previous local filter.
++  const lineViewKey = JSON.stringify([location.key, decodedId]);
++  if (lineViewSelection.key !== lineViewKey) {
++    // Advance the stored scope as well: POP must not resurrect a filter from an old history entry.
++    setLineViewSelection({ key: lineViewKey, value: 'all' });
++  }
++  const lineView = lineViewSelection.key === lineViewKey ? lineViewSelection.value : 'all';
++  const visibleLines = fulfillment.lines.filter((line) => lineView === 'all'
++    || (lineView === 'outstanding' ? line.state === 'not_received' || line.state === 'partial' : line.state === lineView));
+   const targetLine = findPurchaseOrderLine(items, requestedLine.lineId);
+   useEffect(function focusRequestedOrderLine() {
+     const navigationKey = JSON.stringify([location.key, decodedId, requestedLine.lineId]);
+@@ -198,19 +217,10 @@
+     if (location.state?.workspaceArrivalHistoryBack === true) navigate(-1);
+     else navigate(workspaceReturn, { replace: true });
+   };
+-  const itemSummary = useMemo(() => items.reduce(
+-    (summary, item) => ({
+-      amount: summary.amount + item.qty * item.unitPrice,
+-      received: summary.received + item.receivedQty,
+-      ordered: summary.ordered + item.qty,
+-    }),
+-    { amount: 0, received: 0, ordered: 0 },
+-  ), [items]);
+   const hasItemDetails = items.length > 0;
+-  const itemAmount = itemSummary.amount;
+-  const receivedTotal = itemSummary.received;
+-  const orderedTotal = itemSummary.ordered;
+-  const fulfillment = orderedTotal > 0 ? Math.min(100, Math.round((receivedTotal / orderedTotal) * 100)) : 0;
++  const itemAmount = items.every((item) => Number.isFinite(item.qty) && item.qty >= 0 && Number.isFinite(item.unitPrice) && item.unitPrice >= 0)
++    ? items.reduce((amount, item) => amount + item.qty * item.unitPrice, 0) : null;
++  const outstandingLines = fulfillment.checkableLines - fulfillment.receivedLines;
+   const taskLinks = order?.taskLinks ?? [];
+ 
+   if (loading || resolvedId !== decodedId) {
+@@ -266,15 +276,12 @@
+     );
+   }
+ 
+-  const isCompleted = order.status === '已完成';
+-  const isPartial = order.status === '部分到货';
+-  const warehouseKnown = Boolean(order.warehouse && order.warehouse !== '-');
+-  const etaKnown = Boolean(order.etaDate && order.etaDate !== '-');
+   const timeline = [
+     {
+       key: 'created',
++      active: Boolean(order.orderDate && order.orderDate !== '-'),
+       title: t('创建采购单'),
+-      desc: t('{date} 由 {buyer} 创建，所属 {owner}', {
++      desc: t('{date} 下单，采购员 {buyer}，所属 {owner}', {
+         date: order.orderDate,
+         buyer: order.buyer,
+         owner: order.owner,
+@@ -282,59 +289,26 @@
+     },
+     {
+       key: 'approved',
+-      title: t('审批确认'),
+-      desc: order.approvalStatus
+-        ? t(order.approvalStatus)
+-        : isCompleted
+-          ? t('订单已完成，畅捷通未返回独立审批状态')
+-          : t('畅捷通未返回独立审批状态'),
++      active: Boolean(order.approvalStatus),
++      title: t('审批记录'),
++      desc: order.approvalStatus ? t(order.approvalStatus) : t('畅捷通未返回独立审批状态'),
+     },
+     {
+       key: 'ordered',
+-      title: t('供应商履约'),
+-      desc: order.deliveryTerm
+-        ? t(order.deliveryTerm)
+-        : isCompleted
+-          ? t('供应商已完成本单履约')
+-          : isPartial
+-            ? hasItemDetails
+-              ? t('供应商持续履约，已到货 {received}/{ordered}', { received: receivedTotal, ordered: orderedTotal })
+-              : t('供应商持续履约，商品明细数量尚未同步')
+-            : t('采购单已下达，畅捷通未返回交付方式'),
++      active: Boolean(order.deliveryTerm),
++      title: t('供应商交付方式'),
++      desc: order.deliveryTerm ? t(order.deliveryTerm) : t('畅捷通未返回交付方式'),
+     },
+     {
+       key: 'inbound',
+-      title: t('到货入库'),
+-      desc: isCompleted
+-        ? hasItemDetails
+-          ? t('已全部到货 {received}/{ordered}{warehouse}', {
+-            received: receivedTotal,
+-            ordered: orderedTotal,
+-            warehouse: warehouseKnown ? t('，入库仓库：{name}', { name: order.warehouse }) : '',
+-          })
+-          : t('采购单已完成，商品明细数量尚未同步{warehouse}', {
+-            warehouse: warehouseKnown ? t('，入库仓库：{name}', { name: order.warehouse }) : '',
+-          })
+-        : isPartial
+-          ? hasItemDetails
+-            ? t('已到货 {received}/{ordered}{eta}', {
+-              received: receivedTotal,
+-              ordered: orderedTotal,
+-              eta: etaKnown ? t('，预计 {date} 完成', { date: order.etaDate }) : '',
+-            })
+-            : t('采购单处于部分到货状态，商品明细数量尚未同步{eta}', {
+-              eta: etaKnown ? t('，预计 {date} 完成', { date: order.etaDate }) : '',
+-            })
+-          : warehouseKnown || etaKnown
+-            ? t('目标仓库：{warehouse}，预计到货：{date}', {
+-              warehouse: warehouseKnown ? t(order.warehouse) : t('暂未提供'),
+-              date: etaKnown ? order.etaDate : t('暂未提供'),
+-            })
+-            : t('等待畅捷通同步仓库及预计到货信息'),
++      active: hasItemDetails,
++      title: t('ERP 到货记录'),
++      desc: hasItemDetails
++        ? t('已读 {total} 行，{received} 行数量已收齐，{outstanding} 行未收齐，{unverified} 行待核对。到货数量不代表质检通过或入库。', {
++          total: fulfillment.totalLines, received: fulfillment.receivedLines, outstanding: outstandingLines, unverified: fulfillment.unverifiedLines,
++        }) : t('商品明细尚未同步，不能判断逐行到货情况。'),
+     },
+   ];
+-  const activeTimelineCount =
+-    order.status === '已完成' ? 4 : order.status === '部分到货' ? 3 : order.status === '已下单' ? 2 : order.status === '异常' ? 2 : 1;
+ 
+   return (
+     <div className="order-horizon flex min-h-0 flex-1 flex-col overflow-auto px-4 py-4 sm:px-5">
+@@ -383,23 +357,27 @@
+ 
+       <OrderMetricGrid>
+         <OrderMetric Icon={FileText} label={t('订单金额')} value={formatCurrency(order.amount, order.currency)} tone="primary" />
+-        <OrderMetric Icon={PackageCheck} label={t('SKU / 数量')} value={`${order.itemCount || items.length} / ${hasItemDetails ? orderedTotal : '-'}`} tone="primary" />
+-        <OrderMetric Icon={CheckCircle2} label={t('已到货数量')} value={hasItemDetails ? receivedTotal : '-'} tone="success" />
+-        <OrderMetric Icon={CalendarDays} label={t('预计到货')} value={order.etaDate || '-'} tone="warning" />
+-        <OrderMetric
+-          Icon={Truck}
+-          label={t('到货进度')}
+-          value={hasItemDetails ? `${fulfillment}%` : '-'}
+-          note={hasItemDetails ? `${receivedTotal}/${orderedTotal}` : t('明细尚未同步')}
+-          tone={hasItemDetails && fulfillment === 100 ? 'success' : 'primary'}
+-        />
++        <OrderMetric Icon={PackageCheck} label={t('已读取订单行')} value={hasItemDetails ? t('{count} 行', { count: items.length }) : '-'} note={t('来源汇总 {count} 项', { count: order.itemCount })} tone="primary" />
++        <OrderMetric Icon={CheckCircle2} label={t('数量已收齐行')} value={hasItemDetails ? `${fulfillment.receivedLines} / ${items.length}` : '-'} note={hasItemDetails ? fulfillment.overReceivedLines ? t('其中 {count} 行超收，需核对', { count: fulfillment.overReceivedLines }) : t('按已读取明细逐行核对') : t('明细尚未同步')} tone={fulfillment.overReceivedLines ? 'warning' : 'primary'} />
++        <OrderMetric Icon={Truck} label={t('数量未收齐行')} value={hasItemDetails ? outstandingLines : '-'} note={hasItemDetails ? t('另有 {count} 行数据待核对', { count: fulfillment.unverifiedLines }) : t('明细尚未同步')} tone={outstandingLines || fulfillment.unverifiedLines ? 'warning' : 'neutral'} />
++        <OrderMetric Icon={CalendarDays} label={t('预计到货')} value={<span className="whitespace-nowrap text-base sm:text-lg">{order.etaDate || '-'}</span>} tone="warning" />
+       </OrderMetricGrid>
++
++      {hasItemDetails ? <PurchaseOrderQuantitySummary summary={fulfillment} /> : null}
+ 
+           <div className="order-horizon-detail-surface min-w-0 shrink-0 overflow-hidden border bg-white">
+             <div className="border-b border-slate-100 px-4 py-3">
+               <h2 id="purchase-order-lines-title" className="text-balance text-base font-semibold text-slate-900">{t('商品明细')}</h2>
+               <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">{t('预计到货来自采购订单；预计检验后可用日期由经办人逐行确认。确认日期不代表当前库存已可用。')}</p>
+               {hasItemDetails ? <p className="mt-1 text-xs leading-5 text-slate-400">{t('横向滚动查看更多字段')}</p> : null}
++              {hasItemDetails ? <div role="group" aria-label={t('按到货数量筛选订单行')} className="mt-3 flex flex-wrap gap-2">
++                {([
++                  ['all', '全部明细', fulfillment.totalLines], ['outstanding', '未收齐', outstandingLines],
++                  ['over_received', '超收', fulfillment.overReceivedLines], ['unverified', '待核对', fulfillment.unverifiedLines],
++                ] as const).map(([value, label, count]) => <Button key={value} type="button" variant={lineView === value ? 'default' : 'outline'} size="sm" aria-pressed={lineView === value}
++                  onClick={() => setLineViewSelection({ key: lineViewKey, value })}>{t(label)} {count}</Button>)}
++                <span role="status" className="self-center text-xs text-slate-500">{t('显示 {visible} / {total} 行', { visible: visibleLines.length, total: items.length })}</span>
++              </div> : null}
+               {requestedLine.requested && !targetLine ? <p role="status" className="mt-2 text-sm leading-5 text-amber-700">{t('目标订单行不存在或已变更，请核对当前订单明细。')}</p> : null}
+             </div>
+             {hasItemDetails ? (
+@@ -418,7 +396,7 @@
+                         <TableHead>{t('规格')}</TableHead>
+                         <TableHead className="text-right">{t('采购数量')}</TableHead>
+                         <TableHead className="text-right">{t('已到货')}</TableHead>
+-                        <TableHead className="text-right">{t('进度')}</TableHead>
++                        <TableHead className="text-right">{t('到货数量核对')}</TableHead>
+                         <TableHead className="text-right">{t('单价')}</TableHead>
+                         <TableHead className="text-right">{t('小计')}</TableHead>
+                         <TableHead className="min-w-32">{t('预计到货')}</TableHead>
+@@ -427,8 +405,8 @@
+                       </TableRow>
+                     </TableHeader>
+                     <TableBody>
+-                      {items.map((item, index) => (
+-                        <TableRow key={item.id || `${item.sku}-${index}`}
++                      {visibleLines.map((line) => { const index = line.index; const item = items[index]; return (
++                        <TableRow key={`${item.id || item.sku}:${index}`}
+                           data-purchase-order-line-id={item.id || undefined}
+                           aria-current={item === targetLine ? 'true' : undefined}
+                           tabIndex={item === targetLine ? -1 : undefined}
+@@ -436,15 +414,16 @@
+                           <TableCell className="px-4 text-slate-800"><span className="font-mono tabular-nums">{item.sku}</span><p className="mt-1 text-xs text-slate-400 tabular-nums">{t('行号')} {item.lineNo || '—'}</p>{item === targetLine ? <p className="mt-1 text-xs font-semibold text-blue-700">{t('当前核对行')}</p> : null}</TableCell>
+                           <TableCell className="max-w-[220px] font-medium text-slate-900"><div className="truncate" title={item.name}><AutoTranslatedText text={item.name} /></div></TableCell>
+                           <TableCell className="max-w-[240px] text-slate-600"><div className="truncate" title={item.spec}><AutoTranslatedText text={item.spec || '-'} /></div></TableCell>
+-                          <TableCell className="text-right text-slate-700 tabular-nums">{item.qty} {t(item.unit)}</TableCell>
+-                          <TableCell className="text-right text-slate-700 tabular-nums">{item.receivedQty} {t(item.unit)}</TableCell>
++                          <TableCell className="text-right text-slate-700 tabular-nums">{Number.isFinite(item.qty) ? item.qty : t('待核对')} {line.unit ? t(line.unit) : t('单位待核对')}</TableCell>
++                          <TableCell className="text-right text-slate-700 tabular-nums">{Number.isFinite(item.receivedQty) ? item.receivedQty : t('待核对')} {line.unit ? t(line.unit) : t('单位待核对')}</TableCell>
+                           <TableCell className="text-right">
+-                            <span className="tabular-nums text-slate-600">
+-                              {item.qty > 0 ? Math.min(100, Math.round((item.receivedQty / item.qty) * 100)) : 0}%
+-                            </span>
++                            <span className={`whitespace-nowrap text-xs font-medium ${line.state === 'unverified' || line.state === 'over_received' ? 'text-amber-700' : 'text-slate-700'}`}>{t({ not_received: '未收货', partial: '部分到货', received: '数量已收齐', over_received: '超收待核对', unverified: '数据待核对' }[line.state])}</span>
++                            {line.remainingQty !== null && line.remainingQty > 0 ? <p className="mt-1 whitespace-nowrap text-xs tabular-nums text-slate-500">{t('未收差额 {count} {unit}', { count: line.remainingQty.toLocaleString(i18nLocale(), { maximumFractionDigits: 8 }), unit: line.unit })}</p> : null}
++                            {line.overReceivedQty !== null && line.overReceivedQty > 0 ? <p className="mt-1 whitespace-nowrap text-xs tabular-nums text-amber-700">{t('超收 {count} {unit}', { count: line.overReceivedQty.toLocaleString(i18nLocale(), { maximumFractionDigits: 8 }), unit: line.unit })}</p> : null}
++                            {line.state === 'unverified' ? <p className="mt-1 min-w-28 max-w-44 whitespace-normal text-xs leading-5 text-amber-700">{line.issues.map((issue) => t(quantityIssueLabels[issue])).join('；')}</p> : null}
+                           </TableCell>
+-                          <TableCell className="text-right text-slate-700 tabular-nums">{formatCurrency(item.unitPrice, order.currency)}</TableCell>
+-                          <TableCell className="text-right font-semibold text-slate-900 tabular-nums">{formatCurrency(item.qty * item.unitPrice, order.currency)}</TableCell>
++                          <TableCell className="text-right text-slate-700 tabular-nums">{Number.isFinite(item.unitPrice) && item.unitPrice >= 0 ? formatCurrency(item.unitPrice, order.currency) : t('待核对')}</TableCell>
++                          <TableCell className="text-right font-semibold text-slate-900 tabular-nums">{Number.isFinite(item.qty) && Number.isFinite(item.unitPrice) && Number.isFinite(item.qty * item.unitPrice) && item.qty >= 0 && item.unitPrice >= 0 ? formatCurrency(item.qty * item.unitPrice, order.currency) : t('待核对')}</TableCell>
+                           <TableCell className="align-top text-slate-700 tabular-nums">{item.etaDate || t('待确认')}</TableCell>
+                           <TableCell className="align-top">
+                             <p className="font-medium text-slate-900 tabular-nums">{item.availability?.availableDate || t(item.availability ? '已撤销日期确认' : '未确认')}</p>
+@@ -489,13 +468,14 @@
+                             </div>
+                           </TableCell> : null}
+                         </TableRow>
+-                      ))}
++                      ); })}
++                      {!visibleLines.length ? <TableRow><TableCell colSpan={canViewOrder ? 11 : 10} className="py-10 text-center text-sm text-slate-500">{t('当前筛选没有匹配的订单行，可切换全部明细。')}</TableCell></TableRow> : null}
+                     </TableBody>
+                   </Table>
+                 </div>
+                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-4 py-3 text-sm">
+-                  <span className="text-slate-500">{t('明细合计')}</span>
+-                  <span className="font-semibold text-slate-900 tabular-nums">{formatCurrency(itemAmount, order.currency)}</span>
++                  <span className="text-slate-500">{t('全部已读明细金额（不随筛选变化）')}</span>
++                  <span className="font-semibold text-slate-900 tabular-nums">{itemAmount !== null && Number.isFinite(itemAmount) ? formatCurrency(itemAmount, order.currency) : t('待核对')}</span>
+                 </div>
+               </>
+             ) : (
+@@ -535,6 +515,7 @@
+               ) : '-'} />
+               <InfoItem label={t('采购员')} value={order.buyer} />
+               <InfoItem label={t('采购组')} value={<AutoTranslatedText text={order.owner} />} />
++              <InfoItem label={t('订单登记仓库')} value={<AutoTranslatedText text={order.warehouse || t('未提供')} />} />
+             </section>
+ 
+             <section aria-labelledby="purchase-settlement-title" className="border-t border-slate-100 p-4 2xl:border-t-0">
+@@ -605,11 +586,11 @@
+           <section aria-labelledby="purchase-fulfillment-title" className="order-horizon-detail-surface border bg-white p-4">
+             <h2 id="purchase-fulfillment-title" className="mb-4 flex items-center gap-2 text-balance text-base font-semibold text-slate-900">
+               <Truck className="h-4 w-4 text-blue-500" />
+-              {t('履约进度')}
++              {t('订单记录')}
+             </h2>
+             <div>
+-              {timeline.map((item, index) => (
+-                <TimelineItem key={item.key} active={index < activeTimelineCount} title={item.title} desc={item.desc} />
++              {timeline.map((item) => (
++                <TimelineItem key={item.key} active={item.active} title={item.title} desc={item.desc} />
+               ))}
+             </div>
+           </section>
+--- a/scripts/order-purchase-refinement.test.mjs
++++ b/scripts/order-purchase-refinement.test.mjs
+@@ -77,7 +77,7 @@
+   assert.match(detail, /hasItemDetails \? \(/);
+   assert.match(detail, /商品明细尚未同步/);
+   assert.match(detail, /重新加载详情/);
+-  assert.match(detail, /hasItemDetails \? `\$\{fulfillment\}%` : '-'/);
++  assert.match(detail, /hasItemDetails \? `\$\{fulfillment\.receivedLines\} \/ \$\{items\.length\}` : '-'/);
+ });
+ 
+ test('详情表格和关联任务具备键盘焦点、访问名称与权限保护', () => {
+--- a/scripts/purchase-order-line-navigation.test.mjs
++++ b/scripts/purchase-order-line-navigation.test.mjs
+@@ -76,6 +76,11 @@
+     '../../components/ui/table': table,
+     '../../components/ui/button': primitives, '../../components/ui/badge': primitives, '../../components/TranslatableText': primitives,
+     '../components/HorizonPage': primitives,
++    '../purchaseOrderFulfillment': load('src/app/order-processing/purchaseOrderFulfillment.ts'),
++    '../components/PurchaseOrderQuantitySummary': load('src/app/order-processing/components/PurchaseOrderQuantitySummary.tsx', {
++      'react/jsx-runtime': runtime,
++      '../../lib/i18n': { useI18n: () => ({ t: translate }), i18nLocale: () => 'zh-CN' },
++    }),
+     '../components/PurchaseReceiptDrawer': { PurchaseReceiptDrawer: 'PurchaseReceiptDrawer' },
+     '../components/PurchaseOrderHistoryDrawer': { PurchaseOrderHistoryDrawer: 'PurchaseOrderHistoryDrawer' },
+     '../components/PurchaseOrderAvailabilityDialog': { PurchaseOrderAvailabilityDialog: 'PurchaseOrderAvailabilityDialog', availabilityConfirmedAt: (value) => value },
+@@ -109,7 +114,7 @@
+     async flush() { this.render(); await new Promise((resolve) => setImmediate(resolve)); return this.render(); },
+     async reload() { const result = callbacks[0](); this.render(); await result; return this.flush(); },
+     find(predicate) { return nodes(this.render()).find(predicate); },
+-    button(label) { return this.find((node) => node.type === 'Button' && (node.props['aria-label'] === label || text(node).trim() === label)); },
++    button(label) { return this.find((node) => node.type === 'Button' && (node.props['aria-label'] === label || text(node).trim().replace(/\s+/g, ' ') === label)); },
+     dialog() { return this.find((node) => node.type === 'PurchaseOrderAvailabilityDialog'); },
+     highlighted() { return nodes(this.render()).filter((node) => node.type === 'tr' && node.props['aria-current'] === 'true'); },
+     setResponse(fn) { currentResponse = fn; },
+@@ -125,6 +130,77 @@
+   view.render();
+   return view;
+ }
++
++test('超收不抵另一行未收，真实详情以行数和逐行差额展示而非整单100%', async (t) => {
++  const rows = [{ ...line('over', '01'), qty: 10, receivedQty: 20 }, { ...line('missing', '02'), qty: 10, receivedQty: 0 }];
++  const view = fixture(t, { target: '', response: async () => ({ order: order('PO-001', rows) }) });
++  const tree = await view.flush();
++  const metric = nodes(tree).find((node) => node.type === 'OrderMetric' && node.props.label === '数量已收齐行');
++  assert.equal(metric.props.value, '1 / 2');
++  assert.equal(nodes(tree).find((node) => node.type === 'OrderMetric' && node.props.label === '数量未收齐行').props.value, 1);
++  assert.doesNotMatch(text(tree), /100%|SKU \/ 数量|供应商已完成本单履约/);
++  assert.match(text(tree), /未收差额 10 个/); assert.match(text(tree), /超收 10 个/);
++  const group = nodes(tree).find((node) => node.type === 'section' && node.props['aria-label'] === '按单位核对到货数量');
++  assert.match(text(group), /订购数量 20 ERP 已到 20 未收差额 10 超收数量 10/);
++});
++
++test('不同单位在真实汇总分组，零订购与缺数据不给0%或完整数量', async (t) => {
++  const rows = [{ ...line('set'), unit: '套', qty: 1, receivedQty: 1 }, { ...line('meters'), unit: '米', qty: 100, receivedQty: 0 }, { ...line('zero'), unit: '', qty: 0, receivedQty: 0 }];
++  const view = fixture(t, { target: '', response: async () => ({ order: { ...order('PO-001', rows), status: '已完成' } }) });
++  const tree = await view.flush();
++  assert.match(text(tree), /单位：套/); assert.match(text(tree), /单位：米/); assert.match(text(tree), /单位待核对/);
++  assert.match(text(tree), /订购数量为零/); assert.match(text(tree), /未记录计量单位/);
++  assert.doesNotMatch(text(tree), /1\/101|0%|已全部到货|入库仓库|供应商已完成本单履约/);
++  assert.match(text(tree), /1 行数量已收齐，1 行未收齐，1 行待核对/);
++});
++
++test('筛选保持全量汇总，保留原行编号，关闭收货抽屉仍在当前筛选', async (t) => {
++  const rows = [{ ...line('over', '01'), receivedQty: 20 }, { ...line('missing', '02'), receivedQty: 0 }, { ...line('invalid', '03'), qty: -1 }];
++  const view = fixture(t, { target: '', response: async () => ({ order: order('PO-001', rows) }) });
++  await view.flush(); view.button('未收齐 1').props.onClick();
++  let tree = view.render();
++  assert.deepEqual(nodes(tree).filter((n) => n.type === 'tr' && n.props['data-purchase-order-line-id']).map((n) => n.props['data-purchase-order-line-id']), ['missing']);
++  assert.equal(nodes(tree).find((n) => n.type === 'OrderMetric' && n.props.label === '已读取订单行').props.value, '3 行');
++  assert.match(text(tree), /显示 1 \/ 3 行/);
++  view.button('查看订单行 02 的收货与检验：同编码物料').props.onClick({ currentTarget: { isConnected: true, focus() {} } });
++  const drawer = view.find((n) => n.type === 'PurchaseReceiptDrawer'); assert.equal(drawer.props.lineId, 'missing');
++  drawer.props.onClose(); tree = view.render();
++  assert.equal(view.button('未收齐 1').props['aria-pressed'], true);
++  view.button('超收 1').props.onClick(); assert.match(text(view.render()), /超收待核对/);
++  view.button('待核对 1').props.onClick(); assert.match(text(view.render()), /订购数量缺失或无效/);
++});
++
++test('新导航定位被筛掉的精确行时恢复全部，空筛选提供返回全部入口', async (t) => {
++  const rows = [{ ...line('over', '01'), receivedQty: 20 }, { ...line('missing', '02'), receivedQty: 0 }];
++  const view = fixture(t, { target: '', response: async () => ({ order: order('PO-001', rows) }) });
++  await view.flush(); view.button('待核对 0').props.onClick();
++  assert.match(text(view.render()), /当前筛选没有匹配的订单行/);
++  view.button('未收齐 1').props.onClick(); view.render();
++  await view.router.navigate('/purchase-orders/PO-001?lineId=over'); await view.flush();
++  assert.equal(view.button('全部明细 2').props['aria-pressed'], true);
++  assert.equal(view.highlighted()[0].props['data-purchase-order-line-id'], 'over');
++  assert.match(view.calls.scroll.at(-1).key, /over$/);
++});
++
++test('后退回旧历史位置不会复活遮住精确目标的旧筛选', async (t) => {
++  const rows = [{ ...line('over', '01'), receivedQty: 20 }, { ...line('missing', '02'), receivedQty: 0 }];
++  const view = fixture(t, { target: '?lineId=over', response: async () => ({ order: order('PO-001', rows) }) });
++  await view.flush(); view.button('未收齐 1').props.onClick(); view.render();
++  await view.router.navigate('/purchase-orders/PO-001?lineId=missing'); await view.flush();
++  assert.equal(view.highlighted()[0].props['data-purchase-order-line-id'], 'missing');
++  await view.router.navigate(-1); await view.flush();
++  assert.equal(view.button('全部明细 2').props['aria-pressed'], true);
++  assert.equal(view.highlighted()[0].props['data-purchase-order-line-id'], 'over');
++  assert.match(view.calls.scroll.at(-1).key, /over$/);
++});
++
++test('小数差额按汇总相同精度显示，缺数量不会在行金额显示为零', async (t) => {
++  const rows = [{ ...line('decimal'), unit: 'kg', qty: 0.3, receivedQty: 0.1 }, { ...line('null'), qty: null }];
++  const view = fixture(t, { target: '', response: async () => ({ order: order('PO-001', rows) }) });
++  const tree = await view.flush(); assert.match(text(tree), /未收差额 0.2 kg/); assert.doesNotMatch(text(tree), /0.199999999/);
++  const missing = nodes(tree).find((node) => node.type === 'tr' && node.props['data-purchase-order-line-id'] === 'null');
++  const cells = nodes(missing).filter((node) => node.type === 'td'); assert.equal(text(cells[7]), '待核对');
++});
+ 
+ test('配置路径与订单号、镜像行 ID 分别编码，并拒绝无法安全构成目标的值', () => {
+   const helper = lineHelpers(paths('/supply/orders'));
+--- a/scripts/purchase-order-availability.test.mjs
++++ b/scripts/purchase-order-availability.test.mjs
+@@ -273,6 +273,8 @@
+     '../../lib/workspaceArrivalNavigation': workspaceArrivalNavigation,
+     '../../lib/orderProcessingApi': { orderProcessingApi: { getPurchaseOrder: async () => { reads++; return readReply(); } } },
+     './PurchaseOrders': { formatCurrency: (value) => String(value), statusBadgeClass: () => '' },
++    '../purchaseOrderFulfillment': load(compile('src/app/order-processing/purchaseOrderFulfillment.ts'), {}),
++    '../components/PurchaseOrderQuantitySummary': load(compile('src/app/order-processing/components/PurchaseOrderQuantitySummary.tsx'), rt.dependencies),
+     '../components/PurchaseReceiptDrawer': { PurchaseReceiptDrawer: 'PurchaseReceiptDrawer' },
+     '../components/PurchaseOrderHistoryDrawer': { PurchaseOrderHistoryDrawer: 'PurchaseOrderHistoryDrawer' },
+     '../components/PurchaseOrderAvailabilityDialog': { PurchaseOrderAvailabilityDialog: 'PurchaseOrderAvailabilityDialog', availabilityConfirmedAt: (value) => value },
+--- /dev/null
++++ b/src/app/order-processing/purchaseOrderFulfillment.ts
+@@ -0,0 +1,115 @@
++import type { PurchaseOrderLine } from "../lib/orderProcessingApi";
++
++export type PurchaseOrderFulfillmentState = "not_received" | "partial" | "received" | "over_received" | "unverified";
++export type PurchaseOrderFulfillmentIssue = "invalid_ordered_qty" | "zero_ordered_qty" | "invalid_received_qty" | "missing_unit";
++export type PurchaseOrderFulfillmentInput = Pick<PurchaseOrderLine, "id" | "lineNo" | "unit" | "qty" | "receivedQty">;
++
++export interface PurchaseOrderLineFulfillment {
++  /** Index in the supplied order lines, including duplicate SKUs or display line numbers. */
++  index: number;
++  id: string;
++  lineNo: string;
++  unit: string | null;
++  state: PurchaseOrderFulfillmentState;
++  issues: PurchaseOrderFulfillmentIssue[];
++  orderedQty: number | null;
++  receivedQty: number | null;
++  remainingQty: number | null;
++  overReceivedQty: number | null;
++  /** Receipt quantity progress only, capped at 100; never inspection or stock-in progress. */
++  progressPercent: number | null;
++}
++
++export interface PurchaseOrderUnitFulfillment {
++  /** Original unit with surrounding whitespace removed; no conversion or case folding. */
++  unit: string | null;
++  lineIndices: number[];
++  count: number;
++  checkableCount: number;
++  /** Data completeness, not order completion. Any invalid row or sum overflow makes totals unavailable. */
++  complete: boolean;
++  orderedQty: number | null;
++  receivedQty: number | null;
++  remainingQty: number | null;
++  overReceivedQty: number | null;
++}
++
++export interface PurchaseOrderFulfillment {
++  lines: PurchaseOrderLineFulfillment[];
++  groups: PurchaseOrderUnitFulfillment[];
++  totalLines: number;
++  checkableLines: number;
++  /** Includes over-received rows, whose anomaly remains separately visible. */
++  receivedLines: number;
++  anomalyLines: number;
++  unverifiedLines: number;
++  overReceivedLines: number;
++  /** Whether every supplied line and unit total is checkable. False when no lines were supplied. */
++  complete: boolean;
++}
++
++function quantity(value: unknown): number | null {
++  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
++}
++
++function fulfillmentLine(line: PurchaseOrderFulfillmentInput, index: number): PurchaseOrderLineFulfillment {
++  const orderedQty = quantity(line.qty);
++  const receivedQty = quantity(line.receivedQty);
++  const unit = typeof line.unit === "string" ? line.unit.trim() || null : null;
++  const issues: PurchaseOrderFulfillmentIssue[] = [];
++  if (orderedQty === null) issues.push("invalid_ordered_qty");
++  else if (orderedQty === 0) issues.push("zero_ordered_qty");
++  if (receivedQty === null) issues.push("invalid_received_qty");
++  if (!unit) issues.push("missing_unit");
++  const checkable = issues.length === 0;
++  const state: PurchaseOrderFulfillmentState = !checkable ? "unverified"
++    : receivedQty === 0 ? "not_received" : receivedQty! < orderedQty! ? "partial"
++      : receivedQty === orderedQty ? "received" : "over_received";
++  return {
++    index, id: line.id, lineNo: line.lineNo, unit, state, issues, orderedQty, receivedQty,
++    remainingQty: checkable ? Math.max(orderedQty! - receivedQty!, 0) : null,
++    overReceivedQty: checkable ? Math.max(receivedQty! - orderedQty!, 0) : null,
++    progressPercent: checkable ? Math.min(receivedQty! / orderedQty!, 1) * 100 : null,
++  };
++}
++
++/** Read-only receipt facts. Do not infer warehouse receipt, inspection, usable stock or ERP status. */
++export function buildPurchaseOrderFulfillment(input: readonly PurchaseOrderFulfillmentInput[]): PurchaseOrderFulfillment {
++  const lines = input.map(fulfillmentLine);
++  const grouped = new Map<string | null, PurchaseOrderLineFulfillment[]>();
++  for (const line of lines) {
++    const members = grouped.get(line.unit);
++    if (members) members.push(line);
++    else grouped.set(line.unit, [line]);
++  }
++  const groups: PurchaseOrderUnitFulfillment[] = [...grouped].map(([unit, members]) => {
++    const checkableCount = members.filter((line) => line.state !== "unverified").length;
++    const sums = { orderedQty: 0, receivedQty: 0, remainingQty: 0, overReceivedQty: 0 };
++    let complete = checkableCount === members.length;
++    if (complete) {
++      for (const line of members) {
++        sums.orderedQty += line.orderedQty!;
++        sums.receivedQty += line.receivedQty!;
++        // Each line's remainder/overage stands on its own; one SKU never offsets another.
++        sums.remainingQty += line.remainingQty!;
++        sums.overReceivedQty += line.overReceivedQty!;
++      }
++      complete = Object.values(sums).every(Number.isFinite);
++    }
++    return {
++      unit, lineIndices: members.map((line) => line.index), count: members.length, checkableCount, complete,
++      orderedQty: complete ? sums.orderedQty : null,
++      receivedQty: complete ? sums.receivedQty : null,
++      remainingQty: complete ? sums.remainingQty : null,
++      overReceivedQty: complete ? sums.overReceivedQty : null,
++    };
++  });
++  const unverifiedLines = lines.filter((line) => line.state === "unverified").length;
++  const overReceivedLines = lines.filter((line) => line.state === "over_received").length;
++  return {
++    lines, groups, totalLines: lines.length, checkableLines: lines.length - unverifiedLines,
++    receivedLines: lines.filter((line) => line.state === "received" || line.state === "over_received").length,
++    anomalyLines: unverifiedLines + overReceivedLines, unverifiedLines, overReceivedLines,
++    complete: lines.length > 0 && groups.every((group) => group.complete),
++  };
++}
+--- /dev/null
++++ b/src/app/order-processing/components/PurchaseOrderQuantitySummary.tsx
+@@ -0,0 +1,25 @@
++import type { PurchaseOrderFulfillment } from '../purchaseOrderFulfillment';
++import { i18nLocale, useI18n } from '../../lib/i18n';
++
++export function PurchaseOrderQuantitySummary({ summary }: { summary: PurchaseOrderFulfillment }) {
++  const { t } = useI18n();
++  const quantity = (value: number | null) => value === null ? t('待核对') : value.toLocaleString(i18nLocale(), { maximumFractionDigits: 8 });
++  return <section aria-label={t('按单位核对到货数量')} className="mb-4 min-w-0 rounded-xl border border-slate-200 bg-white p-4">
++    <h2 className="text-sm font-semibold text-slate-900">{t('按单位核对到货数量')}</h2>
++    <p className="mt-1 text-pretty text-xs leading-5 text-slate-500">{t('不同单位分别列示。未收差额与超收逐行计算，不互相抵扣；到货数量来自 ERP，不代表检验合格或可用库存。')}</p>
++    <div className={`mt-3 grid gap-3 ${summary.groups.length > 1 ? 'lg:grid-cols-2' : ''}`}>
++      {summary.groups.map((group) => <div key={group.unit ?? '__missing_unit'} className="min-w-0 rounded-lg border border-slate-100 bg-slate-50/60 p-3">
++        <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs"><h3 className="font-semibold text-slate-800">{group.unit ? t('单位：{unit}', { unit: group.unit }) : t('单位待核对')}</h3><span className="text-slate-500">{t('{count} 行', { count: group.count })}</span></div>
++        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-xs sm:grid-cols-4">
++          {([
++            ['订购数量', group.orderedQty], ['ERP 已到', group.receivedQty], ['未收差额', group.remainingQty], ['超收数量', group.overReceivedQty],
++          ] as const).map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-slate-500">{t(label)}</dt><dd className="mt-1 break-words text-sm font-semibold tabular-nums text-slate-800">{quantity(value)}</dd></div>)}
++        </dl>
++        {!group.complete ? <p className="mt-3 text-pretty text-xs leading-5 text-amber-700">{group.checkableCount < group.count
++          ? t('本组有 {count} 行数量或单位待核对，暂不合计；可在下方筛选待核对行。', { count: group.count - group.checkableCount })
++          : t('本组数量合计超出可显示范围，请逐行核对。')}</p> : null}
++      </div>)}
++    </div>
++    <p className="mt-3 text-pretty text-xs leading-5 text-slate-500">{t('以上仅覆盖已读取的订单行，筛选明细不会改变汇总。未收差额未纳入取消、退货或冲销核算，不能作为供应商剩余交付义务。')}</p>
++  </section>;
++}
+--- /dev/null
++++ b/scripts/purchase-order-fulfillment.test.mjs
+@@ -0,0 +1,159 @@
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++import test from "node:test";
++import ts from "typescript";
++
++const source = readFileSync(new URL("../src/app/order-processing/purchaseOrderFulfillment.ts", import.meta.url), "utf8");
++const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
++const model = {};
++new Function("exports", "require", code)(model, (name) => { throw new Error(`Unexpected runtime dependency: ${name}`); });
++const { buildPurchaseOrderFulfillment } = model;
++const line = (id, qty, receivedQty, unit = "件", extra = {}) => ({ id, lineNo: id, qty, receivedQty, unit, ...extra });
++
++test("逐行区分未收、部分、收齐和超收；整单只按可核对行数计算收齐", () => {
++  const result = buildPurchaseOrderFulfillment([
++    line("1", 20, 0), line("2", 20, 5), line("3", 20, 20), line("4", 20, 25),
++  ]);
++  assert.deepEqual(result.lines.map((item) => item.state), ["not_received", "partial", "received", "over_received"]);
++  assert.deepEqual(result.lines.map((item) => item.progressPercent), [0, 25, 100, 100]);
++  assert.deepEqual(result.lines.map((item) => item.remainingQty), [20, 15, 0, 0]);
++  assert.deepEqual(result.lines.map((item) => item.overReceivedQty), [0, 0, 0, 5]);
++  assert.equal(result.totalLines, 4);
++  assert.equal(result.checkableLines, 4);
++  assert.equal(result.receivedLines, 2);
++  assert.equal(result.overReceivedLines, 1);
++  assert.equal(result.anomalyLines, 1);
++  assert.equal(result.complete, true, "完整指数量可核对，不代表全部收齐");
++});
++
++test("0 订购量含 0/0 与 0/正数均待核对，不显示百分百", () => {
++  for (const receivedQty of [0, 5]) {
++    const result = buildPurchaseOrderFulfillment([line("zero", 0, receivedQty)]);
++    assert.equal(result.lines[0].state, "unverified");
++    assert.deepEqual(result.lines[0].issues, ["zero_ordered_qty"]);
++    assert.equal(result.lines[0].progressPercent, null);
++    assert.equal(result.lines[0].remainingQty, null);
++    assert.equal(result.lines[0].overReceivedQty, null);
++    assert.equal(result.checkableLines, 0);
++    assert.equal(result.receivedLines, 0);
++    assert.equal(result.unverifiedLines, 1);
++    assert.equal(result.complete, false);
++    assert.equal(result.groups[0].orderedQty, null);
++  }
++});
++
++test("负数、非有限数与缺失数量不当作零，同单位有效行不冒充完整总量", () => {
++  for (const field of ["qty", "receivedQty"]) for (const invalid of [-1, Number.NaN, Infinity, -Infinity, undefined, null, "10"]) {
++    const bad = { ...line("bad", 20, 5), [field]: invalid };
++    const result = buildPurchaseOrderFulfillment([line("good", 10, 10), bad]);
++    assert.equal(result.lines[1].state, "unverified", `${field}=${String(invalid)}`);
++    assert.equal(result.lines[1][field === "qty" ? "orderedQty" : "receivedQty"], null);
++    assert.equal(result.lines[1].progressPercent, null);
++    assert.equal(result.checkableLines, 1);
++    assert.equal(result.receivedLines, 1);
++    assert.equal(result.anomalyLines, 1);
++    const group = result.groups[0];
++    assert.equal(group.count, 2);
++    assert.equal(group.checkableCount, 1);
++    assert.equal(group.complete, false);
++    for (const name of ["orderedQty", "receivedQty", "remainingQty", "overReceivedQty"]) assert.equal(group[name], null, name);
++  }
++});
++
++test("缺单位单独保留且待核对，不混入真实单位名或其他有效单位", () => {
++  const result = buildPurchaseOrderFulfillment([
++    line("one", 10, 4, ""), line("two", 10, 2, "  "), line("three", 10, 1, null),
++    line("literal", 10, 10, "未填写"), line("good", 20, 10, "件"),
++  ]);
++  assert.deepEqual(result.groups.map((group) => group.unit), [null, "未填写", "件"]);
++  assert.deepEqual(result.groups[0].lineIndices, [0, 1, 2]);
++  assert.equal(result.groups[0].orderedQty, null);
++  assert.equal(result.groups[0].complete, false);
++  assert.equal(result.groups[1].complete, true);
++  assert.equal(result.groups[2].remainingQty, 10);
++  assert.equal(result.unverifiedLines, 3);
++  assert.equal(result.checkableLines, 2);
++  for (const item of result.lines.slice(0, 3)) assert.deepEqual(item.issues, ["missing_unit"]);
++});
++
++test("只按 trim 后的原单位字符串分组，不大小写合并、换算或跨组相加", () => {
++  const result = buildPurchaseOrderFulfillment([
++    line("one", 10, 5, " 件 "), line("two", 2, 1, "公斤"), line("three", 3, 3, "件"),
++    line("four", 1000, 200, "g"), line("five", 1, 0, "kg"), line("six", 2, 0, "KG"),
++  ]);
++  assert.deepEqual(result.groups.map((group) => group.unit), ["件", "公斤", "g", "kg", "KG"]);
++  assert.deepEqual(result.groups[0].lineIndices, [0, 2]);
++  assert.equal(result.groups[0].orderedQty, 13);
++  assert.equal(result.groups[0].receivedQty, 8);
++  assert.equal(result.groups[0].remainingQty, 5);
++  assert.equal(result.groups[1].remainingQty, 1);
++  for (const key of ["orderedQty", "receivedQty", "remainingQty", "overReceivedQty", "progressPercent"]) {
++    assert.equal(Object.hasOwn(result, key), false, `整单不能暴露跨单位数量 ${key}`);
++  }
++});
++
++test("同单位的超收不抵扣其他订单行未收，批量合计不能伪装全单收齐", () => {
++  const result = buildPurchaseOrderFulfillment([line("short", 10, 0), line("over", 10, 20)]);
++  const group = result.groups[0];
++  assert.equal(group.orderedQty, 20);
++  assert.equal(group.receivedQty, 20);
++  assert.equal(group.remainingQty, 10);
++  assert.equal(group.overReceivedQty, 10);
++  assert.equal(result.receivedLines, 1);
++  assert.equal(result.checkableLines, 2);
++  assert.equal(result.anomalyLines, 1);
++});
++
++test("保留输入索引和原行标识，同 SKU、重复 ID/行号不做新去重或重排", () => {
++  const rows = [line(" id/二 ", 10, 4, " 件 ", { lineNo: " 02 ", sku: "SAME" }), line(" id/二 ", 20, 20, "件", { lineNo: " 02 ", sku: "SAME" })];
++  const before = structuredClone(rows);
++  rows.forEach(Object.freeze);
++  Object.freeze(rows);
++  const result = buildPurchaseOrderFulfillment(rows);
++  assert.deepEqual(result.lines.map(({ index, id, lineNo }) => ({ index, id, lineNo })), [
++    { index: 0, id: " id/二 ", lineNo: " 02 " }, { index: 1, id: " id/二 ", lineNo: " 02 " },
++  ]);
++  assert.equal(result.totalLines, 2);
++  assert.equal(result.groups[0].orderedQty, 30);
++  assert.deepEqual(rows, before);
++  assert.deepEqual(buildPurchaseOrderFulfillment(rows), result);
++});
++
++test("只读取数量、单位与行标识，ERP 完成状态、SKU和检验字段不能参与推断", () => {
++  const source = line("minimal", 10, 4);
++  for (const name of ["sku", "name", "status", "approvalStatus", "availability", "qualifiedQty", "stockInQty"]) {
++    Object.defineProperty(source, name, { get() { throw new Error(`Unexpected business inference from ${name}`); } });
++  }
++  const result = buildPurchaseOrderFulfillment([source]);
++  assert.equal(result.lines[0].state, "partial");
++  assert.equal(result.lines[0].remainingQty, 6);
++  assert.equal(result.lines[0].progressPercent, 40);
++});
++
++test("有限原始数量求和溢出时总量不可用，极小订购量的超收进度也不输出 Infinity", () => {
++  const overflow = buildPurchaseOrderFulfillment([line("huge-a", Number.MAX_VALUE, 0), line("huge-b", Number.MAX_VALUE, 0)]);
++  assert.equal(overflow.checkableLines, 2);
++  assert.equal(overflow.groups[0].complete, false);
++  assert.equal(overflow.groups[0].orderedQty, null);
++  assert.equal(overflow.groups[0].remainingQty, null);
++  assert.equal(overflow.complete, false);
++  const tiny = buildPurchaseOrderFulfillment([line("tiny", Number.MIN_VALUE, Number.MAX_VALUE)]);
++  assert.equal(tiny.lines[0].state, "over_received");
++  assert.equal(tiny.lines[0].progressPercent, 100);
++  assert.equal(tiny.lines[0].remainingQty, 0);
++  assert.equal(tiny.lines[0].overReceivedQty, Number.MAX_VALUE);
++});
++
++test("空订单不给虚构收齐率；小数数量保留原值不换算单位", () => {
++  const empty = buildPurchaseOrderFulfillment([]);
++  assert.deepEqual(empty.lines, []);
++  assert.deepEqual(empty.groups, []);
++  assert.equal(empty.checkableLines, 0);
++  assert.equal(empty.receivedLines, 0);
++  assert.equal(empty.complete, false);
++  const decimal = buildPurchaseOrderFulfillment([line("decimal", 1.5, 0.5, "kg")]);
++  assert.equal(decimal.groups[0].orderedQty, 1.5);
++  assert.equal(decimal.groups[0].receivedQty, 0.5);
++  assert.equal(decimal.groups[0].remainingQty, 1);
++  assert.ok(Math.abs(decimal.lines[0].progressPercent - 100 / 3) < 1e-10);
++});

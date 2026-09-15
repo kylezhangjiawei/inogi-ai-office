@@ -1,0 +1,13 @@
+✔ operational tasks require source read permission, worker scope cannot request another person (3.971333ms)
+✔ assignments distinguish identical names, validate role, preserve versioned history and idempotency (0.508ms)
+✔ invalid dates, absent sources and audit failure do not persist assignments (0.399833ms)
+✔ source paging and cross-month queries retain tasks beyond first 25 (1.434584ms)
+✔ receipt creator is never treated as task assignee; cancelled order still needs physical quality judgment (0.621583ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1557.285042

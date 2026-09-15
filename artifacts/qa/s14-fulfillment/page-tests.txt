@@ -1,0 +1,52 @@
+✔ 超收不抵另一行未收，真实详情以行数和逐行差额展示而非整单100% (97.899041ms)
+✔ 不同单位在真实汇总分组，零订购与缺数据不给0%或完整数量 (44.111208ms)
+✖ 筛选保持全量汇总，保留原行编号，关闭收货抽屉仍在当前筛选 (32.719791ms)
+✖ 新导航定位被筛掉的精确行时恢复全部，空筛选提供返回全部入口 (30.197084ms)
+✔ 配置路径与订单号、镜像行 ID 分别编码，并拒绝无法安全构成目标的值 (1.724709ms)
+✔ 目标只接受唯一明确镜像 ID；重复参数、空白、同 SKU 和行号不能替代 (1.657334ms)
+✔ 真实详情加载后只高亮同 SKU 的精确第二行，滚入且可聚焦，不自动打开写入弹窗 (29.209458ms)
+✔ 只读订单权限可从右侧进入精确行收货台账，关闭恢复入口，切换订单不沿用旧行 (36.157875ms)
+✔ 缺少订单查看权限或精确行 ID 时不提供可用收货台账入口 (51.953834ms)
+✔ 缺失、已删除、重复参数不会按 SKU 猜另一行；普通订单链接不显示定位提示 (124.498375ms)
+✔ 保存刷新仅恢复触发按钮焦点，不重新滚动或抢到已高亮行 (28.617542ms)
+✔ 等待加载时用户已转到其他控件，保持其焦点；后续普通刷新不重复定位 (20.595667ms)
+✔ 切换订单后旧请求不覆盖新订单，新的行目标独立聚焦 (21.525125ms)
+✔ 同单变更 lineId 和浏览器返回同步改变高亮与行焦点，不重新请求订单或打开表单 (28.828792ms)
+✔ 真实路由保留订单号中的斜杠和百分号字面量，不二次解码导致串单 (64.707042ms)
+✔ 安全来源且有权限才返回齐套中心；布尔 historyBack 精确返回已有历史和原视图 (19.808209ms)
+✔ 缺少布尔历史标记时按验证地址替换当前条目，保留准确筛选与物料抽屉参数 (89.685125ms)
+✔ 外部、旧配置、非齐套页面、非法参数或无齐套权限均没有返回入口 (184.185833ms)
+✔ 订单读取失败仍保留受验证的齐套返回，不依赖目标行是否存在 (17.254458ms)
+✔ 订单详情从全局或模块计划返回真实历史，准确保留计划筛选和展开项 (43.378333ms)
+✔ 计划返回无布尔历史标记时替换安全地址，与既有齐套及普通返回互不覆盖 (31.375667ms)
+✔ 计划返回没有驾驶舱权限或包含其他栏目、写表单触发时不显示，订单失败仍保留合法返回 (92.536709ms)
+✔ 工作台到货进入精确同SKU镜像行，订单返回恢复原任务筛选和到货位置的真实历史 (19.944209ms)
+✔ 工作台没有布尔历史标记时替换受验证地址；自定义采购与工作台路径同时生效 (84.259667ms)
+✔ 工作台权限失效或非法来源隐藏返回入口，其他来源和普通列表返回仍独立 (103.733583ms)
+✔ 订单读取失败或已删除时仍能回到合法到货来源，不依赖行是否存在 (36.634209ms)
+✔ 历史记录入口按原镜像行打开，返回该行保留来源状态与查询并恢复行焦点 (25.675583ms)
+✔ 历史关闭恢复原按钮，权限或订单切换后旧历史抽屉立即消失 (20.071ms)
+ℹ tests 28
+ℹ suites 0
+ℹ pass 26
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1535.094833
+
+✖ failing tests:
+
+test at scripts/purchase-order-line-navigation.test.mjs:157:1
+✖ 筛选保持全量汇总，保留原行编号，关闭收货抽屉仍在当前筛选 (32.719791ms)
+  TypeError: Cannot read properties of undefined (reading 'props')
+      at TestContext.<anonymous> (file:///Users/alex/coding/inogi-ai-office/scripts/purchase-order-line-navigation.test.mjs:160:43)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)
+
+test at scripts/purchase-order-line-navigation.test.mjs:173:1
+✖ 新导航定位被筛掉的精确行时恢复全部，空筛选提供返回全部入口 (30.197084ms)
+  TypeError: Cannot read properties of undefined (reading 'props')
+      at TestContext.<anonymous> (file:///Users/alex/coding/inogi-ai-office/scripts/purchase-order-line-navigation.test.mjs:176:43)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:831:7)

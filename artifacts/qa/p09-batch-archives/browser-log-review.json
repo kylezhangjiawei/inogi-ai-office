@@ -1,0 +1,90 @@
+{
+  "finalVerificationSince": "2026-09-11T03:53:59Z",
+  "entries": [
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:44:52.982Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:45:15.845Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:45:15.855Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:46:33.636Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:46:33.648Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:46:33.996Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:46:34.008Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:46:34.352Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:46:34.359Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:46:34.569Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:46:34.576Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:46:37.760Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "A router only supports one blocker at a time",
+      "timestamp": "2026-09-11T03:46:37.768Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    },
+    {
+      "level": "warn",
+      "message": "You are trying to use a blocker on a POP navigation to a location that was not created by @remix-run/router. This will fail silently in production. This can happen if you are navigating outside the router via `window.history.pushState`/`window.location.hash` instead of using router navigation APIs.  This can also happen if you are using createHashRouter and the user manually changes the URL.",
+      "timestamp": "2026-09-11T03:49:10.728Z",
+      "url": "http://127.0.0.1:5173/node_modules/.vite/deps/react-router.js?v=548e9723"
+    }
+  ],
+  "finalEntries": []
+}

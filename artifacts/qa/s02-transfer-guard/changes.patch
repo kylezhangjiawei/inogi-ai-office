@@ -1,0 +1,875 @@
+--- a/src/app/procurement/components/rdInsertion.tsx
++++ b/src/app/procurement/components/rdInsertion.tsx
+@@ -1,9 +1,10 @@
+ // 研发侧「转采购」组件：真实查询关联任务、上传附件并调用采购接口。
+-import { useCallback, useEffect, useMemo, useState } from "react";
++import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import { useNavigate } from "react-router";
+ import { Input } from "../../components/ui/input";
+ import { AlertTriangle, ExternalLink, FlaskConical, Loader2, Paperclip, ShoppingCart, Upload, X } from "lucide-react";
+ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
++import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../../components/ui/alert-dialog";
+ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+ import { cn } from "../../components/ui/utils";
+ import { toast } from "sonner";
+@@ -227,6 +228,8 @@
+   attachments?: TransferAttachmentInput[];
+   /** 已取消的关联采购任务：重新提交时按它回填，避免把首次填好的规格/数量等清空后覆盖回后端。 */
+   resubmitFrom?: ProcurementTask | null;
++  /** 异步读到既有关联时保留本次填写内容，并阻止重复生成。 */
++  blockingTask?: Pick<ProcurementTask, "id" | "code"> | null;
+   onTransferred?: (task: ProcurementTask) => void;
+   onClose: () => void;
+ };
+@@ -244,6 +247,7 @@
+   dueDate = "",
+   attachments = [],
+   resubmitFrom = null,
++  blockingTask = null,
+   onTransferred,
+   onClose,
+ }: TransferModalProps) {
+@@ -251,8 +255,27 @@
+   const { user } = useAuth();
+   const products = useProcurementProducts();
+   const [submitting, setSubmitting] = useState(false);
++  const submittingRef = useRef(false);
++  const mountedRef = useRef(true);
++  const [discardOpen, setDiscardOpen] = useState(false);
++  const discardingRef = useRef(false);
++  const dialogRef = useRef<HTMLDivElement>(null);
++  const openerRef = useRef(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
++  const openerLayerRef = useRef(openerRef.current?.closest<HTMLElement>('[role="dialog"], .rd-horizon-detail-shell, main') ?? null);
++  const discardFocusRef = useRef<HTMLElement | null>(null);
++  useEffect(() => {
++    mountedRef.current = true;
++    return () => { mountedRef.current = false; };
++  }, []);
+   const [errors, setErrors] = useState<TransferErrors>({});
+-  const isResearchWorkspace = currentRdWorkspace() === null;
++  const workspace = currentRdWorkspace();
++  const isResearchWorkspace = workspace === null;
++  const scope = JSON.stringify([taskId, user?.id, workspace]);
++  const scopeRef = useRef(scope);
++  scopeRef.current = scope;
++  const blockingTaskRef = useRef(blockingTask);
++  blockingTaskRef.current = blockingTask;
++  const linkedTaskMessage = (code: string) => t("该研发任务已关联采购任务 {code}，不能重复生成。本次填写尚未提交；关闭后可在任务页查看关联采购。", { code });
+   const [technicalDocuments, setTechnicalDocuments] = useState<RdTechnicalDocument[]>([]);
+   const [documentsLoading, setDocumentsLoading] = useState(isResearchWorkspace);
+   const [documentsError, setDocumentsError] = useState<string | null>(null);
+@@ -299,9 +322,20 @@
+   );
+   const [files, setFiles] = useState<TransferAttachmentRow[]>(() => isResearchWorkspace ? [] : taskRows);
+   const selectedKeys = new Set(files.map((row) => row.key));
++  const initialDraft = useRef({ form: JSON.stringify(form), files: JSON.stringify([...selectedKeys].sort()) });
++  const dirty = JSON.stringify(form) !== initialDraft.current.form || JSON.stringify([...selectedKeys].sort()) !== initialDraft.current.files;
++  const interactionRef = useRef({ dirty, discardOpen });
++  interactionRef.current = { dirty, discardOpen };
++  const canEdit = () => mountedRef.current && !submittingRef.current && !interactionRef.current.discardOpen;
++  const requestClose = () => {
++    if (!mountedRef.current || submittingRef.current || interactionRef.current.discardOpen) return;
++    if (!interactionRef.current.dirty) { onClose(); return; }
++    discardFocusRef.current = typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null;
++    setDiscardOpen(true);
++  };
+ 
+   const addManualFiles = (list: FileList | null) => {
+-    if (!list?.length) return;
++    if (!canEdit() || !list?.length) return;
+     const stamp = Date.now();
+     const added = Array.from(list).map<TransferAttachmentRow>((file, index) => ({
+       key: `manual-${stamp}-${index}`,
+@@ -316,6 +350,11 @@
+   };
+ 
+   const submit = async () => {
++    if (!canEdit()) return;
++    if (blockingTaskRef.current) {
++      setErrors({ submit: linkedTaskMessage(blockingTaskRef.current.code) });
++      return;
++    }
+     if (documentsLoading || documentsError) {
+       setErrors({ submit: documentsError || t("正在核对技术资料版本，请稍候") });
+       return;
+@@ -340,7 +379,10 @@
+     }
+ 
+     setErrors({});
++    submittingRef.current = true;
+     setSubmitting(true);
++    const submittedScope = scope;
++    const isCurrentSubmission = () => mountedRef.current && scopeRef.current === submittedScope;
+     try {
+       const attachmentInputs = await Promise.all(files.map(async (row) => {
+         if (row.source === "manual") {
+@@ -368,6 +410,12 @@
+         };
+       }));
+ 
++      if (!isCurrentSubmission()) return;
++      if (blockingTaskRef.current) {
++        setErrors({ submit: linkedTaskMessage(blockingTaskRef.current.code) });
++        return;
++      }
++
+       const rdContact = form.rdContact.trim() || owner;
+       const procTask = await transferProcTask({
+         productId: form.productId,
+@@ -390,6 +438,7 @@
+         consumableNote: form.note.trim() || undefined,
+         attachments: attachmentInputs,
+       });
++      if (!isCurrentSubmission()) return;
+       onTransferred?.(procTask);
+       announceProcurementRefresh();
+       toast.success(procTask.alreadyTransferred
+@@ -397,11 +446,13 @@
+         : t("已生成采购任务 {code}，并分配采购负责人", { code: procTask.code }));
+       onClose();
+     } catch (error) {
++      if (!isCurrentSubmission()) return;
+       const message = error instanceof Error ? error.message : t("转采购失败，请稍后重试");
+       setErrors({ submit: message });
+       toast.error(message);
+     } finally {
+-      setSubmitting(false);
++      submittingRef.current = false;
++      if (mountedRef.current) setSubmitting(false);
+     }
+   };
+ 
+@@ -411,7 +462,8 @@
+       {type === "date" ? (
+         <DateInput
+           value={form[key]}
+-          onChange={(value) => { setForm((current) => ({ ...current, [key]: value })); setErrors((current) => ({ ...current, submit: undefined })); }}
++          disabled={submitting}
++          onChange={(value) => { if (!canEdit()) return; setForm((current) => ({ ...current, [key]: value })); setErrors((current) => ({ ...current, submit: undefined })); }}
+           ariaLabel={t(label)}
+           className="mt-1"
+         />
+@@ -419,9 +471,10 @@
+         <Input
+           type={type}
+           value={form[key]}
++          disabled={submitting}
+           aria-label={t(label)}
+           aria-invalid={Boolean(key === "materialName" ? errors.materialName : key === "quantity" ? errors.quantity : key === "unit" ? errors.unit : false)}
+-          onChange={(event) => { setForm((current) => ({ ...current, [key]: event.target.value })); setErrors((current) => ({ ...current, [key === "materialName" ? "materialName" : key === "quantity" ? "quantity" : key === "unit" ? "unit" : "submit"]: undefined, submit: undefined })); }}
++          onChange={(event) => { if (!canEdit()) return; setForm((current) => ({ ...current, [key]: event.target.value })); setErrors((current) => ({ ...current, [key === "materialName" ? "materialName" : key === "quantity" ? "quantity" : key === "unit" ? "unit" : "submit"]: undefined, submit: undefined })); }}
+           placeholder={placeholder ? t(placeholder) : ""}
+           className={cn("mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15", type === "number" && "tabular-nums", (key === "materialName" ? errors.materialName : key === "quantity" ? errors.quantity : key === "unit" ? errors.unit : false) && "border-rose-300")}
+         />
+@@ -434,8 +487,25 @@
+   );
+ 
+   return (
+-    <Dialog open onOpenChange={(o) => { if (!o && !submitting) onClose(); }}>
+-      <DialogContent className="horizon-theme horizon-portal proc-horizon-overlay gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
++    <><Dialog open onOpenChange={(open) => { if (!open) requestClose(); }}>
++      <DialogContent ref={dialogRef} closeDisabled={submitting} aria-modal="true" aria-busy={submitting}
++        onEscapeKeyDown={(event) => { if (submittingRef.current) event.preventDefault(); }}
++        onPointerDownOutside={(event) => {
++          event.preventDefault();
++          // 遮罩点击不要在确认框打开后又把浏览器焦点移回 body。
++          event.detail.originalEvent.preventDefault();
++          requestClose();
++        }}
++        onCloseAutoFocus={(event) => {
++          const opener = openerRef.current;
++          if (opener?.isConnected && opener.getClientRects().length && !opener.matches(':disabled')) {
++            event.preventDefault(); opener.focus();
++          } else if (openerLayerRef.current?.isConnected) {
++            const fallback = Array.from(openerLayerRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), [href], [tabindex="0"]')).find((element) => element.getClientRects().length && !element.closest('[inert]'));
++            if (fallback) { event.preventDefault(); fallback.focus(); }
++          }
++        }}
++        className="horizon-theme horizon-portal proc-horizon-overlay flex flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
+         <DialogHeader className="border-b border-slate-100 px-6 py-4">
+           <DialogTitle className="text-balance text-base font-bold text-slate-900">
+             {resubmitFrom ? t("转采购 · 重新提交 {code}", { code: resubmitFrom.code }) : t("转采购 · 生成采购任务")}
+@@ -448,7 +518,7 @@
+             return <div key={label} className={cn("flex items-center gap-1.5 text-[11px]", index === active ? "font-semibold text-primary" : index < active ? "text-emerald-700" : "text-slate-400")}><span className={cn("flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums", index === active ? "border-primary bg-primary text-white" : index < active ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white")}>{index + 1}</span><span className="truncate">{label}</span></div>;
+           })}
+         </div>
+-        <div className="max-h-[70vh] overflow-y-auto px-6 py-4">
++        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+           <div className="mb-3 flex items-start gap-2 rounded-xl border border-[var(--primary-soft-border)] bg-accent px-3 py-2 text-pretty text-xs text-primary">
+             <ShoppingCart className="mt-0.5 h-4 w-4 shrink-0" />
+             {resubmitFrom
+@@ -458,7 +528,7 @@
+           <div className="grid grid-cols-2 gap-3">
+             <div className="col-span-2">
+               <span className="text-xs font-medium text-slate-500">{t("归属产品系统")}</span>
+-              <Select value={form.productId} onValueChange={(value) => setForm((current) => ({ ...current, productId: value }))}>
++              <Select value={form.productId} disabled={submitting} onValueChange={(value) => { if (canEdit()) setForm((current) => ({ ...current, productId: value })); }}>
+                 <SelectTrigger aria-label={t("归属产品系统")} className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
+                 <SelectContent className="proc-horizon-overlay">
+                   {products.map((product) => (
+@@ -484,13 +554,13 @@
+                 <div className="flex items-center gap-2">
+                   <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--primary-soft-border)] px-2 py-1 text-[11px] font-medium text-primary hover:bg-accent">
+                     <Upload className="h-3 w-3" />{t("新增附件")}
+-                    <Input type="file" multiple className="hidden" onChange={(event) => { addManualFiles(event.target.files); event.target.value = ""; }} />
++                    <Input type="file" multiple disabled={submitting} aria-label={t("新增图纸附件")} className="hidden" onChange={(event) => { addManualFiles(event.target.files); event.target.value = ""; }} />
+                   </label>
+                 </div>
+               </div>
+               {documentsLoading ? <p role="status" className="mt-2 flex items-center gap-2 text-xs text-slate-500"><Loader2 className="size-3.5 animate-spin" aria-hidden="true" />{t("正在核对技术资料版本…")}</p> : null}
+-              {documentsError ? <div role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"><p className="break-words">{documentsError}</p><button type="button" onClick={() => setDocumentsReload((value) => value + 1)} className="mt-1 min-h-10 underline underline-offset-2">{t("重新读取技术资料")}</button></div> : null}
+-              {isResearchWorkspace && taskRows.length > 0 ? <fieldset className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2"><legend className="px-1 text-xs text-slate-500">{t("可交付的研发资料")}</legend>{taskRows.map((row) => <label key={row.key} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-1 py-2 text-xs hover:bg-accent"><input type="checkbox" checked={selectedKeys.has(row.key)} disabled={submitting || documentsLoading || Boolean(documentsError)} onChange={(event) => { const checked = event.target.checked; setFiles((current) => checked ? [...current.filter((item) => item.key !== row.key), row] : current.filter((item) => item.key !== row.key)); setErrors((current) => ({ ...current, files: undefined, submit: undefined })); }} className="size-4 shrink-0 accent-[var(--primary)]" aria-label={`${t("交付附件：{name}", { name: row.name })} · ${row.technicalDocumentVersionId ? `${t("版本")} ${row.versionName || ""}` : t("未登记版本")}`} /><span className="min-w-0 flex-1 break-words text-slate-700">{row.name}<span className="mt-1 block text-[11px] text-slate-400">{row.technicalDocumentVersionId ? `${t("已登记版本")} ${row.versionName || ""}` : t("未登记版本，按本次原文件交付")}</span></span>{row.size ? <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(row.size)}</span> : null}</label>)}</fieldset> : null}
++              {documentsError ? <div role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"><p className="break-words">{documentsError}</p><button type="button" disabled={submitting} onClick={() => { if (canEdit()) setDocumentsReload((value) => value + 1); }} className="mt-1 min-h-10 underline underline-offset-2">{t("重新读取技术资料")}</button></div> : null}
++              {isResearchWorkspace && taskRows.length > 0 ? <fieldset className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2"><legend className="px-1 text-xs text-slate-500">{t("可交付的研发资料")}</legend>{taskRows.map((row) => <label key={row.key} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-1 py-2 text-xs hover:bg-accent"><input type="checkbox" checked={selectedKeys.has(row.key)} disabled={submitting || documentsLoading || Boolean(documentsError)} onChange={(event) => { if (!canEdit() || documentsLoading || documentsError) return; const checked = event.target.checked; setFiles((current) => checked ? [...current.filter((item) => item.key !== row.key), row] : current.filter((item) => item.key !== row.key)); setErrors((current) => ({ ...current, files: undefined, submit: undefined })); }} className="size-4 shrink-0 accent-[var(--primary)]" aria-label={`${t("交付附件：{name}", { name: row.name })} · ${row.technicalDocumentVersionId ? `${t("版本")} ${row.versionName || ""}` : t("未登记版本")}`} /><span className="min-w-0 flex-1 break-words text-slate-700">{row.name}<span className="mt-1 block text-[11px] text-slate-400">{row.technicalDocumentVersionId ? `${t("已登记版本")} ${row.versionName || ""}` : t("未登记版本，按本次原文件交付")}</span></span>{row.size ? <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(row.size)}</span> : null}</label>)}</fieldset> : null}
+               {files.length > 0 ? (
+                 <ul className="mt-1.5 max-h-36 space-y-1.5 overflow-y-auto">
+                   {files.map((row) => (
+@@ -499,7 +569,7 @@
+                       <span className="min-w-0 flex-1 truncate" title={row.name}>{row.name}</span>
+                       {row.size ? <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(row.size)}</span> : null}
+                       <span className={row.source === "task" ? "shrink-0 rounded-full bg-accent px-1.5 text-[10px] text-primary" : "shrink-0 rounded-full bg-emerald-50 px-1.5 text-[10px] text-emerald-600"}>{t(row.source === "task" ? "任务附件" : "新增附件")}</span>
+-                      <button type="button" aria-label={t("移除附件：{name}", { name: row.name })} onClick={() => { setFiles((current) => current.filter((item) => item.key !== row.key)); setErrors((current) => ({ ...current, files: undefined, submit: undefined })); }} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-white hover:text-rose-500" title={t("移除")}><X className="h-3.5 w-3.5" /></button>
++                      <button type="button" aria-label={t("移除附件：{name}", { name: row.name })} disabled={submitting} onClick={() => { if (!canEdit()) return; setFiles((current) => current.filter((item) => item.key !== row.key)); setErrors((current) => ({ ...current, files: undefined, submit: undefined })); }} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-white hover:text-rose-500" title={t("移除")}><X className="h-3.5 w-3.5" /></button>
+                     </li>
+                   ))}
+                 </ul>
+@@ -513,19 +583,45 @@
+             </div>
+             <label className="col-span-2 block">
+               <span className="text-xs font-medium text-slate-500">{t("低值易耗品备注")}</span>
+-              <Input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder={t("如为低值易耗品可备注按年用量备货")} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15" />
++              <Input value={form.note} disabled={submitting} onChange={(event) => { if (canEdit()) setForm((current) => ({ ...current, note: event.target.value })); }} placeholder={t("如为低值易耗品可备注按年用量备货")} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15" />
+             </label>
+           </div>
+-          {errors.submit && <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{errors.submit}</div>}
++          {!blockingTask && errors.submit ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-pretty text-xs text-rose-700"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{errors.submit}</div> : null}
+         </div>
+-        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+-          <button type="button" disabled={submitting} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t("取消")}</button>
+-          <button type="button" disabled={files.length === 0 || submitting || documentsLoading || Boolean(documentsError)} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-2 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50">
++        <div className="shrink-0 border-t border-slate-100 px-6 py-3">
++          <p role={blockingTask ? "alert" : "status"} className={cn("mb-2 text-pretty text-xs leading-5", blockingTask ? "text-amber-800" : "text-slate-500")}>{blockingTask ? linkedTaskMessage(blockingTask.code) : t(submitting ? "正在上传附件并生成采购任务，请等待处理完成。" : dirty ? "填写内容尚未提交，关闭后需要重新填写。" : "确认生成后才会提交需求与附件。")}</p>
++          <div className="flex flex-wrap justify-end gap-2">
++          <button type="button" disabled={submitting} onClick={requestClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">{t("取消")}</button>
++          <button type="button" disabled={files.length === 0 || submitting || documentsLoading || Boolean(documentsError) || Boolean(blockingTask)} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-2 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50">
+             {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+             {submitting ? t("正在生成…") : t("确认生成采购任务")}
+           </button>
++          </div>
+         </div>
+       </DialogContent>
+     </Dialog>
++    <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
++      <AlertDialogContent aria-modal="true" className="horizon-theme horizon-portal proc-horizon-overlay" onCloseAutoFocus={(event) => {
++        event.preventDefault();
++        if (discardingRef.current || !mountedRef.current) return;
++        const target = discardFocusRef.current;
++        if (target?.isConnected && dialogRef.current?.contains(target)) target.focus();
++        else dialogRef.current?.querySelector<HTMLElement>('input:not(:disabled)')?.focus();
++      }}>
++        <AlertDialogHeader>
++          <AlertDialogTitle>{t("放弃未提交的采购需求？")}</AlertDialogTitle>
++          <AlertDialogDescription>{t("本次填写内容和附件选择尚未提交，关闭后需要重新填写。原研发附件和已有采购记录会保留。")}</AlertDialogDescription>
++        </AlertDialogHeader>
++        <AlertDialogFooter>
++          <AlertDialogCancel>{t("继续填写")}</AlertDialogCancel>
++          <AlertDialogAction onClick={(event) => {
++            if (submittingRef.current || !mountedRef.current) { event.preventDefault(); return; }
++            discardingRef.current = true;
++            setDiscardOpen(false);
++            onClose();
++          }}>{t("放弃并关闭")}</AlertDialogAction>
++        </AlertDialogFooter>
++      </AlertDialogContent>
++    </AlertDialog></>
+   );
+ }
+--- a/src/app/RDTaskDetailPage.tsx
++++ b/src/app/RDTaskDetailPage.tsx
+@@ -2606,6 +2606,7 @@
+           dueDate={task.due_date}
+           attachments={transferAttachments}
+           resubmitFrom={procTaskBlocksTransfer ? null : procTask}
++          blockingTask={procTaskBlocksTransfer ? procTask : null}
+           onTransferred={(nextProcTask) => {
+             if (activeTaskIdRef.current !== task.task_id) return;
+             setProcTask(nextProcTask);
+--- a/src/app/RDMyWorkspacePage.tsx
++++ b/src/app/RDMyWorkspacePage.tsx
+@@ -300,13 +300,13 @@
+ function focusBelongsToNestedWorkspacePortal(layer: HTMLElement): boolean {
+   const active = document.activeElement;
+   if (!(active instanceof HTMLElement) || layer.contains(active)) return false;
+-  const modal = active.closest<HTMLElement>('[role="dialog"][aria-modal="true"]');
++  const modal = active.closest<HTMLElement>('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]');
+   if (modal && modal !== layer) return true;
+   return Boolean(active.closest(WORKSPACE_NESTED_PORTAL_SELECTOR));
+ }
+ 
+ function hasExternalModalDialog(): boolean {
+-  return Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')).some(
++  return Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]')).some(
+     (dialog) => dialog.isConnected && dialog.getClientRects().length > 0,
+   );
+ }
+@@ -1645,10 +1645,7 @@
+     }))).filter((attachment) => Boolean(attachment.fileUrl)),
+     [progressNotes],
+   );
+-  // 采购关联是异步查回来的：查到在途关联就收起弹窗（即便提交也会被后端幂等挡下）。
+-  useEffect(() => {
+-    if (procTaskBlocksTransfer) setTransferOpen(false);
+-  }, [procTaskBlocksTransfer]);
++  // 关联晚到时由弹窗阻止重复生成，保留正在填写的需求并沿用关闭确认。
+ 
+   const submitAbandon = async () => {
+     const reason = abandonReason.trim();
+@@ -2880,6 +2877,7 @@
+           dueDate={task.due_date}
+           attachments={transferAttachments}
+           resubmitFrom={procTaskBlocksTransfer ? null : procTask}
++          blockingTask={procTaskBlocksTransfer ? procTask : null}
+           onTransferred={setProcTask}
+           onClose={() => setTransferOpen(false)}
+         />
+--- a/scripts/rd-procurement-transfer.test.mjs
++++ b/scripts/rd-procurement-transfer.test.mjs
+@@ -91,7 +91,7 @@
+ test('转采购入口显式选择附件，技术资料读取失败不能静默降级提交', () => {
+   assert.match(insertion, /useState<TransferAttachmentRow\[\]>\(\(\) => isResearchWorkspace \? \[\] : taskRows\)/);
+   assert.match(insertion, /fetchRdTechnicalDocuments\(taskId, controller.signal\)/);
+-  assert.match(insertion, /disabled=\{files.length === 0 \|\| submitting \|\| documentsLoading \|\| Boolean\(documentsError\)\}/);
++  assert.match(insertion, /disabled=\{files.length === 0 \|\| submitting \|\| documentsLoading \|\| Boolean\(documentsError\) \|\| Boolean\(blockingTask\)\}/);
+   assert.match(insertion, /technicalDocumentVersionId: row.technicalDocumentVersionId/);
+   assert.match(insertion, /unit: form.unit.trim\(\)/);
+ });
+--- a/docs/management-supply-frontend-progress.md
++++ b/docs/management-supply-frontend-progress.md
+@@ -77,4 +77,10 @@
+ 
+ 抽屉返回保留筛选和焦点，导航定位及前进/后退恢复全部明细以显示准确原行。151 项相关检查、类型检查与生产构建通过；桌面及390×844浏览器验证完成，隔离预览位于127.0.0.1:4184。日志见 `artifacts/qa/s14-fulfillment/`，范围见 `procurement-s14-fulfillment-scope.md`。
+ 
+-未收差额没有纳入取消、退货和冲销，不作为供应商剩余交付义务或可用库存。下一项可继续处理 S02 转采购填写后取消/Esc/遮罩关闭时的未提交保护；正式业务接通阶段保持独立。
++未收差额没有纳入取消、退货和冲销，不作为供应商剩余交付义务或可用库存。S02 的未提交保护已继续完成下述专项收尾；正式业务接通阶段保持独立。
++
++## 续作：S02 转采购未提交保护
++
++共享转采购表单覆盖研发详情及个人工作台。改过字段或附件后，取消、Esc、关闭按钮和遮罩均先确认放弃；继续保留内容，恢复原值可直接关闭。提交期间锁住字段、附件和关闭操作，防止重复点击；失败保稿可重试。异步查到既有采购关联时显示编号并禁止生成，不再自动收起草稿。工作台嵌套确认框的键盘和焦点同步修复。
++
++88 项相关回归、类型检查和生产构建通过。真实表单与原工作台弹层算法已在桌面、390×844 手机隔离验证，覆盖失败重试、连续点击、晚到关联与父子层焦点。日志见 `artifacts/qa/s02-transfer-guard/`，范围见 `procurement-s02-transfer-guard-scope.md`。本轮仅保护当前弹窗填写会话，未实现刷新恢复草稿，未进行真实采购写入或正式业务验收。
+--- a/design-qa.md
++++ b/design-qa.md
+@@ -1216,3 +1216,11 @@
+ 1280×720桌面和390×844手机已实测：同单位订20到20仍显示1/2行收齐、未收差额10及超收10；混合单位分别列示，零订购和缺单位的组暂不合计。筛选原第2行后打开收货台账，关闭仍为未收齐筛选，焦点回同一原按钮；定位被隐藏第1行恢复全部并高亮。无明细显示未知，读取失败后重试恢复。手机页面宽度390，明细表仅自身横向滚动。
+ 
+ 151项相关回归、类型检查和生产构建通过，范围与证据在 `docs/procurement-s14-fulfillment-scope.md` 和 `artifacts/qa/s14-fulfillment/`。浏览器后退旧筛选问题另有修前/修后自动复现。截图仅在工具中观察，未保存图片；只读隔离服务运行于4184，没有业务写入或正式数据验收。
++
++## 2026-09-14 · S02 转采购未提交保护
++
++沿用 Horizon 转采购表单；补“继续填写／放弃并关闭”确认、未提交与提交中提示、固定底部操作。既有关联晚到时，编号和禁止生成的原因持续显示在底部，表单保留。
++
++桌面及390×844手机已验证取消、Esc、遮罩、恢复初值、重提回填、失败保稿重试、连续双击一次调用和提交中禁用。实际工作台弹层算法搭配真实表单的隔离集成中，Tab／Shift+Tab／Esc留在最上层，放弃后父抽屉及备注保留。修正了遮罩原生点击导致确认框焦点落回body的问题，复验初始焦点为“继续填写”；关闭后恢复入口。手机底部按钮和关联提示可见，页面宽度390。
++
++88项相关回归、类型检查和生产构建通过；新增20项保护测试的修前备份为3通过17失败。记录位于 `artifacts/qa/s02-transfer-guard/`，范围见 `docs/procurement-s02-transfer-guard-scope.md`。截图通过任务工具观察，未另存图片。手选文件上传和会话切换边界由受控行为测试覆盖；浏览器未上传文件，未做完整工作台、真实采购写入或正式业务验收。
+--- a/scripts/rd-procurement-transfer-guard.test.mjs
++++ b/scripts/rd-procurement-transfer-guard.test.mjs
+@@ -0,0 +1,470 @@
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import test from 'node:test';
++import ts from 'typescript';
++
++const source = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
++function load(path, dependencies = {}) {
++  const code = ts.transpileModule(source(path), { compilerOptions: {
++    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
++  } }).outputText;
++  const exports = {};
++  new Function('exports', 'require', code)(exports, (name) => {
++    assert.ok(name in dependencies, `Unexpected dependency: ${name}`);
++    return dependencies[name];
++  });
++  return exports;
++}
++
++const primitive = new Proxy({}, { get: (_target, name) => name });
++const jsx = (type, props) => ({ type, props });
++const runtime = { jsx, jsxs: jsx, Fragment: 'Fragment' };
++const text = (node) => Array.isArray(node) ? node.map(text).join(' ') : node == null || typeof node === 'boolean' ? ''
++  : typeof node === 'object' ? text(node.props?.children) : String(node);
++const nodes = (node) => Array.isArray(node) ? node.flatMap(nodes) : node && typeof node === 'object'
++  ? [node, ...nodes(node.props?.children)] : [];
++const translate = (value, params = {}) => value.replace(/\{(\w+)\}/g, (match, key) => params[key] ?? match);
++const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
++const documentApi = load('src/app/lib/rdTechnicalDocumentsApi.ts', {
++  './authSession': { authFetch() { assert.fail('No real API is allowed in this fixture'); }, readErrorMessage() {} },
++  './rdApi': { RD_MUTATED_EVENT: 'rd-mutated' },
++});
++const attachmentModel = load('src/app/lib/rdProcurementTransfer.ts', { './rdTechnicalDocumentsApi': documentApi });
++const attachments = [
++  { id: 'drawing-a', name: 'A图纸.pdf', fileKey: 'rd/a.pdf', fileUrl: '/preview/a', size: 100, mimeType: 'application/pdf' },
++  { id: 'drawing-b', name: 'B图纸.pdf', fileKey: 'rd/b.pdf', fileUrl: '/preview/b', size: 200, mimeType: 'application/pdf' },
++];
++const manual = (name = '手选图纸.pdf') => new File(['drawing'], name, { type: 'application/pdf' });
++const success = { id: 'proc-1', code: 'PR-001', status: 'pending', materialName: 'M8' };
++
++// Execute the complete real modal and its event handlers. Hooks only supply a
++// controlled render lifecycle; API calls are recorded in memory, never sent.
++function fixture(t, { workspace = null, props: overrides = {}, documents = async () => ({ documents: [] }),
++  transfer = async () => success,
++  upload = async (file) => ({ signedUrl: '/signed/manual', objectKey: 'uploaded/manual', fileName: file.name, fileSize: file.size, mimeType: file.type }),
++} = {}) {
++  const slots = [], effects = [];
++  let cursor = 0, dirty = false, tree, unmounted = false, transferReply = transfer, uploadReply = upload;
++  let currentWorkspace = workspace, currentUser = { id: 'user-1', name: '研发甲', department: '研发' };
++  const changed = (a, b) => !a || !b || a.length !== b.length || b.some((value, index) => !Object.is(value, a[index]));
++  const hooks = {
++    useState(initial) {
++      const index = cursor++;
++      if (!(index in slots)) slots[index] = typeof initial === 'function' ? initial() : initial;
++      return [slots[index], (value) => { if (unmounted) return; const next = typeof value === 'function' ? value(slots[index]) : value;
++        if (!Object.is(next, slots[index])) { slots[index] = next; dirty = true; } }];
++    },
++    useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial }; },
++    useMemo(fn, deps) { const index = cursor++; if (changed(slots[index]?.deps, deps)) slots[index] = { deps, value: fn() }; return slots[index].value; },
++    useCallback(fn, deps) { return hooks.useMemo(() => fn, deps); },
++    useEffect(fn, deps) { const index = cursor++, before = slots[index]; if (changed(before?.deps, deps)) {
++      const next = { deps }; slots[index] = next; effects.push(() => { before?.cleanup?.(); next.cleanup = fn(); });
++    } },
++  };
++  const calls = { close: 0, transfer: [], upload: [], transferred: [], refresh: 0, success: [], errors: [], documents: [] };
++  let props = {
++    taskId: 'rd-1', taskTitle: 'M8测试', productId: 'product-1', owner: '研发甲', ownerUserId: 'user-1',
++    dueDate: '2026-09-21', attachments, ...overrides,
++    onClose: () => { calls.close++; }, onTransferred: (value) => calls.transferred.push(value),
++  };
++  const products = [{ id: 'product-1', name: '产品一' }, { id: 'product-2', name: '产品二' }];
++  const dependencies = {
++    react: hooks, 'react/jsx-runtime': runtime, 'react-router': { useNavigate: () => () => {} },
++    'lucide-react': primitive, '../../components/ui/input': primitive, '../../components/ui/dialog': primitive,
++    '../../components/ui/alert-dialog': primitive, '../../components/ui/select': primitive,
++    '../../components/ui/utils': { cn: (...values) => values.filter(Boolean).join(' ') },
++    sonner: { toast: { success: (value) => calls.success.push(value), error: (value) => calls.errors.push(value) } },
++    '../../auth': { useAuth: () => ({ user: currentUser }) },
++    '../../components/TranslatableText': primitive,
++    '../../lib/i18n': { useI18n: () => ({ t: translate }) },
++    '../../lib/procurementApi': {
++      transferProcTask: async (input) => { calls.transfer.push(input); return transferReply(input); },
++      uploadProcurementAttachment: async (file) => { calls.upload.push(file); return uploadReply(file); },
++    },
++    '../../RDProgressEvidence': { formatRdFileSize: (size) => `${size} B` },
++    '../data': { announceProcurementRefresh: () => { calls.refresh++; }, DEFAULT_PROCUREMENT_PRODUCT_ID: 'product-1',
++      PROCUREMENT_REFRESH_EVENT: 'procurement-refresh', useProcurementProducts: () => products },
++    './common': { DateInput: 'DateInput', PROC_STATUS_META: {} },
++    '../../hooks/usePermission': { usePermission: () => true },
++    '../../lib/rdApi': { currentRdWorkspace: () => currentWorkspace },
++    '../../lib/rdTechnicalDocumentsApi': { fetchRdTechnicalDocuments: async (taskId, signal) => {
++      calls.documents.push({ taskId, signal }); return documents(taskId, signal);
++    } },
++    '../../lib/rdProcurementTransfer': attachmentModel,
++  };
++  const { TransferToProcurementModal } = load('src/app/procurement/components/rdInsertion.tsx', dependencies);
++  const f = {
++    calls,
++    render() {
++      assert.equal(unmounted, false, 'Cannot render an unmounted modal');
++      for (let count = 0; count < 20; count++) {
++        cursor = 0; dirty = false; tree = TransferToProcurementModal(props);
++        while (effects.length) effects.shift()();
++        if (!dirty) return tree;
++      }
++      assert.fail('Transfer modal did not settle');
++    },
++    async flush() { this.render(); await new Promise(setImmediate); return this.render(); },
++    find(predicate) { return nodes(this.render()).find(predicate); },
++    button(label) { return this.find((node) => ['button', 'AlertDialogAction', 'AlertDialogCancel'].includes(node.type)
++      && (node.props['aria-label'] === label || text(node).trim().replace(/\s+/g, ' ') === label)); },
++    field(label) { return this.find((node) => node.props?.['aria-label'] === label || node.props?.ariaLabel === label
++      || (label === '低值易耗品备注' && node.type === 'Input' && node.props.placeholder === '如为低值易耗品可备注按年用量备货')); },
++    select() { return this.find((node) => node.type === 'Select'); },
++    fileInput() { return this.find((node) => node.type === 'Input' && node.props.type === 'file'); },
++    checkbox(name = 'A图纸.pdf') { return this.find((node) => node.type === 'input' && node.props.type === 'checkbox' && node.props['aria-label'].includes(name)); },
++    dialog() { return this.find((node) => node.type === 'Dialog'); },
++    alert() { return this.find((node) => node.type === 'AlertDialog' && node.props.open); },
++    pointerOutside() {
++      const originalEvent = new Event('pointerdown', { cancelable: true });
++      const event = new CustomEvent('dismissableLayer.pointerDownOutside', { cancelable: true, detail: { originalEvent } });
++      this.find((node) => node.type === 'DialogContent').props.onPointerDownOutside(event);
++      this.render(); return event;
++    },
++    change(label, value) { const node = this.field(label); assert.ok(node, label);
++      node.props.onChange(node.type === 'DateInput' ? value : { target: { value } }); return this.render(); },
++    choose(name = 'A图纸.pdf', checked = true) { const node = this.checkbox(name); assert.ok(node, name);
++      node.props.onChange({ target: { checked } }); return this.render(); },
++    add(file = manual()) { this.fileInput().props.onChange({ target: { files: [file], value: file.name } }); return this.render(); },
++    continue() { const alert = this.alert(); assert.ok(alert, 'Close confirmation must be open');
++      const button = nodes(alert).find((node) => ['button', 'AlertDialogCancel'].includes(node.type) && text(node).trim() === '继续填写');
++      assert.ok(button, 'Continue editing action');
++      if (button.props.onClick) button.props.onClick({ preventDefault() {} });
++      else alert.props.onOpenChange(false); // Radix Cancel requests Root.onOpenChange(false).
++      return this.render(); },
++    discard() { const alert = this.alert(); assert.ok(alert, 'Close confirmation must be open');
++      const button = nodes(alert).find((node) => ['button', 'AlertDialogAction'].includes(node.type) && text(node).trim() === '放弃并关闭');
++      assert.ok(button, 'Discard and close action'); button.props.onClick({ preventDefault() {} }); return this.render(); },
++    setTransfer(fn) { transferReply = fn; },
++    setUpload(fn) { uploadReply = fn; },
++    setProps(next) { props = { ...props, ...next }; return this.render(); },
++    setUser(next) { currentUser = next; return this.render(); },
++    setWorkspace(next) { currentWorkspace = next; return this.render(); },
++    unmount() { if (unmounted) return; unmounted = true; for (const slot of slots) slot?.cleanup?.(); },
++  };
++  t.after(() => f.unmount());
++  f.render(); return f;
++}
++
++test('未编辑初始内容时，取消与根 Dialog 关闭均直接退出，不弹草稿确认', async (t) => {
++  for (const workspace of [null, 'production']) for (const close of ['cancel', 'dialog']) {
++    const f = fixture(t, { workspace }); await f.flush();
++    if (close === 'cancel') f.button('取消').props.onClick(); else f.dialog().props.onOpenChange(false);
++    assert.equal(f.calls.close, 1, `${workspace}/${close}`); assert.equal(f.alert(), undefined);
++    assert.equal(f.calls.transfer.length, 0); assert.equal(f.calls.upload.length, 0);
++  }
++});
++
++test('每个表单字段变更都需要确认，继续填写保留原输入，放弃后才退出', async (t) => {
++  const changes = [['物料名称', '新的物料'], ['规格', 'M10'], ['数量', '12'], ['数量单位', '套'],
++    ['需求日期', '2026-09-22'], ['Deadline', '2026-09-23'], ['购买链接（选填）', 'https://supplier.invalid/item'],
++    ['研发对接人', '研发乙'], ['低值易耗品备注', '按年备货']];
++  for (const [label, value] of changes) {
++    const f = fixture(t); await f.flush(); f.change(label, value); f.button('取消').props.onClick();
++    assert.ok(f.alert(), label); assert.equal(f.calls.close, 0, label);
++    f.continue(); assert.equal(f.alert(), undefined, label); assert.equal(f.field(label).props.value, value, label);
++    f.dialog().props.onOpenChange(false); f.discard(); assert.equal(f.calls.close, 1, label);
++  }
++  const product = fixture(t); await product.flush(); product.select().props.onValueChange('product-2'); product.render();
++  product.button('取消').props.onClick(); assert.ok(product.alert()); product.continue();
++  assert.equal(product.select().props.value, 'product-2');
++});
++
++test('根 Dialog 关闭保护覆盖 Esc/遮罩，关闭确认本身不放弃原草稿', async (t) => {
++  const f = fixture(t); await f.flush(); f.change('规格', '保留规格');
++  f.dialog().props.onOpenChange(false); assert.ok(f.alert()); assert.equal(f.calls.close, 0);
++  f.alert().props.onOpenChange(false); assert.equal(f.alert(), undefined);
++  assert.equal(f.field('规格').props.value, '保留规格'); assert.equal(f.calls.close, 0);
++  f.dialog().props.onOpenChange(true); assert.equal(f.alert(), undefined);
++  f.dialog().props.onOpenChange(false); f.discard(); assert.equal(f.calls.close, 1);
++});
++
++test('脏草稿点击遮罩阻止自定义与原生 pointer 默认动作，并打开确认而不关闭原表单', async (t) => {
++  const f = fixture(t); await f.flush(); f.change('规格', '遮罩点击前的规格');
++  const event = f.pointerOutside();
++  assert.equal(event.defaultPrevented, true);
++  assert.equal(event.detail.originalEvent.defaultPrevented, true, 'Native pointer default must not move focus back to body');
++  assert.ok(f.alert()); assert.equal(f.calls.close, 0);
++  assert.equal(f.field('规格').props.value, '遮罩点击前的规格');
++});
++
++test('真实转采购和放弃确认 Content 显式向 Radix 传递 aria-modal，不依赖 mock 默认值', async (t) => {
++  const f = fixture(t); await f.flush(); f.change('规格', '待确认的规格'); f.dialog().props.onOpenChange(false);
++  const forwardRef = (render) => (props) => render(props, props.ref ?? null);
++  const primitives = (prefix) => new Proxy({}, { get: (_target, name) => `${prefix}.${String(name)}` });
++  const shared = { react: { forwardRef }, 'react/jsx-runtime': runtime, './utils': { cn: (...values) => values.filter(Boolean).join(' ') } };
++  const dialog = load('src/app/components/ui/dialog.tsx', { ...shared, '@radix-ui/react-dialog': primitives('DialogPrimitive'), 'lucide-react': primitive });
++  const alert = load('src/app/components/ui/alert-dialog.tsx', { ...shared, '@radix-ui/react-alert-dialog': primitives('AlertDialogPrimitive'), './button': { buttonVariants: () => '' } });
++  const expand = (node) => Array.isArray(node) ? node.map(expand) : node && typeof node === 'object'
++    ? typeof node.type === 'function' ? expand(node.type(node.props)) : { ...node, props: { ...node.props, children: expand(node.props?.children) } } : node;
++  for (const [name, component, primitiveType] of [
++    ['DialogContent', dialog.DialogContent, 'DialogPrimitive.Content'],
++    ['AlertDialogContent', alert.AlertDialogContent, 'AlertDialogPrimitive.Content'],
++  ]) {
++    const content = f.find((node) => node.type === name); assert.ok(content, name);
++    const forwarded = nodes(expand(component(content.props))).find((node) => node.type === primitiveType);
++    assert.ok(forwarded, `${name} forwards to real wrapper's Radix Content`);
++    assert.equal(forwarded.props['aria-modal'], 'true', name);
++  }
++});
++
++test('字段与产品恢复初始值后不再警告，重提以其实际回填内容为初值', async (t) => {
++  const f = fixture(t, { props: { resubmitFrom: { ...success, productId: 'product-2', spec: '原规格', quantity: 6,
++    unit: '套', needDate: '2026-09-25', deadline: '2026-09-26', purchaseLink: 'https://supplier.invalid/old', rdContact: '研发甲', consumableNote: '原备注' } } });
++  await f.flush();
++  for (const label of ['物料名称', '规格', '数量', '数量单位', '需求日期', 'Deadline', '购买链接（选填）', '研发对接人', '低值易耗品备注']) {
++    const initial = f.field(label).props.value;
++    f.change(label, label.includes('日期') || label === 'Deadline' ? '2026-10-01' : `${initial}更改`); f.change(label, initial);
++  }
++  f.select().props.onValueChange('product-1'); f.render(); f.select().props.onValueChange('product-2'); f.render();
++  f.button('取消').props.onClick(); assert.equal(f.calls.close, 1); assert.equal(f.alert(), undefined);
++});
++
++test('研发附件选中与移除保护草稿，恢复初始空选择后可以直接关闭', async (t) => {
++  const f = fixture(t); await f.flush(); f.choose(); f.dialog().props.onOpenChange(false);
++  assert.ok(f.alert()); assert.equal(f.calls.close, 0); f.continue(); assert.equal(f.checkbox().props.checked, true);
++  f.button('移除附件：A图纸.pdf').props.onClick(); f.render(); assert.equal(f.checkbox().props.checked, false);
++  f.dialog().props.onOpenChange(false); assert.equal(f.calls.close, 1); assert.equal(f.alert(), undefined);
++  const original = fixture(t, { workspace: 'production' }); await original.flush();
++  original.button('移除附件：A图纸.pdf').props.onClick(); original.render(); original.button('取消').props.onClick();
++  assert.ok(original.alert()); assert.equal(original.calls.close, 0);
++});
++
++test('勾选后再取消恢复初始选择，不把资料读取完成当作用户编辑', async (t) => {
++  const gate = deferred(); const f = fixture(t, { documents: () => gate.promise });
++  gate.resolve({ documents: [] }); await f.flush(); f.choose(); f.choose('A图纸.pdf', false);
++  f.button('取消').props.onClick(); assert.equal(f.calls.close, 1); assert.equal(f.alert(), undefined);
++});
++
++test('手选文件只留在内存，添加需保护，移除恢复初值；提交前不上传', async (t) => {
++  const f = fixture(t); await f.flush(); f.add(); assert.equal(f.calls.upload.length, 0); assert.equal(f.calls.transfer.length, 0);
++  f.button('取消').props.onClick(); assert.ok(f.alert()); f.continue();
++  assert.ok(f.button('移除附件：手选图纸.pdf')); f.button('移除附件：手选图纸.pdf').props.onClick(); f.render();
++  f.button('取消').props.onClick(); assert.equal(f.calls.close, 1); assert.equal(f.alert(), undefined);
++  assert.equal(f.calls.upload.length, 0);
++});
++
++test('提交即时锁阻止渲染前双击，上传与请求等待时拒绝关闭及旧处理器修改', async (t) => {
++  const uploadGate = deferred(), transferGate = deferred();
++  const f = fixture(t, { upload: () => uploadGate.promise, transfer: () => transferGate.promise });
++  await f.flush(); f.choose(); const file = manual(); f.add(file); f.change('规格', '提交规格');
++  const submit = f.button('确认生成采购任务').props.onClick;
++  const stale = { cancel: f.button('取消').props.onClick, close: f.dialog().props.onOpenChange,
++    spec: f.field('规格').props.onChange, date: f.field('需求日期').props.onChange,
++    note: f.field('低值易耗品备注').props.onChange, product: f.select().props.onValueChange,
++    file: f.fileInput().props.onChange, check: f.checkbox().props.onChange,
++    remove: f.button('移除附件：A图纸.pdf').props.onClick };
++  submit(); submit(); // No render between clicks: React state alone cannot guard this.
++  stale.spec({ target: { value: '不能改' } }); stale.date('2026-10-30'); stale.note({ target: { value: '不能改备注' } });
++  stale.product('product-2'); stale.file({ target: { files: [manual('不能添加.pdf')], value: 'file' } });
++  stale.check({ target: { checked: false } }); stale.remove(); stale.cancel(); stale.close(false);
++  f.render(); assert.equal(f.calls.upload.length, 1); assert.equal(f.calls.transfer.length, 0);
++  assert.equal(f.calls.close, 0); assert.equal(f.alert(), undefined);
++  const outside = f.pointerOutside();
++  assert.equal(outside.defaultPrevented, true); assert.equal(outside.detail.originalEvent.defaultPrevented, true);
++  assert.equal(f.calls.close, 0); assert.equal(f.alert(), undefined, 'Pending upload must not open discard confirmation');
++  assert.equal(f.field('规格').props.value, '提交规格'); assert.equal(f.field('需求日期').props.value, '2026-09-21');
++  assert.equal(f.field('低值易耗品备注').props.value, ''); assert.equal(f.select().props.value, 'product-1');
++  assert.equal(f.checkbox().props.checked, true); assert.ok(f.button('移除附件：A图纸.pdf'));
++  assert.equal(f.button('移除附件：不能添加.pdf'), undefined);
++  for (const label of ['物料名称', '规格', '数量', '数量单位', '需求日期', 'Deadline', '购买链接（选填）', '研发对接人', '低值易耗品备注']) {
++    assert.equal(f.field(label).props.disabled, true, label);
++  }
++  for (const node of [f.select(), f.fileInput(), f.checkbox(), f.button('移除附件：A图纸.pdf'), f.button('取消'), f.button('正在生成…')]) {
++    assert.equal(node.props.disabled, true, node.type);
++  }
++  uploadGate.resolve({ signedUrl: '/uploaded', objectKey: 'manual/key', fileName: file.name, fileSize: file.size, mimeType: file.type });
++  await f.flush(); assert.equal(f.calls.transfer.length, 1); assert.equal(f.calls.transfer[0].spec, '提交规格');
++  assert.equal(f.calls.transfer[0].attachments.length, 2); assert.equal(f.calls.close, 0);
++  f.dialog().props.onOpenChange(false); assert.equal(f.calls.close, 0);
++  transferGate.resolve(success); await f.flush();
++  assert.equal(f.calls.close, 1); assert.equal(f.alert(), undefined); assert.deepEqual(f.calls.transferred, [success]);
++  assert.equal(f.calls.refresh, 1); assert.equal(f.calls.success.length, 1);
++});
++
++test('提交失败保留字段与附件并解锁，可继续填写或重新提交，成功不弹放弃确认', async (t) => {
++  const f = fixture(t, { transfer: async () => { throw new Error('采购服务暂不可用'); } });
++  await f.flush(); f.choose(); f.change('数量', '7'); f.change('规格', '失败后保留');
++  f.button('确认生成采购任务').props.onClick(); await f.flush();
++  assert.equal(f.calls.close, 0); assert.equal(f.field('数量').props.value, '7'); assert.equal(f.field('规格').props.value, '失败后保留');
++  assert.equal(f.checkbox().props.checked, true); assert.equal(f.field('规格').props.disabled, false);
++  assert.equal(f.button('确认生成采购任务').props.disabled, false); assert.match(text(f.render()), /采购服务暂不可用/);
++  f.button('取消').props.onClick(); assert.ok(f.alert()); f.continue(); f.change('规格', '重新提交');
++  f.setTransfer(async () => success); f.button('确认生成采购任务').props.onClick(); await f.flush();
++  assert.equal(f.calls.transfer.length, 2); assert.equal(f.calls.transfer[1].spec, '重新提交');
++  assert.equal(f.calls.close, 1); assert.equal(f.alert(), undefined);
++});
++
++test('上传失败也保留手选文件并解锁，不生成采购任务，可明确放弃', async (t) => {
++  const f = fixture(t, { upload: async () => { throw new Error('图纸上传失败'); } });
++  await f.flush(); f.add(); f.button('确认生成采购任务').props.onClick(); await f.flush();
++  assert.equal(f.calls.transfer.length, 0); assert.equal(f.calls.close, 0); assert.match(text(f.render()), /图纸上传失败/);
++  assert.ok(f.button('移除附件：手选图纸.pdf')); assert.equal(f.fileInput().props.disabled, false);
++  f.button('取消').props.onClick(); f.discard(); assert.equal(f.calls.close, 1);
++});
++
++test('上传等待中卸载后即使上传完成，也不继续生成采购任务或通知父页面', async (t) => {
++  const gate = deferred(), file = manual();
++  const f = fixture(t, { upload: () => gate.promise });
++  await f.flush(); f.add(file); f.button('确认生成采购任务').props.onClick();
++  assert.equal(f.calls.upload.length, 1); assert.equal(f.calls.transfer.length, 0);
++  f.unmount();
++  gate.resolve({ signedUrl: '/uploaded', objectKey: 'manual/key', fileName: file.name, fileSize: file.size, mimeType: file.type });
++  await new Promise(setImmediate);
++  assert.equal(f.calls.transfer.length, 0); assert.equal(f.calls.close, 0);
++  assert.deepEqual(f.calls.transferred, []); assert.equal(f.calls.refresh, 0);
++  assert.deepEqual(f.calls.success, []); assert.deepEqual(f.calls.errors, []);
++});
++
++test('采购请求已发出后卸载，成功或失败响应都不再关闭、回调或显示通知', async (t) => {
++  for (const outcome of ['success', 'failure']) {
++    const gate = deferred(); const f = fixture(t, { transfer: () => gate.promise });
++    await f.flush(); f.choose(); f.button('确认生成采购任务').props.onClick(); await f.flush();
++    assert.equal(f.calls.transfer.length, 1); f.unmount();
++    if (outcome === 'success') gate.resolve(success); else gate.reject(new Error('卸载后的采购失败'));
++    await new Promise(setImmediate);
++    assert.equal(f.calls.close, 0, outcome); assert.deepEqual(f.calls.transferred, [], outcome);
++    assert.equal(f.calls.refresh, 0, outcome); assert.deepEqual(f.calls.success, [], outcome); assert.deepEqual(f.calls.errors, [], outcome);
++  }
++});
++
++test('已有有效采购关联时显示准确单号，生成被禁用且旧处理器不能提交，草稿仍需明确放弃', async (t) => {
++  const f = fixture(t); await f.flush(); f.choose(); f.change('规格', '关联出现前的规格');
++  const previousSubmit = f.button('确认生成采购任务').props.onClick;
++  const tree = f.setProps({ blockingTask: { id: 'another-proc', code: 'PR-EXISTING-42' } });
++  assert.match(text(tree), /PR-EXISTING-42/); assert.equal(f.button('确认生成采购任务').props.disabled, true);
++  assert.equal(f.field('规格').props.value, '关联出现前的规格'); assert.equal(f.checkbox().props.checked, true);
++  previousSubmit(); await f.flush(); assert.equal(f.calls.transfer.length, 0); assert.equal(f.calls.upload.length, 0);
++  f.dialog().props.onOpenChange(false); assert.ok(f.alert()); assert.equal(f.calls.close, 0);
++  f.continue(); assert.equal(f.field('规格').props.value, '关联出现前的规格');
++  f.button('取消').props.onClick(); f.discard(); assert.equal(f.calls.close, 1);
++});
++
++test('上传期间异步发现有效采购关联，上传完成后不再发出 transfer，填写内容保留', async (t) => {
++  const gate = deferred(), file = manual(); const f = fixture(t, { upload: () => gate.promise });
++  await f.flush(); f.add(file); f.change('规格', '等待上传的规格'); f.button('确认生成采购任务').props.onClick();
++  assert.equal(f.calls.upload.length, 1);
++  f.setProps({ blockingTask: { id: 'created-elsewhere', code: 'PR-CONCURRENT' } });
++  assert.equal(f.field('规格').props.value, '等待上传的规格'); assert.equal(f.calls.close, 0);
++  gate.resolve({ signedUrl: '/uploaded', objectKey: 'manual/key', fileName: file.name, fileSize: file.size, mimeType: file.type });
++  await f.flush();
++  assert.equal(f.calls.transfer.length, 0); assert.deepEqual(f.calls.transferred, []); assert.equal(f.calls.close, 0);
++  assert.equal(f.calls.refresh, 0); assert.deepEqual(f.calls.success, []);
++  assert.match(text(f.render()), /PR-CONCURRENT/); assert.equal(f.button('确认生成采购任务').props.disabled, true);
++  assert.equal(f.field('规格').props.value, '等待上传的规格'); assert.ok(f.button('移除附件：手选图纸.pdf'));
++  f.button('取消').props.onClick(); assert.ok(f.alert()); f.continue(); assert.equal(f.calls.close, 0);
++});
++
++const scopeChanges = [
++  ['研发任务', (f) => f.setProps({ taskId: 'rd-2', taskTitle: '另一研发任务' })],
++  ['账号', (f) => f.setUser({ id: 'user-2', name: '研发乙', department: '研发' })],
++  ['工作区', (f) => f.setWorkspace('production')],
++];
++
++test('上传期间切换任务、账号或工作区，旧上传返回不在新范围继续生成采购', async (t) => {
++  for (const [label, changeScope] of scopeChanges) for (const outcome of ['success', 'failure']) {
++    const gate = deferred(), file = manual(); const f = fixture(t, { upload: () => gate.promise });
++    await f.flush(); f.add(file); f.button('确认生成采购任务').props.onClick(); assert.equal(f.calls.upload.length, 1);
++    changeScope(f);
++    if (outcome === 'success') gate.resolve({ signedUrl: '/uploaded', objectKey: 'manual/key', fileName: file.name, fileSize: file.size, mimeType: file.type });
++    else gate.reject(new Error(`旧${label}上传失败`));
++    await f.flush(); const context = `${label}/${outcome}`;
++    assert.equal(f.calls.transfer.length, 0, context); assert.equal(f.calls.close, 0, context);
++    assert.deepEqual(f.calls.transferred, [], context); assert.equal(f.calls.refresh, 0, context);
++    assert.deepEqual(f.calls.success, [], context); assert.deepEqual(f.calls.errors, [], context);
++    assert.equal(f.field('规格').props.disabled, false, `${context}: upload lock released`);
++    assert.equal(f.button('确认生成采购任务').props.disabled, false, context);
++    f.change('规格', '新范围继续填写'); assert.equal(f.field('规格').props.value, '新范围继续填写', context);
++  }
++});
++
++test('采购请求发出后切换任务、账号或工作区，旧结果不能回调、关闭或通知新范围', async (t) => {
++  for (const [label, changeScope] of scopeChanges) for (const outcome of ['success', 'failure']) {
++    const gate = deferred(); const f = fixture(t, { transfer: () => gate.promise });
++    await f.flush(); f.choose(); f.button('确认生成采购任务').props.onClick(); await f.flush();
++    assert.equal(f.calls.transfer.length, 1); changeScope(f);
++    if (outcome === 'success') gate.resolve(success); else gate.reject(new Error(`旧${label}采购失败`));
++    await f.flush(); const context = `${label}/${outcome}`;
++    assert.equal(f.calls.transfer.length, 1, context); assert.equal(f.calls.close, 0, context);
++    assert.deepEqual(f.calls.transferred, [], context); assert.equal(f.calls.refresh, 0, context);
++    assert.deepEqual(f.calls.success, [], context); assert.deepEqual(f.calls.errors, [], context);
++    assert.equal(f.field('规格').props.disabled, false, `${context}: transfer lock released`);
++    assert.equal(f.button('确认生成采购任务').props.disabled, false, context);
++    f.change('规格', '新范围继续填写'); assert.equal(f.field('规格').props.value, '新范围继续填写', context);
++  }
++});
++
++function workspaceLayerFixture(role = 'alertdialog') {
++  const code = source('src/app/RDMyWorkspacePage.tsx');
++  const ast = ts.createSourceFile('RDMyWorkspacePage.tsx', code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
++  const names = ['focusBelongsToNestedWorkspacePortal', 'hasExternalModalDialog', 'canRestoreWorkspaceFocus', 'useWorkspaceModalLayer'];
++  const extracted = ast.statements.filter((node) => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)
++    || ts.isVariableStatement(node) && node.declarationList.declarations.some((item) => item.name.getText(ast) === 'WORKSPACE_NESTED_PORTAL_SELECTOR'))
++    .map((node) => node.getText(ast)).join('\n');
++  const listeners = new Set(), frames = [], focus = [];
++  let cleanup, dismissed = 0;
++  class Element {
++    constructor(name, modalRole = null) { this.name = name; this.modalRole = modalRole; this.isConnected = true; this.visible = true; this.children = []; }
++    contains(node) { return node === this || this.children.some((child) => child.contains(node)); }
++    closest(selector) {
++      if (this.modalRole && selector.includes(`[role="${this.modalRole}"]`) && selector.includes('[aria-modal="true"]')) return this;
++      return null;
++    }
++    hasAttribute() { return false; }
++    getClientRects() { return this.visible ? [{}] : []; }
++    focus() { doc.activeElement = this; focus.push(this.name); }
++  }
++  const opener = new Element('opener'), layer = new Element('workspace-layer'), input = new Element('workspace-input');
++  const nested = new Element('nested-modal-focus', role); layer.children.push(input);
++  const doc = {
++    activeElement: opener,
++    querySelectorAll: (selector) => selector.includes(`[role="${role}"]`) ? [nested] : [],
++    addEventListener: (name, handler) => { assert.equal(name, 'keydown'); listeners.add(handler); },
++    removeEventListener: (name, handler) => { assert.equal(name, 'keydown'); listeners.delete(handler); },
++  };
++  const bindings = {
++    document: doc, HTMLElement: Element, window: { requestAnimationFrame: (fn) => frames.push(fn) },
++    useRef: (value) => ({ current: value }), React: { useLayoutEffect: (fn) => { cleanup = fn(); } },
++    workspaceModalLayers: [], workspaceFocusableElements: () => [input], workspaceBackgroundBranches: () => [],
++    workspaceScrollContainers: () => [], retainWorkspaceInert() {}, releaseWorkspaceInert() {}, retainWorkspaceScrollLock() {}, releaseWorkspaceScrollLock() {},
++  };
++  const compiled = ts.transpileModule(`${extracted}\nreturn { useWorkspaceModalLayer };`, {
++    compilerOptions: { target: ts.ScriptTarget.ES2022 },
++  }).outputText;
++  const { useWorkspaceModalLayer } = new Function(...Object.keys(bindings), compiled)(...Object.values(bindings));
++  useWorkspaceModalLayer({ current: layer }, { current: input }, () => { dismissed++; });
++  return {
++    doc, nested, input, focus, listeners,
++    get dismissed() { return dismissed; },
++    key(key) {
++      const event = { key, defaultPrevented: false, stopped: false,
++        preventDefault() { this.defaultPrevented = true; }, stopImmediatePropagation() { this.stopped = true; } };
++      for (const handler of listeners) handler(event); return event;
++    },
++    unmount() { cleanup(); layer.isConnected = false; while (frames.length) frames.shift()(); },
++  };
++}
++
++test('工作台底层弹层不抢嵌套 alertdialog 的 Escape/Tab，正常返回底层后仍可关闭', () => {
++  for (const role of ['alertdialog', 'dialog']) {
++    const f = workspaceLayerFixture(role); f.doc.activeElement = f.nested;
++    const initialFocusCalls = f.focus.length;
++    for (const key of ['Escape', 'Tab']) {
++      const event = f.key(key); assert.equal(event.defaultPrevented, false, `${role}/${key}`);
++      assert.equal(event.stopped, false); assert.equal(f.dismissed, 0);
++    }
++    assert.equal(f.focus.length, initialFocusCalls, role);
++    f.doc.activeElement = f.input;
++    assert.equal(f.key('Escape').defaultPrevented, true); assert.equal(f.dismissed, 1);
++    f.unmount(); assert.equal(f.listeners.size, 0);
++  }
++});
++
++test('工作台弹层卸载时保留外部 alertdialog 焦点，外部模态已关闭才还原原入口', () => {
++  for (const visible of [true, false]) {
++    const f = workspaceLayerFixture(); f.nested.visible = visible; f.doc.activeElement = f.nested;
++    f.unmount(); assert.equal(f.listeners.size, 0);
++    assert.equal(f.focus.at(-1), visible ? 'workspace-input' : 'opener');
++    if (visible) assert.equal(f.doc.activeElement, f.nested);
++  }
++});
+--- a/docs/procurement-s02-transfer-guard-scope.md
++++ b/docs/procurement-s02-transfer-guard-scope.md
+@@ -0,0 +1,26 @@
++# S02 转采购未提交保护
++
++2026-09-14，继续“先补页面和交互”。本次修改共享转采购表单，同时覆盖研发任务详情、研发个人工作台的现有入口。
++
++## 交互范围
++
++- 全部采购字段、产品及附件选择参与修改判断，以本次打开时的实际初值为准；取消勾选或把字段恢复原值后，可直接关闭。重新提交以已回填需求为初值。
++- 已修改后点击取消、右上角关闭、遮罩或按 Esc，先选择“继续填写”或“放弃并关闭”。继续保留内容和附件；明确放弃才退出。新附件仅暂存在当前弹窗内，确认生成时才上传。
++- 提交开始立即锁住重复提交及旧事件回调；字段、日期、产品、附件增删和关闭入口同步禁用。失败保留当前内容并允许重试；成功正常关闭。
++- 任务关联查询晚到时保留正在填写的内容，显示既有采购编号并禁止重复生成。提交入口及上传完成后均检查最新关联。已经发出的请求按正常结果处理，不把后续读到本次关联当作外部冲突。
++- 弹窗卸载、任务／账号／工作区改变后，旧上传结果不能继续发起转采购；已发出请求的旧结果不回写当前页面。忽略旧结果不等于取消已发出的服务器请求。
++- 工作台底层抽屉识别嵌套 alertdialog，不抢走确认框的 Tab 和 Esc。关闭确认与主弹窗分别恢复焦点。表单内容滚动，底部操作保持可达。
++
++## 验证与复现
++
++使用实际表单及原工作台弹层算法，搭配无登录令牌的本地隔离查询与提交夹具。夹具位于 `artifacts/qa/s02-transfer-guard/harness/`，入口为 `http://127.0.0.1:4185/__qa/s02-transfer-guard`。业务请求在夹具中按明确路径处理，未知接口拒绝，不代理真实业务。
++
++20 项新增保护测试与邻近回归合计 88 / 88 通过，覆盖原值恢复、文件选择、确认继续／放弃、同步重复点击、失败保稿、卸载／切换范围后的迟到响应和晚到关联；类型检查和生产构建通过。同一组新增测试换入修改前备份得到 3 通过、17 失败，日志在 `artifacts/qa/s02-transfer-guard/`。
++
++浏览器已验证桌面和 390×844 手机：未改直接关闭、取消／Esc／遮罩确认、继续保稿、恢复初值、重提回填、失败后原表单重试成功、双击只增加一次调用、提交中全部字段与关闭禁用、晚到关联禁用生成。嵌套场景使用原工作台弹层算法与真实表单，Tab／Shift+Tab／Esc 不关闭父层，放弃子表单后父备注保留且焦点恢复。手机页面宽度为 390，底部操作与关联提示在视口内。
++
++手选文件上传及卸载／账号切换等边界由行为测试覆盖，本轮没有在浏览器上传文件。截图仅通过任务工具观察，未另存图片；不是完整工作台业务验收。
++
++## 边界
++
++本轮没有持久化草稿，也未增加浏览器刷新、返回或退出应用时的离开拦截；这些情况仍可能结束当前填写会话。没有修改后端流程、权限或接口，没有进行真实采购写入、通知或业务验收。页面已有流程与接口是否满足正式业务，仍属于后续接通阶段。
