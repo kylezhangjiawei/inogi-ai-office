@@ -218,8 +218,7 @@ export class ElectronicGateService {
       }
       strings[key] = (value[key] as string).trim();
     }
-    const universalScope = (definition.id === 'built-in-parameters' && value.values.operator === 'profile-slots')
-      || (definition.id === 'sensor-pressure' && ['gear-upper', 'gear-range'].includes(value.values.operator as string));
+    const universalScope = ['critical', 'routine'].includes(definition.category);
     if (publishing && (!strings.displayName || (definition.category !== 'connection' && !universalScope && (!strings.model || !strings.market)))) {
       throw new BadRequestException('发布前请填写适用机型、发货市场和显示名称');
     }

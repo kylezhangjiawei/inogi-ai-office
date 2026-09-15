@@ -100,7 +100,8 @@ test('型号参数和档位上限可发布通用范围，且不生成未开放�
   }
   const { service } = fixture(); const old = config('default-gear', true); old.model = ''; old.market = '';
   await service.saveDraft('default-gear', { expectedRevision: 0, draft: old }, actor);
-  await assert.rejects(service.publish('default-gear', { expectedRevision: 1 }, actor), hasStatus(400));
+  const published = await service.publish('default-gear', { expectedRevision: 1 }, actor);
+  assert.equal(published.active?.model, ''); assert.equal(published.active?.market, '');
 });
 test('型号方案拒绝重叠、非法开放档位、未知键、类型及未匹配选择范围', async () => {
   const base = JSON.parse(profileConfig().values.parameterProfiles);
@@ -137,7 +138,7 @@ test('档位压力支持同档分机型上限但拒绝范围重叠及非有限�
     assert.equal((await f.service.publish('sensor-pressure', { expectedRevision: 1 }, actor)).active?.values.boundary, boundary);
   }
 });
-test('新模式发布须填计划/等级/JSON/边界，清空冲突旧字段且不放宽旧模式范围', async () => {
+test('发布须填计划/等级/JSON/边界并清空冲突字段，旧模式也支持空适用范围', async () => {
   for (const [id, create, required, conflicts] of [
     ['built-in-parameters', profileConfig, ['parameterPlan', 'performanceClass', 'parameterProfiles'], ['parameterSlots', 'time310']],
     ['sensor-pressure', pressureConfig, ['gearUpperBounds', 'boundary'], ['gear', 'minimum', 'maximum']]
@@ -158,7 +159,8 @@ test('新模式发布须填计划/等级/JSON/边界，清空冲突旧字段且�
   for (const id of ['built-in-parameters', 'sensor-pressure']) {
     const f = fixture(), draft = config(id, true); draft.model = ''; draft.market = '';
     await f.service.saveDraft(id, { expectedRevision: 0, draft }, actor);
-    await assert.rejects(f.service.publish(id, { expectedRevision: 1 }, actor), hasStatus(400));
+    const published = await f.service.publish(id, { expectedRevision: 1 }, actor);
+    assert.equal(published.active?.model, ''); assert.equal(published.active?.market, '');
   }
 });
 
@@ -352,7 +354,8 @@ test('单项保存独立落库、可重新读取，保持另一项和参考模�
 test('业务规则发布要求已保存且完整的草稿，不会将默认目标直接发布', async () => {
   const { service } = fixture();
   await assert.rejects(service.publish('debug-status', { expectedRevision: 0 }, actor), hasStatus(400));
-  await service.saveDraft('debug-status', { expectedRevision: 0, draft: config('debug-status') }, actor);
+  const incomplete = config('debug-status'); incomplete.values.evidence = '';
+  await service.saveDraft('debug-status', { expectedRevision: 0, draft: incomplete }, actor);
   await assert.rejects(service.publish('debug-status', { expectedRevision: 1 }, actor), hasStatus(400));
   const current = (await service.list()).items.find((item) => item.id === 'debug-status')!;
   assert.equal(current.active, null);
@@ -610,12 +613,15 @@ test('前三项默认判断有效读取，兼容旧显示规则；清单方式�
   }
 });
 
-test('仅显示仍要求发布范围和依据，旧清单active和草稿不被新默认覆盖', async () => {
+test('仅显示的空范围可发布但依据仍必填，旧清单active和草稿不被新默认覆盖', async () => {
   for (const key of ['model', 'market', 'evidence', 'readbackSource']) {
     const f = fixture(); const draft = config('device-model', true); draft.values.allowedValues = '';
     if (key === 'model' || key === 'market') draft[key] = ''; else draft.values[key] = '';
     await f.service.saveDraft('device-model', { expectedRevision: 0, draft }, actor);
-    await assert.rejects(f.service.publish('device-model', { expectedRevision: 1 }, actor), hasStatus(400));
+    if (key === 'model' || key === 'market') {
+      const published = await f.service.publish('device-model', { expectedRevision: 1 }, actor);
+      assert.equal(published.active?.[key], '');
+    } else await assert.rejects(f.service.publish('device-model', { expectedRevision: 1 }, actor), hasStatus(400));
   }
   const f = fixture();
   for (const id of ['device-model', 'shipping-market', 'firmware-version']) {
@@ -720,4 +726,23 @@ test('身份有效读取与FPGA等值规则可发布下载，FPGA旧清单继续
   await f.service.publish('fpga-version', { expectedRevision: 1 }, actor);
   const item = (await f.service.downloadRules()).items[0];
   assert.equal(item.values.operator, 'allowlist'); assert.equal(item.values.allowedValues, '37\n38');
+});
+
+test('灵敏度空机型和市场可保存发布并下载，指定范围保留，目标值仍必填', async () => {
+  for (const [model, market] of [['', ''], ['Q7', ''], ['', '美国'], ['Q7', '美国']]) {
+    const f = fixture(), draft = config('default-sensitivity');
+    Object.assign(draft, {model, market});
+    Object.assign(draft.values, {expected: '3', operator: 'equals', readbackSource: '7F EEPROM', approval: 'confirmed', evidence: '测试规范 S-003'});
+    const saved = await f.service.saveDraft('default-sensitivity', {expectedRevision: 0, draft}, actor);
+    const published = await f.service.publish('default-sensitivity', {expectedRevision: saved.revision}, actor);
+    assert.equal(published.active?.model, model); assert.equal(published.active?.market, market);
+    const downloaded = await f.service.downloadRules();
+    assert.equal(downloaded.items.length, 1);
+    assert.equal(downloaded.items[0].model, model); assert.equal(downloaded.items[0].market, market);
+    assert.equal(downloaded.items[0].values.expected, '3');
+    const invalid = structuredClone(draft); invalid.values.expected = '';
+    const changed = await f.service.saveDraft('default-sensitivity', {expectedRevision: published.revision, draft: invalid}, actor);
+    await assert.rejects(f.service.publish('default-sensitivity', {expectedRevision: changed.revision}, actor), hasStatus(400));
+    assert.deepEqual(await f.service.downloadRules(), downloaded);
+  }
 });

@@ -44,7 +44,7 @@ function pressureFixture() {
   return fixture("sensor-pressure", { operator: "gear-upper", gear: "", minimum: "", maximum: "", gearRanges: "", boundary: "unconfirmed", readbackSource: "新版78",
     gearUpperBounds: JSON.stringify([{gear:0,maximum:120,models:["Q5"]},{gear:0,maximum:130,models:["Q6","Q7"]},{gear:3,maximum:160}]) });
 }
-test("profile and pressure modes allow universal scope but preserve restricted scope for legacy modes", () => {
+test("automatic check rules allow optional scope across operators", () => {
   const defaults = fixture("sensor-pressure").item.defaults;
   assert.equal(defaults.values.boundary, "inclusive");
   assert.equal(defaults.values.operator, "gear-range");
@@ -63,7 +63,7 @@ test("profile and pressure modes allow universal scope but preserve restricted s
     const {item,config}=fixture(id); config.model=""; config.market="";
     if(id==="built-in-parameters") config.values.operator="slots";
     if(id==="sensor-pressure") config.values.operator="range";
-    const errors=validateGateConfig(item,config,true); assert.ok(errors.model); assert.ok(errors.market);
+    const errors=validateGateConfig(item,config,true); assert.equal(errors.model, undefined); assert.equal(errors.market, undefined);
   }
 });
 test("profile JSON validates every field, model/type/plan overlap and selected model coverage", () => {
@@ -106,7 +106,7 @@ test("incomplete drafts can be saved while validation prevents publication", () 
   const incomplete = structuredClone(item.defaults);
   assert.deepEqual(validateGateConfig(item, incomplete), {});
   const errors = validateGateConfig(item, incomplete, true);
-  assert.deepEqual(Object.keys(errors).sort(), ["evidence", "market", "model", "readbackSource"]);
+  assert.deepEqual(Object.keys(errors).sort(), ["evidence", "readbackSource"]);
 });
 
 test("complete valid configuration passes validation without changing input", () => {
@@ -288,10 +288,10 @@ test("display mode is available only to identity items and allowlist publication
   }
 });
 
-test("display mode does not remove scope or evidence requirements", () => {
+test("display mode permits empty scope but retains evidence requirements", () => {
   const { item, config } = fixture("device-model", { operator: "display", allowedValues: "", readbackSource: "" });
   config.model = ""; config.market = ""; config.values.evidence = "";
-  assert.deepEqual(Object.keys(validateGateConfig(item, config, true)).sort(), ["evidence", "market", "model", "readbackSource"]);
+  assert.deepEqual(Object.keys(validateGateConfig(item, config, true)).sort(), ["evidence", "readbackSource"]);
 });
 
 test("current pressure ranges permit universal scope and validate bounds, models and publication boundaries", () => {
@@ -349,7 +349,7 @@ test("pressure modes reject missing range inputs and mixed legacy fields while p
   assert.ok(validateGateConfig(legacy.item, legacy.config, true).gearRanges);
 });
 
-test("FPGA equals and allowlist require their own publication fields and identity present keeps scope checks", () => {
+test("FPGA equals and allowlist require their own publication fields and identity present permits empty scope", () => {
   const { item, config } = fixture("fpga-version");
   assert.equal(config.values.operator, "equals"); assert.equal(config.values.expected, "37");
   assert.deepEqual(validateGateConfig(item, config, true), {});
@@ -367,6 +367,18 @@ test("FPGA equals and allowlist require their own publication fields and identit
     assert.deepEqual(validateGateConfig(current.item, current.config, true), {});
     current.config.model = ""; current.config.market = "";
     const errors = validateGateConfig(current.item, current.config, true);
-    assert.ok(errors.model); assert.ok(errors.market);
+    assert.equal(errors.model, undefined); assert.equal(errors.market, undefined);
+  }
+});
+test("sensitivity publishes with empty scope while actual rule requirements remain enforced", () => {
+  const {item,config} = fixture("default-sensitivity", { expected: "3", operator: "equals", readbackSource: "7F EEPROM", approval: "confirmed" });
+  config.model = ""; config.market = "";
+  assert.deepEqual(validateGateConfig(item,config,true), {});
+  config.values.expected = "";
+  assert.ok(validateGateConfig(item,config,true).expected);
+  for (const definition of GATE_DEFINITIONS.filter(item => ["critical","routine"].includes(item.category))) {
+    const entry = fixture(definition.id); entry.config.model = ""; entry.config.market = "";
+    const errors = validateGateConfig(entry.item,entry.config,true);
+    assert.equal(errors.model, undefined, definition.id); assert.equal(errors.market, undefined, definition.id);
   }
 });

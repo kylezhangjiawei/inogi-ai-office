@@ -58,7 +58,7 @@ function gearPressureBoundsError(text: string, model = '', range = false): strin
 export function validateGateConfig(item: GateItem, config: GateConfig, publishing = false): GateValidationErrors {
   const errors: GateValidationErrors = {};
   if (!config.displayName.trim()) errors.displayName = "请填写显示名称";
-  const universalScope = (item.id === "built-in-parameters" && config.values.operator === "profile-slots") || (item.id === "sensor-pressure" && ["gear-upper", "gear-range"].includes(config.values.operator));
+  const universalScope = ["critical", "routine"].includes(item.category);
   if (publishing && item.category !== "connection" && !universalScope && !config.model.trim()) errors.model = "发布前请填写适用机型";
   if (publishing && item.category !== "connection" && !universalScope && !config.market.trim()) errors.market = "发布前请填写发货市场";
   if (Object.keys(config.values).some(key => !item.fields.some(field => field.key === key))) errors.values = "包含当前配置项不支持的字段";
