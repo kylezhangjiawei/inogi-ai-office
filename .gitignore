@@ -24,3 +24,8 @@ local-db-backups/
 # 一次性联调种子脚本（费用报销统计），不入库；运行后用 --clean 清理 SEED-* 数据
 **/.tmp_*.cjs
 .gstack/
+# Vite preview dependency caches are generated locally, not source artifacts.
+.vite-cache/
+# Isolated preview caches and compiled bundles.
+/scripts/*-preview/.cache/
+/scripts/*-preview/.build/
