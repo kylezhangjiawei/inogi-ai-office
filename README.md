@@ -89,15 +89,16 @@ interchangeable with the gateway's non-streaming text-completion contract.
 
 ## Running the Code
 
-**Node version.** Node 20 is enough to build and run the app, but the `test/*.spec.mts`
-suite loads `.ts` sources directly and therefore needs Node's native type stripping,
-which is on by default from **Node 22.18 / 23.6**. On older Node those 9 tests fail with
-`ERR_UNKNOWN_FILE_EXTENSION`; `npm run test:ts` (60 tests) still runs everywhere.
-The deploy script detects this and reports what it skipped instead of failing the build.
+**Node version.** Build, runtime, and tests require **Node >=22.19.0**, matching
+the installed Undici dependency. The `test/*.spec.mts` suite also uses Node's native
+TypeScript stripping. Deployment rejects older Node versions before installing
+dependencies or changing the running services.
 
 Install dependencies. This is a pnpm workspace: the version pins in `pnpm-workspace.yaml`
 (`overrides`, `onlyBuiltDependencies`) are pnpm-only fields, and there is no
 `package-lock.json`, so installing with npm silently produces a different dependency tree.
+Deployment requires pnpm and the committed lockfile. A failed frozen install stops
+the release; dependency updates must be committed before deployment.
 
 ```powershell
 corepack enable

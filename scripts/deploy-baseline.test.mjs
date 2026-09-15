@@ -92,6 +92,8 @@ async function createFakeDeployment() {
     mkdir(metricsDir, { recursive: true }),
   ]);
   await Promise.all([
+    writeFile(join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8"),
+    writeStub(binDir, "pnpm"),
     writeStub(binDir, "npm"),
     writeStub(binDir, "npx"),
     writeStub(binDir, "pm2", `
@@ -131,7 +133,7 @@ esac
 exit 0`);
 }
 
-function runFakeDeployment(bash, fixture, overrides = {}) {
+function runFakeDeployment(bash, fixture, overrides = {}, prelude = "") {
   const stubPath = `${bashPath(fixture.binDir)}:/usr/local/bin:/usr/bin:/bin`;
   const env = {
     ...process.env,
@@ -152,7 +154,7 @@ function runFakeDeployment(bash, fixture, overrides = {}) {
   };
   // Git Bash 启动时会把自带 curl 等目录插到 PATH 最前，须在启动后恢复桩优先级。
   // source 在同一 shell 执行，避免再次启动 Bash 重排 PATH 并误调用真实基础设施。
-  return spawnSync(bash, ["-c", 'export PATH="$DEPLOY_TEST_PATH"\nsource "$1"', "deploy-test", bashPath(deployPath)], {
+  return spawnSync(bash, ["-c", `export PATH="$DEPLOY_TEST_PATH"\n${prelude}\nsource "$1"`, "deploy-test", bashPath(deployPath)], {
     cwd: fixture.repoDir,
     env,
     encoding: "utf8",
@@ -162,6 +164,109 @@ function runFakeDeployment(bash, fixture, overrides = {}) {
 
 const bash = await availableBash();
 const utf8Locale = availableUtf8Locale(bash);
+
+test("failed frozen dependency installation blocks release instead of falling back", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    await writeStub(fixture.binDir, "pnpm", `
+printf '%s\\n' "$*" >> "$REPO_DIR/install-calls.txt"
+case "$*" in *--frozen-lockfile*) exit 42 ;; *) exit 0 ;; esac`);
+    const result = runFakeDeployment(bash, fixture);
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    const calls = (await readFile(join(fixture.repoDir, "install-calls.txt"), "utf8")).trim().split("\n");
+    assert.equal(calls.length, 3);
+    assert.ok(calls.every((call) => call.includes("--frozen-lockfile")));
+    await assert.rejects(readFile(join(fixture.repoDir, "app-health.json")));
+    await assert.rejects(readFile(join(fixture.webRoot, "version.json")));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("a missing pnpm lockfile blocks installation and activation", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    await rm(join(fixture.repoDir, "pnpm-lock.yaml"));
+    await writeStub(fixture.binDir, "npm", 'touch "$REPO_DIR/npm-was-called"');
+    const result = runFakeDeployment(bash, fixture);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout + result.stderr, /pnpm-lock.yaml/);
+    await assert.rejects(readFile(join(fixture.repoDir, "npm-was-called")));
+    await assert.rejects(readFile(join(fixture.repoDir, "app-health.json")));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("missing pnpm cannot silently switch deployment to npm", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    await writeStub(fixture.binDir, "npm", 'touch "$REPO_DIR/npm-was-called"');
+    const result = runFakeDeployment(bash, fixture, {}, `
+command() {
+  if [ "\${1:-}" = "-v" ] && [ "\${2:-}" = "pnpm" ]; then return 1; fi
+  builtin command "$@"
+}`);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout + result.stderr, /缺少 pnpm/);
+    await assert.rejects(readFile(join(fixture.repoDir, "npm-was-called")));
+    await assert.rejects(readFile(join(fixture.repoDir, "app-health.json")));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("a manifest-only change invalidates the installation cache and rechecks the lockfile", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    await writeFile(join(fixture.repoDir, "apps", "api", "package.json"), "{}\n");
+    const first = runFakeDeployment(bash, fixture, { DEPLOY_METRICS_ENABLED: "0" });
+    assert.equal(first.status, 0, first.stdout + first.stderr);
+    const previousHealth = await readFile(join(fixture.repoDir, "app-health.json"), "utf8");
+    await writeFile(join(fixture.repoDir, "apps", "api", "package.json"), '{"dependencies":{"synthetic-package":"2.0.0"}}\n');
+    await writeStub(fixture.binDir, "pnpm", `
+printf '%s\\n' "$*" >> "$REPO_DIR/install-calls.txt"
+exit 42`);
+    const second = runFakeDeployment(bash, fixture, { DEPLOY_METRICS_ENABLED: "0" });
+    assert.equal(second.status, 1, second.stdout + second.stderr);
+    const calls = (await readFile(join(fixture.repoDir, "install-calls.txt"), "utf8")).trim().split("\n");
+    assert.equal(calls.length, 3);
+    assert.ok(calls.every((call) => call.includes("--frozen-lockfile")));
+    assert.equal(await readFile(join(fixture.repoDir, "app-health.json"), "utf8"), previousHealth);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("the minimum supported Node version reaches a successful deployment", { skip: !bash }, async () => {
+  const fixture = await createFakeDeployment();
+  try {
+    await writeStub(fixture.binDir, "node", `if [ "\${1:-}" = "--version" ]; then echo v22.19.0; exit 0; fi\nexec "${bashPath(process.execPath)}" "$@"`);
+    const result = runFakeDeployment(bash, fixture, { DEPLOY_METRICS_ENABLED: "0" });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(JSON.parse(await readFile(join(fixture.repoDir, "app-health.json"), "utf8")).ok, true);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("unsupported Node versions fail before dependency installation", { skip: !bash }, async () => {
+  for (const version of ["v20.20.0", "v22.18.0"]) {
+    const fixture = await createFakeDeployment();
+    try {
+      await writeStub(fixture.binDir, "node", `if [ "\${1:-}" = "--version" ]; then echo ${version}; exit 0; fi\nexec "${bashPath(process.execPath)}" "$@"`);
+      await writeStub(fixture.binDir, "pnpm", 'touch "$REPO_DIR/pnpm-was-called"');
+      const result = runFakeDeployment(bash, fixture);
+      assert.equal(result.status, 1, result.stdout + result.stderr);
+      assert.match(result.stdout + result.stderr, /Node.*22\.19/);
+      await assert.rejects(readFile(join(fixture.repoDir, "pnpm-was-called")));
+      await assert.rejects(readFile(join(fixture.repoDir, "app-health.json")));
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  }
+});
 
 test("deployment baseline declares the complete stage order", () => {
   const stages = configuredStages();

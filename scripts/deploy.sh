@@ -657,13 +657,14 @@ finish_stage success || true
 
 # --------------------------- 2. 包管理器 ---------------------------
 start_stage dependency_install || true
-USE_PNPM=0
-if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null 2>&1; then
-  USE_PNPM=1
-  log "使用 pnpm（检测到 pnpm-lock.yaml）"
-else
-  log "使用 npm"
-fi
+DEPLOY_NODE_VERSION="$(node --version)"
+[[ "$DEPLOY_NODE_VERSION" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] \
+  || die "无法识别 Node 版本：${DEPLOY_NODE_VERSION}；需要 Node >=22.19.0。"
+(( BASH_REMATCH[1] > 22 || (BASH_REMATCH[1] == 22 && BASH_REMATCH[2] >= 19) )) \
+  || die "需要 Node >=22.19.0，当前为 ${DEPLOY_NODE_VERSION}；已中止发布。"
+[ -f pnpm-lock.yaml ] || die "缺少 pnpm-lock.yaml；请提交锁文件后重新发布。"
+command -v pnpm >/dev/null 2>&1 || die "缺少 pnpm；请按 package.json 的 packageManager 配置后重新发布。"
+log "使用 pnpm 严格按锁文件安装"
 
 # 增量安装：lockfile 内容没变就跳过安装
 CACHE_DIR="$REPO_DIR/.deploy-cache"
@@ -682,23 +683,17 @@ sha256_stdin() {
 }
 
 lock_hash() {
-  # 含 pnpm-workspace.yaml：onlyBuiltDependencies 等改动也应触发重新安装
-  # `|| true`：pipefail 下，纯 pnpm 仓库缺 package-lock.json 会让 cat 返回非零而中断部署，这里容忍缺失文件
-  { cat pnpm-workspace.yaml pnpm-lock.yaml package-lock.json apps/api/package-lock.json 2>/dev/null || true; } \
+  # manifest 变化也必须重新校验锁文件，不能被旧的安装缓存跳过。
+  # 容忍可选输入缺失；必需的 pnpm-lock.yaml 已由前置检查保证存在。
+  { cat package.json apps/api/package.json pnpm-workspace.yaml pnpm-lock.yaml 2>/dev/null || true; } \
     | sha256_stdin | awk '{print $1}'
 }
 NEW_HASH="$(lock_hash)"
 OLD_HASH="$(cat "$CACHE_DIR/lock.sha" 2>/dev/null || echo none)"
 
 install_deps() {
-  if [ "$USE_PNPM" = "1" ]; then
-    # --prod=false 确保装上 vite / nest-cli / prisma 等 devDependencies（构建必须）
-    retry pnpm install --frozen-lockfile --prod=false --prefer-offline \
-      || retry pnpm install --prod=false --prefer-offline
-  else
-    retry npm install --include=dev --no-audit --no-fund
-    retry npm install --prefix apps/api --include=dev --no-audit --no-fund
-  fi
+  # --prod=false 确保装上构建工具；失败只重试相同命令，不放宽锁文件校验。
+  retry pnpm install --frozen-lockfile --prod=false --prefer-offline
 }
 
 # argon2 是原生模块：它的预编译二进制要求的 glibc 版本可能高于本机
@@ -740,7 +735,7 @@ finish_stage success || true
 # 统一用 npm run 而不是 pnpm：pnpm v11 在执行任何脚本前会先做一遍 lockfile
 # 供应链校验（本仓库 1000+ 条目，实测约 90 秒且全程联网），依赖没变时纯属浪费，
 # 还把部署成败绑到 registry 可用性上。npm run 只是执行脚本，没有这层开销。
-# 依赖安装仍按第 2 步的 USE_PNPM 分支走 pnpm，此处只影响「怎么调用构建脚本」。
+# 依赖安装仍按第 2 步严格使用 pnpm，此处只影响「怎么调用构建脚本」。
 if [ "$DEPLOY_PLAN_FRONTEND" = "1" ]; then
   start_stage frontend_build || true
   log "构建前端 ..."

@@ -57,9 +57,9 @@ test('T+ 自动同步按主档、供应商、库存、采购单和匹配顺序�
   const prisma = {
     integrationConfig: {
       findFirst: async () => ({ id: 'config-1', metadata: { autoSync: true } }),
-      update: async (args: { data: { metadata: Record<string, unknown> } }) => {
+      updateMany: async (args: { data: { metadata: Record<string, unknown> } }) => {
         savedMetadata = args.data.metadata;
-        return args;
+        return { count: 1 };
       },
     },
   };
@@ -143,7 +143,7 @@ test('手动立即全同步可越过自动同步开关', async () => {
   const prisma = {
     integrationConfig: {
       findFirst: async () => ({ id: 'config-1', metadata: { autoSync: false } }),
-      update: async () => undefined,
+      updateMany: async () => ({ count: 1 }),
     },
   };
   const service = new TplusSyncService(

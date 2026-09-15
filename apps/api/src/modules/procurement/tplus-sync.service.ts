@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { Prisma } from '@prisma/client';
+import { Prisma, type IntegrationConfig } from '@prisma/client';
 import { createDecipheriv } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -316,10 +316,16 @@ export class TplusSyncService {
       updatedBy: actorId,
     } as Prisma.InputJsonObject;
     if (existing) {
-      await this.prisma.integrationConfig.update({
-        where: { id: existing.id },
+      const saved = await this.prisma.integrationConfig.updateMany({
+        where: {
+          id: existing.id,
+          isActive: true,
+          encryptedSecret: existing.encryptedSecret,
+          metadata: { equals: meta as Prisma.InputJsonObject },
+        },
         data: { metadata, encryptedSecret },
       });
+      if (!saved.count) throw new ConflictException('T+ 配置已更新，请重新加载后保存');
     } else {
       await this.prisma.integrationConfig.create({
         data: {
@@ -504,7 +510,7 @@ export class TplusSyncService {
       orgAccessToken,
       userAuthPermanentCode,
     });
-    await this.saveTokens(result);
+    await this.saveTokens(result, config);
     this.logger.log('token 已通过永久授权码自愈换新');
     return String(result.access_token ?? '');
   }
@@ -563,15 +569,32 @@ export class TplusSyncService {
   }
 
   /** 把 getToken/refreshToken 的返回落到 metadata（openToken 与 refreshToken 双轮转）。 */
-  private async saveTokens(result: Record<string, unknown>) {
+  private async saveTokens(result: Record<string, unknown>, expected: IntegrationConfig | null) {
     const config = await this.findConfigRow();
-    if (!config) throw new ServiceUnavailableException('畅捷通 T+ 未配置');
+    if (!config || !expected || config.id !== expected.id || config.encryptedSecret !== expected.encryptedSecret) {
+      throw new ConflictException('T+ 授权配置已更新，请重试');
+    }
     const meta = (config.metadata ?? {}) as Record<string, unknown>;
+    const previous = (expected.metadata ?? {}) as Record<string, unknown>;
+    // 请求期间可能已重新授权或切换应用；旧响应只能替换自己使用的授权状态。
+    // callLog、同步设置和定时轮换的 appTicket 不改变授权归属，保留它们的最新值。
+    const authKeys = [
+      'appKey', 'baseUrl', 'redirectUri', 'openToken', 'refreshToken',
+      'orgId', 'orgPermanentAuthCode', 'userAuthPermanentCode',
+    ];
+    if (authKeys.some((key) => meta[key] !== previous[key])) {
+      throw new ConflictException('T+ 授权配置已更新，请重试');
+    }
     const now = Date.now();
     const expiresIn = Number(result.expires_in ?? 0);
     const refreshExpiresIn = Number(result.refresh_expires_in ?? 0);
-    await this.prisma.integrationConfig.update({
-      where: { id: config.id },
+    const saved = await this.prisma.integrationConfig.updateMany({
+      where: {
+        id: config.id,
+        isActive: true,
+        encryptedSecret: config.encryptedSecret,
+        metadata: { equals: meta as Prisma.InputJsonObject },
+      },
       data: {
         metadata: {
           ...meta,
@@ -591,6 +614,7 @@ export class TplusSyncService {
         } as Prisma.InputJsonObject,
       },
     });
+    if (!saved.count) throw new ConflictException('T+ 授权配置已更新，请重试');
   }
 
   /** 授权码换 token：回调直达或用户手动粘贴 code 都走这里。 */
@@ -602,7 +626,7 @@ export class TplusSyncService {
     // redirectUri 须与授权时一致；平台校验不严格时缺省也可通过，因此这里可选
     if (redirectUri) qs.set('redirectUri', redirectUri);
     const result = await this.authRequest(`/auth/v2/getToken?${qs.toString()}`);
-    await this.saveTokens(result);
+    await this.saveTokens(result, config);
     this.logger.log('T+ 授权完成，openToken 已入库');
     return this.getConfig();
   }
@@ -635,6 +659,7 @@ export class TplusSyncService {
       try {
         return await this.mintTokenByPermanentCode();
       } catch (mintError) {
+        if (mintError instanceof ConflictException) throw mintError;
         this.logger.warn(`永久授权码自愈失败：${(mintError as Error).message}`);
         throw new ServiceUnavailableException(
           '畅捷通 T+ 尚未完成授权：请在「T+ 集成」里完成开放平台授权（或粘贴授权码）',
@@ -647,9 +672,10 @@ export class TplusSyncService {
       try {
         const qs = new URLSearchParams({ grantType: 'refresh_token', refreshToken });
         const result = await this.authRequest(`/auth/v2/refreshToken?${qs.toString()}`);
-        await this.saveTokens(result);
+        await this.saveTokens(result, config);
         return String(result.access_token ?? '');
       } catch (error) {
+        if (error instanceof ConflictException) throw error;
         lastError = error;
         if (!isTransientAuthFailure(error)) break;
         if (attempt < 2) {
@@ -666,6 +692,7 @@ export class TplusSyncService {
     try {
       return await this.mintTokenByPermanentCode();
     } catch (mintError) {
+      if (mintError instanceof ConflictException) throw mintError;
       this.logger.warn(`永久授权码自愈失败：${(mintError as Error).message}`);
     }
 
@@ -1031,8 +1058,8 @@ export class TplusSyncService {
     const previousHistory = Array.isArray(meta.materialSyncHistory)
       ? meta.materialSyncHistory.slice(-19)
       : [];
-    await this.prisma.integrationConfig.update({
-      where: { id: row.id },
+    const saved = await this.prisma.integrationConfig.updateMany({
+      where: { id: row.id, isActive: true, metadata: { equals: meta as Prisma.InputJsonObject } },
       data: {
         metadata: {
           ...meta,
@@ -1043,6 +1070,7 @@ export class TplusSyncService {
         } as Prisma.InputJsonObject,
       },
     });
+    if (!saved.count) throw new ConflictException('T+ 配置已更新，物料同步记录未保存');
   }
 
   async syncInventory() {
@@ -1637,10 +1665,12 @@ export class TplusSyncService {
         },
         ...log,
       ].slice(0, TPLUS_CALL_LOG_LIMIT);
-      await this.prisma.integrationConfig.update({
-        where: { id: row.id },
+      // 留痕也会携带整份 metadata；不能用旧快照撤销期间完成的新授权。
+      const saved = await this.prisma.integrationConfig.updateMany({
+        where: { id: row.id, isActive: true, metadata: { equals: meta as Prisma.InputJsonObject } },
         data: { metadata: { ...meta, callLog: next } as Prisma.InputJsonObject },
       });
+      if (!saved.count) throw new ConflictException('T+ 配置已更新，本次调用留痕未保存');
     } catch (error) {
       this.logger.warn(`T+ 调用留痕写入失败（不影响同步）：${(error as Error).message}`);
     }
@@ -1651,8 +1681,8 @@ export class TplusSyncService {
     const row = await this.findConfigRow();
     if (!row) return;
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
-    await this.prisma.integrationConfig.update({
-      where: { id: row.id },
+    const saved = await this.prisma.integrationConfig.updateMany({
+      where: { id: row.id, isActive: true, metadata: { equals: meta as Prisma.InputJsonObject } },
       data: {
         metadata: {
           ...meta,
@@ -1661,6 +1691,7 @@ export class TplusSyncService {
         } as Prisma.InputJsonObject,
       },
     });
+    if (!saved.count) throw new ConflictException('T+ 配置已更新，自动同步摘要未保存');
   }
 
   /**
@@ -1678,8 +1709,8 @@ export class TplusSyncService {
     } catch (error) {
       this.logger.warn(`T+ 授权断链通知发送失败：${(error as Error).message}`);
     }
-    await this.prisma.integrationConfig.update({
-      where: { id: row.id },
+    const saved = await this.prisma.integrationConfig.updateMany({
+      where: { id: row.id, isActive: true, metadata: { equals: meta as Prisma.InputJsonObject } },
       data: {
         metadata: {
           ...meta,
@@ -1688,6 +1719,7 @@ export class TplusSyncService {
         } as Prisma.InputJsonObject,
       },
     });
+    if (!saved.count) throw new ConflictException('T+ 配置已更新，告警标记未保存');
   }
 
   /**

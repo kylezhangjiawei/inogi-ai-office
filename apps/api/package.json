@@ -2,6 +2,9 @@
   "name": "@inogi/api",
   "private": true,
   "version": "0.1.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "scripts": {
     "test": "npm run test:ts && npm run test:mts",
     "test:ts": "TS_NODE_TRANSPILE_ONLY=1 node --test --test-concurrency=2 -r ts-node/register -r tsconfig-paths/register test/*.spec.ts",

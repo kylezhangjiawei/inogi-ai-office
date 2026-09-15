@@ -1,5 +1,6 @@
 import * as assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { isDeepStrictEqual } from 'node:util';
 
 import {
   TplusSyncService,
@@ -76,9 +77,9 @@ test('写入的留痕条目只含脱敏后的字段，且按上限截断', async
   const prisma = {
     integrationConfig: {
       findFirst: async () => row,
-      update: async ({ data }: { data: Record<string, unknown> }) => {
+      updateMany: async ({ data }: { data: Record<string, unknown> }) => {
         row.metadata = data.metadata as Record<string, unknown>;
-        return row;
+        return { count: 1 };
       },
     },
   };
@@ -125,3 +126,70 @@ test('留痕写入失败不能影响同步——异常必须被吞掉', async ()
   }).recordTplusCall.bind(service);
   await record({ kind: 'auth', target: '/auth/x', ok: true, durationMs: 1 });
 });
+
+const metadataWriters = [
+  { method: 'recordTplusCall', args: [{ kind: 'auth', target: '/auth/test', ok: true, durationMs: 1 }], field: 'callLog', bestEffort: true },
+  { method: 'recordAutoSyncOutcome', args: ['同步完成'], field: 'lastAutoSyncSummary' },
+  { method: 'recordMaterialMasterSync', args: [true, '物料同步完成'], field: 'lastMaterialSyncSummary' },
+  { method: 'alertAuthBrokenOnce', args: ['授权已失效'], field: 'authAlertSentAt' },
+  { method: 'saveConfig', args: [{ autoSync: false }, 'admin'], field: 'updatedBy' },
+];
+
+function metadataHarness(beforeWrite?: (metadata: Record<string, unknown>) => void) {
+  const row = {
+    id: 'cfg-1', isActive: true, encryptedSecret: 'synthetic-secret',
+    metadata: { appKey: 'app', openToken: 'old-token', refreshToken: 'old-refresh' } as Record<string, unknown>,
+  };
+  let writes = 0;
+  const prisma = { integrationConfig: {
+    findFirst: async () => structuredClone(row),
+    update: async ({ data }: { data: { metadata: Record<string, unknown>; encryptedSecret?: string } }) => {
+      beforeWrite?.(row.metadata);
+      Object.assign(row, data);
+      writes += 1;
+      return row;
+    },
+    updateMany: async ({ where, data }: {
+      where: { id: string; metadata: { equals: unknown }; encryptedSecret?: string; isActive?: boolean };
+      data: { metadata: Record<string, unknown>; encryptedSecret?: string };
+    }) => {
+      beforeWrite?.(row.metadata);
+      if (where.id !== row.id || !isDeepStrictEqual(where.metadata.equals, row.metadata)
+        || (where.encryptedSecret !== undefined && where.encryptedSecret !== row.encryptedSecret)
+        || (where.isActive !== undefined && where.isActive !== row.isActive)) return { count: 0 };
+      Object.assign(row, data);
+      writes += 1;
+      return { count: 1 };
+    },
+  } };
+  const service = new TplusSyncService(prisma as never,
+    { notifyErpAuthBroken: async () => undefined } as never,
+    { decryptFromStorage: () => 'synthetic-secret' } as never, {} as never);
+  const methods = service as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
+  return { row, writes: () => writes, run: (method: string, args: unknown[]) => methods[method](...args) };
+}
+
+for (const writer of metadataWriters) {
+  test(`${writer.method}：旧快照不能覆盖并发完成的新授权`, async () => {
+    const h = metadataHarness((meta) => Object.assign(meta, {
+      openToken: 'new-token', refreshToken: 'new-refresh', authBrokenSince: null, authAlertSentAt: null,
+    }));
+    const pending = h.run(writer.method, writer.args);
+    if (writer.bestEffort) await pending;
+    else await assert.rejects(pending, /配置已更新/);
+    assert.equal(h.row.metadata.openToken, 'new-token');
+    assert.equal(h.row.metadata.refreshToken, 'new-refresh');
+    assert.equal(h.row.metadata.authBrokenSince, null);
+    assert.equal(h.row.metadata.authAlertSentAt, null);
+    assert.equal(h.writes(), 0);
+  });
+
+  test(`${writer.method}：无冲突时正常保存且保留凭据`, async () => {
+    const h = metadataHarness();
+    await h.run(writer.method, writer.args);
+    assert.equal(h.writes(), 1);
+    assert.notEqual(h.row.metadata[writer.field], undefined);
+    assert.equal(h.row.metadata.openToken, 'old-token');
+    assert.equal(h.row.metadata.refreshToken, 'old-refresh');
+  });
+}

@@ -149,3 +149,14 @@ test('迟到的增量更新不会在 done 后覆盖最终正文', async () => {
   assert.equal(h.rows.length, 1);
   assert.equal(h.rows[0].content, 'A'.repeat(850) + ' final');
 });
+
+test('已有正文后上游断流在请求内收尾，保留回答并标注中断', async () => {
+  const h = harness({ afterFirstChunk: async () => { throw new Error('synthetic-upstream-disconnect'); } });
+  await h.run();
+  assert.equal(h.events.filter((event) => event.type === 'error').length, 0);
+  assert.equal(h.events.filter((event) => event.type === 'done').length, 1);
+  assert.equal(h.rows.length, 1);
+  assert.ok(h.rows[0].content.startsWith('A'.repeat(850)));
+  assert.match(h.rows[0].content, /网络传输中断/);
+  assert.equal(h.events.find((event) => event.type === 'done')?.messageId, h.rows[0].id);
+});

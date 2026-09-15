@@ -16,7 +16,7 @@ function harness(opts: {
   meta?: Record<string, unknown>;
   refreshBehavior?: () => Promise<Record<string, unknown>>;
   mintBehavior?: () => Promise<string>;
-  beforeClear?: (metadata: Record<string, unknown>) => void;
+  beforeWrite?: (metadata: Record<string, unknown>) => void;
 }) {
   const meta: Record<string, unknown> = {
     appKey: 'k', baseUrl: 'https://openapi.chanjet.com',
@@ -30,12 +30,13 @@ function harness(opts: {
     integrationConfig: {
       findFirst: async () => structuredClone(row),
       update: async ({ data }: { data: Record<string, unknown> }) => {
+        opts.beforeWrite?.(row.metadata);
         updates.push(data.metadata as Record<string, unknown>);
         Object.assign(row.metadata, data.metadata);
         return row;
       },
       updateMany: async ({ where, data }: { where: { metadata: { equals: unknown } }; data: Record<string, unknown> }) => {
-        opts.beforeClear?.(row.metadata);
+        opts.beforeWrite?.(row.metadata);
         if (JSON.stringify(where.metadata.equals) !== JSON.stringify(row.metadata)) return { count: 0 };
         updates.push(data.metadata as Record<string, unknown>);
         Object.assign(row.metadata, data.metadata);
@@ -46,8 +47,7 @@ function harness(opts: {
   const service = new TplusSyncService(prisma as never, {} as never, {} as never, {} as never);
   const internal = service as never as Record<string, unknown>;
   internal.authRequest = opts.refreshBehavior ?? (async () => ({ access_token: 'new' }));
-  internal.mintTokenByPermanentCode = opts.mintBehavior
-    ?? (async () => { throw new Error('缺少永久授权码'); });
+  if (opts.mintBehavior) internal.mintTokenByPermanentCode = opts.mintBehavior;
   const ensure = () => (internal.ensureOpenToken as () => Promise<string>).call(service);
   const anotherEnsure = (refreshBehavior: () => Promise<Record<string, unknown>>) => {
     const other = new TplusSyncService(prisma as never, {} as never, {} as never, {} as never) as any;
@@ -97,12 +97,113 @@ test('A 换新后 B 的旧刷新令牌被拒绝，B 不得清空 A 已保存的�
 test('清理前最终读写间隙发生换新，原子条件必须阻止旧请求覆盖', async () => {
   const h = harness({
     refreshBehavior: async () => { throw new TplusAuthError('invalid refresh token', false); },
-    beforeClear: (metadata) => Object.assign(metadata, { openToken: 'newer-token', refreshToken: 'newer-refresh' }),
+    beforeWrite: (metadata) => Object.assign(metadata, { openToken: 'newer-token', refreshToken: 'newer-refresh' }),
   });
   await assert.rejects(h.ensure(), /invalid refresh token/);
   assert.equal(h.meta.openToken, 'newer-token');
   assert.equal(h.meta.refreshToken, 'newer-refresh');
   assert.equal(h.meta.authBrokenSince, undefined);
+});
+
+test('旧刷新响应晚于人工重新授权到达，不得覆盖新授权或继续重试、自愈', async () => {
+  let started!: () => void;
+  let release!: (result: Record<string, unknown>) => void;
+  const pending = new Promise<Record<string, unknown>>((resolve) => { release = resolve; });
+  const requested = new Promise<void>((resolve) => { started = resolve; });
+  let calls = 0;
+  let mints = 0;
+  const h = harness({
+    refreshBehavior: async () => {
+      if (++calls === 1) { started(); return pending; }
+      return { access_token: 'authorized-token', refresh_token: 'authorized-refresh', org_id: 'new-org' };
+    },
+    mintBehavior: async () => { mints += 1; return 'minted-token'; },
+  });
+  const stale = h.ensure();
+  await requested;
+  await h.service.exchangeAuthCode({ code: 'new-code' });
+  release({ access_token: 'stale-token', refresh_token: 'stale-refresh', org_id: 'old-org' });
+  await assert.rejects(stale, /配置已更新/);
+  assert.equal(h.meta.openToken, 'authorized-token');
+  assert.equal(h.meta.refreshToken, 'authorized-refresh');
+  assert.equal(h.meta.orgId, 'new-org');
+  assert.equal(calls, 2, '冲突不应重试已使用的刷新令牌');
+  assert.equal(mints, 0, '冲突不应触发永久授权码自愈');
+  assert.equal(h.updates.length, 1);
+});
+
+test('授权码交换期间应用配置改变，响应不得写入新应用的配置', async () => {
+  const h = harness({ refreshBehavior: async () => {
+    h.meta.appKey = 'another-app';
+    return { access_token: 'stale-token', refresh_token: 'stale-refresh' };
+  } });
+  await assert.rejects(h.service.exchangeAuthCode({ code: 'old-code' }), /配置已更新/);
+  assert.equal(h.meta.appKey, 'another-app');
+  assert.equal(h.meta.openToken, 'old-token');
+  assert.equal(h.updates.length, 0);
+});
+
+test('成功续期最终读写间隙发生换新，原子条件必须阻止覆盖', async () => {
+  let calls = 0;
+  const h = harness({
+    refreshBehavior: async () => { calls += 1; return { access_token: 'stale-token' }; },
+    beforeWrite: (metadata) => Object.assign(metadata, { openToken: 'newer-token', refreshToken: 'newer-refresh' }),
+  });
+  await assert.rejects(h.ensure(), /配置已更新/);
+  assert.equal(h.meta.openToken, 'newer-token');
+  assert.equal(h.meta.refreshToken, 'newer-refresh');
+  assert.equal(h.updates.length, 0);
+  assert.equal(calls, 1);
+});
+
+test('刷新请求新增留痕不算授权冲突，保存时保留最新日志与同步设置', async () => {
+  const h = harness({ refreshBehavior: async () => {
+    h.meta.callLog = [{ kind: 'auth', ok: true }];
+    h.meta.autoSync = false;
+    return { access_token: 'fresh-token', refresh_token: 'fresh-refresh' };
+  } });
+  assert.equal(await h.ensure(), 'fresh-token');
+  assert.deepEqual(h.meta.callLog, [{ kind: 'auth', ok: true }]);
+  assert.equal(h.meta.autoSync, false);
+});
+
+for (const refreshToken of ['', 'refresh-abc']) {
+  test(`永久授权码自愈晚于新授权完成，不覆盖新凭据（${refreshToken ? '刷新失败后' : '无刷新令牌'}）`, async () => {
+    const h = harness({
+      meta: { refreshToken, appTicket: 'ticket', orgPermanentAuthCode: 'org-code', userAuthPermanentCode: 'user-code' },
+      refreshBehavior: async () => { throw new TplusAuthError('invalid refresh token', false); },
+    });
+    const internal = h.service as unknown as Record<string, unknown>;
+    internal.fetchAppAccessToken = async () => 'app-token';
+    internal.authPost = async (path: string) => {
+      if (path.endsWith('getOrgAccessToken')) return { orgAccessToken: 'org-token' };
+      Object.assign(h.meta, { openToken: 'authorized-token', refreshToken: 'authorized-refresh' });
+      return { access_token: 'stale-minted-token', refresh_token: 'stale-minted-refresh' };
+    };
+    await assert.rejects(h.ensure(), /配置已更新/);
+    assert.equal(h.meta.openToken, 'authorized-token');
+    assert.equal(h.meta.refreshToken, 'authorized-refresh');
+    assert.equal(h.meta.authBrokenSince, undefined);
+    assert.equal(h.updates.length, 0);
+  });
+}
+
+test('永久授权码自愈正常保存令牌，并保留请求期间轮换的 appTicket', async () => {
+  const h = harness({
+    meta: { refreshToken: '', appTicket: 'ticket', orgPermanentAuthCode: 'org-code', userAuthPermanentCode: 'user-code' },
+  });
+  const internal = h.service as unknown as Record<string, unknown>;
+  internal.fetchAppAccessToken = async () => 'app-token';
+  internal.authPost = async (path: string) => {
+    if (path.endsWith('getOrgAccessToken')) return { orgAccessToken: 'org-token' };
+    h.meta.appTicket = 'rotated-ticket';
+    return { access_token: 'minted-token', refresh_token: 'minted-refresh' };
+  };
+  assert.equal(await h.ensure(), 'minted-token');
+  assert.equal(h.meta.refreshToken, 'minted-refresh');
+  assert.equal(h.meta.appTicket, 'rotated-ticket');
+  assert.equal(h.meta.authBrokenSince, null);
+  assert.equal(h.updates.length, 1);
 });
 
 test('续期结束后释放合并请求，后续失效仍能再次刷新', async () => {
