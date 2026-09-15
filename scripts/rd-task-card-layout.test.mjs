@@ -28,7 +28,7 @@ test('主责人与更新人分开显示，期限使用真实完整日期，无�
 test('研发卡片收纳附件动作且保留查看、转派、同步、删除及键盘边界', () => {
   assert.match(card, /!researchCard && taskAttachmentCount > 0 && \(/);
   assert.match(card, /researchCard && taskAttachmentCount > 0 && \(\s*<DropdownMenuItem[\s\S]*?openCompleteAttachmentCollection\(task, taskAttachmentCount\)/);
-  assert.match(card, /researchCard && \(\s*<button[\s\S]*?event\.stopPropagation\(\); onSelectTask\(task, activityActor\);/);
+  assert.match(card, /onClick=\{\(\) => onSelectTask\(task, activityActor\)\}/);
   assert.match(card, /if \(e\.target !== e\.currentTarget\) return;/);
   assert.match(card, /onToggleProductionSync\(task\)/);
   assert.match(card, /onReassignTask\(task\)/);
