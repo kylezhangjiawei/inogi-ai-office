@@ -85,6 +85,7 @@ export interface CreatePurchaseReceiptInput {
 }
 
 export interface CreatePurchaseInspectionInput {
+  treeNodeId?: string;
   requestId: string;
   expectedVersion: number;
   expectedSourceUpdatedAt: string;
@@ -191,4 +192,10 @@ export function createPurchaseReceipt(lineId: string, input: CreatePurchaseRecei
 }
 export function createPurchaseInspection(lineId: string, receiptId: string, input: CreatePurchaseInspectionInput, signal?: AbortSignal) {
   return request(`${linePath(lineId)}/${encodeURIComponent(receiptId)}/inspections`, { method: 'POST', body: JSON.stringify(input), signal });
+}
+
+export async function getReceiptQualityOptions(lineId: string, signal?: AbortSignal): Promise<Array<{ id: string; productId: string; name: string; parentId: string | null }>> {
+  const response = await authFetch(linePath(lineId) + '/quality-options', { signal });
+  if (!response.ok) throw new Error(await readErrorMessage(response, '质量归属读取失败'));
+  return response.json();
 }

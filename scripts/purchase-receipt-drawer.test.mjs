@@ -34,8 +34,8 @@ function ledger(patch = {}) {
 }
 function deferred() { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; }
 const allPermissions = ['page:purchase-order-detail', 'proc-purchase-order:receive', 'proc-purchase-order:inspect'];
-function fixture({ response = ledger(), permissions = [...allPermissions], get, receive, inspect } = {}) {
-  const slots = [], reads = [], receives = [], inspections = [], focused = [], scrolled = [];
+function fixture({ response = ledger(), permissions = [...allPermissions], get, receive, inspect, qualityOptions } = {}) {
+  const slots = [], reads = [], receives = [], inspections = [], qualityReads = [], focused = [], scrolled = [];
   let cursor = 0, effects = [], tree, closed = 0, user = { id: 'qa-operator' };
   const props = { lineId: 'line-1', orderNo: 'PO-1', onClose: () => { closed += 1; }, onCloseAutoFocus: () => {} };
   const same = (a, b) => Boolean(a && b && a.length === b.length && a.every((value, index) => Object.is(value, b[index])));
@@ -52,6 +52,10 @@ function fixture({ response = ledger(), permissions = [...allPermissions], get, 
     '../../components/ui/utils': { cn: (...parts) => parts.filter(Boolean).join(' ') },
     '../../lib/purchaseReceiptApi': {
       PurchaseReceiptRequestError: RequestError,
+      getReceiptQualityOptions: async (lineId, signal) => {
+        qualityReads.push({ lineId, signal });
+        return qualityOptions ? qualityOptions(lineId, signal) : [{ id: 'quality-root', productId: 'product-1', name: '制氧机', parentId: null }, { id: 'quality-valve', productId: 'product-1', name: '阀体', parentId: 'quality-root' }];
+      },
       getPurchaseReceipts: async (lineId, signal) => { reads.push({ lineId, signal }); return get ? get(lineId, signal) : response; },
       createPurchaseReceipt: async (lineId, payload) => { receives.push({ lineId, payload }); return receive ? receive(lineId, payload) : response; },
       createPurchaseInspection: async (lineId, receiptId, payload) => { inspections.push({ lineId, receiptId, payload }); return inspect ? inspect(lineId, receiptId, payload) : response; },
@@ -65,7 +69,7 @@ function fixture({ response = ledger(), permissions = [...allPermissions], get, 
     return components;
   });
   const view = {
-    props, reads, receives, inspections, focused, scrolled, closed: () => closed,
+    props, reads, receives, inspections, qualityReads, focused, scrolled, closed: () => closed,
     render() { cursor = 0; effects = []; tree = exports.PurchaseReceiptDrawer(props);
       for (const node of elements(tree)) if (node.props?.ref) node.props.ref.current = { focus() { focused.push(node.props.id); }, scrollIntoView() { scrolled.push(node.type); } };
       const jobs = effects; effects = []; jobs.forEach((job) => job()); return tree; },
@@ -97,6 +101,7 @@ test('approved reversal allows replacement against net receipts while retaining 
 });
 function fillInspection(view) {
   view.click('记录检验结果：DN-receipt-1'); view.fill('date', '2020-02-02'); view.fill('qualifiedQty', '6'); view.fill('defectiveQty', '1'); view.fill('pendingJudgmentQty', '2'); view.fill('basis', 'SIP V1.0'); view.fill('note', '按图纸核对，外观 1 件不良，2 件待判定。');
+  view.fill('quality-node', 'quality-valve');
 }
 
 test('ERP 与本台账数量分开展示，待判定与未检验独立，没有补库存入口', async () => {
@@ -149,6 +154,29 @@ test('检验按本批累计结果保存，待判定单列并计算剩余未检�
   assert.match(view.text(), /填写本批累计数量，将替换当前结果，历史保留/); assert.match(view.text(), /未检验数量\s+1/);
   await view.submit(); await view.settle(); assert.equal(view.inspections.length, 1);
   const saved = view.inspections[0]; assert.equal(saved.receiptId, 'receipt-1'); assert.equal(saved.payload.qualifiedQty, 6); assert.equal(saved.payload.defectiveQty, 1); assert.equal(saved.payload.pendingJudgmentQty, 2); assert.equal(saved.payload.expectedVersion, 0);
+  assert.equal(saved.payload.treeNodeId, 'quality-valve');
+});
+
+test('不良归属读取当前订单行选项，统一选择器保留必填、选择和保存锁定', async () => {
+  const pending = deferred();
+  const view = fixture({ inspect: () => pending.promise }); await view.settle();
+  assert.equal(view.qualityReads.length, 0);
+  fillInspection(view); await view.settle();
+  assert.equal(view.qualityReads.length, 1); assert.equal(view.qualityReads[0].lineId, 'line-1');
+  assert.equal(view.field('quality-node').type, 'NativeSelect'); assert.equal(view.field('quality-node').props.required, true);
+  assert.match(text(view.field('quality-node')), /制氧机.*阀体/);
+  const saving = view.submit();
+  assert.equal(view.field('quality-node').props.disabled, true); assert.equal(view.inspections[0].payload.treeNodeId, 'quality-valve');
+  pending.resolve(ledger()); await saving; await view.settle();
+  assert.equal(view.qualityReads[0].signal.aborted, true);
+});
+
+test('质量归属读取失败保留检验草稿并显示错误，不伪造可选项', async () => {
+  const view = fixture({ qualityOptions: () => { throw new Error('质量目录暂时不可用'); } });
+  await view.settle(); view.click('记录检验结果：DN-receipt-1'); view.fill('defectiveQty', '1'); await view.settle();
+  assert.match(view.text(), /质量目录暂时不可用/); assert.equal(view.field('defectiveQty').props.value, '1');
+  assert.equal(view.field('quality-node').props.value, ''); assert.equal(view.inspections.length, 0);
+  assert.equal(elements(view.field('quality-node')).filter(node => node.type === 'option').length, 1);
 });
 
 test('检验不允许累计超收货、早于收货日、缺依据和缺结论说明', async () => {

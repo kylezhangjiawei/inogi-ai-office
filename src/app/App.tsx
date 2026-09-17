@@ -133,6 +133,11 @@ const CompanyOverviewPreviewPage = import.meta.env.DEV
 const ProcurementCockpitPage = lazyNamed(() => import("./procurement"), "ProcurementCockpitPage");
 const ProcMyWorkspacePage = lazyNamed(() => import("./procurement"), "ProcMyWorkspacePage");
 const MaterialWorkbenchPage = lazyNamed(() => import("./procurement"), "MaterialWorkbenchPage");
+const KeyMaterialsPage = lazyNamed(() => import("./procurement/key-materials/KeyMaterialsPage"), "KeyMaterialsPage");
+const ProductionDashboardPage = lazyNamed(() => import("./production/execution/ProductionDashboardPage"), "ProductionDashboardPage");
+function ProductionDashboardRoute() { const location = useLocation(); return new URLSearchParams(location.search).get("view") === "legacy" ? <RDTaskManagementPage key="ws-production" /> : <ProductionDashboardPage />; }
+const ProductionExecutionPage = lazyNamed(() => import("./production/execution/ProductionExecutionPage"), "ProductionExecutionPage");
+const WarehouseFlowPage = lazyNamed(() => import("./procurement/WarehouseFlowPage"), "WarehouseFlowPage");
 const InventoryReadinessPage = lazyNamed(() => import("./procurement"), "InventoryReadinessPage");
 const QuoteBookPage = lazyNamed(() => import("./procurement"), "QuoteBookPage");
 const ProcPeopleManagementPage = lazyNamed(() => import("./procurement"), "ProcPeopleManagementPage");
@@ -381,6 +386,9 @@ function ProtectedLayout() {
     || location.pathname === routePath("page:proc-cockpit", "/proc-cockpit")
     || location.pathname === routePath("page:proc-inventory-readiness", "/proc-inventory-readiness")
     || location.pathname === routePath("page:proc-materials", "/proc-materials")
+    || location.pathname === routePath("page:proc-key-materials", "/proc-key-materials")
+    || location.pathname === routePath("page:production-execution", "/production-execution")
+    || location.pathname === routePath("page:warehouse-flow", "/warehouse-flow")
     || matchPath({ path: routePath("page:purchase-orders", "/purchase-orders"), end: true }, location.pathname)
     || matchPath({ path: subRoutePath("page:purchase-orders", "/purchase-orders", ":id"), end: true }, location.pathname)
     || (/^\/rd-task\/[^/]+$/.test(location.pathname) && procurementWorkspaceReturnPath(location.state))) return <Root />;
@@ -543,7 +551,7 @@ const router = createBrowserRouter([
       { path: "us-collab-audit-log", element: <Navigate to="/audit-log?module=us-collab" replace /> },
       { path: asChildPath(routePath("page:us-collab-ai-settings", "/us-collab-ai-settings")), element: makeLazyProtected(<RDAiSettingsPage key="ws-us" />, "page:us-collab-ai-settings") },
       // 生产驾驶舱与研发任务驾驶舱共用页面实现，但使用独立工作区数据；旧主管驾驶舱链接继续跳转兼容。
-      { path: "production-dashboard", element: makeLazyProtected(<RDTaskManagementPage key="ws-production" />, "page:rd-director-dashboard") },
+      { path: "production-dashboard", element: makeLazyProtected(<ProductionDashboardRoute />, "page:rd-director-dashboard") },
       { path: "rd-director-dashboard", element: makeLazyProtected(<Navigate to="/production-dashboard" replace />, "page:rd-director-dashboard") },
       { path: asChildPath(routePath("page:rd-approval-flow", "/rd-approval-flow")), element: makeLazyProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },
       { path: "rd-audit-log", element: <Navigate to="/audit-log?module=rd" replace /> },
@@ -571,6 +579,9 @@ const router = createBrowserRouter([
       // 采购分类详情二级页：注册路由与权限，但不进侧边栏菜单（routesConfig 未收录即不显示）
       { path: asChildPath(routePath("page:proc-my-workspace", "/proc-my-workspace")), element: makeLazyProtected(<ProcMyWorkspacePage />, "page:proc-my-workspace") },
       { path: asChildPath(routePath("page:proc-materials", "/proc-materials")), element: makeLazyProtected(<MaterialWorkbenchPage />, "page:proc-materials") },
+      { path: asChildPath(routePath("page:proc-key-materials", "/proc-key-materials")), element: makeLazyProtected(<KeyMaterialsPage />, "page:proc-key-materials") },
+      { path: asChildPath(routePath("page:production-execution", "/production-execution")), element: makeLazyProtected(<ProductionExecutionPage />, "page:production-execution") },
+      { path: asChildPath(routePath("page:warehouse-flow", "/warehouse-flow")), element: makeLazyProtected(<WarehouseFlowPage />, ["page:warehouse-flow", "page:production-execution"]) },
       { path: asChildPath(routePath("page:proc-inventory-readiness", "/proc-inventory-readiness")), element: makeLazyProtected(<InventoryReadinessPage />, "page:proc-inventory-readiness") },
       { path: asChildPath(routePath("page:proc-quote-book", "/proc-quote-book")), element: makeLazyProtected(<QuoteBookPage />, "page:proc-quote-book") },
       { path: "proc-audit-log", element: <Navigate to="/audit-log?module=procurement" replace /> },

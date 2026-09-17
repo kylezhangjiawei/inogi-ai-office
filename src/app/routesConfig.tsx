@@ -11,6 +11,7 @@ import {
   Bug,
   Building2,
   CalendarCheck2,
+  CalendarDays,
   ClipboardList,
   Download,
   FileBox,
@@ -117,6 +118,7 @@ const BASE_NAV_GROUPS: NavGroup[] = [
       { label: "我的仓管与质量任务", path: "/proc-operational-tasks", icon: ClipboardList,
         requiredPermissionAll: ["page:purchase-order-detail"], requiredPermissionAny: ["proc-purchase-order:receive", "proc-purchase-order:inspect", "page:proc-cockpit"] },
       { label: "物料库", path: "/proc-materials", icon: Warehouse, requiredPermission: "page:proc-materials" },
+      { label: "全部关键物料", path: "/proc-key-materials", icon: ListChecks, requiredPermission: "page:proc-key-materials" },
       { label: "库存齐套中心", path: "/proc-inventory-readiness", icon: PackageCheck, requiredPermission: "page:proc-inventory-readiness" },
       { label: "供应商报价库", path: "/proc-quote-book", icon: Store, requiredPermission: "page:proc-quote-book" },
     ],
@@ -224,6 +226,8 @@ const BASE_NAV_GROUPS: NavGroup[] = [
     items: [
       // 复用原主管驾驶舱的完整能力与权限码，避免既有角色授权和历史链接失效。
       { label: "生产驾驶舱", path: "/production-dashboard", icon: Telescope, requiredPermission: "page:rd-director-dashboard" },
+      { label: "生产计划与执行", path: "/production-execution", icon: CalendarDays, requiredPermission: "page:production-execution" },
+      { label: "生产领料", path: "/warehouse-flow", icon: Warehouse, requiredPermission: "page:warehouse-flow", requiredPermissionAny: ["page:warehouse-flow", "page:production-execution"] },
       { label: "电子批记录", path: "/ebpr", icon: ListChecks, requiredPermission: "page:ebpr" },
       { label: "检验与放行", path: "/inspection-release", icon: BadgeCheck, requiredPermission: "page:inspection-release" },
       { label: "BUG 日志分析", path: "/bug-log", icon: Bug, requiredPermission: "page:bug-log" },

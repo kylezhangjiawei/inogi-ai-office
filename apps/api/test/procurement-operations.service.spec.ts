@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PERMISSIONS_KEY } from '../src/modules/auth/decorators/permissions.decorator';
 import { ProcurementOperationsController } from '../src/modules/procurement/procurement-operations.controller';
 import { ProcurementOperationsService, operationDay, locateProductionTaskSource } from '../src/modules/procurement/procurement-operations.service';
+import { QualityVerificationService } from '../src/modules/procurement/quality-verification.service';
 import type { SaveProductionReportDto, SaveQualityRecordDto } from '../src/modules/procurement/dto/procurement-operations.dto';
 
 const actor = { id: 'operator', name: '生产甲', permissions: ['proc-production:report', 'proc-quality:manage'] };
@@ -16,6 +17,8 @@ type Row = Record<string, any>;
 function fixture() {
   const reports: Row[] = [];
   const quality: Row[] = [];
+  const history: Row[] = [];
+  const audit: Row[] = [];
   const nodes: Row[] = [{ id: 'node-1', productId: 'product-1', parentId: 'category-1', materialId: 'material-1', name: '主机' }, { id: 'node-2', productId: 'product-2', parentId: 'category-2', materialId: 'material-2', name: '另一产品' }];
   const plans: Row[] = [{ id: 'plan-1', productId: 'product-1', treeNodeId: 'node-1', materialId: 'material-1', code: 'SP-1', unit: '套' }, { id: 'plan-2', productId: 'product-2', treeNodeId: 'node-2', materialId: 'material-2', code: 'SP-2', unit: '件' }];
   const tasks: Row[] = [{ id: 'task-1', productId: 'product-1', treeNodeId: 'node-1', materialId: 'material-1', code: 'PR-1', unit: '套' }, { id: 'task-2', productId: 'product-2', treeNodeId: 'node-2', materialId: 'material-2', code: 'PR-2', unit: '件' }];
@@ -28,6 +31,7 @@ function fixture() {
     if (key === 'AND') return value.every((item: Row) => matches(row, item));
     if (value && typeof value === 'object' && !(value instanceof Date)) {
       if ('in' in value) return value.in.includes(row[key]);
+      if ('startsWith' in value) return row[key]?.startsWith(value.startsWith);
       if ('not' in value) return row[key] !== value.not;
       if ('gte' in value || 'lt' in value) return (!value.gte || row[key] >= value.gte) && (!value.lt || row[key] < value.lt);
     }
@@ -44,10 +48,11 @@ function fixture() {
     updateMany: async ({ where, data }: Row) => { const row = rows.find((item) => matches(item, where)); if (!row) return { count: 0 }; Object.assign(row, data, { updatedAt: new Date(baseTime.getTime() + ++sequence) }); return { count: 1 }; },
   });
   const prisma = {
+    runtimeState: delegate(history, 'history'), auditLog: delegate(audit, 'audit'),
     procTaskTreeNode: delegate(nodes, 'node'), procStockPlan: delegate(plans, 'plan'), procTask: delegate(tasks, 'task'), procMaterial: delegate(materials, 'material'), procSupplier: delegate(suppliers, 'supplier'), procProductionReport: delegate(reports, 'report'), procQualityRecord: delegate(quality, 'quality'),
     $transaction: async (run: (db: unknown) => Promise<unknown>, options: unknown) => { transactionOptions = options; return run(prisma); },
   };
-  return { service: new ProcurementOperationsService(prisma as never), reports, quality, nodes, plans, tasks, prisma, transactionOptions: () => transactionOptions };
+  return { service: new ProcurementOperationsService(prisma as never), verification: new QualityVerificationService(prisma as never), history, audit, reports, quality, nodes, plans, tasks, prisma, transactionOptions: () => transactionOptions };
 }
 
 test('真实日期校验接受闰日并拒绝滚动日期和无效月份', () => {
@@ -121,15 +126,78 @@ test('报工更新记录操作者，旧版本不能覆盖新版本', async () =>
   assert.equal(f.reports[0].note, '补充说明');
 });
 
-test('不良登记和关闭持久化，关闭须处置及结果，重新打开清除关闭时间', async () => {
+test('普通编辑即使填写处理结果也不能直接关闭，已关闭记录不能改写', async () => {
   const f = fixture();
   const created = await f.service.saveQualityRecord(null, qualityInput, actor);
   assert.equal(created.status, 'open'); assert.equal(created.resolvedAt, null);
   await assert.rejects(f.service.saveQualityRecord(created.id, { ...qualityInput, status: 'closed', baseUpdatedAt: created.updatedAt }, actor), /关闭前/);
-  const closed = await f.service.saveQualityRecord(created.id, { ...qualityInput, disposition: 'rework', status: 'closed', resolution: '返工后复验合格', baseUpdatedAt: created.updatedAt }, actor);
-  assert.equal(closed.status, 'closed'); assert.ok(closed.resolvedAt); assert.equal(closed.updatedByName, actor.name);
-  const reopened = await f.service.saveQualityRecord(created.id, { ...qualityInput, status: 'processing', disposition: 'rework', resolution: '追加复查', baseUpdatedAt: closed.updatedAt }, actor);
-  assert.equal(reopened.resolvedAt, null);
+  await assert.rejects(f.service.saveQualityRecord(created.id, { ...qualityInput, disposition: 'rework', status: 'closed', resolution: '返工后复验合格', baseUpdatedAt: created.updatedAt }, actor), /独立复验/);
+  await assert.rejects(f.service.saveQualityRecord(null, { ...qualityInput, status: 'closed', resolution: '直接新建关闭', disposition: 'scrap' }, actor), /独立复验/);
+  assert.equal(f.quality[0].status, 'open');
+  f.quality[0].status = 'closed';
+  await assert.rejects(f.service.saveQualityRecord(created.id, { ...qualityInput, baseUpdatedAt: created.updatedAt }, actor), /不能直接修改/);
+});
+
+const verifier = { id: 'qc-user', name: '验证乙', permissions: ['proc-quality:verify'] };
+async function readyForVerification() {
+  const f = fixture();
+  const record = await f.service.saveQualityRecord(null, { ...qualityInput, status: 'processing', disposition: 'rework', resolution: '返工完成，等待复验' }, actor);
+  const input = { requestId: 'verification-request-01', baseUpdatedAt: record.updatedAt, verificationDate: '2026-09-05', inspectedQty: 3, passedQty: 3, evidence: '复验单 QC-01，三件外观符合要求' };
+  return { ...f, record, input };
+}
+
+test('独立验证权限是服务端门槛；普通管理权限不能复验或重新打开', async () => {
+  const f = await readyForVerification();
+  await assert.rejects(f.verification.verify(f.record.id, f.input, actor), /质量验证权限/);
+  await assert.rejects(f.verification.reopen(f.record.id, { requestId: 'reopen-request-001', baseUpdatedAt: f.record.updatedAt, reason: '补充核对' }, actor), /质量验证权限/);
+  assert.deepEqual(Reflect.getMetadata(PERMISSIONS_KEY, ProcurementOperationsController.prototype.verifyQuality), ['proc-quality:verify']);
+  assert.equal(f.history.length, 0); assert.equal(f.quality[0].status, 'processing');
+});
+
+test('复验通过关闭，保留原初检数量、验证人和来源版本，重复请求只生效一次', async () => {
+  const f = await readyForVerification();
+  const saved = await f.verification.verify(f.record.id, f.input, verifier);
+  assert.equal(saved.closed, true); assert.equal(f.quality[0].status, 'closed'); assert.ok(f.quality[0].resolvedAt);
+  assert.equal(f.quality[0].inspectedQty.toNumber(), 90); assert.equal(f.quality[0].defectiveQty.toNumber(), 3);
+  await f.verification.verify(f.record.id, f.input, verifier);
+  assert.equal(f.history.length, 1); assert.equal(f.audit.length, 1);
+  const history = await f.verification.history(f.record.id, actor);
+  assert.equal(history[0].actorId, 'qc-user'); assert.equal(history[0].sourceVersion, f.record.updatedAt);
+  assert.equal(history[0].source.resolution, '返工完成，等待复验');
+  await assert.rejects(f.verification.verify(f.record.id, { ...f.input, evidence: '改用其他依据' }, verifier), /提交标识/);
+});
+
+test('未完整通过只能继续处理；后续全量复验通过，保留失败轮次', async () => {
+  const f = await readyForVerification();
+  const partial = await f.verification.verify(f.record.id, { ...f.input, inspectedQty: 2, passedQty: 2 }, verifier);
+  assert.equal(partial.closed, false); assert.equal(f.quality[0].resolvedAt, null);
+  const failed = await f.verification.verify(f.record.id, { ...f.input, requestId: 'verification-request-02', baseUpdatedAt: partial.updatedAt, passedQty: 2 }, verifier);
+  assert.equal(failed.closed, false);
+  const closed = await f.verification.verify(f.record.id, { ...f.input, requestId: 'verification-request-03', baseUpdatedAt: failed.updatedAt }, verifier);
+  assert.equal(closed.closed, true); assert.equal(f.history.length, 3);
+});
+
+test('复验拒绝缺证据、超量、非法日期、缺处置及版本冲突', async () => {
+  for (const patch of [{ evidence: ' ' }, { inspectedQty: 4 }, { passedQty: 4 }, { inspectedQty: 0 }, { passedQty: -1 }, { inspectedQty: 2.0001 }, { verificationDate: '2026-02-30' }, { verificationDate: '2026-09-03' }, { verificationDate: '9999-01-01' }, { baseUpdatedAt: '2026-01-01T00:00:00.000Z' }]) {
+    const f = await readyForVerification();
+    await assert.rejects(f.verification.verify(f.record.id, { ...f.input, ...patch }, verifier));
+    assert.equal(f.history.length, 0); assert.equal(f.quality[0].status, 'processing');
+  }
+  const f = await readyForVerification(); f.quality[0].resolution = null;
+  await assert.rejects(f.verification.verify(f.record.id, f.input, verifier), /处理结果/);
+});
+
+test('重新打开须验证权限、原因和正确版本，旧复验不被覆盖且不自动再次关闭', async () => {
+  const f = await readyForVerification();
+  const closed = await f.verification.verify(f.record.id, f.input, verifier);
+  const input = { requestId: 'reopen-quality-request', baseUpdatedAt: closed.updatedAt, reason: '发现遗漏外观项，追加检查' };
+  await assert.rejects(f.verification.reopen(f.record.id, { ...input, reason: '' }, verifier), /原因/);
+  await f.verification.reopen(f.record.id, input, verifier);
+  await f.verification.reopen(f.record.id, input, verifier);
+  assert.equal(f.quality[0].status, 'processing'); assert.equal(f.quality[0].resolvedAt, null); assert.equal(f.history.length, 2);
+  const history = await f.verification.history(f.record.id, verifier);
+  assert.equal(history.filter((entry) => entry.kind === 'verification').length, 1);
+  assert.equal(history.filter((entry) => entry.kind === 'reopen').length, 1);
 });
 
 test('采购不良关联任务、计划和物料必须同属，检验与不良数有效', async () => {

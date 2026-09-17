@@ -27,7 +27,7 @@ test('PostgreSQL: receipt migration, decimal totals, identity, idempotency, conc
   let created = false;
   try {
     await admin.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`); created = true;
-    for (const table of ['ProcPurchaseOrderMirror', 'AuditLog', 'RuntimeState']) {
+    for (const table of ['ProcPurchaseOrderMirror', 'AuditLog', 'RuntimeState', 'ProcMaterial', 'ProcTaskTreeNode', 'ProcQualityRecord']) {
       await admin.$executeRawUnsafe(`CREATE TABLE "${schema}"."${table}" (LIKE "${originalSchema}"."${table}" INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)`);
     }
     let migration = await readFile(resolve(__dirname, '../prisma/migrations/20260910120000_purchase_receipts/migration.sql'), 'utf8');
@@ -36,6 +36,7 @@ test('PostgreSQL: receipt migration, decimal totals, identity, idempotency, conc
     }
     for (const statement of migration.split(';').map((value) => value.trim()).filter(Boolean)) await admin.$executeRawUnsafe(statement);
     assert.equal((await db.$queryRaw<Array<{ current_schema: string }>>`SELECT current_schema()`)[0].current_schema, schema);
+    await db.procTaskTreeNode.create({ data: { id: 'qa-receipt-node', productId: 'qa-product', name: '来料检验模块' } });
     const service = new PurchaseReceiptsService(db as never);
     const actor = { id: 'qa-warehouse', name: '隔离验收仓管', permissions: ['*'] };
     const line = await db.procPurchaseOrderMirror.create({ data: {
@@ -53,7 +54,7 @@ test('PostgreSQL: receipt migration, decimal totals, identity, idempotency, conc
     await assert.rejects(service.receive(line.id, { ...input, receivedQty: 9 }, actor), /提交标识/);
     await assert.rejects(service.receive(line.id, input, { ...actor, id: 'different-actor' }), /提交标识/);
 
-    const qc = { requestId: 'qa-inspection-main-0001', expectedVersion: 0, expectedSourceUpdatedAt: line.updatedAt.toISOString(), inspectionDate: '2026-09-02', qualifiedQty: 6, defectiveQty: 1, pendingJudgmentQty: 2, basis: '规范 A 全检', note: '2 件待尺寸复核' };
+    const qc = { treeNodeId: 'qa-receipt-node', requestId: 'qa-inspection-main-0001', expectedVersion: 0, expectedSourceUpdatedAt: line.updatedAt.toISOString(), inspectionDate: '2026-09-02', qualifiedQty: 6, defectiveQty: 1, pendingJudgmentQty: 2, basis: '规范 A 全检', note: '2 件待尺寸复核' };
     const competing = await Promise.allSettled([
       service.inspect(line.id, receipt.id, qc, actor),
       service.inspect(line.id, receipt.id, { ...qc, requestId: 'qa-inspection-main-0002' }, actor),

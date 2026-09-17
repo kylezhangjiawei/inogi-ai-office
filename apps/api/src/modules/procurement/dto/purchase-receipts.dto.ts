@@ -1,4 +1,4 @@
-import { IsInt, IsNumber, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 class ReceiptMutationDto {
   @IsString() @Matches(/^[A-Za-z0-9_-]{16,128}$/) requestId!: string;
@@ -13,6 +13,7 @@ export class CreatePurchaseReceiptDto extends ReceiptMutationDto {
 }
 
 export class CreatePurchaseInspectionDto extends ReceiptMutationDto {
+  @IsOptional() @IsString() @MaxLength(120) treeNodeId?: string;
   @IsInt() @Min(0) @Max(2147483646) expectedVersion!: number;
   @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) inspectionDate!: string;
   @IsNumber({ maxDecimalPlaces: 3 }) @Min(0) @Max(99999999999.999) qualifiedQty!: number;

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Put, Query, Request } from '@nestjs/common';
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { ProcurementOperationsQueryDto, SaveProductionReportDto, SaveQualityRecordDto } from './dto/procurement-operations.dto';
+import { ProcurementOperationsQueryDto, SaveProductionReportDto, SaveQualityRecordDto, VerifyQualityRecordDto, ReopenQualityRecordDto } from './dto/procurement-operations.dto';
+import { QualityVerificationService } from './quality-verification.service';
 import { ProcurementOperationsService } from './procurement-operations.service';
 import type { ProcActor } from './procurement.types';
 
@@ -8,7 +9,7 @@ type AuthedRequest = { user: { id: string; name?: string; username?: string; per
 
 @Controller('procurement/operations')
 export class ProcurementOperationsController {
-  constructor(private readonly service: ProcurementOperationsService) {}
+  constructor(private readonly service: ProcurementOperationsService, private readonly verification: QualityVerificationService) {}
 
   private actor(req: AuthedRequest): ProcActor {
     return { id: req.user.id, name: req.user.name ?? req.user.username ?? '', permissions: req.user.permissions ?? [] };
@@ -43,6 +44,18 @@ export class ProcurementOperationsController {
   createQuality(@Body() dto: SaveQualityRecordDto, @Request() req: AuthedRequest) {
     return this.service.saveQualityRecord(null, dto, this.actor(req));
   }
+
+  @Get('quality-records/:id/verifications')
+  @Permissions('proc-quality:verify', 'proc-quality:manage', 'page:proc-cockpit', 'page:rd-director-dashboard', 'page:production-execution')
+  verificationHistory(@Param('id') id: string, @Request() req: AuthedRequest) { return this.verification.history(id, this.actor(req)); }
+
+  @Post('quality-records/:id/verifications')
+  @Permissions('proc-quality:verify')
+  verifyQuality(@Param('id') id: string, @Body() dto: VerifyQualityRecordDto, @Request() req: AuthedRequest) { return this.verification.verify(id, dto, this.actor(req)); }
+
+  @Post('quality-records/:id/reopen')
+  @Permissions('proc-quality:verify')
+  reopenQuality(@Param('id') id: string, @Body() dto: ReopenQualityRecordDto, @Request() req: AuthedRequest) { return this.verification.reopen(id, dto, this.actor(req)); }
 
   @Put('quality-records/:id')
   @Permissions('proc-quality:manage')

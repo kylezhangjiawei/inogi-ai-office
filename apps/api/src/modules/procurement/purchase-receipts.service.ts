@@ -92,6 +92,11 @@ function sourceIssue(line: Line, receipts: ProcPurchaseReceipt[], localNetQty?: 
 export class PurchaseReceiptsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async qualityOptions(actor: ProcActor) {
+    this.assertPermission(actor, 'proc-purchase-order:inspect');
+    return this.prisma.procTaskTreeNode.findMany({ select: { id: true, productId: true, name: true, parentId: true }, orderBy: { sortOrder: 'asc' } });
+  }
+
   private assertPermission(actor: ProcActor, action?: string) {
     if (!permission(actor, action)) throw new ForbiddenException(action ? '没有登记该订单行收货或检验的权限' : '没有查看订单行收货检验记录的权限');
   }
@@ -218,7 +223,7 @@ export class PurchaseReceiptsService {
     const defectiveQty = receiptQuantity(input.defectiveQty, '不良数量');
     const pendingJudgmentQty = receiptQuantity(input.pendingJudgmentQty, '待判数量');
     const basis = text(input.basis, '检验依据', 2000), note = text(input.note, '检验结论及说明', 2000);
-    const hash = fingerprint([lineId, receiptId, input.expectedSourceUpdatedAt, input.expectedVersion, day(inspectionDate), qualifiedQty.toString(), defectiveQty.toString(), pendingJudgmentQty.toString(), basis, note]);
+    const hash = fingerprint([lineId, receiptId, input.expectedSourceUpdatedAt, input.expectedVersion, day(inspectionDate), qualifiedQty.toString(), defectiveQty.toString(), pendingJudgmentQty.toString(), basis, note, input.treeNodeId ?? null]);
     return this.transaction(async (db) => {
       await this.lock(db, lineId);
       const line = await this.line(db, lineId);
@@ -231,6 +236,13 @@ export class PurchaseReceiptsService {
         return this.ledger(db, line, actor);
       }
       if (line.updatedAt.toISOString() !== input.expectedSourceUpdatedAt || receipt.version !== input.expectedVersion) throw conflict();
+      const warehouseLink = await db.runtimeState.findUnique({ where: { key: `procurement:warehouse-record:v1:receipt:${receiptId}` } });
+      const warehouseState = warehouseLink ? await db.runtimeState.findUnique({ where: { key: `procurement:warehouse-record:v1:record:${warehouseLink.value}` } }) : null;
+      if (warehouseLink && !warehouseState) throw new ConflictException('入库来源记录缺失，请先核对');
+      if (warehouseState) {
+        const previousInspection = receipt.inspections[0];
+        if (!previousInspection || qualifiedQty.lt(previousInspection.qualifiedQty) || defectiveQty.lt(previousInspection.defectiveQty)) throw new ConflictException('已入库批次只能补判待检或待判数量，不可覆盖已确认良品与不良；后续沿原异常处置与复验');
+      }
       const { state, summary } = await readPurchaseFulfillment(db, { ...line, receipts });
       const issue = sourceIssue(line, receipts, summary.localNetReceivedQty);
       if (issue) throw new ConflictException(issue);
@@ -247,6 +259,38 @@ export class PurchaseReceiptsService {
         qualifiedQty, defectiveQty, pendingJudgmentQty, basis, note, createdById: actor.id, createdByName: actor.name,
       } });
       const previous = receipt.inspections[0];
+      const sourceKey = `procurement:receipt-quality:v1:${receipt.id}`;
+      const link = await db.runtimeState.findUnique({ where: { key: sourceKey } });
+      if (link) {
+        const qualityId = JSON.parse(link.value).qualityId as string;
+        const existingQuality = await db.procQualityRecord.findUnique({ where: { id: qualityId } });
+        if (!existingQuality) throw new ConflictException('关联异常缺失，请先核对质量台账');
+        if (input.treeNodeId && input.treeNodeId !== existingQuality.treeNodeId) throw new ConflictException('已生成质量异常，不可改换产品模块');
+        if (existingQuality.status !== 'open') {
+          // Supplementary good units belong to the receipt; the in-process quality cohort stays frozen.
+          if (!previous || !existingQuality.defectiveQty.equals(defectiveQty) || qualifiedQty.lt(previous.qualifiedQty)) throw new ConflictException('异常已进入处置，不可覆盖原初检范围；请在原异常中办理处置与复验');
+        } else if (!existingQuality.defectiveQty.equals(defectiveQty) || !existingQuality.inspectedQty.equals(qualifiedQty.plus(defectiveQty))) {
+          if (defectiveQty.isZero()) throw new ConflictException('异常已进入处置，不可覆盖原初检范围；请在原异常中办理处置与复验');
+          await db.procQualityRecord.update({ where: { id: qualityId }, data: { inspectedQty: qualifiedQty.plus(defectiveQty), defectiveQty, inspectionDate, issue: note, updatedBy: actor.id, updatedByName: actor.name } });
+        }
+      } else if (defectiveQty.gt(0)) {
+        if (!input.treeNodeId) throw new BadRequestException('请选择来料不良所属产品与模块，以生成可追踪的质量异常');
+        const node = await db.procTaskTreeNode.findUnique({ where: { id: input.treeNodeId } });
+        if (!node) throw new BadRequestException('质量归属模块不存在');
+        const material = await db.procMaterial.findFirst({ where: { tpInventoryCode: line.inventoryCode } });
+        const quality = await db.procQualityRecord.create({ data: { productId: node.productId, treeNodeId: node.id, materialId: material?.id,
+          source: 'procurement', batchNo: `RECEIPT:${receipt.id}`, unit: line.unit, inspectionDate,
+          inspectedQty: qualifiedQty.plus(defectiveQty), defectiveQty, issue: note, disposition: 'pending', status: 'open', createdBy: actor.id, createdByName: actor.name } });
+        await db.runtimeState.create({ data: { key: sourceKey, value: JSON.stringify({ qualityId: quality.id, lineId, receiptId, inspectionId: saved.id, supplierName: line.supplierName, deliveryNo: receipt.deliveryNo }) } });
+        await db.runtimeState.create({ data: { key: `procurement:receipt-quality-record:v1:${quality.id}`, value: JSON.stringify({ receiptId, lineId }) } });
+      }
+      if (warehouseState) {
+        const before = JSON.parse(warehouseState.value);
+        const after = { ...before, version: before.version + 1, qualifiedQty: next.qualifiedQty, defectiveQty: next.defectiveQty, pendingQty: next.pendingQty + next.pendingJudgmentQty, reconciliation: undefined,
+          events: [...before.events, { action: 'inspection-classified', actorId: actor.id, actorName: actor.name, at: new Date().toISOString(), reason: `补充判定（须重新核对 ERP 状态）：${basis}；${note}`, before: { qualifiedQty: before.qualifiedQty, defectiveQty: before.defectiveQty, pendingQty: before.pendingQty, reconciliation: before.reconciliation }, inspectionId: saved.id }] };
+        const changed = await db.runtimeState.updateMany({ where: { key: warehouseState.key, value: warehouseState.value }, data: { value: JSON.stringify(after) } });
+        if (changed.count !== 1) throw new ConflictException('入库记录已变化，请重新核对');
+      }
       await db.auditLog.create({ data: {
         module: 'procurement', source: 'web', action: 'purchase-order.inspection-recorded', resource: 'proc-purchase-receipt-inspection', resourceId: saved.id,
         resourceName: `${line.tpOrderNo} · ${line.tpLineNo} · ${receipt.deliveryNo}`, userId: actor.id, actorName: actor.name,

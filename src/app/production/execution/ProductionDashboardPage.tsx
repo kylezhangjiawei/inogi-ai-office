@@ -1,0 +1,26 @@
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
+import { ClipboardList } from 'lucide-react';
+import { Card } from '../../components/ui/card';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Checkbox } from '../../components/ui/checkbox';
+import { OrderPageHeader } from '../../order-processing/components/HorizonPage';
+import { useAuth } from '../../auth';
+import { usePermission } from '../../hooks/usePermission';
+import { routePath } from '../../lib/routePaths';
+import { authFetch, readErrorMessage } from '../../lib/authSession';
+import '../../order-processing/horizon.css';
+interface Overview { month: string; scope: 'all' | 'assigned'; targetQty: number | null; shipmentTargetQty: number | null; actualShippedQty: number | null; tasks: { id: string; planId: string; month: string; productLine: string; batchCode: string; name: string; ownerId: string; ownerName: string; status: string; quantity: number; goodQty: number; reportedQty: number; output: string; unit: string; date: string }[]; shipments: { id: string; quantity: number; date: string; voucher: string; recipient: string }[] }
+export function ProductionDashboardPage() {
+  const { user } = useAuth(), canExecute = usePermission('page:production-execution');
+  const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 7)), [data, setData] = useState<Overview | null>(null), [error, setError] = useState(''), [reload, setReload] = useState(0), [mine, setMine] = useState(false), [search, setSearch] = useState('');
+  useEffect(() => { const controller = new AbortController(); setError(''); setData(null); authFetch(`/api/procurement/production-execution/overview?${new URLSearchParams({ month })}`, { signal: controller.signal }).then(async response => { if (!response.ok) throw new Error(await readErrorMessage(response, '生产总览读取失败')); return response.json(); }).then(value => { if (!controller.signal.aborted) setData(value); }).catch(cause => { if (!controller.signal.aborted) setError(cause.message); }); return () => controller.abort(); }, [month, reload]);
+  const tasks = data?.tasks.filter(task => (!mine || task.ownerId === user?.id) && `${task.name} ${task.ownerName} ${task.productLine} ${task.batchCode}`.includes(search)) ?? [];
+  return <main className="order-horizon mx-auto max-w-7xl space-y-5 p-4 sm:p-6"><OrderPageHeader Icon={ClipboardList} eyebrow="质量与生产" title="生产总览与现场待办" description="汇总正式月度计划、现场作业和实际发货；保留跨月未完作业。" actions={<><Button variant="outline" asChild><Link to="/production-dashboard?view=legacy">其他生产协同任务</Link></Button>{canExecute && <Button asChild><Link to={routePath('page:production-execution', '/production-execution')}>生产计划与办理</Link></Button>}<Button variant="outline" onClick={() => setReload(value => value + 1)}>刷新</Button></>} />
+    <Card className="flex flex-row flex-wrap items-end gap-4 p-4"><label className="text-sm">统计月份<Input type="month" value={month} onChange={event => { if (event.target.value) setMonth(event.target.value); }} /></label><Input className="min-w-48 flex-1" aria-label="搜索现场待办" placeholder="搜索作业、批次或责任人" value={search} onChange={event => setSearch(event.target.value)} /><label className="flex items-center gap-2 text-sm"><Checkbox checked={mine} onCheckedChange={value => setMine(value === true)} />仅看本人</label></Card>
+    {error ? <p role="alert" className="text-destructive">{error}</p> : !data ? <p role="status">正在汇总正式业务…</p> : <><div className="grid gap-3 sm:grid-cols-3">{[['本月生产目标', data.targetQty], ['本月发货目标', data.shipmentTargetQty], ['本月实际净发货', data.actualShippedQty]].map(([label, value]) => <Card key={label} className="p-5"><p className="text-sm text-muted-foreground">{label}</p><p className="mt-2 text-3xl font-semibold tabular-nums">{value ?? '仅本人范围'}</p></Card>)}</div><p className="text-sm text-muted-foreground">下方进度为现场报工口径，组件不计整机，报工良品不代表质量放行。发货按实际发货日期汇总，包含以前月份计划在本月的发货。</p>
+      {!tasks.length && <Card className="p-8 text-center text-muted-foreground">当前范围没有现场作业。</Card>}{tasks.map(task => <Card key={task.id} className="space-y-3 p-4"><div className="flex flex-wrap justify-between gap-3"><div><h2 className="font-semibold">{task.name} · {task.ownerName}</h2><p className="text-xs text-muted-foreground">{task.productLine} · {task.batchCode} · {task.month}{task.month < month ? ' · 跨月未完' : ''} · 需求日 {task.date}</p></div>{canExecute && <Button variant="outline" asChild><Link to={`${routePath('page:production-execution', '/production-execution')}?${new URLSearchParams({ month, plan: task.planId })}`}>进入作业</Link></Button>}</div><p className="text-sm tabular-nums">目标 {task.quantity} / 已报 {task.reportedQty} / 报工良品 {task.goodQty} / 剩余 {Math.max(0, task.quantity - task.goodQty)} {task.unit}</p><p className="text-xs text-muted-foreground">完成率 {task.quantity ? (task.reportedQty / task.quantity * 100).toFixed(1) : '—'}% · 良品完成率 {task.quantity ? (task.goodQty / task.quantity * 100).toFixed(1) : '—'}% · {task.output === 'whole' ? '整机产出' : '组件产出'}</p></Card>)}
+      <details className="rounded-xl border p-4"><summary>本月发货记录 · {data.shipments.length}</summary>{data.shipments.map(row => <p className="my-3 text-sm" key={row.id}>{row.date} · {row.voucher} · {row.recipient} · {row.quantity} 台</p>)}</details></>}
+  </main>;
+}

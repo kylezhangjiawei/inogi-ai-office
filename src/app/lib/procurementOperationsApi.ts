@@ -20,7 +20,7 @@ export interface QualityRecordInput {
 }
 interface RecordIdentity { id: string; treeNodeName: string; stockPlanCode: string | null; createdByName: string; updatedByName?: string | null; createdAt: string; updatedAt: string }
 export interface ProductionReport extends ProductionReportInput, RecordIdentity { defectiveQty: number; capacityQty: number | null }
-export interface QualityRecord extends QualityRecordInput, RecordIdentity { taskCode: string | null; materialName: string | null; supplierName: string | null; resolvedAt: string | null; defectRate: number | null }
+export interface QualityRecord extends QualityRecordInput, RecordIdentity { taskCode: string | null; materialName: string | null; supplierName: string | null; resolvedAt: string | null; defectRate: number | null; collaboration?: { ownerId: string; ownerName: string; originatorName: string; phase: 'waiting_reply' | 'returned'; reason: string; reply: string | null; repliedByName?: string } | null }
 export interface ProductionSummary {
   unit: string; reports: number; plannedQty: number; actualQty: number; goodQty: number; defectiveQty: number;
   workHours: number; capacityQty: number | null; capacityRecorded: number; attainmentRate: number | null; yieldRate: number | null; capacityUtilization: number | null;
@@ -55,4 +55,27 @@ export function saveProductionReport(id: string | null, input: ProductionReportI
 }
 export function saveQualityRecord(id: string | null, input: QualityRecordInput) {
   return request<QualityRecord>(`/quality-records${id ? `/${encodeURIComponent(id)}` : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(input) });
+}
+
+export interface QualityVerification {
+  scope?: 'remaining' | 'all'; effectivePassedQty?: number;
+  kind: 'verification' | 'reopen'; requestId: string; recordId: string;
+  actorId: string; actorName: string; recordedAt: string; sourceVersion: string;
+  verificationDate: string | null; inspectedQty: number | null; passedQty: number | null;
+  evidence: string; closed: boolean;
+  source: { batchNo: string; unit: string; defectiveQty: string; disposition: string; resolution: string | null };
+}
+export interface QualityVerificationInput {
+  scope?: 'remaining' | 'all';
+  requestId: string; baseUpdatedAt: string; verificationDate: string;
+  inspectedQty: number; passedQty: number; evidence: string;
+}
+export function getQualityVerifications(id: string, signal?: AbortSignal) {
+  return request<QualityVerification[]>(`/quality-records/${encodeURIComponent(id)}/verifications`, { signal });
+}
+export function verifyQualityRecord(id: string, input: QualityVerificationInput) {
+  return request<{ status: QualityStatus; updatedAt: string; closed: boolean }>(`/quality-records/${encodeURIComponent(id)}/verifications`, { method: 'POST', body: JSON.stringify(input) });
+}
+export function reopenQualityRecord(id: string, input: { requestId: string; baseUpdatedAt: string; reason: string }) {
+  return request<{ status: QualityStatus; updatedAt: string; closed: boolean }>(`/quality-records/${encodeURIComponent(id)}/reopen`, { method: 'POST', body: JSON.stringify(input) });
 }

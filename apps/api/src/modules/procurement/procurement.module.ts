@@ -1,3 +1,8 @@
+import { ProductionLifecycleController } from './production-lifecycle.controller';
+import { ProductionLifecycleService } from './production-lifecycle.service';
+import { ProductionReadinessService } from './production-readiness.service';
+import { WarehouseRecordsController } from './warehouse-records.controller';
+import { WarehouseRecordsService } from './warehouse-records.service';
 import { Module } from '@nestjs/common';
 
 import { ChatModule } from '../chat/chat.module';
@@ -10,6 +15,13 @@ import { MaterialSafeStockService } from './material-safestock.service';
 import { ProcurementController } from './procurement.controller';
 import { ProcurementOperationsController } from './procurement-operations.controller';
 import { ProcurementOperationsService } from './procurement-operations.service';
+import { QualityVerificationService } from './quality-verification.service';
+import { KeyMaterialsService } from './key-materials.service';
+import { KeyMaterialsController } from './key-materials.controller';
+import { ProductionExecutionController } from './production-execution.controller';
+import { ProductionExecutionService } from './production-execution.service';
+import { WarehouseFlowController } from './warehouse-flow.controller';
+import { WarehouseFlowService } from './warehouse-flow.service';
 import { QuoteBookController } from './quote-book.controller';
 import { QuoteBookService } from './quote-book.service';
 import { TplusPoMatchService } from './tplus-po-match.service';
@@ -36,10 +48,17 @@ import { PurchaseFulfillmentService } from './purchase-fulfillment.service';
   // ResearchDevelopmentModule 仅用于审核驳回时给研发对接人发站内通知（createMessage）
   // OcrModule 仅用于报价库「图片表格 OCR + AI」导入兜底
   imports: [ChatModule, OcrModule, SecurityModule, ResearchDevelopmentModule],
-  controllers: [ProcurementController, ProcurementOperationsController, QuoteBookController, TplusSyncController, PurchaseReceiptsController, OperationalTasksController, PurchaseDeliveryController, PurchaseFulfillmentController],
+  controllers: [ProductionLifecycleController, WarehouseRecordsController, ProcurementController, ProcurementOperationsController, QuoteBookController, TplusSyncController, PurchaseReceiptsController, OperationalTasksController, PurchaseDeliveryController, PurchaseFulfillmentController, KeyMaterialsController, ProductionExecutionController, WarehouseFlowController],
   providers: [
+    ProductionLifecycleService,
+    ProductionReadinessService,
+    WarehouseRecordsService,
     ProcurementService,
     ProcurementOperationsService,
+    QualityVerificationService,
+    KeyMaterialsService,
+    ProductionExecutionService,
+    WarehouseFlowService,
     QuoteBookService,
     TplusSyncService,
     MaterialClassifyService,

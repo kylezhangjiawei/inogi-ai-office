@@ -14,6 +14,9 @@ export class PurchaseReceiptsController {
     return { id: req.user.id, name: req.user.name ?? req.user.username ?? '', permissions: req.user.permissions ?? [] };
   }
 
+  @Get('quality-options') @Permissions('proc-purchase-order:inspect')
+  qualityOptions(@Request() req: AuthedRequest) { return this.service.qualityOptions(this.actor(req)); }
+
   @Get()
   @Permissions('page:purchase-order-detail')
   list(@Param('lineId') lineId: string, @Request() req: AuthedRequest) { return this.service.list(lineId, this.actor(req)); }

@@ -1,6 +1,7 @@
 import * as assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
+import ts from 'typescript';
 
 import { DEFAULT_PERMISSION_CATALOG } from '../src/modules/permission-catalog/permission-catalog.defaults.ts';
 
@@ -38,7 +39,7 @@ test('production cockpit is visible in Quality & Production without invalidating
   assert.doesNotMatch(routesSource, /label: "生产部门"/);
   assert.match(
     appSource,
-    /\{ path: "production-dashboard", element: makeLazyProtected\(<RDTaskManagementPage key="ws-production" \/>, "page:rd-director-dashboard"\) \}/,
+    /\{ path: "production-dashboard", element: makeLazyProtected\(<ProductionDashboardRoute \/>, "page:rd-director-dashboard"\) \}/,
   );
   assert.match(
     appSource,
@@ -49,7 +50,7 @@ test('production cockpit is visible in Quality & Production without invalidating
   assert.match(migrationSource, /"groupLabel" = '页面访问 · 质量与生产'/);
 });
 
-test('production cockpit renders the same page implementation as the R&D task cockpit', async () => {
+test('production cockpit defaults to the formal overview and keeps the existing production workspace behind its legacy entry', async () => {
   const appSource = await readFile(
     new URL('../../../src/app/App.tsx', import.meta.url),
     'utf8',
@@ -58,15 +59,25 @@ test('production cockpit renders the same page implementation as the R&D task co
   const rdRoute = appSource.match(
     /\{ path: asChildPath\(routePath\("page:rd-task-management", "\/rd-task-management"\)\), element: makeLazyProtected\(<RDTaskManagementPage key="([^"]+)" \/>, "page:rd-task-management"\) \}/,
   );
-  const productionRoute = appSource.match(
-    /\{ path: "production-dashboard", element: makeLazyProtected\(<RDTaskManagementPage key="([^"]+)" \/>, "page:rd-director-dashboard"\) \}/,
-  );
-
   assert.ok(rdRoute, '研发任务驾驶舱路由必须使用标准驾驶舱页面');
-  assert.ok(productionRoute, '生产驾驶舱必须复用研发任务驾驶舱页面');
   assert.equal(rdRoute[1], 'ws-rd');
-  assert.equal(productionRoute[1], 'ws-production');
-  assert.notEqual(productionRoute[1], rdRoute[1], '跨工作区路由必须强制重挂载，避免复用上一工作区的任务 state');
+
+  // Execute the actual route switch with lightweight JSX and location adapters.
+  const source = ts.createSourceFile('App.tsx', appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const route = source.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'ProductionDashboardRoute');
+  assert.ok(route, '正式总览与旧协同入口的路由切换必须存在');
+  const code = ts.transpileModule(route.getText(source), { compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const renderRoute = new Function('React', 'useLocation', 'RDTaskManagementPage', 'ProductionDashboardPage', `${code}\nreturn ProductionDashboardRoute();`);
+  const react = { createElement: (type: string, props: Record<string, unknown> | null) => ({ type, props }) };
+  for (const search of ['', '?month=2026-09', '?view=unknown']) {
+    assert.equal(renderRoute(react, () => ({ search }), 'workspace', 'overview').type, 'overview');
+  }
+  const legacy = renderRoute(react, () => ({ search: '?month=2026-09&view=legacy' }), 'workspace', 'overview');
+  assert.equal(legacy.type, 'workspace');
+  assert.equal(legacy.props.key, 'ws-production');
+  assert.notEqual(legacy.props.key, rdRoute[1], '跨工作区路由必须强制重挂载，避免复用上一工作区的任务 state');
+  const overviewSource = await readFile(new URL('../../../src/app/production/execution/ProductionDashboardPage.tsx', import.meta.url), 'utf8');
+  assert.match(overviewSource, /<Link to="\/production-dashboard\?view=legacy">其他生产协同任务<\/Link>/, '正式总览必须保留可见的旧协同入口');
   assert.doesNotMatch(
     appSource,
     /path: "production-dashboard"[^\n]*RDDirectorDashboardPage/,

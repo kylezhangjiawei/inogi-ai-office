@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, ClipboardCheck, PackageCheck, Plus, RefreshC
 import { useAuth } from '../../auth';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import { NativeSelect } from '../../components/ui/native-select';
 import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../components/ui/sheet';
@@ -10,7 +11,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { cn } from '../../components/ui/utils';
 import { usePermission } from '../../hooks/usePermission';
 import { i18nLocale, useI18n } from '../../lib/i18n';
-import { createPurchaseInspection, createPurchaseReceipt, getPurchaseReceipts, PurchaseReceiptRequestError, type PurchaseReceipt, type PurchaseReceiptLedger } from '../../lib/purchaseReceiptApi';
+import { getReceiptQualityOptions, createPurchaseInspection, createPurchaseReceipt, getPurchaseReceipts, PurchaseReceiptRequestError, type PurchaseReceipt, type PurchaseReceiptLedger } from '../../lib/purchaseReceiptApi';
 import './purchase-receipt-drawer.css';
 
 const PAGE_SIZE = 10;
@@ -18,7 +19,7 @@ type Draft = {
   scope: string; mode: 'receive' | 'inspect'; receiptId: string; deliveryNo: string; date: string;
   receivedQty: string; qualifiedQty: string; defectiveQty: string; pendingJudgmentQty: string;
   basis: string; note: string; expectedSourceUpdatedAt: string; expectedVersion: number;
-  initial: string;
+  treeNodeId: string; initial: string;
 };
 
 function chinaToday() {
@@ -40,7 +41,7 @@ function timeLabel(value: string) {
   return Number.isFinite(date.getTime()) ? date.toLocaleString(i18nLocale()) : '—';
 }
 function draftValues(draft: Draft) {
-  return JSON.stringify([draft.deliveryNo, draft.date, draft.receivedQty, draft.qualifiedQty, draft.defectiveQty, draft.pendingJudgmentQty, draft.basis, draft.note]);
+  return JSON.stringify([draft.deliveryNo, draft.date, draft.receivedQty, draft.qualifiedQty, draft.defectiveQty, draft.pendingJudgmentQty, draft.basis, draft.note, draft.treeNodeId]);
 }
 
 export function PurchaseReceiptDrawer({ lineId, orderNo, onClose, onCloseAutoFocus }: {
@@ -72,6 +73,14 @@ export function PurchaseReceiptDrawer({ lineId, orderNo, onClose, onCloseAutoFoc
   const [reviewRequired, setReviewRequired] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [qualityNodes, setQualityNodes] = useState<Array<{ id: string; productId: string; name: string; parentId: string | null }>>([]);
+  const [qualityLoadError, setQualityLoadError] = useState('');
+  useEffect(() => {
+    if (draftState?.mode !== 'inspect') return;
+    const abort = new AbortController(); setQualityLoadError('');
+    getReceiptQualityOptions(lineId, abort.signal).then(rows => { if (!abort.signal.aborted) setQualityNodes(rows); }).catch(cause => { if (!abort.signal.aborted) setQualityLoadError(cause instanceof Error ? cause.message : '质量归属读取失败'); });
+    return () => abort.abort();
+  }, [lineId, draftState?.mode]);
   const data = loaded?.scope === scope ? loaded.value : null;
   const draft = draftState?.scope === scope ? draftState : null;
   const selectedReceipt = draft?.mode === 'inspect' ? data?.receipts.find((receipt) => receipt.id === draft.receiptId) : undefined;
@@ -153,7 +162,7 @@ export function PurchaseReceiptDrawer({ lineId, orderNo, onClose, onCloseAutoFoc
     perform(() => {
       const next: Draft = { scope, mode, receiptId: receipt?.id ?? '', deliveryNo: '', date: chinaToday(), receivedQty: '',
         qualifiedQty: String(receipt?.qualifiedQty ?? 0), defectiveQty: String(receipt?.defectiveQty ?? 0), pendingJudgmentQty: String(receipt?.pendingJudgmentQty ?? 0),
-        basis: receipt?.inspections[0]?.basis ?? '', note: '', expectedSourceUpdatedAt: data.line.updatedAt, expectedVersion: receipt?.version ?? 0, initial: '' };
+        basis: receipt?.inspections[0]?.basis ?? '', note: '', expectedSourceUpdatedAt: data.line.updatedAt, expectedVersion: receipt?.version ?? 0, treeNodeId: '', initial: '' };
       next.initial = draftValues(next);
       setDraft(next); setError(''); setNotice(''); setReviewRequired(false);
       retryIdentity.current = null;
@@ -192,7 +201,7 @@ export function PurchaseReceiptDrawer({ lineId, orderNo, onClose, onCloseAutoFoc
     }
     const payload = draft.mode === 'receive'
       ? { expectedSourceUpdatedAt: draft.expectedSourceUpdatedAt, deliveryNo: draft.deliveryNo.trim(), receivedDate: draft.date, receivedQty, note: draft.note.trim() }
-      : { expectedVersion: draft.expectedVersion, expectedSourceUpdatedAt: draft.expectedSourceUpdatedAt, inspectionDate: draft.date, qualifiedQty, defectiveQty, pendingJudgmentQty, basis: draft.basis.trim(), note: draft.note.trim() };
+      : { expectedVersion: draft.expectedVersion, expectedSourceUpdatedAt: draft.expectedSourceUpdatedAt, treeNodeId: draft.treeNodeId || undefined, inspectionDate: draft.date, qualifiedQty, defectiveQty, pendingJudgmentQty, basis: draft.basis.trim(), note: draft.note.trim() };
     const key = JSON.stringify([scope, draft.mode, draft.receiptId, payload]);
     if (retryIdentity.current?.key !== key) retryIdentity.current = { key, requestId: crypto.randomUUID() };
     const requestId = retryIdentity.current.requestId;
@@ -308,6 +317,7 @@ export function PurchaseReceiptDrawer({ lineId, orderNo, onClose, onCloseAutoFoc
                     {draft.mode === 'receive' ? <>{renderField('deliveryNo', '送货单号')}{renderField('receivedQty', '本批实收数量', 'number')}{renderField('date', '收货日期', 'date')}</> : <>
                       {renderField('date', '检验日期', 'date')}
                       <div className="grid grid-cols-2 gap-3">{renderField('qualifiedQty', '合格数量', 'number')}{renderField('defectiveQty', '不良数量', 'number')}{renderField('pendingJudgmentQty', '待判定数量', 'number')}<div className="space-y-1.5"><p className="text-sm font-medium">{t('未检验数量')}</p><p className={cn('rounded-md bg-muted px-3 py-2 text-sm tabular-nums', draftRemaining < 0 && 'text-destructive')}>{numberLabel(draftRemaining)}</p></div></div>
+                      {Number(draft.defectiveQty) > 0 && <div className="space-y-2"><Label htmlFor="receipt-quality-node">{t('不良所属产品与模块')}</Label><NativeSelect id="receipt-quality-node" required disabled={formDisabled} value={draft.treeNodeId} onChange={e => change('treeNodeId', e.target.value)}><option value="">{t('请选择')}</option>{qualityNodes.map(node => <option key={node.id} value={node.id}>{qualityNodes.find(root => root.productId === node.productId && !root.parentId)?.name} · {node.name}</option>)}</NativeSelect>{qualityLoadError && <p role="alert" className="text-sm text-destructive">{qualityLoadError}</p>}<p className="text-xs text-muted-foreground">{t('不良会关联原收货单生成质量异常，后续在原异常处置和验证。')}</p></div>}
                       {renderField('basis', '检验依据')}
                     </>}
                     <div className="space-y-1.5"><Label htmlFor="receipt-note">{t(draft.mode === 'inspect' ? '检验结论说明（必填）' : '备注')}</Label><Textarea id="receipt-note" maxLength={2000} required={draft.mode === 'inspect'} value={draft.note} disabled={formDisabled} onChange={(event) => change('note', event.target.value)} className="min-h-24 resize-y" /></div>

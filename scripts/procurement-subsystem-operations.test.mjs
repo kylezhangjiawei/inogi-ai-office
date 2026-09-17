@@ -19,7 +19,7 @@ function deferred() { let resolve; let reject; const promise = new Promise((yes,
 function fixture(name, props, overrides = {}, sourceAst = ast) {
   const slots = []; let cursor = 0; const effects = []; const saved = []; const requests = [];
   const bindings = {
-    React,
+    React, useId: () => 'verification-form', requestAnimationFrame: (callback) => callback(),
     useState(initial) { const index = cursor++; if (!(index in slots)) slots[index] = typeof initial === 'function' ? initial() : initial; return [slots[index], (value) => { slots[index] = typeof value === 'function' ? value(slots[index]) : value; }]; },
     useRef(initial) { const index = cursor++; if (!(index in slots)) slots[index] = { current: initial }; return slots[index]; },
     useEffect(callback, deps) { const index = cursor++; const prev = slots[index]; if (!prev || deps.some((dep, i) => dep !== prev.deps[i])) { if (prev?.cleanup) prev.cleanup(); slots[index] = { deps }; effects.push(() => { slots[index].cleanup = callback(); }); } },
@@ -32,10 +32,13 @@ function fixture(name, props, overrides = {}, sourceAst = ast) {
     saveProductionReport: async (...args) => { requests.push(args); return {}; },
     saveQualityRecord: async (...args) => { requests.push(args); return {}; },
     saveInventoryBomLine: async (...args) => { requests.push(['save-bom', ...args]); return {}; },
+    getQualityVerifications: async () => [],
+    verifyQualityRecord: async (...args) => { requests.push(args); return {}; },
+    reopenQualityRecord: async (...args) => { requests.push(args); return {}; },
     deleteInventoryBomLine: async (...args) => { requests.push(['delete-bom', ...args]); return {}; },
     ...overrides,
   };
-  for (const component of ['Button', 'Dialog', 'DialogContent', 'DialogDescription', 'DialogFooter', 'DialogHeader', 'DialogTitle', 'Input', 'Textarea', 'Tabs', 'TabsList', 'TabsTrigger', 'Field', 'Stat', 'Empty', 'OperationsEditor', 'AlertTriangle', 'BarChart3', 'ClipboardCheck', 'Factory', 'Loader2', 'Pencil', 'Plus', 'RefreshCw']) bindings[component] = component;
+  for (const component of ['QualityVerificationDialog', 'AlertDialog', 'AlertDialogAction', 'AlertDialogCancel', 'AlertDialogContent', 'AlertDialogDescription', 'AlertDialogFooter', 'AlertDialogHeader', 'AlertDialogTitle', 'Label', 'NativeSelect', 'Button', 'Dialog', 'DialogContent', 'DialogDescription', 'DialogFooter', 'DialogHeader', 'DialogTitle', 'Input', 'Textarea', 'Tabs', 'TabsList', 'TabsTrigger', 'Field', 'Stat', 'Empty', 'OperationsEditor', 'AlertTriangle', 'BarChart3', 'ClipboardCheck', 'Factory', 'Loader2', 'Pencil', 'Plus', 'RefreshCw']) bindings[component] = component;
   const component = new Function(...Object.keys(bindings), getFunction(name, sourceAst))(...Object.values(bindings));
   const input = { onSaved: () => saved.push('saved'), onClose: () => saved.push('closed'), ...props };
   return { requests, saved, render() { cursor = 0; const tree = component(input); while (effects.length) effects.shift()(); return tree; }, destroy() { for (const slot of slots) slot?.cleanup?.(); } };
@@ -43,7 +46,7 @@ function fixture(name, props, overrides = {}, sourceAst = ast) {
 function translate(value, vars = {}) { return value.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? key); }
 function find(tree, predicate) { if (!tree || typeof tree !== 'object') return null; if (predicate(tree)) return tree; for (const child of React.Children.toArray(tree.props?.children)) { const found = find(child, predicate); if (found) return found; } return null; }
 function all(tree, predicate, out = []) { if (!tree || typeof tree !== 'object') return out; if (predicate(tree)) out.push(tree); for (const child of React.Children.toArray(tree.props?.children)) all(child, predicate, out); return out; }
-function change(f, label, value) { const field = find(f.render(), (node) => node.type === 'Field' && node.props.label === label); assert.ok(field, `missing field ${label}`); const input = find(field, (node) => ['Input', 'Textarea', 'select'].includes(node.type)); input.props.onChange({ target: { value } }); }
+function change(f, label, value) { const field = find(f.render(), (node) => node.type === 'Field' && node.props.label === label); assert.ok(field, `missing field ${label}`); const input = find(field, (node) => ['Input', 'Textarea', "NativeSelect"].includes(node.type)); input.props.onChange({ target: { value } }); }
 function submit(f) { return find(f.render(), (node) => node.type === 'form').props.onSubmit({ preventDefault() {} }); }
 async function readyEditor(extra = {}, overrides = {}) {
   const f = fixture('OperationsEditor', { scope: { productId: 'p-1', treeNodeId: 'n-1', stockPlanId: 'plan-1' }, editor: { kind: 'production' }, ...extra }, overrides);
@@ -91,13 +94,15 @@ test('旧模块保存晚返回不会关闭或刷新新模块', async () => {
   assert.deepEqual(f.saved, []);
 });
 
-test('不良关闭必须有处置和结果，保存包含乐观锁版本', async () => {
+test('普通表单禁止关闭，处置保存保留乐观锁版本', async () => {
   const record = { id: 'q-1', stockPlanId: 'plan-1', unit: '套', source: 'production', batchNo: 'B-1', inspectionDate: '2026-09-04', inspectedQty: 9, defectiveQty: 1, issue: '划痕', disposition: 'pending', status: 'open', updatedAt: '2026-09-04T01:00:00Z' };
   const f = await readyEditor({ editor: { kind: 'quality', record } });
   change(f, '处理状态', 'closed'); await submit(f);
   assert.equal(f.requests.length, 0); assert.ok(find(f.render(), (node) => node.props?.role === 'alert'));
   change(f, '处置方式', 'rework'); change(f, '处理结果', '返工并复验合格'); await submit(f);
-  assert.equal(f.requests.length, 1); assert.equal(f.requests[0][1].status, 'closed'); assert.equal(f.requests[0][1].resolution, '返工并复验合格'); assert.equal(f.requests[0][1].baseUpdatedAt, record.updatedAt);
+  assert.equal(f.requests.length, 0);
+  change(f, '处理状态', 'processing'); await submit(f);
+  assert.equal(f.requests.length, 1); assert.equal(f.requests[0][1].status, 'processing'); assert.equal(f.requests[0][1].resolution, '返工并复验合格'); assert.equal(f.requests[0][1].baseUpdatedAt, record.updatedAt);
 });
 
 test('关联信息失败有重试，不显示可提交的空选项表单', async () => {
@@ -419,4 +424,47 @@ test('未选择来源和删除流程不查询分类，编辑器销毁取消延�
   f.clock.advance(220); f.destroy(); assert.equal(signal.aborted, true);
   waiting.resolve({ matched: true, category: '销毁后的迟到分类', unit: '件' }); await settle();
   assert.deepEqual(f.saved, []);
+
+const verificationSource = readFileSync(new URL('../src/app/procurement/components/QualityVerificationDialog.tsx', import.meta.url), 'utf8');
+const verificationAst = ts.createSourceFile('QualityVerificationDialog.tsx', verificationSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const verificationRecord = { id: 'quality-1', batchNo: 'B-1', issue: '划痕', defectiveQty: 3, unit: '件', status: 'processing', resolution: '返工完成', inspectionDate: '2026-09-01', updatedAt: '2026-09-02T00:00:00.000Z' };
+async function verifierDialog(props = {}, overrides = {}) {
+  const f = fixture('QualityVerificationDialog', { record: verificationRecord, canVerify: true, ...props }, overrides, verificationAst);
+  f.render(); await settle(); return f;
+}
+function verificationChange(f, suffix, value) {
+  const field = find(f.render(), (node) => node.props?.id === `verification-form-${suffix}`);
+  assert.ok(field); field.props.onChange({ target: { value } });
+}
+test('无验证权限只能查看历史，不提供关闭或重开表单', async () => {
+  const f = await verifierDialog({ canVerify: false });
+  assert.equal(find(f.render(), (node) => node.type === 'form'), null);
+});
+test('验证通过先二次确认，提交携带记录版本且验证人不由客户端填写', async () => {
+  const f = await verifierDialog();
+  verificationChange(f, 'passed', '3'); verificationChange(f, 'evidence', 'QC-01 复验通过');
+  await submit(f); assert.equal(f.requests.length, 0);
+  assert.ok(find(f.render(), (node) => node.type === 'AlertDialog' && node.props.open));
+  find(f.render(), (node) => node.type === 'AlertDialogAction').props.onClick(); await settle();
+  assert.equal(f.requests.length, 1); assert.equal(f.requests[0][1].baseUpdatedAt, verificationRecord.updatedAt);
+  assert.equal(f.requests[0][1].passedQty, 3); assert.equal('actorId' in f.requests[0][1], false);
+});
+test('复验失败仍可记录，网络失败保留草稿和相同提交编号安全重试', async () => {
+  const calls = [];
+  const f = await verifierDialog({}, { verifyQualityRecord: async (...args) => { calls.push(args); if (calls.length === 1) throw new Error('网络暂时不可用'); return {}; } });
+  verificationChange(f, 'passed', '2'); verificationChange(f, 'evidence', '尚有一件不合格');
+  await submit(f); await settle();
+  assert.ok(find(f.render(), (node) => node.props?.role === 'alert'));
+  assert.equal(find(f.render(), (node) => node.props?.id === 'verification-form-evidence').props.value, '尚有一件不合格');
+  await submit(f); await settle();
+  assert.equal(calls.length, 2); assert.equal(calls[0][1].requestId, calls[1][1].requestId);
+});
+test('复验数量矛盾时不发送请求，关闭记录重新打开须填写原因并确认', async () => {
+  const f = await verifierDialog(); verificationChange(f, 'passed', '4'); verificationChange(f, 'evidence', '依据');
+  await submit(f); await settle(); assert.equal(f.requests.length, 0);
+  const closed = await verifierDialog({ record: { ...verificationRecord, status: 'closed' } });
+  verificationChange(closed, 'evidence', '发现遗漏项'); await submit(closed); assert.equal(closed.requests.length, 0);
+  find(closed.render(), (node) => node.type === 'AlertDialogAction').props.onClick(); await settle();
+  assert.equal(closed.requests[0][1].reason, '发现遗漏项');
+});
 });

@@ -1074,6 +1074,8 @@ export class TplusSyncService {
   }
 
   async syncInventory() {
+    // 核对后的库存必须来自核对后发起的查询，不能把旧查询的落库时间当成新快照。
+    const snapshotStartedAt = new Date();
     const rows = this.mapInventory(
       await this.fetchAllPages(
         '/tplus/api/v2/currentStock/Query',
@@ -1122,7 +1124,7 @@ export class TplusSyncService {
           stockQty: new Prisma.Decimal(b.stockQty),
           availableQty: new Prisma.Decimal(b.availableQty ?? b.stockQty),
           inTransitQty: new Prisma.Decimal(b.inTransitQty ?? 0),
-          syncedAt: new Date(),
+          syncedAt: snapshotStartedAt,
         },
         update: {
           materialId: material?.id ?? null,
@@ -1130,7 +1132,7 @@ export class TplusSyncService {
           stockQty: new Prisma.Decimal(b.stockQty),
           availableQty: new Prisma.Decimal(b.availableQty ?? b.stockQty),
           inTransitQty: new Prisma.Decimal(b.inTransitQty ?? 0),
-          syncedAt: new Date(),
+          syncedAt: snapshotStartedAt,
         },
       });
       upserted += 1;

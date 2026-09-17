@@ -183,7 +183,7 @@ export class ProcurementOperationsService {
     if (!['pending', 'return', 'rework', 'scrap', 'concession', 'replacement'].includes(dto.disposition)) throw new BadRequestException('处置方式无效');
     const data = { productId, treeNodeId, unit, stockPlanId: optionalId(dto.stockPlanId), taskId: optionalId(dto.taskId), materialId: optionalId(dto.materialId), supplierId: optionalId(dto.supplierId), productionReportId: optionalId(dto.productionReportId), source: dto.source, batchNo: requiredText(dto.batchNo, '批次编号'), inspectionDate: operationDay(dto.inspectionDate, '检验日期'), inspectedQty: decimal(dto.inspectedQty, '检验数量', 3, true), defectiveQty: decimal(dto.defectiveQty, '不良数量', 3, true), issue: requiredText(dto.issue, '不良现象'), disposition: dto.disposition, status: dto.status, resolution: optionalId(dto.resolution) };
     if (data.defectiveQty.greaterThan(data.inspectedQty)) throw new BadRequestException('不良数量不能超过检验数量');
-    if (data.status === 'closed' && (!data.resolution || data.disposition === 'pending')) throw new BadRequestException('关闭前请选择处置方式并填写处理结果');
+    if (data.status === 'closed') throw new BadRequestException('关闭前必须由授权验证人通过独立复验，不能直接修改为已关闭');
     if (data.productionReportId && data.source !== 'production') throw new BadRequestException('只有生产不良可以关联生产报工');
     return this.write(async (db) => {
       const { node, plan } = await this.scope(db, productId, treeNodeId, data.stockPlanId);
@@ -217,6 +217,13 @@ export class ProcurementOperationsService {
       if (id) {
         const current = await db.procQualityRecord.findUnique({ where: { id } });
         if (!current) throw new NotFoundException('不良记录不存在');
+        if (current.status === 'closed') throw new ConflictException('已关闭记录不能直接修改，请先由验证人填写原因重新打开');
+        const executionSource = await db.runtimeState.findUnique({ where: { key: `procurement:execution:v1:quality:${id}` } });
+        const receiptSource = await db.runtimeState.findUnique({ where: { key: `procurement:receipt-quality-record:v1:${id}` } });
+        if (executionSource || receiptSource) {
+          const identity = (row: typeof current | typeof data) => JSON.stringify([row.productId, row.treeNodeId, row.stockPlanId ?? null, row.taskId ?? null, row.materialId ?? null, row.supplierId ?? null, row.productionReportId ?? null, row.source, row.batchNo, row.inspectionDate.toISOString(), row.unit, row.inspectedQty.toString(), row.defectiveQty.toString()]);
+          if (identity(current) !== identity(data)) throw new BadRequestException('该异常来自生产初检，来源、批次和初检数量不可改写；请在原记录补充处置及复验');
+        }
         if (current.productId !== productId || current.treeNodeId !== treeNodeId) throw new BadRequestException('不能将不良记录移动到其他产品或模块');
         assertVersion(dto.baseUpdatedAt, current.updatedAt);
         const changed = await db.procQualityRecord.updateMany({ where: { id, updatedAt: current.updatedAt }, data: { ...data, resolvedAt: data.status === 'closed' ? current.resolvedAt ?? new Date() : null, updatedBy: actor.id, updatedByName: actor.name } });

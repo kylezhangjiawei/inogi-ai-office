@@ -10,18 +10,30 @@ import { PERMISSIONS_KEY } from '../src/modules/auth/decorators/permissions.deco
 const sourceTime = new Date('2026-09-10T01:00:00.000Z');
 const actor = { id: 'warehouse-1', name: '仓管甲', permissions: ['page:purchase-order-detail', 'proc-purchase-order:receive', 'proc-purchase-order:inspect'] };
 const receiptInput = { requestId: 'qa-receipt-request-0001', expectedSourceUpdatedAt: sourceTime.toISOString(), deliveryNo: 'DELIVERY-001', receivedDate: '2026-09-01', receivedQty: 10, note: '外箱完整' };
-const inspectionInput = { requestId: 'qa-inspection-request-0001', expectedSourceUpdatedAt: sourceTime.toISOString(), expectedVersion: 0, inspectionDate: '2026-09-02', qualifiedQty: 6, defectiveQty: 1, pendingJudgmentQty: 2, basis: '来料规范 A / 全检', note: '一件表面划伤，两件尺寸待复核' };
+const inspectionInput = { treeNodeId: 'node-1', requestId: 'qa-inspection-request-0001', expectedSourceUpdatedAt: sourceTime.toISOString(), expectedVersion: 0, inspectionDate: '2026-09-02', qualifiedQty: 6, defectiveQty: 1, pendingJudgmentQty: 2, basis: '来料规范 A / 全检', note: '一件表面划伤，两件尺寸待复核' };
 type Row = Record<string, any>;
 const decimal = (value: number | string) => new Prisma.Decimal(value);
 
 function fixture() {
   const line = { id: 'line-1', tpOrderId: 'erp-1', tpOrderNo: 'PO-1', tpLineNo: '2', inventoryCode: 'SKU-1', inventoryName: '壳体', spec: 'V1', unit: '件', supplierName: '供应商甲', orderedQty: decimal(20), receivedQty: decimal(18), updatedAt: sourceTime, status: '1', approvalStatus: '已审核', metadata: { secret: true }, unitPrice: decimal(100) };
   let receipts: Row[] = [], inspections: Row[] = [], audits: Row[] = [];
+  let states = new Map<string, Row>(), qualities: Row[] = [];
   let tail = Promise.resolve(), failAudit = false;
   const locks: unknown[][] = [];
   const joined = (row: Row) => ({ ...row, inspections: inspections.filter((inspection) => inspection.receiptId === row.id).sort((a, b) => b.version - a.version).map((inspection) => ({ ...inspection })) });
   const prisma = {
-    runtimeState: { findUnique: async () => null },
+    runtimeState: {
+      findUnique: async ({ where }: Row) => states.get(where.key) ?? null,
+      create: async ({ data }: Row) => { states.set(data.key, data); return data; },
+      updateMany: async ({ where, data }: Row) => {
+        const row = states.get(where.key);
+        if (!row || row.value !== where.value) return { count: 0 };
+        states.set(where.key, { ...row, ...data }); return { count: 1 };
+      },
+    },
+    procTaskTreeNode: { findUnique: async ({ where }: Row) => where.id === 'node-1' ? { id: 'node-1', productId: 'product-1' } : null },
+    procMaterial: { findFirst: async () => ({ id: 'material-1' }) },
+    procQualityRecord: { findUnique: async ({ where }: Row) => qualities.find(row => row.id === where.id) ?? null, create: async ({ data }: Row) => { const row = { id: 'quality-' + (qualities.length + 1), ...data }; qualities.push(row); return row; }, update: async ({ where, data }: Row) => Object.assign(qualities.find(row => row.id === where.id)!, data) },
     procPurchaseOrderMirror: { findUnique: async ({ where }: Row) => where.id === line.id ? { ...line } : null },
     procPurchaseReceipt: {
       findMany: async ({ where }: Row) => receipts.filter((row) => row.lineId === where.lineId).map(joined),
@@ -42,11 +54,12 @@ function fixture() {
     $queryRaw: async (_strings: TemplateStringsArray, ...values: unknown[]) => { locks.push(values); return []; },
     $transaction: async (run: (db: unknown) => Promise<unknown>) => {
       const previous = tail; let release!: () => void; tail = new Promise<void>((resolve) => { release = resolve; }); await previous;
+      const oldStates = new Map(states), oldQualities = qualities.map(row => ({ ...row }));
       const oldReceipts = receipts.map((row) => ({ ...row })), oldInspections = inspections.map((row) => ({ ...row })), oldAudits = [...audits];
-      try { return await run(prisma); } catch (error) { receipts = oldReceipts; inspections = oldInspections; audits = oldAudits; throw error; } finally { release(); }
+      try { return await run(prisma); } catch (error) { states = oldStates; qualities = oldQualities; receipts = oldReceipts; inspections = oldInspections; audits = oldAudits; throw error; } finally { release(); }
     },
   };
-  return { line, service: new PurchaseReceiptsService(prisma as never), locks, receipts: () => receipts, inspections: () => inspections, audits: () => audits, failAudit: () => { failAudit = true; } };
+  return { line, service: new PurchaseReceiptsService(prisma as never), locks, qualities: () => qualities, states: () => states, receipts: () => receipts, inspections: () => inspections, audits: () => audits, failAudit: () => { failAudit = true; } };
 }
 
 test('receipt DTO requires request identity, date, positive three-decimal quantity and bounded text', async () => {
@@ -224,4 +237,63 @@ test('inspection audit failure atomically rolls back both revision and parent ve
   const f = fixture(); await f.service.receive('line-1', receiptInput, actor); f.failAudit();
   await assert.rejects(f.service.inspect('line-1', 'receipt-1', inspectionInput, actor), /audit/);
   assert.equal(f.inspections().length, 0); assert.equal(f.receipts()[0].version, 0); assert.equal(f.audits().length, 1);
+});
+
+test('不良自动关联同一收货，重复提交不重复建异常，归属必选', async () => {
+ const f = fixture(); await f.service.receive('line-1', receiptInput, actor);
+ await assert.rejects(f.service.inspect('line-1', 'receipt-1', { ...inspectionInput, treeNodeId: undefined }, actor), /所属产品/);
+ assert.equal(f.inspections().length, 0);
+ await f.service.inspect('line-1', 'receipt-1', inspectionInput, actor);
+ await f.service.inspect('line-1', 'receipt-1', inspectionInput, actor);
+ assert.equal(f.qualities().length, 1); assert.equal(f.qualities()[0].defectiveQty.toNumber(), 1);
+ assert.equal(JSON.parse(f.states().get('procurement:receipt-quality:v1:receipt-1')!.value).qualityId, f.qualities()[0].id);
+});
+
+for (const status of ['processing', 'closed']) {
+  test(`HA-01：异常${status}后补判合格保留原异常初检范围与检验历史`, async () => {
+    const f = fixture(); await f.service.receive('line-1', receiptInput, actor);
+    await f.service.inspect('line-1', 'receipt-1', inspectionInput, actor);
+    Object.assign(f.qualities()[0], { status, disposition: 'rework', resolution: '原不良单独返工' });
+    const originalQuality = { ...f.qualities()[0] };
+    const classify = { ...inspectionInput, requestId: `ha01-classify-${status}`, expectedVersion: 1, qualifiedQty: 8, pendingJudgmentQty: 0 };
+    const result = await f.service.inspect('line-1', 'receipt-1', classify, actor);
+    assert.deepEqual(result.summary, { receivedQty: 10, qualifiedQty: 8, defectiveQty: 1, pendingJudgmentQty: 0, pendingQty: 1 });
+    assert.equal(result.receipts[0].version, 2);
+    assert.equal(result.receipts[0].inspections[1].qualifiedQty, 6);
+    assert.deepEqual(f.qualities(), [originalQuality]);
+    await f.service.inspect('line-1', 'receipt-1', classify, actor);
+    assert.equal(f.inspections().length, 2); assert.equal(f.audits().length, 3);
+    for (const [index, changed] of [{ qualifiedQty: 7 }, { qualifiedQty: 6 }, { defectiveQty: 0 }, { defectiveQty: 2 }].entries()) {
+      await assert.rejects(f.service.inspect('line-1', 'receipt-1', { ...classify, ...changed, expectedVersion: 2, requestId: `ha01-reject-${status}-${index}` }, actor), /不可覆盖原初检范围/);
+      assert.equal(f.receipts()[0].version, 2); assert.equal(f.inspections().length, 2);
+      assert.deepEqual(f.qualities(), [originalQuality]);
+    }
+    const completed = await f.service.inspect('line-1', 'receipt-1', { ...classify, expectedVersion: 2, requestId: `ha01-finish-${status}`, qualifiedQty: 9 }, actor);
+    assert.equal(completed.summary.pendingQty, 0); assert.deepEqual(f.qualities(), [originalQuality]);
+  });
+}
+
+test('HA-01：已入库补判同步库存桶、保留核对历史；审计失败整体回滚', async () => {
+  const f = fixture(); await f.service.receive('line-1', receiptInput, actor);
+  await f.service.inspect('line-1', 'receipt-1', inspectionInput, actor);
+  f.qualities()[0].status = 'processing';
+  const linkKey = 'procurement:warehouse-record:v1:receipt:receipt-1';
+  const recordKey = 'procurement:warehouse-record:v1:record:warehouse-1';
+  const reconciliation = { voucher: 'ERP-001', quantity: 10 };
+  f.states().set(linkKey, { key: linkKey, value: 'warehouse-1' });
+  f.states().set(recordKey, { key: recordKey, value: JSON.stringify({ version: 1, qualifiedQty: 6, defectiveQty: 1, pendingQty: 3, reconciliation, events: [] }) });
+  const classify = { ...inspectionInput, requestId: 'ha01-warehouse-classify', expectedVersion: 1, qualifiedQty: 8, pendingJudgmentQty: 0 };
+  await f.service.inspect('line-1', 'receipt-1', classify, actor);
+  const saved = f.states().get(recordKey)!.value;
+  const record = JSON.parse(saved);
+  assert.equal(record.version, 2); assert.equal(record.qualifiedQty, 8); assert.equal(record.defectiveQty, 1); assert.equal(record.pendingQty, 1);
+  assert.equal(record.reconciliation, undefined); assert.deepEqual(record.events[0].before.reconciliation, reconciliation);
+  assert.equal(record.events[0].inspectionId, f.inspections()[1].id);
+  assert.equal(f.qualities()[0].inspectedQty.toNumber(), 7);
+  await f.service.inspect('line-1', 'receipt-1', classify, actor);
+  assert.equal(f.states().get(recordKey)!.value, saved);
+  f.failAudit();
+  await assert.rejects(f.service.inspect('line-1', 'receipt-1', { ...classify, requestId: 'ha01-warehouse-rollback', expectedVersion: 2, qualifiedQty: 9 }, actor), /audit/);
+  assert.equal(f.states().get(recordKey)!.value, saved);
+  assert.equal(f.receipts()[0].version, 2); assert.equal(f.inspections().length, 2);
 });
